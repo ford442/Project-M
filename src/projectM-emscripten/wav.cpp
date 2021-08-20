@@ -65,6 +65,7 @@ SDL_memcpy(stm,wptr,len);wave.pos+=len;}
 void pl(){cls_aud();char flnm[4096];
 SDL_FreeWAV(wave.snd);SDL_Quit();
 SDL_SetMainReady();
+if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
 wave.pos=0;
@@ -177,6 +178,6 @@ Module.ccall('chng');
 });}};
 ff.send(null);
 );
-SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;
 }

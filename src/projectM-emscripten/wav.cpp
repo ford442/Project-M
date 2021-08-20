@@ -59,7 +59,7 @@ case SDL_QUIT: app.done = true;
 break;
 }
 
-app.pm->pcm()->addPCMfloat_2ch(stm);
+app.pm->pcm()->addPCMfloat_2ch(stm,4096);
   
 glClearColor(0.0, 0.0, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

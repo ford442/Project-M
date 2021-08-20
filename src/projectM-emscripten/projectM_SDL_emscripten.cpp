@@ -82,6 +82,7 @@ SDL_GL_SwapWindow(app.win);
 
 extern "C" {
 void chng(){
+int width = 1920, height = 1080;
 app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 app.pm = new projectM(app.settings);
 printf("Init ProjectM\n");

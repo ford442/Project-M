@@ -35,7 +35,7 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   AC_DEFINE([ENABLE_EMSCRIPTEN], [1], [Build projectM-emscripten])
   enable_gles=yes
   enable_sdl=no
-  enable_llvm=yes
+  enable_llvm=no
   enable_preset_subdirs=no
   enable_threading=yes
   enable_qt=no

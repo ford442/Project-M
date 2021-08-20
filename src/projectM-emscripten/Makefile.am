@@ -12,6 +12,9 @@ projectW.html: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp projectM_SDL_emscripten.cpp \
 	-o projectW.html
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp projectM_SDL_emscripten.cpp \
+	-o projectWjs.js
 
 run: projectW.html
-	emrun projectW.html
+	echo 'Built projectW.html & projectWjs.js.'

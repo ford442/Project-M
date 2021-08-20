@@ -7,9 +7,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 
-
-
-
 const float FPS = 60;
 typedef struct
 {
@@ -130,8 +127,6 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.pm->selectRandom(true);
-app.pm->selectNext(true);
-printf("Different preset?\n");
 }}
 int main(int argc, char *argv[])
 {

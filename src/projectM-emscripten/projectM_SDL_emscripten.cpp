@@ -90,6 +90,9 @@ void renderFrame()
 	glFlush();
 	SDL_GL_SwapWindow(app.win);
 }
+void chng(){
+app.pm->selectRandom(true);
+}
 int main(int argc, char *argv[])
 {
 MAIN_THREAD_EM_ASM(
@@ -103,9 +106,10 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
+_chng();
 }};
 ff.send(null);
-);	
+);
 	app.done = 0;
 	int width = 1920, height = 1080;
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);

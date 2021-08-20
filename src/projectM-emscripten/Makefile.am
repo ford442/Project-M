@@ -11,10 +11,10 @@ ${SDL_CFLAGS}
 projectW.html: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp projectM_SDL_emscripten.cpp \
-	-o projectW.html
+	-o projectW.html -sEXPORTED_FUNCTIONS=["_chng"] -sEXPORTED_RUNTIME_METHODS=["ccall"]
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp projectM_SDL_emscripten.cpp \
-	-o projectWjs.js
+	-o projectWjs.js -sEXPORTED_FUNCTIONS=["_chng"] -sEXPORTED_RUNTIME_METHODS=["ccall"]
 
 run: projectW.html
 	echo 'Built projectW.html & projectWjs.js.'

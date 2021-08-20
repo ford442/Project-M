@@ -15,10 +15,7 @@
 #include <GLES3/gl3.h>
 #include <SDL2/SDL.h>
 #endif
-extern "C" {
-void chng(){
-app.pm->selectRandom(true);
-}}
+
 const float FPS = 60;
 typedef struct
 {
@@ -30,6 +27,10 @@ typedef struct
 	SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
 projectMApp app;
+extern "C" {
+void chng(){
+app.pm->selectRandom(true);
+}}
 static void fatal(const char *const fmt, ...)
 {
 	va_list args;

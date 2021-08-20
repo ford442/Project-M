@@ -146,6 +146,9 @@ app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
 {
+EM_ASM(
+FS.mkdir('/presets');
+);
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;

@@ -145,14 +145,14 @@ public:
         bool softCutRatingsEnabled;
 
         Settings() :
-            meshX(32),
-            meshY(24),
-            fps(35),
-            textureSize(512),
-            windowWidth(512),
-            windowHeight(512),
-            smoothPresetDuration(10),
-            presetDuration(15),
+            meshX(60),
+            meshY(40),
+            fps(60),
+            textureSize(1024),
+            windowWidth(1920),
+            windowHeight(1080),
+            smoothPresetDuration(7),
+            presetDuration(17),
             hardcutEnabled(false),
             hardcutDuration(60),
             hardcutSensitivity(2.0),

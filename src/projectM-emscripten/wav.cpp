@@ -16,14 +16,8 @@ static void reopn_aud(){cls_aud();opn_aud();}
 void SDLCALL bfr(void *unused,Uint8 *stm,int len){Uint8 *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){SDL_memcpy(stm,wptr,lft);stm+=lft;len-=lft;wptr=wave.snd;lft=wave.slen;wave.pos=0;}
 SDL_memcpy(stm,wptr,len);wave.pos+=len;}
-void pl(){cls_aud();char flnm[4096];
-SDL_FreeWAV(wave.snd);SDL_Quit();
-SDL_SetMainReady();
-SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
-if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
-wave.pos=0;
-wave.spec.callback=bfr;opn_aud();
-}
+
+
 
 const float FPS = 60;
 typedef struct
@@ -68,6 +62,14 @@ glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
+void pl(){cls_aud();char flnm[4096];
+SDL_FreeWAV(wave.snd);SDL_Quit();
+SDL_SetMainReady();
+SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
+if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
+wave.pos=0;
+wave.spec.callback=bfr;opn_aud();
+}
 void chng(){
 app.done = 0;
 int width = 1920, height = 1080;

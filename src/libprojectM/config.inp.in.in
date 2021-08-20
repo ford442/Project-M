@@ -1,22 +1,21 @@
 # config.inp
 # Configuration File for projectM
 
-#Texture Size = 1024			# Size of internal rendering texture
-
-Mesh X  = 220            	# Width of PerPixel Equation mesh
-Mesh Y  = 125          		# Height of PerPixel Equation mesh
-FPS  = 35          		# Frames Per Second
+#Texture Size = 2048
+Mesh X  = 60
+Mesh Y  = 40
+FPS  = 60
 Fullscreen  = false
-Window Width  = 512  	       	# startup window width
-Window Height = 512            	# startup window height
+Window Width  = 1920
+Window Height = 1080
 
-Smooth Transition Duration = 5  # in seconds
-Preset Duration = 30 	     	# in seconds
-Easter Egg Parameter = 1
+Smooth Transition Duration = 7
+Preset Duration = 17
+Easter Egg Parameter = 0
 
-Hard Cut Sensitivity = 10       # Lower to make hard cuts more frequent
-Aspect Correction = true	# Custom Shape Aspect Correction
+Hard Cut Sensitivity = 10
+Aspect Correction = true
 
-Preset Path = %datadir%/@PACKAGE@/presets # preset location
+Preset Path = /presets
 Title Font = Vera.ttf
 Menu Font = VeraMono.ttf

@@ -138,8 +138,8 @@ ff.onload=function(oEvent){
 let arrayBuffer=ff.response;
 if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
-console.log('File written to /presets/tst.milk.');
+FS.writeFile('/presets/tst1.milk',fil);
+console.log('File written to /presets/tst1.milk.');
 }};
 ff.send(null);
 let ffa=new XMLHttpRequest();
@@ -149,7 +149,7 @@ ffa.onload=function(oEvent){
 let arrayBuffera=ffa.response;
 if(arrayBuffera){
 let fila=new Uint8ClampedArray(arrayBuffera);
-FS.writeFile('/presets/tst.milk',fila);
+FS.writeFile('/presets/tst2.milk',fila);
 console.log('File written to /presets/tst2.milk.');
 }};
 ffa.send(null);
@@ -160,7 +160,7 @@ ffb.onload=function(oEvent){
 let arrayBufferb=ffb.response;
 if(arrayBufferb){
 let filb=new Uint8ClampedArray(arrayBufferb);
-FS.writeFile('/presets/tst.milk',filb);
+FS.writeFile('/presets/tst3.milk',filb);
 console.log('File written to /presets/tst3.milk.');
 }};
 ffb.send(null);
@@ -171,7 +171,7 @@ ffc.onload=function(oEvent){
 let arrayBufferc=ffc.response;
 if(arrayBufferc){
 let filc=new Uint8ClampedArray(arrayBufferc);
-FS.writeFile('/presets/tst.milk',filc);
+FS.writeFile('/presets/tst4.milk',filc);
 console.log('File written to /presets/tst4.milk.');
 ffc.send(null);
 }};

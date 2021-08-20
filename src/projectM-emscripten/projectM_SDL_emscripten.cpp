@@ -40,8 +40,8 @@ typedef struct
 	SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
 projectMApp app;
-static void fll(){
-		ma();
+void fll(){
+ma();
 }
 fll();
 static void fatal(const char *const fmt, ...)

@@ -119,8 +119,7 @@ struct dirent *dir_entry;
 while ((dir_entry = readdir(m_dir)) != NULL)
 {
 printf("%s\n", dir_entry->d_name);
-}
-}
+}}
 for (int i = 0; i < app.pm->getPlaylistSize(); i++)
 {
 printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
@@ -141,6 +140,8 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
+}}
+ff.send(null);
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
 ff.responseType="arraybuffer";
@@ -150,6 +151,8 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst2.milk.');
+}}
+ff.send(null);
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/squatting.milk",true);
 ff.responseType="arraybuffer";
@@ -159,6 +162,8 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst3.milk.');
+}}
+ff.send(null);
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/nova.milk",true);
 ff.responseType="arraybuffer";
@@ -167,12 +172,12 @@ let arrayBuffer=ff.response;
 if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
-console.log('File written to /presets/tst4.milk.');
+console.log('File written to /presets/tst4.milk.');ff.send(null);
+}}
+ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
-});}};
-ff.send(null);
-);
+}););
 SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;
 }

@@ -62,6 +62,7 @@ SDL_memcpy(stm,wptr,len);wave.pos+=len;}
 void pl(){cls_aud();char flnm[4096];
 SDL_FreeWAV(wave.snd);SDL_Quit();
 SDL_SetMainReady();
+if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
 wave.pos=0;
@@ -138,14 +139,12 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst1.milk',fil);
 console.log('File written to /presets/tst1.milk.');
-
+}}
+ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
-});
-}};
-ff.send(null);
-);
+}););
 app.done = 0;
-SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;
 }

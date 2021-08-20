@@ -69,6 +69,7 @@ wave.pos=0;
 wave.spec.callback=bfr;opn_aud();
 }
 void chng(){
+emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.done = 0;
 int width = 1920, height = 1080;
 app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
@@ -152,9 +153,9 @@ FS.writeFile('/presets/tst2.milk',fil);
 console.log('File written to /presets/tst2.milk.');
 }};
 document.getElementById('btn').addEventListener('click',function(){
+emscripten_cancel_main_loop();
 Module.ccall('chng');
 }););
 SDL_Init(SDL_INIT_VIDEO);
-emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 return PROJECTM_SUCCESS;
 }

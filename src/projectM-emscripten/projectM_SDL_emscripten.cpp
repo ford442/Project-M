@@ -15,6 +15,10 @@
 #include <GLES3/gl3.h>
 #include <SDL2/SDL.h>
 #endif
+extern "C" {
+void chng(){
+app.pm->selectRandom(true);
+}}
 const float FPS = 60;
 typedef struct
 {
@@ -89,9 +93,6 @@ void renderFrame()
 	app.pm->renderFrame();
 	glFlush();
 	SDL_GL_SwapWindow(app.win);
-}
-void chng(){
-app.pm->selectRandom(true);
 }
 int main(int argc, char *argv[])
 {

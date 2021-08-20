@@ -127,7 +127,7 @@ int main(int argc, char *argv[])
 {
 	app.done = 0;
 
-	int width = 784, height = 784;
+	int width = 1920, height = 1080;
 
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 

@@ -29,8 +29,8 @@ SDL_Quit();
 }
 void renderFrame()
 {
-int i;short pcm_data[2][512];
-
+int i;
+short pcm_data[2][512];
 SDL_Event evt;
 SDL_PollEvent(&evt);
 switch (evt.type)
@@ -149,18 +149,19 @@ int main(int argc, char *argv[])
 MAIN_THREAD_EM_ASM(
 FS.mkdir('/presets');
 document.getElementById('btn').addEventListener('click',function(){
-let ff=new XMLHttpRequest();
+var ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
-let arrayBuffer=ff.response;
+var arrayBuffer=ff.response;
 if(arrayBuffer){
-let fil=new Uint8ClampedArray(arrayBuffer);
+var fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
 Module.ccall('chng');
-}}});
+}}
 ff.send(null);
+});
 );
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);

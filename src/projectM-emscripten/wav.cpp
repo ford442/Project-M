@@ -142,13 +142,13 @@ FS.writeFile('/presets/tst1.milk',fil);
 console.log('File written to /presets/tst1.milk.');
 }};
 ff.send(null);
-let ff=new XMLHttpRequest();
+ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
 arrayBuffer=ff.response;
 if(arrayBuffer){
-let fil=new Uint8ClampedArray(arrayBuffer);
+fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst2.milk',fil);
 console.log('File written to /presets/tst2.milk.');
 }};

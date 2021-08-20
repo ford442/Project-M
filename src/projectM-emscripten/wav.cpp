@@ -130,10 +130,10 @@ app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
 {
-EM_ASM(
+MAIN_THREAD_EM_ASM(
 FS.mkdir('/presets');
 let ff=new XMLHttpRequest();
-ff.open("GET","./presets/Phat_Rovastar_EoS_spiral_faces.milk",true);
+ff.open("GET","./presets/nova.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
 let arrayBuffer=ff.response;
@@ -143,16 +143,6 @@ FS.writeFile('/presets/tst1.milk',fil);
 console.log('File written to /presets/tst1.milk.');
 }};
 ff.send(null);
-ff=new XMLHttpRequest();
-ff.open("GET","./presets/hightears.milk",true);
-ff.responseType="arraybuffer";
-ff.onload=function(oEvent){
-arrayBuffer=ff.response;
-if(arrayBuffer){
-fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst2.milk',fil);
-console.log('File written to /presets/tst2.milk.');
-}};
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 }););

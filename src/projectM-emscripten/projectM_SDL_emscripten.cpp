@@ -15,36 +15,6 @@ SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
 projectMApp app;
 
-extern "C" {
-void chng(){
-app.pm = new projectM(app.settings);
-printf("Init ProjectM\n");
-app.pm->selectRandom(true);
-printf("Select random preset.\n");
-app.pm->projectM_resetGL(width, height);
-printf("Reseting GL.\n");
-DIR *m_dir;
-if ((m_dir = opendir("/")) == NULL)
-{
-printf("error opening /\n");
-}
-else
-{
-struct dirent *dir_entry;
-while ((dir_entry = readdir(m_dir)) != NULL)
-{
-printf("%s\n", dir_entry->d_name);
-}
-}
-for (int i = 0; i < app.pm->getPlaylistSize(); i++)
-{
-printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
-}
-emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
-app.pm->selectRandom(true);
-app.pm->selectNext(true);
-printf("Different preset?\n");
-}}
 
 static void fatal(const char *const fmt, ...)
 {
@@ -109,6 +79,40 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
+
+extern "C" {
+void chng(){
+app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
+app.pm = new projectM(app.settings);
+printf("Init ProjectM\n");
+app.pm->selectRandom(true);
+printf("Select random preset.\n");
+app.pm->projectM_resetGL(width, height);
+printf("Reseting GL.\n");
+DIR *m_dir;
+if ((m_dir = opendir("/")) == NULL)
+{
+printf("error opening /\n");
+}
+else
+{
+struct dirent *dir_entry;
+while ((dir_entry = readdir(m_dir)) != NULL)
+{
+printf("%s\n", dir_entry->d_name);
+}
+}
+for (int i = 0; i < app.pm->getPlaylistSize(); i++)
+{
+printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
+}
+emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
+app.pm->selectRandom(true);
+app.pm->selectNext(true);
+printf("Different preset?\n");
+}}
+
+
 int main(int argc, char *argv[])
 {
 MAIN_THREAD_EM_ASM(
@@ -137,7 +141,6 @@ if (!selectAudioInput(&app))
 fprintf(stderr, "Failed to open audio input device\n");
 return 1;
 }
-app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 if (!glCtx) fatal("failed to create GL context %s\n", SDL_GetError());
 if (SDL_GL_MakeCurrent(app.win, glCtx)) fatal("failed to bind window to context");

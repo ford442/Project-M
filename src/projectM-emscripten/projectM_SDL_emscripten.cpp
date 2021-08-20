@@ -27,7 +27,6 @@ FS.writeFile('/presets/tst.milk',w+);
 }};
 ff.send(null);
 });
-ma();
 const float FPS = 60;
 typedef struct
 {
@@ -104,6 +103,7 @@ void renderFrame()
 }
 int main(int argc, char *argv[])
 {
+	ma();
 	app.done = 0;
 	int width = 1920, height = 1080;
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);

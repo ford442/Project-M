@@ -142,39 +142,39 @@ FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
 }};
 ff.send(null);
-let ff=new XMLHttpRequest();
-ff.open("GET","./presets/hightears.milk",true);
-ff.responseType="arraybuffer";
-ff.onload=function(oEvent){
-let arrayBuffer=ff.response;
-if(arrayBuffer){
-let fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
+let ffa=new XMLHttpRequest();
+ffa.open("GET","./presets/hightears.milk",true);
+ffa.responseType="arraybuffer";
+ffa.onload=function(oEvent){
+let arrayBuffera=ffa.response;
+if(arrayBuffera){
+let fila=new Uint8ClampedArray(arrayBuffera);
+FS.writeFile('/presets/tst.milk',fila);
 console.log('File written to /presets/tst2.milk.');
 }};
-ff.send(null);
-let ff=new XMLHttpRequest();
-ff.open("GET","./presets/squatting.milk",true);
-ff.responseType="arraybuffer";
-ff.onload=function(oEvent){
-let arrayBuffer=ff.response;
-if(arrayBuffer){
-let fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
+ffa.send(null);
+let ffb=new XMLHttpRequest();
+ffb.open("GET","./presets/squatting.milk",true);
+ffb.responseType="arraybuffer";
+ffb.onload=function(oEvent){
+let arrayBufferb=ffb.response;
+if(arrayBufferb){
+let filb=new Uint8ClampedArray(arrayBufferb);
+FS.writeFile('/presets/tst.milk',filb);
 console.log('File written to /presets/tst3.milk.');
 }};
-ff.send(null);
-let ff=new XMLHttpRequest();
-ff.open("GET","./presets/nova.milk",true);
-ff.responseType="arraybuffer";
-ff.onload=function(oEvent){
-let arrayBuffer=ff.response;
-if(arrayBuffer){
-let fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
-console.log('File written to /presets/tst4.milk.');ff.send(null);
+ffb.send(null);
+let ffc=new XMLHttpRequest();
+ffc.open("GET","./presets/nova.milk",true);
+ffc.responseType="arraybuffer";
+ffc.onload=function(oEvent){
+let arrayBufferc=ffc.response;
+if(arrayBufferc){
+let filc=new Uint8ClampedArray(arrayBufferc);
+FS.writeFile('/presets/tst.milk',filc);
+console.log('File written to /presets/tst4.milk.');
+ffc.send(null);
 }};
-ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 }););

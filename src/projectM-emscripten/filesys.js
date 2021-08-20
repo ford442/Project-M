@@ -8,7 +8,7 @@ document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
 FS.mkdir('/presets');
 let ff=new XMLHttpRequest();
-ff.open("GET","./presets/hightears.milk",true);
+ff.open("GET","./presets/rose.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
 var arrayBuffer=ff.response;

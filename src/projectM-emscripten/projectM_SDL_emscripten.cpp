@@ -15,20 +15,6 @@
 #include <GLES3/gl3.h>
 #include <SDL2/SDL.h>
 #endif
-EM_JS(void,ma,(),{
-FS.mkdir('/presets');
-let ff=new XMLHttpRequest();
-ff.open("GET","./Phat_Rovastar_EoS_spiral_faces.milk",true);
-ff.responseType="arraybuffer";
-ff.onload=function(oEvent){
-let arrayBuffer=ff.response;
-if(arrayBuffer){
-let fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
-console.log('File written to /presets/tst.milk.');
-}};
-ff.send(null);
-});
 const float FPS = 60;
 typedef struct
 {
@@ -40,10 +26,6 @@ typedef struct
 	SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
 projectMApp app;
-void fll(){
-ma();
-}
-fll();
 static void fatal(const char *const fmt, ...)
 {
 	va_list args;
@@ -102,7 +84,7 @@ void renderFrame()
 	}
 	/** Add the waveform data */
 	app.pm->pcm()->addPCM16(pcm_data);
-	glClearColor(0.0, 0.5, 0.0, 0.0);
+	glClearColor(0.0, 0.0, 0.0, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	app.pm->renderFrame();
 	glFlush();
@@ -110,6 +92,20 @@ void renderFrame()
 }
 int main(int argc, char *argv[])
 {
+MAIN_THREAD_EM_ASM(
+FS.mkdir('/presets');
+let ff=new XMLHttpRequest();
+ff.open("GET","./Phat_Rovastar_EoS_spiral_faces.milk",true);
+ff.responseType="arraybuffer";
+ff.onload=function(oEvent){
+let arrayBuffer=ff.response;
+if(arrayBuffer){
+let fil=new Uint8ClampedArray(arrayBuffer);
+FS.writeFile('/presets/tst.milk',fil);
+console.log('File written to /presets/tst.milk.');
+}};
+ff.send(null);
+);	
 	app.done = 0;
 	int width = 1920, height = 1080;
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);

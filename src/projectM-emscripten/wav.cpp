@@ -130,16 +130,16 @@ int main(int argc, char *argv[])
 {
 MAIN_THREAD_EM_ASM(
 FS.mkdir('/presets');
-let ff=new XMLHttpRequest();
+var ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
-let arrayBuffer=ff.response;
+var arrayBuffer=ff.response;
 if(arrayBuffer){
-let fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst1.milk',fil);
+var fill=new Uint8ClampedArray(arrayBuffer);
+FS.writeFile('/presets/tst1.milk',fill);
 console.log('File written to /presets/tst1.milk.');
-}}
+}};
 ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');

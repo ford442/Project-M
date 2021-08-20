@@ -6,7 +6,6 @@ document.getElementById("ihig").innerHTML=window.innerHeight;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
-});
 FS.mkdir('/presets');
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
@@ -19,6 +18,8 @@ FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
 }}
 ff.send(null);
+});
+
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });

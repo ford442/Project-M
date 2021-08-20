@@ -146,22 +146,6 @@ app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
 {
-MAIN_THREAD_EM_ASM(
-FS.mkdir('/presets');
-let ff=new XMLHttpRequest();
-ff.open("GET","./presets/hightears.milk",true);
-ff.responseType="arraybuffer";
-ff.onload=function(oEvent){
-var arrayBuffer=ff.response;
-if(arrayBuffer){
-var fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
-console.log('File written to /presets/tst.milk.');}}
-ff.send(null);
-document.getElementById('btn').addEventListener('click',function(){
-Module.ccall('chng');
-});
-);
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;

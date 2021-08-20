@@ -59,7 +59,7 @@ case SDL_QUIT: app.done = true;
 break;
 }
 
-app.pm->pcm()->addPCM16(stm);
+app.pm->pcm()->addPCM8(stm);
   
 glClearColor(0.0, 0.0, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -102,7 +102,7 @@ app.settings.easterEgg = 0; // ???
 app.settings.shuffleEnabled = 1;
 app.settings.softCutRatingsEnabled = 0; // ???
 app.settings.presetURL = "/presets";
-	app.pm = new projectM(app.settings);
+app.pm = new projectM(app.settings);
 printf("Init ProjectM\n");
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
@@ -143,7 +143,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
-  let ff=new XMLHttpRequest();
+let ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
@@ -152,7 +152,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst2.milk.');
-  let ff=new XMLHttpRequest();
+let ff=new XMLHttpRequest();
 ff.open("GET","./presets/squatting.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){

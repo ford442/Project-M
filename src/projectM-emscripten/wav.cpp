@@ -159,7 +159,7 @@ let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
 Module.ccall('chng');
-});}};
+}}});
 ff.send(null);
 );
 app.done = 0;

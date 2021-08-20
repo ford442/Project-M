@@ -165,21 +165,21 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	app.settings.meshX = 48;
-	app.settings.meshY = 32;
+	app.settings.meshX = 60;
+	app.settings.meshY = 40;
 	app.settings.fps = FPS;
-	app.settings.textureSize = 2048; // idk?
+	app.settings.textureSize = 1024; // idk?
 	app.settings.windowWidth = width;
 	app.settings.windowHeight = height;
-	app.settings.smoothPresetDuration = 3; // seconds
-	app.settings.presetDuration = 5;			 // seconds
+	app.settings.smoothPresetDuration = 7; // seconds
+	app.settings.presetDuration = 17;			 // seconds
 	app.settings.beatSensitivity = 0.8;
 	app.settings.aspectCorrection = 1;
 	app.settings.easterEgg = 0; // ???
 	app.settings.shuffleEnabled = 1;
-	app.settings.softCutRatingsEnabled = 1; // ???
+	app.settings.softCutRatingsEnabled = 0; // ???
 #ifdef EMSCRIPTEN
-	app.settings.presetURL = "presets";
+	app.settings.presetURL = "presets_projectM";
 #else
 	app.settings.presetURL = "presets_tryptonaut";
 	app.settings.menuFontURL = "fonts/Vera.ttf";
@@ -188,11 +188,15 @@ int main(int argc, char *argv[])
 
 	// init projectM
 	app.pm = new projectM(app.settings);
-	printf("init projectM\n");
+	printf("Init ProjectM\n");
 	app.pm->selectRandom(true);
-	printf("select random\n");
+	printf("Select random preset.\n");
 	app.pm->projectM_resetGL(width, height);
-	printf("resetGL\n");
+	printf("Reseting GL.\n");
+	app.pm->selectNext(true);
+	printf("Different preset?\n");
+	app.pm->selectNext(true);
+	printf("Different preset?\n");
 
 	// Allocate a new a stream given the current directory name
 	DIR *m_dir;

@@ -14,75 +14,100 @@ projectM::Settings settings;
 SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
 projectMApp app;
+
 extern "C" {
 void chng(){
+app.pm = new projectM(app.settings);
+printf("Init ProjectM\n");
+app.pm->selectRandom(true);
+printf("Select random preset.\n");
+app.pm->projectM_resetGL(width, height);
+printf("Reseting GL.\n");
+DIR *m_dir;
+if ((m_dir = opendir("/")) == NULL)
+{
+printf("error opening /\n");
+}
+else
+{
+struct dirent *dir_entry;
+while ((dir_entry = readdir(m_dir)) != NULL)
+{
+printf("%s\n", dir_entry->d_name);
+}
+}
+for (int i = 0; i < app.pm->getPlaylistSize(); i++)
+{
+printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
+}
+emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.pm->selectRandom(true);
 app.pm->selectNext(true);
 printf("Different preset?\n");
 }}
+
 static void fatal(const char *const fmt, ...)
 {
-	va_list args;
-	va_start(args, fmt);
-	vprintf(fmt, args);
-	printf("\n");
-	va_end(args);
-  SDL_Quit();
+va_list args;
+va_start(args, fmt);
+vprintf(fmt, args);
+printf("\n");
+va_end(args);
+SDL_Quit();
 }
 int selectAudioInput(projectMApp *app_)
 {
-	int i, count = SDL_GetNumAudioDevices(0); // param=isCapture (not yet functional)
-	if (!count)
-	{
-		fprintf(stderr, "No audio input capture devices detected\n");
-		return 0;
-	}
-	printf("count: %d\n", count);
-	for (i = 0; i < count; ++i)
-	{
-		printf("Audio device %d: %s\n", i, SDL_GetAudioDeviceName(i, 0));
-	}
-	return 1;
+int i, count = SDL_GetNumAudioDevices(0); // param=isCapture (not yet functional)
+if (!count)
+{
+fprintf(stderr, "No audio input capture devices detected\n");
+return 0;
+}
+printf("count: %d\n", count);
+for (i = 0; i < count; ++i)
+{
+printf("Audio device %d: %s\n", i, SDL_GetAudioDeviceName(i, 0));
+}
+return 1;
 }
 void renderFrame()
 {
-	int i;
-	short pcm_data[2][512];
-	SDL_Event evt;
-	SDL_PollEvent(&evt);
-	switch (evt.type)
-	{
-		case SDL_KEYDOWN:
-			break;
-		case SDL_QUIT: app.done = true;
-			break;
-	}
+int i;
+short pcm_data[2][512];
+SDL_Event evt;
+SDL_PollEvent(&evt);
+switch (evt.type)
+{
+case SDL_KEYDOWN:
+break;
+case SDL_QUIT: app.done = true;
+break;
+}
 	/** Produce some fake PCM data to stuff into projectM */
-	for (i = 0; i < 512; i++)
-	{
-		if (i % 2 == 0)
-		{
-			pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-			pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-		}
-		else
-		{
-			pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-			pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-		}
-		if (i % 2 == 1)
-		{
-			pcm_data[0][i] = -pcm_data[0][i];
-			pcm_data[1][i] = -pcm_data[1][i];
-		}
-	}
+for (i = 0; i < 512; i++)
+{
+if (i % 2 == 0)
+{
+pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+}
+else
+{
+pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+}
+if (i % 2 == 1)
+{
+pcm_data[0][i] = -pcm_data[0][i];
+pcm_data[1][i] = -pcm_data[1][i];
+}}
 	/** Add the waveform data */
-	app.pm->pcm()->addPCM16(pcm_data);
-	glClearColor(0.0, 0.0, 0.0, 0.0);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	app.pm->renderFrame();
-	glFlush();
-	SDL_GL_SwapWindow(app.win);
+app.pm->pcm()->addPCM16(pcm_data);
+glClearColor(0.0, 0.0, 0.0, 0.0);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+app.pm->renderFrame();
+glFlush();
+SDL_GL_SwapWindow(app.win);
 }
 int main(int argc, char *argv[])
 {
@@ -101,8 +126,7 @@ console.log('arrayBuffer:',arrayBuffer);
 console.log('arrayBuffer.buffer',arrayBuffer.buffer);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
-});
-}};
+});}};
 ff.send(null);
 );
 app.done = 0;
@@ -144,33 +168,5 @@ app.settings.easterEgg = 0; // ???
 app.settings.shuffleEnabled = 1;
 app.settings.softCutRatingsEnabled = 0; // ???
 app.settings.presetURL = "/presets";
-app.pm = new projectM(app.settings);
-printf("Init ProjectM\n");
-app.pm->selectRandom(true);
-printf("Select random preset.\n");
-app.pm->projectM_resetGL(width, height);
-printf("Reseting GL.\n");
-app.pm->selectNext(true);
-printf("Different preset?\n");
-app.pm->selectNext(true);
-printf("Different preset?\n");
-DIR *m_dir;
-if ((m_dir = opendir("/")) == NULL)
-{
-printf("error opening /\n");
-}
-else
-{
-struct dirent *dir_entry;
-while ((dir_entry = readdir(m_dir)) != NULL)
-{
-printf("%s\n", dir_entry->d_name);
-}
-}
-for (int i = 0; i < app.pm->getPlaylistSize(); i++)
-{
-printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
-}
-emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 return PROJECTM_SUCCESS;
 }

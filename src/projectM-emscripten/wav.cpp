@@ -69,7 +69,6 @@ wave.pos=0;
 wave.spec.callback=bfr;opn_aud();
 }
 void chng(){
-emscripten_cancel_main_loop();
 int width = 1920, height = 1080;
 app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);

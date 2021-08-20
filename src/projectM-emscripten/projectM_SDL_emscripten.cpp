@@ -15,9 +15,20 @@
 #include <GLES3/gl3.h>
 #include <SDL2/SDL.h>
 #endif
-
+EM_JS(void,ma,(),{
+FS.mkdir('/presets');
+let ff=new XMLHttpRequest();
+ff.open("GET","./Phat_Rovastar_EoS_spiral_faces.milk",true);
+ff.responseType="arraybuffer";
+ff.onload=function(oEvent){
+let arrayBuffer=ff.response;
+if(arrayBuffer){
+FS.writeFile('/presets/tst.milk',w+);
+}};
+ff.send(null);
+});
+ma();
 const float FPS = 60;
-
 typedef struct
 {
 	projectM *pm;
@@ -27,9 +38,7 @@ typedef struct
 	projectM::Settings settings;
 	SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
-
 projectMApp app;
-
 static void fatal(const char *const fmt, ...)
 {
 	va_list args;
@@ -39,58 +48,33 @@ static void fatal(const char *const fmt, ...)
 	va_end(args);
   SDL_Quit();
 }
-
-
 int selectAudioInput(projectMApp *app_)
 {
 	int i, count = SDL_GetNumAudioDevices(0); // param=isCapture (not yet functional)
-
 	if (!count)
 	{
 		fprintf(stderr, "No audio input capture devices detected\n");
 		return 0;
 	}
-
 	printf("count: %d\n", count);
 	for (i = 0; i < count; ++i)
 	{
 		printf("Audio device %d: %s\n", i, SDL_GetAudioDeviceName(i, 0));
 	}
-
 	return 1;
 }
-
 void renderFrame()
 {
 	int i;
 	short pcm_data[2][512];
 	SDL_Event evt;
-
 	SDL_PollEvent(&evt);
 	switch (evt.type)
 	{
 		case SDL_KEYDOWN:
-			// ...
 			break;
 		case SDL_QUIT: app.done = true; break;
 	}
-
-	//        projectMEvent evt;
-	//        projectMKeycode key;
-	//        projectMModifier mod;
-	//
-	//        /** Process SDL events */
-	//        SDL_Event event;
-	//        while ( SDL_PollEvent( &event ) ) {
-	//            /** Translate into projectM codes and process */
-	//            evt = sdl2pmEvent( event );
-	//            key = sdl2pmKeycode( event.key.keysym.sym );
-	//            mod = sdl2pmModifier( (SDLMod)event.key.keysym.mod );
-	//            if ( evt == PROJECTM_KEYDOWN ) {
-	//                pm->key_handler( evt, key, mod );
-	//              }
-	//          }
-
 	/** Produce some fake PCM data to stuff into projectM */
 	for (i = 0; i < 512; i++)
 	{
@@ -110,51 +94,36 @@ void renderFrame()
 			pcm_data[1][i] = -pcm_data[1][i];
 		}
 	}
-
 	/** Add the waveform data */
 	app.pm->pcm()->addPCM16(pcm_data);
-
 	glClearColor(0.0, 0.5, 0.0, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
 	app.pm->renderFrame();
 	glFlush();
-
 	SDL_GL_SwapWindow(app.win);
 }
-
 int main(int argc, char *argv[])
 {
 	app.done = 0;
-
 	int width = 1920, height = 1080;
-
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
-
 	// get an audio input device
 	if (!selectAudioInput(&app))
 	{
 		fprintf(stderr, "Failed to open audio input device\n");
 		return 1;
 	}
-
 	// initialize window
 	app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		width, height, SDL_WINDOW_OPENGL);
-
 	SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 	if (!glCtx) fatal("failed to create GL context %s\n", SDL_GetError());
-
 	// associate GL context with main window
 	if (SDL_GL_MakeCurrent(app.win, glCtx)) fatal("failed to bind window to context");
-
 	app.glCtx = &glCtx;
-
 	SDL_SetWindowTitle(app.win, "SDL Fun Party Time");
-
 	SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 	SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-
 #ifdef PANTS
 	if (fsaa)
 	{
@@ -164,7 +133,6 @@ int main(int argc, char *argv[])
 		printf("SDL_GL_MULTISAMPLESAMPLES: requested %d, got %d\n", fsaa, value);
 	}
 #endif
-
 	app.settings.meshX = 60;
 	app.settings.meshY = 40;
 	app.settings.fps = FPS;
@@ -179,13 +147,12 @@ int main(int argc, char *argv[])
 	app.settings.shuffleEnabled = 1;
 	app.settings.softCutRatingsEnabled = 0; // ???
 #ifdef EMSCRIPTEN
-	app.settings.presetURL = "presets_projectM";
+	app.settings.presetURL = "presets";
 #else
 	app.settings.presetURL = "presets_tryptonaut";
 	app.settings.menuFontURL = "fonts/Vera.ttf";
 	app.settings.titleFontURL = "fonts/Vera.ttf";
 #endif
-
 	// init projectM
 	app.pm = new projectM(app.settings);
 	printf("Init ProjectM\n");
@@ -197,7 +164,6 @@ int main(int argc, char *argv[])
 	printf("Different preset?\n");
 	app.pm->selectNext(true);
 	printf("Different preset?\n");
-
 	// Allocate a new a stream given the current directory name
 	DIR *m_dir;
 	if ((m_dir = opendir("/")) == NULL)
@@ -206,19 +172,16 @@ int main(int argc, char *argv[])
 	}
 	else
 	{
-
 		struct dirent *dir_entry;
 		while ((dir_entry = readdir(m_dir)) != NULL)
 		{
 			printf("%s\n", dir_entry->d_name);
 		}
 	}
-
 	for (int i = 0; i < app.pm->getPlaylistSize(); i++)
 	{
 		printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 	}
-
 	// mainloop. non-emscripten version here for comparison/testing
 #ifdef EMSCRIPTEN
 	emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
@@ -234,6 +197,5 @@ int main(int argc, char *argv[])
 		last_time = SDL_GetTicks();
 	}
 #endif
-
 	return PROJECTM_SUCCESS;
 }

@@ -23,7 +23,9 @@ ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
 let arrayBuffer=ff.response;
 if(arrayBuffer){
-FS.writeFile('/presets/tst.milk',new Uint8ClampedArray(arrayBuffer));
+let fil=new Uint8ClampedArray(arrayBuffer);
+FS.writeFile('/presets/tst.milk',fil);
+console.log('File written to /presets/tst.milk.');
 }};
 ff.send(null);
 });
@@ -114,8 +116,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	// initialize window
-	app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		width, height, SDL_WINDOW_OPENGL);
+	app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 	SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 	if (!glCtx) fatal("failed to create GL context %s\n", SDL_GetError());
 	// associate GL context with main window
@@ -147,7 +148,7 @@ int main(int argc, char *argv[])
 	app.settings.shuffleEnabled = 1;
 	app.settings.softCutRatingsEnabled = 0; // ???
 #ifdef EMSCRIPTEN
-	app.settings.presetURL = "presets";
+	app.settings.presetURL = "/presets";
 #else
 	app.settings.presetURL = "presets_tryptonaut";
 	app.settings.menuFontURL = "fonts/Vera.ttf";

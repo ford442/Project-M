@@ -129,7 +129,7 @@ app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
 {
-MAIN_THREAD_EM_ASM(
+EM_ASM(
 FS.mkdir('/presets');
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/Phat_Rovastar_EoS_spiral_faces.milk",true);

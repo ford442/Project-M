@@ -70,7 +70,6 @@ wave.spec.callback=bfr;opn_aud();
 }
 void chng(){
 emscripten_cancel_main_loop();
-emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.done = 0;
 int width = 1920, height = 1080;
 app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
@@ -126,6 +125,7 @@ for (int i = 0; i < app.pm->getPlaylistSize(); i++)
 {
 printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
+emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
@@ -141,7 +141,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst1.milk',fil);
 console.log('File written to /presets/tst1.milk.');
-}};
+}}
 ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');

@@ -41,7 +41,7 @@ case SDL_QUIT: app.done = true;
 break;
 }
 
-	/** Produce some fake PCM data to stuff into projectM */
+/** Produce some fake PCM data to stuff into projectM */
 for (i = 0; i < 512; i++)
 {
 if (i % 2 == 0)
@@ -59,8 +59,8 @@ if (i % 2 == 1)
 pcm_data[0][i] = -pcm_data[0][i];
 pcm_data[1][i] = -pcm_data[1][i];
 }}
-	/** Add the waveform data */
-app.pm->pcm()->addPCM16(pcm_data);  
+/** Add the waveform data */
+app.pm->pcm()->addPCM16(pcm_data);
 glClearColor(0.0, 0.0, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
 MAIN_THREAD_EM_ASM(
 FS.mkdir('/presets');
 document.getElementById('btn').addEventListener('click',function(){
-var ff=new XMLHttpRequest();
+let ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){

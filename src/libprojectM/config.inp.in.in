@@ -1,10 +1,10 @@
 # config.inp
 # Configuration File for projectM
 
-#Texture Size = 2048
+Texture Size = 2048
 Mesh X  = 60
 Mesh Y  = 40
-FPS  = 60
+FPS  = 120
 Fullscreen  = false
 Window Width  = 1920
 Window Height = 1080

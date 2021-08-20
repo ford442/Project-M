@@ -127,7 +127,7 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.pm->selectRandom(true);
-}}
+}
 int main(int argc, char *argv[])
 {
 MAIN_THREAD_EM_ASM(

@@ -124,7 +124,6 @@ for (int i = 0; i < app.pm->getPlaylistSize(); i++)
 {
 printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
-emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
@@ -156,5 +155,6 @@ document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 }););
 SDL_Init(SDL_INIT_VIDEO);
+emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 return PROJECTM_SUCCESS;
 }

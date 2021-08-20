@@ -40,8 +40,26 @@ case SDL_QUIT: app.done = true;
 break;
 }
 
-// app.pm->pcm()->addPCM8_512(stm);
-  
+	/** Produce some fake PCM data to stuff into projectM */
+for (i = 0; i < 512; i++)
+{
+if (i % 2 == 0)
+{
+pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+}
+else
+{
+pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
+}
+if (i % 2 == 1)
+{
+pcm_data[0][i] = -pcm_data[0][i];
+pcm_data[1][i] = -pcm_data[1][i];
+}}
+	/** Add the waveform data */
+app.pm->pcm()->addPCM16(pcm_data);  
 glClearColor(0.0, 0.0, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -127,7 +145,7 @@ app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
 {
-EM_ASM(
+MAIN_THREAD_EM_ASM(
 FS.mkdir('/presets');
 var ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);

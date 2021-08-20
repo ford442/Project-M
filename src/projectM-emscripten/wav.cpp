@@ -39,6 +39,7 @@ break;
 case SDL_QUIT: app.done = true;
 break;
 }
+short pcm_data[2][512];
 
 	/** Produce some fake PCM data to stuff into projectM */
 for (i = 0; i < 512; i++)

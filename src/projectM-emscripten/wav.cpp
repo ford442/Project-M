@@ -142,14 +142,14 @@ FS.writeFile('/presets/tst1.milk',fil);
 console.log('File written to /presets/tst1.milk.');
 }};
 ff.send(null);
-let ffa=new XMLHttpRequest();
-ffa.open("GET","./presets/hightears.milk",true);
-ffa.responseType="arraybuffer";
-ffa.onload=function(oEvent){
-let arrayBuffera=ffa.response;
-if(arrayBuffera){
-let fila=new Uint8ClampedArray(arrayBuffera);
-FS.writeFile('/presets/tst2.milk',fila);
+let ff=new XMLHttpRequest();
+ff.open("GET","./presets/hightears.milk",true);
+ff.responseType="arraybuffer";
+ff.onload=function(oEvent){
+arrayBuffer=ff.response;
+if(arrayBuffer){
+let fil=new Uint8ClampedArray(arrayBuffer);
+FS.writeFile('/presets/tst2.milk',fil);
 console.log('File written to /presets/tst2.milk.');
 }};
 document.getElementById('btn').addEventListener('click',function(){

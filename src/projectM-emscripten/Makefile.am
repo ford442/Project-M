@@ -9,7 +9,7 @@ ${SDL_CFLAGS}
 
 
 projectW.html: projectM_SDL_emscripten.cpp  Makefile.am
-	emcc -s $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp projectM_SDL_emscripten.cpp \
 	-o projectW.html
 

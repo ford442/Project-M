@@ -40,6 +40,10 @@ typedef struct
 	SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
 projectMApp app;
+static void fll(){
+		ma();
+}
+fll();
 static void fatal(const char *const fmt, ...)
 {
 	va_list args;
@@ -74,7 +78,8 @@ void renderFrame()
 	{
 		case SDL_KEYDOWN:
 			break;
-		case SDL_QUIT: app.done = true; break;
+		case SDL_QUIT: app.done = true;
+			break;
 	}
 	/** Produce some fake PCM data to stuff into projectM */
 	for (i = 0; i < 512; i++)
@@ -105,7 +110,6 @@ void renderFrame()
 }
 int main(int argc, char *argv[])
 {
-	ma();
 	app.done = 0;
 	int width = 1920, height = 1080;
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);

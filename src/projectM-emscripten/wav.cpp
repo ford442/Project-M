@@ -29,7 +29,8 @@ SDL_Quit();
 }
 void renderFrame()
 {
-int i;
+int i;short pcm_data[2][512];
+
 SDL_Event evt;
 SDL_PollEvent(&evt);
 switch (evt.type)
@@ -39,7 +40,6 @@ break;
 case SDL_QUIT: app.done = true;
 break;
 }
-short pcm_data[2][512];
 
 	/** Produce some fake PCM data to stuff into projectM */
 for (i = 0; i < 512; i++)
@@ -148,20 +148,20 @@ int main(int argc, char *argv[])
 {
 MAIN_THREAD_EM_ASM(
 FS.mkdir('/presets');
-var ff=new XMLHttpRequest();
-ff.open("GET","./presets/hightears.milk",true);
+let ff=new XMLHttpRequest();
+ff.open("GET","./Phat_Rovastar_EoS_spiral_faces.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
-var arrayBuffer=ff.response;
+let arrayBuffer=ff.response;
 if(arrayBuffer){
-var fill=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst8.milk',fill);
-console.log('File written to /presets/tst8.milk.');
-}};
-ff.send(null);
+let fil=new Uint8ClampedArray(arrayBuffer);
+FS.writeFile('/presets/tst.milk',fil);
+console.log('File written to /presets/tst.milk.');
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
-}););
+});}};
+ff.send(null);
+);
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;

@@ -141,7 +141,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst1.milk',fil);
 console.log('File written to /presets/tst1.milk.');
-}}
+}};
 ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');

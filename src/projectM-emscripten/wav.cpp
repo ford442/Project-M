@@ -140,7 +140,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
-}}
+}};
 ff.send(null);
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
@@ -151,7 +151,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst2.milk.');
-}}
+}};
 ff.send(null);
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/squatting.milk",true);
@@ -162,7 +162,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst3.milk.');
-}}
+}};
 ff.send(null);
 let ff=new XMLHttpRequest();
 ff.open("GET","./presets/nova.milk",true);
@@ -173,7 +173,7 @@ if(arrayBuffer){
 let fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst4.milk.');ff.send(null);
-}}
+}};
 ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');

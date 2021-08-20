@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
 MAIN_THREAD_EM_ASM(
 FS.mkdir('/presets');
 let ff=new XMLHttpRequest();
-ff.open("GET","./hightears.milk",true);
+ff.open("GET","./presets/hightears.milk",true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
 let arrayBuffer=ff.response;

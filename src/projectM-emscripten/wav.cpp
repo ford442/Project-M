@@ -29,7 +29,6 @@ SDL_Quit();
 }
 void renderFrame()
 {
-Uint8 stm;
 int i;
 SDL_Event evt;
 SDL_PollEvent(&evt);
@@ -128,7 +127,7 @@ app.pm->selectRandom(true);
 }}
 int main(int argc, char *argv[])
 {
-MAIN_THREAD_EM_ASM(
+EM_ASM(
 FS.mkdir('/presets');
 var ff=new XMLHttpRequest();
 ff.open("GET","./presets/hightears.milk",true);
@@ -137,8 +136,8 @@ ff.onload=function(oEvent){
 var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fill=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst1.milk',fill);
-console.log('File written to /presets/tst1.milk.');
+FS.writeFile('/presets/tst8.milk',fill);
+console.log('File written to /presets/tst8.milk.');
 }};
 ff.send(null);
 document.getElementById('btn').addEventListener('click',function(){

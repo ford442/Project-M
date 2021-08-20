@@ -23,7 +23,7 @@ ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
 let arrayBuffer=ff.response;
 if(arrayBuffer){
-FS.writeFile('/presets/tst.milk',new Uint8ClampedArray(arrayBuffer.buffer));
+FS.writeFile('/presets/tst.milk',new Uint8ClampedArray(arrayBuffer));
 }};
 ff.send(null);
 });

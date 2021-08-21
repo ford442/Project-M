@@ -19,15 +19,15 @@ projectM::Settings settings;
 SDL_AudioDeviceID audioInputDevice;
 } projectMApp;
 projectMApp app;
-static void fatal(const char *const fmt, ...)
-{
-va_list args;
-va_start(args, fmt);
-vprintf(fmt, args);
-printf("\n");
-va_end(args);
-SDL_Quit();
-}
+// static void fatal(const char *const fmt, ...)
+// {
+// va_list args;
+// va_start(args, fmt);
+// vprintf(fmt, args);
+// printf("\n");
+// va_end(args);
+// SDL_Quit();
+// }
 void renderFrame(Uint8 *stm,int len)
 {
 app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
@@ -44,7 +44,7 @@ static SDL_AudioDeviceID dev;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
-static void reopn_aud(){cls_aud();opn_aud();}
+// static void reopn_aud(){cls_aud();opn_aud();}
 void SDLCALL bfr(void *unused,Uint8 *stm,int len){Uint8 *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){SDL_memcpy(stm,wptr,lft);stm+=lft;len-=lft;wptr=wave.snd;lft=wave.slen;wave.pos=0;}
 SDL_memcpy(stm,wptr,len);wave.pos+=len;}

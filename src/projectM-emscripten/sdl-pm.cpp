@@ -8,6 +8,10 @@
 #include <SDL2/SDL.h>
 //  VIDEO
 const float FPS = 60;
+uint8_t stm;
+int len;
+uint32_t slen;
+short snnd[2][512];
 typedef struct
 {
 projectM *pm;
@@ -78,10 +82,7 @@ emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 
 //  SOUND
 
-uint8_t stm;
-int len;
-uint32_t slen;
-short snnd[2][512];
+
 
 static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
 static SDL_AudioDeviceID dev;

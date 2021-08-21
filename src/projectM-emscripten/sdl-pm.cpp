@@ -23,7 +23,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(uint8_t *stm),int len/sizeof(short)/2);
+app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(*stm),len/sizeof(short)/2);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -88,7 +88,7 @@ while ((dir_entry = readdir(m_dir)) != NULL)
 {
 printf("%s\n", dir_entry->d_name);
 }}
-for (int i = 0; i < app.pm->getPlaylistSize(); i++)
+for (uint i = 0; i < app.pm->getPlaylistSize(); i++)
 {
 printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }

@@ -30,6 +30,7 @@ wave.spec.callback=bfr;opn_aud();
 }
 //  VIDEO
 const float FPS = 60;
+const short snnd;
 typedef struct
 {
 projectM *pm;
@@ -43,7 +44,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-const short snnd=reinterpret_cast<short*>(stm),len/sizeof(short)/2;
+const short snnd=(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
 app.pm->pcm()->addPCM16Data(short);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

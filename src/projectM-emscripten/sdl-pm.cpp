@@ -8,7 +8,9 @@
 #include <SDL2/SDL.h>
 //  VIDEO
 const float FPS = 60;
-
+static SDL_AudioDeviceID dev;
+Uint8 * stm;
+int len;
 typedef struct
 {
 projectM *pm;
@@ -22,11 +24,6 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-Uint8 buf[1024];
-Uint8 * stm;
-int len;
-static SDL_AudioDeviceID dev;
-
 app.pm->addPCM8(reinterpret_cast<short*>(*stm),len / sizeof(short) / 2);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

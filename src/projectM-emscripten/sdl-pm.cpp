@@ -21,6 +21,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
+app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -96,7 +97,6 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }

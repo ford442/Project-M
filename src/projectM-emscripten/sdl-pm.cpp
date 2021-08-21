@@ -10,7 +10,7 @@
 uint8_t stm;
 int len;
 uint32_t slen;
-const short *snnd;
+short *snnd;
 extern "C" {
 static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
 static SDL_AudioDeviceID dev;
@@ -20,7 +20,7 @@ static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 void SDLCALL bfr(void *unused,uint8_t *stm,int len){uint8_t *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);stm+=lft;len-=lft;wptr=wave.snd;lft=wave.slen;wave.pos=0;
-const short *snnd=(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
+short *snnd=(reinterpret_cast<short*>(*stm),len/sizeof(short)/2);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;}
 void pl(){cls_aud();char flnm[4096];

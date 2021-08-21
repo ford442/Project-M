@@ -27,6 +27,7 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
+extern "C" {
 void chng(){
 int width = 1920, height = 1080;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
@@ -80,7 +81,7 @@ uint8_t stm;
 int len;
 uint32_t slen;
 short snnd[2][512];
-extern "C" {
+
 static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
 static SDL_AudioDeviceID dev;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}

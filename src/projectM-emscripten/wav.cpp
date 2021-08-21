@@ -30,7 +30,6 @@ SDL_Quit();
 void renderFrame()
 {
 int i;
-short pcm_data[2][512];
 SDL_Event evt;
 SDL_PollEvent(&evt);
 switch (evt.type)
@@ -41,27 +40,10 @@ case SDL_QUIT: app.done = true;
 break;
 }
 
-/** Produce some fake PCM data to stuff into projectM */
-for (i = 0; i < 512; i++)
-{
-if (i % 2 == 0)
-{
-pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-}
-else
-{
-pcm_data[0][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-pcm_data[1][i] = (float)(rand() / ((float)RAND_MAX) * (pow(2, 14)));
-}
-if (i % 2 == 1)
-{
-pcm_data[0][i] = -pcm_data[0][i];
-pcm_data[1][i] = -pcm_data[1][i];
-}}
-/** Add the waveform data */
-app.pm->pcm()->addPCM16(pcm_data);
-glClearColor(0.0, 0.0, 0.0, 0.0);
+
+app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len/sizeof(short)/_audioDeviceSpec.channels);
+// app.pm->pcm()->addPCM16(pcm_data);
+glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -88,31 +70,31 @@ wave.spec.callback=bfr;opn_aud();
 }
 void chng(){
 int width = 1920, height = 1080;
-app.win = SDL_CreateWindow("SDL Fun Party Time", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
+app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
-if (!glCtx) fatal("failed to create GL context %s\n", SDL_GetError());
-if (SDL_GL_MakeCurrent(app.win, glCtx)) fatal("failed to bind window to context");
+// if (!glCtx) fatal("failed to create GL context %s\n", SDL_GetError());
+// if (SDL_GL_MakeCurrent(app.win, glCtx)) fatal("failed to bind window to context");
 app.glCtx = &glCtx;
-SDL_SetWindowTitle(app.win, "SDL Fun Party Time");
+SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-#ifdef PANTS
-if (fsaa)
-{
-SDL_GL_GetAttribute(SDL_GL_MULTISAMPLEBUFFERS, &value);
-printf("SDL_GL_MULTISAMPLEBUFFERS: requested 1, got %d\n", value);
-SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &value);
-printf("SDL_GL_MULTISAMPLESAMPLES: requested %d, got %d\n", fsaa, value);
-}
-#endif
+// #ifdef PANTS
+// if (fsaa)
+// {
+// SDL_GL_GetAttribute(SDL_GL_MULTISAMPLEBUFFERS, &value);
+// printf("SDL_GL_MULTISAMPLEBUFFERS: requested 1, got %d\n", value);
+// SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &value);
+// printf("SDL_GL_MULTISAMPLESAMPLES: requested %d, got %d\n", fsaa, value);
+// }
+// #endif
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
-app.settings.textureSize = 1024; // idk?
+app.settings.textureSize = 2048; // idk?
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
 app.settings.smoothPresetDuration = 7; // seconds
-app.settings.presetDuration = 55;			 // seconds
+app.settings.presetDuration = 555;			 // seconds
 app.settings.beatSensitivity = 0.8;
 app.settings.aspectCorrection = 1;
 app.settings.easterEgg = 0; // ???

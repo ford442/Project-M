@@ -7,12 +7,8 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 //  VIDEO
-char flnm[1024];
 const float FPS = 60;
-// uint8_t *stm;
-// int len;
-// uint32_t slen;
-// short snnd[2][512];
+
 typedef struct
 {
 projectM *pm;
@@ -98,7 +94,7 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-app.pm->pcm()->addPCM8(flnm);
+app.pm->pcm()->addPCM8(*snd);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }

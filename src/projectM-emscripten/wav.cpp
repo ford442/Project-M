@@ -7,6 +7,8 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 const float FPS = 60;
+Uint8 *stm;
+int len;
 typedef struct
 {
 projectM *pm;

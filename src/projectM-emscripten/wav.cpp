@@ -6,7 +6,6 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-
 const float FPS = 60;
 typedef struct
 {
@@ -27,14 +26,8 @@ printf("\n");
 va_end(args);
 SDL_Quit();
 }
-
-// int i;
-
 void renderFrame(Uint8 *stm,int len)
 {
-// SDL_Event evt;
-// SDL_PollEvent(&evt);
-// switch (evt.type) {case SDL_KEYDOWN:break;case SDL_QUIT: app.done = true;break;}
 app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
 // app.pm->pcm()->addPCM16(pcm_data);
 glClearColor(0.0, 0.5, 0.0, 0.0);
@@ -66,21 +59,10 @@ void chng(){
 int width = 1920, height = 1080;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
-// if (!glCtx) fatal("failed to create GL context %s\n", SDL_GetError());
-// if (SDL_GL_MakeCurrent(app.win, glCtx)) fatal("failed to bind window to context");
 app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-// #ifdef PANTS
-// if (fsaa)
-// {
-// SDL_GL_GetAttribute(SDL_GL_MULTISAMPLEBUFFERS, &value);
-// printf("SDL_GL_MULTISAMPLEBUFFERS: requested 1, got %d\n", value);
-// SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &value);
-// printf("SDL_GL_MULTISAMPLESAMPLES: requested %d, got %d\n", fsaa, value);
-// }
-// #endif
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
@@ -120,7 +102,7 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.pm->selectRandom(true);
 }}
-int main(/*int argc, char *argv[]*/)
+int main()
 {
 EM_ASM(
 FS.mkdir('/presets');

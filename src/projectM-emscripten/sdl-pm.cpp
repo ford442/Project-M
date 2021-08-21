@@ -7,6 +7,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 //  VIDEO
+char flnm[1024];
 const float FPS = 60;
 // uint8_t *stm;
 // int len;
@@ -97,11 +98,11 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-app.pm->pcm()->addPCM8(wave.snd);
+app.pm->pcm()->addPCM8(flnm);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }
-void pl(){cls_aud();char flnm[4096];
+void pl(){cls_aud();char flnm[1024];
 SDL_FreeWAV(wave.snd);SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}

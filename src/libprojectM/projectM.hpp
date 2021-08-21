@@ -152,7 +152,7 @@ public:
             windowWidth(1920),
             windowHeight(1080),
             smoothPresetDuration(7),
-            presetDuration(55),
+            presetDuration(555),
             hardcutEnabled(false),
             hardcutDuration(60),
             hardcutSensitivity(2.0),

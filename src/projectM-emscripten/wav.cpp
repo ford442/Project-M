@@ -32,10 +32,9 @@ SDL_Quit();
 
 void renderFrame(Uint8 *stm,int len)
 {
-SDL_Event evt;
-SDL_PollEvent(&evt);
-switch (evt.type) {case SDL_KEYDOWN:break;case SDL_QUIT: app.done = true;break;}
-
+// SDL_Event evt;
+// SDL_PollEvent(&evt);
+// switch (evt.type) {case SDL_KEYDOWN:break;case SDL_QUIT: app.done = true;break;}
 app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
 // app.pm->pcm()->addPCM16(pcm_data);
 glClearColor(0.0, 0.5, 0.0, 0.0);
@@ -85,16 +84,16 @@ SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSI
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
-app.settings.textureSize = 2048; // idk?
+app.settings.textureSize = 2048;
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
-app.settings.smoothPresetDuration = 7; // seconds
-app.settings.presetDuration = 555;			 // seconds
-app.settings.beatSensitivity = 0.8;
+app.settings.smoothPresetDuration = 7;
+app.settings.presetDuration = 555;
+app.settings.beatSensitivity = 1;
 app.settings.aspectCorrection = 1;
-app.settings.easterEgg = 0; // ???
+app.settings.easterEgg = 0;
 app.settings.shuffleEnabled = 1;
-app.settings.softCutRatingsEnabled = 0; // ???
+app.settings.softCutRatingsEnabled = 1;
 app.settings.presetURL = "/presets";
 app.pm = new projectM(app.settings);
 printf("Init ProjectM\n");
@@ -121,7 +120,7 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 app.pm->selectRandom(true);
 }}
-int main(int argc, char *argv[])
+int main(/*int argc, char *argv[]*/)
 {
 EM_ASM(
 FS.mkdir('/presets');

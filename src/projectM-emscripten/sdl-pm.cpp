@@ -6,30 +6,10 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-const float FPS = 60;
+//  SOUND
 uint8_t stm;
 int len;
 uint32_t slen;
-typedef struct
-{
-projectM *pm;
-SDL_Window *win;
-SDL_GLContext *glCtx;
-bool done;
-projectM::Settings settings;
-SDL_AudioDeviceID audioInputDevice;
-}
-projectMApp;
-projectMApp app;
-void renderFrame()
-{
-app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(*stm),len/sizeof(short)/2);
-glClearColor(0.0, 0.5, 0.0, 0.0);
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-app.pm->renderFrame();
-glFlush();
-SDL_GL_SwapWindow(app.win);
-}
 extern "C" {
 static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
 static SDL_AudioDeviceID dev;
@@ -47,6 +27,29 @@ SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
 wave.pos=0;
 wave.spec.callback=bfr;opn_aud();
+}
+//  VIDEO
+const float FPS = 60;
+typedef struct
+{
+projectM *pm;
+SDL_Window *win;
+SDL_GLContext *glCtx;
+bool done;
+projectM::Settings settings;
+SDL_AudioDeviceID dev;
+}
+projectMApp;
+projectMApp app;
+void renderFrame()
+{
+const short snnd=reinterpret_cast<short*>(stm),len/sizeof(short)/2;
+app.pm->pcm()->addPCM16Data(short);
+glClearColor(0.0, 0.5, 0.0, 0.0);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+app.pm->renderFrame();
+glFlush();
+SDL_GL_SwapWindow(app.win);
 }
 void chng(){
 int width = 1920, height = 1080;

@@ -34,9 +34,9 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   AC_DEFINE([EMSCRIPTEN], [1], [Define EMSCRIPTEN])
   AC_DEFINE([ENABLE_EMSCRIPTEN], [1], [Build projectM-emscripten])
   enable_gles=yes
-  enable_sdl=no
+  enable_sdl=yes
   enable_llvm=no
-  enable_preset_subdirs=yes
+  enable_preset_subdirs=no
   enable_threading=no
   enable_qt=no
   dnl Enable SDL2 and WEBGL2 (OpenGL ES 3)

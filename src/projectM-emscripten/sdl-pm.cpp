@@ -10,6 +10,9 @@
 uint8_t stm;
 int len;
 uint32_t slen;
+
+short snnd[2][512];
+
 extern "C" {
 static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
 static SDL_AudioDeviceID dev;
@@ -17,7 +20,10 @@ static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAud
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
 void SDLCALL bfr(void *unused,uint8_t *stm,int len){uint8_t *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
-while (lft<=len){SDL_memcpy(stm,wptr,lft);stm+=lft;len-=lft;wptr=wave.snd;lft=wave.slen;wave.pos=0;}
+while (lft<=len){
+SDL_memcpy(stm,wptr,lft);stm+=lft;len-=lft;wptr=wave.snd;lft=wave.slen;wave.pos=0;
+snnd=(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
+}
 SDL_memcpy(stm,wptr,len);wave.pos+=len;}
 void pl(){cls_aud();char flnm[4096];
 SDL_FreeWAV(wave.snd);SDL_Quit();
@@ -30,7 +36,6 @@ wave.spec.callback=bfr;opn_aud();
 }
 //  VIDEO
 const float FPS = 60;
-short snnd[2][512];
 typedef struct
 {
 projectM *pm;
@@ -44,7 +49,6 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-const short snnd=(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
 app.pm->pcm()->addPCM16Data(snnd,len);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

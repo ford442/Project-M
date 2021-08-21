@@ -10,7 +10,7 @@ ${SDL_CFLAGS}
 
 projectW.html: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp wav.cpp \
+	../libprojectM/KeyHandler.cpp sdl-pm.cpp \
 	-o sdl-pm.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js --post-js ccall.js
 
 run: projectW.html

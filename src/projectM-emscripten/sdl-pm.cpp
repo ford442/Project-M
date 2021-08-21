@@ -86,7 +86,8 @@ static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAud
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
 void SDLCALL bfr(void *unused,Uint8 *stm,int len){
-Uint8 *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
+Uint8 *wptr;
+int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;
@@ -94,7 +95,7 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-app.pm->pcm()->addPCM8(*snd);
+app.pm->pcm()->addPCM8(*wptr);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }

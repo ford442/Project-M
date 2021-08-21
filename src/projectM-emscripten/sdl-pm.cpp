@@ -10,7 +10,7 @@
 uint8_t stm;
 int len;
 uint32_t slen;
-
+const short *snnd[2][512];
 extern "C" {
 static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
 static SDL_AudioDeviceID dev;

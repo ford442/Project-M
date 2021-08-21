@@ -8,9 +8,9 @@
 #include <SDL2/SDL.h>
 //  VIDEO
 const float FPS = 60;
-uint8_t *stm;
-int len;
-uint32_t slen;
+// uint8_t *stm;
+// int len;
+// uint32_t slen;
 // short snnd[2][512];
 typedef struct
 {
@@ -25,7 +25,6 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->pcm()->addPCM8(*stm);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -98,6 +97,7 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
+app.pm->pcm()->addPCM8(stm);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }

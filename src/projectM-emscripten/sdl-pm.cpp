@@ -11,7 +11,7 @@ const float FPS = 60;
 uint8_t stm;
 int len;
 uint32_t slen;
-short snnd[2][512];
+// short snnd[2][512];
 typedef struct
 {
 projectM *pm;
@@ -25,7 +25,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len);
+app.pm->pcm()->addPCM8(stm,len);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();

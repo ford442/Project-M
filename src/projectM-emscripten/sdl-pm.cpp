@@ -22,7 +22,7 @@ static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 void SDLCALL bfr(void *unused,uint8_t *stm,int len){uint8_t *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);stm+=lft;len-=lft;wptr=wave.snd;lft=wave.slen;wave.pos=0;
-snnd=(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
+snnd=(reinterpret_cast<short*>(*stm),len/sizeof(short)/2);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;}
 void pl(){cls_aud();char flnm[4096];

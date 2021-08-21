@@ -108,11 +108,11 @@ printf("SDL_GL_MULTISAMPLESAMPLES: requested %d, got %d\n", fsaa, value);
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
-app.settings.textureSize = 1024; // idk?
+app.settings.textureSize = 2048; // idk?
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
 app.settings.smoothPresetDuration = 7; // seconds
-app.settings.presetDuration = 55;			 // seconds
+app.settings.presetDuration = 555;			 // seconds
 app.settings.beatSensitivity = 0.8;
 app.settings.aspectCorrection = 1;
 app.settings.easterEgg = 0; // ???

@@ -30,7 +30,7 @@ wave.spec.callback=bfr;opn_aud();
 }
 //  VIDEO
 const float FPS = 60;
-const short snnd;
+const short snnd[2][512];
 typedef struct
 {
 projectM *pm;

@@ -9,7 +9,7 @@
 const float FPS = 60;
 uint8_t stm;
 int len;
-uint8_t slen;
+uint32_t slen;
 typedef struct
 {
 projectM *pm;
@@ -31,7 +31,7 @@ glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
-static struct{SDL_AudioSpec spec;uint8_t *snd;uint8_t slen;int pos;}wave;
+static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
 static SDL_AudioDeviceID dev;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}

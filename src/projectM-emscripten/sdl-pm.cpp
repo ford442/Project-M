@@ -22,7 +22,12 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->addPCM16(reinterpret_cast<short*>(stm),len / sizeof(short) / 2);      
+Uint8 buf[1024];
+Uint8 * stm;
+int len;
+static SDL_AudioDeviceID dev;
+
+app.pm->addPCM8(reinterpret_cast<short*>(*stm),len / sizeof(short) / 2);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -82,7 +87,6 @@ emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 
 
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-static SDL_AudioDeviceID dev;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}

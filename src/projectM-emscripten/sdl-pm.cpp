@@ -95,7 +95,7 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-app.pm->pcm()->addPCM8(*wptr);
+app.pm->pcm()->addPCM8(wptr);
 }
 SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }

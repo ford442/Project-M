@@ -9,6 +9,7 @@
 const float FPS = 60;
 uint8_t stm;
 int len;
+uint8_t slen;
 typedef struct
 {
 projectM *pm;
@@ -30,12 +31,12 @@ glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
-static struct{SDL_AudioSpec spec;uint8_t *snd;Uint32 slen;int pos;}wave;
+static struct{SDL_AudioSpec spec;uint8_t *snd;slen;int pos;}wave;
 static SDL_AudioDeviceID dev;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
-void SDLCALL bfr(void *unused,uint8_t *stm,int len){uint8_t *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
+void SDLCALL bfr(void *unused,stm,len){uint8_t *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){SDL_memcpy(stm,wptr,lft);stm+=lft;len-=lft;wptr=wave.snd;lft=wave.slen;wave.pos=0;}
 SDL_memcpy(stm,wptr,len);wave.pos+=len;}
 void pl(){cls_aud();char flnm[4096];

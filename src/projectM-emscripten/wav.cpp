@@ -27,21 +27,16 @@ printf("\n");
 va_end(args);
 SDL_Quit();
 }
-void renderFrame()
+
+// int i;
+
+void renderFrame(Uint8 *stm,int len)
 {
-int i;
 SDL_Event evt;
 SDL_PollEvent(&evt);
-switch (evt.type)
-{
-case SDL_KEYDOWN:
-break;
-case SDL_QUIT: app.done = true;
-break;
-}
+switch (evt.type) {case SDL_KEYDOWN:break;case SDL_QUIT: app.done = true;break;}
 
-
-app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len/sizeof(short)/_audioDeviceSpec.channels);
+app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(stm),len/sizeof(short)/2);
 // app.pm->pcm()->addPCM16(pcm_data);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

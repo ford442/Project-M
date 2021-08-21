@@ -83,13 +83,13 @@ emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 
 
 
-static struct{SDL_AudioSpec spec;uint8_t *snd;uint32_t slen;int pos;}wave;
+static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static SDL_AudioDeviceID dev;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
-void SDLCALL bfr(void *unused,uint8_t *stm,int len){
-uint8_t *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
+void SDLCALL bfr(void *unused,Uint8 *stm,int len){
+Uint8 *wptr;int lft;wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;

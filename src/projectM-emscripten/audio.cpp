@@ -9,6 +9,8 @@
 //  VIDEO
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
+static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
+
 Uint8 * stm;
 int len;
 typedef struct
@@ -81,7 +83,6 @@ emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 
 //  SOUND
 
-static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;
 }}

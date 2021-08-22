@@ -25,7 +25,7 @@ projectMApp app;
 void renderFrame()
 {
 short pcm16[2][512];
-for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j[i]=stm[i+j];}}
+for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=stm[i+j];}}
 app.pm->pcm()->addPCM16(pcm16);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

@@ -25,7 +25,7 @@ projectMApp app;
 void renderFrame()
 {
 short pcm16[2][512];
-for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=stm[i+j];}}
+for(int i=0;i<512;i++){for(int j=0;j<2;j++){int m=i+j;pcm16[j][i]=stm[m];}}
 app.pm->pcm()->addPCM16(pcm16);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -102,7 +102,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){cls_aud();char flnm[512];
+void pl(){cls_aud();char flnm[1024];
 SDL_FreeWAV(wave.snd);SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}

@@ -7,7 +7,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 //  VIDEO
-const float FPS = 60;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 Uint8 *stm;
 int len;
@@ -40,8 +40,6 @@ app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_U
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
-SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
-SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
@@ -65,20 +63,20 @@ printf("Reseting GL.\n");
 DIR *m_dir;
 if ((m_dir = opendir("/")) == NULL)
 {
-printf("error opening /\n");
+printf("error \n");
 }
 else
 {
 struct dirent *dir_entry;
 while ((dir_entry = readdir(m_dir)) != NULL)
 {
-printf("%s\n", dir_entry->d_name);
+printf("%s \n", dir_entry->d_name);
 }}
 for (uint i = 0; i < app.pm->getPlaylistSize(); i++)
 {
-printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
+printf("%d \t %s \n", i, app.pm->getPresetName(i).c_str());
 }
-emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
+emscripten_set_main_loop((void(*)())renderFrame, 0, 0);
 }
 
 //  SOUND

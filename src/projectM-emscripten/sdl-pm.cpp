@@ -6,6 +6,13 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
+
+const float FPS=60;
+short pcm16[2][512];
+static SDL_AudioDeviceID dev;
+Uint8 *stm;
+int len;
+
 //  SOUND
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
@@ -36,11 +43,7 @@ wave.pos=0;
 wave.spec.callback=bfr;opn_aud();
 }}
 //  VIDEO
-const float FPS=60;
-short pcm16[2][512];
-static SDL_AudioDeviceID dev;
-Uint8 *stm;
-int len;
+
 typedef struct
 {
 projectM *pm;

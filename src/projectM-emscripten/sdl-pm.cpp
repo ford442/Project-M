@@ -5,7 +5,7 @@
 #include <emscripten/emscripten.h>
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
-#include <SDL2/SDL.h>
+#include "SDL2/SDL.h"
 // VIDEO
 const float FPS=60;
 static SDL_AudioDeviceID dev;
@@ -38,8 +38,6 @@ app.win=SDL_CreateWindow("Bat files",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEF
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
 app.glCtx=&glCtx;
 SDL_SetWindowTitle(app.win,"Bat files");
-SDL_Log("GL_VERSION:% s",glGetString(GL_VERSION));
-SDL_Log("GL_SHADING_LANGUAGE_VERSION:% s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX=60;
 app.settings.meshY=40;
 app.settings.fps=FPS;
@@ -67,7 +65,7 @@ printf("error \n");
 }else{
 struct dirent *dir_entry;
 while((dir_entry=readdir(m_dir))!=NULL) {
-}}
+}}}
 emscripten_set_main_loop((void (*)()) renderFrame,0,0);
 }
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -116,7 +114,7 @@ if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen) == NULL){qu(1);}
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-}}}
+}}
 int main(){
 EM_ASM(FS.mkdir('/presets');
 );

@@ -26,7 +26,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->pcm()->addPCM16(reinterpret_cast<short*>(&wave.snd));      
+app.pm->PCM()->addPCM16(reinterpret_cast<short*>(&wave.snd));      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -106,8 +106,10 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){cls_aud();char flnm[1024];
-SDL_FreeWAV(wave.snd);SDL_Quit();
+void pl(){cls_aud();
+char flnm[1024];
+SDL_FreeWAV(wave.snd);
+SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));

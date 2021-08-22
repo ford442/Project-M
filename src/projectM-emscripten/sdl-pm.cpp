@@ -9,7 +9,7 @@
 //  VIDEO
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
-Uint8 * stm;
+Uint8 *stm;
 int len;
 short pcmsnd[2][512];
 typedef struct
@@ -85,7 +85,7 @@ static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
-void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+void SDLCALL bfr(void *unused,Uint8 *stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
@@ -101,14 +101,15 @@ for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcmsnd[j][i]=stm[i+j];}}
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){cls_aud();char flnm[1024];
+void pl(){cls_aud();char flnm[128];
 SDL_FreeWAV(wave.snd);SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
 wave.pos=0;
-wave.spec.callback=bfr;opn_aud();
+wave.spec.callback=bfr;
+opn_aud();
 }}
 int main()
 {

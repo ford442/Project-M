@@ -28,7 +28,7 @@ projectMApp app;
 void renderFrame()
 {
 
-auto flt = reinterpret_cast<float*>(*stm);
+auto flt = reinterpret_cast<float*>(wave.snd);
 printf("Start of renderFrame func (flt): \n",flt);
 
 app.pm->pcm()->addPCMfloat_2ch(flt,len);      

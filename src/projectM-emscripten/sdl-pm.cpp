@@ -30,7 +30,7 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-external "C" {
+extern "C" {
 void chng(){
 int width=1920,height=1080;
 app.win=SDL_CreateWindow("Bat files",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
@@ -66,11 +66,11 @@ printf("error \n");
 }else{
 struct dirent *dir_entry;
 while((dir_entry=readdir(m_dir))!=NULL) {
-printf("% s \n",dir_entry->d_name);
+printf("%s \n",dir_entry->d_name);
 }
 }
 for(uint i=0;i < app.pm->getPlaylistSize();i++){
-printf("% d \t% s \n",i,app.pm->getPresetName(i).c_str());
+printf("%d \t% s \n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)()) renderFrame,0,0);
 }
@@ -96,7 +96,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 void SDLCALL bfr(void *unused,Uint8*stm,int len){
-Uint8*wptr;
+Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;

@@ -11,8 +11,7 @@ const float FPS = 60;
 static SDL_AudioDeviceID dev;
 Uint8 * stm;
 int len;
-typedef struct
-{
+typedef struct{
 projectM *pm;
 SDL_Window *win;
 SDL_GLContext *glCtx;
@@ -23,19 +22,16 @@ SDL_AudioDeviceID dev;
 projectMApp;
 projectMApp app;
 short pcm16[2][512];
-void renderFrame()
-{
-for(int i=0;i<512;i++){
-for(int j=0;j<2;j++){
-pcm16[j][i]=stm[i+j];
-}}
+void renderFrame(){
+for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=stm[i+j];};};
 app.pm->pcm()->addPCM16(pcm16);
-}glClearColor(0.0, 0.5, 0.0, 0.0);
+glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
+
 extern "C" {
 void chng(){
 int width = 1920, height = 1080;
@@ -66,19 +62,15 @@ printf("Select random preset.\n");
 app.pm->projectM_resetGL(width, height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-if ((m_dir = opendir("/")) == NULL)
-{
+if ((m_dir = opendir("/")) == NULL){
 printf("error opening /\n");
 }
-else
-{
+else{
 struct dirent *dir_entry;
-while ((dir_entry = readdir(m_dir)) != NULL)
-{
+while ((dir_entry = readdir(m_dir)) != NULL){
 printf("%s\n", dir_entry->d_name);
 }}
-for (uint i = 0; i < app.pm->getPlaylistSize(); i++)
-{
+for (uint i = 0; i < app.pm->getPlaylistSize(); i++){
 printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);

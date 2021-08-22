@@ -8,7 +8,7 @@
 #include <SDL2/SDL.h>
 //  VIDEO
 const float FPS = 60;
-// static SDL_AudioDeviceID dev;
+static SDL_AudioDeviceID dev;
 Uint8 * stm;
 int len;
 typedef struct
@@ -18,7 +18,7 @@ SDL_Window *win;
 SDL_GLContext *glCtx;
 bool done;
 projectM::Settings settings;
-// SDL_AudioDeviceID dev;
+SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
@@ -79,8 +79,6 @@ emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
 
 //  SOUND
-
-
 
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){

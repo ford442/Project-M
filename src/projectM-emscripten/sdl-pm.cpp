@@ -7,9 +7,11 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 //  VIDEO
-const float FPS = 60;
-static SDL_AudioDeviceID dev;
+void pl();
+void renderFrame();
 short pcmsnd[2][512];
+const float FPS=60;
+static SDL_AudioDeviceID dev;
 typedef struct
 {
 projectM *pm;
@@ -82,7 +84,7 @@ static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
-void SDLCALL bfr(void *unused,Uint8 *stm,int len){
+void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
@@ -93,8 +95,8 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-for(int i=0;i<512;i++){for(int j=0;j<1;j++){pcmsnd[j][i]=stm[i+j];}}
 }
+for(int i=0;i<512;i++){for(int j=0;j<1;j++){pcmsnd[j][i]=snd[i+j];}}
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }

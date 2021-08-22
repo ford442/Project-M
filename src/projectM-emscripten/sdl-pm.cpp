@@ -2,10 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <projectM.hpp>
-#include <emscripten / emscripten.h>
-#include <GLES3 / gl3.h>
-#include "SDL2 / SDL_config.h"
-#include <SDL2 / SDL.h>
+#include <emscripten/emscripten.h>
+#include <GLES3/gl3.h>
+#include "SDL2/SDL_config.h"
+#include <SDL2/SDL.h>
 // VIDEO
 const float FPS=60;
 static SDL_AudioDeviceID dev;
@@ -22,7 +22,7 @@ SDL_AudioDeviceID dev;
 projectMApp app;
 short pcm16[2][512];
 void renderFrame(){
-for(int i=0;i < 512;i++){for(int j=0;j < 2;j++){pcm16[j][i]=stm[i+j];}}
+for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=stm[i+j];}}
 app.pm->pcm()->addPCM16(pcm16);
 glClearColor(0.0,0.5,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -52,39 +52,38 @@ app.settings.aspectCorrection=1;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=1;
 app.settings.softCutRatingsEnabled=1;
-app.settings.presetURL="/ presets";
+app.settings.presetURL="/presets";
 app.pm=new
 projectM(app.settings);
-printf("Init ProjectM \ n");
+printf("Init ProjectM. \n");
 app.pm->selectRandom(true);
-printf("Select random preset. \ n");
+printf("Select random preset. \n");
 app.pm->projectM_resetGL(width,height);
-printf("Reseting GL. \ n");
+printf("Reseting GL. \n");
 DIR *m_dir;
 if((m_dir=open("/")) == NULL){
-printf("error opening / \ n");
+printf("error \n");
 }else{
 struct dirent *dir_entry;
 while((dir_entry=readdir(m_dir))!=NULL) {
-printf("% s \ n",dir_entry->d_name);
+printf("% s \n",dir_entry->d_name);
 }
 }
 for(uint i=0;i < app.pm->getPlaylistSize();i++){
-printf("% d \ t% s \ n",i,app.pm->getPresetName(i).c_str());
+printf("% d \t% s \n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)()) renderFrame,0,0);
 }
 
 // SOUND
 
-static struct{SDL_AudioSpec spec; Uint8 *snd; Uint32 slen; int pos;}wave;
+static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){
-if(dev!=0) {
+if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);
 dev=0;
-}
-}
+}}
 static void qu(int rc){
 SDL_Quit();
 exit(rc);
@@ -96,16 +95,12 @@ SDL_FreeWAV(wave.snd);
 qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
-void SDLCALL
-bfr(
-void *unused,Uint8
-*stm,
-int len) {
+void SDLCALL bfr(void *unused,Uint8*stm,int len){
 Uint8*wptr;
 int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
-while(lft <= len){
+while(lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;
 len-=lft;
@@ -122,16 +117,15 @@ char flnm[512];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
-if(SDL_Init(SDL_INIT_AUDIO) < 0){qu(1);}
-SDL_strlcpy(flnm,"/ sample.wav",sizeof(flnm));
+if(SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
+SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen) == NULL){qu(1);}
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-}
-}
+}}
 int main(){
-EM_ASM(FS.mkdir('/ presets');
+EM_ASM(FS.mkdir('/presets');
 );
 app.done=0;
 SDL_Init(SDL_INIT_VIDEO);

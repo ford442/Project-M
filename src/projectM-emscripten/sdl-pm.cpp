@@ -41,7 +41,7 @@ SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
 wave.pos=0;
 wave.spec.callback=bfr;opn_aud();
-}}
+}
 //  VIDEO
 
 typedef struct
@@ -116,7 +116,7 @@ for (uint i = 0; i < app.pm->getPlaylistSize(); i++)
 printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
-}
+}}
 int main()
 {
 EM_ASM(

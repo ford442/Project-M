@@ -2,38 +2,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <projectM.hpp>
-#include <emscripten / emscripten.h>
-#include <GLES3 / gl3.h>
-#include "SDL2 / SDL_config.h"
-#include <SDL2 / SDL.h>
+#include <emscripten/emscripten.h>
+#include <GLES3/gl3.h>
+#include "SDL2/SDL_config.h"
+#include <SDL2/SDL.h>
 // VIDEO
-const float FPS = 60;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 Uint8 * stm;
 int len;
-typedef struct {
+typedef struct{
 projectM * pm;
 SDL_Window * win;
 SDL_GLContext * glCtx;
 bool done;
-projectM :: Settings settings;
+projectM::Settings settings;
 SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-short pcm16 [2] [512];
+short pcm16[2][512];
 void renderFrame () {
-for (int i = 0; i <512; i ++) {for (int j = 0; j <2; j ++) {pcm16 [j] [i] = stm [i + j];}}
-app.pm-> pcm () -> addPCM16 (pcm16);
+for (int i = 0; i <512; i++) {for (int j = 0; j <2; j++) {pcm16[j][i] = stm[i + j];}}
+app.pm-> pcm() -> addPCM16(pcm16);
 glClearColor (0.0, 0.5, 0.0, 0.0);
 glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-app.pm-> renderFrame ();
-glFlush ();
-SDL_GL_SwapWindow (app.win);
+app.pm-> renderFrame();
+glFlush();
+SDL_GL_SwapWindow(app.win);
 }
 
 external "C" {
-void chng () {
+void chng(){
 int width = 1920, height = 1080;
 app.win = SDL_CreateWindow ("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext (app.win);

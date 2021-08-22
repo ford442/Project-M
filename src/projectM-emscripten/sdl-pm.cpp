@@ -23,7 +23,6 @@ projectMApp;
 projectMApp app;
 short pcm16[2][512];
 void renderFrame(){
-int i;
 for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=stm[i+j];}}
 app.pm->pcm()->addPCM16(pcm16);
 glClearColor(0.0,0.5,0.0,0.0);
@@ -68,17 +67,9 @@ printf("error \n");
 }else{
 struct dirent *dir_entry;
 while((dir_entry=readdir(m_dir))!=NULL) {
-printf("%s \n",dir_entry->d_name);
-}
-}
-for(uint i=0;i < app.pm->getPlaylistSize();i++){
-printf("%d \t% s \n",i,app.pm->getPresetName(i).c_str());
-}
+}}
 emscripten_set_main_loop((void (*)()) renderFrame,0,0);
 }
-
-// SOUND
-
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){
 if(dev!=0){
@@ -125,7 +116,7 @@ if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen) == NULL){qu(1);}
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-}}
+}}}
 int main(){
 EM_ASM(FS.mkdir('/presets');
 );

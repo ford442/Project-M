@@ -7,9 +7,9 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 //  VIDEO
-const float FPS=60;
+const float FPS = 60;
 static SDL_AudioDeviceID dev;
-Uint8 *stm;
+Uint8 * stm;
 int len;
 typedef struct
 {
@@ -24,9 +24,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-short pcm16[2][512];
-// for(int i=0;i<512;i++){for(int j=0;j<2;j++){int m=i+j;pcm16[j][i]=stm[m];}}
-// app.pm->pcm()->addPCM16(pcm16);      
+app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(*stm),len / sizeof(short) / 2);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -40,6 +38,8 @@ app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_U
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
+SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
+SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
@@ -63,20 +63,20 @@ printf("Reseting GL.\n");
 DIR *m_dir;
 if ((m_dir = opendir("/")) == NULL)
 {
-printf("error \n");
+printf("error opening /\n");
 }
 else
 {
 struct dirent *dir_entry;
 while ((dir_entry = readdir(m_dir)) != NULL)
 {
-printf("%s \n", dir_entry->d_name);
+printf("%s\n", dir_entry->d_name);
 }}
 for (uint i = 0; i < app.pm->getPlaylistSize(); i++)
 {
-printf("%d \t %s \n", i, app.pm->getPresetName(i).c_str());
+printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
-emscripten_set_main_loop((void(*)())renderFrame, 0, 0);
+emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
 
 //  SOUND
@@ -102,7 +102,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){cls_aud();char flnm[512];
+void pl(){cls_aud();char flnm[1024];
 SDL_FreeWAV(wave.snd);SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}

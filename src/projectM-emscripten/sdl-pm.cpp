@@ -7,9 +7,10 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 //  VIDEO
-const float FPS = 60;
+const float FPS=60;
+const short pcm16[2][512];
 static SDL_AudioDeviceID dev;
-Uint8 * stm;
+Uint8 *stm;
 int len;
 typedef struct
 {
@@ -27,7 +28,7 @@ void renderFrame()
 const short pcm16[2][512];
 for(int i=0;i<512;i++){
 for(int j=0;j<2;j++){
-pcm16[j][i]=stream[i+j];
+pcm16[j][i]=stm[i+j];
 }}
 app->pcm()->addPCM16(pcm16);
 }
@@ -84,11 +85,7 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
-
 //  SOUND
-
-
-
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}

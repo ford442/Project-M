@@ -18,10 +18,12 @@ SDL_GLContext *glCtx;
 bool done;
 projectM::Settings settings;
 SDL_AudioDeviceID dev;
-}projectMApp;
+}
+projectMApp;
 projectMApp app;
 short pcm16[2][512];
 void renderFrame(){
+int i;
 for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=stm[i+j];}}
 app.pm->pcm()->addPCM16(pcm16);
 glClearColor(0.0,0.5,0.0,0.0);
@@ -61,7 +63,7 @@ printf("Select random preset. \n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL. \n");
 DIR *m_dir;
-if((m_dir=open("/")) == NULL){
+if((m_dir=opendir("/")) == NULL){
 printf("error \n");
 }else{
 struct dirent *dir_entry;

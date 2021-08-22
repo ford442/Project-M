@@ -10,7 +10,6 @@
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-auto flt;
 Uint8 * stm;
 int len;
 typedef struct

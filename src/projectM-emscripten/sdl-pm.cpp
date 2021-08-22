@@ -10,6 +10,7 @@
 short pcmsnd[2][512];
 const float FPS=60;
 static SDL_AudioDeviceID dev;
+static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct
 {
 projectM *pm;
@@ -78,7 +79,6 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
 //  SOUND
-static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);}
@@ -94,7 +94,7 @@ wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
 }
-for(int i=0;i<512;i++){for(int j=0;j<1;j++){pcmsnd[j][i]=snd[i+j];}}
+for(int i=0;i<512;i++){for(int j=0;j<1;j++){pcmsnd[j][i]=wave.snd[i+j];}}
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }

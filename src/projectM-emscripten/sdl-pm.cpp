@@ -9,8 +9,6 @@
 //  VIDEO
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
-Uint8 *stm;
-int len;
 short pcmsnd[2][512];
 typedef struct
 {
@@ -94,7 +92,7 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcmsnd[j][i]=stm[i+j];}}
+for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcmsnd[j][i]=bfr[i+j];}}
 app.pm->pcm()->addPCM16(pcmsnd);      
 }
 SDL_memcpy(stm,wptr,len);

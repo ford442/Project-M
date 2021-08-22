@@ -25,9 +25,9 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
+printf("Start of renderFrame func (flt): \n",flt);
 
 auto flt = reinterpret_cast<float*>(stm);
-    printf("Start of renderFrame func (flt): \n",flt[0][2]);
 
 app.pm->pcm()->addPCMfloat_2ch(flt,len);      
 glClearColor(0.0, 0.5, 0.0, 0.0);

@@ -11,6 +11,7 @@ const float FPS = 60;
 static SDL_AudioDeviceID dev;
 Uint8 * stm;
 int len;
+short pcmsnd[2][512];
 typedef struct
 {
 projectM *pm;
@@ -24,7 +25,8 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-// app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(*stm),len / sizeof(short) / 2);      
+    
+app.pm->pcm()->addPCM16Data(reinterpret_cast<short*>(pcmsnd),len / sizeof(short) / 2);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -78,11 +80,7 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
-
 //  SOUND
-
-
-
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){if(dev!=0){SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;}}
 static void qu(int rc){SDL_Quit();exit(rc);}
@@ -98,6 +96,7 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
+for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=stm[i+j];}}
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;

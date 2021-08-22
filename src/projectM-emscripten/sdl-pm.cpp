@@ -7,8 +7,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 //  VIDEO
-void pl();
-void renderFrame();
 short pcmsnd[2][512];
 const float FPS=60;
 static SDL_AudioDeviceID dev;

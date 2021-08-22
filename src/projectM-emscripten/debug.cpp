@@ -29,9 +29,7 @@ void renderFrame()
 {
 
 // auto flt = reinterpret_cast<float*>(wave.snd);
-printf("Start of renderFrame func (stm): \n",stm);
-printf("Start of renderFrame func (wave.snd): \n",wave.snd);
-printf("Start of renderFrame func (&wave.snd): \n",&wave.snd);
+// printf("Start of renderFrame func (stm): \n",stm);
 
 // app.pm->pcm()->addPCMfloat_2ch(flt,len);      
 glClearColor(0.0, 0.5, 0.0, 0.0);

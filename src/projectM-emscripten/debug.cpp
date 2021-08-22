@@ -28,10 +28,12 @@ projectMApp app;
 void renderFrame()
 {
 
-auto flt = reinterpret_cast<float*>(wave.snd);
-printf("Start of renderFrame func (flt): \n",flt);
+// auto flt = reinterpret_cast<float*>(wave.snd);
+printf("Start of renderFrame func (stm): \n",stm);
+printf("Start of renderFrame func (wave.snd): \n",wave.snd);
+printf("Start of renderFrame func (&wave.snd): \n",&wave.snd);
 
-app.pm->pcm()->addPCMfloat_2ch(flt,len);      
+// app.pm->pcm()->addPCMfloat_2ch(flt,len);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -107,6 +109,8 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
+printf("End of bfr(while{:  stm= \n",stm);
+
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;

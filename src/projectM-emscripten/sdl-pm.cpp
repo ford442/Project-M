@@ -22,9 +22,9 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
+short pcm16[2][512];
 void renderFrame()
 {
-short pcm16[2][512];
 for(int i=0;i<512;i++){
 for(int j=0;j<2;j++){
 pcm16[j][i]=stm[i+j];
@@ -102,7 +102,7 @@ wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
 }
-SDL_memcpy(stm,wptr,l en);
+SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
 void pl(){cls_aud();char flnm[512];

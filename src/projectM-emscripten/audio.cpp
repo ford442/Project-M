@@ -10,7 +10,7 @@
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-
+auto flt;
 Uint8 * stm;
 int len;
 typedef struct
@@ -26,7 +26,8 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->pcm()->addPCMfloat_2ch(stm,len);      
+auto flt = reinterpret_cast<float*>(stm);
+app.pm->pcm()->addPCMfloat_2ch(flt,len);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();

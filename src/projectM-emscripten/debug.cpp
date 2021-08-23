@@ -10,7 +10,7 @@
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-Uint8 * stm;
+// Uint8 * stm;
 int len;
 typedef struct
 {
@@ -112,15 +112,20 @@ printf("End of bfr(while{:  stm= \n",stm);
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
+"End of bfr{:  stm= \n",stm)
 }
 void pl(){cls_aud();
 char flnm[1024];
+"Beginning of pl:  wave.snd= \n",wave.snd)
+
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
+"After Loadwav:  &wave.snd= \n",&wave.snd)
+
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();

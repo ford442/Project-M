@@ -24,12 +24,11 @@ SDL_AudioDeviceID dev;
 projectMApp;
 projectMApp app;
 
-
 void renderFrame()
 {
 
 // auto flt = reinterpret_cast<float*>(wave.snd);
- printf("Start of renderFrame func (stm): %i \n",stm);
+// printf("Start of renderFrame func (stm): %i \n",stm);
 
 // app.pm->pcm()->addPCMfloat_2ch(flt,len);      
 glClearColor(0.0, 0.5, 0.0, 0.0);

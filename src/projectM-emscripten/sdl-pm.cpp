@@ -24,7 +24,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->pcm()->addPCM16(pcmsnd);
+app.pm->pcm()->addPCM8(&wave.snd);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -93,7 +93,7 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-for(int i=0;i<512;i++){for(int j=0;j<1;j++){pcmsnd[j][i]=&wave.snd[i+j];}}
+// for(int i=0;i<512;i++){for(int j=0;j<1;j++){pcmsnd[j][i]=&wave.snd[i+j];}}
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;

@@ -28,7 +28,6 @@ void renderFrame()
 {
 
 // auto flt = reinterpret_cast<float*>(wave.snd);
-printf("Start of renderFrame func (stm): %hhu \n",&wave.snd);
 
 // app.pm->pcm()->addPCMfloat_2ch(flt,len);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
@@ -106,7 +105,11 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-
+short pcm16[2][512];
+for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=&wave.snd[i+j];}}
+  printf("Start of renderFrame func (stm): %hhu \n",pcm16[0][24]);
+app->pcm()->addPCM16(pcm16);
+}
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;

@@ -105,9 +105,9 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-  auto floatData = reinterpret_cast<float*>(&wave.snd)
+  auto floatData = reinterpret_cast<float*>(&wave.snd);
   printf("Start of renderFrame func (stm): %hhu \n",floatData);
-app->pcm()->addPCM16(floatData);
+app->pcm()->addPCMfloat_2ch(floatData);
 }
 }
 SDL_memcpy(stm,wptr,len);

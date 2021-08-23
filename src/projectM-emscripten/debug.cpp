@@ -28,7 +28,7 @@ void renderFrame()
 {
 
 // auto flt = reinterpret_cast<float*>(wave.snd);
-// printf("Start of renderFrame func (stm): %hhX \n",stm);
+printf("Start of renderFrame func (stm): %hhu \n",&wave.snd);
 
 // app.pm->pcm()->addPCMfloat_2ch(flt,len);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
@@ -106,25 +106,19 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-printf("End of bfr(while{:  stm=  %hhX \n",stm);
 
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
-printf("End of bfr{:  stm=  %hhX \n",stm);
 }
 void pl(){cls_aud();
 char flnm[1024];
-printf("Beginning of pl:  wave.snd=  %hhX \n",wave.snd);
-
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
-printf("After Loadwav:  &wave.snd=  %hhX \n",&wave.snd);
-
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();

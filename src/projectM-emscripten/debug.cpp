@@ -105,10 +105,9 @@ len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
-short pcm16[2][512];
-for(int i=0;i<512;i++){for(int j=0;j<2;j++){pcm16[j][i]=&wave.snd[i+j];}}
-  printf("Start of renderFrame func (stm): %hhu \n",pcm16[0][24]);
-app->pcm()->addPCM16(pcm16);
+  auto floatData = reinterpret_cast<float*>(&wave.snd)
+  printf("Start of renderFrame func (stm): %hhu \n",floatData);
+app->pcm()->addPCM16(floatData);
 }
 }
 SDL_memcpy(stm,wptr,len);

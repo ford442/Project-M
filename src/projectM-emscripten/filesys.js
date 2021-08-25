@@ -22,7 +22,6 @@ FS.writeFile('/presets/set1.milk',fil);
 console.log('File: set1.milk.');
 }}
 ff.send(null);
-let ff=new XMLHttpRequest();
 ff.open("GET",pth2,true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
@@ -33,7 +32,6 @@ FS.writeFile('/presets/set2.milk',fil);
 console.log('File: /set2.milk.');
 }}
 ff.send(null);
-let ff=new XMLHttpRequest();
 ff.open("GET",pth3,true);
 ff.responseType="arraybuffer";
 ff.onload=function(oEvent){

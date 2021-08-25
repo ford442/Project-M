@@ -24,7 +24,7 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-app.pm->pcm()->addPCM8(&wave.snd);
+app.pm->pcm()->addPCM16Data(*snd,slen);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -55,7 +55,7 @@ app.settings.shuffleEnabled = 1;
 app.settings.softCutRatingsEnabled = 1;
 app.settings.presetURL = "/presets";
 app.pm = new projectM(app.settings);
-printf("Init ProjectM\n");
+printf("Init ProjectM \n");
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
 app.pm->projectM_resetGL(width, height);

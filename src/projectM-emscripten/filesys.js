@@ -20,6 +20,30 @@ FS.writeFile('/presets/tst.milk',fil);
 console.log('File written to /presets/tst.milk.');
 }}
 ff.send(null);
+  let pth=document.getElementById('path2').innerHTML;
+let ff=new XMLHttpRequest();
+ff.open("GET",pth,true);
+ff.responseType="arraybuffer";
+ff.onload=function(oEvent){
+var arrayBuffer=ff.response;
+if(arrayBuffer){
+var fil=new Uint8ClampedArray(arrayBuffer);
+FS.writeFile('/presets/tst.milk',fil);
+console.log('File written to /presets/tst.milk.');
+}}
+ff.send(null);
+  let pth=document.getElementById('path3').innerHTML;
+let ff=new XMLHttpRequest();
+ff.open("GET",pth,true);
+ff.responseType="arraybuffer";
+ff.onload=function(oEvent){
+var arrayBuffer=ff.response;
+if(arrayBuffer){
+var fil=new Uint8ClampedArray(arrayBuffer);
+FS.writeFile('/presets/tst.milk',fil);
+console.log('File written to /presets/tst.milk.');
+}}
+ff.send(null);
 });
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');

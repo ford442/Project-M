@@ -46,10 +46,10 @@ SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSI
 app.settings.meshX = 120;
 app.settings.meshY = 120;
 app.settings.fps = FPS;
-app.settings.textureSize = 2048;
+app.settings.textureSize = 1024;
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
-app.settings.smoothPresetDuration = 17;
+app.settings.smoothPresetDuration = 3;
 app.settings.presetDuration = EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity = 1;
 app.settings.aspectCorrection = 0;

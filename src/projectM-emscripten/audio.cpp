@@ -102,7 +102,7 @@ wave.pos=0;
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
-auto sndat=reinterpret_cast<short*>(wave.snd);
+auto sndat=reinterpret_cast<short*>(&wave.snd);
 app.pm->pcm()->addPCM16Data(sndat,len);      
 }
 void pl(){cls_aud();

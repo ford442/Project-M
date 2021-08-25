@@ -52,8 +52,8 @@ ff4.onload=function(oEvent){
 var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
 var fil=new Uint8ClampedArray(arrayBuffer4);
-FS.writeFile('/presets/set3.milk',fil);
-console.log('File: set3.milk.');
+FS.writeFile('/presets/set4.milk',fil);
+console.log('File: set4.milk.');
 }}
 ff4.send(null);
 });

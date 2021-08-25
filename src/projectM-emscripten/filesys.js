@@ -7,6 +7,9 @@ document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
 });
+document.getElementById('btn4').addEventListener('click',function(){
+Module.ccall("swtch");
+});
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;
 let pth2=document.getElementById('path2').innerHTML;

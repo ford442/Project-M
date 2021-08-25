@@ -36,20 +36,20 @@ void swtch(){
 app.pm->selectRandom(true);
 }
 void chng(){
-int width = 1920, height = 1080;
+int width = 1080, height = 1080;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX = 60;
-app.settings.meshY = 40;
+app.settings.meshX = 120;
+app.settings.meshY = 120;
 app.settings.fps = FPS;
 app.settings.textureSize = 2048;
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
-app.settings.smoothPresetDuration = 7;
+app.settings.smoothPresetDuration = 17;
 app.settings.presetDuration = EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity = 1;
 app.settings.aspectCorrection = 0;

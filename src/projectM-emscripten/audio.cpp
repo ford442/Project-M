@@ -6,8 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-//  VIDEO
-const float FPS = 60;
+const float FPS = 120;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct
@@ -24,7 +23,7 @@ projectMApp app;
 void renderFrame()
 {
 auto sndat=reinterpret_cast<short*>(&wave.snd);
-int ll=sizeof(&wave.snd);
+unsigned int ll=sizeof(&wave.snd);
 app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -79,9 +78,6 @@ printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
-
-//  SOUND
-
 static void cls_aud(){if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;
 }}
@@ -93,8 +89,7 @@ if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);
 void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
- 
-wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
+ wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;
@@ -107,7 +102,7 @@ SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
 void pl(){cls_aud();
-char flnm[1024];
+char flnm[4096];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

@@ -23,7 +23,9 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-
+auto sndat=reinterpret_cast<short*>(wave.snd);
+auto llen=size_tImplicit(wave.slen);
+app.pm->pcm()->addPCM16Data(sndat,llen);   
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -91,8 +93,7 @@ if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);
 void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
-auto sndat=reinterpret_cast<short*>(&wave.snd);
-app.pm->pcm()->addPCM16Data(sndat,len);    
+ 
 wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);

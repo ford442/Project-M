@@ -8,6 +8,7 @@
 #include <SDL2/SDL.h>
 //  VIDEO
 const float FPS = 60;
+int len;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct
@@ -24,8 +25,7 @@ projectMApp app;
 void renderFrame()
 {
 auto sndat=reinterpret_cast<short*>(wave.snd);
-size_t llen=Implicit(wave.slen);
-app.pm->pcm()->addPCM16Data(sndat,llen);   
+app.pm->pcm()->addPCM16Data(sndat,len);   
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();

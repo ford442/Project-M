@@ -1,5 +1,10 @@
-
-
+document.getElementById('btn4').addEventListener('click',function(){
+Module.ccall("swtch");
+});
+document.getElementById('btn').addEventListener('click',function(){
+Module.ccall('chng');
+document.getElementById('btn4').style="border-color:green;background-color: grey;position: absolute;display: block;left: 20%;top: 50%;z-index: 999997;border:5px solid #E7E7E7;border-radius:50%;"
+});
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("contain2").width=window.innerHeight;

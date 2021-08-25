@@ -11,7 +11,7 @@ ${SDL_CFLAGS}
 bld: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp audio.cpp \
-	-o ProjectW.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js util.js --post-js filesys.js --post-js ccall.js
+	-o ProjectW.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch"]' -sEXPORTED_RUNTIME_METHODS=ccall --pre-js util.js --post-js filesys.js --post-js ccall.js
 
 
 

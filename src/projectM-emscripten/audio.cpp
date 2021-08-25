@@ -23,8 +23,8 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-auto sndat=reinterpret_cast<short*>(&wave.snd);
-auto sndln=reinterpret_cast<size_t>(&wave.slen);
+auto sndat=reinterpret_cast<short*>(wave.snd);
+auto sndln=reinterpret_cast<size_t>(wave.slen);
 app.pm->pcm()->addPCM16Data(sndat,sndln);      
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

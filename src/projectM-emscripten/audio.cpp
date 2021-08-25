@@ -32,6 +32,9 @@ glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
+void swtch(){
+app.pm->selectRandom(true);
+}
 void chng(){
 int width = 1920, height = 1080;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
@@ -43,13 +46,13 @@ SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSI
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
-app.settings.textureSize = 4096;
+app.settings.textureSize = 2048;
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
 app.settings.smoothPresetDuration = 7;
-app.settings.presetDuration = 25;
+app.settings.presetDuration = 44;
 app.settings.beatSensitivity = 1;
-app.settings.aspectCorrection = 1;
+app.settings.aspectCorrection = 0;
 app.settings.easterEgg = 0;
 app.settings.shuffleEnabled = 1;
 app.settings.softCutRatingsEnabled = 1;

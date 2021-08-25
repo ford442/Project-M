@@ -44,11 +44,11 @@ SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSI
 app.settings.meshX = 60;
 app.settings.meshY = 40;
 app.settings.fps = FPS;
-app.settings.textureSize = 2048;
+app.settings.textureSize = 1024;
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
 app.settings.smoothPresetDuration = 7;
-app.settings.presetDuration = 555;
+app.settings.presetDuration = 25;
 app.settings.beatSensitivity = 1;
 app.settings.aspectCorrection = 1;
 app.settings.easterEgg = 0;

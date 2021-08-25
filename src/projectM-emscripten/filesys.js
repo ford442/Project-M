@@ -1,4 +1,4 @@
-document.getElementById('btn2').style="border-color:green;background-color: red;position: absolute;display: block;left: 5%;top: 50%;z-index: 999997;border:5px solid;border-radius:50%;";
+// document.getElementById('btn2').style="border-color:green;background-color: red;position: absolute;display: block;left: 5%;top: 50%;z-index: 999997;border:5px solid;border-radius:50%;";
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
@@ -7,7 +7,7 @@ document.getElementById("ihig").innerHTML=window.innerHeight;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
-document.getElementById('btn').style="border-color:green;background-color: blue;position: absolute;display: block;left: 15%;top: 50%;z-index: 999997;border:5px solid;border-radius:50%;";
+// document.getElementById('btn').style="border-color:green;background-color: blue;position: absolute;display: block;left: 15%;top: 50%;z-index: 999997;border:5px solid;border-radius:50%;";
 });
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;
@@ -58,5 +58,5 @@ FS.writeFile('/presets/set4.milk',fil);
 console.log('File: set4.milk.');
 }}
 ff4.send(null);
-document.getElementById('btn3').style="border-color:green;background-color: green;position: absolute;display: block;left: 10%;top: 50%;z-index: 999997;border:5px solid;border-radius:50%;";
+// document.getElementById('btn3').style="border-color:green;background-color: green;position: absolute;display: block;left: 10%;top: 50%;z-index: 999997;border:5px solid;border-radius:50%;";
 });

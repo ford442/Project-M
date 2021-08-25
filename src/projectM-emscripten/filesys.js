@@ -17,7 +17,7 @@ var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/tst.milk',fil);
-console.log('File written to /presets/tst.milk.');
+console.log('File written to /presets/set1.milk.');
 }}
 ff.send(null);
   let pth=document.getElementById('path2').innerHTML;
@@ -28,7 +28,7 @@ ff.onload=function(oEvent){
 var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
+FS.writeFile('/presets/set2.milk',fil);
 console.log('File written to /presets/tst.milk.');
 }}
 ff.send(null);
@@ -40,7 +40,7 @@ ff.onload=function(oEvent){
 var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/tst.milk',fil);
+FS.writeFile('/presets/set3.milk',fil);
 console.log('File written to /presets/tst.milk.');
 }}
 ff.send(null);

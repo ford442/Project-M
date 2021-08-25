@@ -24,8 +24,8 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
- printf('wave.slen contents: /u',wave.slen);
- printf('&.wave.slen contents: /u',&wave.slen);
+ printf("wave.slen contents: /u",wave.slen);
+ printf("&.wave.slen contents: /u",&wave.slen);
 auto sndat=reinterpret_cast<short*>(wave.snd);
 app.pm->pcm()->addPCM16Data(sndat,1024);   
 glClearColor(0.0, 0.5, 0.0, 0.0);

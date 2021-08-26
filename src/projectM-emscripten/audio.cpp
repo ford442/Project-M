@@ -6,7 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-const float FPS = 120;
+const float FPS = 42;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct
@@ -36,17 +36,18 @@ void swtch(){
 app.pm->selectRandom(true);
 }
 void chng(){
-int width = 1080, height = 1080;
+int width = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
+int height = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX = 60;
-app.settings.meshY = 60;
+app.settings.meshX = 40;
+app.settings.meshY = 40;
 app.settings.fps = FPS;
-app.settings.textureSize = 2048;
+app.settings.textureSize = 1024;
 app.settings.windowWidth = width;
 app.settings.windowHeight = height;
 app.settings.smoothPresetDuration = 3;

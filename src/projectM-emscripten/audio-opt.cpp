@@ -87,7 +87,7 @@ SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);dev=0;
 }}
 static void qu(int rc){SDL_Quit();
-    exit(rc);
+exit(rc);
 }
 static void o(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&w.spec,NULL,0);
 if(!dev){SDL_FreeWAV(w.s);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);

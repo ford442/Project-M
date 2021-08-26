@@ -20,11 +20,11 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp A;
-void $rn()
+void renderFrame()
 {
 glClearColor(0.0,0.5,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-A.pm->$rn();
+A.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(A.wn);
 auto sat=reinterpret_cast<short*>(&w.s);
@@ -80,7 +80,7 @@ for(uint i=0;i<A.pm->getPlaylistSize();i++)
 {
 printf("%d\t%s\n",i,A.pm->getPresetName(i).c_str());
 }
-emscripten_set_main_loop((void(*)())$rn,0,0);
+emscripten_set_main_loop((void(*)())renderFrame,0,0);
 }
 static void c(){if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);

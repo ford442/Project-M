@@ -22,14 +22,14 @@ projectMApp;
 projectMApp app;
 void renderFrame()
 {
-auto sndat=reinterpret_cast<short*>(&wave.snd);
-unsigned int ll=sizeof(&wave.snd);
 glClearColor(0.0, 0.5, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
-app.pm->pcm()->addPCM16Data(sndat,ll);
 glFlush();
 SDL_GL_SwapWindow(app.win);
+auto sndat=reinterpret_cast<short*>(&wave.snd);
+unsigned int ll=sizeof(&wave.snd);
+app.pm->pcm()->addPCM16Data(sndat,ll);
 }
 extern "C" {
 void swtch(){
@@ -37,7 +37,7 @@ app.pm->selectRandom(true);
 }
 void chng(){
 int width = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
-int height = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});;
+int height = width;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx = SDL_GL_CreateContext(app.win);
 app.glCtx = &glCtx;
@@ -49,7 +49,7 @@ app.settings.meshY = 40;
 app.settings.fps = FPS;
 app.settings.textureSize = 1024;
 app.settings.windowWidth = width;
-app.settings.windowHeight = height;
+app.settings.windowHeight = width;
 app.settings.smoothPresetDuration = 3;
 app.settings.presetDuration = EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity = 1;
@@ -93,7 +93,7 @@ if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);
 void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
- wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
+wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;

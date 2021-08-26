@@ -22,14 +22,14 @@ projectMApp;
 projectMApp A;
 void renderFrame()
 {
+auto sat=reinterpret_cast<short*>(&w.s);
+unsigned int ll=sizeof(&w.s);
+A.pm->pcm()->addPCM16Data(sat,ll);
 glClearColor(0.0,0.5,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 A.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(A.wn);
-auto sat=reinterpret_cast<short*>(&w.s);
-unsigned int ll=sizeof(&w.s);
-A.pm->pcm()->addPCM16Data(sat,ll);
 }
 extern "C"{
 void swtch(){

@@ -25,7 +25,7 @@ void renderFrame()
 auto sat=reinterpret_cast<short*>(&w.s);
 unsigned int ll=sizeof(&w.s);
 A.pm->pcm()->addPCM16Data(sat,ll);
-glClearColor(0.0,0.5,0.0,0.0);
+glClearColor(0.0,0.0,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 A.pm->renderFrame();
 glFlush();
@@ -47,12 +47,12 @@ SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSIO
 A.stt.meshX=42;
 A.stt.meshY=42;
 A.stt.fps=FPS;
-A.stt.textureSize=1024;
+A.stt.textureSize=2048;
 A.stt.windowWidth=ww;
 A.stt.windowHeight=ww;
-A.stt.smoothPresetDuration=3;
+A.stt.smoothPresetDuration=1;
 A.stt.presetDuration=EM_ASM_INT({return document.getElementById('dura').innerHTML;});
-A.stt.beatSensitivity=0.9;
+A.stt.beatSensitivity=1;
 A.stt.aspectCorrection=0;
 A.stt.easterEgg=0;
 A.stt.shuffleEnabled=1;

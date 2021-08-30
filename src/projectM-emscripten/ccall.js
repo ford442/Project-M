@@ -11,7 +11,6 @@ document.onmousemove=null;
 };
 function dragMouseDown(e){
 e=e||window.event;
-e.preventDefault();
 pos3=e.clientX;
 pos4=e.clientY;
 var cords=[pos3,pos4];

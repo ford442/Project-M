@@ -15,7 +15,7 @@ e.preventDefault();
 pos3=e.clientX;
 pos4=e.clientY;
 var cords=[pos3,pos4];
-Module.ccall("tchd",null,[number,number],cords);
+Module.ccall("tchd",null,['number','number'],cords);
 document.onmouseup=closeDragElement();
 };
 document.getElementById('canvas').onmousedown=dragMouseDown();
@@ -24,5 +24,5 @@ function showCoords(event){
 var x=event.clientX;
 var y=event.clientY;
 var coords=[x,y];
-Module.ccall("tch",null,[number,number],coords);
+Module.ccall("tch",null,['number','number'],coords);
 }});

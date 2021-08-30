@@ -10,4 +10,4 @@ pos3=e.clientX;
 pos4=e.clientY;
 var cords=[pos3,pos4];
 Module.ccall("tch",null,['number','number'],cords);
-});
+};

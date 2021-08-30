@@ -40,6 +40,18 @@ emscripten_resume_main_loop();
 void lck(){
 app.pm->setPresetLock(true);
 }
+void tch(int x, int y){
+app.pm->touch(x,y,1);
+}
+void tchd(int x, int y){
+app.pm->touchDrag(x,y,1);
+}
+void tchdst(int x, int y){
+app.pm->touchDestroy(x,y);
+}  
+void tchdsta(int x, int y){
+app.pm->touchDestroyAll();
+}  
 void chng(){
 int width = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height = width;

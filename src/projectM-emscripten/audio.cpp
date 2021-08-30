@@ -34,11 +34,11 @@ SDL_GL_SwapWindow(app.win);
 extern "C" {
 void swtch(){
 emscripten_pause_main_loop();
-A.pm->selectRandom(true);
+app.pm->selectRandom(true);
 emscripten_resume_main_loop();
 }
 void lck(){
-A.pm->setPresetLock(true);
+app.pm->setPresetLock(true);
 }
 void chng(){
 int width = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});

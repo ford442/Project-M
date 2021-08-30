@@ -17,7 +17,7 @@ var cords=[pos3,pos4];
 Module.ccall("tchd",null,['number','number'],cords);
 document.onmouseup=closeDragElement();
 };
-document.getElementById('canvas').onmousedown=dragMouseDown();
+document.getElementById('canvas').onmousedown=dragMouseDown(event);
 document.getElementById('canvas').addEventListener('click',function(){
 function showCoords(event){
 var x=event.clientX;

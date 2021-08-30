@@ -25,4 +25,4 @@ var x=event.clientX;
 var y=event.clientY;
 var coords=[x,y];
 Module.ccall("tch",null,[number,number],coords);
-});
+}});

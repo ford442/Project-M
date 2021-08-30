@@ -146,21 +146,21 @@ public:
 
         Settings() :
             meshX(60),
-            meshY(40),
-            fps(120),
+            meshY(60),
+            fps(60),
             textureSize(2048),
-            windowWidth(1920),
+            windowWidth(1080),
             windowHeight(1080),
-            smoothPresetDuration(7),
-            presetDuration(555),
-            hardcutEnabled(false),
+            smoothPresetDuration(1),
+            presetDuration(60),
+            hardcutEnabled(true),
             hardcutDuration(60),
             hardcutSensitivity(2.0),
             beatSensitivity(1.0),
-            aspectCorrection(true),
+            aspectCorrection(false),
             easterEgg(0.0),
             shuffleEnabled(true),
-            softCutRatingsEnabled(false) {}
+            softCutRatingsEnabled(true) {}
     };
 
   projectM(std::string config_file, int flags = FLAG_NONE);

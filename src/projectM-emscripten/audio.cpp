@@ -41,7 +41,7 @@ void lck(){
 app.pm->setPresetLock(true);
 }
 void tch(int x, int y){
-app.pm->touch(x,y,1);
+app.pm->touch(x,y,1,1);
 }
 void tchd(int x, int y){
 app.pm->touchDrag(x,y,1);

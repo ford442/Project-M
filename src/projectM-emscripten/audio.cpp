@@ -6,7 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-const float FPS = 42;
+const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct
@@ -25,16 +25,20 @@ void renderFrame()
 auto sndat=reinterpret_cast<short*>(&wave.snd);
 unsigned int ll=sizeof(&wave.snd);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(0.0, 0.5, 0.0, 0.0);
+glClearColor(0.0, 0.0, 0.0, 0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
-
 }
 extern "C" {
 void swtch(){
-app.pm->selectRandom(true);
+emscripten_pause_main_loop();
+A.pm->selectRandom(true);
+emscripten_resume_main_loop();
+}
+void lck(){
+A.pm->setPresetLock(true);
 }
 void chng(){
 int width = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
@@ -45,10 +49,10 @@ app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX = 40;
-app.settings.meshY = 40;
+app.settings.meshX = 60;
+app.settings.meshY = 60;
 app.settings.fps = FPS;
-app.settings.textureSize = 1024;
+app.settings.textureSize = 2048;
 app.settings.windowWidth = width;
 app.settings.windowHeight = width;
 app.settings.smoothPresetDuration = 3;

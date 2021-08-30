@@ -6,7 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-const float FPS=42;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *s;Uint32 sl;int p;}w;
 typedef struct
@@ -33,7 +33,12 @@ SDL_GL_SwapWindow(A.wn);
 }
 extern "C"{
 void swtch(){
+emscripten_pause_main_loop();
 A.pm->selectRandom(true);
+emscripten_resume_main_loop();
+}
+void lck(){
+A.pm->setPresetLock(true);
 }
 void chng(){
 int ww=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
@@ -44,8 +49,8 @@ A.ctx=&ctx;
 SDL_SetWindowTitle(A.wn,"Bat files");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-A.stt.meshX=42;
-A.stt.meshY=42;
+A.stt.meshX=60;
+A.stt.meshY=60;
 A.stt.fps=FPS;
 A.stt.textureSize=2048;
 A.stt.windowWidth=ww;

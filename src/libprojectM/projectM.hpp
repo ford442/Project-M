@@ -145,19 +145,19 @@ public:
         bool softCutRatingsEnabled;
 
         Settings() :
-            meshX(80),
-            meshY(80),
+            meshX(60),
+            meshY(60),
             fps(60),
             textureSize(2048),
             windowWidth(1080),
             windowHeight(1080),
             smoothPresetDuration(1),
-            presetDuration(77),
+            presetDuration(60),
             hardcutEnabled(true),
             hardcutDuration(60),
             hardcutSensitivity(2.0),
             beatSensitivity(1.0),
-            aspectCorrection(true),
+            aspectCorrection(false),
             easterEgg(0.0),
             shuffleEnabled(true),
             softCutRatingsEnabled(true) {}

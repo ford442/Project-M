@@ -40,19 +40,10 @@ emscripten_resume_main_loop();
 void lck(){
 app.pm->setPresetLock(true);
 }
-void tch(int x, int y){
-app.pm->touch(x,y,1,1);
-}
-void tchd(int x, int y){
-app.pm->touchDrag(x,y,1);
-}
-void tchdst(int x, int y){
-app.pm->touchDestroy(x,y);
-}  
-void tchdsta(int x, int y){
-app.pm->touchDestroyAll();
-}  
 void chng(){
+EM_ASM(
+FS.mkdir('/presets');
+);
 int width = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height = width;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
@@ -61,26 +52,23 @@ app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX = 60;
-app.settings.meshY = 60;
+app.settings.meshX = 80;
+app.settings.meshY = 80;
 app.settings.fps = FPS;
 app.settings.textureSize = 2048;
 app.settings.windowWidth = width;
 app.settings.windowHeight = width;
-app.settings.smoothPresetDuration = 3;
+app.settings.smoothPresetDuration = 1;
 app.settings.presetDuration = EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity = 1;
-app.settings.aspectCorrection = 0;
+app.settings.aspectCorrection = 1;
 app.settings.easterEgg = 0;
 app.settings.shuffleEnabled = 1;
 app.settings.softCutRatingsEnabled = 1;
 app.settings.presetURL = "/presets";
 app.pm = new projectM(app.settings);
-printf("Init ProjectM\n");
 app.pm->selectRandom(true);
-printf("Select random preset.\n");
 app.pm->projectM_resetGL(width, height);
-printf("Reseting GL.\n");
 DIR *m_dir;
 if ((m_dir = opendir("/")) == NULL)
 {
@@ -89,14 +77,6 @@ printf("error opening /\n");
 else
 {
 struct dirent *dir_entry;
-while ((dir_entry = readdir(m_dir)) != NULL)
-{
-printf("%s\n", dir_entry->d_name);
-}}
-for (uint i = 0; i < app.pm->getPlaylistSize(); i++)
-{
-printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
-}
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
 static void cls_aud(){if(dev!=0){
@@ -136,9 +116,6 @@ opn_aud();
 }}
 int main()
 {
-EM_ASM(
-FS.mkdir('/presets');
-);
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;

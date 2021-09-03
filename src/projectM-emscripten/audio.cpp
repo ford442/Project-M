@@ -10,8 +10,7 @@
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-typedef struct
-{
+typedef struct{
 projectM *pm;
 SDL_Window *win;
 SDL_GLContext *glCtx;
@@ -21,8 +20,7 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-void renderFrame()
-{
+void renderFrame(){
 auto sndat=reinterpret_cast<short*>(&wave.snd);
 unsigned int ll=sizeof(&wave.snd);
 app.pm->pcm()->addPCM16Data(sndat,ll);
@@ -82,10 +80,8 @@ app.settings.softCutRatingsEnabled = 1;
 app.settings.presetURL = "/presets";
 app.pm = new projectM(app.settings);
 printf("Init ProjectM\n");
-  
 app.pm->selectRandom(true);
-// app.pm->projectM_resetGL(width, height);
-
+app.pm->projectM_resetGL(width, height);
 DIR *m_dir;
 if ((m_dir = opendir("/")) == NULL){
 printf("error opening /\n");
@@ -146,8 +142,7 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }}
-int main()
-{
+int main(){
 EM_ASM(FS.mkdir('/presets'););
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);

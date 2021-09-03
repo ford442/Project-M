@@ -82,7 +82,7 @@ app.pm = new projectM(app.settings);
 printf("Init ProjectM\n");
   
 app.pm->selectRandom(true);
-app.pm->projectM_resetGL(width, height);
+// app.pm->projectM_resetGL(width, height);
 
 DIR *m_dir;
 if ((m_dir = opendir("/")) == NULL){
@@ -101,7 +101,8 @@ static void cls_aud(){if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);dev=0;
 }}
-static void qu(int rc){SDL_Quit();exit(rc);
+static void qu(int rc){
+SDL_Quit();exit(rc);
 }
 static void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);

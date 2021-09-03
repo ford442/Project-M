@@ -64,7 +64,7 @@ SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSI
 app.settings.meshX = 90;
 app.settings.meshY = 90;
 app.settings.fps = FPS;
-app.settings.textureSize = 8196;
+app.settings.textureSize = 8192;
 app.settings.windowWidth = width;
 app.settings.windowHeight = width;
 app.settings.smoothPresetDuration = 17;

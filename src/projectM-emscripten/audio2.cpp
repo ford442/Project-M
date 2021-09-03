@@ -35,11 +35,7 @@ extern "C" {
 EM_JS(void,pr,(),{
 FS.mkdir('/presets');
 });
-void chng();
-void pl();
-void lck();
-void swtch();
-}
+
 void swtch(){
 emscripten_pause_main_loop();
 app.pm->selectRandom(true);
@@ -118,7 +114,7 @@ if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-}
+}}
 int main(){
 pr();
 app.done = 0;

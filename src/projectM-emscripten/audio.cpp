@@ -2,10 +2,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <projectM.hpp>
-#include <GLES3/gl3.h>
 #include <emscripten/emscripten.h>
+#include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
+
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;

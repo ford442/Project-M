@@ -693,8 +693,7 @@ float py = (v * 2 - 1) * m_fAspectY;
 if (*ang < 0)
 *ang += 6.2831853071796f;
 }
-void Renderer::InitCompositeShaderVertex()
-{
+void Renderer::InitCompositeShaderVertex(){
 memset(m_comp_verts, 0, sizeof(composite_shader_vertex) * FCGSX * FCGSY);
 float fDivX = 1.0f / static_cast<float>(FCGSX - 2);
 float fDivY = 1.0f / static_cast<float>(FCGSY - 2);
@@ -723,8 +722,7 @@ ang = pie * 1.25f;
 ang = pie * 0.75f;
 }else{
 ang = pie * 0.5f;
-}
-else if (i == FCGSX / 2){
+}else if (i == FCGSX / 2){
 if (j < FCGSY / 2 - 1){
 ang = pie * 1.5f;
 }else if (j == FCGSY / 2 - 1){
@@ -733,7 +731,7 @@ ang = pie * 1.75f;
 ang = pie * 0.25f;
 }else{
 ang = pie * 0.5f;
-}else if (j == FCGSY / 2 - 1){
+}}else if (j == FCGSY / 2 - 1){
 if (i < FCGSX / 2 - 1){
 ang = pie * 1.0f;
 }else if (i == FCGSX / 2 - 1){
@@ -742,7 +740,7 @@ ang = pie * 1.25f;
 ang = pie * 1.75f;
 }else{
 ang = pie * 2.0f;
-}else if (j == FCGSY / 2){
+}}else if (j == FCGSY / 2){
 if (i < FCGSX / 2 - 1){
 ang = pie * 1.0f;
 }else if (i == FCGSX / 2 - 1){
@@ -751,7 +749,7 @@ ang = pie * 0.75f;
 ang = pie * 0.25f;
 }else{
 ang = pie * 0.0f;
-}}}}}
+}}}
 pComp->tu = u;
 pComp->tv = v;
 pComp->rad = rad;

@@ -170,6 +170,17 @@ public:
   void projectM_resetTextures();
   void projectM_setTitle( std::string title );
   void renderFrame();
+	
+	void swtch();
+	void lck();
+	void chng();
+	void pl();
+	static void cls_aud();
+	static void qu();
+	static void opn_aud();	
+		
+		
+		
   Pipeline * renderFrameOnlyPass1(Pipeline *pPipeline);
   void renderFrameOnlyPass2(Pipeline *pPipeline,int xoffset,int yoffset,int eye);
   void renderFrameEndOnSeparatePasses(Pipeline *pPipeline);

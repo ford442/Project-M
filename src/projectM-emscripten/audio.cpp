@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <projectM.hpp>
+#include <GLES3/gl3.h>
 #include <emscripten/emscripten.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>

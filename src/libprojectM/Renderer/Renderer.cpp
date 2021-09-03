@@ -722,7 +722,7 @@ ang = pie * 1.25f;
 ang = pie * 0.75f;
 }else{
 ang = pie * 0.5f;
-}else if (i == FCGSX / 2){
+}}else if (i == FCGSX / 2){
 if (j < FCGSY / 2 - 1){
 ang = pie * 1.5f;
 }else if (j == FCGSY / 2 - 1){
@@ -749,7 +749,7 @@ ang = pie * 0.75f;
 ang = pie * 0.25f;
 }else{
 ang = pie * 0.0f;
-}}}
+}}
 pComp->tu = u;
 pComp->tv = v;
 pComp->rad = rad;

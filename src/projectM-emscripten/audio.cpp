@@ -32,6 +32,10 @@ glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
+EM_JS(void,pr,(),{
+EM_ASM(
+FS.mkdir('/presets');
+});
 void swtch(){
 emscripten_pause_main_loop();
 app.pm->selectRandom(true);
@@ -41,9 +45,6 @@ void lck(){
 app.pm->setPresetLock(true);
 }
 void chng(){
-EM_ASM(
-FS.mkdir('/presets');
-);
 int width = EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height = width;
 app.win = SDL_CreateWindow("Bat files", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,width, height, SDL_WINDOW_OPENGL);
@@ -114,8 +115,8 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }}
-int main()
-{
+int main(){
+pr();
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;

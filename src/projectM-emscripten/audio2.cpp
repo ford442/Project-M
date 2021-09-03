@@ -37,6 +37,8 @@ FS.mkdir('/presets');
 });
 void chng();
 void pl();
+void lck();
+void swtch();
 }
 void swtch(){
 emscripten_pause_main_loop();

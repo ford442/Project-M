@@ -40,7 +40,7 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   enable_threading=no
   enable_qt=no
   dnl Enable SDL2 and WEBGL2 (OpenGL ES 3)
-  EMSCRIPTEN_FLAGS="-ffast-math --closure 1 -g0 -s FULL_ES3=1 -s SUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sUSE_SDL=2 -sUSE_WEBGL2=1  -s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -O3"
+  EMSCRIPTEN_FLAGS="-g -ffast-math --closure 1 -g0 -s FULL_ES3=1 -s SUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sUSE_SDL=2 -sUSE_WEBGL2=1 -O3"
   AC_SUBST([EMSCRIPTEN_FLAGS])
   CFLAGS="$CFLAGS $EMSCRIPTEN_FLAGS"
   CXXFLAGS="$CXXFLAGS $EMSCRIPTEN_FLAGS"

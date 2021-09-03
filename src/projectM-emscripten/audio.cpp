@@ -6,7 +6,6 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -62,13 +61,13 @@ app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX = 80;
-app.settings.meshY = 80;
+app.settings.meshX = 60;
+app.settings.meshY = 60;
 app.settings.fps = FPS;
 app.settings.textureSize = 2048;
 app.settings.windowWidth = width;
 app.settings.windowHeight = width;
-app.settings.smoothPresetDuration = 1;
+app.settings.smoothPresetDuration = 3;
 app.settings.presetDuration = EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity = 1;
 app.settings.aspectCorrection = 0;

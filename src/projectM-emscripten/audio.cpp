@@ -61,10 +61,10 @@ app.glCtx = &glCtx;
 SDL_SetWindowTitle(app.win, "Bat files");
 SDL_Log("GL_VERSION: %s", glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX = 90;
-app.settings.meshY = 90;
+app.settings.meshX = 64;
+app.settings.meshY = 64;
 app.settings.fps = FPS;
-app.settings.textureSize = 8192;
+app.settings.textureSize = 4096;
 app.settings.windowWidth = width;
 app.settings.windowHeight = width;
 app.settings.smoothPresetDuration = 17;
@@ -123,7 +123,7 @@ SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
 void pl(){cls_aud();
-char flnm[8192];
+char flnm[16384];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
@@ -134,8 +134,7 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }}
-int main()
-{
+int main(){
 EM_ASM(
 FS.mkdir('/presets');
 );

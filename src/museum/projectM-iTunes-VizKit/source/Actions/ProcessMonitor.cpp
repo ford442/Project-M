@@ -1,7 +1,7 @@
 /*
  * Project: VizKit
  * Version: 2.3
- 
+
  * Date: 20090823
  * File: ProcessMonitor.cpp
  *
@@ -12,7 +12,7 @@
 Copyright (c) 2004-2009 Heiko Wichmann (http://www.imagomat.de/vizkit)
 
 
-This software is provided 'as-is', without any expressed or implied warranty. 
+This software is provided 'as-is', without any expressed or implied warranty.
 In no event will the authors be held liable for any damages
 arising from the use of this software.
 
@@ -20,14 +20,14 @@ Permission is granted to anyone to use this software for any purpose,
 including commercial applications, and to alter it and redistribute it
 freely, subject to the following restrictions:
 
-1. The origin of this software must not be misrepresented; 
-   you must not claim that you wrote the original software. 
-   If you use this software in a product, an acknowledgment 
-   in the product documentation would be appreciated 
-   but is not required.
+1. The origin of this software must not be misrepresented;
+	 you must not claim that you wrote the original software.
+	 If you use this software in a product, an acknowledgment
+	 in the product documentation would be appreciated
+	 but is not required.
 
-2. Altered source versions must be plainly marked as such, 
-   and must not be misrepresented as being the original software.
+2. Altered source versions must be plainly marked as such,
+	 and must not be misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
 
@@ -44,20 +44,20 @@ freely, subject to the following restrictions:
 
 using namespace VizKit;
 
-
-ProcessMonitor::ProcessMonitor() {
+ProcessMonitor::ProcessMonitor()
+{
 	processMonitorAsset = new VisualAsset;
 	setupProgressMeterVertices();
 }
 
-
-ProcessMonitor::~ProcessMonitor() {
-    cleanupProgressMeterVertices();
+ProcessMonitor::~ProcessMonitor()
+{
+	cleanupProgressMeterVertices();
 	delete processMonitorAsset;
 }
 
-
-void ProcessMonitor::prepareProcessMonitorShow() {
+void ProcessMonitor::prepareProcessMonitorShow()
+{
 	VisualCamera aCamera;
 	aCamera.setOrthographicProjection();
 	processMonitorAsset->setCamera(aCamera);
@@ -69,17 +69,17 @@ void ProcessMonitor::prepareProcessMonitorShow() {
 	VisualActorGraphics::prepareProcessMonitorShow(theColor);
 }
 
-
-void ProcessMonitor::showInfoStrings() {
+void ProcessMonitor::showInfoStrings()
+{
 
 	ProcessInfoMapIterator it;
 
-    char finalTextString[255];
-    double yNum;
-    double xNum;
+	char finalTextString[255];
+	double yNum;
+	double xNum;
 	uint8 charCountMax = 0; // in one line per column
 	double rowHeight, characterWidth;
-	
+
 	VisualCamera aCamera;
 	aCamera.setOrthographicProjection();
 	CoordSize3D size = aCamera.getSize();
@@ -88,51 +88,52 @@ void ProcessMonitor::showInfoStrings() {
 
 	xNum = aCamera.getMaxLeftCoord() + characterWidth;
 	yNum = aCamera.getMaxTopCoord();
-	
+
 	Coord coord;
 
-	for (it = this->processInfoMap.begin(); it != this->processInfoMap.end(); it++) {
-	
+	for (it = this->processInfoMap.begin(); it != this->processInfoMap.end(); it++)
+	{
+
 		yNum = yNum - rowHeight;
-		if ((yNum - rowHeight) < aCamera.getMaxBottomCoord()) {
+		if ((yNum - rowHeight) < aCamera.getMaxBottomCoord())
+		{
 			// we reached the bottom -> go to next column to the right
 			yNum = aCamera.getMaxTopCoord() - rowHeight;
 			xNum = xNum + characterWidth + (charCountMax * characterWidth);
 			charCountMax = 0;
 		}
-		strcpy (finalTextString, (*it).first.c_str());
-		strcat (finalTextString, ": ");
-		strcat (finalTextString, (*it).second.c_str());
-		if (strlen(finalTextString) > charCountMax) {
+		strcpy(finalTextString, (*it).first.c_str());
+		strcat(finalTextString, ": ");
+		strcat(finalTextString, (*it).second.c_str());
+		if (strlen(finalTextString) > charCountMax)
+		{
 			charCountMax = strlen(finalTextString);
 		}
 		coord.x = xNum;
 		coord.y = yNum;
 		coord.z = 0.0;
 		VisualActorGraphics::showProcessInfoRow(coord, finalTextString); // constant height of font
-		
-    }
-	
+	}
+
 	VisualActorGraphics::showProcessInfoNote();
-    
 }
 
+void ProcessMonitor::showAudioInfo(const uint32 elapsedAudioTime, const uint32 remainingAudioTime)
+{
 
-void ProcessMonitor::showAudioInfo(const uint32 elapsedAudioTime, const uint32 remainingAudioTime) {
-
-	VisualAudioLab* theVisualAudioLab;
+	VisualAudioLab *theVisualAudioLab;
 
 	uint16 numberOfAudioDataChannels;
 	uint32 numberOfSpectrumEntries;
 	uint16 maxNumberOfMusicDataHistories;
 
-	const sint16** waveformDataMonoArray;
+	const sint16 **waveformDataMonoArray;
 	sint16 currMusicDataHistory;
 	uint16 prevMusicDataHistory;
 	uint32 numberOfWaveformEntries;
 
-	const uint8*** spectrumDataArray;
-	//const uint32* beatHistogram;
+	const uint8 ***spectrumDataArray;
+	// const uint32* beatHistogram;
 
 	theVisualAudioLab = VisualAudioLab::getInstance();
 
@@ -141,46 +142,53 @@ void ProcessMonitor::showAudioInfo(const uint32 elapsedAudioTime, const uint32 r
 	numberOfWaveformEntries = theVisualAudioLab->getNumberOfWaveformEntries();
 	maxNumberOfMusicDataHistories = theVisualAudioLab->getMaxNumberOfMusicDataHistories();
 	waveformDataMonoArray = theVisualAudioLab->getWaveformDataMonoArray();
-	
+
 	numberOfAudioDataChannels = theVisualAudioLab->getNumberOfDataChannels();
 	numberOfSpectrumEntries = theVisualAudioLab->getNumberOfSpectrumEntries();
 	spectrumDataArray = theVisualAudioLab->getSpectrumDataArray();
 
-    VisualActorGraphics::drawWaveform(currMusicDataHistory, maxNumberOfMusicDataHistories, numberOfWaveformEntries, waveformDataMonoArray, processMonitorAsset->getCamera());
+	VisualActorGraphics::drawWaveform(currMusicDataHistory, maxNumberOfMusicDataHistories,
+		numberOfWaveformEntries, waveformDataMonoArray, processMonitorAsset->getCamera());
 	VisualActorGraphics::resetModelViewMatrix();
 
-	//theVisualGraphics->drawWaveform(currMusicDataHistory, 1, numberOfWaveformEntries, waveformDataMonoArray);
-	VisualActorGraphics::drawSpectrumAnalyzer(currMusicDataHistory, maxNumberOfMusicDataHistories, numberOfSpectrumEntries, numberOfAudioDataChannels, spectrumDataArray, processMonitorAsset->getCamera());
+	// theVisualGraphics->drawWaveform(currMusicDataHistory, 1, numberOfWaveformEntries,
+	// waveformDataMonoArray);
+	VisualActorGraphics::drawSpectrumAnalyzer(currMusicDataHistory, maxNumberOfMusicDataHistories,
+		numberOfSpectrumEntries, numberOfAudioDataChannels, spectrumDataArray,
+		processMonitorAsset->getCamera());
 	VisualActorGraphics::resetModelViewMatrix();
-	VisualActorGraphics::drawSpectrogram(currMusicDataHistory, maxNumberOfMusicDataHistories, numberOfSpectrumEntries, numberOfAudioDataChannels, spectrumDataArray, processMonitorAsset->getCamera());
-    VisualActorGraphics::resetModelViewMatrix();
+	VisualActorGraphics::drawSpectrogram(currMusicDataHistory, maxNumberOfMusicDataHistories,
+		numberOfSpectrumEntries, numberOfAudioDataChannels, spectrumDataArray,
+		processMonitorAsset->getCamera());
+	VisualActorGraphics::resetModelViewMatrix();
 
-	//theVisualGraphics->drawWaveformSpiral(currMusicDataHistory, numberOfWaveformEntries, waveformDataMonoArray);
-	//beatHistogram = theVisualAudioLab->getBeatHistogram();
-	//VisualActorGraphics::drawBeatHistogram(beatHistogram, processMonitorAsset->getCamera());
-	//VisualActorGraphics::drawTrackProgressMeter(elapsedAudioTime, remainingAudioTime);
-	
-	//this->updateProgressMeterVertices();
+	// theVisualGraphics->drawWaveformSpiral(currMusicDataHistory, numberOfWaveformEntries,
+	// waveformDataMonoArray); beatHistogram = theVisualAudioLab->getBeatHistogram();
+	// VisualActorGraphics::drawBeatHistogram(beatHistogram, processMonitorAsset->getCamera());
+	// VisualActorGraphics::drawTrackProgressMeter(elapsedAudioTime, remainingAudioTime);
+
+	// this->updateProgressMeterVertices();
 	this->calcTrackProgressMeterVertices(elapsedAudioTime, remainingAudioTime);
-	VisualActorGraphics::drawTrackProgressMeter(&this->progressMeterBackgroundVertices, &this->progressMeterVertices, &this->progressMeterOutlineVertices);
-    
+	VisualActorGraphics::drawTrackProgressMeter(&this->progressMeterBackgroundVertices,
+		&this->progressMeterVertices, &this->progressMeterOutlineVertices);
 }
 
-
-void ProcessMonitor::registerProcessMonitorInfoMap(const std::map<std::string, std::string>* const processMonitorInfoMap) {
+void ProcessMonitor::registerProcessMonitorInfoMap(
+	const std::map<std::string, std::string> *const processMonitorInfoMap)
+{
 	this->processInfoMap = *processMonitorInfoMap;
 }
 
-
-void ProcessMonitor::finishProcessMonitorShow() {
+void ProcessMonitor::finishProcessMonitorShow()
+{
 	// null
 }
 
-
-void ProcessMonitor::updateProgressMeterVertices() {
+void ProcessMonitor::updateProgressMeterVertices()
+{
 
 	double topPos, leftPos, bottomPos, rightPos, rightProgressPos;
-	
+
 	VisualCamera aCamera;
 	aCamera.setOrthographicProjection();
 	topPos = aCamera.getMaxBottomCoord() + VisualActorGraphics::yPixelToCoord(10, aCamera);
@@ -189,7 +197,7 @@ void ProcessMonitor::updateProgressMeterVertices() {
 	rightPos = aCamera.getMaxRightCoord();
 	rightProgressPos = aCamera.getMaxLeftCoord();
 	RGBAColor backgroundColor = VisualActorGraphics::getBackgroundColor();
-	
+
 	progressMeterBackgroundVertices[0]->vertexPosition.coord.x = leftPos;
 	progressMeterBackgroundVertices[0]->vertexPosition.coord.y = bottomPos;
 	progressMeterBackgroundVertices[0]->vertexPosition.coord.z = 0.0f;
@@ -221,7 +229,7 @@ void ProcessMonitor::updateProgressMeterVertices() {
 	progressMeterBackgroundVertices[3]->vertexColor.g = backgroundColor.g;
 	progressMeterBackgroundVertices[3]->vertexColor.b = backgroundColor.b;
 	progressMeterBackgroundVertices[3]->vertexColor.a = backgroundColor.a;
-	
+
 	progressMeterVertices[0]->vertexPosition.coord.x = leftPos;
 	progressMeterVertices[0]->vertexPosition.coord.y = bottomPos;
 	progressMeterVertices[0]->vertexPosition.coord.z = 0.0f;
@@ -263,7 +271,6 @@ void ProcessMonitor::updateProgressMeterVertices() {
 	progressMeterOutlineVertices[0]->vertexColor.b = 0.0f;
 	progressMeterOutlineVertices[0]->vertexColor.a = 1.0f;
 	*/
-	
 
 	progressMeterOutlineVertices[1]->vertexPosition.coord.x = rightPos;
 	progressMeterOutlineVertices[1]->vertexPosition.coord.y = bottomPos;
@@ -296,17 +303,17 @@ void ProcessMonitor::updateProgressMeterVertices() {
 	*/
 }
 
+void ProcessMonitor::setupProgressMeterVertices()
+{
 
-void ProcessMonitor::setupProgressMeterVertices() {
-
-	VisualVertex* aVertex;
+	VisualVertex *aVertex;
 	double topPos;
 	double leftPos;
 	double bottomPos;
 	double rightPos;
 	double rightProgressPos;
 	RGBAColor backgroundColor;
-	
+
 	VisualCamera aCamera;
 	aCamera.setOrthographicProjection();
 	topPos = aCamera.getMaxBottomCoord() + VisualActorGraphics::yPixelToCoord(10, aCamera);
@@ -315,12 +322,12 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	rightPos = aCamera.getMaxRightCoord();
 	rightProgressPos = aCamera.getMaxLeftCoord();
 	backgroundColor = VisualActorGraphics::getBackgroundColor();
-	
+
 	Coord coordPoint;
 	coordPoint.x = leftPos;
 	coordPoint.y = bottomPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(leftPos, bottomPos, 0.0, backgroundColor);
+	// aVertex = new VisualVertex(leftPos, bottomPos, 0.0, backgroundColor);
 	aVertex = new VisualVertex(coordPoint, backgroundColor);
 	/*
 	aVertex->vertexPosition.coord.x = leftPos;
@@ -336,7 +343,7 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = rightPos;
 	coordPoint.y = bottomPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(rightPos, bottomPos, 0.0, backgroundColor);
+	// aVertex = new VisualVertex(rightPos, bottomPos, 0.0, backgroundColor);
 	aVertex = new VisualVertex(coordPoint, backgroundColor);
 	/*
 	aVertex->vertexPosition.coord.x = rightPos;
@@ -352,7 +359,7 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = rightPos;
 	coordPoint.y = topPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(rightPos, topPos, 0.0, backgroundColor);
+	// aVertex = new VisualVertex(rightPos, topPos, 0.0, backgroundColor);
 	aVertex = new VisualVertex(coordPoint, backgroundColor);
 	/*
 	aVertex->vertexPosition.coord.x = rightPos;
@@ -368,7 +375,7 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = leftPos;
 	coordPoint.y = topPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(leftPos, topPos, 0.0, backgroundColor);
+	// aVertex = new VisualVertex(leftPos, topPos, 0.0, backgroundColor);
 	aVertex = new VisualVertex(coordPoint, backgroundColor);
 	/*
 	aVertex->vertexPosition.coord.x = leftPos;
@@ -384,7 +391,7 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = leftPos;
 	coordPoint.y = bottomPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(leftPos, bottomPos, 0.0, white);
+	// aVertex = new VisualVertex(leftPos, bottomPos, 0.0, white);
 	aVertex = new VisualVertex(coordPoint, white);
 	/*
 	aVertex->vertexPosition.coord.x = leftPos;
@@ -400,7 +407,7 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = rightProgressPos;
 	coordPoint.y = bottomPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(rightProgressPos, bottomPos, 0.0, white);
+	// aVertex = new VisualVertex(rightProgressPos, bottomPos, 0.0, white);
 	aVertex = new VisualVertex(coordPoint, white);
 	/*
 	aVertex->vertexPosition.coord.x = rightProgressPos;
@@ -416,7 +423,7 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = rightProgressPos;
 	coordPoint.y = topPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(rightProgressPos, topPos, 0.0, white);
+	// aVertex = new VisualVertex(rightProgressPos, topPos, 0.0, white);
 	aVertex = new VisualVertex(coordPoint, white);
 	/*
 	aVertex->vertexPosition.coord.x = rightProgressPos;
@@ -432,7 +439,7 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = rightProgressPos;
 	coordPoint.y = topPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(leftPos, topPos, 0.0, white);
+	// aVertex = new VisualVertex(leftPos, topPos, 0.0, white);
 	aVertex = new VisualVertex(coordPoint, white);
 	/*
 	aVertex->vertexPosition.coord.x = leftPos;
@@ -448,8 +455,8 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = leftPos;
 	coordPoint.y = bottomPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(leftPos, bottomPos, 0.0, black);
-	//aVertex = new VisualVertex(coordPoint, black);
+	// aVertex = new VisualVertex(leftPos, bottomPos, 0.0, black);
+	// aVertex = new VisualVertex(coordPoint, black);
 	aVertex = new VisualVertex(coordPoint);
 	/*
 	aVertex->vertexPosition.coord.x = leftPos;
@@ -465,8 +472,8 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = rightPos;
 	coordPoint.y = bottomPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(rightPos, bottomPos, 0.0, black);
-	//aVertex = new VisualVertex(coordPoint, black);
+	// aVertex = new VisualVertex(rightPos, bottomPos, 0.0, black);
+	// aVertex = new VisualVertex(coordPoint, black);
 	aVertex = new VisualVertex(coordPoint);
 	/*
 	aVertex->vertexPosition.coord.x = rightPos;
@@ -482,8 +489,8 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = rightPos;
 	coordPoint.y = topPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(rightPos, topPos, 0.0, black);
-	//aVertex = new VisualVertex(coordPoint, black);
+	// aVertex = new VisualVertex(rightPos, topPos, 0.0, black);
+	// aVertex = new VisualVertex(coordPoint, black);
 	aVertex = new VisualVertex(coordPoint);
 	/*
 	aVertex->vertexPosition.coord.x = rightPos;
@@ -499,8 +506,8 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	coordPoint.x = leftPos;
 	coordPoint.y = topPos;
 	coordPoint.z = 0.0;
-	//aVertex = new VisualVertex(leftPos, topPos, 0.0, black);
-	//aVertex = new VisualVertex(coordPoint, black);
+	// aVertex = new VisualVertex(leftPos, topPos, 0.0, black);
+	// aVertex = new VisualVertex(coordPoint, black);
 	aVertex = new VisualVertex(coordPoint);
 	/*
 	aVertex->vertexPosition.coord.x = leftPos;
@@ -512,38 +519,44 @@ void ProcessMonitor::setupProgressMeterVertices() {
 	aVertex->vertexColor.a = 1.0f;
 	*/
 	progressMeterOutlineVertices.push_back(aVertex);
-
 }
 
-
-void ProcessMonitor::calcTrackProgressMeterVertices(const uint32 elapsedAudioTime, const uint32 remainingAudioTime) {
+void ProcessMonitor::calcTrackProgressMeterVertices(
+	const uint32 elapsedAudioTime, const uint32 remainingAudioTime)
+{
 	double rightProgressPos;
-	
+
 	VisualCamera aCamera;
 	aCamera.setOrthographicProjection();
-	rightProgressPos = aCamera.getMaxLeftCoord() + ((aCamera.getMaxRightCoord() - aCamera.getMaxLeftCoord()) * ((float)elapsedAudioTime / (float)(remainingAudioTime + elapsedAudioTime)));
+	rightProgressPos =
+		aCamera.getMaxLeftCoord()
+		+ ((aCamera.getMaxRightCoord() - aCamera.getMaxLeftCoord())
+			 * ((float)elapsedAudioTime / (float)(remainingAudioTime + elapsedAudioTime)));
 
 	this->progressMeterVertices[1]->vertexPosition.coord.x = rightProgressPos;
 	this->progressMeterVertices[2]->vertexPosition.coord.x = rightProgressPos;
-
 }
 
-
-void ProcessMonitor::cleanupProgressMeterVertices() {
+void ProcessMonitor::cleanupProgressMeterVertices()
+{
 	VertexChainIterator it;
-	for (it = progressMeterBackgroundVertices.begin(); it != progressMeterBackgroundVertices.end(); it++) {
+	for (it = progressMeterBackgroundVertices.begin(); it != progressMeterBackgroundVertices.end();
+			 it++)
+	{
 		delete *it;
 		*it = NULL;
 	}
 	progressMeterBackgroundVertices.clear();
-	
-	for (it = progressMeterVertices.begin(); it != progressMeterVertices.end(); it++) {
+
+	for (it = progressMeterVertices.begin(); it != progressMeterVertices.end(); it++)
+	{
 		delete *it;
 		*it = NULL;
 	}
 	progressMeterVertices.clear();
 
-	for (it = progressMeterOutlineVertices.begin(); it != progressMeterOutlineVertices.end(); it++) {
+	for (it = progressMeterOutlineVertices.begin(); it != progressMeterOutlineVertices.end(); it++)
+	{
 		delete *it;
 		*it = NULL;
 	}

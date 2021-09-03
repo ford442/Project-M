@@ -40,27 +40,29 @@ extern FILE *debugFile;
 class wxvisApp;
 class wxvisCanvas;
 
-enum {
-    /** Rendering menu */
-    WXPROJECTMVIS_RENDERING_MENU,
-    WXPROJECTMVIS_RENDERING_PER_PIXEL,
-  };
+enum
+{
+	/** Rendering menu */
+	WXPROJECTMVIS_RENDERING_MENU,
+	WXPROJECTMVIS_RENDERING_PER_PIXEL,
+};
 
-class wxvisFrame : public wxFrame {
+class wxvisFrame : public wxFrame
+{
 public:
-    /** Parent application */
-    wxvisApp *app;
+	/** Parent application */
+	wxvisApp *app;
 
-    /** Default constructor */
-    wxvisFrame( wxvisApp *parent, const wxString &title, wxPoint &pos, wxSize &dims );
+	/** Default constructor */
+	wxvisFrame(wxvisApp *parent, const wxString &title, wxPoint &pos, wxSize &dims);
 
-    /** OpenGL canvas */
-    wxvisCanvas *canvas;
+	/** OpenGL canvas */
+	wxvisCanvas *canvas;
 
-    /** "X" button event handler */
-    void OnClose( wxCloseEvent &event );
+	/** "X" button event handler */
+	void OnClose(wxCloseEvent &event);
 
-    DECLARE_EVENT_TABLE()
+	DECLARE_EVENT_TABLE()
 
 public:
 	void updaterate(const char *text);
@@ -68,6 +70,6 @@ public:
 
 	/** Reset the camera and light positions */
 	void resetViewer();
-  };
+};
 
 #endif /** !_WXPROJECTMVISFRAME_H */

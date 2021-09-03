@@ -35,49 +35,53 @@ extern FILE *debugFile;
 
 /** Event handlers */
 BEGIN_EVENT_TABLE(wxvisFrame, wxFrame)
-    /** Idling */
-    EVT_CLOSE(wxvisFrame::OnClose)
+/** Idling */
+EVT_CLOSE(wxvisFrame::OnClose)
 END_EVENT_TABLE()
 
 /** Create the frame */
-wxvisFrame::wxvisFrame( wxvisApp *parent, const wxString &title,
-                        wxPoint &pos, 
-                        wxSize &dims ) : wxFrame( (wxFrame *)NULL, -1, title, pos, dims ) {
+wxvisFrame::wxvisFrame(wxvisApp *parent, const wxString &title, wxPoint &pos, wxSize &dims)
+		: wxFrame((wxFrame *)NULL, -1, title, pos, dims)
+{
 
-    /** Ensure sub-windows/dialogs are null... */
-    canvas = NULL;
+	/** Ensure sub-windows/dialogs are null... */
+	canvas = NULL;
 
-    /** Store the parent */
-    app = parent;
+	/** Store the parent */
+	app = parent;
 
-    /** Mesh/texture size menu */
-    wxMenu *renderingMenu = new wxMenu();
-    renderingMenu->Append( WXPROJECTMVIS_RENDERING_PER_PIXEL, "&Toggle per-pixel rendering", "Toggles per-pixel rendering", TRUE );
-    renderingMenu->Check( WXPROJECTMVIS_RENDERING_PER_PIXEL, TRUE );
+	/** Mesh/texture size menu */
+	wxMenu *renderingMenu = new wxMenu();
+	renderingMenu->Append(WXPROJECTMVIS_RENDERING_PER_PIXEL, "&Toggle per-pixel rendering",
+		"Toggles per-pixel rendering", TRUE);
+	renderingMenu->Check(WXPROJECTMVIS_RENDERING_PER_PIXEL, TRUE);
 
-    /** Create a menubar */
-    wxMenuBar *menuBar = new wxMenuBar;
-    menuBar->Append( renderingMenu, "Rendering" );
-    SetMenuBar( menuBar );
+	/** Create a menubar */
+	wxMenuBar *menuBar = new wxMenuBar;
+	menuBar->Append(renderingMenu, "Rendering");
+	SetMenuBar(menuBar);
 
-    /** Create a status line */
-    CreateStatusBar( 2 );
-    SetStatusText( "Ready", 1 );
-  }
+	/** Create a status line */
+	CreateStatusBar(2);
+	SetStatusText("Ready", 1);
+}
 
 /** Print out frame rate statistics */
-void wxvisFrame::updaterate(const char *message ) {
-//    SendMessage( progress, SB_SETTEXT, 0, (LPARAM)message );
-    SetStatusText( message, 0 );
-  }
+void wxvisFrame::updaterate(const char *message)
+{
+	//    SendMessage( progress, SB_SETTEXT, 0, (LPARAM)message );
+	SetStatusText(message, 0);
+}
 
 /** Print out what wxvis thinks it's doing  */
-void wxvisFrame::updatestatus( const char *message ) {
-//    SendMessage( progress, SB_SETTEXT, 1, (LPARAM)message );
-    SetStatusText( message, 1 );
-  }
+void wxvisFrame::updatestatus(const char *message)
+{
+	//    SendMessage( progress, SB_SETTEXT, 1, (LPARAM)message );
+	SetStatusText(message, 1);
+}
 
 /** Handles closing down the application by the "X" button */
-void wxvisFrame::OnClose( wxCloseEvent &event ) {
-    app->shutdown();
-  }
+void wxvisFrame::OnClose(wxCloseEvent &event)
+{
+	app->shutdown();
+}

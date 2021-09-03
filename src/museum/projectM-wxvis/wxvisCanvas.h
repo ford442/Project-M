@@ -34,50 +34,49 @@
 class projectM;
 class wxvisFrame;
 
-class wxvisCanvas : public wxGLCanvas {
+class wxvisCanvas : public wxGLCanvas
+{
 private:
-    /** Parent frame in the hierarchy */
-    wxvisFrame *_parent;
+	/** Parent frame in the hierarchy */
+	wxvisFrame *_parent;
 
-    /** Has this viewport been initialised */
-    int _hasInitialised;
+	/** Has this viewport been initialised */
+	int _hasInitialised;
 
 #ifdef WIN32
-    /** Refresh mutex */
-    CRITICAL_SECTION refreshMutex;
-    HANDLE refreshSemaphore;
+	/** Refresh mutex */
+	CRITICAL_SECTION refreshMutex;
+	HANDLE refreshSemaphore;
 #endif /** WIN32 */
 
-    /** projectM */
-    projectM *pm;
+	/** projectM */
+	projectM *pm;
 
 public:
-    /** Constructor */
-    wxvisCanvas( wxFrame *parent, const wxWindowID id = -1,
-                 const wxPoint &pos = wxDefaultPosition,
-                 const wxSize &dims = wxDefaultSize,
-                 long style = 0, const wxString &name = "wxvisCanvas" );
+	/** Constructor */
+	wxvisCanvas(wxFrame *parent, const wxWindowID id = -1, const wxPoint &pos = wxDefaultPosition,
+		const wxSize &dims = wxDefaultSize, long style = 0, const wxString &name = "wxvisCanvas");
 
-    /** Event handlers */
-    void OnPaint( wxPaintEvent &event );
-    void OnSize( wxSizeEvent &event );
-    void OnEraseBackground( wxEraseEvent &event );
-    void OnKeyPress( wxKeyEvent &event );
+	/** Event handlers */
+	void OnPaint(wxPaintEvent &event);
+	void OnSize(wxSizeEvent &event);
+	void OnEraseBackground(wxEraseEvent &event);
+	void OnKeyPress(wxKeyEvent &event);
 
-    DECLARE_EVENT_TABLE()
+	DECLARE_EVENT_TABLE()
 
 public:
-    /** Miscellaneous methods */
-    void initialise();
+	/** Miscellaneous methods */
+	void initialise();
 
-    /** Returns the number of depth bits */
-    int getDepthBits();
+	/** Returns the number of depth bits */
+	int getDepthBits();
 
-    /** Returns the number of stencil bits */
-    int getStencilBits();
+	/** Returns the number of stencil bits */
+	int getStencilBits();
 
-    /** Returns the parent frame */
-    wxvisFrame *getParent() { return _parent; }
-  };
+	/** Returns the parent frame */
+	wxvisFrame *getParent() { return _parent; }
+};
 
 #endif /** !_WXPROJECTMVISCANVAS_H */

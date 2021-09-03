@@ -1,8 +1,168 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
   <component name="CMakeSettings">
     <configurations>
-      <configuration PROFILE_NAME="Debug" CONFIG_NAME="Debug" ENABLED="true" />
+      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" />
     </configurations>
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="f8f868ac-9d31-4c20-b692-0f218637508e" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/m4/emscripten.m4" beforeDir="false" afterPath="$PROJECT_DIR$/m4/emscripten.m4" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mac/Distribution.xml" beforeDir="false" afterPath="$PROJECT_DIR$/mac/Distribution.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mac/config.h" beforeDir="false" afterPath="$PROJECT_DIR$/mac/config.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/Beatlight.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/Beatlight.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/Beatlight.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/Beatlight.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/CoverArt.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/CoverArt.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/CoverArt.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/CoverArt.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/ProcessMonitor.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/ProcessMonitor.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/ProcessMonitor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/ProcessMonitor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TemplateAction.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TemplateAction.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TemplateAction.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TemplateAction.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackLyrics.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackLyrics.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackLyrics.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackLyrics.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackTitle.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackTitle.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackTitle.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actions/TrackTitle.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/BeatlightActor.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/BeatlightActor.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/BeatlightActor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/BeatlightActor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/CoverArtActor.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/CoverArtActor.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/CoverArtActor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/CoverArtActor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/ProcessMonitorActor.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/ProcessMonitorActor.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/ProcessMonitorActor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/ProcessMonitorActor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TemplateActor.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TemplateActor.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TemplateActor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TemplateActor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackLyricsActor.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackLyricsActor.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackLyricsActor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackLyricsActor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackTitleActor.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackTitleActor.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackTitleActor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Actors/TrackTitleActor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioLab.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioLab.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioLab.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioLab.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioMetaData.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioMetaData.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioMetaData.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/AudioLab/VisualAudioMetaData.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualAnimation.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualAnimation.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualAnimation.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualAnimation.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTimeline.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTimeline.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTimeline.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTimeline.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTiming.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTiming.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTiming.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/Timing/VisualTiming.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualColorTools.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualColorTools.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualColorTools.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualColorTools.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualErrorHandling.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualErrorHandling.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualErrorHandling.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualErrorHandling.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualInterpolation.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualInterpolation.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualInterpolation.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualInterpolation.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualItemIdentifier.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualItemIdentifier.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualItemIdentifier.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualItemIdentifier.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualQuickTime.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualQuickTime.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualQuickTime.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualQuickTime.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualString.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualString.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualString.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualString.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualStringStyle.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualStringStyle.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualStringStyle.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualStringStyle.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualThreading.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualThreading.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualThreading.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/Tools/VisualThreading.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/VisualActor.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/VisualActor.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/VisualFile.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/VisualFile.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/VisualMain.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/VisualMain.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/CocoaStringTexture.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/CocoaStringTexture.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/OptionsDialog.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/OptionsDialog.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/OptionsDialog.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/OptionsDialog.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/VisualAppleScript.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/VisualAppleScript.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/VisualAppleScript.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/mac/VisualAppleScript.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/AboutPane.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/AboutPane.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/AboutPane.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/AboutPane.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/DisplayResolutionPane.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/DisplayResolutionPane.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/DisplayResolutionPane.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/DisplayResolutionPane.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/StdAfx.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/StdAfx.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/StdAfx.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/StdAfx.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/StdAfx.pch" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/StdAfx.pch" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/VisualPropertySheet.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/VisualPropertySheet.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/VisualPropertySheet.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/VisualPropertySheet.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/glext.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/glext.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/iTunesCOMInterface.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/iTunesCOMInterface.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/iTunesCOMInterface_i.c" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/iTunesCOMInterface_i.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/resource.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/resource.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/wglext.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-iTunes-VizKit/source/win/wglext.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-screensaver/Makefile.dist" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-screensaver/Makefile.dist" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-screensaver/resource.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-screensaver/resource.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-screensaver/tsaver.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-screensaver/tsaver.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-screensaver/util.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-screensaver/util.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-screensaver/wprojectMsaver.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-screensaver/wprojectMsaver.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/StdAfx.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/StdAfx.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/StdAfx.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/StdAfx.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmp.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmp.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmp.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmp.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmp_i.c" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmp_i.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmpdll.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmpdll.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmpevents.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/projectM-wmpevents.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/resource.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wmp/projectM-wmp/resource.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wxvis/Makefile.dist" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wxvis/Makefile.dist" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisApp.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisApp.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisApp.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisApp.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisCanvas.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisCanvas.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisCanvas.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisCanvas.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisFrame.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisFrame.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisFrame.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-wxvis/wxvisFrame.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-xmms/ConfigFile.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-xmms/ConfigFile.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-xmms/ConfigFile.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-xmms/ConfigFile.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-xmms/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-xmms/main.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-xmms/sdltoprojectM.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-xmms/sdltoprojectM.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-xmms/video_init.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-xmms/video_init.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/museum/projectM-xmms/video_init.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/museum/projectM-xmms/video_init.h" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProblemsViewState">
+    <option name="selectedIndex" value="2" />
+  </component>
+  <component name="ProjectId" id="1xbZkNY9nOtppPriOlw3cFKtFxH" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
+    <property name="RunOnceActivity.cidr.known.project.marker" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="cf.first.check.clang-format" value="false" />
+    <property name="cidr.known.project.marker" value="true" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="node.js.detected.package.eslint" value="true" />
+    <property name="node.js.detected.package.tslint" value="true" />
+    <property name="node.js.selected.package.eslint" value="(autodetect)" />
+    <property name="node.js.selected.package.tslint" value="(autodetect)" />
+    <property name="run.code.analysis.last.selected.profile" value="pProject Default" />
+  </component>
+  <component name="RunManager">
+    <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="f8f868ac-9d31-4c20-b692-0f218637508e" name="Changes" comment="" />
+      <created>1630625906144</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1630625906144</updated>
+      <workItem from="1630625929665" duration="1608000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
   </component>
 </project>

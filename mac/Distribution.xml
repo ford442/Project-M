@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
     <title>projectM Visualizer</title>
-<!--    <background file="background.png" alignment="center" mime-type="image/png" scaling="tofit" />-->
-    
+    <!--    <background file="background.png" alignment="center" mime-type="image/png" scaling="tofit" />-->
+
     <pkg-ref id="net.projectm.music-plugin"/>
     <pkg-ref id="net.projectm.sdl"/>
     <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
@@ -16,7 +16,7 @@
     <choice id="net.projectm.music-plugin" visible="false">
         <pkg-ref id="net.projectm.music-plugin"/>
     </choice>
-    <pkg-ref id="net.projectm.music-plugin"  onConclusion="none">ProjectM-MusicPlugin.pkg</pkg-ref>
+    <pkg-ref id="net.projectm.music-plugin" onConclusion="none">ProjectM-MusicPlugin.pkg</pkg-ref>
     <choice id="net.projectm.sdl" visible="false">
         <pkg-ref id="net.projectm.sdl"/>
     </choice>

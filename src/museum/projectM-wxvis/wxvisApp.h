@@ -38,33 +38,34 @@
 class wxvisFrame;
 
 /** The main GUI class */
-class wxvisApp : public wxApp {
+class wxvisApp : public wxApp
+{
 private:
-    /** Icon */
-    wxIcon _icon;
+	/** Icon */
+	wxIcon _icon;
 
-    /** Main rendering frame */
-    wxvisFrame *_visFrame;
+	/** Main rendering frame */
+	wxvisFrame *_visFrame;
 
 public:
-    /** Installation root queried from the registry */
-    unsigned char *installationRoot;
+	/** Installation root queried from the registry */
+	unsigned char *installationRoot;
 
 #ifdef WIN32
-    /** wxvis root association key from the registry */
-    HKEY rootAssociationKey;
+	/** wxvis root association key from the registry */
+	HKEY rootAssociationKey;
 #endif
 
-    bool OnInit();
-    void OnIdle( wxIdleEvent &event );
+	bool OnInit();
+	void OnIdle(wxIdleEvent &event);
 
-    /** Returns various sub-frames */
-    wxvisFrame *getRenderFrame() { return _visFrame; }
+	/** Returns various sub-frames */
+	wxvisFrame *getRenderFrame() { return _visFrame; }
 
-    /** Shuts down the application */
-    void shutdown();
+	/** Shuts down the application */
+	void shutdown();
 
-    DECLARE_EVENT_TABLE()
-  };
+	DECLARE_EVENT_TABLE()
+};
 
 #endif /** !_WXPROJECTMVISAPP_H */

@@ -13,26 +13,21 @@
 // CProjectMwmp::CProjectMwmp
 // Constructor
 
-HGLRC hrc = NULL; 
+HGLRC hrc = NULL;
 bool starting = true;
 int width, height;
 projectM *globalPM;
 
-CProjectMwmp::CProjectMwmp() :
-m_hwndParent(NULL),
-m_clrForeground(0x0000FF),
-m_nPreset(0)
+CProjectMwmp::CProjectMwmp() : m_hwndParent(NULL), m_clrForeground(0x0000FF), m_nPreset(0)
 {
-    m_dwAdviseCookie = 0;
+	m_dwAdviseCookie = 0;
 }
 
 /////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::~CProjectMwmp
 // Destructor
 
-CProjectMwmp::~CProjectMwmp()
-{
-}
+CProjectMwmp::~CProjectMwmp() {}
 
 /////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp:::FinalConstruct
@@ -42,7 +37,7 @@ CProjectMwmp::~CProjectMwmp()
 
 HRESULT CProjectMwmp::FinalConstruct()
 {
-    return S_OK;
+	return S_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -52,56 +47,53 @@ HRESULT CProjectMwmp::FinalConstruct()
 
 void CProjectMwmp::FinalRelease()
 {
-    ReleaseCore();
+	ReleaseCore();
 }
-
-
-
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::Render
 // Called when an effect should render itself to the screen.
 //////////////////////////////////////////////////////////////////////////////
 STDMETHODIMP CProjectMwmp::Render(TimedLevel *pLevels, HDC hdc, RECT *prc)
-{   
-	if (starting) {
-		static PIXELFORMATDESCRIPTOR pfd = {
-			sizeof(PIXELFORMATDESCRIPTOR), 1,							
-			PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,				
-			PFD_TYPE_RGBA, 24,	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-			0, 0, 0, 0, 0, 0, 0
-		};
-		SetPixelFormat(hdc, ChoosePixelFormat(hdc,&pfd), &pfd);
+{
+	if (starting)
+	{
+		static PIXELFORMATDESCRIPTOR pfd = {sizeof(PIXELFORMATDESCRIPTOR), 1,
+			PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER, PFD_TYPE_RGBA, 24, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+		SetPixelFormat(hdc, ChoosePixelFormat(hdc, &pfd), &pfd);
 		hrc = wglCreateContext(hdc);
-		wglMakeCurrent(hdc, hrc);		
+		wglMakeCurrent(hdc, hrc);
 		starting = false;
 
 		width = (int)(prc->right - prc->left);
 		height = (int)(prc->bottom - prc->top);
-	    
-		globalPM = new projectM("C:\\Program Files\\projectM\\config.inp");//24,18,0,128,width,height,"C:\\Documents and Settings\\DEV2\\My Documents\\svn\\presets_projectM\\");
-		
+
+		globalPM = new projectM(
+			"C:\\Program Files\\projectM\\config.inp"); // 24,18,0,128,width,height,"C:\\Documents and
+																									// Settings\\DEV2\\My
+																									// Documents\\svn\\presets_projectM\\");
 	}
 
 	int newwidth = (int)(prc->right - prc->left);
 	int newheight = (int)(prc->bottom - prc->top);
-	if (width!= newwidth || height != newheight)
+	if (width != newwidth || height != newheight)
 	{
-		width=newwidth;
-		height=newheight;
-	 	globalPM->projectM_resetGL(width,height);
+		width = newwidth;
+		height = newheight;
+		globalPM->projectM_resetGL(width, height);
 	}
 
-	//PCM* pcm = globalPM->pcm;
+	// PCM* pcm = globalPM->pcm;
 
-	//pcm->addPCM8(pLevels->waveform);
-	wglMakeCurrent(hdc, hrc);	
-	globalPM->projectM_resetGL(width,height);
-    globalPM->renderFrame();
+	// pcm->addPCM8(pLevels->waveform);
+	wglMakeCurrent(hdc, hrc);
+	globalPM->projectM_resetGL(width, height);
+	globalPM->renderFrame();
 
-    SwapBuffers(hdc);
-    
-    return S_OK;
+	SwapBuffers(hdc);
+
+	return S_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -110,11 +102,10 @@ STDMETHODIMP CProjectMwmp::Render(TimedLevel *pLevels, HDC hdc, RECT *prc)
 // number of channels (mono/stereo), the sample rate of the media, and the
 // title of the media
 //////////////////////////////////////////////////////////////////////////////
-STDMETHODIMP CProjectMwmp::MediaInfo(LONG lChannelCount, LONG lSampleRate, BSTR bstrTitle )
+STDMETHODIMP CProjectMwmp::MediaInfo(LONG lChannelCount, LONG lSampleRate, BSTR bstrTitle)
 {
-    return S_OK;
+	return S_OK;
 }
-
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::GetCapabilities
@@ -122,69 +113,68 @@ STDMETHODIMP CProjectMwmp::MediaInfo(LONG lChannelCount, LONG lSampleRate, BSTR 
 //	EFFECT_CANGOFULLSCREEN		-- effect supports full-screen rendering
 //	EFFECT_HASPROPERTYPAGE		-- effect supports a property page
 //////////////////////////////////////////////////////////////////////////////
-STDMETHODIMP CProjectMwmp::GetCapabilities(DWORD * pdwCapabilities)
+STDMETHODIMP CProjectMwmp::GetCapabilities(DWORD *pdwCapabilities)
 {
-    if (NULL == pdwCapabilities)
-    {
-        return E_POINTER;
-    }
+	if (NULL == pdwCapabilities)
+	{
+		return E_POINTER;
+	}
 
-    *pdwCapabilities = EFFECT_CANGOFULLSCREEN;
-    return S_OK;
+	*pdwCapabilities = EFFECT_CANGOFULLSCREEN;
+	return S_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::GetTitle
 // Invoked when a host wants to obtain the title of the effect
 //////////////////////////////////////////////////////////////////////////////
-STDMETHODIMP CProjectMwmp::GetTitle(BSTR* bstrTitle)
+STDMETHODIMP CProjectMwmp::GetTitle(BSTR *bstrTitle)
 {
-    USES_CONVERSION;
+	USES_CONVERSION;
 
-    if (NULL == bstrTitle)
-    {
-        return E_POINTER;
-    }
+	if (NULL == bstrTitle)
+	{
+		return E_POINTER;
+	}
 
-    CComBSTR bstrTemp;
-    bstrTemp.LoadString(IDS_EFFECTNAME); 
-        
-    if ((!bstrTemp) || (0 == bstrTemp.Length()))
-    {
-        return E_FAIL;
-    }
+	CComBSTR bstrTemp;
+	bstrTemp.LoadString(IDS_EFFECTNAME);
 
-    *bstrTitle = bstrTemp.Detach();
+	if ((!bstrTemp) || (0 == bstrTemp.Length()))
+	{
+		return E_FAIL;
+	}
 
-    return S_OK;
+	*bstrTitle = bstrTemp.Detach();
+
+	return S_OK;
 }
-
 
 STDMETHODIMP CProjectMwmp::RenderFullScreen(TimedLevel *pLevels)
 {
 
-  // NULL parent window should not happen 
-    if (NULL == m_hwndParent)
-    {
-        return E_UNEXPECTED;
-    }
+	// NULL parent window should not happen
+	if (NULL == m_hwndParent)
+	{
+		return E_UNEXPECTED;
+	}
 
-    // At this point the visualization should draw directly into the parent
-    // window. This sample just calls windowless render for simplicity.
+	// At this point the visualization should draw directly into the parent
+	// window. This sample just calls windowless render for simplicity.
 
-    HDC hdc = ::GetDC(m_hwndParent);
+	HDC hdc = ::GetDC(m_hwndParent);
 
-    if (NULL == hdc)
-    {
-        return E_FAIL;
-    }
+	if (NULL == hdc)
+	{
+		return E_FAIL;
+	}
 
-    RECT rParent = { 0 };
-    ::GetClientRect(m_hwndParent, &rParent);
+	RECT rParent = {0};
+	::GetClientRect(m_hwndParent, &rParent);
 
-    Render(pLevels, hdc, &rParent);
-    
-    ::ReleaseDC(m_hwndParent, hdc);
+	Render(pLevels, hdc, &rParent);
+
+	::ReleaseDC(m_hwndParent, hdc);
 
 	return S_OK;
 }
@@ -193,32 +183,32 @@ STDMETHODIMP CProjectMwmp::GoFullscreen(BOOL fFullScreen)
 {
 	return S_OK;
 }
-											
+
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::GetPresetTitle
 // Invoked when a host wants to obtain the title of the given preset
 //////////////////////////////////////////////////////////////////////////////
 STDMETHODIMP CProjectMwmp::GetPresetTitle(LONG nPreset, BSTR *bstrPresetTitle)
 {
-    USES_CONVERSION;
+	USES_CONVERSION;
 
-    if (NULL == bstrPresetTitle)
-    {
-        return E_POINTER;
-    }    
+	if (NULL == bstrPresetTitle)
+	{
+		return E_POINTER;
+	}
 
-    CComBSTR bstrTemp;
-        
+	CComBSTR bstrTemp;
+
 	bstrTemp = "projectM 1.0";
-			            
-    if ((!bstrTemp) || (0 == bstrTemp.Length()))
-    {
-        return E_FAIL;
-    }
 
-    *bstrPresetTitle = bstrTemp.Detach();
+	if ((!bstrTemp) || (0 == bstrTemp.Length()))
+	{
+		return E_FAIL;
+	}
 
-    return S_OK;
+	*bstrPresetTitle = bstrTemp.Detach();
+
+	return S_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -227,14 +217,14 @@ STDMETHODIMP CProjectMwmp::GetPresetTitle(LONG nPreset, BSTR *bstrPresetTitle)
 //////////////////////////////////////////////////////////////////////////////
 STDMETHODIMP CProjectMwmp::GetPresetCount(LONG *pnPresetCount)
 {
-    if (NULL == pnPresetCount)
-    {
-        return E_POINTER;
-    }
+	if (NULL == pnPresetCount)
+	{
+		return E_POINTER;
+	}
 
-    *pnPresetCount = 1;
+	*pnPresetCount = 1;
 
-    return S_OK;
+	return S_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -242,10 +232,10 @@ STDMETHODIMP CProjectMwmp::GetPresetCount(LONG *pnPresetCount)
 // Invoked when a host wants to change the index of the current preset
 //////////////////////////////////////////////////////////////////////////////
 STDMETHODIMP CProjectMwmp::SetCurrentPreset(LONG nPreset)
-{   
-    m_nPreset = 0;
+{
+	m_nPreset = 0;
 
-    return S_OK;
+	return S_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -254,58 +244,58 @@ STDMETHODIMP CProjectMwmp::SetCurrentPreset(LONG nPreset)
 //////////////////////////////////////////////////////////////////////////////
 STDMETHODIMP CProjectMwmp::GetCurrentPreset(LONG *pnPreset)
 {
-    if (NULL == pnPreset)
-    {
-        return E_POINTER;
-    }
+	if (NULL == pnPreset)
+	{
+		return E_POINTER;
+	}
 
-    *pnPreset = 0;
+	*pnPreset = 0;
 
-    return S_OK;
+	return S_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::SetCore
 // Set WMP core interface
 //////////////////////////////////////////////////////////////////////////////
-STDMETHODIMP CProjectMwmp::SetCore(IWMPCore * pCore)
+STDMETHODIMP CProjectMwmp::SetCore(IWMPCore *pCore)
 {
-    HRESULT hr = S_OK;
+	HRESULT hr = S_OK;
 
-    // release any existing WMP core interfaces
-    ReleaseCore();
+	// release any existing WMP core interfaces
+	ReleaseCore();
 
-    // If we get passed a NULL core, this  means
-    // that the plugin is being shutdown.
+	// If we get passed a NULL core, this  means
+	// that the plugin is being shutdown.
 
-    if (pCore == NULL)
-    {
-        return S_OK;
-    }
+	if (pCore == NULL)
+	{
+		return S_OK;
+	}
 
-    m_spCore = pCore;
+	m_spCore = pCore;
 
-    // connect up the event interface
-    CComPtr<IConnectionPointContainer>  spConnectionContainer;
+	// connect up the event interface
+	CComPtr<IConnectionPointContainer> spConnectionContainer;
 
-    hr = m_spCore->QueryInterface( &spConnectionContainer );
+	hr = m_spCore->QueryInterface(&spConnectionContainer);
 
-    if (SUCCEEDED(hr))
-    {
-        hr = spConnectionContainer->FindConnectionPoint( __uuidof(IWMPEvents), &m_spConnectionPoint );
-    }
+	if (SUCCEEDED(hr))
+	{
+		hr = spConnectionContainer->FindConnectionPoint(__uuidof(IWMPEvents), &m_spConnectionPoint);
+	}
 
-    if (SUCCEEDED(hr))
-    {
-        hr = m_spConnectionPoint->Advise( GetUnknown(), &m_dwAdviseCookie );
+	if (SUCCEEDED(hr))
+	{
+		hr = m_spConnectionPoint->Advise(GetUnknown(), &m_dwAdviseCookie);
 
-        if ((FAILED(hr)) || (0 == m_dwAdviseCookie))
-        {
-            m_spConnectionPoint = NULL;
-        }
-    }
+		if ((FAILED(hr)) || (0 == m_dwAdviseCookie))
+		{
+			m_spConnectionPoint = NULL;
+		}
+	}
 
-    return hr;
+	return hr;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -323,15 +313,15 @@ STDMETHODIMP CProjectMwmp::SetCore(IWMPCore * pCore)
 STDMETHODIMP CProjectMwmp::Create(HWND hwndParent)
 {
 
-    m_hwndParent = hwndParent;
-	if(!starting) 
+	m_hwndParent = hwndParent;
+	if (!starting)
 	{
-		delete(globalPM);
+		delete (globalPM);
 		starting = true;
 	}
 
-//
-    return S_OK;
+	//
+	return S_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -344,37 +334,36 @@ STDMETHODIMP CProjectMwmp::Destroy()
 {
 	if (!starting)
 	{
-	    m_hwndParent = NULL;
+		m_hwndParent = NULL;
 		starting = true;
-		delete(globalPM);
+		delete (globalPM);
 		return S_OK;
 	}
 }
 
+char *ConvertBSTRToLPSTR(BSTR bstrIn)
+{
+	LPSTR pszOut = NULL;
 
-char* ConvertBSTRToLPSTR (BSTR bstrIn)
-   {
-   	LPSTR pszOut = NULL;
-   
-   	if (bstrIn != NULL)
-   	{
-   		int nInputStrLen = SysStringLen (bstrIn);
-   
-   		// Double NULL Termination
-   		int nOutputStrLen = WideCharToMultiByte(CP_ACP, 0, bstrIn, nInputStrLen, NULL, 0, 0, 0) + 2;	
-   
-   		pszOut = new char [nOutputStrLen];
-   
-   		if (pszOut)
-   		{
-   		    memset (pszOut, 0x00, sizeof (char)*nOutputStrLen);
-   
- 		 WideCharToMultiByte (CP_ACP, 0, bstrIn, nInputStrLen, pszOut, nOutputStrLen, 0, 0);
-   		}
-   	 }
-   
-   	return pszOut;
-   }
+	if (bstrIn != NULL)
+	{
+		int nInputStrLen = SysStringLen(bstrIn);
+
+		// Double NULL Termination
+		int nOutputStrLen = WideCharToMultiByte(CP_ACP, 0, bstrIn, nInputStrLen, NULL, 0, 0, 0) + 2;
+
+		pszOut = new char[nOutputStrLen];
+
+		if (pszOut)
+		{
+			memset(pszOut, 0x00, sizeof(char) * nOutputStrLen);
+
+			WideCharToMultiByte(CP_ACP, 0, bstrIn, nInputStrLen, pszOut, nOutputStrLen, 0, 0);
+		}
+	}
+
+	return pszOut;
+}
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::NotifyNewMedia
 // Invoked when a new media stream begins playing.
@@ -386,30 +375,29 @@ STDMETHODIMP CProjectMwmp::NotifyNewMedia(IWMPMedia *pMedia)
 {
 	if (starting == false && pMedia != NULL)
 	{
-	CComBSTR name;
-	pMedia->get_name(&name);	
+		CComBSTR name;
+		pMedia->get_name(&name);
 
-	LPTSTR pszConvertedCharStr = ConvertBSTRToLPSTR (name);
-    std::string strConverted (pszConvertedCharStr);
-  
-    delete [] pszConvertedCharStr;
+		LPTSTR pszConvertedCharStr = ConvertBSTRToLPSTR(name);
+		std::string strConverted(pszConvertedCharStr);
 
-	globalPM->projectM_setTitle(strConverted);
-    return S_OK;
+		delete[] pszConvertedCharStr;
+
+		globalPM->projectM_setTitle(strConverted);
+		return S_OK;
 	}
 }
-
-
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::OnWindowMessage
 // Window messages sent to the parent window.
 //////////////////////////////////////////////////////////////////////////////
-STDMETHODIMP CProjectMwmp::OnWindowMessage(UINT msg, WPARAM WParam, LPARAM LParam, LRESULT *plResultParam )
+STDMETHODIMP CProjectMwmp::OnWindowMessage(
+	UINT msg, WPARAM WParam, LPARAM LParam, LRESULT *plResultParam)
 {
-    // return S_OK only if the plugin has handled the window message
-    // return S_FALSE to let the defWindowProc handle the message
-    return S_FALSE;
+	// return S_OK only if the plugin has handled the window message
+	// return S_FALSE to let the defWindowProc handle the message
+	return S_FALSE;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -421,32 +409,32 @@ STDMETHODIMP CProjectMwmp::OnWindowMessage(UINT msg, WPARAM WParam, LPARAM LPara
 // album art visualizations) to only render when the parent window requires it,
 // instead of n times a second for dynamic visualizations.
 //////////////////////////////////////////////////////////////////////////////
-STDMETHODIMP CProjectMwmp::RenderWindowed(TimedLevel *pLevels, BOOL fRequiredRender )
+STDMETHODIMP CProjectMwmp::RenderWindowed(TimedLevel *pLevels, BOOL fRequiredRender)
 {
-    // NULL parent window should not happen 
-    if (NULL == m_hwndParent)
-    {
-        return E_UNEXPECTED;
-    }
+	// NULL parent window should not happen
+	if (NULL == m_hwndParent)
+	{
+		return E_UNEXPECTED;
+	}
 
-    // At this point the visualization should draw directly into the parent
-    // window. This sample just calls windowless render for simplicity.
+	// At this point the visualization should draw directly into the parent
+	// window. This sample just calls windowless render for simplicity.
 
-    HDC hdc = ::GetDC(m_hwndParent);
+	HDC hdc = ::GetDC(m_hwndParent);
 
-    if (NULL == hdc)
-    {
-        return E_FAIL;
-    }
+	if (NULL == hdc)
+	{
+		return E_FAIL;
+	}
 
-    RECT rParent = { 0 };
-    ::GetClientRect(m_hwndParent, &rParent);
+	RECT rParent = {0};
+	::GetClientRect(m_hwndParent, &rParent);
 
-    Render(pLevels, hdc, &rParent);
-    
-    ::ReleaseDC(m_hwndParent, hdc);
+	Render(pLevels, hdc, &rParent);
 
-    return S_OK;
+	::ReleaseDC(m_hwndParent, hdc);
+
+	return S_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -455,20 +443,20 @@ STDMETHODIMP CProjectMwmp::RenderWindowed(TimedLevel *pLevels, BOOL fRequiredRen
 //////////////////////////////////////////////////////////////////////////////
 void CProjectMwmp::ReleaseCore()
 {
-    if (m_spConnectionPoint)
-    {
-        if (0 != m_dwAdviseCookie)
-        {
-            m_spConnectionPoint->Unadvise(m_dwAdviseCookie);
-            m_dwAdviseCookie = 0;
-        }
-        m_spConnectionPoint = NULL;
-    }
+	if (m_spConnectionPoint)
+	{
+		if (0 != m_dwAdviseCookie)
+		{
+			m_spConnectionPoint->Unadvise(m_dwAdviseCookie);
+			m_dwAdviseCookie = 0;
+		}
+		m_spConnectionPoint = NULL;
+	}
 
-    if (m_spCore)
-    {
-        m_spCore = NULL;
-    }
+	if (m_spCore)
+	{
+		m_spCore = NULL;
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -477,9 +465,8 @@ void CProjectMwmp::ReleaseCore()
 //////////////////////////////////////////////////////////////////////////////
 STDMETHODIMP CProjectMwmp::get_foregroundColor(BSTR *pVal)
 {
-	return ColorToWz( pVal, m_clrForeground);
+	return ColorToWz(pVal, m_clrForeground);
 }
-
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::put_foregroundColor
@@ -490,103 +477,99 @@ STDMETHODIMP CProjectMwmp::put_foregroundColor(BSTR newVal)
 	return WzToColor(newVal, &m_clrForeground);
 }
 
-
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::WzToColor
 // Helper function used to convert a string into a COLORREF.
 //////////////////////////////////////////////////////////////////////////////
 HRESULT CProjectMwmp::WzToColor(const WCHAR *pwszColor, COLORREF *pcrColor)
-{ 
-    if (NULL == pwszColor)
-    {
-        //NULL color string passed in
-        return E_POINTER;
-    }
+{
+	if (NULL == pwszColor)
+	{
+		// NULL color string passed in
+		return E_POINTER;
+	}
 
-    if (0 == lstrlenW(pwszColor))
-    {
-        //Empty color string passed in
-        return E_INVALIDARG;
-    }
+	if (0 == lstrlenW(pwszColor))
+	{
+		// Empty color string passed in
+		return E_INVALIDARG;
+	}
 
-    if (NULL == pcrColor)
-    {
-        //NULL output color DWORD passed in
-        return E_POINTER;
-    }
-    
-    if (lstrlenW(pwszColor) != 7)
-    {
-        //hex color string is not of the correct length
-        return E_INVALIDARG;
-    }
+	if (NULL == pcrColor)
+	{
+		// NULL output color DWORD passed in
+		return E_POINTER;
+	}
 
-    DWORD dwRet = 0;
-    for (int i = 1; i < 7; i++)
-    {
-        // shift dwRet by 4
-        dwRet <<= 4;
-        // and add in the value of this string
+	if (lstrlenW(pwszColor) != 7)
+	{
+		// hex color string is not of the correct length
+		return E_INVALIDARG;
+	}
+
+	DWORD dwRet = 0;
+	for (int i = 1; i < 7; i++)
+	{
+		// shift dwRet by 4
+		dwRet <<= 4;
+		// and add in the value of this string
 
 		if ((pwszColor[i] >= L'0') && (pwszColor[i] <= L'9'))
 		{
-            dwRet += pwszColor[i] - '0';
-        }
-        else if ((pwszColor[i] >= L'A') && (pwszColor[i] <= L'F'))
-        {
-            dwRet += 10 + (pwszColor[i] - L'A');
-        }
-        else if ((pwszColor[i] >= L'a') && (pwszColor[i] <= L'f'))
-        {
-            dwRet += 10 + (pwszColor[i] - L'a');
-        }
-        else
-        {
-           //Invalid hex digit in color string
-            return E_INVALIDARG;
-        }
-    }
+			dwRet += pwszColor[i] - '0';
+		}
+		else if ((pwszColor[i] >= L'A') && (pwszColor[i] <= L'F'))
+		{
+			dwRet += 10 + (pwszColor[i] - L'A');
+		}
+		else if ((pwszColor[i] >= L'a') && (pwszColor[i] <= L'f'))
+		{
+			dwRet += 10 + (pwszColor[i] - L'a');
+		}
+		else
+		{
+			// Invalid hex digit in color string
+			return E_INVALIDARG;
+		}
+	}
 
-    *pcrColor = SwapBytes(dwRet);
+	*pcrColor = SwapBytes(dwRet);
 
-    return S_OK;
-} 
-
+	return S_OK;
+}
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::ColorToWz
 // Helper function used to convert a COLORREF to a BSTR.
 //////////////////////////////////////////////////////////////////////////////
-HRESULT CProjectMwmp::ColorToWz( BSTR* pbstrColor, COLORREF crColor)
+HRESULT CProjectMwmp::ColorToWz(BSTR *pbstrColor, COLORREF crColor)
 {
-    _ASSERT( NULL != pbstrColor );
-    _ASSERT( (crColor & 0x00FFFFFF) == crColor );
+	_ASSERT(NULL != pbstrColor);
+	_ASSERT((crColor & 0x00FFFFFF) == crColor);
 
-    *pbstrColor = NULL;
+	*pbstrColor = NULL;
 
-    WCHAR wsz[8];
-    HRESULT hr  = S_OK;
+	WCHAR wsz[8];
+	HRESULT hr = S_OK;
 
-    swprintf_s( wsz, sizeof(wsz)/sizeof(wsz[0]), L"#%06X", SwapBytes(crColor) );
-    
-    *pbstrColor = ::SysAllocString( wsz );
+	swprintf_s(wsz, sizeof(wsz) / sizeof(wsz[0]), L"#%06X", SwapBytes(crColor));
 
-    if (!pbstrColor)
-    {
-        hr = E_FAIL;
-    }
+	*pbstrColor = ::SysAllocString(wsz);
 
-    return hr;
+	if (!pbstrColor)
+	{
+		hr = E_FAIL;
+	}
+
+	return hr;
 }
-
 
 //////////////////////////////////////////////////////////////////////////////
 // CProjectMwmp::SwapBytes
-// Used to convert between a DWORD and COLORREF.  Simply swaps the lowest 
+// Used to convert between a DWORD and COLORREF.  Simply swaps the lowest
 // and 3rd order bytes.
 //////////////////////////////////////////////////////////////////////////////
 inline DWORD CProjectMwmp::SwapBytes(DWORD dwRet)
 {
-    return ((dwRet & 0x0000FF00) | ((dwRet & 0x00FF0000) >> 16) | ((dwRet & 0x000000FF) << 16));
+	return ((dwRet & 0x0000FF00) | ((dwRet & 0x00FF0000) >> 16) | ((dwRet & 0x000000FF) << 16));
 }
-

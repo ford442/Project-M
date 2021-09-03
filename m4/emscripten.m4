@@ -3,9 +3,9 @@ AC_DEFUN([AM_EMSCRIPTEN],
   AC_MSG_CHECKING(for emscripten compiler)
   emscripten_compiler=no
   AC_TRY_COMPILE([
-      #ifndef EMSCRIPTEN
-      #error "not an emscripten compiler"
-      #endif
+#ifndef EMSCRIPTEN
+#error "not an emscripten compiler"
+#endif
       ],[
       ],[
        host=javascript-web-emscripten

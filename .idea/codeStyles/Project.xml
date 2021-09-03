@@ -1,0 +1,318 @@
+<component name="ProjectCodeStyleConfiguration">
+  <code_scheme name="Project" version="173">
+    <option name="OTHER_INDENT_OPTIONS">
+      <value>
+        <option name="INDENT_SIZE" value="0" />
+      </value>
+    </option>
+    <CssCodeStyleSettings>
+      <option name="HEX_COLOR_UPPER_CASE" value="true" />
+      <option name="HEX_COLOR_LONG_FORMAT" value="true" />
+      <option name="BLANK_LINES_BETWEEN_BLOCKS" value="0" />
+      <option name="BLANK_LINES_AROUND_NESTED_SELECTOR" value="0" />
+      <option name="SPACE_AFTER_COLON" value="false" />
+      <option name="SPACE_BEFORE_OPENING_BRACE" value="false" />
+      <option name="ENFORCE_QUOTES_ON_FORMAT" value="true" />
+    </CssCodeStyleSettings>
+    <HTMLCodeStyleSettings>
+      <option name="HTML_ATTRIBUTE_WRAP" value="0" />
+      <option name="HTML_TEXT_WRAP" value="0" />
+      <option name="HTML_KEEP_LINE_BREAKS" value="false" />
+      <option name="HTML_KEEP_LINE_BREAKS_IN_TEXT" value="false" />
+      <option name="HTML_KEEP_BLANK_LINES" value="0" />
+      <option name="HTML_ALIGN_ATTRIBUTES" value="false" />
+    </HTMLCodeStyleSettings>
+    <JSCodeStyleSettings version="0">
+      <option name="FORCE_SEMICOLON_STYLE" value="true" />
+      <option name="SPACE_AFTER_TYPE_COLON" value="false" />
+      <option name="SPACE_AFTER_GENERATOR_MULT" value="false" />
+      <option name="SPACE_AFTER_PROPERTY_COLON" value="false" />
+      <option name="SPACE_BEFORE_FUNCTION_LEFT_PARENTH" value="false" />
+      <option name="SPACE_BEFORE_CLASS_LBRACE" value="false" />
+      <option name="ENFORCE_TRAILING_COMMA" value="Remove" />
+      <option name="VAR_DECLARATION_WRAP" value="0" />
+      <option name="OBJECT_LITERAL_WRAP" value="0" />
+      <option name="IMPORTS_WRAP" value="0" />
+      <option name="INDENT_CHAINED_CALLS" value="false" />
+      <option name="CHAINED_CALL_DOT_ON_NEW_LINE" value="false" />
+      <option name="SPACE_BEFORE_ASYNC_ARROW_LPAREN" value="false" />
+      <option name="BLANK_LINES_AROUND_FUNCTION" value="0" />
+    </JSCodeStyleSettings>
+    <JSON>
+      <option name="SPACE_AFTER_COLON" value="false" />
+      <option name="OBJECT_WRAPPING" value="0" />
+      <option name="ARRAY_WRAPPING" value="0" />
+    </JSON>
+    <Objective-C>
+      <option name="INDENT_NAMESPACE_MEMBERS" value="0" />
+      <option name="INDENT_C_STRUCT_MEMBERS" value="0" />
+      <option name="INDENT_CLASS_MEMBERS" value="0" />
+      <option name="INDENT_BLOCK_COMMENT" value="false" />
+      <option name="INDENT_INSIDE_CODE_BLOCK" value="0" />
+      <option name="KEEP_STRUCTURES_IN_ONE_LINE" value="true" />
+      <option name="KEEP_CASE_EXPRESSIONS_IN_ONE_LINE" value="true" />
+      <option name="KEEP_NESTED_NAMESPACES_IN_ONE_LINE" value="true" />
+      <option name="NAMESPACE_BRACE_PLACEMENT" value="2" />
+      <option name="FUNCTION_BRACE_PLACEMENT" value="2" />
+      <option name="BLOCK_BRACE_PLACEMENT" value="2" />
+      <option name="FUNCTION_NON_TOP_AFTER_RETURN_TYPE_WRAP" value="0" />
+      <option name="FUNCTION_TOP_AFTER_RETURN_TYPE_WRAP" value="0" />
+      <option name="FUNCTION_PARAMETERS_WRAP" value="0" />
+      <option name="FUNCTION_PARAMETERS_ALIGN_MULTILINE" value="false" />
+      <option name="FUNCTION_CALL_ARGUMENTS_WRAP" value="0" />
+      <option name="FUNCTION_CALL_ARGUMENTS_ALIGN_MULTILINE" value="false" />
+      <option name="SHIFT_OPERATION_WRAP" value="0" />
+      <option name="SHIFT_OPERATION_ALIGN_MULTILINE" value="false" />
+      <option name="TEMPLATE_DECLARATION_STRUCT_WRAP" value="0" />
+      <option name="TEMPLATE_DECLARATION_FUNCTION_WRAP" value="0" />
+      <option name="CLASS_CONSTRUCTOR_INIT_LIST_WRAP" value="0" />
+      <option name="CLASS_CONSTRUCTOR_INIT_LIST_ALIGN_MULTILINE" value="false" />
+      <option name="CLASS_CONSTRUCTOR_INIT_LIST_NEW_LINE_BEFORE_COLON" value="0" />
+      <option name="SUPERCLASS_LIST_WRAP" value="0" />
+      <option name="SUPERCLASS_LIST_ALIGN_MULTILINE" value="false" />
+      <option name="SUPERCLASS_LIST_BEFORE_COLON" value="0" />
+      <option name="SPACE_BEFORE_NAMESPACE_LBRACE" value="false" />
+      <option name="SPACE_AFTER_STRUCTURES_RBRACE" value="false" />
+    </Objective-C>
+    <Objective-C-extensions>
+      <file>
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Import" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Macro" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Typedef" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Enum" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Constant" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Global" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Struct" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="Function" />
+        <option name="com.jetbrains.cidr.lang.util.OCDeclarationKind" value="FunctionPredecl" />
+      </file>
+      <extensions>
+        <pair source="c" header="h" fileNamingConvention="LOWERCASE" />
+        <pair source="c" header="h" fileNamingConvention="NONE" />
+        <pair source="cu" header="cuh" fileNamingConvention="NONE" />
+      </extensions>
+    </Objective-C-extensions>
+    <TypeScriptCodeStyleSettings version="0">
+      <option name="SPACE_BEFORE_FUNCTION_LEFT_PARENTH" value="false" />
+      <option name="SPACE_BEFORE_CLASS_LBRACE" value="false" />
+      <option name="VAR_DECLARATION_WRAP" value="0" />
+      <option name="INDENT_CHAINED_CALLS" value="false" />
+      <option name="SPACE_BEFORE_ASYNC_ARROW_LPAREN" value="false" />
+      <option name="BLANK_LINES_AROUND_FUNCTION" value="0" />
+    </TypeScriptCodeStyleSettings>
+    <clangFormatSettings>
+      <option name="ENABLED" value="true" />
+    </clangFormatSettings>
+    <codeStyleSettings language="CMake">
+      <option name="KEEP_BLANK_LINES_IN_CODE" value="0" />
+      <option name="SPACE_BEFORE_IF_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_WHILE_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_FOR_PARENTHESES" value="false" />
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="CSS">
+      <option name="KEEP_BLANK_LINES_IN_CODE" value="0" />
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="GLSL">
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="HTML">
+      <option name="LINE_COMMENT_AT_FIRST_COLUMN" value="false" />
+      <option name="BLOCK_COMMENT_AT_FIRST_COLUMN" value="false" />
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="JSON">
+      <option name="SPACE_AFTER_COMMA" value="false" />
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="JavaScript">
+      <option name="RIGHT_MARGIN" value="220" />
+      <option name="KEEP_LINE_BREAKS" value="false" />
+      <option name="KEEP_FIRST_COLUMN_COMMENT" value="false" />
+      <option name="KEEP_BLANK_LINES_IN_CODE" value="0" />
+      <option name="BLANK_LINES_AFTER_IMPORTS" value="0" />
+      <option name="BLANK_LINES_AROUND_CLASS" value="0" />
+      <option name="BLANK_LINES_AROUND_METHOD" value="0" />
+      <option name="ALIGN_MULTILINE_PARAMETERS" value="false" />
+      <option name="ALIGN_MULTILINE_FOR" value="false" />
+      <option name="SPACE_AROUND_ASSIGNMENT_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_RELATIONAL_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_ADDITIVE_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_MULTIPLICATIVE_OPERATORS" value="false" />
+      <option name="SPACE_AFTER_COMMA" value="false" />
+      <option name="SPACE_BEFORE_IF_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_WHILE_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_FOR_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_CATCH_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_SWITCH_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_METHOD_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_IF_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_ELSE_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_WHILE_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_FOR_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_DO_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_SWITCH_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_TRY_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_CATCH_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_FINALLY_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_ELSE_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_WHILE_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_CATCH_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_FINALLY_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_QUEST" value="false" />
+      <option name="SPACE_AFTER_QUEST" value="false" />
+      <option name="SPACE_BEFORE_COLON" value="false" />
+      <option name="SPACE_AFTER_COLON" value="false" />
+      <option name="KEEP_SIMPLE_BLOCKS_IN_ONE_LINE" value="true" />
+      <option name="KEEP_SIMPLE_METHODS_IN_ONE_LINE" value="true" />
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="Makefile">
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+        <option name="USE_TAB_CHARACTER" value="false" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="Markdown">
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="ObjectiveC">
+      <option name="RIGHT_MARGIN" value="220" />
+      <option name="LINE_COMMENT_AT_FIRST_COLUMN" value="false" />
+      <option name="BLOCK_COMMENT_AT_FIRST_COLUMN" value="false" />
+      <option name="KEEP_LINE_BREAKS" value="false" />
+      <option name="KEEP_FIRST_COLUMN_COMMENT" value="false" />
+      <option name="KEEP_BLANK_LINES_IN_DECLARATIONS" value="0" />
+      <option name="KEEP_BLANK_LINES_IN_CODE" value="0" />
+      <option name="KEEP_BLANK_LINES_BEFORE_RBRACE" value="0" />
+      <option name="BLANK_LINES_BEFORE_IMPORTS" value="0" />
+      <option name="BLANK_LINES_AFTER_IMPORTS" value="0" />
+      <option name="BLANK_LINES_AROUND_CLASS" value="0" />
+      <option name="BLANK_LINES_AROUND_METHOD" value="0" />
+      <option name="BLANK_LINES_AROUND_METHOD_IN_INTERFACE" value="0" />
+      <option name="BRACE_STYLE" value="2" />
+      <option name="CLASS_BRACE_STYLE" value="2" />
+      <option name="INDENT_CASE_FROM_SWITCH" value="false" />
+      <option name="SPECIAL_ELSE_IF_TREATMENT" value="false" />
+      <option name="ALIGN_MULTILINE_FOR" value="false" />
+      <option name="ALIGN_MULTILINE_BINARY_OPERATION" value="false" />
+      <option name="ALIGN_MULTILINE_ASSIGNMENT" value="false" />
+      <option name="ALIGN_MULTILINE_TERNARY_OPERATION" value="false" />
+      <option name="ALIGN_MULTILINE_ARRAY_INITIALIZER_EXPRESSION" value="false" />
+      <option name="SPACE_AROUND_ASSIGNMENT_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_LOGICAL_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_EQUALITY_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_RELATIONAL_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_BITWISE_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_ADDITIVE_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_MULTIPLICATIVE_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_SHIFT_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_LAMBDA_ARROW" value="false" />
+      <option name="SPACE_AFTER_COMMA" value="false" />
+      <option name="SPACE_AFTER_SEMICOLON" value="false" />
+      <option name="SPACE_WITHIN_BRACES" value="false" />
+      <option name="SPACE_BEFORE_IF_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_WHILE_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_FOR_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_CATCH_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_SWITCH_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_CLASS_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_METHOD_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_IF_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_ELSE_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_WHILE_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_FOR_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_DO_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_SWITCH_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_TRY_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_CATCH_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_ELSE_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_WHILE_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_CATCH_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_COLON" value="false" />
+      <option name="SPACE_AFTER_COLON" value="false" />
+      <option name="BINARY_OPERATION_WRAP" value="0" />
+      <option name="TERNARY_OPERATION_WRAP" value="0" />
+      <option name="TERNARY_OPERATION_SIGNS_ON_NEXT_LINE" value="false" />
+      <option name="ARRAY_INITIALIZER_WRAP" value="0" />
+      <option name="ARRAY_INITIALIZER_LBRACE_ON_NEXT_LINE" value="true" />
+      <option name="ARRAY_INITIALIZER_RBRACE_ON_NEXT_LINE" value="true" />
+      <option name="IF_BRACE_FORCE" value="3" />
+      <option name="DOWHILE_BRACE_FORCE" value="3" />
+      <option name="WHILE_BRACE_FORCE" value="3" />
+      <option name="FOR_BRACE_FORCE" value="3" />
+      <option name="ENUM_CONSTANTS_WRAP" value="0" />
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+    <codeStyleSettings language="TypeScript">
+      <option name="KEEP_LINE_BREAKS" value="false" />
+      <option name="KEEP_FIRST_COLUMN_COMMENT" value="false" />
+      <option name="KEEP_BLANK_LINES_IN_CODE" value="0" />
+      <option name="BLANK_LINES_AFTER_IMPORTS" value="0" />
+      <option name="BLANK_LINES_AROUND_CLASS" value="0" />
+      <option name="BLANK_LINES_AROUND_METHOD" value="0" />
+      <option name="BLANK_LINES_AROUND_METHOD_IN_INTERFACE" value="0" />
+      <option name="SPACE_AROUND_ASSIGNMENT_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_ADDITIVE_OPERATORS" value="false" />
+      <option name="SPACE_AROUND_MULTIPLICATIVE_OPERATORS" value="false" />
+      <option name="SPACE_AFTER_COMMA" value="false" />
+      <option name="SPACE_BEFORE_IF_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_WHILE_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_FOR_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_CATCH_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_SWITCH_PARENTHESES" value="false" />
+      <option name="SPACE_BEFORE_METHOD_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_IF_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_ELSE_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_WHILE_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_FOR_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_DO_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_SWITCH_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_TRY_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_CATCH_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_FINALLY_LBRACE" value="false" />
+      <option name="SPACE_BEFORE_ELSE_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_WHILE_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_CATCH_KEYWORD" value="false" />
+      <option name="SPACE_BEFORE_FINALLY_KEYWORD" value="false" />
+      <indentOptions>
+        <option name="INDENT_SIZE" value="0" />
+        <option name="CONTINUATION_INDENT_SIZE" value="0" />
+        <option name="TAB_SIZE" value="1" />
+      </indentOptions>
+    </codeStyleSettings>
+  </code_scheme>
+</component>

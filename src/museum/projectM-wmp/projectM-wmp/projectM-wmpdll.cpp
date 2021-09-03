@@ -9,7 +9,6 @@
 #include "projectM-wmp_i.c"
 #include "projectM-wmp.h"
 
-
 CComModule _Module;
 
 BEGIN_OBJECT_MAP(ObjectMap)
@@ -19,17 +18,16 @@ END_OBJECT_MAP()
 /////////////////////////////////////////////////////////////////////////////
 // DLL Entry Point
 
-extern "C"
-BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID /*lpReserved*/)
+extern "C" BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID /*lpReserved*/)
 {
-    if (dwReason == DLL_PROCESS_ATTACH)
-    {
-        _Module.Init(ObjectMap, hInstance, &LIBID_PROJECTMWMPLib);
-        DisableThreadLibraryCalls(hInstance);
-    }
-    else if (dwReason == DLL_PROCESS_DETACH)
-        _Module.Term();
-    return TRUE;    // ok
+	if (dwReason == DLL_PROCESS_ATTACH)
+	{
+		_Module.Init(ObjectMap, hInstance, &LIBID_PROJECTMWMPLib);
+		DisableThreadLibraryCalls(hInstance);
+	}
+	else if (dwReason == DLL_PROCESS_DETACH)
+		_Module.Term();
+	return TRUE; // ok
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -37,15 +35,15 @@ BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID /*lpReserved*/)
 
 STDAPI DllCanUnloadNow(void)
 {
-    return (_Module.GetLockCount()==0) ? S_OK : S_FALSE;
+	return (_Module.GetLockCount() == 0) ? S_OK : S_FALSE;
 }
 
 /////////////////////////////////////////////////////////////////////////////
 // Returns a class factory to create an object of the requested type
 
-STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
+STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
 {
-    return _Module.GetClassObject(rclsid, riid, ppv);
+	return _Module.GetClassObject(rclsid, riid, ppv);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -53,15 +51,15 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
 
 STDAPI DllRegisterServer(void)
 {
-    // registers object, typelib and all interfaces in typelib
+	// registers object, typelib and all interfaces in typelib
 
-    HRESULT hr = _Module.RegisterServer();
+	HRESULT hr = _Module.RegisterServer();
 
-    // Notify WMP that plugin has been added
+	// Notify WMP that plugin has been added
 
-    WMPNotifyPluginAddRemove();
+	WMPNotifyPluginAddRemove();
 
-    return hr;
+	return hr;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -69,13 +67,11 @@ STDAPI DllRegisterServer(void)
 
 STDAPI DllUnregisterServer(void)
 {
-    HRESULT hr = _Module.UnregisterServer();
+	HRESULT hr = _Module.UnregisterServer();
 
-    // Notify WMP that plugin has been removed
+	// Notify WMP that plugin has been removed
 
-    WMPNotifyPluginAddRemove();
+	WMPNotifyPluginAddRemove();
 
-    return hr;
+	return hr;
 }
-
-

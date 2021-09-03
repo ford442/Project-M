@@ -1,7 +1,7 @@
 /*
  * Project: VizKit
  * Version: 2.3
- 
+
  * Date: 20090823
  * File: TrackTitle.h
  *
@@ -12,7 +12,7 @@
 Copyright (c) 2004-2009 Heiko Wichmann (http://www.imagomat.de/vizkit)
 
 
-This software is provided 'as-is', without any expressed or implied warranty. 
+This software is provided 'as-is', without any expressed or implied warranty.
 In no event will the authors be held liable for any damages
 arising from the use of this software.
 
@@ -20,14 +20,14 @@ Permission is granted to anyone to use this software for any purpose,
 including commercial applications, and to alter it and redistribute it
 freely, subject to the following restrictions:
 
-1. The origin of this software must not be misrepresented; 
-   you must not claim that you wrote the original software. 
-   If you use this software in a product, an acknowledgment 
-   in the product documentation would be appreciated 
-   but is not required.
+1. The origin of this software must not be misrepresented;
+	 you must not claim that you wrote the original software.
+	 If you use this software in a product, an acknowledgment
+	 in the product documentation would be appreciated
+	 but is not required.
 
-2. Altered source versions must be plainly marked as such, 
-   and must not be misrepresented as being the original software.
+2. Altered source versions must be plainly marked as such,
+	 and must not be misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
 
@@ -36,100 +36,98 @@ freely, subject to the following restrictions:
 #ifndef TrackTitle_h
 #define TrackTitle_h
 
-
 #include "VisualTypes.h"
 #include "VisualAsset.h"
 #include "VisualItemIdentifier.h"
 #include "VisualStringStyle.h"
 
+namespace VizKit
+{
 
-namespace VizKit {
+class VisualString; // Forward declaration (to avoid include of header file).
 
-	class VisualString; // Forward declaration (to avoid include of header file).
+/**
+ * Shows the title of the current audio track.
+ * TrackTitle performs the action of the TrackTitleActor.
+ */
+class TrackTitle
+{
+
+public:
+	/**
+	 * The constructor.
+	 */
+	TrackTitle();
 
 	/**
-	 * Shows the title of the current audio track.
-	 * TrackTitle performs the action of the TrackTitleActor.
+	 * The destructor.
 	 */
-	class TrackTitle {
+	~TrackTitle();
 
-	public:
+	/**
+	 * Shows the track title action.
+	 */
+	void show(void);
 
-		/**
-		 * The constructor.
-		 */
-		TrackTitle();
+	/**
+	 * Returns the current string style of the track info string.
+	 * @return The current string style of the track info string.
+	 */
+	VisualStringStyle getTrackInfoStringStyle(void);
 
-		/**
-		 * The destructor.
-		 */
-		~TrackTitle();
+	/**
+	 * Sets the image with the track info string.
+	 * @param styledTrackInfoStringImage The image with the track info string.
+	 */
+	void setTrackInfoImage(VisualImage &styledTrackInfoStringImage);
 
-		/**
-		 * Shows the track title action.
-		 */
-		void show(void);
+	/**
+	 * Returns the height of the track title texture in pixels.
+	 * @return The height of the track title texture in pixels.
+	 */
+	uint16 getTrackInfoTextureHeightInPixels(void);
 
-		/**
-		 * Returns the current string style of the track info string.
-		 * @return The current string style of the track info string.
-		 */
-		VisualStringStyle getTrackInfoStringStyle(void);
+	/**
+	 * Calculates the screen position of the track title texture.
+	 */
+	void reshape(void);
 
-		/**
-		 * Sets the image with the track info string.
-		 * @param styledTrackInfoStringImage The image with the track info string.
-		 */
-		void setTrackInfoImage(VisualImage& styledTrackInfoStringImage);
+	/**
+	 * Starts fading in the texture of the track title.
+	 * @param durationInMilliseconds The duration of the animation measured in milliseconds.
+	 */
+	void fadeIn(uint32 durationInMilliseconds);
 
-		/**
-		 * Returns the height of the track title texture in pixels.
-		 * @return The height of the track title texture in pixels.
-		 */
-		uint16 getTrackInfoTextureHeightInPixels(void);
+	/**
+	 * Starts fading out the texture of the track title.
+	 * @param durationInMilliseconds The duration of the animation measured in milliseconds.
+	 */
+	void fadeOut(uint32 durationInMilliseconds);
 
-		/**
-		 * Calculates the screen position of the track title texture.
-		 */
-		void reshape(void);
+	/**
+	 * Starts pulsating the texture (fade in / fade out) of the track title.
+	 */
+	void pulsate(void);
 
-		/**
-		 * Starts fading in the texture of the track title.
-		 * @param durationInMilliseconds The duration of the animation measured in milliseconds.
-		 */
-		void fadeIn(uint32 durationInMilliseconds);
+	/**
+	 * Clears the memory allocated for the track title action.
+	 */
+	void clear(void);
 
-		/**
-		 * Starts fading out the texture of the track title.
-		 * @param durationInMilliseconds The duration of the animation measured in milliseconds.
-		 */
-		void fadeOut(uint32 durationInMilliseconds);
+	/**
+	 * Adds a move animation to the asset.
+	 */
+	void addMoveAnimation(void);
 
-		/**
-		 * Starts pulsating the texture (fade in / fade out) of the track title.
-		 */
-		void pulsate(void);	
+private:
+	/** The asset of the track info action (contains texture and position too). */
+	VisualAsset trackInfoAsset;
 
-		/**
-		 * Clears the memory allocated for the track title action.
-		 */
-		void clear(void);
+	/** Identifier of the vertex chain (the vertices used for display of the track info string
+	 * texture). */
+	VisualItemIdentifier vertexChainId;
+};
 
-		/**
-		 * Adds a move animation to the asset.
-		 */
-		void addMoveAnimation(void);
-
-	private:
-
-		/** The asset of the track info action (contains texture and position too). */
-		VisualAsset trackInfoAsset;
-		
-		/** Identifier of the vertex chain (the vertices used for display of the track info string texture). */
-		VisualItemIdentifier vertexChainId;
-		
-	};
-
-}
+} // namespace VizKit
 
 #endif /* TrackTitle_h */

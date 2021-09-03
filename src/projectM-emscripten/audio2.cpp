@@ -33,9 +33,9 @@ SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
 EM_JS(void,pr,(),{
-EM_ASM(
 FS.mkdir('/presets');
-});}
+});
+}
 void swtch(){
 emscripten_pause_main_loop();
 app.pm->selectRandom(true);

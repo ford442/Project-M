@@ -35,6 +35,8 @@ extern "C" {
 EM_JS(void,pr,(),{
 FS.mkdir('/presets');
 });
+void chng();
+void pl();
 }
 void swtch(){
 emscripten_pause_main_loop();

@@ -6,6 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
+
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -67,7 +68,7 @@ app.settings.fps = FPS;
 app.settings.textureSize = 2048;
 app.settings.windowWidth = width;
 app.settings.windowHeight = width;
-app.settings.smoothPresetDuration = 3;
+app.settings.smoothPresetDuration = 1;
 app.settings.presetDuration = EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity = 1;
 app.settings.aspectCorrection = 0;
@@ -123,7 +124,7 @@ SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
 void pl(){cls_aud();
-char flnm[1024];
+char flnm[4096];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

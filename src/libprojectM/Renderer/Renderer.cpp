@@ -782,8 +782,7 @@ if ((static_cast<int>(left_half) + static_cast<int>(top_half) + static_cast<int>
 }
 cur_index += 6;
 }}}
-void Renderer::CompositeShaderOutput(const Pipeline& pipeline, const PipelineContext& pipelineContext)
-{
+void Renderer::CompositeShaderOutput(const Pipeline& pipeline, const PipelineContext& pipelineContext){
 float shade[4][3] = {
 {1.0f, 1.0f, 1.0f},
 {1.0f, 1.0f, 1.0f},
@@ -834,4 +833,4 @@ glBindVertexArray(m_vao_CompositeShaderOutput);
 glDrawArrays(GL_TRIANGLES, 0, primCount);
 glBindVertexArray(0);
 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-}
+}}

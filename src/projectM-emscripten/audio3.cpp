@@ -139,8 +139,8 @@ qu(1);
 }
 wave.pos=0;
 opn_aud();
-wave.spec.callback=bfr;
 SDL_PauseAudioDevice(dev,SDL_FALSE);
+wave.spec.callback=bfr;
 }}
 int main(){
 EM_ASM(

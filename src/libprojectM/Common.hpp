@@ -65,9 +65,9 @@ extern FILE *fmemopen(void *buf,size_t len,const char *pMode);
 #ifndef FALSE
 #define FALSE false
 #endif
-#define MAX_DOUBLE_SIZE10000000.0
+#define MAX_DOUBLE_SIZE 10000000.0
 #define MIN_DOUBLE_SIZE -10000000.0
-#define MAX_INT_SIZE10000000
+#define MAX_INT_SIZE 10000000
 #define MIN_INT_SIZE -10000000
 #define DEFAULT_DOUBLE_IV 0.0
 #define DEFAULT_DOUBLE_LB MIN_DOUBLE_SIZE

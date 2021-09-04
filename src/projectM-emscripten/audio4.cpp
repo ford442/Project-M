@@ -27,7 +27,7 @@ unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(1.0,1.0,1.0,0.9);
+glClearColor(0.0,0.0,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -132,6 +132,7 @@ qu(1);
 }
 wave.pos=0;
 wave.spec.callback=bfr;
+chng();
 opn_aud();
 }}
 int main(){

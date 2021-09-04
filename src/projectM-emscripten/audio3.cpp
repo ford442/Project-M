@@ -6,6 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
+
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -22,7 +23,7 @@ projectMApp;
 projectMApp app;
 
 void renderFrame(){
-unsigned char **sndBuf=&wave.snd;
+Uint8 * sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(1.0, 1.0, 1.0, 0.5);
@@ -82,35 +83,37 @@ printf("Select random preset.\n");
 app.pm->projectM_resetGL(width, height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-if ((m_dir = opendir("/")) == NULL)
-{
+if ((m_dir = opendir("/")) == NULL){
 printf("error opening /\n");
-}
-else
-{
+}else{
 struct dirent *dir_entry;
-while ((dir_entry = readdir(m_dir)) != NULL)
-{
+while ((dir_entry = readdir(m_dir)) != NULL){
 printf("%s\n", dir_entry->d_name);
 }}
-for (uint i = 0; i < app.pm->getPlaylistSize(); i++)
-{
+for (uint i = 0; i < app.pm->getPlaylistSize(); i++){
 printf("%d\t%s\n", i, app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame, 0, 0);
 }
 static void cls_aud(){if(dev!=0){
-SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;
+SDL_CloseAudioDevice(dev);dev=0;
 }}
-static void qu(int rc){SDL_Quit();exit(rc);
+static void qu(int rc){
+SDL_Quit();
+exit(rc);
 }
-static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
-if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);
-}
-void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+static void opn_aud(){
+dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
+if(!dev){
+SDL_FreeWAV(wave.snd);
+qu(2);
+}}
+void SDLCALL bfr(
+void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
-wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
+wptr=wave.snd+wave.pos;
+lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;
@@ -122,17 +125,22 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){cls_aud();
+void pl(){
+SDL_PauseAudioDevice(dev,SDL_TRUE);
+cls_aud();
 char flnm[2048];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
-if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
+if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL{
+qu(1);
+}
 wave.pos=0;
-wave.spec.callback=bfr;
 opn_aud();
+wave.spec.callback=bfr;
+SDL_PauseAudioDevice(dev,SDL_FALSE);
 }}
 int main(){
 EM_ASM(

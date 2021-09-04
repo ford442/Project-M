@@ -6,11 +6,11 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-typedef struct{
+typedef struct
+{
 projectM *pm;
 SDL_Window *win;
 SDL_GLContext *glCtx;
@@ -20,13 +20,23 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
+
 void viz(){
-auto sndBuff=&wave.snd;
-auto sndat=reinterpret_cast<short*>(&wave.snd);
-auto ll=sizeof(&wave.snd);
+auto sndBuf=&wave.snd;
+auto sndat=reinterpret_cast<short*>(sndBuf);
+auto ll=sizeof(sndBuf);
 }
 
-extern "C"{
+void renderFrame(){
+viz();
+app.pm->pcm()->addPCM16Data(sndat,ll);
+glClearColor(1.0, 1.0, 1.0, 0.5);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+app.pm->renderFrame();
+glFlush();
+SDL_GL_SwapWindow(app.win);
+}
+extern "C" {
 void swtch(){
 emscripten_pause_main_loop();
 app.pm->selectRandom(true);
@@ -117,8 +127,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){
-cls_aud();
+void pl(){cls_aud();
 char flnm[2048];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
@@ -130,17 +139,6 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }}
-
-void renderFrame(){
-viz();
-app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(1.0, 1.0, 1.0, 0.9);
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-app.pm->renderFrame();
-glFlush();
-SDL_GL_SwapWindow(app.win);
-}
-
 int main(){
 FS.mkdir('/presets');
 app.done = 0;

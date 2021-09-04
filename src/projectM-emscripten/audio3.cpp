@@ -23,7 +23,7 @@ SDL_AudioDeviceID dev;
 projectMApp;
 projectMApp app;
 void viz(){
-auto sndBuff=&wave.snd    
+auto sndBuff=&wave.snd;
 auto sndat=reinterpret_cast<short*>(&wave.snd);
 auto ll=sizeof(&wave.snd);
 }

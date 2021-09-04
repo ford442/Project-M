@@ -21,15 +21,10 @@ SDL_AudioDeviceID dev;
 projectMApp;
 projectMApp app;
 
-void viz(){
+void renderFrame(){
 auto sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-auto ll=sizeof(sndBuf);
-}
-
-void renderFrame(){
-viz();
-app.pm->pcm()->addPCM16Data(sndat,ll);
+auto ll=sizeof(sndBuf);app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(1.0, 1.0, 1.0, 0.5);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();

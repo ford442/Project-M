@@ -24,7 +24,7 @@ std::string m_buffer;
 int m_currentLine;
 const char* m_currentFileName;
 int m_spacesPerIndent;
-boolm_writeLines;
-boolm_writeFileNames;
+bool m_writeLines;
+bool m_writeFileNames;
 };}
 #endif

@@ -23,7 +23,7 @@ projectMApp;
 projectMApp app;
 
 void renderFrame(){
-Uint8 ** sndBuf=&wave.snd;
+unsigned char ** sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(1.0, 1.0, 1.0, 0.5);
@@ -139,8 +139,8 @@ qu(1);
 }
 wave.pos=0;
 opn_aud();
-SDL_PauseAudioDevice(dev,SDL_FALSE);
 wave.spec.callback=bfr;
+SDL_PauseAudioDevice(dev,SDL_FALSE);
 }}
 int main(){
 EM_ASM(

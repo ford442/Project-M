@@ -7,12 +7,10 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 
-
 const float FPS = 60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-typedef struct
-{
+typedef struct{
 projectM *pm;
 SDL_Window *win;
 SDL_GLContext *glCtx;
@@ -28,7 +26,7 @@ auto sndat=reinterpret_cast<short*>(&wave.snd);
 auto ll=sizeof(&wave.snd);
 }
 
-extern "C" {
+extern "C"{
 void swtch(){
 emscripten_pause_main_loop();
 app.pm->selectRandom(true);
@@ -134,6 +132,7 @@ opn_aud();
 }}
 
 void renderFrame(){
+viz();
 app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(1.0, 1.0, 1.0, 0.9);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

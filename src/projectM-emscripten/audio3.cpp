@@ -140,7 +140,9 @@ wave.spec.callback=bfr;
 opn_aud();
 }}
 int main(){
+EM_ASM(
 FS.mkdir('/presets');
+);
 app.done = 0;
 SDL_Init(SDL_INIT_VIDEO);
 return PROJECTM_SUCCESS;

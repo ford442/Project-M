@@ -23,7 +23,7 @@ projectMApp;
 projectMApp app;
 
 void renderFrame(){
-Uint8 * sndBuf=&wave.snd;
+Uint8 ** sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(1.0, 1.0, 1.0, 0.5);
@@ -134,7 +134,7 @@ SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
-if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL{
+if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);
 }
 wave.pos=0;

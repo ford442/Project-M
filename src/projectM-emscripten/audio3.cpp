@@ -121,7 +121,7 @@ wave.pos+=len;
 }
 void pl(){
 cls_aud();
-char flnm[4096];
+char flnm[8192];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
@@ -131,8 +131,8 @@ if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);
 }
 wave.pos=0;
-opn_aud();
 wave.spec.callback=bfr;
+opn_aud();
 }}
 int main(){
 EM_ASM(FS.mkdir('/presets'););

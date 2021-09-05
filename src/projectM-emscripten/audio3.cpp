@@ -10,7 +10,9 @@
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{
-SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;
+SDL_AudioSpec spec;
+Uint8 *snd;Uint32 slen;
+int pos;
 }wave;
 typedef struct{
 projectM *pm;
@@ -35,15 +37,15 @@ SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
 void swtch(){
-emscripten_pause_main_loop();
 app.pm->selectRandom(true);
-emscripten_resume_main_loop();
 }
 void lck(){
 app.pm->setPresetLock(true);
 }
 void chng(){
-int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
+int width=EM_ASM_INT({
+return document.getElementById('ihig').innerHTML;
+});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
@@ -58,7 +60,9 @@ app.settings.textureSize=4096;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=17;
-app.settings.presetDuration=EM_ASM_INT({return document.getElementById('dura').innerHTML;});
+app.settings.presetDuration=EM_ASM_INT({
+return document.getElementById('dura').innerHTML;
+});
 app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
@@ -85,17 +89,26 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){if(dev!=0){
-SDL_PauseAudioDevice(dev,SDL_TRUE);SDL_CloseAudioDevice(dev);dev=0;
+SDL_PauseAudioDevice(dev,SDL_TRUE);
+SDL_CloseAudioDevice(dev);
+dev=0;
 }}
-static void qu(int rc){SDL_Quit();exit(rc);
+static void qu(int rc){
+SDL_Quit();exit(rc);
 }
-static void opn_aud(){dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
-if(!dev){SDL_FreeWAV(wave.snd);qu(2);}SDL_PauseAudioDevice(dev,SDL_FALSE);
+static void opn_aud(){
+dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
+if(!dev){
+SDL_FreeWAV(wave.snd);
+qu(2);
+}
+SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
 void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
-wptr=wave.snd+wave.pos;lft=wave.slen-wave.pos;
+wptr=wave.snd+wave.pos;
+lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;

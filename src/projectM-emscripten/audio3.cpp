@@ -27,7 +27,7 @@ unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(0.0,0.0,0.0,0.0);
+glClearColor(0.0,0.5,0.0,0.5);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -42,18 +42,6 @@ emscripten_resume_main_loop();
 void lck(){
 app.pm->setPresetLock(true);
 }
-void tch(int x,int y){
-app.pm->touch(x,y,1,1);
-}
-void tchd(int x,int y){
-app.pm->touchDrag(x,y,1);
-}
-void tchdst(int x,int y){
-app.pm->touchDestroy(x,y);
-}  
-void tchdsta(int x,int y){
-app.pm->touchDestroyAll();
-}  
 void chng(){
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;

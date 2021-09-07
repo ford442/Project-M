@@ -7,17 +7,8 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <pthread.h>
-void chngt();
-void plt();
-void swtch();
-void lck();
+
 extern "C" {
-void swtch(){
-swtch();
-}
-void lck(){
-lck();
-}
 void chng(){
 pthread_t chn;
 pthread_create(&chn, NULL, chngt, NULL);
@@ -55,10 +46,10 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-void swtcht(){
+void swtch(){
 app.pm->selectRandom(true);
 }
-void lckt(){
+void lck(){
 app.pm->setPresetLock(true);
 }
 void *chngt(){

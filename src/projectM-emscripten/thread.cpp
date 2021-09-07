@@ -37,12 +37,6 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-void swtch(){
-app.pm->selectRandom(true);
-}
-void lck(){
-app.pm->setPresetLock(true);
-}
 static void cls_aud(){
 if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
@@ -139,6 +133,12 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 extern "C" {
+void swtch(){
+app.pm->selectRandom(true);
+}
+void lck(){
+app.pm->setPresetLock(true);
+}
 pthread_t change;
 pthread_t play;
 void chng(){

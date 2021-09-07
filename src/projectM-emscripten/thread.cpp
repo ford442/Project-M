@@ -115,9 +115,10 @@ printf("%s\n",dir_entry->d_name);
 for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
+return NULL;
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
-void *plt(void *b){
+static void *plt(){
 cls_aud();
 char flnm[256];
 SDL_FreeWAV(wave.snd);
@@ -146,7 +147,7 @@ chngt();
 }
 void pl(){
 pthread_t play;
-pthread_create(&play, NULL, plt(void *b), NULL);
+pthread_create(&play, NULL, plt, NULL);
 }}
 int main(){
 MAIN_THREAD_EM_ASM({

@@ -148,7 +148,6 @@ void pl(){
 pthread_create(&play, NULL, &plt, NULL);
 }}
 int main(){
-js();
 app.done=0;
 return 1;
 }

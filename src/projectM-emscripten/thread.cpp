@@ -136,7 +136,6 @@ qu(1);
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-return NULL;
 }
 extern "C" {
 pthread_t change;

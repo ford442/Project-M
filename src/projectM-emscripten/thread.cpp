@@ -226,7 +226,7 @@ document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });
 document.getElementById('btn3').addEventListener('click',function(){
-window.open('https://test.1ink.us/libflac.js/');
+window.open('../libflac.js/');
 });
 document.getElementById('btn').addEventListener('click',function(){
 let bz=new BroadcastChannel('bez');

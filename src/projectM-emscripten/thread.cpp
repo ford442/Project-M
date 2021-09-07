@@ -150,12 +150,6 @@ pthread_create(&play, NULL, &plt, NULL);
 void js(){
 MAIN_THREAD_ASYNC_EM_ASM({
 FS.mkdir('/presets');
-document.getElementById('dis').addEventListener('click',function(){
-Module.ccall("pl");
-});
-document.getElementById('btn5').addEventListener('click',function(){
-Module.ccall("lck");
-});
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
@@ -164,6 +158,12 @@ document.getElementById("ihig").innerHTML=window.innerHeight;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
+});
+document.getElementById('dis').addEventListener('click',function(){
+Module.ccall("pl");
+});
+document.getElementById('btn5').addEventListener('click',function(){
+Module.ccall("lck");
 });
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;
@@ -220,7 +220,7 @@ document.getElementById("contain2").width=window.innerHeight;
 document.getElementById("contain2").height=window.innerHeight;
 });
 document.getElementById('btn4').addEventListener('click',function(){
-Module.ccall("swtch");
+Module.ccall('swtch');
 });
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');

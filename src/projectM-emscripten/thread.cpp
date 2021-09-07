@@ -121,6 +121,7 @@ for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
+return NULL;
 }
 void *plt(){
 cls_aud();
@@ -136,6 +137,7 @@ qu(1);
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
+return NULL;
 }
 extern "C" {
 pthread_t change;

@@ -142,11 +142,11 @@ void lck(){
 lck();
 }
 void chng(){
-pthread_t change;
+pthread_t *change;
 pthread_create(&change, NULL, chngt, NULL);
 }
 void pl(){
-pthread_t play;
+pthread_t *play;
 pthread_create(&play, NULL, plt, NULL);
 }}
 int main(){

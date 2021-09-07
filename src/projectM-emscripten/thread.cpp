@@ -42,7 +42,9 @@ void lckt(){
 app.pm->setPresetLock(true);
 }
 void chngt(){
-int width=EM_ASM(return document.getElementById('ihig').innerHTML;);
+int width=EM_ASM_INT({
+return document.getElementById('ihig').innerHTML;
+});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);

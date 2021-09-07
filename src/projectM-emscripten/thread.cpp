@@ -72,7 +72,7 @@ wave.pos+=len;
 }
 void *chngt(void *b){
 SDL_Init(SDL_INIT_VIDEO);
-int width=EM_ASM_INT({
+int width=MAIN_THREAD_EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
 });
 int height=width;
@@ -89,7 +89,7 @@ app.settings.textureSize=4096;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=17;
-app.settings.presetDuration=EM_ASM_INT({
+app.settings.presetDuration=MAIN_THREAD_EM_ASM_INT({
 return document.getElementById('dura').innerHTML;
 });
 app.settings.beatSensitivity=1;

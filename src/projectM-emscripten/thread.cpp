@@ -35,10 +35,10 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-extern "C" {
 EM_ASM(
 let hi;
 );
+extern "C" {
 void swtch(){
 app.pm->selectRandom(true);
 }

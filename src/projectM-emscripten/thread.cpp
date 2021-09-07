@@ -175,9 +175,10 @@ var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/set1.milk',fil);
-}}
+}};
   
 ff.send(null);    
+ 
 ff2.open("GET",pth2,true);
 ff2.responseType="arraybuffer";
 ff2.onload=function(oEvent){
@@ -185,8 +186,10 @@ var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
 var fil=new Uint8ClampedArray(arrayBuffer2);
 FS.writeFile('/presets/set2.milk',fil);
-}}
-ff2.send(null); /*
+}};
+ff2.send(null);
+ 
+ /*
 ff3.open("GET",pth3,true);
 ff3.responseType="arraybuffer";
 ff3.onload=function(oEvent){

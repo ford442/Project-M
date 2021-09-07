@@ -43,6 +43,40 @@ app.pm->selectRandom(true);
 void lck(){
 app.pm->setPresetLock(true);
 }
+static void cls_aud(){if(dev!=0){
+SDL_PauseAudioDevice(dev,SDL_TRUE);
+SDL_CloseAudioDevice(dev);
+dev=0;
+}}
+static void qu(int rc){
+SDL_Quit();exit(rc);
+}
+static void opn_aud(){
+dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
+if(!dev){
+SDL_FreeWAV(wave.snd);
+qu(2);
+}
+SDL_PauseAudioDevice(dev,SDL_FALSE);
+}
+void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+Uint8 *wptr;
+int lft;
+wptr=wave.snd+wave.pos;
+lft=wave.slen-wave.pos;
+while (lft<=len){
+SDL_memcpy(stm,wptr,lft);
+stm+=lft;
+len-=lft;
+wptr=wave.snd;
+lft=wave.slen;
+wave.pos=0;
+}
+SDL_memcpy(stm,wptr,len);
+wave.pos+=len;
+}
+
+extern "C" {
 void *chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({
@@ -89,39 +123,6 @@ for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
-return NULL;
-}
-static void cls_aud(){if(dev!=0){
-SDL_PauseAudioDevice(dev,SDL_TRUE);
-SDL_CloseAudioDevice(dev);
-dev=0;
-}}
-static void qu(int rc){
-SDL_Quit();exit(rc);
-}
-static void opn_aud(){
-dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
-if(!dev){
-SDL_FreeWAV(wave.snd);
-qu(2);
-}
-SDL_PauseAudioDevice(dev,SDL_FALSE);
-}
-void SDLCALL bfr(void *unused,Uint8 * stm,int len){
-Uint8 *wptr;
-int lft;
-wptr=wave.snd+wave.pos;
-lft=wave.slen-wave.pos;
-while (lft<=len){
-SDL_memcpy(stm,wptr,lft);
-stm+=lft;
-len-=lft;
-wptr=wave.snd;
-lft=wave.slen;
-wave.pos=0;
-}
-SDL_memcpy(stm,wptr,len);
-wave.pos+=len;
 }
 void *plt(){
 cls_aud();
@@ -137,19 +138,15 @@ qu(1);
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-return NULL; 
 }
-
 pthread_t change;
 pthread_t play;
-extern "C" {
 void chng(){
 pthread_create(&change, NULL, chngt(), NULL);
 }
 void pl(){
 pthread_create(&play, NULL, plt(), NULL);
 }}
-
 int main(){
 EM_ASM(
 FS.mkdir('/presets');

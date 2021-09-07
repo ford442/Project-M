@@ -41,7 +41,7 @@ app.pm->selectRandom(true);
 void lckt(){
 app.pm->setPresetLock(true);
 }
-void chngt(){
+void *chngt(){
 int width=EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
 });
@@ -119,7 +119,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void plt(){
+void *plt(){
 cls_aud();
 char flnm[256];
 SDL_FreeWAV(wave.snd);

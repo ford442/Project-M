@@ -139,12 +139,12 @@ app.pm->selectRandom(true);
 void lck(){
 app.pm->setPresetLock(true);
 }
-pthread_t change;
-pthread_t play;
 void chng(){
+pthread_t change;
 pthread_create(&change, NULL, &chngt, NULL);
 }
 void pl(){
+pthread_t play;
 pthread_create(&play, NULL, &plt, NULL);
 }}
 int main(){

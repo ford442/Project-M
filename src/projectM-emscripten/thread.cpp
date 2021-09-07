@@ -117,6 +117,23 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
+extern "C" {
+void swtch(){
+app.pm->selectRandom(true);
+}
+void lck(){
+app.pm->setPresetLock(true);
+}
+void chng(){
+// pthread_t change;
+// pthread_create(&change, NULL, &chngt, NULL);
+chngt();
+}
+void pl(){
+pthread_t play;
+pthread_create(&play, NULL, plt, NULL);
+}}
+int main(){
 static void *plt(void *b){
 cls_aud();
 char flnm[256];
@@ -137,23 +154,6 @@ wave.spec.callback=bfr;
 opn_aud();
 return NULL;
 }
-extern "C" {
-void swtch(){
-app.pm->selectRandom(true);
-}
-void lck(){
-app.pm->setPresetLock(true);
-}
-void chng(){
-// pthread_t change;
-// pthread_create(&change, NULL, &chngt, NULL);
-chngt();
-}
-void pl(){
-pthread_t play;
-pthread_create(&play, NULL, plt, NULL);
-}}
-int main(){
 EM_ASM({
 FS.mkdir('/presets');
 let fll=new BroadcastChannel('file');

@@ -153,7 +153,7 @@ FS.mkdir('/presets');let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
 FS.writeFile('/sample.wav',fill);
-Module.ccall("pl");
+Module.ccall('pl');
 });
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;

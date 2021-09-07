@@ -214,6 +214,10 @@ FS.writeFile('/presets/set4.milk',fil);
 console.log('File: set4.milk.');
 }}
 ff4.send(null);
+document.getElementById("circle").width=window.innerWidth;
+document.getElementById("circle").height=window.innerHeight;
+document.getElementById("contain2").width=window.innerHeight;
+document.getElementById("contain2").height=window.innerHeight;
 });
 document.getElementById('btn4').addEventListener('click',function(){
 Module.ccall("swtch");
@@ -221,15 +225,11 @@ Module.ccall("swtch");
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });
-document.getElementById("circle").width=window.innerWidth;
-document.getElementById("circle").height=window.innerHeight;
-document.getElementById("contain2").width=window.innerHeight;
-document.getElementById("contain2").height=window.innerHeight;
 document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
-let bz=new BroadcastChannel('bez');
 document.getElementById('btn').addEventListener('click',function(){
+let bz=new BroadcastChannel('bez');
 let hi=window.innerHeight;
 let wi=window.innerWidth;
 document.getElementById("ihig").innerHTML=hi;

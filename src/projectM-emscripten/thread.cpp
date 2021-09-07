@@ -227,23 +227,7 @@ Module.ccall('chng');
 });
 document.getElementById('btn3').addEventListener('click',function(){
 window.open('../libflac.js/');
-});
-document.getElementById('btn').addEventListener('click',function(){
-let bz=new BroadcastChannel('bez');
-let hi=window.innerHeight;
-let wi=window.innerWidth;
-document.getElementById("ihig").innerHTML=hi;
-document.getElementById("iwid").innerHTML=hi;
-document.getElementById("circle").width=wi;
-document.getElementById("circle").height=hi;
-document.getElementById("canvas").style="width:"+window.innerHeight+"px;height:"+window.innerHeight+"px;";
-let mid=Math.round((wi*0.5)-(hi*0.5));
-let rmid=wi-mid;
-document.getElementById("contain2").style="pointer-events:none;z-index:999992;height:"+hi+"px;width:"+hi+"px;position:absolute;bottom:0px;left:"+mid+"px;";
-document.getElementById("di").click();
-bz.postMessage({
-data:222
-})})});}}
+});});}}
 int main(){
 js();
 app.done=0;

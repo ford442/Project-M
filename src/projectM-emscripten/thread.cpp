@@ -35,9 +35,7 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-EM_ASM(
-let hi;
-);
+
 extern "C" {
 void swtch(){
 app.pm->selectRandom(true);
@@ -46,9 +44,7 @@ void lck(){
 app.pm->setPresetLock(true);
 }
 void chng(){
-int width=EM_ASM_INT({
-return hi;
-});
+int width=1080;
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
@@ -141,11 +137,7 @@ opn_aud();
 int main(){
 EM_ASM(
 FS.mkdir('/presets');
-let hi=640;
-let hei=new BroadcastChannel('hihi');
-hei.addEventListener('message',ea=> {
-hi=ea.data;
-}););
+);
 app.done=0;
 SDL_Init(SDL_INIT_VIDEO);
 return 1;

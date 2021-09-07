@@ -89,6 +89,7 @@ for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
+return NULL;
 }
 static void cls_aud(){if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
@@ -136,6 +137,7 @@ qu(1);
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
+return NULL; 
 }
 extern "C" {
 void chng(){

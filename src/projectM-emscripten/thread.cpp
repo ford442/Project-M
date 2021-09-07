@@ -6,7 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-
+#include <pthread.h>
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{
@@ -35,16 +35,29 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-
 extern "C" {
 void swtch(){
-app.pm->selectRandom(true);
+swtch();
 }
 void lck(){
-app.pm->setPresetLock(true);
+lck();
 }
 void chng(){
-int width=1080;
+pthread_t change;
+pthread_create(&change, NULL, chngt, NULL);
+}
+void pl(){
+pthread_t play;
+pthread_create(&play, NULL, plt, NULL);
+}}
+void swtcht(){
+app.pm->selectRandom(true);
+}
+void lckt(){
+app.pm->setPresetLock(true);
+}
+void chngt(){
+int width=EM_ASM(return document.getElementById('ihig').innerHTML;);
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
@@ -119,7 +132,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){
+void plt(){
 cls_aud();
 char flnm[256];
 SDL_FreeWAV(wave.snd);
@@ -133,7 +146,7 @@ qu(1);
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-}}
+}
 int main(){
 EM_ASM(
 FS.mkdir('/presets');

@@ -35,21 +35,6 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-extern "C" {
-void swtch(){
-swtch();
-}
-void lck(){
-lck();
-}
-void chng(){
-pthread_t change;
-pthread_create(&change, NULL, chngt, NULL);
-}
-void pl(){
-pthread_t play;
-pthread_create(&play, NULL, plt, NULL);
-}}
 void swtcht(){
 app.pm->selectRandom(true);
 }
@@ -147,6 +132,21 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
+extern "C" {
+void swtch(){
+swtch();
+}
+void lck(){
+lck();
+}
+void chng(){
+pthread_t change;
+pthread_create(&change, NULL, chngt, NULL);
+}
+void pl(){
+pthread_t play;
+pthread_create(&play, NULL, plt, NULL);
+}}
 int main(){
 EM_ASM(
 FS.mkdir('/presets');

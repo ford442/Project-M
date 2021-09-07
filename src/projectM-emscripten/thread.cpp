@@ -122,8 +122,12 @@ cls_aud();
 char flnm[256];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
+printf("Sound initing. \n");
 SDL_SetMainReady();
-if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
+if (SDL_Init(SDL_INIT_AUDIO)<0){
+qu(1);
+printf("SDL INIT failed. \n");
+}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);

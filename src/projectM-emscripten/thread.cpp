@@ -159,12 +159,6 @@ document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
 });
-document.getElementById('dis').addEventListener('click',function(){
-Module.ccall("pl");
-});
-document.getElementById('btn5').addEventListener('click',function(){
-Module.ccall("lck");
-});
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;
 let pth2=document.getElementById('path2').innerHTML;
@@ -214,19 +208,6 @@ FS.writeFile('/presets/set4.milk',fil);
 console.log('File: set4.milk.');
 }}
 ff4.send(null);
-document.getElementById("circle").width=window.innerWidth;
-document.getElementById("circle").height=window.innerHeight;
-document.getElementById("contain2").width=window.innerHeight;
-document.getElementById("contain2").height=window.innerHeight;
-});
-document.getElementById('btn4').addEventListener('click',function(){
-Module.ccall("swtch");
-});
-document.getElementById('btn').addEventListener('click',function(){
-Module.ccall("chng");
-});
-document.getElementById('btn3').addEventListener('click',function(){
-window.open('../libflac.js/');
 });});}}
 int main(){
 js();

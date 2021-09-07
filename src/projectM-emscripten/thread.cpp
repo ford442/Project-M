@@ -241,9 +241,10 @@ document.getElementById("contain2").style="pointer-events:none;z-index:999992;he
 document.getElementById("di").click();
 bz.postMessage({
 data:222
-});
 }); */
 });
+});
 app.done=0;
+SDL_Init(SDL_INIT_VIDEO);
 return 1;
 }

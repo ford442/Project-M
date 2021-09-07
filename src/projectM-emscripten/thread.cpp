@@ -159,7 +159,7 @@ document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
 });
   
-  /*
+ 
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;
 let pth2=document.getElementById('path2').innerHTML;
@@ -210,6 +210,7 @@ console.log('File: set4.milk.');
 }}
 ff4.send(null);
 });
+   /*
 document.getElementById('dis').addEventListener('click',function(){
 Module.ccall("pl");
 });

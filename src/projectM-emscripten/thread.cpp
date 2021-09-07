@@ -76,7 +76,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void *chngt(void *b){
+void *chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
@@ -123,7 +123,7 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
-void *plt(void *b){
+void *plt(){
 cls_aud();
 char flnm[256];
 SDL_FreeWAV(wave.snd);
@@ -142,10 +142,10 @@ extern "C" {
 pthread_t change;
 pthread_t play;
 void chng(){
-pthread_create(&change, NULL, chngt, NULL);
+pthread_create(&change, NULL, &chngt, NULL);
 }
 void pl(){
-pthread_create(&play, NULL, plt, NULL);
+pthread_create(&play, NULL, &plt, NULL);
 }}
 int main(){
 EM_ASM(

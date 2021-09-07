@@ -7,6 +7,10 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <pthread.h>
+void *chngt();
+void *plt();
+void swtch();
+void lck();
 extern "C" {
 void swtch(){
 swtch();

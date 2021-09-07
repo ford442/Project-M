@@ -8,15 +8,6 @@
 #include <SDL2/SDL.h>
 #include <pthread.h>
 
-extern "C" {
-void chng(){
-pthread_t chn;
-pthread_create(&chn, NULL, chngt, NULL);
-}
-void pl(){
-pthread_t play;
-pthread_create(&play, NULL, plt, NULL);
-}}
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{
@@ -146,6 +137,15 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
+extern "C" {
+void chng(){
+pthread_t chn;
+pthread_create(&chn, NULL, chngt, NULL);
+}
+void pl(){
+pthread_t play;
+pthread_create(&play, NULL, plt, NULL);
+}}
 int main(){
 EM_ASM(
 FS.mkdir('/presets');

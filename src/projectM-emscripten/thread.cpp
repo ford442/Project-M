@@ -70,7 +70,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void *chngt(void *b){
+void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=MAIN_THREAD_EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;

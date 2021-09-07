@@ -7,7 +7,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <pthread.h>
-
+void *plt();
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{

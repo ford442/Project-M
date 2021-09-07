@@ -146,8 +146,8 @@ pthread_create(&change, NULL, &chngt, NULL);
 }
 void pl(){
 pthread_create(&play, NULL, &plt, NULL);
-}}
-int main(){
+}
+void js(){
 MAIN_THREAD_ASYNC_EM_ASM({
 FS.mkdir('/presets');
 document.getElementById('dis').addEventListener('click',function(){
@@ -243,7 +243,9 @@ document.getElementById("contain2").style="pointer-events:none;z-index:999992;he
 document.getElementById("di").click();
 bz.postMessage({
 data:222
-});});});
+});});});}
+int main(){
+js();
 app.done=0;
 return 1;
 }

@@ -141,10 +141,10 @@ extern "C" {
 pthread_t change;
 pthread_t play;
 void chng(){
-pthread_create(&change, NULL,void (chngt()), NULL);
+pthread_create(&change, NULL,&chngt, NULL);
 }
 void pl(){
-pthread_create(&play, NULL,void (plt()), NULL);
+pthread_create(&play, NULL,&plt, NULL);
 }}
 int main(){
 EM_ASM(

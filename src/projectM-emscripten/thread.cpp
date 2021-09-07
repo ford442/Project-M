@@ -245,6 +245,5 @@ data:222
 });
 });
 app.done=0;
-SDL_Init(SDL_INIT_VIDEO);
 return 1;
 }

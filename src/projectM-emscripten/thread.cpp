@@ -146,7 +146,7 @@ chngt();
 }
 void pl(){
 pthread_t play;
-pthread_create(&play, NULL, plt(), NULL);
+pthread_create(&play, NULL, plt(void *b), NULL);
 }}
 int main(){
 MAIN_THREAD_EM_ASM({

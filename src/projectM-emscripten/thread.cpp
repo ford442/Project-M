@@ -7,11 +7,27 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <pthread.h>
+extern "C" {
+void swtch(){
+swtch();
+}
+void lck(){
+lck();
+}
+void chng(){
+pthread_t chn;
+pthread_create(&chn, NULL, chngt, NULL);
+}
+void pl(){
+pthread_t play;
+pthread_create(&play, NULL, plt, NULL);
+}}
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{
 SDL_AudioSpec spec;
-Uint8 *snd;Uint32 slen;
+Uint8 *snd;
+Uint32 slen;
 int pos;
 }wave;
 typedef struct{
@@ -42,6 +58,7 @@ void lckt(){
 app.pm->setPresetLock(true);
 }
 void *chngt(){
+SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
 });
@@ -134,26 +151,10 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
-extern "C" {
-void swtch(){
-swtch();
-}
-void lck(){
-lck();
-}
-void chng(){
-pthread_t *_change;
-pthread_create(&_change, NULL, chngt, NULL);
-}
-void pl(){
-pthread_t *_play;
-pthread_create(&_play, NULL, plt, NULL);
-}}
 int main(){
 EM_ASM(
 FS.mkdir('/presets');
 );
 app.done=0;
-SDL_Init(SDL_INIT_VIDEO);
 return 1;
 }

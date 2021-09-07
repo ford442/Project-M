@@ -140,8 +140,9 @@ void lck(){
 app.pm->setPresetLock(true);
 }
 void chng(){
-pthread_t change;
-pthread_create(&change, NULL, &chngt, NULL);
+// pthread_t change;
+// pthread_create(&change, NULL, &chngt, NULL);
+chngt();
 }
 void pl(){
 pthread_t play;

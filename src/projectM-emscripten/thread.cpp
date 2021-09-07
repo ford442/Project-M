@@ -142,12 +142,12 @@ void lck(){
 lck();
 }
 void chng(){
-pthread_t *change;
-pthread_create(&change, NULL, chngt, NULL);
+pthread_t *_change;
+pthread_create(&_change, NULL, chngt, NULL);
 }
 void pl(){
-pthread_t *play;
-pthread_create(&play, NULL, plt, NULL);
+pthread_t *_play;
+pthread_create(&_play, NULL, plt, NULL);
 }}
 int main(){
 EM_ASM(

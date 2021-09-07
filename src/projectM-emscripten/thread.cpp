@@ -149,6 +149,7 @@ pthread_create(&play, NULL, &plt, NULL);
 }}
 int main(){
 MAIN_THREAD_EM_ASM({
+FS.mkdir('/presets');
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);

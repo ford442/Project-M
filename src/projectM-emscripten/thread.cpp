@@ -176,9 +176,8 @@ var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/set1.milk',fil);
-console.log('File: set1.milk.');
 }}
-ff.send(null);
+    ff.send(null);    
 ff2.open("GET",pth2,true);
 ff2.responseType="arraybuffer";
 ff2.onload=function(oEvent){
@@ -186,7 +185,6 @@ var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
 var fil=new Uint8ClampedArray(arrayBuffer2);
 FS.writeFile('/presets/set2.milk',fil);
-console.log('File: set2.milk.');
 }}
 ff2.send(null);
 ff3.open("GET",pth3,true);
@@ -196,7 +194,6 @@ var arrayBuffer3=ff3.response;
 if(arrayBuffer3){
 var fil=new Uint8ClampedArray(arrayBuffer3);
 FS.writeFile('/presets/set3.milk',fil);
-console.log('File: set3.milk.');
 }}
 ff3.send(null);
 ff4.open("GET",pth4,true);
@@ -206,7 +203,6 @@ var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
 var fil=new Uint8ClampedArray(arrayBuffer4);
 FS.writeFile('/presets/set4.milk',fil);
-console.log('File: set4.milk.');
 }}
 ff4.send(null);
 });

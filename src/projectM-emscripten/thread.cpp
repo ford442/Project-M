@@ -7,7 +7,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <pthread.h>
-#include <atomics.h>
 
 const float FPS=60;
 static SDL_AudioDeviceID dev;

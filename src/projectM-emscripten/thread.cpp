@@ -157,7 +157,7 @@ FS.writeFile('/sample.wav',fill);
 document.getElementById("ihig").innerHTML=window.innerHeight;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;
-document.getElementById("dis").click();
+Module.ccall("pl");
 });  
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;
@@ -204,9 +204,6 @@ var fil=new Uint8ClampedArray(arrayBuffer4);
 FS.writeFile('/presets/set4.milk',fil);
 }};
 ff4.send(null);
-});
-document.getElementById('dis').addEventListener('click',function(){
-Module.ccall("pl");
 });
 document.getElementById('btn5').addEventListener('click',function(){
 Module.ccall("lck");

@@ -139,8 +139,8 @@ wave.spec.callback=bfr;
 opn_aud();
 return NULL; 
 }
-pthread_t *change;
-pthread_t *play;
+pthread_t change;
+pthread_t play;
 extern "C" {
 void chng(){
 pthread_create(&change, NULL, chngt, NULL);

@@ -154,7 +154,7 @@ pthread_t play;
 pthread_create(&play, NULL, plt, NULL);
 }}
 int main(){
-MAIN_THREAD_EM_ASM({
+MAIN_THREAD_ASYNC_EM_ASM({
 FS.mkdir('/presets');
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {

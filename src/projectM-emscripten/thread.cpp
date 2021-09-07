@@ -149,8 +149,7 @@ pthread_create(&play, NULL, &plt, NULL);
 }
 void js(){
 MAIN_THREAD_ASYNC_EM_ASM({
-FS.mkdir('/presets');
-let fll=new BroadcastChannel('file');
+FS.mkdir('/presets');let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
 FS.writeFile('/sample.wav',fill);

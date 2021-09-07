@@ -139,12 +139,14 @@ wave.spec.callback=bfr;
 opn_aud();
 return NULL; 
 }
+pthread_t *change;
+pthread_t *play;
 extern "C" {
 void chng(){
-pthread_create(pthread_t *change, NULL, chngt, NULL);
+pthread_create(&change, NULL, chngt, NULL);
 }
 void pl(){
-pthread_create(pthread_t *play, NULL, plt, NULL);
+pthread_create(&play, NULL, plt, NULL);
 }}
 int main(){
 EM_ASM(

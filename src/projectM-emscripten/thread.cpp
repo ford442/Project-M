@@ -220,10 +220,10 @@ document.getElementById("contain2").width=window.innerHeight;
 document.getElementById("contain2").height=window.innerHeight;
 });
 document.getElementById('btn4').addEventListener('click',function(){
-Module.ccall('swtch');
+Module.ccall("swtch");
 });
 document.getElementById('btn').addEventListener('click',function(){
-Module.ccall('chng');
+Module.ccall("chng");
 });
 document.getElementById('btn3').addEventListener('click',function(){
 window.open('../libflac.js/');

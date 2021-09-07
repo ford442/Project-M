@@ -36,6 +36,9 @@ glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 extern "C" {
+EM_ASM(
+let hi;
+);
 void swtch(){
 app.pm->selectRandom(true);
 }
@@ -141,7 +144,7 @@ FS.mkdir('/presets');
 let hi=640;
 let hei=new BroadcastChannel('hihi');
 hei.addEventListener('message',ea=> {
-let hi=ea.data;
+hi=ea.data;
 }););
 app.done=0;
 SDL_Init(SDL_INIT_VIDEO);

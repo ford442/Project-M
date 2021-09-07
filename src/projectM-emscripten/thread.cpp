@@ -7,8 +7,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <pthread.h>
-void *plt();
-void *b;
+
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{
@@ -118,7 +117,6 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
-int main(){
 static void *plt(void *b){
 cls_aud();
 char flnm[256];
@@ -133,12 +131,14 @@ printf("SDL INIT failed. \n");
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);
+printf("WAV empty. \n");
 }
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 return NULL;
 }
+int main(){
 EM_ASM({
 FS.mkdir('/presets');
 let fll=new BroadcastChannel('file');
@@ -148,6 +148,7 @@ FS.writeFile('/sample.wav',fill);
 Module.ccall("pl");
 });  
 document.getElementById('btn2').addEventListener('click',function(){
+console.log('Writing presets.');
 let pth=document.getElementById('path').innerHTML;
 let pth2=document.getElementById('path2').innerHTML;
 let pth3=document.getElementById('path3').innerHTML;

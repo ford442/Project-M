@@ -149,7 +149,7 @@ pthread_create(&play, NULL, &plt, NULL);
 }}
 int main(){
 MAIN_THREAD_EM_ASM({
-  let fll=new BroadcastChannel('file');
+let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
 FS.writeFile('/sample.wav',fill);
@@ -157,8 +157,7 @@ document.getElementById("ihig").innerHTML=window.innerHeight;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("dis").click();
-});
-  
+});  
  
 document.getElementById('btn2').addEventListener('click',function(){
 let pth=document.getElementById('path').innerHTML;
@@ -177,7 +176,8 @@ if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/set1.milk',fil);
 }}
-    ff.send(null);    
+   /*
+ff.send(null);    
 ff2.open("GET",pth2,true);
 ff2.responseType="arraybuffer";
 ff2.onload=function(oEvent){
@@ -206,7 +206,7 @@ FS.writeFile('/presets/set4.milk',fil);
 }}
 ff4.send(null);
 });
-   /*
+  
 document.getElementById('dis').addEventListener('click',function(){
 Module.ccall("pl");
 });

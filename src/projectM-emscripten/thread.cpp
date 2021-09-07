@@ -75,8 +75,6 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-
-extern "C" {
 void *chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({
@@ -139,13 +137,14 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
+extern "C" {
 pthread_t change;
 pthread_t play;
 void chng(){
-pthread_create(&change, NULL, chngt(), NULL);
+pthread_create(&change, NULL,void chngt(), NULL);
 }
 void pl(){
-pthread_create(&play, NULL, plt(), NULL);
+pthread_create(&play, NULL,void plt(), NULL);
 }}
 int main(){
 EM_ASM(

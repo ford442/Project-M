@@ -44,7 +44,7 @@ app.pm->setPresetLock(true);
 }
 void chng(){
 int width=EM_ASM_INT({
-return document.getElementById('ihig').innerHTML;
+return hi;
 });
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
@@ -136,7 +136,13 @@ wave.spec.callback=bfr;
 opn_aud();
 }}
 int main(){
-EM_ASM(FS.mkdir('/presets'););
+EM_ASM(
+FS.mkdir('/presets');
+let hi=640;
+let hei=new BroadcastChannel('hihi');
+hei.addEventListener('message',ea=> {
+let hi=ea.data;
+}););
 app.done=0;
 SDL_Init(SDL_INIT_VIDEO);
 return 1;

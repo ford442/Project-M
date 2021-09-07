@@ -118,22 +118,6 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
-extern "C" {
-void swtch(){
-app.pm->selectRandom(true);
-}
-void lck(){
-app.pm->setPresetLock(true);
-}
-void chng(){
-// pthread_t change;
-// pthread_create(&change, NULL, &chngt, NULL);
-chngt();
-}
-void pl(){
-pthread_t play;
-pthread_create(&play, NULL, plt, NULL);
-}}
 int main(){
 static void *plt(void *b){
 cls_aud();
@@ -221,3 +205,19 @@ Module.ccall('chng');
 app.done=0;
 return 1;
 }
+extern "C" {
+void swtch(){
+app.pm->selectRandom(true);
+}
+void lck(){
+app.pm->setPresetLock(true);
+}
+void chng(){
+// pthread_t change;
+// pthread_create(&change, NULL, &chngt, NULL);
+chngt();
+}
+void pl(){
+pthread_t play;
+pthread_create(&play, NULL, plt, NULL);
+}}

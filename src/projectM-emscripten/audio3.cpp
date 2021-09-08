@@ -6,24 +6,11 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-
 const float FPS=60;
 static SDL_AudioDeviceID dev;
-static struct{
-SDL_AudioSpec spec;
-Uint8 *snd;Uint32 slen;
-int pos;
-}wave;
-typedef struct{
-projectM *pm;
-SDL_Window *win;
-SDL_GLContext *glCtx;
-bool done;
-projectM::Settings settings;
-SDL_AudioDeviceID dev;
-}
-projectMApp;
-projectMApp app;
+static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
+typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
+projectMApp;projectMApp app;
 static void renderFrame(){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
@@ -32,20 +19,13 @@ app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(0.0,0.0,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
-glFlush();
-SDL_GL_SwapWindow(app.win);
+glFlush();SDL_GL_SwapWindow(app.win);
 }
-void swtcht(){
-app.pm->selectRandom(true);
-}
-void lckt(){
-app.pm->setPresetLock(true);
-}
+void swtcht(){app.pm->selectRandom(true);}
+void lckt(){app.pm->setPresetLock(true);}
 static void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
-int width=EM_ASM_INT({
-return document.getElementById('ihig').innerHTML;
-});
+int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
@@ -60,9 +40,7 @@ app.settings.textureSize=4096;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=17;
-app.settings.presetDuration=EM_ASM_INT({
-return document.getElementById('dura').innerHTML;
-});
+app.settings.presetDuration=EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
@@ -93,16 +71,10 @@ SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);
 dev=0;
 }}
-static void qu(int rc){
-SDL_Quit();
-exit(rc);
-}
+static void qu(int rc){SDL_Quit();exit(rc);}
 static void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
-if(!dev){
-SDL_FreeWAV(wave.snd);
-qu(2);
-}
+if(!dev){SDL_FreeWAV(wave.snd);qu(2);}
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
 static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
@@ -118,8 +90,7 @@ wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
 }
-SDL_memcpy(stm,wptr,len);
-wave.pos+=len;
+SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }
 static void plt(){
 cls_aud();
@@ -129,30 +100,14 @@ SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
-if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
-qu(1);
-}
+if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
 extern "C" {
-void pl(){
-plt();
-}
-void chng(){
-chngt();
-}
-void lck(){
-lckt();
-}
-void swtch(){
-swtcht();
-}}
-int main(){
-EM_ASM({
-FS.mkdir('/presets');
-});
-app.done=0;
-return 1;
-}
+void pl(){plt();}
+void chng(){chngt();}
+void lck(){lckt();}
+void swtch(){swtcht();}}
+int main(){EM_ASM({FS.mkdir('/presets');});app.done=0;return 1;}

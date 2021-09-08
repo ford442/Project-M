@@ -219,6 +219,9 @@ void chng(){
 chngt();
 }
 void pl(){
+pthread_attr_t tattr;
+pthread_attr_init (&tattr);
+pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
 pthread_t play;
-pthread_create(&play, NULL, plt, NULL);
+pthread_create(&play, &tattr, plt, NULL);
 }}

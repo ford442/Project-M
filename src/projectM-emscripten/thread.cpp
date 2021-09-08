@@ -225,7 +225,8 @@ void pl(){
 // pthread_t play;
 // pthread_create(&play, NULL, plt, NULL);
 plt();
+}
 void rendStrt(){
 pthread_t play;
 pthread_create(&play, NULL, renderFrame, NULL);
-}}}
+}}

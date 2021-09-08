@@ -137,7 +137,6 @@ printf("WAV empty. \n");
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-return NULL;
 }
 int main(){
 EM_ASM({

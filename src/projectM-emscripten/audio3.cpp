@@ -127,7 +127,7 @@ wave.pos+=len;
 }
 static void pl(){
 cls_aud();
-char flnm[256];
+char flnm[64];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

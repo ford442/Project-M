@@ -26,7 +26,7 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-static int *renderFrame(void *b){
+static int *renderFrame(void *){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);

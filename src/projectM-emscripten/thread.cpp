@@ -6,7 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-#include <pthread.h>
+#include <SDL_thread.h>
 
 const float FPS=60;
 static SDL_AudioDeviceID dev;

@@ -26,7 +26,7 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-void renderFrame(){
+void *renderFrame(void *b){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
@@ -36,6 +36,7 @@ glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
+emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
 static void cls_aud(){
 if(dev!=0){
@@ -70,7 +71,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void *chngt(void *b){
+void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=MAIN_THREAD_EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
@@ -115,7 +116,7 @@ printf("%s\n",dir_entry->d_name);
 for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-emscripten_set_main_loop((void (*)())renderFrame,120,1);
+rendStrt();
 return NULL;
 }
 static void plt(){
@@ -213,9 +214,9 @@ void lck(){
 app.pm->setPresetLock(true);
 }
 void chng(){
-pthread_t change;
-pthread_create(&change, NULL, chngt, NULL);
-// chngt();
+// pthread_t change;
+// pthread_create(&change, NULL, chngt, NULL);
+chngt();
 }
 void pl(){
 // pthread_attr_t tattr;
@@ -224,4 +225,7 @@ void pl(){
 // pthread_t play;
 // pthread_create(&play, NULL, plt, NULL);
 plt();
-}}
+void rendStrt(){
+pthread_t play;
+pthread_create(&play, NULL, renderFrame, NULL);
+}}}

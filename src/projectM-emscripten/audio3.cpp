@@ -6,19 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-extern "C" {
-void pl(){
-plt();
-}
-void chng(){
-chngt();
-}
-void lck(){
-lckt();
-}
-void swtch(){
-swtcht();
-}}
+
 const float FPS=120;
 static SDL_AudioDeviceID dev;
 static struct{
@@ -147,6 +135,19 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
+extern "C" {
+void pl(){
+plt();
+}
+void chng(){
+chngt();
+}
+void lck(){
+lckt();
+}
+void swtch(){
+swtcht();
+}}
 int main(){
 EM_ASM(FS.mkdir('/presets'););
 app.done=0;

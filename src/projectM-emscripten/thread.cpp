@@ -25,7 +25,7 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-static void *renderFrame(){
+static void renderFrame(){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
@@ -43,7 +43,8 @@ SDL_CloseAudioDevice(dev);
 dev=0;
 }}
 static void qu(int rc){
-SDL_Quit();exit(rc);
+SDL_Quit();
+exit(rc);
 }
 static void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
@@ -71,7 +72,7 @@ wave.pos+=len;
 }
 static void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
-int width=MAIN_THREAD_EM_ASM_INT({
+int width=EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
 });
 int height=width;
@@ -88,7 +89,7 @@ app.settings.textureSize=4096;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=17;
-app.settings.presetDuration=MAIN_THREAD_EM_ASM_INT({
+app.settings.presetDuration=EM_ASM_INT({
 return document.getElementById('dura').innerHTML;
 });
 app.settings.beatSensitivity=1;

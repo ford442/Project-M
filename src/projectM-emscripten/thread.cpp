@@ -77,7 +77,7 @@ static void rendStrt(){
 // pthread_attr_init (&tattr);
 // pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
 SDL_Thread *rndr;
-SDL_CreateThread(renderFrame,"renderFrame", NULL);
+SDL_CreateThread(&renderFrame,"renderFrame", NULL);
 }
 static void chngt(){
 SDL_Init(SDL_INIT_VIDEO);

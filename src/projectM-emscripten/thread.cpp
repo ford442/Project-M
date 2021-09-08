@@ -69,13 +69,6 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-static void rendStrt(){
-// pthread_attr_t tattr;
-// pthread_attr_init (&tattr);
-// pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
-SDL_Thread *rndr;
-SDL_CreateThread(&renderFrame,"renderFrame", NULL);
-}
 static void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=MAIN_THREAD_EM_ASM_INT({

@@ -6,8 +6,13 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-
-const float FPS=60;
+extern "C" {
+void pl();
+void chng();
+void lck();
+void swtch();
+}
+const float FPS=120;
 static SDL_AudioDeviceID dev;
 static struct{
 SDL_AudioSpec spec;
@@ -24,25 +29,25 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-void renderFrame(){
+static void renderFrame(){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(0.0,0.5,0.0,0.5);
+glClearColor(0.0,0.0,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-extern "C" {
 void swtch(){
 app.pm->selectRandom(true);
 }
 void lck(){
 app.pm->setPresetLock(true);
 }
-void chng(){
+static void chng(){
+SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
 });
@@ -104,7 +109,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;
@@ -120,7 +125,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void pl(){
+static void pl(){
 cls_aud();
 char flnm[256];
 SDL_FreeWAV(wave.snd);
@@ -134,10 +139,8 @@ qu(1);
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
-}}
-int main(){
+}
+void main(){
 EM_ASM(FS.mkdir('/presets'););
 app.done=0;
-SDL_Init(SDL_INIT_VIDEO);
-return 1;
 }

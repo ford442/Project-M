@@ -7,7 +7,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 
-const float FPS=120;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{
 SDL_AudioSpec spec;
@@ -86,7 +86,7 @@ printf("%s\n",dir_entry->d_name);
 for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-emscripten_set_main_loop((void (*)())renderFrame,120,1);
+emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
@@ -94,7 +94,8 @@ SDL_CloseAudioDevice(dev);
 dev=0;
 }}
 static void qu(int rc){
-SDL_Quit();exit(rc);
+SDL_Quit();
+exit(rc);
 }
 static void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
@@ -149,7 +150,9 @@ void swtch(){
 swtcht();
 }}
 int main(){
-EM_ASM(FS.mkdir('/presets'););
+EM_ASM({
+FS.mkdir('/presets');
+});
 app.done=0;
 return 1;
 }

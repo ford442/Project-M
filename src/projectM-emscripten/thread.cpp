@@ -8,6 +8,30 @@
 #include <SDL2/SDL.h>
 #include <pthread.h>
 
+extern "C" {
+void swtch(){
+app.pm->selectRandom(true);
+}
+void lck(){
+app.pm->setPresetLock(true);
+}
+void chng(){
+// pthread_t change;
+// pthread_create(&change, NULL, chngt, NULL);
+chngt();
+}
+void pl(){
+// pthread_attr_t tattr;
+// pthread_attr_init (&tattr);
+// pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
+// pthread_t play;
+// pthread_create(&play, NULL, plt, NULL);
+plt();
+}
+void rendStrt(){
+pthread_t play;
+pthread_create(&play, NULL, renderFrame, NULL);
+}}
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{
@@ -206,27 +230,3 @@ Module.ccall('chng');
 });});
 app.done=0;
 }
-extern "C" {
-void swtch(){
-app.pm->selectRandom(true);
-}
-void lck(){
-app.pm->setPresetLock(true);
-}
-void chng(){
-// pthread_t change;
-// pthread_create(&change, NULL, chngt, NULL);
-chngt();
-}
-void pl(){
-// pthread_attr_t tattr;
-// pthread_attr_init (&tattr);
-// pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
-// pthread_t play;
-// pthread_create(&play, NULL, plt, NULL);
-plt();
-}
-void rendStrt(){
-pthread_t play;
-pthread_create(&play, NULL, renderFrame, NULL);
-}}

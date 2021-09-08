@@ -6,9 +6,8 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-#include <SDL_thread.h>
 
-static const float FPS=120;
+const float FPS=120;
 static SDL_AudioDeviceID dev;
 static struct{
 SDL_AudioSpec spec;
@@ -26,18 +25,16 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-static int *renderFrame(void *){
+static void *renderFrame(){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(0.0,0.5,0.0,0.5);
+glClearColor(1.0,1.0,1.0,1.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
-emscripten_set_main_loop((void (*)())renderFrame,120,1);
-return 0;
 }
 static void cls_aud(){
 if(dev!=0){
@@ -124,23 +121,21 @@ printf("%s\n",dir_entry->d_name);
 for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-rendStrt();
+emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
 static void plt(){
 cls_aud();
-char flnm[128];
+char flnm[64];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 printf("Sound initing. \n");
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){
 qu(1);
-printf("SDL INIT failed. \n");
 }
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);
-printf("WAV empty. \n");
 }
 wave.pos=0;
 wave.spec.callback=bfr;
@@ -213,7 +208,6 @@ Module.ccall('chng');
 });});
 app.done=0;
 }
-
 extern "C" {
 void swtch(){
 app.pm->selectRandom(true);
@@ -222,15 +216,8 @@ void lck(){
 app.pm->setPresetLock(true);
 }
 void chng(){
-// pthread_t change;
-// pthread_create(&change, NULL, chngt, NULL);
 chngt();
 }
 void pl(){
-// pthread_attr_t tattr;
-// pthread_attr_init (&tattr);
-// pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
-// pthread_t play;
-// pthread_create(&play, NULL, plt, NULL);
 plt();
 }}

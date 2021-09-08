@@ -115,7 +115,8 @@ printf("%s\n",dir_entry->d_name);
 for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-// emscripten_set_main_loop((void (*)())renderFrame,120,1);
+emscripten_set_main_loop((void (*)())renderFrame,120,1);
+return NULL;
 }
 static void plt(){
 cls_aud();
@@ -204,7 +205,6 @@ document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });});
 app.done=0;
-return 1;
 }
 extern "C" {
 void swtch(){

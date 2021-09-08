@@ -37,6 +37,7 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
+return NULL;
 }
 static void cls_aud(){
 if(dev!=0){
@@ -117,7 +118,6 @@ for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 rendStrt();
-return NULL;
 }
 static void plt(){
 cls_aud();

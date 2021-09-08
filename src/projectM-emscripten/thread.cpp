@@ -70,7 +70,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void chngt(){
+void *chngt(void *b){
 SDL_Init(SDL_INIT_VIDEO);
 int width=MAIN_THREAD_EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
@@ -117,9 +117,9 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 // emscripten_set_main_loop((void (*)())renderFrame,120,1);
 }
-static void *plt(void *b){
+static void plt(){
 cls_aud();
-char flnm[256];
+char flnm[128];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 printf("Sound initing. \n");
@@ -214,14 +214,15 @@ void lck(){
 app.pm->setPresetLock(true);
 }
 void chng(){
-// pthread_t change;
-// pthread_create(&change, NULL, &chngt, NULL);
-chngt();
+pthread_t change;
+pthread_create(&change, NULL, chngt, NULL);
+// chngt();
 }
 void pl(){
-pthread_attr_t tattr;
-pthread_attr_init (&tattr);
-pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
-pthread_t play;
-pthread_create(&play, &tattr, plt, NULL);
+// pthread_attr_t tattr;
+// pthread_attr_init (&tattr);
+// pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
+// pthread_t play;
+// pthread_create(&play, NULL, plt, NULL);
+plt();
 }}

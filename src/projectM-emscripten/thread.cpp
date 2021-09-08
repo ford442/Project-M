@@ -8,7 +8,7 @@
 #include <SDL2/SDL.h>
 #include <SDL_thread.h>
 
-const float FPS=60;
+static const float FPS=120;
 static SDL_AudioDeviceID dev;
 static struct{
 SDL_AudioSpec spec;
@@ -26,7 +26,7 @@ SDL_AudioDeviceID dev;
 }
 projectMApp;
 projectMApp app;
-void *renderFrame(void *b){
+static int *renderFrame(void *b){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
@@ -37,7 +37,7 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 emscripten_set_main_loop((void (*)())renderFrame,120,1);
-return NULL;
+return 0;
 }
 static void cls_aud(){
 if(dev!=0){
@@ -56,7 +56,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;
@@ -72,14 +72,14 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-void rendStrt(){
+static void rendStrt(){
 // pthread_attr_t tattr;
 // pthread_attr_init (&tattr);
 // pthread_attr_setscope(&tattr, PTHREAD_SCOPE_SYSTEM);
 SDL_Thread *rndr;
 SDL_CreateThread(renderFrame,"renderFrame", (void *)NULL);
 }
-void chngt(){
+static void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=MAIN_THREAD_EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;

@@ -7,11 +7,18 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 extern "C" {
-void pl();
-void chng();
-void lck();
-void swtch();
+void pl(){
+plt();
 }
+void chng(){
+chngt();
+}
+void lck(){
+lckt();
+}
+void swtch(){
+swtcht();
+}}
 const float FPS=120;
 static SDL_AudioDeviceID dev;
 static struct{
@@ -40,13 +47,13 @@ app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-void swtch(){
+void swtcht(){
 app.pm->selectRandom(true);
 }
-void lck(){
+void lckt(){
 app.pm->setPresetLock(true);
 }
-static void chng(){
+static void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({
 return document.getElementById('ihig').innerHTML;
@@ -125,7 +132,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-static void pl(){
+static void plt(){
 cls_aud();
 char flnm[64];
 SDL_FreeWAV(wave.snd);
@@ -140,7 +147,8 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
-void main(){
+int main(){
 EM_ASM(FS.mkdir('/presets'););
 app.done=0;
+return 1;
 }

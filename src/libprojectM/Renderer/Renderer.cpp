@@ -401,7 +401,7 @@ glCullFace(GL_BACK);
 #ifndef GL_TRANSITION
 glEnable(GL_LINE_SMOOTH);
 #endif
-glClearColor(1, 1, 1, 0);
+glClearColor(0, 0, 0, 1);
 glViewport(vstartx, vstarty, w, h);
 glEnable(GL_BLEND);
 texsizeX = w;

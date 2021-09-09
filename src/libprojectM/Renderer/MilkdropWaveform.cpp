@@ -180,7 +180,7 @@ wavearray[i][0]=(pcmdataR[i] * scale*0.5f + x);
 wavearray[i][1]=( (pcmdataL[i+32]*scale*0.5f + temp_y));
 }
 break;
-case DerivativeLine://single x-axis derivative waveform{
+case DerivativeLine:{
 rot =-mystery*90;
 aspectScale=1.0;
 float w1=0.45f + 0.5f*(mystery*0.5f + 0.5f);

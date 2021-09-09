@@ -118,7 +118,7 @@ float pcmdataL[512];
 float pcmdataR[512];
 context.beatDetect->pcm->getPCM(pcmdataL,CHANNEL_0,512,smoothing);
 context.beatDetect->pcm->getPCM(pcmdataR,CHANNEL_1,512,smoothing);
-const floatvol_scale=context.beatDetect->getPCMScale();
+const float vol_scale=context.beatDetect->getPCMScale();
 if (vol_scale != 1.0){
 for (int i=0 ; i<512 ; i++){
 pcmdataL[i] *= vol_scale;

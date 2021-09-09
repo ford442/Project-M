@@ -104,7 +104,7 @@ wave_r_switch=r*(1/b);
 wave_g_switch=g*(1/b);
 wave_b_switch=1.0;
 }
-elseif (g>=b && g>=r){
+else if (g>=b && g>=r){
 wave_b_switch=b*(1/g);
 wave_r_switch=r*(1/g);
 wave_g_switch=1.0;

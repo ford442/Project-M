@@ -12,10 +12,10 @@ static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 static void renderFrame(){
-app.pm->renderFrame();
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
+app.pm->renderFrame();
 app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(0.0,0.0,0.0,0.5);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -31,7 +31,7 @@ int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
 app.glCtx=&glCtx;
-SDL_SetWindowTitle(app.win,"Happy New Year 1999!!!!!!!!!!!!");
+SDL_SetWindowTitle(app.win,"1inkDrop (from 1ink.us)");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX=120;

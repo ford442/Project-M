@@ -15,8 +15,8 @@ static void renderFrame(){
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
-app.pm->renderFrame();
 app.pm->pcm()->addPCM16Data(sndat,ll);
+app.pm->renderFrame();
 glClearColor(0.0,0.0,0.0,0.5);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 glFlush();

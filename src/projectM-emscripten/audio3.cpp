@@ -12,14 +12,15 @@ static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 static void renderFrame(){
+app.pm->renderFrame();
 unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(0.0,0.0,0.0,1.0);
+glClearColor(0.0,0.0,0.0,0.5);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-app.pm->renderFrame();
-glFlush();SDL_GL_SwapWindow(app.win);
+glFlush();
+SDL_GL_SwapWindow(app.win);
 }
 void swtcht(){app.pm->selectRandom(true);}
 void lckt(){app.pm->setPresetLock(true);}
@@ -39,7 +40,7 @@ app.settings.fps=FPS;
 app.settings.textureSize=2048;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
-app.settings.smoothPresetDuration=30;
+app.settings.smoothPresetDuration=17;
 app.settings.presetDuration=EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;

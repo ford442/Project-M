@@ -31,17 +31,18 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 static void chngt(){
+SDL_SetMainReady();
 SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
 app.glCtx=&glCtx;
-SDL_SetWindowTitle(app.win,"1inkDrop (from 1ink.us)");
+SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=120;
-app.settings.meshY=120;
+app.settings.meshX=142;
+app.settings.meshY=142;
 app.settings.fps=FPS;
 app.settings.textureSize=2048;
 app.settings.windowWidth=width;
@@ -101,7 +102,7 @@ SDL_memcpy(stm,wptr,len);wave.pos+=len;
 }
 static void plt(){
 cls_aud();
-char flnm[256];
+char flnm[128];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

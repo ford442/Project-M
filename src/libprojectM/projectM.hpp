@@ -175,7 +175,7 @@ return _settings.shuffleEnabled;
 virtual void presetSwitchedEvent(bool,size_t) const{};
 virtual void shuffleEnabledValueChanged(bool) const{};
 virtual void presetSwitchFailedEvent(bool,unsigned int,const std::string &) const{};
-virtual void presetRatingChanged(unsigned int,int,presetRatingType) const{};
+virtual void presetRatingChanged(unsigned int,int,PresetRatingType) const{};
 inline PCM * pcm(){
 return _pcm;
 }

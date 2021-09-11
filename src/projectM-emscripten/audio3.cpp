@@ -16,14 +16,20 @@ unsigned char **sndBuf=&wave.snd;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(0.0,0.0,0.0,0.5);
+glClearColor(0.0,0.0,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
-void swtcht(){app.pm->selectRandom(true);}
-void lckt(){app.pm->setPresetLock(true);}
+void swtcht(){
+app.pm->selectRandom(true);
+printf("Select random preset.\n");
+}
+void lckt(){
+app.pm->setPresetLock(true);
+printf("Preset locked.\n");
+}
 static void chngt(){
 SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
@@ -40,7 +46,7 @@ app.settings.fps=FPS;
 app.settings.textureSize=2048;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
-app.settings.smoothPresetDuration=17;
+app.settings.smoothPresetDuration=7;
 app.settings.presetDuration=EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;

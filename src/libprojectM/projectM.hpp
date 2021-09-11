@@ -112,16 +112,16 @@ softCutRatingsEnabled(true) {}
 };
 projectM(std::string config_file,int flags=FLAG_NONE);
 projectM(Settings settings,int flags=FLAG_NONE);
-void projectM_resetGL( int width,int height );
+void projectM_resetGL(int width,int height);
 void projectM_resetTextures();
-void projectM_setTitle( std::string title );
+void projectM_setTitle(std::string title);
 void renderFrame();
 Pipeline * renderFrameOnlyPass1(Pipeline *pPipeline);
 void renderFrameOnlyPass2(Pipeline *pPipeline,int xoffset,int yoffset,int eye);
 void renderFrameEndOnSeparatePasses(Pipeline *pPipeline);
 unsigned initRenderToTexture();
-void key_handler( projectMEvent event,
-projectMKeycode keycode,projectMModifier modifier );
+void key_handler(projectMEvent event,
+projectMKeycode keycode,projectMModifier modifier);
 virtual ~projectM();
 void changeTextureSize(int size);
 void changeHardcutDuration(int seconds);
@@ -132,7 +132,7 @@ void touchDrag(float x,float y,int pressure);
 void touchDestroy(float x,float y);
 void touchDestroyAll();
 void setHelpText(const std::string & helpText);
-void toggleSearchText(); // turn search text input on / off
+void toggleSearchText();
 void setToastMessage(const std::string & toastMessage);
 const Settings & settings() const {
 return _settings;
@@ -157,31 +157,31 @@ void resetSearchText();
 bool selectedPresetIndex(unsigned int & index) const;
 unsigned int addPresetURL(const std::string & presetURL,const std::string & presetName,const RatingList & ratingList);
 void insertPresetURL(unsigned int index,
-onst std::string & presetURL,const std::string & presetName,const RatingList & ratingList);
+const std::string & presetURL,const std::string & presetName,const RatingList & ratingList);
 bool presetPositionValid() const;
 std::string getPresetURL(unsigned int index) const;
-std::string getPresetName ( unsigned int index ) const;
-void changePresetName ( unsigned int index,std::string name );
+std::string getPresetName (unsigned int index) const;
+void changePresetName (unsigned int index,std::string name);
 int getPresetRating (unsigned int index,const PresetRatingType ratingType) const;
 void changePresetRating (unsigned int index,int rating,const PresetRatingType ratingType); 
 unsigned int getPlaylistSize() const;
 void evaluateSecondPreset();
-inline void setShuffleEnabled(bool value) {
+inline void setShuffleEnabled(bool value){
  _settings.shuffleEnabled=value;
 }
-inline bool isShuffleEnabled() const {
+inline bool isShuffleEnabled() const{
 return _settings.shuffleEnabled;
 }
-virtual void presetSwitchedEvent(bool /*isHardCut*/,size_t /*index*/) const {};
-virtual void shuffleEnabledValueChanged(bool /*isEnabled*/) const {};
-virtual void presetSwitchFailedEvent(bool /*hardCut*/,unsigned int /*index*/,const std::string & /*message*/) const {};
-virtual void presetRatingChanged(unsigned int /*index*/,int /*rating*/,resetRatingType /*ratingType*/) const {};
-inline PCM * pcm() {
+virtual void presetSwitchedEvent(bool,size_t) const{};
+virtual void shuffleEnabledValueChanged(bool) const{};
+virtual void presetSwitchFailedEvent(bool,unsigned int,const std::string &) const{};
+virtual void presetRatingChanged(unsigned int,int,resetRatingType) const{};
+inline PCM * pcm(){
 return _pcm;
 }
 void *thread_func(void *vptr_args);
-PipelineContext & pipelineContext() { return *_pipelineContext; }
-PipelineContext & pipelineContext2() { return *_pipelineContext2; }
+PipelineContext & pipelineContext(){return *_pipelineContext;}
+PipelineContext & pipelineContext2(){return *_pipelineContext2;}
 int lastPreset=0;
 std::vector<int> presetHistory; 
 std::vector<int> presetFuture; 
@@ -189,9 +189,9 @@ unsigned int getSearchIndex(std::string &name) const;
 void selectPrevious(const bool);
 void selectNext(const bool);
 void selectRandom(const bool);
-int getWindowWidth() { return _settings.windowWidth; }
-int getWindowHeight() { return _settings.windowHeight; }
-bool getErrorLoadingCurrentPreset() const { return errorLoadingCurrentPreset; }
+int getWindowWidth() {return _settings.windowWidth;}
+int getWindowHeight() {return _settings.windowHeight;}
+bool getErrorLoadingCurrentPreset() const{return errorLoadingCurrentPreset;}
 void default_key_handler(projectMEvent event,projectMKeycode keycode);
 Renderer *renderer;
 private:

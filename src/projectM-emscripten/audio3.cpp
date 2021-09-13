@@ -12,12 +12,11 @@ static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 static void renderFrame(){
-  auto point=wave.snd+wave.pos;
-  unsigned char **sndBuf=&point;
+unsigned char **sndBuf[1024]=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(1.0,1.0,1.0,1.0);
+glClearColor(0.0,0.0,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -80,7 +79,9 @@ SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);
 dev=0;
 }}
-static void qu(int rc){SDL_Quit();exit(rc);}
+static void qu(int rc){
+SDL_Quit();exit(rc);
+}
 static void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 if(!dev){SDL_FreeWAV(wave.snd);qu(2);}
@@ -104,13 +105,15 @@ wave.pos+=len;
 }
 static void plt(){
 cls_aud();
-char flnm[65536];
+char flnm[1024];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
 if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
-if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
+if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
+qu(1);
+}
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
@@ -120,4 +123,10 @@ void pl(){plt();}
 void chng(){chngt();}
 void lck(){lckt();}
 void swtch(){swtcht();}}
-int main(){EM_ASM({FS.mkdir('/presets');});app.done=0;return 1;}
+int main(){
+EM_ASM({
+FS.mkdir('/presets');
+});
+app.done=0;
+return 1;
+}

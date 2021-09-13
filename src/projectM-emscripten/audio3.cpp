@@ -13,7 +13,7 @@ typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;proje
 projectMApp;projectMApp app;
 static void renderFrame(){
   auto point=wave.snd+wave.pos;
-  unsigned char **sndBuf=point;
+  unsigned char **sndBuf=&point;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);

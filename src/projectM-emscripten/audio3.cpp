@@ -12,7 +12,7 @@ static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 static void renderFrame(){
-unsigned char **sndBuf=&wave.snd;
+unsigned char **sndBuf=&wave.snd+&wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
@@ -98,11 +98,12 @@ wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
 }
-SDL_memcpy(stm,wptr,len);wave.pos+=len;
+SDL_memcpy(stm,wptr,len);
+wave.pos+=len;
 }
 static void plt(){
 cls_aud();
-char flnm[128];
+char flnm[65536];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

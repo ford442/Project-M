@@ -16,7 +16,7 @@ auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
 glClearColor(EM_ASM_DOUBLE({return document.getElementById('red').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('grn').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('blu').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('alp').innerHTML;}));
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -33,7 +33,7 @@ static void chngt(){
 const float FPS=EM_ASM_INT({return document.getElementById('fps').innerHTML;});
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;
-SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
+SDL_SetWindowTitle(app.win,"1inkDr0p - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX=EM_ASM_INT({return document.getElementById('mex').innerHTML;});

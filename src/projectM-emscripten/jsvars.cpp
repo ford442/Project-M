@@ -15,7 +15,6 @@ auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(EM_ASM_DOUBLE({return document.getElementById('red').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('grn').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('blu').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('alp').innerHTML;}));
 // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -67,6 +66,7 @@ printf("%s\n",dir_entry->d_name);
 for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
+glClearColor(EM_ASM_DOUBLE({return document.getElementById('red').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('grn').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('blu').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('alp').innerHTML;}));
 SDL_SetMainReady();
 SDL_Init(SDL_INIT_VIDEO);
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);

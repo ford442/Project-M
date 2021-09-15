@@ -6,7 +6,6 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-const float FPS=EM_ASM_INT({document.getElementById('fps').innerHTML;});
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
@@ -31,13 +30,9 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 static void chngt(){
-SDL_SetMainReady();
-SDL_Init(SDL_INIT_VIDEO);
+const float FPS=EM_ASM_INT({document.getElementById('fps').innerHTML;});
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;
-app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
-SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
-app.glCtx=&glCtx;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
@@ -72,6 +67,11 @@ printf("%s\n",dir_entry->d_name);
 for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
+SDL_SetMainReady();
+SDL_Init(SDL_INIT_VIDEO);
+app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
+SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
+app.glCtx=&glCtx;
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){if(dev!=0){

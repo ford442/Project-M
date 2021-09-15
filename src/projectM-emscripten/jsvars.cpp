@@ -16,7 +16,7 @@ auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(EM_ASM({document.getElementById('red').innerHTML;}),EM_ASM({document.getElementById('grn').innerHTML;}),EM_ASM({document.getElementById('blu').innerHTML;}),EM_ASM({document.getElementById('alp').innerHTML;}));
+glClearColor(EM_ASM_DOUBLE({document.getElementById('red').innerHTML;}),EM_ASM_DOUBLE({document.getElementById('grn').innerHTML;}),EM_ASM_DOUBLE({document.getElementById('blu').innerHTML;}),EM_ASM_DOUBLE({document.getElementById('alp').innerHTML;}));
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -105,7 +105,7 @@ wave.pos+=len;
 }
 static void plt(){
 cls_aud();
-char flnm[EM_ASM_INT({return document.getElementById('snd').innerHTML;});];
+char flnm[EM_ASM_INT({return document.getElementById('snd').innerHTML;})];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

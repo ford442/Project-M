@@ -16,21 +16,14 @@ auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 void swtcht(){
-
-emscripten_cancel_main_loop();
-
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
-
-emscripten_set_main_loop((void (*)())renderFrame,0,0);
-
 }
 void lckt(){
 app.pm->setPresetLock(true);
@@ -64,12 +57,12 @@ app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
-app.pm->selectRandom(true);
-printf("Select random preset.\n");
+// app.pm->selectRandom(true);
+// printf("Select random preset.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-wchar_t d_name[PATH_MAX+1];
+wchar_t d_name[256];
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
 }else{
 struct dirent *dir_entry;
@@ -78,9 +71,7 @@ while((dir_entry=readdir(m_dir))!=NULL){printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-
-glClearColor(1.0,1.0,1.0,0.5);
-
+glClearColor(0.0,0.0,0.0,1.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){if(dev!=0){

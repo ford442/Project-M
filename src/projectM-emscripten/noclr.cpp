@@ -15,8 +15,7 @@ auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
-glClearColor(EM_ASM_DOUBLE({return document.getElementById('red').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('grn').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('blu').innerHTML;}),EM_ASM_DOUBLE({return document.getElementById('alp').innerHTML;}));
-// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -72,6 +71,7 @@ SDL_Init(SDL_INIT_VIDEO);
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
 app.glCtx=&glCtx;
+glClearColor(0.0,1.0,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){if(dev!=0){

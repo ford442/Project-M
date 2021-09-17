@@ -60,6 +60,7 @@ if ((m_dir=opendir("/")) == NULL){
 printf("error opening /\n");
 }else{
 struct dirent *dir_entry;
+wchar_t d_name[256];
 while ((dir_entry=readdir(m_dir)) != NULL){
 printf("%s\n",dir_entry->d_name);
 }}

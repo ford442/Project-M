@@ -4,7 +4,6 @@
 #include <projectM.hpp>
 #include <emscripten/emscripten.h>
 #include <GLES3/gl3.h>
-// #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -13,7 +12,6 @@ projectMApp;projectMApp app;
 void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-// unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -58,7 +56,7 @@ printf("Preset locked.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-wchar_t d_name[128];
+wchar_t d_name[256];
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
 }else{
 struct dirent *dir_entry;
@@ -67,7 +65,7 @@ while((dir_entry=readdir(m_dir))!=NULL){printf("%s\n",dir_entry->d_name);
 for(unsigned int i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0.0,0.5,0.0,0.0);
+glClearColor(0.0,0.0,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void cls_aud(){if(dev!=0){

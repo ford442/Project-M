@@ -48,12 +48,6 @@ app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=17.0;
 app.settings.presetDuration=88.0;
-app.settings.beatSensitivity=1;
-app.settings.aspectCorrection=0;
-app.settings.easterEgg=0;
-app.settings.shuffleEnabled=0;
-app.settings.softCutRatingsEnabled=1;
-app.settings.hardCutRatingsEnabled=1;
 app.settings.presetURL="/presets";
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
@@ -76,20 +70,20 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 glClearColor(0.0,0.5,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
-static void cls_aud(){if(dev!=0){
+void cls_aud(){if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);
 dev=0;
 }}
-static void qu(int rc){
+void qu(int rc){
 SDL_Quit();exit(rc);
 }
-static void opn_aud(){
+void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 if(!dev){SDL_FreeWAV(wave.snd);qu(2);}
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8 * stm,unsigned int len){
+void SDLCALL bfr(void *unused,Uint8 * stm,unsigned int len){
 Uint8 *wptr;
 unsigned int lft;
 wptr=wave.snd+wave.pos;
@@ -125,7 +119,7 @@ void pl(){plt();}
 void chng(){chngt();}
 void lck(){lckt();}
 void swtch(){swtcht();}}
-uint main(){
+unsigned int main(){
 EM_ASM({
 FS.mkdir('/presets');
 });

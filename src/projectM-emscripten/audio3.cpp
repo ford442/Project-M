@@ -83,7 +83,7 @@ dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 if(!dev){SDL_FreeWAV(wave.snd);qu(2);}
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-void SDLCALL bfr(void *unused,Uint8 * stm,unsigned int len){
+void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 unsigned int lft;
 wptr=wave.snd+wave.pos;
@@ -119,7 +119,7 @@ void pl(){plt();}
 void chng(){chngt();}
 void lck(){lckt();}
 void swtch(){swtcht();}}
-unsigned int main(){
+int main(){
 EM_ASM({
 FS.mkdir('/presets');
 });

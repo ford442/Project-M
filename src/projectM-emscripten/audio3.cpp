@@ -6,16 +6,15 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-const float FPS=60.0;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
-static void renderFrame(){
+void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-unsigned int ll=sizeof(sndBuf);
-app.pm->pcm()->addPCM16Data(sndat,ll);
+// unsigned int ll=sizeof(sndBuf);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -29,22 +28,22 @@ void lckt(){
 app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
-static void chngt(){
-emscripten_cancel_main_loop();
+void chngt(){
+const float FPS=60.0;
 SDL_SetMainReady();
 SDL_Init(SDL_INIT_VIDEO);
-int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
-int height=width;
+unsigned int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
+unsigned int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
 app.glCtx=&glCtx;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=96.0;
-app.settings.meshY=96.0;
-app.settings.fps=FPS;
-app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
+app.settings.meshX=127.0;
+app.settings.meshY=127.0;
+app.settings.fps=60.0;
+app.settings.textureSize=1024;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=17.0;
@@ -53,22 +52,25 @@ app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
-app.settings.softCutRatingsEnabled=0;
+app.settings.softCutRatingsEnabled=1;
+app.settings.hardCutRatingsEnabled=1;
 app.settings.presetURL="/presets";
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
+app.pm->setPresetLock(true);
+printf("Preset locked.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-wchar_t d_name[256];
+wchar_t d_name[128];
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
 }else{
 struct dirent *dir_entry;
 while((dir_entry=readdir(m_dir))!=NULL){printf("%s\n",dir_entry->d_name);
 }}
-for(uint i=0;i<app.pm->getPlaylistSize();i++){
+for(unsigned int i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(0.0,0.5,0.0,0.0);
@@ -87,9 +89,9 @@ dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 if(!dev){SDL_FreeWAV(wave.snd);qu(2);}
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 * stm,unsigned int len){
 Uint8 *wptr;
-int lft;
+unsigned int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){
@@ -103,7 +105,7 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
-static void plt(){
+void plt(){
 cls_aud();
 char flnm[1024];
 SDL_FreeWAV(wave.snd);
@@ -123,7 +125,7 @@ void pl(){plt();}
 void chng(){chngt();}
 void lck(){lckt();}
 void swtch(){swtcht();}}
-int main(){
+uint main(){
 EM_ASM({
 FS.mkdir('/presets');
 });

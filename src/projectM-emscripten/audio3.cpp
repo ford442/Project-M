@@ -4,7 +4,7 @@
 #include <projectM.hpp>
 #include <emscripten/emscripten.h>
 #include <GLES3/gl3.h>
-#include "SDL2/SDL_config.h"
+// #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;

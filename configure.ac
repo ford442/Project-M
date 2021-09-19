@@ -168,7 +168,7 @@ AS_IF([echo ${host} | grep -Fq android], [],
                         CXXFLAGS="$CXXFLAGS -stdlib=libstdc++"])
 ])
 
-AX_CHECK_COMPILE_FLAG([-std=c++14], [
+AX_CHECK_COMPILE_FLAG([-std=c++17], [
                         CXXFLAGS="$CXXFLAGS -std=c++17"])
 
 # Qt5

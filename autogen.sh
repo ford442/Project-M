@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 
-set -e # Drop-out from execution if error occurs
+set -e
 
-printf 'Running autoreconf...'
+printf 'Running  autoreconf --install  ...'
 
 autoreconf --install
 
-printf '\nSuccess!\nNow please run: ./configure\n'
+printf '\nSuccess!\nNow please run:  emconfigure ./configure  \n'

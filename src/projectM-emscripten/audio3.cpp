@@ -83,7 +83,7 @@ SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
 void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
-int lft;
+unsigned int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){

@@ -6,7 +6,7 @@
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-const float FPS=60.0;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
@@ -16,6 +16,7 @@ auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 unsigned int ll=sizeof(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,ll);
+
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -30,7 +31,6 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 static void chngt(){
-emscripten_cancel_main_loop();
 SDL_SetMainReady();
 SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
@@ -41,19 +41,19 @@ app.glCtx=&glCtx;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=96.0;
-app.settings.meshY=96.0;
+app.settings.meshX=90;
+app.settings.meshY=90;
 app.settings.fps=FPS;
-app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
+app.settings.textureSize=1024;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
-app.settings.smoothPresetDuration=17.0;
-app.settings.presetDuration=88.0;
+app.settings.smoothPresetDuration=7;
+app.settings.presetDuration=EM_ASM_INT({return document.getElementById('dura').innerHTML;});
 app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
-app.settings.softCutRatingsEnabled=0;
+app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
@@ -62,16 +62,19 @@ printf("Select random preset.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-wchar_t d_name[256];
-if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
+if ((m_dir=opendir("/")) == NULL){
+printf("error opening /\n");
 }else{
 struct dirent *dir_entry;
-while((dir_entry=readdir(m_dir))!=NULL){printf("%s\n",dir_entry->d_name);
+while ((dir_entry=readdir(m_dir)) != NULL){
+printf("%s\n",dir_entry->d_name);
 }}
-for(uint i=0;i<app.pm->getPlaylistSize();i++){
+for (uint i=0;i < app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0.0,0.5,0.0,0.0);
+  
+glClearColor(1.0,1.0,1.0,0.5);
+
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){if(dev!=0){

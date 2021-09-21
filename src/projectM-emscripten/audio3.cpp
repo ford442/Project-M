@@ -70,7 +70,7 @@ if(contextegl==EGL_NO_CONTEXT){
 }else{
 EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
 eglMakeCurrent(display,surface,surface,contextegl);
-}
+}}
   
 // emscripten_cancel_main_loop();
 // SDL_SetMainReady();

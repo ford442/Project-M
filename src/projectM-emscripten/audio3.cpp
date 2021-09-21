@@ -62,7 +62,7 @@ printf("Select random preset.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-wchar_t d_name[256];
+wchar_t d_name[128];
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
 }else{
 struct dirent *dir_entry;
@@ -71,7 +71,7 @@ while((dir_entry=readdir(m_dir))!=NULL){printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0.0,0.5,0.0,0.0);
+glClearColor(0.0,0.0,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){if(dev!=0){

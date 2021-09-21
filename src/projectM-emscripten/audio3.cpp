@@ -23,7 +23,6 @@ EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
-
 const float FPS=60.0;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -33,7 +32,8 @@ static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+glClearColor(1.0,1.0,1.0,0.5);
+glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -71,7 +71,6 @@ if(contextegl==EGL_NO_CONTEXT){
 EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
-  
 // emscripten_cancel_main_loop();
 // SDL_SetMainReady();
 // SDL_Init(SDL_INIT_VIDEO);
@@ -114,7 +113,6 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0.0,0.0,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){
@@ -137,7 +135,7 @@ SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
 static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
-unsigned int lft;
+int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){

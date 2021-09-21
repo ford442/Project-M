@@ -2,12 +2,13 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <projectM.hpp>
 #include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
+#include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
-#include <EGL/egl.h>
+#include <projectM.hpp>
 
 static EGLint attribute_list[]={
 EGL_RED_SIZE,8,
@@ -46,10 +47,32 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 static void chngt(){
+EmscriptenWebGLContextAttributes attr;
+attr.alpha = 1;
+attr.depth = 0;
+attr.antialias = 0;
+attr.premultipliedAlpha = 0;
+attr.preserveDrawingBuffer = 0;
+emscripten_webgl_init_context_attributes(&attr);
+EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
+emscripten_webgl_make_context_current(ctx);
+EGLConfig eglconfig=NULL;
+EGLint config_size,major,minor;
+EGLContext contextegl;
+EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
+eglInitialize(display,&major,&minor);
+if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
+if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
+}
+EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE,EGL_NONE};
+contextegl=eglCreateContext (display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
+if(contextegl==EGL_NO_CONTEXT){
+}else{
+EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
+eglMakeCurrent(display,surface,surface,contextegl);
+}
   
-
-  
-emscripten_cancel_main_loop();
+// emscripten_cancel_main_loop();
 // SDL_SetMainReady();
 // SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
@@ -101,7 +124,8 @@ SDL_CloseAudioDevice(dev);
 dev=0;
 }}
 static void qu(int rc){
-SDL_Quit();exit(rc);
+SDL_Quit();
+exit(rc);
 }
 static void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
@@ -158,30 +182,6 @@ void swtch(){
 swtcht();
 }}
 int main(){
-EmscriptenWebGLContextAttributes attr;
-attr.alpha = 1;
-attr.depth = 0;
-attr.antialias = 0;
-attr.premultipliedAlpha = 0;
-attr.preserveDrawingBuffer = 0;
-emscripten_webgl_init_context_attributes(&attr);
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
-emscripten_webgl_make_context_current(ctx);
-EGLConfig eglconfig=NULL;
-EGLint config_size,major,minor;
-EGLContext contextegl;
-EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
-eglInitialize(display,&major,&minor);
-if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
-if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
-}
-EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE,EGL_NONE};
-contextegl=eglCreateContext (display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
-if(contextegl==EGL_NO_CONTEXT){
-}else{
-EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
-eglMakeCurrent(display,surface,surface,contextegl);
-}
 EM_ASM({
 FS.mkdir('/presets');
 });

@@ -14,7 +14,7 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-unsigned int ll=sizeof(sndBuf);
+unsigned int ll=1024;
 app.pm->pcm()->addPCM16Data(sndat,ll);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -43,6 +43,7 @@ SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX=96.0;
 app.settings.meshY=96.0;
+app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
 app.settings.windowWidth=width;
@@ -62,11 +63,11 @@ printf("Select random preset.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
-wchar_t d_name[128];
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
 }else{
 struct dirent *dir_entry;
-while((dir_entry=readdir(m_dir))!=NULL){printf("%s\n",dir_entry->d_name);
+while((dir_entry=readdir(m_dir))!=NULL){
+printf("%s\n",dir_entry->d_name);
 }}
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
@@ -74,7 +75,8 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 glClearColor(0.0,0.0,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
-static void cls_aud(){if(dev!=0){
+static void cls_aud(){
+if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);
 dev=0;
@@ -84,12 +86,15 @@ SDL_Quit();exit(rc);
 }
 static void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
-if(!dev){SDL_FreeWAV(wave.snd);qu(2);}
+if(!dev){
+SDL_FreeWAV(wave.snd);
+qu(2);
+}
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
 static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
-int lft;
+unsigned int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){
@@ -109,7 +114,9 @@ char flnm[1024];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
-if (SDL_Init(SDL_INIT_AUDIO)<0){qu(1);}
+if (SDL_Init(SDL_INIT_AUDIO)<0){
+qu(1);
+}
 SDL_strlcpy(flnm,"/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);
@@ -119,10 +126,18 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 extern "C" {
-void pl(){plt();}
-void chng(){chngt();}
-void lck(){lckt();}
-void swtch(){swtcht();}}
+void pl(){
+plt();
+}
+void chng(){
+chngt();
+}
+void lck(){
+lckt();
+}
+void swtch(){
+swtcht();
+}}
 int main(){
 EM_ASM({
 FS.mkdir('/presets');

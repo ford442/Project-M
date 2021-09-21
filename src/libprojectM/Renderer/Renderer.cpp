@@ -488,7 +488,7 @@ touchg=((double)rand() / (RAND_MAX));
 toucha=((double)rand() / (RAND_MAX));
 MilkdropWaveform wave;
 if (type == 0) {
-wave.mode=static_cast<MilkdropWaveformMode>((rand() % 100) + 1);
+wave.mode=static_cast<MilkdropWaveformMode>((rand() % std::chrono::last) + 1);
 }else{
 wave.mode=static_cast<MilkdropWaveformMode>(type);
 }

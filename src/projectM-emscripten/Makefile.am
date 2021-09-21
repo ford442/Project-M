@@ -25,7 +25,7 @@ bld3: projectM_SDL_emscripten.cpp  Makefile.am
 
 
 run: bld
-	echo 'Built 1inkDrop-beta10.js.js'
+	echo '/n Built  1inkDrop-beta10.js  &  1inkDrop-beta10.wasm /n'
 
 test: bld2 bld3
 	echo 'Built 1inkDrop tests.'

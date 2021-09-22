@@ -16,7 +16,7 @@ bld: projectM_SDL_emscripten.cpp  Makefile.am
 bld2: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp egl3.cpp \
-	-o 1inkDrop-egl4.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js  --extern-post-js index.js
+	-o 1inkDrop-egl5.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js  --extern-post-js index.js
 
 
 
@@ -24,4 +24,4 @@ run: bld
 	echo 'Built  1inkDrop-egl3.js  +  Built 1inkDrop-egl3.wasm'
 
 test: bld2
-	echo 'Built  1inkDrop-egl4.js  +  Built 1inkDrop-egl4.wasm'
+	echo 'Built  1inkDrop-egl5.js  +  Built 1inkDrop-egl5.wasm  (stencil(0);)'

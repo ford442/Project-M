@@ -15,13 +15,23 @@ bld: projectM_SDL_emscripten.cpp  Makefile.am
 
 bld2: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp egl3.cpp \
-	-o 1inkDrop-egl5.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js  --extern-post-js index.js
+	../libprojectM/KeyHandler.cpp egl4.cpp \
+	-o 1inkDrop-egl5a.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js  --extern-post-js index.js
+
+bld3: projectM_SDL_emscripten.cpp  Makefile.am
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp egl5.cpp \
+	-o 1inkDrop-egl5b.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js  --extern-post-js index.js
+
+bld4: projectM_SDL_emscripten.cpp  Makefile.am
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp egl6.cpp \
+	-o 1inkDrop-egl5c.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js  --extern-post-js index.js
 
 
 
 run: bld
-	echo 'Built  1inkDrop-egl3.js  +  Built 1inkDrop-egl3.wasm'
+	echo 'Build 1inkDrop.'
 
-test: bld2
-	echo 'Built  1inkDrop-egl5.js  +  Built 1inkDrop-egl5.wasm  (stencil(0);)'
+test: bld2 bld3 bld4
+	echo '/n put 1inkDrop-egl5a.js /n put1inkDrop-egl5a.wasm /n put 1inkDrop-egl5b.js /n put1inkDrop-egl5b.wasm /n put 1inkDrop-egl5c.js /n put1inkDrop-egl5c.wasm /n /n'

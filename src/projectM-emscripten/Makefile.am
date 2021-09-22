@@ -15,17 +15,13 @@ bld: projectM_SDL_emscripten.cpp  Makefile.am
 
 bld2: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp audio3.cpp \
-	-o 1inkDrop-noclr.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js
+	../libprojectM/KeyHandler.cpp egl2.cpp \
+	-o 1inkDrop-egl3a.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js
 
-bld3: projectM_SDL_emscripten.cpp  Makefile.am
-	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp audio3.cpp \
-	-o 1inkDrop-jsvar.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js filesys.js
 
 
 run: bld
 	echo 'Built  1inkDrop-egl3.js  +  Built 1inkDrop-egl3.js'
 
-test: bld2 bld3
+test: bld2
 	echo 'Built 1inkDrop tests.'

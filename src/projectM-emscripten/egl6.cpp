@@ -117,7 +117,7 @@ glClearColor(0,0,0,0);
 glStencilMask(1);
 glDepthMask(1);
 glClearStencil(0);
-glClearDepth(0);
+glClearDepthf(0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

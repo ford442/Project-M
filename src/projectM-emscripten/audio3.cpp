@@ -23,7 +23,7 @@ EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
-const float FPS=60.0;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
@@ -115,7 +115,7 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(0,0,0,0);
 glStencilMask(1);
-glClearStencil(1);
+glClearStencil(0.5);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

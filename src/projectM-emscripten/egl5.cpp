@@ -48,7 +48,7 @@ printf("Preset locked.\n");
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
-attr.depth = 1;
+attr.depth = 0;
 attr.stencil = 1;
 attr.antialias = 0;
 attr.premultipliedAlpha = 0;

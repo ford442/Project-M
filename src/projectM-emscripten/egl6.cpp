@@ -15,7 +15,7 @@ EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,32,
+EGL_DEPTH_SIZE,0,
 EGL_STENCIL_SIZE,8,
 EGL_BUFFER_SIZE,32,
 EGL_CONFORMANT,EGL_OPENGL_ES2_BIT,
@@ -48,7 +48,7 @@ printf("Preset locked.\n");
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
-attr.depth = 1;
+attr.depth = 0;
 attr.stencil = 1;
 attr.antialias = 0;
 attr.premultipliedAlpha = 0;
@@ -95,7 +95,7 @@ app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
-app.settings.softCutRatingsEnabled=0;
+app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
@@ -115,9 +115,9 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(0,0,0,0);
 glStencilMask(1);
-glDepthMask(1);
+// glDepthMask(1);
 glClearStencil(0);
-glClearDepthf(0);
+// glClearDepthf(0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

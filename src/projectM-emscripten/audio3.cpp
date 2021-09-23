@@ -180,9 +180,7 @@ void swtch(){
 swtcht();
 }}
 int main(){
-EM_ASM({
-FS.mkdir('/presets');
-});
+// EM_ASM({FS.mkdir('/presets');});
 app.done=0;
 return 1;
 }

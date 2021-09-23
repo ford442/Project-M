@@ -114,6 +114,8 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(0,0,0,0);
+glStencilMask(1);
+glClearStencil(1);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){
@@ -181,7 +183,7 @@ void swtch(){
 swtcht();
 }}
 int main(){
-// EM_ASM({FS.mkdir('/presets');});
+EM_ASM({FS.mkdir('/presets');});
 app.done=0;
 return 1;
 }

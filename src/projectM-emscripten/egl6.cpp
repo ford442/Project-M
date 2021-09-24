@@ -27,9 +27,12 @@ static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 glClear(GL_COLOR_BUFFER_BIT);
 auto sndat=reinterpret_cast<short*>(sndBuf);
-app.pm->pcm()->addPCM16Data(sndat,1024);
+  
 glColorMask(true,true,true,false);
 glClear(GL_COLOR_BUFFER_BIT);
+  
+app.pm->pcm()->addPCM16Data(sndat,1024);
+
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);

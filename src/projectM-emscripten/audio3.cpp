@@ -9,7 +9,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-
 static EGLint attribute_list[]={
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
@@ -72,13 +71,9 @@ if(contextegl==EGL_NO_CONTEXT){
 EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
-// emscripten_cancel_main_loop();
-// SDL_SetMainReady();
-// SDL_Init(SDL_INIT_VIDEO);
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
-// SDL_GLContext glCtx=SDL_GL_CreateContext(app.win);
 app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));

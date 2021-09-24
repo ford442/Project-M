@@ -26,13 +26,10 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 glClear(GL_COLOR_BUFFER_BIT);
-auto sndat=reinterpret_cast<short*>(sndBuf);
-  
+auto sndat=reinterpret_cast<short*>(sndBuf);  
+app.pm->pcm()->addPCM16Data(sndat,1024);
 glColorMask(true,true,true,false);
 glClear(GL_COLOR_BUFFER_BIT);
-  
-app.pm->pcm()->addPCM16Data(sndat,1024);
-
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -78,9 +75,9 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=64;
-app.settings.meshY=64;
-app.settings.textureSize=1024;
+app.settings.meshX=90;
+app.settings.meshY=90;
+app.settings.textureSize=2048;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
 app.settings.windowWidth=width;

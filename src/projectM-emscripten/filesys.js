@@ -1,11 +1,4 @@
-document.getElementById("circle").width=window.innerWidth;
-document.getElementById("circle").height=window.innerHeight;
-document.getElementById("contain2").width=window.innerHeight;
-document.getElementById("contain2").height=window.innerHeight;
-document.getElementById('btn3').addEventListener('click',function(){
-window.open('https://test.1ink.us/libflac.js/');
-});
-let bz=new BroadcastChannel('bez');
+
 document.getElementById('btn').addEventListener('click',function(){
 let hi=window.innerHeight;
 let wi=window.innerWidth;

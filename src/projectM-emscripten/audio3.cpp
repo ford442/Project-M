@@ -107,8 +107,8 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0,0,0,0);
-glColorMask(true,true,true,false);
+glClearColor(1,1,1,0);
+// glColorMask(true,true,true,false);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

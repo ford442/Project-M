@@ -25,5 +25,5 @@ bld3: projectM_SDL_emscripten.cpp  Makefile.am
 run: bld
 	echo 'Built 1inkDrop-egl8.'
 
-test: bld2
+test: bld2 bld3
 	echo 'Built 1inkDrop-egl8 tests.'

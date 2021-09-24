@@ -26,8 +26,11 @@ typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;proje
 projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
+glColorMask(false,false,false,true);
+glClear(GL_COLOR_BUFFER_BIT);
 auto sndat=reinterpret_cast<short*>(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,1024);
+glColorMask(true,true,true,false);
 glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -106,7 +109,6 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(1,1,1,0);
-// glColorMask(true,true,true,false);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

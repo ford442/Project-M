@@ -15,9 +15,6 @@ EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,0,
-EGL_STENCIL_SIZE,0,
-EGL_CONFORMANT,EGL_OPENGL_ES2_BIT,
 EGL_NONE
 };
 const float FPS=60;
@@ -28,7 +25,12 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
+glClearColor(1.0,1.0,1.0,0.0);
+glColorMask(false,false,false,true);
+glClear(GL_COLOR_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,1024);
+glClearColor(0.5,0.5,0.5,0.5);
+glColorMask(true,true,true,true);
 glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -106,8 +108,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(1,1,1,0);
-glColorMask(true,true,true,false);
+
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

@@ -15,8 +15,6 @@ EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,0,
-EGL_STENCIL_SIZE,0,
 EGL_NONE
 };
 const float FPS=60;
@@ -26,11 +24,13 @@ typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;proje
 projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
-glColorMask(false,false,false,true);
-glClear(GL_COLOR_BUFFER_BIT);
 auto sndat=reinterpret_cast<short*>(sndBuf);
+glClearColor(1.0,1.0,1.0,0.0);
+// glColorMask(false,false,false,true);
+glClear(GL_COLOR_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glColorMask(true,true,true,false);
+glClearColor(0.5,0.5,0.5,0.5);
+// glColorMask(true,true,true,true);
 glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
@@ -108,7 +108,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(1,1,1,0);
+
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

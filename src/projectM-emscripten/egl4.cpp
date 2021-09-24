@@ -18,9 +18,6 @@ EGL_ALPHA_SIZE,8,
 EGL_DEPTH_SIZE,0,
 EGL_STENCIL_SIZE,8,
 EGL_BUFFER_SIZE,32,
-EGL_CONFORMANT,EGL_OPENGL_ES2_BIT,
-EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
 const float FPS=60;
@@ -31,9 +28,9 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 app.pm->renderFrame();
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 glFlush();
 SDL_GL_SwapWindow(app.win);
 }
@@ -82,14 +79,14 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=90;
-app.settings.meshY=90;
+app.settings.meshX=60;
+app.settings.meshY=60;
 app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
-app.settings.smoothPresetDuration=27;
+app.settings.smoothPresetDuration=4;
 app.settings.presetDuration=88;
 app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
@@ -115,9 +112,7 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(0,0,0,0);
 glStencilMask(1);
-// glDepthMask(1);
 glClearStencil(0);
-// glClearDepthf(0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

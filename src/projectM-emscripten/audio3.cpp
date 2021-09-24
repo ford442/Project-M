@@ -9,6 +9,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
+
 static EGLint attribute_list[]={
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
@@ -16,10 +17,7 @@ EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
 EGL_DEPTH_SIZE,0,
 EGL_STENCIL_SIZE,8,
-EGL_BUFFER_SIZE,32,
 EGL_CONFORMANT,EGL_OPENGL_ES2_BIT,
-EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
 const float FPS=60;
@@ -111,7 +109,7 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(0,0,0,0);
 glStencilMask(1);
-glClearStencil(1);
+glClearStencil(0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

@@ -15,12 +15,6 @@ EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,0,
-EGL_STENCIL_SIZE,8,
-EGL_BUFFER_SIZE,64,
-EGL_CONFORMANT,EGL_OPENGL_ES2_BIT,
-EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
 const float FPS=60;
@@ -30,9 +24,11 @@ typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;proje
 projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
+glClear(GL_COLOR_BUFFER_BIT);
 auto sndat=reinterpret_cast<short*>(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+glColorMask(true,true,true,false);
+glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -48,8 +44,8 @@ printf("Preset locked.\n");
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
+attr.stencil = 0;
 attr.depth = 0;
-attr.stencil = 1;
 attr.antialias = 0;
 attr.premultipliedAlpha = 0;
 attr.preserveDrawingBuffer = 0;
@@ -78,14 +74,14 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=42;
-app.settings.meshY=42;
-app.settings.textureSize=512;
+app.settings.meshX=64;
+app.settings.meshY=64;
+app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
-app.settings.smoothPresetDuration=5;
+app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=88;
 app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
@@ -109,9 +105,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0,0,0,0);
-glStencilMask(1);
-glClearStencil(0);
+glClearColor(1,1,1,0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){
@@ -181,7 +175,13 @@ swtcht();
 int main(){
 EM_ASM({
 FS.mkdir('/presets');
-});
+document.getElementById("circle").width=window.innerWidth;
+document.getElementById("circle").height=window.innerHeight;
+document.getElementById("contain2").width=window.innerHeight;
+document.getElementById("contain2").height=window.innerHeight;
+document.getElementById('btn3').addEventListener('click',function(){
+window.open('https://test.1ink.us/libflac.js/');
+});});
 app.done=0;
 return 1;
 }

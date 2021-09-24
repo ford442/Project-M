@@ -14,12 +14,12 @@ bld: projectM_SDL_emscripten.cpp  Makefile.am
 
 bld2: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp egl2.cpp \
-	-o 1inkDrop-egl8a.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	../libprojectM/KeyHandler.cpp egl3.cpp \
+	-o 1inkDrop-egl8b.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 
 run: bld
 	echo 'Built 1inkDrop-egl8.'
 
 test: bld2
-	echo 'Built 1inkDrop EGLv7 tests.'
+	echo 'Built 1inkDrop-egl8 tests.'

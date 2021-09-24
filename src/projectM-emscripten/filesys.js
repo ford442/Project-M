@@ -1,4 +1,4 @@
-
+let bz=new BroadcastChannel('bez');
 document.getElementById('btn').addEventListener('click',function(){
 let hi=window.innerHeight;
 let wi=window.innerWidth;

@@ -14,16 +14,16 @@ bld: projectM_SDL_emscripten.cpp  Makefile.am
 
 bld2: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp egl6.cpp \
-	-o 1inkDrop-egl8i.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	../libprojectM/KeyHandler.cpp egl2.cpp \
+	-o 1inkDrop-egl9a.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 bld3: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp egl5.cpp \
-	-o 1inkDrop-egl8j.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	../libprojectM/KeyHandler.cpp egl3.cpp \
+	-o 1inkDrop-egl9b.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 run: bld
-	echo 'Built 1inkDrop-egl8.'
+	echo 'Built 1inkDrop-egl9.'
 
 test: bld2 bld3
-	echo 'Built 1inkDrop-egl8 tests.'
+	echo 'Built 1inkDrop-egl9 tests.'

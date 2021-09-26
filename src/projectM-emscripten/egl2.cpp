@@ -54,7 +54,7 @@ static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
 attr.stencil = 1;
-attr.depth = 0;
+attr.depth = 1;
 attr.antialias = 0;
 attr.premultipliedAlpha = 0;
 attr.preserveDrawingBuffer = 0;

@@ -29,5 +29,5 @@ bld4: projectM_SDL_emscripten.cpp  Makefile.am
 	-o 1inkDrop-egl14b.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 run: bld3 bld4
-	echo 'Built 1inkDrop-egl13.'
+	echo 'Built 1inkDrop-egl14.'
 

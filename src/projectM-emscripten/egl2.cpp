@@ -27,7 +27,7 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glClearColor(0.0,0.0,0.0,0.0);
+glClearColor(0.0,0.0,0.0,1.0);
 glColorMask(false,false,false,true);
 glClear(GL_COLOR_BUFFER_BIT);
 glColorMask(true,true,true,true);

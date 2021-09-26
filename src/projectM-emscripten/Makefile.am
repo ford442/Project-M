@@ -27,7 +27,7 @@ bld3: projectM_SDL_emscripten.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp egl3.cpp \
 	-o 1inkDrop-egl12d.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-run: bld
+run: bld bld4
 	echo 'Built 1inkDrop-egl12.'
 
 test: bld2 bld3

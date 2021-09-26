@@ -9,6 +9,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
+#include <GL/gl.h>
 
 static EGLint attribute_list[]={
 EGL_RED_SIZE,8,
@@ -29,7 +30,6 @@ glClearColor(0.0,0.0,0.0,0.0);
 // glColorMask(false,false,false,true);
 glClear(GL_COLOR_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClearColor(0.5,0.5,0.5,1.0);
 // glColorMask(true,true,true,true);
 glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();

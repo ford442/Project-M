@@ -11,7 +11,6 @@
 #include <projectM.hpp>
 #include <GL/gl.h>
 
-
 static EGLint attribute_list[]={
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
@@ -27,12 +26,14 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glClearColor(0.0,0.0,0.0,1.0);
+glStencilMask(0);
 glColorMask(false,false,false,true);
-glClear(GL_COLOR_BUFFER_BIT);
+glClearColor(1.0,1.0,1.0,0.0);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+glStencilMask(1);
 glColorMask(true,true,true,true);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClear(GL_COLOR_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -48,7 +49,7 @@ printf("Preset locked.\n");
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
-attr.stencil = 0;
+attr.stencil = 1;
 attr.depth = 0;
 attr.antialias = 0;
 attr.premultipliedAlpha = 0;
@@ -78,8 +79,8 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=64;
-app.settings.meshY=64;
+app.settings.meshX=32;
+app.settings.meshY=32;
 app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
@@ -91,7 +92,7 @@ app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
-app.settings.softCutRatingsEnabled=1;
+app.settings.softCutRatingsEnabled=0;
 app.settings.presetURL="/presets";
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");

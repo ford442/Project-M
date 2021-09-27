@@ -12,16 +12,17 @@
 #include <GL/gl.h>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,8,
-EGL_GREEN_SIZE,8,
-EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
-EGL_ALPHA_MASK_SIZE,32,
-EGL_LUMINANCE_SIZE,32,
-EGL_DEPTH_SIZE,32,
-EGL_STENCIL_SIZE,32,
+EGL_RED_SIZE,16,
+EGL_GREEN_SIZE,16,
+EGL_BLUE_SIZE,16,
+EGL_ALPHA_SIZE,16,
+EGL_ALPHA_MASK_SIZE,64,
+EGL_LUMINANCE_SIZE,64,
+EGL_DEPTH_SIZE,64,
+EGL_STENCIL_SIZE,64,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
+EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
@@ -34,13 +35,13 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glStencilMask(1);
-glDepthMask(1.0);
-glColorMask(false,false,false,true);
-glClearColor(1.0,1.0,1.0,0.0);
-glClear(GL_COLOR_BUFFER_BIT);
 glStencilMask(0);
 glDepthMask(0.0);
+glColorMask(false,false,false,true);
+glClearColor(1.0,1.0,1.0,0.0);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+glStencilMask(1);
+glDepthMask(1.0);
 glColorMask(true,true,true,true);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -121,7 +122,7 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(1.0,1.0,1.0,0.0);
-glClearDepth(1.0);
+glClearDepth(0.0);
 glClearStencil(0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }

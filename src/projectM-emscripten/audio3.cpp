@@ -9,7 +9,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-#include <GL/gl.h>
 
 static EGLint attribute_list[]={
 EGL_RED_SIZE,8,

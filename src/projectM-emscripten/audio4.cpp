@@ -12,14 +12,14 @@
 #include <GL/gl.h>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,16,
-EGL_GREEN_SIZE,16,
-EGL_BLUE_SIZE,16,
-EGL_ALPHA_SIZE,16,
-EGL_ALPHA_MASK_SIZE,64,
-EGL_LUMINANCE_SIZE,64,
-EGL_DEPTH_SIZE,64,
-EGL_STENCIL_SIZE,64,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_ALPHA_MASK_SIZE,128,
+EGL_LUMINANCE_SIZE,128,
+EGL_DEPTH_SIZE,128,
+EGL_STENCIL_SIZE,128,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
@@ -35,10 +35,6 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-// glColorMask(false,false,false,true);
-// glClearColor(1.0,1.0,1.0,0.0);
-// glClear(GL_COLOR_BUFFER_BIT);
-// glColorMask(true,true,true,true);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
@@ -58,7 +54,7 @@ EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
 attr.stencil = 1;
 attr.depth = 1;
-attr.antialias = 1;
+attr.antialias = 0;
 attr.premultipliedAlpha = 0;
 attr.preserveDrawingBuffer = 0;
 emscripten_webgl_init_context_attributes(&attr);
@@ -86,8 +82,8 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=64;
-app.settings.meshY=64;
+app.settings.meshX=90;
+app.settings.meshY=90;
 app.settings.textureSize=4096;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
@@ -117,16 +113,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-/*
-clearDepth();
-clearAlpha();
-clearStencil();
-depthMask();
-stencilMask();
-alphaMask();
-colorMask();
-clearColor();
-*/
+glClearColor(1,1,1,1);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

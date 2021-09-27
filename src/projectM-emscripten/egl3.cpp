@@ -9,17 +9,16 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-#include <GL/gl.h>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,32,
-EGL_GREEN_SIZE,32,
-EGL_BLUE_SIZE,32,
-EGL_ALPHA_SIZE,32,
-EGL_ALPHA_MASK_SIZE,128,
-EGL_LUMINANCE_SIZE,128,
-EGL_DEPTH_SIZE,128,
-EGL_STENCIL_SIZE,128,
+EGL_RED_SIZE,64,
+EGL_GREEN_SIZE,64,
+EGL_BLUE_SIZE,64,
+EGL_ALPHA_SIZE,64,
+EGL_ALPHA_MASK_SIZE,256,
+EGL_LUMINANCE_SIZE,256,
+EGL_DEPTH_SIZE,256,
+EGL_STENCIL_SIZE,256,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
@@ -54,7 +53,7 @@ EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
 attr.stencil = 1;
 attr.depth = 1;
-attr.antialias = 1;
+attr.antialias = 0;
 attr.premultipliedAlpha = 0;
 attr.preserveDrawingBuffer = 0;
 emscripten_webgl_init_context_attributes(&attr);

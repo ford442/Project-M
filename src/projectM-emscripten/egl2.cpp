@@ -16,12 +16,19 @@ EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,24,
-EGL_STENCIL_SIZE,8,
-EGL_BUFFER_SIZE,32,
+EGL_TRANSPARENT_RED_SIZE,8,
+EGL_TRANSPARENT_GREEN_SIZE,8,
+EGL_TRANSPARENT_BLUE_SIZE,8,
+EGL_ALPHA_MASK_SIZE,32,
+EGL LUMINANCE SIZE,32,
+EGL DEPTH SIZE,32,
+EGL STENCIL SIZE,32,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
+EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
+EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
+
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -30,13 +37,13 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glStencilMask(0);
-glDepthMask(0.0);
-glColorMask(false,false,false,true);
-glClearColor(1.0,1.0,1.0,0.0);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 glStencilMask(1);
 glDepthMask(1.0);
+glColorMask(false,false,false,true);
+glClearColor(1.0,1.0,1.0,0.0);
+glClear(GL_COLOR_BUFFER_BIT);
+glStencilMask(0);
+glDepthMask(0.0);
 glColorMask(true,true,true,true);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -116,7 +123,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-
+glClearColor(1.0,1.0,1.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

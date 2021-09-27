@@ -12,16 +12,17 @@
 #include <GL/gl.h>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,16,
-EGL_GREEN_SIZE,16,
-EGL_BLUE_SIZE,16,
-EGL_ALPHA_SIZE,16,
-EGL_ALPHA_MASK_SIZE,64,
-EGL_LUMINANCE_SIZE,64,
-EGL_DEPTH_SIZE,64,
-EGL_STENCIL_SIZE,64,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_ALPHA_MASK_SIZE,128,
+EGL_LUMINANCE_SIZE,128,
+EGL_DEPTH_SIZE,128,
+EGL_STENCIL_SIZE,128,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
+EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
@@ -34,13 +35,13 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glStencilMask(1);
-glDepthMask(1.0);
+glStencilMask(0);
+glDepthMask(0.0);
 glColorMask(false,false,false,true);
 glClearColor(1.0,1.0,1.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT);
-glStencilMask(0);
-glDepthMask(0.0);
+glStencilMask(1);
+glDepthMask(1.0);
 glColorMask(true,true,true,true);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -89,8 +90,8 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=64;
-app.settings.meshY=64;
+app.settings.meshX=128;
+app.settings.meshY=128;
 app.settings.textureSize=4096;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
@@ -121,8 +122,8 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(1.0,1.0,1.0,0.0);
-glClearDepth(1.0);
-glClearStencil(0.0);
+glClearDepth(0.0);
+glClearStencil(1.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

@@ -12,16 +12,23 @@
 #include <GL/gl.h>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,8,
-EGL_GREEN_SIZE,8,
-EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,24,
-EGL_STENCIL_SIZE,8,
-EGL_BUFFER_SIZE,32,
+EGL_RED_SIZE,16,
+EGL_GREEN_SIZE,16,
+EGL_BLUE_SIZE,16,
+EGL_ALPHA_SIZE,16,
+EGL_TRANSPARENT_RED_SIZE,16,
+EGL_TRANSPARENT_GREEN_SIZE,16,
+EGL_TRANSPARENT_BLUE_SIZE,16,
+EGL_ALPHA_MASK_SIZE,64,
+EGL LUMINANCE SIZE,64,
+EGL DEPTH SIZE,64,
+EGL STENCIL SIZE,64,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
+EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
+EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
+
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -34,7 +41,7 @@ glStencilMask(1);
 glDepthMask(1.0);
 glColorMask(false,false,false,true);
 glClearColor(1.0,1.0,1.0,0.0);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT);
 glStencilMask(0);
 glDepthMask(0.0);
 glColorMask(true,true,true,true);
@@ -57,7 +64,7 @@ EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
 attr.stencil = 1;
 attr.depth = 1;
-attr.antialias = 0;
+attr.antialias = 1;
 attr.premultipliedAlpha = 0;
 attr.preserveDrawingBuffer = 0;
 emscripten_webgl_init_context_attributes(&attr);
@@ -85,9 +92,9 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=32;
-app.settings.meshY=32;
-app.settings.textureSize=1024;
+app.settings.meshX=64;
+app.settings.meshY=64;
+app.settings.textureSize=4096;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
 app.settings.windowWidth=width;
@@ -116,7 +123,9 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-
+glClearColor(1.0,1.0,1.0,0.0);
+glClearDepth(1.0);
+glClearStencil(0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

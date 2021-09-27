@@ -32,6 +32,6 @@ bld5: projectM_SDL_emscripten.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp egl2.cpp \
 	-o 1inkDrop-egl17e.js -sLEGACY_GL_EMULATION=1 -sGL_UNSAFE_OPTS=1 --closure 1 -g0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-run: bld bld2 bld3 bld4
+run: bld bld2 bld3 bld4 bld5
 	echo 'Built 1inkDrop-egl17.'
 

@@ -35,12 +35,9 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glClearColor(0,0,0,0);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  
-glClearColor(1,1,1,1);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  
 glClearColor(0,0,0,0);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);

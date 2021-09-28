@@ -6,10 +6,10 @@ document.getElementById("ihig").innerHTML=hi;
 document.getElementById("iwid").innerHTML=hi;
 document.getElementById("circle").width=wi;
 document.getElementById("circle").height=hi;
-document.getElementById("canvas").style="z-index:999995;image-rendering:pixelated;width:"+window.innerHeight+"px;height:"+window.innerHeight+"px;";
+document.getElementById("canvas").style="background-color:rgba(0,0,0,1);z-index:999995;image-rendering:pixelated;width:"+window.innerHeight+"px;height:"+window.innerHeight+"px;";
 let mid=Math.round((wi*0.5)-(hi*0.5));
 let rmid=wi-mid;
-document.getElementById("contain2").style="pointer-events:none;z-index:999993;height:"+hi+"px;width:"+hi+"px;position:absolute;bottom:0px;left:"+mid+"px;";
+document.getElementById("contain2").style="background-color:black;pointer-events:none;z-index:999993;height:"+hi+"px;width:"+hi+"px;position:absolute;bottom:0px;left:"+mid+"px;";
 document.getElementById("di").click();
 bz.postMessage({
 data:222

@@ -29,10 +29,8 @@ auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 glClearColor(0.0,0.0,0.0,0.0);
 glClear(GL_COLOR_BUFFER_BIT);
-  glClearColor(0.0,0.0,0.0,1.0);
 
 app.pm->pcm()->addPCM16Data(sndat,1024);
-  glClear(GL_COLOR_BUFFER_BIT);
 
 app.pm->renderFrame();
 glFlush();

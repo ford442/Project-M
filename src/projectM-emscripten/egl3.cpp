@@ -34,8 +34,9 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,1024);
+glClearColor(0,0,0,0);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -81,9 +82,9 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=90;
-app.settings.meshY=90;
-app.settings.textureSize=4096;
+app.settings.meshX=64;
+app.settings.meshY=64;
+app.settings.textureSize=2048;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
 app.settings.windowWidth=width;
@@ -111,8 +112,7 @@ printf("%s\n",dir_entry->d_name);
 }}
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
-}
-glClearColor(0.0,0.0,0.0,0.0);
+} 
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

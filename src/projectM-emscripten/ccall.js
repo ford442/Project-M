@@ -8,6 +8,7 @@ document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });
 document.getElementById('btn7').addEventListener('click',function(){
+document.getElementById('btn6').click();
 Module.ccall('rst');
 });
 Module.preRun=(function(){

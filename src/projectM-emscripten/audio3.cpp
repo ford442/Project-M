@@ -11,14 +11,14 @@
 #include <projectM.hpp>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,8,
-EGL_GREEN_SIZE,8,
-EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
-EGL_ALPHA_MASK_SIZE,32,
-EGL_LUMINANCE_SIZE,32,
-EGL_DEPTH_SIZE,32,
-EGL_STENCIL_SIZE,32,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_ALPHA_MASK_SIZE,128,
+EGL_LUMINANCE_SIZE,128,
+EGL_DEPTH_SIZE,128,
+EGL_STENCIL_SIZE,128,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
@@ -81,9 +81,9 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1inkDrop - [from 1ink.us]");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GL_SHADING_LANGUAGE_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=32;
-app.settings.meshY=32;
-app.settings.textureSize=1024;
+app.settings.meshX=64;
+app.settings.meshY=64;
+app.settings.textureSize=2048;
 app.settings.fps=FPS;
 app.settings.textureSize=EM_ASM_INT({return Math.pow(2,Math.floor(Math.log(window.innerHeight)/Math.log(2)));});
 app.settings.windowWidth=width;

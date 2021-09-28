@@ -105,7 +105,8 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void rstgl(){
-int nsiz=EM_ASM_INT({return window.innerHeight*2;});
+int nsiz=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
+nsiz=nsiz*2;
 app.pm->projectM_resetGL(nsiz,nsiz);
 printf("Reseting GL.\n");
 }  

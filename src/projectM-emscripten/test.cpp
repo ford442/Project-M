@@ -20,8 +20,7 @@ EGL_DEPTH_SIZE,128,
 EGL_STENCIL_SIZE,128,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
-EGL_BIND_TO_TEXTURE_RGB,EGL_FALSE,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
+/* EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB, */
 EGL_NONE
 };
 
@@ -34,8 +33,8 @@ static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClearColor(1,1,1,0);
-glClear(GL_COLOR_BUFFER_BIT);
+glClearColor(1,1,0.99,0.01);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT |GL_DEPTH_BUFFER_BIT |);
 app.pm->renderFrame();
 // glFlush();
 SDL_GL_SwapWindow(app.win);

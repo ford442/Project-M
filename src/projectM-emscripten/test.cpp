@@ -5,8 +5,6 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <EGL/egl.h>
-#include <EGL/eglext.h>
-
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
@@ -25,7 +23,6 @@ EGL_STENCIL_SIZE,128,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
-EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT_KHR,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
@@ -41,11 +38,9 @@ auto sndat=reinterpret_cast<short*>(sndBuf);
 glColorMask(0,0,0,1);
 glClearColor(0,0,0,0);
 glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  
-glColorMask(1,1,1,0);
 glClearColor(1,1,1,1);
 glColorMask(1,1,1,1);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);

@@ -32,18 +32,6 @@ app.pm->renderFrame();
 // glFinish();
 SDL_GL_SwapWindow(app.win);
 }
-void rstgl(){
-app.pm->projectM_resetGL(width,width);
-printf("Reseting GL.\n");
-}  
-void swtcht(){
-app.pm->selectRandom(true);
-printf("Select random preset.\n");
-}
-void lckt(){
-app.pm->setPresetLock(true);
-printf("Preset locked.\n");
-}
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha=1;
@@ -113,6 +101,18 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(0.0,0.0,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
+}
+void rstgl(){
+app.pm->projectM_resetGL(width,width);
+printf("Reseting GL.\n");
+}  
+void swtcht(){
+app.pm->selectRandom(true);
+printf("Select random preset.\n");
+}
+void lckt(){
+app.pm->setPresetLock(true);
+printf("Preset locked.\n");
 }
 static void cls_aud(){
 if(dev!=0){

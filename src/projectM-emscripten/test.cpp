@@ -16,8 +16,8 @@ EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,
 EGL_ALPHA_SIZE,32,
 EGL_BUFFER_SIZE,128,
-EGL_DEPTH_SIZE,32,
-EGL_STENCIL_SIZE,32,
+// EGL_DEPTH_SIZE,32,
+// EGL_STENCIL_SIZE,32,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
@@ -49,8 +49,8 @@ printf("Preset locked.\n");
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
-attr.stencil = 1;
-attr.depth = 1;
+attr.stencil = 0;
+attr.depth = 0;
 attr.antialias = 0;
 attr.premultipliedAlpha = 0;
 attr.preserveDrawingBuffer = 0;

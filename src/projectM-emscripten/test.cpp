@@ -15,8 +15,6 @@ EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,24,
-EGL_STENCIL_SIZE,16,
 EGL_NONE
 };
 
@@ -29,7 +27,7 @@ static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFinish();
 SDL_GL_SwapWindow(app.win);
@@ -45,8 +43,8 @@ printf("Preset locked.\n");
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha = 1;
-attr.stencil = 1;
-attr.depth = 1;
+attr.stencil = 0;
+attr.depth = 0;
 attr.antialias = 0;
 attr.premultipliedAlpha = 0;
 attr.preserveDrawingBuffer = 0;
@@ -64,7 +62,8 @@ if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE,EGL_NONE};
 contextegl=eglCreateContext (display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
-}else{
+}
+else{
 EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
@@ -98,7 +97,8 @@ app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
-}else{
+}
+else{
 struct dirent *dir_entry;
 while((dir_entry=readdir(m_dir))!=NULL){
 printf("%s\n",dir_entry->d_name);

@@ -9,7 +9,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-#include <GL/gl.h>
 
 static EGLint attribute_list[]={
 EGL_RED_SIZE,32,
@@ -20,7 +19,7 @@ EGL_ALPHA_MASK_SIZE,128,
 EGL_LUMINANCE_SIZE,128,
 EGL_DEPTH_SIZE,128,
 EGL_STENCIL_SIZE,128,
-EGL_CONFORMANT,EGL_OPENGL_ES2_BIT,
+EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_BIND_TO_TEXTURE_RGB,EGL_FALSE,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
@@ -35,8 +34,8 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);

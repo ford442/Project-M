@@ -17,8 +17,8 @@ EGL_BLUE_SIZE,32,
 EGL_ALPHA_SIZE,32,
 EGL_DEPTH_SIZE,32,
 EGL_STENCIL_SIZE,32,
-// EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
-// EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
+EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
+EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
 
@@ -30,10 +30,10 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 app.pm->renderFrame();
-// glFlush();
+glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 void swtcht(){

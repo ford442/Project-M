@@ -7,7 +7,9 @@ Module.ccall("swtch");
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });
-
+document.getElementById('btn7').addEventListener('click',function(){
+Module.ccall('rst');
+});
 Module.preRun=(function(){
 FS.mkdir('/presets');
 });

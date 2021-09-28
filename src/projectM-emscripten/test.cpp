@@ -37,7 +37,7 @@ app.pm->pcm()->addPCM16Data(sndat,1024);
 glClearColor(0,0,0,0);
 glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
-glFlush();
+// glFlush();
 SDL_GL_SwapWindow(app.win);
 }
 void swtcht(){

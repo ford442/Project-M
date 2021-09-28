@@ -32,6 +32,10 @@ app.pm->renderFrame();
 // glFinish();
 SDL_GL_SwapWindow(app.win);
 }
+void rstgl(){
+app.pm->projectM_resetGL(width,width);
+printf("Reseting GL.\n");
+}  
 void swtcht(){
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
@@ -42,12 +46,13 @@ printf("Preset locked.\n");
 }
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
-attr.alpha = 1;
-attr.stencil = 0;
-attr.depth = 0;
-attr.antialias = 0;
-attr.premultipliedAlpha = 0;
-attr.preserveDrawingBuffer = 0;
+attr.alpha=1;
+attr.stencil=0;
+attr.depth=0;
+attr.antialias=0;
+attr.premultipliedAlpha=0;
+attr.preserveDrawingBuffer=0;
+attr.lowLatency=1;
 emscripten_webgl_init_context_attributes(&attr);
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
 emscripten_webgl_make_context_current(ctx);
@@ -83,7 +88,7 @@ app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=0.5;
+app.settings.beatSensitivity=2.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
@@ -172,6 +177,9 @@ lckt();
 }
 void swtch(){
 swtcht();
+}
+void rst(){
+rstgl();
 }}
 int main(){
 EM_ASM({

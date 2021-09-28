@@ -12,14 +12,14 @@
 #include <GL/gl.h>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,16,
-EGL_GREEN_SIZE,16,
-EGL_BLUE_SIZE,16,
-EGL_ALPHA_SIZE,16,
-EGL_ALPHA_MASK_SIZE,64,
-EGL_LUMINANCE_SIZE,64,
-EGL_DEPTH_SIZE,64,
-EGL_STENCIL_SIZE,64,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_ALPHA_MASK_SIZE,128,
+EGL_LUMINANCE_SIZE,128,
+EGL_DEPTH_SIZE,128,
+EGL_STENCIL_SIZE,128,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
 EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
@@ -35,8 +35,8 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,1024);
+glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  
 app.pm->renderFrame();
 glFlush();
 SDL_GL_SwapWindow(app.win);
@@ -71,7 +71,8 @@ if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE,EGL_NONE};
 contextegl=eglCreateContext (display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
-}else{
+}
+else{
 EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
@@ -105,7 +106,8 @@ app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
-}else{
+}
+else{
 struct dirent *dir_entry;
 while((dir_entry=readdir(m_dir))!=NULL){
 printf("%s\n",dir_entry->d_name);

@@ -5,6 +5,8 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
+
 #include <GLES3/gl3.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
@@ -15,10 +17,15 @@ EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,
 EGL_ALPHA_SIZE,32,
-EGL_DEPTH_SIZE,32,
-EGL_STENCIL_SIZE,32,
+EGL_ALPHA_MASK_SIZE,128,
+EGL_LUMINANCE_SIZE,128,
+EGL_DEPTH_SIZE,128,
+EGL_STENCIL_SIZE,128,
+  
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_BIND_TO_TEXTURE_RGBA,EGL_TRUE,
+EGL_BIND_TO_TEXTURE_RGB,EGL_TRUE,
+EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT_KHR,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
 };
@@ -114,7 +121,7 @@ printf("%s\n",dir_entry->d_name);
 }}
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
-}
+} 
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void cls_aud(){

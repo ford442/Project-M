@@ -98,7 +98,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0.0,0.0,0.0,1.0);
+glClearColor(1.0,1.0,1.0,1.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void rstgl(){

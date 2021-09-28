@@ -34,7 +34,7 @@ static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-glClearColor(0,0,0,0);
+glClearColor(1,1,1,0);
 glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 // glFlush();

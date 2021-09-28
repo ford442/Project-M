@@ -35,7 +35,7 @@ bld5: projectM_SDL_emscripten.cpp  Makefile.am
 tst1: projectM_SDL_emscripten.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp test.cpp \
-	-o 19t.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_rst","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o 19t.js -sUSE_SDL=2 --closure 1 -g0 -sEXPORTED_FUNCTIONS='["_main","_rst","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 run: bld1 bld2 bld3 bld4 bld5
 	echo 'Built 1ink.Drop 19 (a - e).'

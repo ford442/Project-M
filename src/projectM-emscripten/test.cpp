@@ -11,13 +11,13 @@
 #include <projectM.hpp>
 
 static EGLint attribute_list[]={
-EGL_RED_SIZE,32,
-EGL_GREEN_SIZE,32,
-EGL_BLUE_SIZE,32,
-EGL_ALPHA_SIZE,32,
-EGL_BUFFER_SIZE,128,
-EGL_DEPTH_SIZE,32,
-EGL_STENCIL_SIZE,32,
+EGL_RED_SIZE,16,
+EGL_GREEN_SIZE,16,
+EGL_BLUE_SIZE,16,
+EGL_ALPHA_SIZE,16,
+EGL_BUFFER_SIZE,64,
+EGL_DEPTH_SIZE,16,
+EGL_STENCIL_SIZE,16,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_NONE
@@ -31,8 +31,11 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndBuf=wave.snd+wave.pos;
 auto sndat=reinterpret_cast<short*>(sndBuf);
-app.pm->pcm()->addPCM16Data(sndat,1024);
+glColorMask(0,0,0,1);
 glClearColor(0.0,0.0,0.0,0.0);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_DUFFER_BIT);
+glColorMask(1,1,1,1);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 glClear(GL_COLOR_BUFFER_BIT);
 app.pm->renderFrame();
 glFlush();

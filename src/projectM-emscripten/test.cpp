@@ -102,7 +102,8 @@ glClearColor(0.0,0.0,0.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void rstgl(){
-app.pm->projectM_resetGL(width,width);
+int nsiz=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
+app.pm->projectM_resetGL(nsiz,nsiz);
 printf("Reseting GL.\n");
 }  
 void swtcht(){

@@ -37,10 +37,18 @@ tst1: projectM_SDL_emscripten.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp test.cpp \
 	-o 21t.js -sUSE_SDL=2 --closure 1 -g0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
+tst2: projectM_SDL_emscripten.cpp  Makefile.am
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp test2.cpp \
+	-o 21nc.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+
 run: bld1 bld2 bld3 bld4 bld5
 	echo 'Built 1ink.Drop 19 (a - e).'
 	
 test: tst1
 	echo 'Built 1ink.Drop TEST.'
+		
+test2: tst2
+	echo 'Built (1azul1) TEST2. (non closure)'
 
 

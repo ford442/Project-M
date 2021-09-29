@@ -9,7 +9,7 @@ Module.ccall('chng');
 });
 document.getElementById('btn7').addEventListener('click',function(){
 document.getElementById("contain2").style="background-color:rgba(1,1,1,0);pointer-events:none;z-index:999993;height:2048;width:2048px;position:absolute;top:0px;left:0px;";
-document.getElementById("canvas").style="position:absolute;left:0;top:0;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:pixelated;width:2048px;height:2048px;";
+document.getElementById("canvas").style="position:absolute;left:0;top:0;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:'pixelated';width:2048px;height:2048px;";
 document.getElementById('ihig').innerHTML=2048;
 Module.ccall("chng");
 });

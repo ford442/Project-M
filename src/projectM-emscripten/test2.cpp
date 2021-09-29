@@ -33,7 +33,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-app.pm->pcm()->addPCM16Data(sndat,512);
+app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();
 SDL_GL_SwapWindow(app.win);
 }

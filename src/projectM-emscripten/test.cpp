@@ -103,11 +103,6 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
-void rstgl(){
-int nsiz=2048;
-app.pm->projectM_resetGL(nsiz,nsiz);
-printf("Reseting GL to 2048px/2048px Surface.\n");
-}  
 void swtcht(){
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
@@ -179,9 +174,6 @@ lckt();
 }
 void swtch(){
 swtcht();
-}
-void rst(){
-rstgl();
 }}
 int main(){
 EM_ASM({

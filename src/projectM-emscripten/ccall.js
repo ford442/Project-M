@@ -8,6 +8,7 @@ document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });
 document.getElementById('btn7').addEventListener('click',function(){
+document.getElementById("canvas").style="position:absolute;left:0;top:0;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:pixelated;width:2048px;height:2048px;";
 Module.ccall('rst');
-document.getElementById('btn6').click();
+document.getElementById("canvas").style="position:absolute;left:0;top:0;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:pixelated;width:"+window.innerHeight+"px;height:"+window.innerHeight+"px;";
 });

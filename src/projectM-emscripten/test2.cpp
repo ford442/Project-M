@@ -113,9 +113,9 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glColorMask(1,1,1,1);
-glDepthMask(1);
-glStencilMask(1);
+glColorMask(0,0,0,0);
+glDepthMask(0);
+glStencilMask(0);
 glClearColor(1,1,1,0);
 glClear(GL_COLOR_BUFFER_BIT);
 glClear(GL_DEPTH_BUFFER_BIT);

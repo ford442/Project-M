@@ -21,9 +21,9 @@ static EGLint attribute_list[]={
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
+EGL_ALPHA_SIZE,32,
 EGL_STENCIL_SIZE,8,
-EGL_DEPTH_SIZE,16,
+EGL_DEPTH_SIZE,32,
 EGL_BUFFER_SIZE,32,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
@@ -43,9 +43,7 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,768);
-  
 app.pm->renderFrame();
-  
 eglSwapBuffers(display,surface);
 }
 
@@ -113,9 +111,6 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glColorMask(0,0,0,0);
-glDepthMask(0);
-glStencilMask(0);
 glClearColor(1,1,1,0);
 glClear(GL_COLOR_BUFFER_BIT);
 glClear(GL_DEPTH_BUFFER_BIT);

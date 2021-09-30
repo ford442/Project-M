@@ -9,6 +9,7 @@
 #include <GLES3/gl3.h>
 
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>

@@ -26,11 +26,12 @@ EGL_RED_SIZE,16,
 EGL_GREEN_SIZE,16,
 EGL_BLUE_SIZE,16,
 EGL_ALPHA_SIZE,16,
-EGL_STENCIL_SIZE,0,
+EGL_STENCIL_SIZE,16,
 EGL_DEPTH_SIZE,32,
 EGL_BUFFER_SIZE,64,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
+EGL_CONFIG_CAVEAT,EGL_NONE,
 EGL_NONE
 };
 
@@ -47,6 +48,7 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,768);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 }
@@ -54,7 +56,7 @@ eglSwapBuffers(display,surface);
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
 attr.alpha=1;
-attr.stencil=0;
+attr.stencil=1;
 attr.depth=1;
 attr.antialias=0;
 attr.premultipliedAlpha=0;

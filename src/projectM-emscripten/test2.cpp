@@ -16,8 +16,12 @@
 #include <projectM.hpp>
 
 Uint8 * stm;
+static const EGLint attribut_list[]={
+EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
+EGL_NONE
+};
 
-static EGLint attribute_list[]={
+static const EGLint attribute_list[]={
 EGL_RED_SIZE,16,
 EGL_GREEN_SIZE,16,
 EGL_BLUE_SIZE,16,
@@ -70,7 +74,7 @@ contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }
 else{
-EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,NULL);
+EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});

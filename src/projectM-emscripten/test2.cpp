@@ -42,7 +42,7 @@ static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();
-eglSwapBuffers(app.win);
+eglSwapBuffers(display,surface);
 }
 
 static void chngt(){

@@ -2,12 +2,17 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+
 #include <GLES3/gl3.h>
+
 #include <EGL/egl.h>
+
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
+
 #include <projectM.hpp>
 
 Uint8 * stm;
@@ -18,10 +23,12 @@ EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
 EGL_STENCIL_SIZE,8,
-EGL_DEPTH_SIZE,24,
+EGL_DEPTH_SIZE,32,
 EGL_BUFFER_SIZE,32,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
+EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
+
 EGL_NONE
 };
 
@@ -80,7 +87,7 @@ app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=2.0;
+app.settings.beatSensitivity=1.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
@@ -103,6 +110,8 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
+glClearColor(1,1,1,0);
+glClear(GL_COLOR_BUFFER_BIT);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void swtcht(){

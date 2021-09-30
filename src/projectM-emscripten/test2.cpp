@@ -23,7 +23,7 @@ EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
 EGL_STENCIL_SIZE,8,
-EGL_DEPTH_SIZE,32,
+EGL_DEPTH_SIZE,24,
 EGL_BUFFER_SIZE,32,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
@@ -113,6 +113,8 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(1,1,1,0);
 glClear(GL_COLOR_BUFFER_BIT);
+glClear(GL_DEPTH_BUFFER_BIT);
+glClear(GL_STENCIL_BUFFER_BIT);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void swtcht(){

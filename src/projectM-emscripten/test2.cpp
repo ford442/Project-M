@@ -117,12 +117,9 @@ glColorMask(1,1,1,1);
 glDepthMask(1);
 glStencilMask(1);
 glClearColor(1,1,1,0);
-glClearAccum(1,1,1,0);
 glClear(GL_COLOR_BUFFER_BIT);
-glClear(GL_BACK_COLOR_BUFFER_BIT);
 glClear(GL_DEPTH_BUFFER_BIT);
 glClear(GL_STENCIL_BUFFER_BIT);
-glClear(GL_ACCUM_BUFFER_BIT);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void swtcht(){

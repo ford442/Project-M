@@ -411,7 +411,7 @@ static const EffectState pipelineStates[] = {
 
 	
 #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \
-        SamplerIntrinsic( name, HLSLBaseType_Float4, arg1, HLSLBaseType_Float4, arg2 )
+        SamplerIntrinsic( name, HLSLBaseType_Float4, sampler, arg1 )
 	
 // #else
 // #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \

@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <GLES3/gl32.h>
+#include <EGL/egl.h>
+
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
@@ -23,10 +26,9 @@ EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
 EGL_STENCIL_SIZE,8,
-EGL_DEPTH_SIZE,16,
+EGL_DEPTH_SIZE,24,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
-EGL_CONFIG_CAVEAT,EGL_NONE,
 EGL_NONE
 };
 

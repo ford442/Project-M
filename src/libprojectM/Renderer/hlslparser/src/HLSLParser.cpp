@@ -7,6 +7,9 @@
 //
 //=============================================================================
 
+#define GLT_IMPLEMENTATION
+#include "gltext.h"
+
 //#include "Engine/String.h"
 #include "Engine.h"
 

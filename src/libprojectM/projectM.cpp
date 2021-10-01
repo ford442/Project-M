@@ -19,8 +19,6 @@
 *
 */
 
-#include <GLES3/gl32.h>  //   Emscripten specific  (GLES Version 3.2 (2021))
-#include <EGL/egl.h>
 
 #include "projectM-opengl.h"
 #include "RenderItemMatcher.hpp"

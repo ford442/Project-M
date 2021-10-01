@@ -6,6 +6,7 @@
 // Copyright (c) 2013, Unknown Worlds Entertainment, Inc.
 //
 //=============================================================================
+#include <GLES3/gl3.h>
 
 #define GLT_IMPLEMENTATION
 #include "gltext.h"

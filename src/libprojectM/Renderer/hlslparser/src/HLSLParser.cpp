@@ -7,9 +7,7 @@
 //
 //=============================================================================
 
-
 //#include "Engine/String.h"
-
 #include "Engine.h"
 
 #include "HLSLParser.h"
@@ -22,7 +20,6 @@
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
-
 #if defined WIN32 && !defined alloca
 #include <malloc.h>
 #endif /** WIN32 */
@@ -409,14 +406,14 @@ static const EffectState pipelineStates[] = {
         Intrinsic( name, HLSLBaseType_Float3,  HLSLBaseType_Float3,  HLSLBaseType_Float3,  HLSLBaseType_Float3 ),  \
         Intrinsic( name, HLSLBaseType_Float4,  HLSLBaseType_Float4,  HLSLBaseType_Float4,  HLSLBaseType_Float4 )
 
-HLSLBaseType arg2;
+#if 0
+// @@ IC: For some reason this is not working with the Visual Studio compiler:
 #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \
-        SamplerIntrinsic( name, HLSLBaseType_Float4, arg1, sampler, arg2 )
-
-// #else
-// #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \
-//         Intrinsic( name, HLSLBaseType_Float4, sampler, arg1 )
-// #endif
+        SamplerIntrinsic( name, HLSLBaseType_Float4, sampler, HLSLBaseType_Float, arg1)
+#else
+#define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \
+        Intrinsic( name, HLSLBaseType_Float4, sampler, arg1)
+#endif
     
 const Intrinsic _intrinsic[] =
     {

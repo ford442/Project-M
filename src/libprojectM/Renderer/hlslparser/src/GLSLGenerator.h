@@ -35,9 +35,12 @@ Flag_PackMatrixRowMajor = 1 << 2,
 Flag_LowerMatrixMultiplication = 1 << 3,
 };
 struct Options{
-unsigned int flags = 0;
-const char* constantBufferPrefix = "";
-};
+unsigned int flags;
+const char* constantBufferPrefix;
+Options(){
+flags = 0;
+constantBufferPrefix = "";
+}};
 GLSLGenerator();
 bool Generate(HLSLTree* tree, Target target, Version versiom, const char* entryName, const Options& options = Options());
 const char* GetResult() const;

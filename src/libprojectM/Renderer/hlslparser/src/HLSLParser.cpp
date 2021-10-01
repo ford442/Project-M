@@ -106,9 +106,8 @@ struct Intrinsic
     HLSLArgument    argument[4];
 };
     
-Intrinsic SamplerIntrinsic(const char* name, HLSLBaseType returnType, HLSLBaseType arg1, HLSLBaseType samplerType/*, HLSLBaseType arg2*/)
+Intrinsic SamplerIntrinsic(const char* name, HLSLBaseType returnType, HLSLBaseType arg1, HLSLBaseType samplerType, HLSLBaseType arg2)
 {
-    HLSLBaseType arg2;
     Intrinsic i(name, returnType, arg1, arg2);
     i.argument[0].type.samplerType = samplerType;
     return i;
@@ -410,9 +409,9 @@ static const EffectState pipelineStates[] = {
         Intrinsic( name, HLSLBaseType_Float3,  HLSLBaseType_Float3,  HLSLBaseType_Float3,  HLSLBaseType_Float3 ),  \
         Intrinsic( name, HLSLBaseType_Float4,  HLSLBaseType_Float4,  HLSLBaseType_Float4,  HLSLBaseType_Float4 )
 
-	
+HLSLBaseType arg2;
 #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \
-        SamplerIntrinsic( name, HLSLBaseType_Float4, arg1, sampler )
+        SamplerIntrinsic( name, HLSLBaseType_Float4, arg1, sampler, arg2 )
 
 // #else
 // #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \

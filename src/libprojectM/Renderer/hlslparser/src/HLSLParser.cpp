@@ -6,12 +6,13 @@
 // Copyright (c) 2013, Unknown Worlds Entertainment, Inc.
 //
 //=============================================================================
-#include <GLES3/gl3.h>
 
-#define GLT_IMPLEMENTATION
-#include "gltext.h"
+#include <GLES3/gl3.h>
+GLuint arg2;
+GLuint arg1;
 
 //#include "Engine/String.h"
+
 #include "Engine.h"
 
 #include "HLSLParser.h"
@@ -24,6 +25,7 @@
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
+
 #if defined WIN32 && !defined alloca
 #include <malloc.h>
 #endif /** WIN32 */

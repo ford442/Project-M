@@ -7,9 +7,6 @@
 //
 //=============================================================================
 
-#include <GLES3/gl3.h>
-GLuint arg2;
-GLuint arg1;
 
 //#include "Engine/String.h"
 

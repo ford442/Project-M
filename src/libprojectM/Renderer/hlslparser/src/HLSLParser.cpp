@@ -106,8 +106,9 @@ struct Intrinsic
     HLSLArgument    argument[4];
 };
     
-Intrinsic SamplerIntrinsic(const char* name, HLSLBaseType returnType, HLSLBaseType arg1, HLSLBaseType samplerType, HLSLBaseType arg2)
+Intrinsic SamplerIntrinsic(const char* name, HLSLBaseType returnType, HLSLBaseType arg1, HLSLBaseType samplerType/*, HLSLBaseType arg2*/)
 {
+    int arg2 = 0;
     Intrinsic i(name, returnType, arg1, arg2);
     i.argument[0].type.samplerType = samplerType;
     return i;
@@ -411,14 +412,11 @@ static const EffectState pipelineStates[] = {
 
 	
 #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \
-        SamplerIntrinsic( name, HLSLBaseType_Float4, arg1, sampler, arg2 )
-	
-#define SAMPLER_INTRINSIC_FUNCTION_TEX(name, sampler, arg1) \
-        SamplerIntrinsic( name, HLSLBaseType_Float2, arg1, sampler, arg2 )
-	
+        SamplerIntrinsic( name, HLSLBaseType_Float4, arg1, sampler )
+
 // #else
 // #define SAMPLER_INTRINSIC_FUNCTION(name, sampler, arg1) \
-//         Intrinsic( name, HLSLBaseType_Float4, sampler, arg1)
+//         Intrinsic( name, HLSLBaseType_Float4, sampler, arg1 )
 // #endif
     
 const Intrinsic _intrinsic[] =
@@ -628,7 +626,7 @@ const Intrinsic _intrinsic[] =
 
 		Intrinsic("asuint",    HLSLBaseType_Uint, HLSLBaseType_Float),
 
-        SAMPLER_INTRINSIC_FUNCTION_TEX("tex2D", HLSLBaseType_Sampler2D, HLSLBaseType_Float2),
+        SAMPLER_INTRINSIC_FUNCTION("tex2D", HLSLBaseType_Sampler2D, HLSLBaseType_Float2),
         
         Intrinsic("tex2Dproj", HLSLBaseType_Float4, HLSLBaseType_Sampler2D, HLSLBaseType_Float4),
 

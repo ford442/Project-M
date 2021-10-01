@@ -114,7 +114,7 @@ GLSLGenerator::GLSLGenerator() :
     m_tree                      = NULL;
     m_entryName                 = NULL;
     m_target                    = Target_VertexShader;
-    m_version                   = Version_320_ES;
+    m_version                   = Version_300_ES;
     m_versionLegacy             = false;
     m_inAttribPrefix            = NULL;
     m_outAttribPrefix           = NULL;
@@ -201,20 +201,20 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
 
     if (m_version == Version_110)
     {
-     //   m_writer.WriteLine(0, "#version 110");
-	            m_writer.WriteLine(0, "#version 320 es");
+      m_writer.WriteLine(0, "#version 110");
+	         //   m_writer.WriteLine(0, "#version 320 es");
 
     }
     if (m_version == Version_120)
     {
-      //  m_writer.WriteLine(0, "#version 120");
-	            m_writer.WriteLine(0, "#version 320 es");
+      m_writer.WriteLine(0, "#version 120");
+	      //      m_writer.WriteLine(0, "#version 320 es");
 
     }
     else if (m_version == Version_140)
     {
-     //   m_writer.WriteLine(0, "#version 140");
-	            m_writer.WriteLine(0, "#version 320 es");
+       m_writer.WriteLine(0, "#version 140");
+	    //        m_writer.WriteLine(0, "#version 320 es");
 
 
         // Pragmas for NVIDIA.
@@ -227,8 +227,8 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     }
     else if (m_version == Version_150)
     {
-      //  m_writer.WriteLine(0, "#version 150");
-	            m_writer.WriteLine(0, "#version 320 es");
+      m_writer.WriteLine(0, "#version 150");
+	   //         m_writer.WriteLine(0, "#version 320 es");
 
     }
     else if (m_version == Version_330)
@@ -239,22 +239,16 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     }
     else if (m_version == Version_100_ES)
     {
-      //  m_writer.WriteLine(0, "#version 100");
-	            m_writer.WriteLine(0, "#version 320 es");
+      m_writer.WriteLine(0, "#version 100");
+	     //       m_writer.WriteLine(0, "#version 320 es");
 
         m_writer.WriteLine(0, "precision highp float;");
     }
     else if (m_version == Version_300_ES)
     {
       //  m_writer.WriteLine(0, "#version 300 es");
-	            m_writer.WriteLine(0, "#version 320 es");
+	 m_writer.WriteLine(0, "#version 320 es");
 
-        m_writer.WriteLine(0, "precision highp float;");
-        m_writer.WriteLine(0, "precision highp sampler3D;");
-    }
-    else if (m_version == Version_320_ES)
-    {
-        m_writer.WriteLine(0, "#version 320 es");
         m_writer.WriteLine(0, "precision highp float;");
         m_writer.WriteLine(0, "precision highp sampler3D;");
     }

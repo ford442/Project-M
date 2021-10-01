@@ -15,13 +15,9 @@ This causes a GLError INVALID_OPERATION(0x502) whenever making a new Renderer or
 
 So because of this, we switch to a PerlinNoiseWithAlpha class to generate the noise textures.
 */
-#ifdef GL_ES_VERSION_2_0
 #include "PerlinNoiseWithAlpha.hpp"
 #define NOISE_INTERNAL_DATA_FORMAT GL_RGBA
-#else
-#include "PerlinNoise.hpp"
-#define NOISE_INTERNAL_DATA_FORMAT GL_RGB
-#endif
+
 
  
 #define NUM_BLUR_TEX    6
@@ -94,11 +90,8 @@ TextureManager::TextureManager(const std::string _presetsURL, const int texsizeX
         blurTextures.push_back(textureBlur);
     }
 
-#ifdef GL_ES_VERSION_2_0
     std::unique_ptr<PerlinNoiseWithAlpha> noise(new PerlinNoiseWithAlpha());
-#else
-    std::unique_ptr<PerlinNoise> noise(new PerlinNoise());
-#endif
+
 
     GLuint noise_texture_lq_lite;
     glGenTextures(1, &noise_texture_lq_lite);

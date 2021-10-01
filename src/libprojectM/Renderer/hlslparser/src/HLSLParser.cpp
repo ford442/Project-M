@@ -108,7 +108,7 @@ struct Intrinsic
     
 Intrinsic SamplerIntrinsic(const char* name, HLSLBaseType returnType, HLSLBaseType arg1, HLSLBaseType samplerType/*, HLSLBaseType arg2*/)
 {
-    HLSLBaseType arg2 = 0;
+    HLSLBaseType arg2;
     Intrinsic i(name, returnType, arg1, arg2);
     i.argument[0].type.samplerType = samplerType;
     return i;

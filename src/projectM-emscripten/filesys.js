@@ -6,10 +6,6 @@ document.getElementById("ihig").innerHTML=hi;
 document.getElementById("iwid").innerHTML=hi;
 document.getElementById("circle").width=wi;
 document.getElementById("circle").height=hi;
-document.getElementById("canvas").style="background-color:rgba(1,1,1,0);z-index:999995;image-rendering:pixelated;width:100vh;height:100vh;";
-let mid=Math.round((wi*0.5)-(hi*0.5));
-let rmid=wi-mid;
-document.getElementById("contain2").style="background-color:rgba(1,1,1,0);pointer-events:none;z-index:999993;height:"+hi+"px;width:"+hi+"px;position:absolute;bottom:0px;left:"+mid+"px;";
 document.getElementById("di").click();
 bz.postMessage({
 data:222

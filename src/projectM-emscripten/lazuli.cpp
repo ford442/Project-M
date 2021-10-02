@@ -2,8 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <GLES3/gl31.h>
-#include <GLES3/gl31.h>
+#include <GLES3/gl32.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <emscripten/emscripten.h>

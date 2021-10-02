@@ -18,7 +18,7 @@
 namespace M4
 {
 
-static const int _maxLineLength = 512;
+static const int _maxLineLength = 2048;
 
 CodeWriter::CodeWriter(bool writeFileNames)
 {

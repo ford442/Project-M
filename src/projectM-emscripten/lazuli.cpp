@@ -25,7 +25,7 @@ EGL_RED_SIZE,16,
 EGL_GREEN_SIZE,16,
 EGL_BLUE_SIZE,16,
 EGL_ALPHA_SIZE,16,
-EGL_STENCIL_SIZE,16,
+EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,32,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
@@ -46,22 +46,23 @@ static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | STENCIL_BUFFER_BIT);
 eglSwapBuffers(display,surface);
 }
 
 static void chngt(){
-SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,16);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,16);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,16);
 SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,16);
 SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,16);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,16);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,16);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,16);
     
 EmscriptenWebGLContextAttributes attr;
 attr.alpha=1;
@@ -126,8 +127,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(0.5,0.5,0.5,0.0);
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+glClearColor(1.0,1.0,1.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void swtcht(){

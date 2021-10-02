@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <GLES3/gl32.h>
+#include <GLES3/gl31.h>
 #include <EGL/egl.h>
 
 #include <emscripten/emscripten.h>

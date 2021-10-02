@@ -115,7 +115,7 @@ GLSLGenerator::GLSLGenerator() :
     m_entryName                 = NULL;
     m_target                    = Target_VertexShader;
 #if USE_GLES
-    m_version                   = Version_300_ES;
+    m_version                   = Version_320_ES;
 #else
     m_version                   = Version_330;
 #endif
@@ -239,7 +239,7 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     }
     else if (m_version == Version_300_ES)
     {  
-        m_writer.WriteLine(0, "#version 300 es");
+        m_writer.WriteLine(0, "#version 320 es");
         m_writer.WriteLine(0, "precision highp float;");
         m_writer.WriteLine(0, "precision highp sampler3D;");
     }

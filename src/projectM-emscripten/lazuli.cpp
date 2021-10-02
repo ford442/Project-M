@@ -46,7 +46,7 @@ static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | STENCIL_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 eglSwapBuffers(display,surface);
 }
 

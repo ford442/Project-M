@@ -84,12 +84,7 @@ AC_CONFIG_FILES([
   src/libprojectM/MilkdropPresetFactory/Makefile
   src/libprojectM/libprojectM.pc
   src/NativePresets/Makefile
-  src/projectM-sdl/Makefile
   src/projectM-emscripten/Makefile
-  src/projectM-qt/Makefile
-  src/projectM-pulseaudio/Makefile
-  src/projectM-jack/Makefile
-  src/projectM-test/Makefile
 ])
 
 

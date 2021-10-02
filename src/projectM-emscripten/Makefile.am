@@ -47,5 +47,8 @@ run: bld1 bld2 bld3 bld4 bld5
 	
 test: tst1 tst2
 	echo 'Built 1ink.Drop TEST.'
+	
+testnc: tst2
+	echo 'Built 1ink.Drop TEST.'
 
 

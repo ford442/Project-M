@@ -25,7 +25,7 @@ EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,
 EGL_ALPHA_SIZE,32,
-EGL_STENCIL_SIZE,32,
+EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,32,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
@@ -46,7 +46,7 @@ static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 eglSwapBuffers(display,surface);
 }
 
@@ -114,7 +114,7 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glClearColor(1.0,1.0,1.0,0.0);
+glClearColor(0.5,0.5,0.5,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 void swtcht(){

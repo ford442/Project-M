@@ -193,7 +193,6 @@ int main(){
 EM_ASM({
 FS.mkdir('/presets');
 FS.mkdir('/textures');
-FS.mkdir('/tmp');
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("contain2").width=window.innerHeight;

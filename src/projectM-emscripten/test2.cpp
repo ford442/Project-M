@@ -21,12 +21,12 @@ EGL_NONE
 };
 
 static const EGLint attribute_list[]={
-EGL_RED_SIZE,8,
-EGL_GREEN_SIZE,8,
-EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
-EGL_STENCIL_SIZE,8,
-EGL_DEPTH_SIZE,24,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_STENCIL_SIZE,32,
+EGL_DEPTH_SIZE,32,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_NONE
@@ -195,6 +195,8 @@ swtcht();
 int main(){
 EM_ASM({
 FS.mkdir('/presets');
+FS.mkdir('/textures');
+FS.mkdir('/tmp');
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("contain2").width=window.innerHeight;

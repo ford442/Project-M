@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <GLES3/gl3.h>
+#include <GLES3/gl32.h>
 #include <EGL/egl.h>
 
 #include <emscripten/emscripten.h>
@@ -21,11 +21,11 @@ EGL_NONE
 };
 
 static const EGLint attribute_list[]={
-EGL_RED_SIZE,32,
-EGL_GREEN_SIZE,32,
-EGL_BLUE_SIZE,32,
-EGL_ALPHA_SIZE,32,
-EGL_STENCIL_SIZE,16,
+EGL_RED_SIZE,8,
+EGL_GREEN_SIZE,8,
+EGL_BLUE_SIZE,8,
+EGL_ALPHA_SIZE,8,
+EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,32,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
@@ -50,6 +50,19 @@ eglSwapBuffers(display,surface);
 }
 
 static void chngt(){
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,8);
+    
 EmscriptenWebGLContextAttributes attr;
 attr.alpha=1;
 attr.stencil=1;
@@ -67,7 +80,7 @@ eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 }
-EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};
+EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_CONTEXT_MINOR_VERSION,2,EGL_NONE};
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }

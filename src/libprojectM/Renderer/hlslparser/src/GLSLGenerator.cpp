@@ -114,7 +114,7 @@ GLSLGenerator::GLSLGenerator() :
     m_tree                      = NULL;
     m_entryName                 = NULL;
     m_target                    = Target_VertexShader;
-    m_version                   = Version_300_ES;
+    m_version                   = Version_320_ES;
     m_versionLegacy             = false;
     m_inAttribPrefix            = NULL;
     m_outAttribPrefix           = NULL;
@@ -233,8 +233,8 @@ bool GLSLGenerator::Generate(HLSLTree* tree, Target target, Version version, con
     }
     else if (m_version == Version_330)
     {
-     //   m_writer.WriteLine(0, "#version 330");
-	            m_writer.WriteLine(0, "#version 320 es");
+       m_writer.WriteLine(0, "#version 330");
+	   //         m_writer.WriteLine(0, "#version 320 es");
 
     }
     else if (m_version == Version_100_ES)

@@ -101,11 +101,11 @@ app.settings.shuffleEnabled=0;
 app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";
 app.pm=new projectM(app.settings);
+app.pm->projectM_resetGL(width,height);
+printf("Reseting GL.\n");
 printf("Init ProjectM\n");
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
-app.pm->projectM_resetGL(width,height);
-printf("Reseting GL.\n");
 DIR *m_dir;
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
 }

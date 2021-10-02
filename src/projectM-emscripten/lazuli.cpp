@@ -2,9 +2,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <GLES3/gl32.h>
+#include <GLES3/gl3.h>
 #include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include "SDL2/SDL_config.h"
@@ -72,7 +71,7 @@ eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 }
-EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_CONTEXT_MINOR_VERSION,1,EGL_NONE};
+EGLint anEglCtxAttribs2[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }

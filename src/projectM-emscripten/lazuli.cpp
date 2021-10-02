@@ -13,7 +13,7 @@
 Uint8 * stm;
 static const EGLint attribut_list[]={
 EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
-EGL_GL_CONTEXT_FLAG_ROBUST_ACCESS_BIT,EGL_TRUE,
+EGL_CONTEXT_OPENGL_ROBUST_ACCESS,EGL_TRUE,
 EGL_NONE
 };
 static const EGLint attribute_list[]={

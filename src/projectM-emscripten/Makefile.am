@@ -7,35 +7,35 @@ ${my_CFLAGS} \
 -I${top_srcdir}/src/libprojectM/Renderer \
 ${SDL_CFLAGS}
 
-bld1: projectM_SDL_emscripten.cpp  Makefile.am
+bld1: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
 	-o 19a.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-bld2: projectM_SDL_emscripten.cpp  Makefile.am
+bld2: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
 	-o 19b.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-bld3: projectM_SDL_emscripten.cpp  Makefile.am
+bld3: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
 	-o 19c.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-bld4: projectM_SDL_emscripten.cpp  Makefile.am
+bld4: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
 	-o 19d.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-bld5: projectM_SDL_emscripten.cpp  Makefile.am
+bld5:  lazuli.cpp Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
 	-o 19e.js -sUSE_SDL=2 -sLEGACY_GL_EMULATION=1 -sGL_UNSAFE_OPTS=1 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-tst1: projectM_SDL_emscripten.cpp  Makefile.am
+tst1:   lazuli.cpp Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o 23t.js -sLEGACY_GL_EMULATION=0 -sUSE_SDL=2 --closure 1 -g0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o 24t.js -sUSE_REGAL=0 -sUSE_SDL=2 --closure 1 -g0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 tst2: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
@@ -49,8 +49,8 @@ tst3: lazuli.cpp  Makefile.am
 
 tst4: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o lazulib3.js -sUSE_REGAL=1 -sFULL_ES3=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
+	-o lazulib3.js -sUSE_REGAL=1 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 
 run: bld1 bld2 bld3 bld4 bld5

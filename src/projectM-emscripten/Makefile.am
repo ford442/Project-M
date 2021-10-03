@@ -42,7 +42,7 @@ tst2: lazuli.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
 	-o lazuli.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
-tst2: lazuli.cpp  Makefile.am
+tst3: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
 	-o lazuliES.js -sLEGACY_GL_EMULATION=0 -sFULL_ES3=1 -sFULL_ES2=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
@@ -53,6 +53,6 @@ run: bld1 bld2 bld3 bld4 bld5
 test: tst1 tst2
 	echo 'Built 1ink.Drop TEST.'
 	
-testnc: tst2
+testnc: tst2 tst3
 	echo 'Built 1ink.Drop TEST.'
 

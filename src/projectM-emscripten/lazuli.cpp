@@ -2,8 +2,13 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <GLES/gl.h>
+#include <GLES/glext.h>
+#include <GLES3/gl2.h>
+#include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include "SDL2/SDL_config.h"

@@ -2,13 +2,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-// #include <GLES/gl.h>
-// #include <GLES/glext.h>
-// #include <GLES2/gl2.h>
-// #include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
-// #include <EGL/eglext.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include "SDL2/SDL_config.h"
@@ -78,7 +73,6 @@ if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 
 EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
-// EGL_CONTEXT_OPENGL_PROFILE_MASK,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT,
 EGL_NONE};
 
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);

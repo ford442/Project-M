@@ -2,7 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <GLES3/gl32.h>
+#include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
@@ -73,9 +73,7 @@ if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 
 EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
-/* EGL_CONTEXT_OPENGL_ROBUST_ACCESS,EGL_TRUE,
 EGL_CONTEXT_OPENGL_PROFILE_MASK,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT,
-EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE, */
 EGL_NONE};
 
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
@@ -90,8 +88,8 @@ int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
-// SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
-// SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
+SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
+SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX=96;
 app.settings.meshY=96;
 app.settings.textureSize=2048;

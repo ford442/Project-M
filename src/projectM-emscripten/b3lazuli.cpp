@@ -1,4 +1,3 @@
-
 #include <string>
 #include <math.h>
 #include <stdio.h>
@@ -150,7 +149,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8* stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;

@@ -100,7 +100,7 @@ app.settings.beatSensitivity=2.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
-app.settings.softCutRatingsEnabled=0;
+app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";  
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");

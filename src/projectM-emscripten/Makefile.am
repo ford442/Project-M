@@ -69,4 +69,7 @@ testnc: tst2 tst3
 	
 testb3: tst4
 	echo 'Built 1ink.Drop TEST.'
+	
+bpp: tst5
+	echo 'Built 1ink.Drop TEST.'
 

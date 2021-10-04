@@ -15,12 +15,13 @@ EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
 EGL_NONE
 };
 static const EGLint attribute_list[]={
-EGL_RED_SIZE,8,
-EGL_GREEN_SIZE,8,
-EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
-EGL_STENCIL_SIZE,8,
-EGL_DEPTH_SIZE,24,
+EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_STENCIL_SIZE,32,
+EGL_DEPTH_SIZE,32,
 EGL_CONFIG_CAVEAT,EGL_NONE,
 EGL_NATIVE_RENDERABLE,EGL_TRUE,
 EGL_NONE
@@ -41,18 +42,17 @@ app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 }
 static void chngt(){
-SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,24);
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,32);
 EmscriptenWebGLContextAttributes attr;
 attr.alpha=1;
 attr.stencil=1;
@@ -89,19 +89,19 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=96;
-app.settings.meshY=96;
+app.settings.meshX=128;
+app.settings.meshY=128;
 app.settings.textureSize=2048;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=2.0;
+app.settings.beatSensitivity=0.3;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
-app.settings.softCutRatingsEnabled=0;
+app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";  
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");

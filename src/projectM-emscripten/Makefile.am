@@ -52,6 +52,11 @@ tst4: b3lazuli.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
 	-o lazulib3.js -sUSE_REGAL=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
+tst5: bpp.cpp  Makefile.am
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp bpp.cpp \
+	-o bpp.js -sUSE_REGAL=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+
 
 run: bld1 bld2 bld3 bld4 bld5
 	echo 'Built 1ink.Drop 19 (a - e).'

@@ -199,7 +199,7 @@ swtcht();
 
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){let canvas=document.getElementById("vcanvas");let w=document.getElementById("iwid").innerHTML;
-let h=document.getElementById("ihig").innerHTML;w=Math.round(w);h=Math.round(h);let g=new GPU({canvas:canvas});
+let h=document.getElementById("ihig").innerHTML;w=Math.round(w);h=Math.round(h);let g=new GPU({canvas:{canvas}});
 let Rn=document.getElementById("frate").innerHTML;let l=(w*h*4);let m=((l/65536)+1);m=Math.floor(m);
 let W=new WebAssembly.Memory({initial:m});let o=[w,h];let Kr=document.getElementById("cp");
 let v=document.getElementById("mv");let t=g.createKernel(function(v){let p=v[this.thread.y][this.thread.x];

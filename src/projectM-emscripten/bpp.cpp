@@ -2,18 +2,18 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <GLES/gl.h?
-#include <GLES/glext.h?
+#include <GLES/gl.h>
+#include <GLES/glext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <emscripten/emscripten.h>
-#include <emscripten/html5.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
+#include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
 Uint8* stm;
 static const EGLint attribut_list[]={
 EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,

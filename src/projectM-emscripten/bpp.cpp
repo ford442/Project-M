@@ -2,14 +2,18 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <GLES3/gl3.h>
+#include <GLES/gl.h>
+#include <GLES/glext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include <GLES3/gl32.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-#include <emscripten/emscripten.h>
-#include <emscripten/html5.h>
 Uint8* stm;
 static const EGLint attribut_list[]={
 EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
@@ -23,7 +27,6 @@ EGL_BLUE_SIZE,32,
 EGL_ALPHA_SIZE,32,
 EGL_STENCIL_SIZE,32,
 EGL_DEPTH_SIZE,32,
-EGL_BUFFER_SIZE,128,
 EGL_NONE
 };
 EGLSurface surface;
@@ -46,7 +49,6 @@ SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE,128);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
 SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,32);
@@ -98,7 +100,7 @@ app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=1.0;
+app.settings.beatSensitivity=.4;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;

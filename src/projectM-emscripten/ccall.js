@@ -8,7 +8,7 @@ document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });
 document.getElementById('btn7').addEventListener('click',function(){
-document.getElementById("contain2").style="background-color:rgba(0,0,0,1);z-index:999993;height:1440px;width:1440px;position:absolute;top:0px;left:0px;";
+document.getElementById("contain2").style="background-color:rgba(1,1,1,0);z-index:999993;height:1440px;width:1440px;position:absolute;top:0px;left:0px;";
 document.getElementById("canvas").style="position:absolute;left:0;top:0;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:pixelated;width:1440px;height:1440px;";
 document.getElementById('ihig').innerHTML=1440;
 Module.ccall("chng");

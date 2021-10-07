@@ -15,6 +15,20 @@ EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
 const float FPS=60;
+static const EGLint attribute_list[]={
+EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_STENCIL_SIZE,32,
+EGL_DEPTH_SIZE,32,
+EGL_NONE
+};
+static const EGLint attribut_list[]={
+EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
+EGL_NONE
+};
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
@@ -27,31 +41,8 @@ app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 }
 static void chngt(){
-static const EGLint attribut_list[]={
-EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
-EGL_NONE
-};
-static const EGLint attribute_list[]={
-EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_RED_SIZE,32,
-EGL_GREEN_SIZE,32,
-EGL_BLUE_SIZE,32,
-EGL_ALPHA_SIZE,32,
-EGL_STENCIL_SIZE,32,
-EGL_DEPTH_SIZE,32,
-EGL_NONE
-};
-SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,32);
+
+
 attr.alpha=1;
 attr.stencil=1;
 attr.depth=1;
@@ -80,6 +71,18 @@ eglMakeCurrent(display,surface,surface,contextegl);
 }}
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;
+  
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,8);
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");

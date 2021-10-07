@@ -38,9 +38,6 @@ EGL_STENCIL_SIZE,32,
 EGL_DEPTH_SIZE,32,
 EGL_NONE
 };
-EGLSurface surface;
-EGLDisplay display;
-EGLContext contextegl;
 SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
@@ -64,7 +61,7 @@ EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&a
 emscripten_webgl_make_context_current(ctx);
 EGLConfig eglconfig=NULL;
 EGLint config_size,major,minor;
-display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
+EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
@@ -72,11 +69,11 @@ if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_NONE};
-contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
+EGLContext contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }
 else{
-surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
+EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});

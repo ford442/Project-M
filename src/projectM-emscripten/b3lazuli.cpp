@@ -80,7 +80,7 @@ emscripten_webgl_make_context_current(ctx);
 
 EGLConfig eglconfig=NULL;
 EGLint config_size,major,minor;
-EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
+display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
@@ -92,7 +92,7 @@ contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }
 else{
-EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
+surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}  
 

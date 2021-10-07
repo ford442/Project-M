@@ -10,7 +10,20 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-Uint8* stm;
+Uint8 * stm;
+const float FPS=60;
+static SDL_AudioDeviceID dev;
+static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
+typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
+projectMApp;projectMApp app;
+static void renderFrame(){
+auto sndat=reinterpret_cast<short*>(stm);
+glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
+app.pm->pcm()->addPCM16Data(sndat,768);
+app.pm->renderFrame();
+eglSwapBuffers(display,surface);
+}
+static void chngt(){
 static const EGLint attribut_list[]={
 EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
 EGL_NONE
@@ -28,19 +41,6 @@ EGL_NONE
 EGLSurface surface;
 EGLDisplay display;
 EGLContext contextegl;
-const float FPS=60;
-static SDL_AudioDeviceID dev;
-static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
-projectMApp;projectMApp app;
-static void renderFrame(){
-auto sndat=reinterpret_cast<short*>(stm);
-glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
-app.pm->pcm()->addPCM16Data(sndat,768);
-app.pm->renderFrame();
-eglSwapBuffers(display,surface);
-}
-static void chngt(){
 SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
@@ -64,21 +64,19 @@ EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&a
 emscripten_webgl_make_context_current(ctx);
 EGLConfig eglconfig=NULL;
 EGLint config_size,major,minor;
-EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
+display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 }
-
 EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_NONE};
-
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }
 else{
-EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
+surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
@@ -96,7 +94,7 @@ app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=0.3;
+app.settings.beatSensitivity=1.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;

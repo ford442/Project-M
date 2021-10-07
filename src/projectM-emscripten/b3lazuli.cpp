@@ -10,7 +10,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-Uint8 *stm;
 EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
@@ -20,7 +19,7 @@ static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
-static void renderFrame(){
+static void renderFrame(Uint8 * stm){
 auto sndat=reinterpret_cast<short*>(stm);
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,768);
@@ -146,7 +145,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,*stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;

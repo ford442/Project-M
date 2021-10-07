@@ -11,6 +11,10 @@
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
 Uint8 * stm;
+EGLDisplay display;
+EGLContext contextegl;
+EGLSurface surface;
+EmscriptenWebGLContextAttributes attr;
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -49,7 +53,6 @@ SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,32);
-EmscriptenWebGLContextAttributes attr;
 attr.alpha=1;
 attr.stencil=1;
 attr.depth=1;
@@ -61,7 +64,7 @@ EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&a
 emscripten_webgl_make_context_current(ctx);
 EGLConfig eglconfig=NULL;
 EGLint config_size,major,minor;
-EGLDisplay display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
+display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
@@ -69,11 +72,11 @@ if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_NONE};
-EGLContext contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
+contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }
 else{
-EGLSurface surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
+surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
@@ -143,7 +146,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8* stm,int len){
+static void SDLCALL bfr(void *unused,stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;

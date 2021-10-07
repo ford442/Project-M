@@ -195,7 +195,7 @@ swtcht();
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();
 function S(){
-let yy=document.getElementById("cp");let canvas=yy.getElementById("vcanvas");let g=new GPU({canvas:{canvas},mode:'gpu'});let w=document.getElementById("iwid").innerHTML;
+let yy=document.getElementById("cp");let canvas=yy.querySelector("canvas");let g=new GPU({canvas:{canvas},mode:'gpu'});let w=document.getElementById("iwid").innerHTML;
 let h=document.getElementById("ihig").innerHTML;w=Math.round(w);h=Math.round(h);
 let Rn=document.getElementById("frate").innerHTML;let l=(w*h*4);let m=((l/65536)+1);m=Math.floor(m);
 let W=new WebAssembly.Memory({initial:m});let o=[w,h];
@@ -204,7 +204,7 @@ return[p[0],p[1],p[2]];}).setTactic("precision").setPipeline(true).setOutput(o).
 let r=g.createKernel(function(f){let p=f[this.thread.y][this.thread.x];
 this.color(p[0],p[1],p[2]);}).setTactic("precision").setGraphical(true).setOutput(o).setStrictIntegers(true).setFixIntegerDivisionAccuracy(false);
 let $=new Uint8ClampedArray(W.buffer,0,l);$.set(t(v),0);r(t($));$.set(t(v),0);r(t($));
-$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn);canvas=yy.getElementById("vcanvas");function M(){if(T){return;}r(t($));$.set(t(v),0);
+$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn);canvas=yy.querySelector("canvas");function M(){if(T){return;}r(t($));$.set(t(v),0);
 let mq=((ms*f)/R);let k=Math.floor(mq);let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();
 S();};return()=>{T=true;};}});

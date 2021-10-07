@@ -204,7 +204,7 @@ return[p[0],p[1],p[2]];}).setTactic("precision").setPipeline(true).setOutput(o).
 let r=g.createKernel(function(f){let p=f[this.thread.y][this.thread.x];
 this.color(p[0],p[1],p[2]);}).setTactic("precision").setGraphical(true).setOutput(o).setStrictIntegers(true).setFixIntegerDivisionAccuracy(false);
 let $=new Uint8ClampedArray(W.buffer,0,l);$.set(t(v),0);r(t($));$.set(t(v),0);r(t($));
-$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn);function M(){if(T){return;}r(t($));$.set(t(v),0);
+$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn);canvas=document.getElementById("vcanvas");function M(){if(T){return;}r(t($));$.set(t(v),0);
 let mq=((ms*f)/R);let k=Math.floor(mq);let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();
 S();};return()=>{T=true;};}});

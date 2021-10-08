@@ -1,6 +1,4 @@
-
 document.getElementById('btn2').style="background-color:white;position:absolute;display:block;left:3%;top:3%;z-index:999997;border:5px solid green;border-radius:50%;";
-
 document.getElementById('btn').addEventListener('click',function(){
 document.getElementById("di").click();
 let bz=new BroadcastChannel('bez');
@@ -14,19 +12,18 @@ document.getElementById('btn6').style="background-color:yellow;position:absolute
 document.getElementById('btn7').style="background-color:red;position:absolute;display:block;left:3%;top:63%;z-index:999997;border:5px solid red;border-radius:50%;";
 document.getElementById('btn').style="background-color:red;position:absolute;display:block;left:3%;top:23%;z-index:999997;border:5px solid red;border-radius:50%;"
 });
-
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
 FS.writeFile('/sample.wav',fill);
 Module.ccall("pl");
 });
-
 document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
-
 document.getElementById('btn2').addEventListener('click',function(){
+var hhh=Math.round(parseInt(window.innerHeight));
+var www=Math.round(parseInt(window.innerWidth));
 let pth=document.getElementById('path').innerHTML;
 let pth2=document.getElementById('path2').innerHTML;
 let pth3=document.getElementById('path3').innerHTML;
@@ -75,9 +72,9 @@ FS.writeFile('/presets/set4.milk',fil);
 console.log('File: set4.milk.');
 }}
 ff4.send(null);
-document.getElementById("ihig").innerHTML=window.innerHeight;
-document.getElementById("circle").height=window.innerHeight;
-document.getElementById("circle").width=window.innerWidth;
+document.getElementById("ihig").innerHTML=hhh;
+document.getElementById("circle").height=hhh;
+document.getElementById("circle").width=www;
 document.getElementById('btn3').style.border="5px solid green";
 document.getElementById('btn2').style.border="5px solid red";
 document.getElementById('btn2').style.background="red";
@@ -88,24 +85,16 @@ document.getElementById('btn6').click();
 });
 
 document.getElementById('btn6').addEventListener('click',function(){
-let midl=Math.round((window.innerWidth*0.5)-(window.innerHeight*0.5));
-document.getElementById("drop").style="z-index:999992;height:100vh;width:auto;position:absolute;text-align:center;background-color:rgba(0,0,0,1);";
-document.getElementById("contain2").style="pointer-events:none;z-index:999993;height:"+window.innerHeight+"px;width:"+window.innerHeight+"px;position:absolute;top:0px;left:"+midl+"px;right:"+midl+"px;";
-document.getElementById("canvas").style="position:absolute;left:0px;top:0px;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:pixelated;width:"+window.innerHeight+"px;height:"+window.innerHeight+"px;";
-document.getElementById("vcanvas").style="position:absolute;left:0px;top:0px;z-index:999994;height:100%;width:auto;";
-document.getElementById('ihig').innerHTML=Math.round(window.innerHeight);
-document.getElementById("circle").height=window.innerHeight;
-document.getElementById("circle").width=window.innerWidth;
-document.getElementById('di').click();
-});
-
-document.getElementById('btn7').addEventListener('click',function(){
-document.getElementById('btn4').style="background-color:grey;position:absolute;display:block;left:3%;top:33%;z-index:999997;border:5px solid green;border-radius:50%;";
-document.getElementById('btn5').style="background-color:pink;position:absolute;display:block;left:3%;top:43%;z-index:999997;border:5px solid green;border-radius:50%;";
-document.getElementById('btn3').style="background-color:red;position:absolute;display:block;left:3%;top:13%;z-index:999997;border:5px solid red;border-radius:50%;";
-document.getElementById('btn6').style="background-color:yellow;position:absolute;display:block;left:3%;top:53%;z-index:999997;border:5px solid green;border-radius:50%;";
-document.getElementById('btn').style="background-color:red;position:absolute;display:block;left:3%;top:23%;z-index:999997;border:5px solid red;border-radius:50%;";
-document.getElementById('btn7').style="background-color:red;position:absolute;display:block;left:3%;top:63%;z-index:999997;border:5px solid red;border-radius:50%;";
-document.getElementById('shut').innerHTML=2;
+var hhh=Math.round(parseInt(window.innerHeight));
+var www=Math.round(parseInt(window.innerWidth));
+document.getElementById("circle").height=hhh;
+document.getElementById("circle").width=www;
+let midl=Math.round((www*0.5)-(hhh*0.5));
+document.getElementById("drop").style="z-index:999992;height:100vh;width:auto;position:absolute;text-align:center;";
+document.getElementById("contain2").style="z-index:999993;height:"+hhh+"px;width:"+hhh+"px;position:absolute;top:0px;left:"+midl+"px;right:"+midl+"px;";
+document.getElementById("canvas").style="position:absolute;left:0px;top:0px;background-color:rgba(1,1,1,0);z-index:999995;width:"+hhh+"px;height:"+hhh+"px;";
+document.getElementById("vcanvas").style="position:absolute;left:0px;top:0px;z-index:999994;height:100vh;width:100vh";
+document.getElementById('ihig').innerHTML=hhh;
+document.getElementById('iwid').innerHTML=www;
 document.getElementById('di').click();
 });

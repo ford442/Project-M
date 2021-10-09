@@ -52,7 +52,7 @@ tst4: b3lazuli.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
 	-o b3lz.js -sMEMORY64=2 -sGL_TRACK_ERRORS=0 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \ 
 	-sWASMFS=1 -sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sAUTO_JS_LIBRARIES=0 \ 
-	-sAUTO_NATIVE_LIBRARIES=0 -sMALLOC=emmalloc -sGL_MAX_TEMP_BUFFER_SIZE=1024mb \
+	-sAUTO_NATIVE_LIBRARIES=0 -sMALLOC='emmalloc' -sGL_MAX_TEMP_BUFFER_SIZE=1024mb \
 	--closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js \
 	-sINITIAL_MEMORY=384mb
 	
@@ -62,7 +62,7 @@ tstz: b3lazuli.cpp  Makefile.am
 	-o b3lzz.js -sMEMORY64=2 -sGL_TRACK_ERRORS=0 -sGL_TESTING=1 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \
 	-sWEBGL2_BACKWARDS_COMPATIBILITY_EMULATION=1 -sLEGACY_GL_EMULATION=1 -sUSE_WEBGPU=1 -sWASMFS=1 \
 	-sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sAUTO_JS_LIBRARIES=0 -sAUTO_NATIVE_LIBRARIES=0 \
-	-sMALLOC=emmalloc-memvalidate -sGL_MAX_TEMP_BUFFER_SIZE=2048mb -sFULL_ES3 -sUSE_REGAL=1 --closure 0 \
+	-sMALLOC='emmalloc-memvalidate' -sGL_MAX_TEMP_BUFFER_SIZE=2048mb -sFULL_ES3 -sUSE_REGAL=1 --closure 0 \
         --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js \
 	-sINITIAL_MEMORY=256mb
 

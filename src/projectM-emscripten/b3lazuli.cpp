@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -14,7 +15,7 @@ EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
-Uint8 *stm;
+Uint8 * stm;
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -147,7 +148,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;

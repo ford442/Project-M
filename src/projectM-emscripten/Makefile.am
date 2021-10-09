@@ -51,6 +51,11 @@ tst4: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
 	-o b3lz.js --closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	
+tstz: b3lazuli.cpp  Makefile.am
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
+	-o b3lzz.js -sUSE_REGAL=1 -sFULL_ES2 -sFULL_ES3 --closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 tst5: bpp.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
@@ -72,7 +77,7 @@ test: tst1 tst2 tst3
 testnc: tst2 tst3
 	echo 'Built 1ink.Drop TEST.'
 	
-testb3: tst4
+testb3: tst4 tstz
 	echo 'Built 1ink.Drop TEST.'
 	
 bpp: tst5

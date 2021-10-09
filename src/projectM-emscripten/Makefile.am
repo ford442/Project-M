@@ -61,7 +61,7 @@ tstz: b3lazuli.cpp  Makefile.am
 	-o b3lzz.js -sGL_TRACK_ERRORS=0 -sGL_TESTING=1 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \
 	-sWEBGL2_BACKWARDS_COMPATIBILITY_EMULATION=1 -sLEGACY_GL_EMULATION=1 -sUSE_WEBGPU=1 -sWASMFS=1 \
 	-sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sAUTO_JS_LIBRARIES=0 -sAUTO_NATIVE_LIBRARIES=0 \
-	-sMALLOC='emmalloc-memvalidate' -sFULL_ES3 -sUSE_REGAL=1 --closure 0 \
+	 -sFULL_ES3 -sUSE_REGAL=1 --closure 0 -sMEMORY64=2 \
         --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 	
 

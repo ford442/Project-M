@@ -15,7 +15,6 @@ document.getElementById('btn').style="background-color:red;position:absolute;dis
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
-FS.open('./sample.wav','w+');
 FS.writeFile('/sample.wav',fill);
 Module.ccall("pl");
 });
@@ -39,7 +38,6 @@ ff.onload=function(oEvent){
 var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
-FS.open('/presets/set1.milk','w+');
 FS.writeFile('/presets/set1.milk',fil);
 console.log('File: set1.milk.');
 }}
@@ -50,7 +48,6 @@ ff2.onload=function(oEvent){
 var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
 var fil=new Uint8ClampedArray(arrayBuffer2);
-FS.open('/presets/set2.milk','w+');
 FS.writeFile('/presets/set2.milk',fil);
 console.log('File: set2.milk.');
 }}
@@ -61,7 +58,6 @@ ff3.onload=function(oEvent){
 var arrayBuffer3=ff3.response;
 if(arrayBuffer3){
 var fil=new Uint8ClampedArray(arrayBuffer3);
-FS.open('/presets/set3.milk','w+');
 FS.writeFile('/presets/set3.milk',fil);
 console.log('File: set3.milk.');
 }}
@@ -72,7 +68,6 @@ ff4.onload=function(oEvent){
 var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
 var fil=new Uint8ClampedArray(arrayBuffer4);
-FS.open('/presets/set4.milk','w+');
 FS.writeFile('/presets/set4.milk',fil);
 console.log('File: set4.milk.');
 }}

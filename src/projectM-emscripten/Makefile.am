@@ -50,10 +50,9 @@ tst3: lazuli.cpp  Makefile.am
 tst4: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
-	-o b3lz.js -sGL_TRACK_ERRORS=0 -sGL_TESTING=1 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \ 
-	-sWEBGL2_BACKWARDS_COMPATIBILITY_EMULATION=1 -sLEGACY_GL_EMULATION=1 -sUSE_WEBGPU=1 \ 
+	-o b3lz.js -sMEMORY64=2 -sGL_TRACK_ERRORS=0 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \ 
 	-sWASMFS=1 -sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sAUTO_JS_LIBRARIES=0 \ 
-	-sAUTO_NATIVE_LIBRARIES=0 -sMALLOC=emmalloc-memvalidate -sGL_MAX_TEMP_BUFFER_SIZE=64mb \
+	-sAUTO_NATIVE_LIBRARIES=0 -sMALLOC=emmalloc -sGL_MAX_TEMP_BUFFER_SIZE=256mb \
 	--closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 	
 tstz: b3lazuli.cpp  Makefile.am
@@ -62,8 +61,8 @@ tstz: b3lazuli.cpp  Makefile.am
 	-o b3lzz.js -sMEMORY64=2 -sGL_TRACK_ERRORS=0 -sGL_TESTING=1 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \
 	-sWEBGL2_BACKWARDS_COMPATIBILITY_EMULATION=1 -sLEGACY_GL_EMULATION=1 -sUSE_WEBGPU=1 -sWASMFS=1 \
 	-sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sAUTO_JS_LIBRARIES=0 -sAUTO_NATIVE_LIBRARIES=0 \
-	-sMALLOC=emmalloc-memvalidate -sGL_MAX_TEMP_BUFFER_SIZE=64mb -sFULL_ES3 -sUSE_REGAL=0 --closure 0 \
-    --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	-sMALLOC=emmalloc-memvalidate -sGL_MAX_TEMP_BUFFER_SIZE=512mb -sFULL_ES3 -sUSE_REGAL=1 --closure 0 \
+        --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 tst5: bpp.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \

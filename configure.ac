@@ -34,7 +34,7 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   AC_DEFINE([EMSCRIPTEN], [1], [Define EMSCRIPTEN])
   AC_DEFINE([ENABLE_EMSCRIPTEN], [1], [Build projectM-emscripten])
   enable_gles=yes
-  enable_sdl=no
+  enable_sdl=yes
   enable_llvm=no
   enable_preset_subdirs=no
   enable_threading=no
@@ -162,6 +162,9 @@ AS_IF([echo ${host} | grep -Fq android], [],
   [AX_CHECK_COMPILE_FLAG([-stdlib=libc++], [
                         CXXFLAGS="$CXXFLAGS -stdlib=libc++"])
 ])
+
+AX_CHECK_COMPILE_FLAG([-std=c++14], [
+                        CXXFLAGS="$CXXFLAGS -std=c++14"])
 
 # Qt5
 AC_ARG_ENABLE([qt], AS_HELP_STRING([--enable-qt], [Enable Qt: needed for pulseaudio and jack GUIs]), [], [enable_qt=check])

@@ -15,57 +15,65 @@ bld1: lazuli.cpp  Makefile.am
 bld2: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o 19b.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o 19b.js --closure 0 --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 bld3: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o 19c.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o 19c.js --closure 0  --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 bld4: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o 19d.js -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o 19d.js --closure 0  --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 bld5:  lazuli.cpp Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o 19e.js -sUSE_SDL=2 -sLEGACY_GL_EMULATION=1 -sGL_UNSAFE_OPTS=1 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o 19e.js --closure 0  --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 tst1:   lazuli.cpp Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o 24t.js -sUSE_REGAL=0 -sUSE_SDL=2 --closure 1 -g0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o 24t.js --closure 1 -g0  --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 tst2: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o lazuli.js -sUSE_REGAL=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o lazuli.js --closure 0  --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 tst3: lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp lazuli.cpp \
-	-o lazuliES.js -sUSE_REGAL=1 -sFULL_ES3=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+	-o lazuliES.js --closure 0  --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
 tst4: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
-	-o b3lz.js --closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	-o b3lz.js -sGL_TRACK_ERRORS=0 -sGL_TESTING=1 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \ 
+	-sWEBGL2_BACKWARDS_COMPATIBILITY_EMULATION=1 -sLEGACY_GL_EMULATION=1 -sUSE_WEBGPU=1 \ 
+	-sWASMFS=1 -sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sAUTO_JS_LIBRARIES=0 \ 
+	-sAUTO_NATIVE_LIBRARIES=0 -sMALLOC=emmalloc-memvalidate -sGL_MAX_TEMP_BUFFER_SIZE=64mb \
+	--closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 	
 tstz: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
-	-o b3lzz.js -sUSE_REGAL=1 -sFULL_ES2 -sFULL_ES3 --closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	-o b3lzz.js -sGL_TRACK_ERRORS=0 -sGL_TESTING=1 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \
+	-sWEBGL2_BACKWARDS_COMPATIBILITY_EMULATION=1 -sLEGACY_GL_EMULATION=1 -sUSE_WEBGPU=1 -sWASMFS=1 \
+	-sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sAUTO_JS_LIBRARIES=0 -sAUTO_NATIVE_LIBRARIES=0 \
+	-sMALLOC=emmalloc-memvalidate -sGL_MAX_TEMP_BUFFER_SIZE=64mb -sFULL_ES3 -sUSE_REGAL=0 --closure 0 \
+    --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 tst5: bpp.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp bpp.cpp \
-	-o bpp.js -sUSE_REGAL=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	-o bpp.js --closure 0  --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 tst6: bpp16.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp bpp16.cpp \
-	-o bpp16.js -sUSE_REGAL=1 -sUSE_SDL=2 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	-o bpp16.js --closure 0  --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 
 run: bld1 bld2 bld3 bld4 bld5

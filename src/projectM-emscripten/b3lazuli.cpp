@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <glm/glm.hpp>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -14,13 +15,12 @@ EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
-Uint8 *stm;
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
-static void renderFrame(){
+static void renderFrame(Uint8 *stm){
 auto sndat=reinterpret_cast<short*>(stm);
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,768);
@@ -43,17 +43,17 @@ EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,32,
 EGL_NONE
 };
-SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
 SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,8);
 attr.alpha=1;
 attr.stencil=1;
 attr.depth=1;

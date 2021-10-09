@@ -73,8 +73,8 @@ console.log('File: set4.milk.');
 }}
 ff4.send(null);
 document.getElementById("ihig").innerHTML=hhh;
-document.getElementById("circle").height=hhh;
-document.getElementById("circle").width=www;
+document.getElementById("bz").height=hhh;
+document.getElementById("bz").width=www;
 document.getElementById('btn3').style.border="5px solid green";
 document.getElementById('btn2').style.border="5px solid red";
 document.getElementById('btn2').style.background="red";
@@ -83,12 +83,11 @@ document.getElementById('btn7').style.border="5px solid green";
 document.getElementById('di').click();
 document.getElementById('btn6').click();
 });
-
 document.getElementById('btn6').addEventListener('click',function(){
 var hhh=Math.round(parseInt(window.innerHeight));
 var www=Math.round(parseInt(window.innerWidth));
-document.getElementById("circle").height=hhh;
-document.getElementById("circle").width=www;
+document.getElementById("bz").height=hhh;
+document.getElementById("bz").width=www;
 let midl=Math.round((www*0.5)-(hhh*0.5));
 document.getElementById("drop").style="z-index:999992;height:100vh;width:auto;position:absolute;text-align:center;";
 document.getElementById("contain2").style="z-index:999993;height:"+hhh+"px;width:"+hhh+"px;position:absolute;top:0px;left:"+midl+"px;right:"+midl+"px;";

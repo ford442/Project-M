@@ -19,8 +19,8 @@ static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
-static void renderFrame(Uint8 * stm){
-auto sndat=reinterpret_cast<short*>(stm);
+static void renderFrame(Uint8 *wptr){
+auto sndat=reinterpret_cast<short*>(wptr);
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();

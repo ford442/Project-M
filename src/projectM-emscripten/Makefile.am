@@ -51,7 +51,7 @@ tst4: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
 	-o b3lz.js -sGL_TRACK_ERRORS=0 -sGL_EXPLICIT_UNIFORM_LOCATION=1 \
-	-sWASMFS=1 -sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 \
+	-sWASMFS=1 -sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR=0 -sMALLOC="emmalloc" \
 	--closure 0 --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 	

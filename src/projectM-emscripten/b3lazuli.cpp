@@ -2,7 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <vendor/glm/glm.hpp>
+#include "/home/noahc42/pmb3/vendor/glm/glm.hpp"
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>

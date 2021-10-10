@@ -39,7 +39,7 @@ var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fil=new Uint8ClampedArray(arrayBuffer);
 FS.writeFile('/presets/'+pth,fil);
-console.log('File: '+pth'.');
+console.log('File: '+pth);
 }}
 ff.send(null);
 ff2.open("GET",pth2,true);
@@ -49,7 +49,7 @@ var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
 var fil=new Uint8ClampedArray(arrayBuffer2);
 FS.writeFile('/presets/'+pth2,fil);
-console.log('File: '+pth2'.');
+console.log('File: '+pth2);
 }}
 ff2.send(null);
 ff3.open("GET",pth3,true);
@@ -59,7 +59,7 @@ var arrayBuffer3=ff3.response;
 if(arrayBuffer3){
 var fil=new Uint8ClampedArray(arrayBuffer3);
 FS.writeFile('/presets/'+pth3,fil);
-console.log('File: '+pth3'.');
+console.log('File: '+pth3);
 }}
 ff3.send(null);
 ff4.open("GET",pth4,true);
@@ -69,7 +69,7 @@ var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
 var fil=new Uint8ClampedArray(arrayBuffer4);
 FS.writeFile('/presets/'+pth4,fil);
-console.log('File: '+pth4+'.');
+console.log('File: '+pth4);
 }}
 ff4.send(null);
 document.getElementById("ihig").innerHTML=hhh;

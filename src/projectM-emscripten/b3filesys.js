@@ -24,10 +24,10 @@ window.open('https://test.1ink.us/libflac.js/');
 document.getElementById('btn2').addEventListener('click',function(){
 var hhh=Math.round(parseInt(window.innerHeight));
 var www=Math.round(parseInt(window.innerWidth));
-let pth="./presets"+document.getElementById('path').innerHTML;
-let pth2="./presets"+document.getElementById('path2').innerHTML;
-let pth3="./presets"+document.getElementById('path3').innerHTML;
-let pth4="./presets"+document.getElementById('path4').innerHTML;
+let pth="./presets/"+document.getElementById('path').innerHTML;
+let pth2="./presets/"+document.getElementById('path2').innerHTML;
+let pth3="./presets/"+document.getElementById('path3').innerHTML;
+let pth4="./presets/"+document.getElementById('path4').innerHTML;
 let ff=new XMLHttpRequest();
 let ff2=new XMLHttpRequest();
 let ff3=new XMLHttpRequest();

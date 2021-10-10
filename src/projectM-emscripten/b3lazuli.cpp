@@ -34,7 +34,7 @@ eglSwapBuffers(display,surface);
 
 static void chngt(){
 static const EGLint attribut_list[]={
-EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
+EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
 EGL_NONE
 };
 static const EGLint attribute_list[]={
@@ -70,7 +70,6 @@ attr.premultipliedAlpha=0;
 attr.preserveDrawingBuffer=0;
 emscripten_webgl_init_context_attributes(&attr);
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
-emscripten_webgl_make_context_current(ctx);
 EGLConfig eglconfig=NULL;
 EGLint config_size,major,minor;
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -88,6 +87,7 @@ else{
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
+emscripten_webgl_make_context_current(ctx);
 int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);

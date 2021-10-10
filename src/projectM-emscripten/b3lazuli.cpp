@@ -26,7 +26,8 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
+glClearColor(1.0,1.0,1.0,0.0);
+glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT|GL_ACCUM_BUFFER_BIT);
 app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
@@ -39,11 +40,12 @@ EGL_NONE
 };
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
+EGL_BUFFER_SIZE,128,
 EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,
 EGL_ALPHA_SIZE,32,
-EGL_ALPHA_MASK_SIZE,32,
 EGL_STENCIL_SIZE,32,
 EGL_DEPTH_SIZE,32,
 EGL_NONE
@@ -76,6 +78,7 @@ if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 }
 EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
+EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_NONE};
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){

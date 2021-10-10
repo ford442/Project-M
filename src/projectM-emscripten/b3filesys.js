@@ -92,8 +92,8 @@ document.getElementById('di').click();
 document.getElementById('btn6').click();
 });
 document.getElementById('btn6').addEventListener('click',function(){
-var hhh=Math.round(parseInt(window.innerHeight));
-var www=Math.round(parseInt(window.innerWidth));
+var hhh=Math.round(parseInt(window.innerHeight,10));
+var www=Math.round(parseInt(window.innerWidth,10));
 document.getElementById("bz").height=hhh;
 document.getElementById("bz").width=www;
 document.getElementById("contain2").height=hhh;

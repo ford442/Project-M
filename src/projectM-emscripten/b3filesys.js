@@ -37,8 +37,9 @@ ff.responseType="arraybuffer";
 ff.onload=function(oEvent){
 var arrayBuffer=ff.response;
 if(arrayBuffer){
-var fil=new Uint8ClampedArray(arrayBuffer);
-FS.writeFile('/presets/'+pth,fil);
+var fila=new Uint8ClampedArray(arrayBuffer);
+let flnma='/presets/'+pth;
+FS.writeFile(flnma,fila);
 console.log('File: '+pth);
 }}
 ff.send(null);
@@ -47,8 +48,9 @@ ff2.responseType="arraybuffer";
 ff2.onload=function(oEvent){
 var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
-var fil=new Uint8ClampedArray(arrayBuffer2);
-FS.writeFile('/presets/'+pth2,fil);
+var filb=new Uint8ClampedArray(arrayBuffer2);
+let flnmb='/presets/'+pth2;
+FS.writeFile(flnmb,filb);
 console.log('File: '+pth2);
 }}
 ff2.send(null);
@@ -57,8 +59,9 @@ ff3.responseType="arraybuffer";
 ff3.onload=function(oEvent){
 var arrayBuffer3=ff3.response;
 if(arrayBuffer3){
-var fil=new Uint8ClampedArray(arrayBuffer3);
-FS.writeFile('/presets/'+pth3,fil);
+var filc=new Uint8ClampedArray(arrayBuffer3);
+let flnmc='/presets/'+pth3;
+FS.writeFile(flnmc,filc);
 console.log('File: '+pth3);
 }}
 ff3.send(null);
@@ -67,8 +70,9 @@ ff4.responseType="arraybuffer";
 ff4.onload=function(oEvent){
 var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
-var fil=new Uint8ClampedArray(arrayBuffer4);
-FS.writeFile('/presets/'+pth4,fil);
+var fild=new Uint8ClampedArray(arrayBuffer4);
+let flnmd='/presets/'+pth4;
+FS.writeFile(flnmd,fild);
 console.log('File: '+pth4);
 }}
 ff4.send(null);

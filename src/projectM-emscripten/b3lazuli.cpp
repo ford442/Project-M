@@ -39,15 +39,12 @@ EGL_NONE
 };
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_NATIVE_RENDERABLE,EGL_TRUE,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
-EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,
 EGL_ALPHA_SIZE,32,
 EGL_ALPHA_MASK_SIZE,32,
-EGL_STENCIL_SIZE,8,
+EGL_STENCIL_SIZE,32,
 EGL_DEPTH_SIZE,32,
 EGL_NONE
 };
@@ -57,7 +54,7 @@ SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
 SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,32);
@@ -67,7 +64,7 @@ attr.stencil=1;
 attr.depth=1;
 attr.antialias=0;
 attr.premultipliedAlpha=0;
-attr.preserveDrawingBuffer=0;
+attr.preserveDrawingBuffer=1;
 emscripten_webgl_init_context_attributes(&attr);
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
 EGLConfig eglconfig=NULL;
@@ -95,15 +92,15 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=96;
-app.settings.meshY=96;
-app.settings.textureSize=2048;
+app.settings.meshX=64;
+app.settings.meshY=64;
+app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=11;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=10.0;
+app.settings.beatSensitivity=5.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;

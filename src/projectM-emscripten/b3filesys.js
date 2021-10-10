@@ -22,12 +22,16 @@ document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
-var hhh=Math.round(parseInt(window.innerHeight));
-var www=Math.round(parseInt(window.innerWidth));
-let pth="./presets/"+document.getElementById('path').innerHTML;
-let pth2="./presets/"+document.getElementById('path2').innerHTML;
-let pth3="./presets/"+document.getElementById('path3').innerHTML;
-let pth4="./presets/"+document.getElementById('path4').innerHTML;
+var hhh=Math.round(parseInt(window.innerHeight,10));
+var www=Math.round(parseInt(window.innerWidth,10));
+ let nptha=document.getElementById('path').innerHTML;
+ let npthb=document.getElementById('path2').innerHTML;
+ let npthc=document.getElementById('path3').innerHTML;
+ let npthd=document.getElementById('path4').innerHTML;
+let pth="./presets/"+nptha;
+let pth2="./presets/"+npthb;
+let pth3="./presets/"+npthc;
+let pth4="./presets/"+npthd;
 let ff=new XMLHttpRequest();
 let ff2=new XMLHttpRequest();
 let ff3=new XMLHttpRequest();
@@ -38,9 +42,9 @@ ff.onload=function(oEvent){
 var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fila=new Uint8ClampedArray(arrayBuffer);
-let flnma='/presets/'+pth;
+let flnma='/presets/'+nptha;
 FS.writeFile(flnma,fila);
-console.log('File: '+pth);
+console.log('File: '+nptha);
 }}
 ff.send(null);
 ff2.open("GET",pth2,true);
@@ -49,9 +53,9 @@ ff2.onload=function(oEvent){
 var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
 var filb=new Uint8ClampedArray(arrayBuffer2);
-let flnmb='/presets/'+pth2;
+let flnmb='/presets/'+npthb;
 FS.writeFile(flnmb,filb);
-console.log('File: '+pth2);
+console.log('File: '+npthb);
 }}
 ff2.send(null);
 ff3.open("GET",pth3,true);
@@ -60,9 +64,9 @@ ff3.onload=function(oEvent){
 var arrayBuffer3=ff3.response;
 if(arrayBuffer3){
 var filc=new Uint8ClampedArray(arrayBuffer3);
-let flnmc='/presets/'+pth3;
+let flnmc='/presets/'+npthc;
 FS.writeFile(flnmc,filc);
-console.log('File: '+pth3);
+console.log('File: '+npthc);
 }}
 ff3.send(null);
 ff4.open("GET",pth4,true);
@@ -71,9 +75,9 @@ ff4.onload=function(oEvent){
 var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
 var fild=new Uint8ClampedArray(arrayBuffer4);
-let flnmd='/presets/'+pth4;
+let flnmd='/presets/'+npthd;
 FS.writeFile(flnmd,fild);
-console.log('File: '+pth4);
+console.log('File: '+npthd);
 }}
 ff4.send(null);
 document.getElementById("ihig").innerHTML=hhh;
@@ -92,7 +96,6 @@ var hhh=Math.round(parseInt(window.innerHeight));
 var www=Math.round(parseInt(window.innerWidth));
 document.getElementById("bz").height=hhh;
 document.getElementById("bz").width=www;
-let midl=Math.round((www*0.5)-(hhh*0.5));
 document.getElementById("contain2").height=hhh;
 document.getElementById("contain2").width=www;
 document.getElementById("canvas").style="position:absolute;z-index:999995;top:0px;bottom:0px;left:0px;right:0px;";

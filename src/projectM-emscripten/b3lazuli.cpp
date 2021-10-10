@@ -10,6 +10,7 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
+
 EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
@@ -17,9 +18,12 @@ EmscriptenWebGLContextAttributes attr;
 Uint8* stm;
 const float FPS=60;
 static SDL_AudioDeviceID dev;
+
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
+
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
+
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
@@ -27,6 +31,7 @@ app.pm->pcm()->addPCM16Data(sndat,768);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 }
+
 static void chngt(){
 static const EGLint attribut_list[]={
 EGL_GL_COLORSPACE,EGL_GL_COLORSPACE_SRGB,
@@ -34,6 +39,9 @@ EGL_NONE
 };
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_NATIVE_RENDERABLE,EGL_TRUE,
+EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
+EGL_CONFORMANT,EGL_OPENGL_ES3_BIT,
 EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,
@@ -43,17 +51,17 @@ EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,32,
 EGL_NONE
 };
-SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,8);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,32);
 attr.alpha=1;
 attr.stencil=1;
 attr.depth=1;
@@ -87,15 +95,15 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=90;
-app.settings.meshY=90;
+app.settings.meshX=96;
+app.settings.meshY=96;
 app.settings.textureSize=2048;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
-app.settings.smoothPresetDuration=22;
+app.settings.smoothPresetDuration=11;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=2.0;
+app.settings.beatSensitivity=10.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
@@ -197,6 +205,7 @@ EM_JS(void,ma,(),{let d=S();if(d)d();d=S();function S(){let w=parseInt(document.
 int main(){
 EM_ASM({
 FS.mkdir('/presets');
+FS.mkdir('/textures');
 });
 app.done=0;
 ma();

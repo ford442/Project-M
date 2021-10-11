@@ -41,6 +41,7 @@ EGL_NONE
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
+EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT_KHR,
 EGL_BUFFER_SIZE,64,
 EGL_RED_SIZE,64,
 EGL_GREEN_SIZE,64,
@@ -76,7 +77,7 @@ EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_NONE};
-contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
+contextegl=EGL_KHR_create_context(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }
 else{
@@ -107,10 +108,10 @@ app.settings.softCutRatingsEnabled=0;
 app.settings.presetURL="/presets";  
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
-app.pm->projectM_resetGL(width,height);
-printf("Reseting GL.\n");
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
+app.pm->projectM_resetGL(width,height);
+printf("Reseting GL.\n");
 DIR *m_dir;
 if((m_dir=opendir("/"))==NULL){printf("error opening /\n");
 }

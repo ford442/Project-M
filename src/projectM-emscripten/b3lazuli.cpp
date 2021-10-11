@@ -84,7 +84,7 @@ surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
 emscripten_webgl_make_context_current(ctx);
-int width=EM_ASM_INT({return document.getElementById('ihig').innerHTML;});
+int width=EM_ASM_INT({return document.getElementById('pmhig').innerHTML;});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 app.glCtx=&contextegl;

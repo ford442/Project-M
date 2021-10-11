@@ -22,10 +22,18 @@ document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
- let nptha=document.getElementById('path').innerHTML;
- let npthb=document.getElementById('path2').innerHTML;
- let npthc=document.getElementById('path3').innerHTML;
- let npthd=document.getElementById('path4').innerHTML;
+let nptha=document.getElementById('path').innerHTML;
+nptha=nptha.replace("%20"," ");
+nptha=nptha.replace("&amp;","&");
+let npthb=document.getElementById('path2').innerHTML;
+npthb=npthb.replace("%20"," ");
+npthb=npthb.replace("&amp;","&");
+let npthc=document.getElementById('path3').innerHTML;
+npthc=npthc.replace("%20"," ");
+npthc=npthc.replace("&amp;","&");
+let npthd=document.getElementById('path4').innerHTML;
+npthd=npthd.replace("%20"," ");
+npthd=npthd.replace("&amp;","&");
 let pth="./presets/"+nptha;
 let pth2="./presets/"+npthb;
 let pth3="./presets/"+npthc;
@@ -78,8 +86,6 @@ FS.writeFile(flnmd,fild);
 console.log('File: '+npthd);
 }}
 ff4.send(null);
-document.getElementById("bz").height=hhh;
-document.getElementById("bz").width=www;
 document.getElementById('btn3').style.border="5px solid green";
 document.getElementById('btn2').style.border="5px solid red";
 document.getElementById('btn2').style.background="red";
@@ -90,9 +96,8 @@ document.getElementById('btn6').click();
 });
 document.getElementById('btn6').addEventListener('click',function(){
 let hhh=Math.round(parseInt(window.innerHeight,10));
-let www=Math.round(parseInt(window.innerWidth,10));
 document.getElementById("contain2").height=hhh;
-document.getElementById("contain2").width=www;
+document.getElementById("contain2").width=hhh;
 document.getElementById('pmhig').innerHTML=hhh;
 document.getElementById('di').click();
 });

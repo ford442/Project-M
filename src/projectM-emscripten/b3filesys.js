@@ -22,8 +22,6 @@ document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
-var hhh=Math.round(parseInt(window.innerHeight,10));
-var www=Math.round(parseInt(window.innerWidth,10));
  let nptha=document.getElementById('path').innerHTML;
  let npthb=document.getElementById('path2').innerHTML;
  let npthc=document.getElementById('path3').innerHTML;
@@ -80,7 +78,6 @@ FS.writeFile(flnmd,fild);
 console.log('File: '+npthd);
 }}
 ff4.send(null);
-document.getElementById("ihig").innerHTML=hhh;
 document.getElementById("bz").height=hhh;
 document.getElementById("bz").width=www;
 document.getElementById('btn3').style.border="5px solid green";
@@ -92,15 +89,11 @@ document.getElementById('di').click();
 document.getElementById('btn6').click();
 });
 document.getElementById('btn6').addEventListener('click',function(){
-var hhh=Math.round(parseInt(window.innerHeight,10));
-var www=Math.round(parseInt(window.innerWidth,10));
+let hhh=Math.round(parseInt(window.innerHeight,10));
+let www=Math.round(parseInt(window.innerWidth,10));
 document.getElementById("bz").height=hhh;
 document.getElementById("bz").width=www;
 document.getElementById("contain2").height=hhh;
 document.getElementById("contain2").width=www;
-document.getElementById("canvas").style="position:absolute;z-index:999995;top:0px;bottom:0px;left:0px;right:0px;";
-document.getElementById("vcanvas").style="position:absolute;z-index:999994;top:0px;bottom:0px;left:0px;right:0px;";
-document.getElementById('ihig').innerHTML=hhh;
-document.getElementById('iwid').innerHTML=www;
 document.getElementById('di').click();
 });

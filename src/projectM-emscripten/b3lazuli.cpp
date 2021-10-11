@@ -26,9 +26,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-// glClearColor(1.0,1.0,1.0,0.0);
-// glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
-// glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
+glClearColor(1.0,1.0,1.0,0.0);
 app.pm->pcm()->addPCM16Data(sndat,256);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
@@ -37,6 +35,7 @@ eglSwapBuffers(display,surface);
 static void chngt(){
 static const EGLint attribut_list[]={
 EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
+EGL_SWAP_BEHAVIOR,EGL_BUFFER_PRESERVED,
 EGL_NONE
 };
 static const EGLint attribute_list[]={

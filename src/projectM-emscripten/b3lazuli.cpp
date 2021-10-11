@@ -41,22 +41,22 @@ EGL_NONE
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
-EGL_BUFFER_SIZE,32,
-EGL_RED_SIZE,32,
-EGL_GREEN_SIZE,32,
-EGL_BLUE_SIZE,32,
-EGL_ALPHA_SIZE,32,
-EGL_STENCIL_SIZE,32,
-EGL_DEPTH_SIZE,32,
+EGL_BUFFER_SIZE,64,
+EGL_RED_SIZE,64,
+EGL_GREEN_SIZE,64,
+EGL_BLUE_SIZE,64,
+EGL_ALPHA_SIZE,64,
+EGL_STENCIL_SIZE,64,
+EGL_DEPTH_SIZE,64,
 EGL_NONE
 };
-SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
 SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,32);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,8);
 attr.alpha=1;
 attr.stencil=1;
 attr.depth=1;
@@ -84,7 +84,7 @@ surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 }}
 emscripten_webgl_make_context_current(ctx);
-int width=EM_ASM_INT({return document.getElementById('pmhig').innerHTML;});
+int width=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 int height=width;
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
 app.glCtx=&contextegl;

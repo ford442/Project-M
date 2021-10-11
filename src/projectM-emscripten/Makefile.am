@@ -10,7 +10,7 @@ ${SDL_CFLAGS}
 tst4: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
-	-o pmb3gpu001.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-pre-js howler.js --extern-pre-js pmgpu.js --extern-pre-js slideout.js --extern-pre-js rslider.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	-o gpu001.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-pre-js howler.js --extern-pre-js pmgpu.js --extern-pre-js slideout.js --extern-pre-js rslider.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 all: tst4
 	echo 'Built 1ink.Drop TEST.'

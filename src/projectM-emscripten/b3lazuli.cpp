@@ -15,7 +15,7 @@ EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
-Uint8* stm;
+Uint8 *stm;
 const float FPS=120;
 static SDL_AudioDeviceID dev;
 
@@ -142,7 +142,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8* stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;

@@ -27,14 +27,16 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,512);
-app.pm->renderFrame();
+  
 eglSwapBuffers(display,surface);
+  
+app.pm->renderFrame();
+
 }
 
 static void chngt(){
 static const EGLint attribut_list[]={
 EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
-EGL_SWAP_BEHAVIOR,EGL_BUFFER_PRESERVED,
 EGL_NONE
 };
 static const EGLint attribute_list[]={

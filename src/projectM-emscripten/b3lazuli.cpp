@@ -16,7 +16,7 @@ EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
 Uint8* stm;
-const float FPS=40;
+const float FPS=120;
 static SDL_AudioDeviceID dev;
 
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -26,8 +26,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-glClearColor(1.0,1.0,1.0,0.0);
-app.pm->pcm()->addPCM16Data(sndat,256);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 }
@@ -40,8 +39,6 @@ EGL_NONE
 };
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
-EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT_KHR,
 EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,

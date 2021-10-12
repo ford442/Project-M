@@ -24,7 +24,7 @@ window.open('https://test.1ink.us/libflac.js/');
 document.getElementById('btn2').addEventListener('click',function(){
 FS.mkdir('/presets');
 FS.mkdir('/textures');
-FS.mount(MEMFS, { root: './presets' }, '/presets');
+FS.mount(MEMFS, {}, '/presets');
 let nptha=document.getElementById('path').innerHTML;
 nptha=nptha.replace("%20"," ");
 nptha=nptha.replace("&amp;","&");

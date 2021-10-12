@@ -16,7 +16,7 @@ EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
 Uint8 *stm;
-const float FPS=120;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -42,6 +42,8 @@ EGL_NONE
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
+EGL_SWAP_BEHAVIOR,EGL_BUFFER_PRESERVED,
+EGL_SURFACE_TYPE,EGL_WINDOW_BIT,
 EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,

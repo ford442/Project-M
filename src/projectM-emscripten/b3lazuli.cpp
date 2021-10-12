@@ -26,7 +26,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-app.pm->pcm()->addPCM16Data(sndat,1024);
+app.pm->pcm()->addPCM16Data(sndat,512);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 }
@@ -39,6 +39,7 @@ EGL_NONE
 };
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,

@@ -15,7 +15,7 @@ document.getElementById('btn').style="background-color:red;position:absolute;dis
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
-FS.writeFile('/sample.wav',fill);
+FS.writeFile('/snd/sample.wav',fill);
 Module.ccall("pl");
 });
 document.getElementById('btn3').addEventListener('click',function(){
@@ -24,7 +24,9 @@ window.open('https://test.1ink.us/libflac.js/');
 document.getElementById('btn2').addEventListener('click',function(){
 FS.mkdir('/presets');
 FS.mkdir('/textures');
+FS.mkdir('/snd');
 FS.mount(MEMFS, {}, '/presets');
+FS.mount(MEMFS, {}, '/snd');
 let nptha=document.getElementById('path').innerHTML;
 nptha=nptha.replace("%20"," ");
 nptha=nptha.replace("&amp;","&");

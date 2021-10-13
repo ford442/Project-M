@@ -26,9 +26,8 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-app.pm->pcm()->addPCM16Data(sndat,512);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 eglSwapBuffers(display,surface);
-// glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
 }
 
@@ -84,15 +83,15 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=100;
-app.settings.meshY=100;
-app.settings.textureSize=4096;
+app.settings.meshX=80;
+app.settings.meshY=80;
+app.settings.textureSize=512;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=11;
 app.settings.presetDuration=88;
-app.settings.beatSensitivity=5.0;
+app.settings.beatSensitivity=10.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;

@@ -22,10 +22,8 @@ document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
-/* FS.mkdir('/presets');
+fs.mkdir('/presets');
 FS.mkdir('/snd');
-FS.mount(MEMFS, {}, '/presets');
-FS.mount(MEMFS, {}, '/snd'); */
 let nptha=document.getElementById('path').innerHTML;
 nptha=nptha.replace("%20"," ");
 nptha=nptha.replace("&amp;","&");
@@ -53,7 +51,7 @@ var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fila=new Uint8ClampedArray(arrayBuffer);
 let flnma='/presets/'+nptha;
-FS.writeFile(flnma,fila);
+fs.writeFile(flnma,fila);
 console.log('File: '+nptha);
 }}
 ff.send(null);
@@ -64,7 +62,7 @@ var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
 var filb=new Uint8ClampedArray(arrayBuffer2);
 let flnmb='/presets/'+npthb;
-FS.writeFile(flnmb,filb);
+fs.writeFile(flnmb,filb);
 console.log('File: '+npthb);
 }}
 ff2.send(null);
@@ -75,7 +73,7 @@ var arrayBuffer3=ff3.response;
 if(arrayBuffer3){
 var filc=new Uint8ClampedArray(arrayBuffer3);
 let flnmc='/presets/'+npthc;
-FS.writeFile(flnmc,filc);
+fs.writeFile(flnmc,filc);
 console.log('File: '+npthc);
 }}
 ff3.send(null);
@@ -86,7 +84,7 @@ var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
 var fild=new Uint8ClampedArray(arrayBuffer4);
 let flnmd='/presets/'+npthd;
-FS.writeFile(flnmd,fild);
+fs.writeFile(flnmd,fild);
 console.log('File: '+npthd);
 }}
 ff4.send(null);

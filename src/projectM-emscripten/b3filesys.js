@@ -22,7 +22,10 @@ document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
-  
+
+FS.mkdir('/presets');
+FS.mkdir('/snd');
+
 var id = FS.makedev(64, 0);
 FS.registerDevice(id, {});
 FS.mkdev('/presets', id);

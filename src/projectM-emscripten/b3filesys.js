@@ -22,11 +22,21 @@ document.getElementById('btn3').addEventListener('click',function(){
 window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
-FS.mkdir('/presets');
+  
+var id = FS.makedev(64, 0);
+FS.registerDevice(id, {});
+FS.mkdev('/presets', id);
+  
+var id2 = FS.makedev(128, 0);
+FS.registerDevice(id2, {});
+FS.mkdev('/snd', id2);
+  
 FS.mkdir('/textures');
+
+/* FS.mkdir('/presets');
 FS.mkdir('/snd');
 FS.mount(MEMFS, {}, '/presets');
-FS.mount(MEMFS, {}, '/snd');
+FS.mount(MEMFS, {}, '/snd'); */
 let nptha=document.getElementById('path').innerHTML;
 nptha=nptha.replace("%20"," ");
 nptha=nptha.replace("&amp;","&");

@@ -23,8 +23,6 @@ window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
 
-FS.mkdir('/presets');
-FS.mkdir('/snd');
 
 var id = FS.makedev(64, 0);
 FS.registerDevice(id, {});
@@ -34,6 +32,8 @@ var id2 = FS.makedev(128, 0);
 FS.registerDevice(id2, {});
 FS.mkdev('/snd', id2);
   
+FS.mkdir('/presets');
+FS.mkdir('/snd');
 FS.mkdir('/textures');
 
 /* FS.mkdir('/presets');

@@ -15,6 +15,7 @@ document.getElementById('btn').style="background-color:red;position:absolute;dis
 let fll=new BroadcastChannel('file');
 fll.addEventListener('message',ea=> {
 let fill=new Uint8Array(ea.data.data);
+FS.mkdir('/snd');
 FS.writeFile('/snd/sample.wav',fill);
 Module.ccall("pl");
 });
@@ -23,7 +24,6 @@ window.open('https://test.1ink.us/libflac.js/');
 });
 document.getElementById('btn2').addEventListener('click',function(){
 fs.mkdir('/presets');
-FS.mkdir('/snd');
 let nptha=document.getElementById('path').innerHTML;
 nptha=nptha.replace("%20"," ");
 nptha=nptha.replace("&amp;","&");

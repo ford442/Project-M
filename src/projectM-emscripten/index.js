@@ -1,4 +1,4 @@
-var MyModule =
+MyModule =
 {
 canvas: (function() {
 var aCanvas = document.getElementById('canvas');

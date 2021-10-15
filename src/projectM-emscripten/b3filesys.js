@@ -48,7 +48,7 @@ ff.onload=function(oEvent){
 var arrayBuffer=ff.response;
 if(arrayBuffer){
 var fila=new Uint8ClampedArray(arrayBuffer);
-let flnma='/presets/'+nptha;
+let flnma='/presets/preset1.milk';
 FS.writeFile(flnma,fila);
 console.log('File: '+nptha);
 }}
@@ -59,7 +59,7 @@ ff2.onload=function(oEvent){
 var arrayBuffer2=ff2.response;
 if(arrayBuffer2){
 var filb=new Uint8ClampedArray(arrayBuffer2);
-let flnmb='/presets/'+npthb;
+let flnmb='/presets/preset2.milk';
 FS.writeFile(flnmb,filb);
 console.log('File: '+npthb);
 }}
@@ -70,7 +70,7 @@ ff3.onload=function(oEvent){
 var arrayBuffer3=ff3.response;
 if(arrayBuffer3){
 var filc=new Uint8ClampedArray(arrayBuffer3);
-let flnmc='/presets/'+npthc;
+let flnmc='/presets/preset3.milk';
 FS.writeFile(flnmc,filc);
 console.log('File: '+npthc);
 }}
@@ -81,7 +81,7 @@ ff4.onload=function(oEvent){
 var arrayBuffer4=ff4.response;
 if(arrayBuffer4){
 var fild=new Uint8ClampedArray(arrayBuffer4);
-let flnmd='/presets/'+npthd;
+let flnmd='/presets/preset4.milk';
 FS.writeFile(flnmd,fild);
 console.log('File: '+npthd);
 }}

@@ -26,7 +26,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-app.pm->pcm()->addPCM16Data(sndat,1024);
+app.pm->pcm()->addPCM16Data(sndat,2048);
 eglSwapBuffers(display,surface);
 app.pm->renderFrame();
 }
@@ -160,7 +160,7 @@ wave.pos+=len;
 }
 static void plt(){
 cls_aud();
-char flnm[512];
+char flnm[2048];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

@@ -16,7 +16,7 @@ EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
 Uint8 * stm;
-const float FPS=60;
+const float FPS=30;
 static SDL_AudioDeviceID dev;
 
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -38,7 +38,6 @@ EGL_NONE
 };
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_RED_SIZE,32,
 EGL_GREEN_SIZE,32,
 EGL_BLUE_SIZE,32,
@@ -81,8 +80,8 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=96;
-app.settings.meshY=96;
+app.settings.meshX=128;
+app.settings.meshY=128;
 app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;

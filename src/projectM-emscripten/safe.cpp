@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include "SDL2/SDL_config.h"
@@ -18,7 +17,7 @@ EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
 Uint8 * stm;
-const float FPS=60;
+const float FPS=30;
 static SDL_AudioDeviceID dev;
 
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -35,12 +34,9 @@ app.pm->renderFrame();
 
 static void chngt(){
 static const EGLint attribut_list[]={
-EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
 EGL_NONE
 };
 static const EGLint attribute_list[]={
-EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_TRANSPARENT_TYPE,EGL_TRANSPARENT_RGB,
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
@@ -65,8 +61,7 @@ if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE &
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 }
 EGLint anEglCtxAttribs2[]={
-EGL_CONTEXT_CLIENT_VERSION,3,
-EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_CONTEXT_CLIENT_VERSION,2,
 EGL_NONE};
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){

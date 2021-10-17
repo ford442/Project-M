@@ -80,9 +80,9 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=128;
-app.settings.meshY=128;
-app.settings.textureSize=1024;
+app.settings.meshX=42;
+app.settings.meshY=42;
+app.settings.textureSize=2048;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
@@ -159,7 +159,7 @@ wave.pos+=len;
 }
 static void plt(){
 cls_aud();
-char flnm[2048];
+char flnm[1024];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

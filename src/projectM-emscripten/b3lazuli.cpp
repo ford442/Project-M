@@ -15,7 +15,6 @@ static EGLDisplay display;
 static EGLContext contextegl;
 static EGLSurface surface;
 static EmscriptenWebGLContextAttributes attr;
-Uint8* wptr;
 const float FPS=30;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8* snd;Uint32 slen;int pos;}wave;
@@ -23,7 +22,7 @@ typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;proje
 projectMApp;projectMApp app;
 
 static void renderFrame(){
-auto sndat=reinterpret_cast<short*>(wptr);
+auto sndat=reinterpret_cast<short*>(&wave.snd);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 eglSwapBuffers(display,surface);
 app.pm->renderFrame();

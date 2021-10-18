@@ -20,14 +20,16 @@ const float FPS=30;
 static SDL_AudioDeviceID dev;
 
 extern void SDLCALL bfr(void *unused,Uint8 *stm,int len);
+SDL_AudioSpec spec;
 
-static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 spec.freq = 44100;
 spec.format = AUDIO_U16;
 spec.channels = 2;
 spec.samples = 512;
 spec.callback = bfr;
 spec.userdata = NULL;
+
+static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;

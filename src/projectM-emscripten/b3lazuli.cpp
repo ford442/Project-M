@@ -18,7 +18,9 @@ EmscriptenWebGLContextAttributes attr;
 Uint8 *stm;
 const float FPS=30;
 static SDL_AudioDeviceID dev;
-extern static void SDLCALL bfr(void *unused,Uint8 *stm,int len);
+
+extern void SDLCALL bfr(void *unused,Uint8 *stm,int len);
+
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 spec.freq = 44100;
 spec.format = AUDIO_U16;

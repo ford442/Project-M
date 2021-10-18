@@ -16,7 +16,7 @@ EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
-Uint8 * stm;
+Uint8 *stm;
 const float FPS=30;
 static SDL_AudioDeviceID dev;
 
@@ -27,7 +27,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-app.pm->pcm()->addPCM16Data(sndat,2048);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 eglSwapBuffers(display,surface);
 app.pm->renderFrame();
 }
@@ -37,10 +37,10 @@ static const EGLint attribut_list[]={
 EGL_NONE
 };
 static const EGLint attribute_list[]={
-EGL_RED_SIZE,16,
-EGL_GREEN_SIZE,16,
-EGL_BLUE_SIZE,16,
-EGL_ALPHA_SIZE,16,
+EGL_RED_SIZE,8,
+EGL_GREEN_SIZE,8,
+EGL_BLUE_SIZE,8,
+EGL_ALPHA_SIZE,8,
 EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,24,
 EGL_NONE
@@ -61,7 +61,7 @@ if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE &
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 }
 EGLint anEglCtxAttribs2[]={
-EGL_CONTEXT_CLIENT_VERSION,2,
+EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_NONE};
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
@@ -80,7 +80,7 @@ SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX=64;
 app.settings.meshY=64;
-app.settings.textureSize=2048;
+app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
@@ -139,7 +139,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;
@@ -157,7 +157,7 @@ wave.pos+=len;
 }
 static void plt(){
 cls_aud();
-char flnm[2048];
+char flnm[1024];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();

@@ -18,11 +18,11 @@ EmscriptenWebGLContextAttributes attr;
 Uint8 *stm;
 const float FPS=30;
 static SDL_AudioDeviceID dev;
+static SDL_AudioSpec spec;
 
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 
-extern void SDLCALL bfr(void *unused,Uint8 *stm,int len);
-SDL_AudioSpec spec;
+static void SDLCALL bfr(void *unused,Uint8 *stm,int len);
 
 spec.freq = 44100;
 spec.format = AUDIO_U16;
@@ -152,7 +152,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-void SDLCALL bfr(void *unused,Uint8 *stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;

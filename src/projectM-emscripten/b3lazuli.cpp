@@ -18,8 +18,14 @@ EmscriptenWebGLContextAttributes attr;
 Uint8 *stm;
 const float FPS=30;
 static SDL_AudioDeviceID dev;
-
+extern static void SDLCALL bfr(void *unused,Uint8 *stm,int len);
 static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
+spec.freq = 44100;
+spec.format = AUDIO_U16;
+spec.channels = 2;
+spec.samples = 512;
+spec.callback = bfr;
+spec.userdata = NULL;
 
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;

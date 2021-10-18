@@ -2,20 +2,20 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <GLES3/gl3.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
-#include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
+#include "SDL2/SDL_config.h"
 #include <projectM.hpp>
 
 EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
 EmscriptenWebGLContextAttributes attr;
-Uint8 * stm;
+Uint8 *stm;
 const float FPS=30;
 static SDL_AudioDeviceID dev;
 
@@ -26,7 +26,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
-app.pm->pcm()->addPCM16Data(sndat,2048);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 eglSwapBuffers(display,surface);
 app.pm->renderFrame();
 }
@@ -82,7 +82,7 @@ SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 app.settings.meshX=64;
 app.settings.meshY=64;
-app.settings.textureSize=2048;
+app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
@@ -141,7 +141,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
 Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;

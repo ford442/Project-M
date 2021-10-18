@@ -18,5 +18,5 @@ tst2: b3lazuli.cpp  Makefile.am
 	-o gpu003sa.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall -sFULL_ES3 --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 
-all: tst1 tst2
+all: tst1
 	echo 'Built 1ink.Drop TEST.'

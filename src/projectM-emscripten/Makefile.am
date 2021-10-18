@@ -17,8 +17,11 @@ tst2: b3lazuli.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp safe.cpp \
 	-o gpu003sa.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall -sFULL_ES3 --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
-tst3:  b3.cpp
-	emcc b3.cpp -sFORCE_FILESYSTEM=1 -sUSE_SDL=2 -sPRINTF_LONG_DOUBLE=1 -ffast-math -flto=thin -sSUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sALLOW_MEMORY_GROWTH=0 -sMALLOC="emmalloc" -sENVIRONMENT=web -sINITIAL_MEMORY=1400mb -O3 -o gpub3.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js b3fsys.js
+tst3:  b3.cpp Makefile.am
+	emcc ${SDL_CFLAGS} b3.cpp -Wall -Wchar-subscripts -Wformat-security -Wpointer-arith -Wshadow -Wsign-compare -Wtype-limits -sFORCE_FILESYSTEM=1 -sUSE_SDL=2 -sPRINTF_LONG_DOUBLE=1 -ffast-math -flto=thin -sSUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sALLOW_MEMORY_GROWTH=0 -sMALLOC="emmalloc" -sENVIRONMENT=web -sINITIAL_MEMORY=1400mb -O3 -o gpub3.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' -sEXPORTED_RUNTIME_METHODS=ccall -- post-js cl-gpu.js --post-js b3fsys.js
 
 all: tst1 tst3
+	echo 'Built 1ink.Drop TEST.'
+	
+b3: tst3
 	echo 'Built 1ink.Drop TEST.'

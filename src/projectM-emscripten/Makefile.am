@@ -18,7 +18,7 @@ tst2: b3lazuli.cpp  Makefile.am
 	-o gpu003sa.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall -sFULL_ES3 --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 tst3:  b3.cpp
-	emcc b3.cpp -sUSE_SDL=2 -sPRINTF_LONG_DOUBLE=1 -ffast-math -flto=thin -sSUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sALLOW_MEMORY_GROWTH=0 -sMALLOC="emmalloc" -sENVIRONMENT=web -sINITIAL_MEMORY=1400mb -O3 -o gpub3.js --closure 1 -g0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js b3fsys.js
+	emcc b3.cpp -sUSE_SDL=2 -sPRINTF_LONG_DOUBLE=1 -ffast-math -flto=thin -sSUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sALLOW_MEMORY_GROWTH=0 -sMALLOC="emmalloc" -sENVIRONMENT=web -sINITIAL_MEMORY=1400mb -O3 -o gpub3.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js b3fsys.js
 
 all: tst1 tst3
 	echo 'Built 1ink.Drop TEST.'

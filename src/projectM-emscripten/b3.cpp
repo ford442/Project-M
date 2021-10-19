@@ -63,6 +63,6 @@ int main(){
 EM_ASM({
 FS.mkdir('/snd');
 });
-emscripten_set_main_loop((void (*)())ma,0,0);
+ma();
 return 1;
 }

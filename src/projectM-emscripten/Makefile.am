@@ -20,7 +20,7 @@ tst2: b3lazuli.cpp  Makefile.am
 tst3: b3.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3.cpp \
-	-o gpub3.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' -sEXPORTED_RUNTIME_METHODS=ccall -sFULL_ES3 --post-js cl-gpu.js --extern-post-js index.js --post-js b3fsys.js
+	-o gpub3.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js cl-gpu.js --extern-post-js index.js --post-js b3fsys.js
 
 all: tst1 tst3
 	echo 'Built 1ink.Drop TEST.'

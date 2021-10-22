@@ -10,7 +10,7 @@
 #include <SDL2/SDL.h>
 #include "SDL2/SDL_config.h"
 #include <projectM.hpp>
-
+Uint8* stm;
 static EGLDisplay display;
 static EGLContext contextegl;
 static EGLSurface surface;
@@ -21,7 +21,7 @@ static struct{SDL_AudioSpec spec;Uint8* snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 
-static void renderFrame(Uint8* stm){
+static void renderFrame(){
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 eglSwapBuffers(display,surface);

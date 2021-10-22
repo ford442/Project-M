@@ -10,7 +10,7 @@ ${SDL_CFLAGS}
 tst1: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
-	-o gpu003a.js -sFULL_ES2=1 --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	-o gpu004.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 tst2: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
@@ -27,7 +27,7 @@ tst3: b3.cpp Makefile.am
 	-sINITIAL_MEMORY=1400mb -O3
 
 
-all: tst1 tst2
+all: tst1
 	echo 'Built 1ink.Drop TEST.'
 	
 b3: tst3

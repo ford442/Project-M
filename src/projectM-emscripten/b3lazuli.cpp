@@ -15,7 +15,7 @@ static EGLDisplay display;
 static EGLContext contextegl;
 static EGLSurface surface;
 static EmscriptenWebGLContextAttributes attr;
-const float FPS=30;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8* snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
@@ -89,7 +89,6 @@ app.settings.beatSensitivity=1.0;
 app.settings.aspectCorrection=0;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=0;
-app.settings.hardcutEnabled=true;
 app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";  
 app.pm=new projectM(app.settings);

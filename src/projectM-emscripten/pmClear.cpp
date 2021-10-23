@@ -25,7 +25,7 @@ projectMApp;projectMApp app;
 
 static void rFrame(){
 glClearColor( 1.0, 1.0, 1.0, 0.0 );
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BIT);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);

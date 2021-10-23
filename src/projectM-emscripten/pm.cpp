@@ -10,6 +10,8 @@
 #include <SDL2/SDL.h>
 #include "SDL2/SDL_config.h"
 #include <projectM.hpp>
+#include <vector>
+
 Uint8* stm;
 static EGLDisplay display;
 static EGLContext contextegl;
@@ -21,11 +23,11 @@ static struct{SDL_AudioSpec spec;Uint8* snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 
-static void renderFrame(){
+static void rFrame(){
+app.pm->renderFrame();
+eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-eglSwapBuffers(display,surface);
-app.pm->renderFrame();
 }
 
 static void chngt(){
@@ -77,8 +79,8 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=64;
-app.settings.meshY=64;
+app.settings.meshX=96;
+app.settings.meshY=96;
 app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
@@ -109,7 +111,9 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glClearColor(1.0,1.0,1.0,0.0);
-emscripten_set_main_loop((void (*)())renderFrame,0,0);
+auto sndat=reinterpret_cast<short*>(stm);
+app.pm->pcm()->addPCM16Data(sndat,1024);
+emscripten_set_main_loop((void (*)())rFrame,0,0);
 }
 static void swtcht(){
 app.pm->selectRandom(true);

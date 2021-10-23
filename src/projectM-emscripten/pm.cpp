@@ -12,7 +12,7 @@
 #include <projectM.hpp>
 #include <vector>
 
-Uint8* stm;
+Uint8 * stm;
 static EGLDisplay display;
 static EGLContext contextegl;
 static EGLSurface surface;

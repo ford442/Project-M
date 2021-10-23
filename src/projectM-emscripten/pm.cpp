@@ -12,6 +12,7 @@
 #include <projectM.hpp>
 #include <vector>
 #include <wasm_simd128.h>
+#include <xmmintrin.h>
 
 Uint8 * stm;
 static EGLDisplay display;

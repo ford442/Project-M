@@ -11,6 +11,7 @@
 #include "SDL2/SDL_config.h"
 #include <projectM.hpp>
 #include <vector>
+#include <wasm_simd128.h>
 
 Uint8 * stm;
 static EGLDisplay display;

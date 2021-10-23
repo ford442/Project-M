@@ -7,10 +7,15 @@ ${my_CFLAGS} \
 -I${top_srcdir}/src/libprojectM/Renderer \
 ${SDL_CFLAGS}
 
-tst1: b3lazuli.cpp  Makefile.am
+tst1: pm.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp b3lazuli.cpp \
-	-o gpu004.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+	../libprojectM/KeyHandler.cpp pm.cpp \
+	-o gpu005.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
+
+tstv: pmClear.cpp  Makefile.am
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp pmClear.cpp \
+	-o gpu005c.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --post-js cl-gpu.js --extern-post-js index.js --post-js b3filesys.js --post-js ccall.js
 
 tst2: b3lazuli.cpp  Makefile.am
 	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
@@ -27,7 +32,7 @@ tst3: b3.cpp Makefile.am
 	-sINITIAL_MEMORY=1400mb -O3
 
 
-all: tst1
+all: tst1 tstv
 	echo 'Built 1ink.Drop TEST.'
 	
 b3: tst3

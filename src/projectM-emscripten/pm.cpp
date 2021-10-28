@@ -26,6 +26,8 @@ typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;proje
 projectMApp;projectMApp app;
 
 static void rFrame(){
+glClearColor( 1.0, 1.0, 1.0, 0.0 );
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);

@@ -24,6 +24,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 app.pm->renderFrame();
+glFlush();
 eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
@@ -44,6 +45,15 @@ EGL_STENCIL_SIZE,32,
 EGL_DEPTH_SIZE,32,
 EGL_NONE
 };
+SDL_GL_SetAttribute( SDL_GL_RED_SIZE,5);
+SDL_GL_SetAttribute( SDL_GL_GREEN_SIZE,5);
+SDL_GL_SetAttribute( SDL_GL_BLUE_SIZE,5);
+SDL_GL_SetAttribute( SDL_GL_ACCUM_RED_SIZE,8);
+SDL_GL_SetAttribute( SDL_GL_ACCUM_GREEN_SIZE,8);
+SDL_GL_SetAttribute( SDL_GL_ACCUM_BLUE_SIZE,8);
+SDL_GL_SetAttribute( SDL_GL_ALPHA_SIZE,8);
+SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE,16);
+SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER,1);
 attr.alpha=1;
 attr.stencil=1;
 attr.depth=1;
@@ -94,7 +104,7 @@ app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";  
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
-app.pm->selectRandom(true);
+app.pm->selectRandom(false);
 printf("Select random preset.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
@@ -193,5 +203,5 @@ FS.mkdir('/presets');
 });
 app.done=0;
 ma();
-return 1;
+return PROJECTM_SUCCESS;
 }

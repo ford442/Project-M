@@ -109,6 +109,8 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
+auto sndat=reinterpret_cast<short*>(stm);
+app.pm->pcm()->addPCM16Data(sndat,1024);
 emscripten_set_main_loop((void (*)())rFrame,0,0);
 }
 static void swtcht(){

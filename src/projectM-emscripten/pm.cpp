@@ -22,7 +22,7 @@ static struct{SDL_AudioSpec spec;Uint8* snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 
-static void rFrame(){
+static void renderFrame(){
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
@@ -111,7 +111,7 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
-emscripten_set_main_loop((void (*)())rFrame,0,0);
+emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void swtcht(){
 app.pm->selectRandom(true);

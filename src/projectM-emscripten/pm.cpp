@@ -37,12 +37,12 @@ EGL_NONE
 };
 static const EGLint attribute_list[]={
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_RED_SIZE,32,
-EGL_GREEN_SIZE,32,
-EGL_BLUE_SIZE,32,
-EGL_ALPHA_SIZE,32,
-EGL_STENCIL_SIZE,32,
-EGL_DEPTH_SIZE,32,
+EGL_RED_SIZE,16,
+EGL_GREEN_SIZE,16,
+EGL_BLUE_SIZE,16,
+EGL_ALPHA_SIZE,16,
+EGL_STENCIL_SIZE,8,
+EGL_DEPTH_SIZE,24,
 EGL_NONE
 };
 SDL_GL_SetAttribute( SDL_GL_RED_SIZE,5);
@@ -52,7 +52,7 @@ SDL_GL_SetAttribute( SDL_GL_ACCUM_RED_SIZE,8);
 SDL_GL_SetAttribute( SDL_GL_ACCUM_GREEN_SIZE,8);
 SDL_GL_SetAttribute( SDL_GL_ACCUM_BLUE_SIZE,8);
 SDL_GL_SetAttribute( SDL_GL_ALPHA_SIZE,8);
-SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE,16);
+SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE,24);
 SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER,1);
 attr.alpha=1;
 attr.stencil=1;
@@ -79,6 +79,8 @@ if(contextegl==EGL_NO_CONTEXT){
 else{
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
+glClearColor(0.0,0.0,0.0,0.0);
+glClear(GL_COLOR_BUFFER_BIT);
 }}
 emscripten_webgl_make_context_current(ctx);
 int width=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});

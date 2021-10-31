@@ -108,6 +108,8 @@ app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
 app.pm->selectRandom(false);
 printf("Select random preset.\n");
+app.pm->selectRandom(true);
+printf("Select random preset.\n");
 app.pm->projectM_resetGL(width,height);
 printf("Reseting GL.\n");
 DIR *m_dir;

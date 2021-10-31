@@ -106,8 +106,6 @@ app.settings.softCutRatingsEnabled=1;
 app.settings.presetURL="/presets";  
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
-app.pm->selectRandom(false);
-printf("Select random preset.\n");
 app.pm->selectRandom(true);
 printf("Select random preset.\n");
 app.pm->projectM_resetGL(width,height);

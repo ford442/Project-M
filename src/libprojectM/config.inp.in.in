@@ -1,7 +1,7 @@
 # config.inp
 # Configuration File for projectM
 
-#Texture Size = 1024			# Size of internal rendering texture
+#Texture Size = 2048			# Size of internal rendering texture
 
 Mesh X  = 90            	# Width of PerPixel Equation mesh
 Mesh Y  = 90          		# Height of PerPixel Equation mesh

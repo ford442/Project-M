@@ -25,7 +25,7 @@ projectMApp;projectMApp app;
 static void renderFrame(){
 app.pm->renderFrame();
 // glFlush();
-// eglSwapBuffers(display,surface);
+eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 }

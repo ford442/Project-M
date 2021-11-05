@@ -40,7 +40,7 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   enable_threading=yes
   enable_qt=no
   dnl Enable SDL2 and WEBGL2 (OpenGL ES 3)
-  EMSCRIPTEN_FLAGS="-sMAXIMUM_MEMORY=4gb -sFULL_ES3=1 -sGL_TESTING=1 -sPTHREAD_POOL_SIZE=2 -pthread --closure 0 -sUSE_SDL=2 -sEXPORT_NAME='createModule' -sMODULARIZE=1 -sUSE_WEBGL2=1 -sPRINTF_LONG_DOUBLE=1 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -ffast-math -flto -sSUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=1400mb -Os -g"
+  EMSCRIPTEN_FLAGS="-sFULL_ES3=1 -sGL_TESTING=1 -sPTHREAD_POOL_SIZE=2 -pthread --closure 0 -sUSE_SDL=2 -sEXPORT_NAME='createModule' -sMODULARIZE=1 -sUSE_WEBGL2=1 -sPRINTF_LONG_DOUBLE=1 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -ffast-math -flto -sSUPPORT_LONGJMP=0 -DNDEBUG -sASSERTIONS=0 -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=1400mb -Os -g"
   AC_SUBST([EMSCRIPTEN_FLAGS])
   CFLAGS="$CFLAGS $EMSCRIPTEN_FLAGS"
   CXXFLAGS="$CXXFLAGS $EMSCRIPTEN_FLAGS"
@@ -237,7 +237,7 @@ AM_CONDITIONAL([ENABLE_EMSCRIPTEN], [test "x$emscripten_compiler" = "xyes"])
 
 
 my_CFLAGS="-Wall -Wchar-subscripts -Wformat-security -Wpointer-arith -Wshadow -Wsign-compare -Wtype-limits"
-my_CFLAGS+="-fno-omit-frame-pointer "
+my_CFLAGS+=" -fsanitize=address -fno-omit-frame-pointer "
 my_CFLAGS="${my_CFLAGS} -DDATADIR_PATH=\\\"\"\$(pkgdatadir)\\\"\""
 my_CFLAGS="${my_CFLAGS} -I\"\$(top_srcdir)/vendor\""  # provides glm headers
 my_CFLAGS="${my_CFLAGS} -DGL_SILENCE_DEPRECATION"

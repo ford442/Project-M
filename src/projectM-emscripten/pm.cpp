@@ -10,6 +10,7 @@
 #include <SDL2/SDL.h>
 #include "SDL2/SDL_config.h"
 #include <projectM.hpp>
+#include <pthread.h>
 
 Uint8 * stm;
 static EGLDisplay display;

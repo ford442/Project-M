@@ -237,7 +237,7 @@ AM_CONDITIONAL([ENABLE_EMSCRIPTEN], [test "x$emscripten_compiler" = "xyes"])
 
 
 my_CFLAGS="-Wall -Wchar-subscripts -Wformat-security -Wpointer-arith -Wshadow -Wsign-compare -Wtype-limits"
-my_CFLAGS+="-fsanitize=address -fno-omit-frame-pointer "
+my_CFLAGS+="-fno-omit-frame-pointer "
 my_CFLAGS="${my_CFLAGS} -DDATADIR_PATH=\\\"\"\$(pkgdatadir)\\\"\""
 my_CFLAGS="${my_CFLAGS} -I\"\$(top_srcdir)/vendor\""  # provides glm headers
 my_CFLAGS="${my_CFLAGS} -DGL_SILENCE_DEPRECATION"

@@ -6,4 +6,4 @@ printf 'Running autoreconf...'
 
 autoreconf --install
 
-printf '\nSuccess!\nNow please run: ./configure\n'
+printf '\nSuccess!\nNow please run: emconfigure ./configure\n'

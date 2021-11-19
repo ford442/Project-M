@@ -22,7 +22,7 @@ tst3: b3.cpp Makefile.am
 	-sINITIAL_MEMORY=1400mb -O3 -sSUPPORT_BIG_ENDIAN=1 -std=c++17
 
 
-all: tst1
+all: tst1 tst3
 	echo 'Built 1ink.Drop TEST.'
 	
 b3: tst3

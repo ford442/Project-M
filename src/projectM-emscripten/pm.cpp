@@ -10,7 +10,6 @@
 #include <SDL2/SDL.h>
 #include "SDL2/SDL_config.h"
 #include <projectM.hpp>
-#include <pthread.h>
 
 Uint8 * stm;
 static EGLDisplay display;
@@ -25,7 +24,7 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 app.pm->renderFrame();
-// glFlush();
+glFlush();
 eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);

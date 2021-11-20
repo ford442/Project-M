@@ -24,7 +24,6 @@ projectMApp;projectMApp app;
 
 static void renderFrame(){
 app.pm->renderFrame();
-glFlush();
 eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
@@ -79,8 +78,6 @@ if(contextegl==EGL_NO_CONTEXT){
 else{
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
-glClearColor(0.0,0.0,0.0,0.0);
-glClear(GL_COLOR_BUFFER_BIT);
 }}
 emscripten_webgl_make_context_current(ctx);
 int width=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});

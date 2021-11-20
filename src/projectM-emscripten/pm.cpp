@@ -13,7 +13,7 @@
 #include "SDL2/SDL_config.h"
 #include <projectM.hpp>
 
-Uint8 *stm;
+Uint8 * stm;
 static EGLDisplay display;
 static EGLContext contextegl;
 static EGLSurface surface;
@@ -147,8 +147,8 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8* stm,int len){
-Uint8* wptr;
+static void SDLCALL bfr(void *unused,Uint8 * stm,int len){
+Uint8 *wptr;
 int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;

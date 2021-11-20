@@ -1,5 +1,5 @@
-#include <algorithm.h>
-#include <vector.h>
+#include <algorithm>
+#include <vector>
 #include <string.h>
 #include <math.h>
 #include <stdio.h>

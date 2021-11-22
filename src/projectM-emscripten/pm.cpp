@@ -1,11 +1,9 @@
-#include <algorithm>
-#include <vector>
-#include <string.h>
+
+#include <string>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <GLES3/gl3.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -30,8 +28,6 @@ eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 }
-
-static void chngt(){
 static const EGLint attribut_list[]={
 // EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
 EGL_NONE
@@ -46,6 +42,12 @@ EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,16,
 EGL_NONE
 };
+EGLint anEglCtxAttribs2[]={
+EGL_CONTEXT_CLIENT_VERSION,3,
+// EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_NONE
+};
+static void chngt(){
 SDL_GL_SetAttribute( SDL_GL_RED_SIZE,8);
 SDL_GL_SetAttribute( SDL_GL_GREEN_SIZE,8);
 SDL_GL_SetAttribute( SDL_GL_BLUE_SIZE,8);
@@ -70,10 +72,6 @@ eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
 if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
 }
-EGLint anEglCtxAttribs2[]={
-EGL_CONTEXT_CLIENT_VERSION,3,
-// EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_NONE};
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 if(contextegl==EGL_NO_CONTEXT){
 }
@@ -84,7 +82,8 @@ eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
 int width=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 int height=width;
-app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,SDL_WINDOW_OPENGL);
+SDL_Init(SDL_INIT_VIDEO);
+app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,0);
 app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));

@@ -16,7 +16,7 @@ static EGLDisplay display;
 static EGLContext contextegl;
 static EGLSurface surface;
 static EmscriptenWebGLContextAttributes attr;
-const float FPS=60;
+const float FPS=60.0;
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8* snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
@@ -39,7 +39,7 @@ EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
 EGL_STENCIL_SIZE,8,
-EGL_DEPTH_SIZE,16,
+EGL_DEPTH_SIZE,24,
 EGL_NONE
 };
 EGLint anEglCtxAttribs2[]={
@@ -82,7 +82,6 @@ eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
 int width=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 int height=width;
-SDL_Init(SDL_INIT_VIDEO);
 app.win=SDL_CreateWindow("pm",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,width,height,0);
 app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");

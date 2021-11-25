@@ -34,10 +34,10 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   AC_DEFINE([EMSCRIPTEN], [1], [Define EMSCRIPTEN])
   AC_DEFINE([ENABLE_EMSCRIPTEN], [1], [Build projectM-emscripten])
   enable_gles=yes
-  enable_sdl=no
+  enable_sdl=yes
   enable_llvm=no
   enable_preset_subdirs=no
-  enable_threading=yes
+  enable_threading=no
   enable_qt=no
   dnl Enable SDL2 and WEBGL2 (OpenGL ES 3)
   EMSCRIPTEN_FLAGS="--closure 0 -sSUPPORT_BIG_ENDIAN=1 -sUSE_SDL=2 -sEXPORT_NAME='createModule' -sMODULARIZE=1 -sUSE_WEBGL2=1 -sPRINTF_LONG_DOUBLE=1 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -ffast-math -flto=thin -sSUPPORT_LONGJMP=0 -DNDEBUG -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=1400mb -O3 -g -sMALLOC="emmalloc" -sENVIRONMENT=web "

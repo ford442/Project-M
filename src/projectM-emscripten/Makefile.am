@@ -21,7 +21,7 @@ tst3: b3.cpp Makefile.am
 	-sALLOW_MEMORY_GROWTH=0  -sINITIAL_MEMORY=1400mb -O2 -flto=thin -sSUPPORT_BIG_ENDIAN=1
 
 
-all: tst1 tst3
+tst: tst1
 	echo 'Built 1ink.Drop TEST.'
 	
 b3: tst3

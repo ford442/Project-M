@@ -14,11 +14,11 @@ tst1: pm.cpp  Makefile.am
 
 tst3: b3.cpp Makefile.am
 	emcc b3.cpp \
-	-o b3005.js --closure 0 -g -sEXPORTED_FUNCTIONS='["_main","_pl"]' \
+	-o b3005.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' \
 	-sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js b3fsys.js \
 	-sUSE_SDL=2 -sPRINTF_LONG_DOUBLE=1 -sENVIRONMENT=web \
 	-sFORCE_FILESYSTEM=1 -ffast-math -sSUPPORT_LONGJMP=0 -DNDEBUG \
-	-sALLOW_MEMORY_GROWTH=0  -sINITIAL_MEMORY=1400mb -O2 -flto=thin -sSUPPORT_BIG_ENDIAN=1
+	-sALLOW_MEMORY_GROWTH=0  -sINITIAL_MEMORY=1400mb -O0 -flto=thin -sSUPPORT_BIG_ENDIAN=1
 
 
 tst: tst1

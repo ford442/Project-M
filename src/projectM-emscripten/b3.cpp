@@ -1,6 +1,13 @@
-#include <emscripten/emscripten.h>
-#include "SDL2/SDL_config.h"
+#include <string>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <emscripten.h>
+#include <emscripten/html5.h>
 #include <SDL2/SDL.h>
+
 static SDL_AudioDeviceID dev;
 static struct{SDL_AudioSpec spec;Uint8* snd;Uint32 slen;int pos;}wave;
 static void cls_aud(){

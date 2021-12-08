@@ -18,7 +18,7 @@ tst3: b3.cpp Makefile.am
 	-sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js b3fsys.js \
 	-sUSE_SDL=2 -sPRINTF_LONG_DOUBLE=1 -sENVIRONMENT=web \
 	-sFORCE_FILESYSTEM=1 -ffast-math -sSUPPORT_LONGJMP=0 -DNDEBUG \
-	-sALLOW_MEMORY_GROWTH=0  -sINITIAL_MEMORY=1400mb -O3 -flto=thin -sSUPPORT_BIG_ENDIAN=1
+	-sALLOW_MEMORY_GROWTH=0  -sINITIAL_MEMORY=1400mb -O3 -flto=thin -sSUPPORT_BIG_ENDIAN=0
 
 
 tst: tst1

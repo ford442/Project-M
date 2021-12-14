@@ -26,3 +26,6 @@ tst: tst1
 	
 b3: tst3
 	echo 'Built 1ink.Drop TEST.'
+	
+all: b3 tst1
+	echo 'Built all 1ink.Drop tests.'

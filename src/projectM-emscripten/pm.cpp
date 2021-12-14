@@ -215,8 +215,8 @@ EM_ASM({
 FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
-ma();
 });
+ma();
 app.done=0;
 return PROJECTM_SUCCESS;
 }

@@ -12,6 +12,12 @@ tst1: pm.cpp  Makefile.am
 	../libprojectM/KeyHandler.cpp pm.cpp \
 	-o gpu010.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --extern-post-js index.js --post-js filesys.js --post-js ccall.js
 
+tst2: safe.cpp  Makefile.am
+	emcc  $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	../libprojectM/KeyHandler.cpp safe.cpp \
+	-o safe.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --extern-post-js index.js --post-js filesys.js --post-js ccall.js
+
+
 tst3: b3.cpp Makefile.am
 	emcc b3.cpp \
 	-o b3006.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' \
@@ -24,8 +30,12 @@ tst3: b3.cpp Makefile.am
 tst: tst1
 	echo 'Built 1ink.Drop TEST.'
 	
+	
+tst2: tst2
+	echo 'Built 1ink.Drop TEST.'
+	
 b3: tst3
 	echo 'Built 1ink.Drop TEST.'
 	
-all: b3 tst1
+all: b3 tst1 tst2
 	echo 'Built all 1ink.Drop tests.'

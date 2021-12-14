@@ -1,40 +1,41 @@
 
-#include <string>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstring>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <time.h>
+#include <ctime>
 #include <GLES3/gl3.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
-#include <SDL2/SDL.h>
+#include <SDL2/SDL>
 #include <projectM.hpp>
-#include <float.h>
 #include <vector>
 #include <algorithm>
 #include <iostream>
-#include <unistd.h>
-#include <stdarg.h>
-#include <stdbool.h>
+#include <cstdarg>
+#include <cstdbool>
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
 Uint8 *stm;
+Uint8 *wptr;
 EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
-EmscriptenWebGLContextAttributes attr;
 const float FPS=30;
 SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
+EGLint config_size,major,minor;
+int lft;
+char flnm[16];
 
 static void renderFrame(){
 app.pm->renderFrame();
 eglSwapBuffers(display,surface);
-auto sndat=reinterpret_cast<short*>(&stm);
+auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 }
 static const EGLint attribut_list[]={
@@ -46,13 +47,13 @@ EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
-EGL_RED_SIZE,32,
-EGL_GREEN_SIZE,32,
-EGL_BLUE_SIZE,32,
-EGL_ALPHA_SIZE,32,
-EGL_STENCIL_SIZE,32,
+EGL_RED_SIZE,8,
+EGL_GREEN_SIZE,8,
+EGL_BLUE_SIZE,8,
+EGL_ALPHA_SIZE,8,
+EGL_STENCIL_SIZE,8,
 EGL_DEPTH_SIZE,32,
-EGL_BUFFER_SIZE,64,
+EGL_BUFFER_SIZE,32,
 EGL_NONE
 };
 EGLint anEglCtxAttribs2[]={
@@ -60,19 +61,20 @@ EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_NONE
 };
+
 static void chngt(){
-SDL_GL_SetAttribute(SDL_GL_RED_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,32);
-SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,32);
+EmscriptenWebGLContextAttributes attr;
+SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_RED_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_GREEN_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,8);
+SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
 SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE,32);
 SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL,1);
-SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE,1);
 SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
 attr.alpha=1;
 attr.stencil=1;
@@ -80,10 +82,10 @@ attr.depth=1;
 attr.antialias=0;
 attr.premultipliedAlpha=0;
 attr.preserveDrawingBuffer=0;
+attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 emscripten_webgl_init_context_attributes(&attr);
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
 EGLConfig eglconfig=NULL;
-EGLint config_size,major,minor;
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
 if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
@@ -104,9 +106,9 @@ app.glCtx=&contextegl;
 SDL_SetWindowTitle(app.win,"1ink.us - Lazuli");
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
-app.settings.meshX=96;
-app.settings.meshY=96;
-app.settings.textureSize=2048;
+app.settings.meshX=60;
+app.settings.meshY=60;
+app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
@@ -137,8 +139,8 @@ printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void swtcht(){
+printf("Selecting random preset.\n");
 app.pm->selectRandom(true);
-printf("Select random preset.\n");
 }
 static void lckt(){
 app.pm->setPresetLock(true);
@@ -162,9 +164,8 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
+
 static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
-Uint8 *wptr;
-int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){
@@ -178,9 +179,9 @@ wave.pos=0;
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
+
 static void plt(){
 cls_aud();
-char flnm[16];
 SDL_FreeWAV(wave.snd);
 SDL_Quit();
 SDL_SetMainReady();
@@ -214,6 +215,7 @@ EM_ASM({
 FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
+ma();
 });
 app.done=0;
 return PROJECTM_SUCCESS;

@@ -30,10 +30,6 @@ tst3: b3.cpp Makefile.am
 tst: tst1
 	echo 'Built 1ink.Drop TEST.'
 	
-	
-tst2: tst2
-	echo 'Built 1ink.Drop TEST.'
-	
 b3: tst3
 	echo 'Built 1ink.Drop TEST.'
 	

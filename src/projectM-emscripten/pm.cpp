@@ -9,7 +9,7 @@
 #include <GLES3/gl3.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
-#include <SDL2/SDL>
+#include <SDL2/SDL.h>
 #include <projectM.hpp>
 #include <vector>
 #include <algorithm>

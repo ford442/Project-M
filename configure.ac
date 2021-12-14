@@ -40,7 +40,7 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   enable_threading=no
   enable_qt=no
   dnl Enable SDL2 and WEBGL2 (OpenGL ES 3)
-  EMSCRIPTEN_FLAGS="--closure 0 -sSUPPORT_BIG_ENDIAN=0 -sUSE_SDL=2 -sEXPORT_NAME='createModule' -sMODULARIZE=1 -sUSE_WEBGL2=1 -sPRINTF_LONG_DOUBLE=1 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -ffast-math -flto=thin -sSUPPORT_LONGJMP=0 -DNDEBUG -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=1400mb -O3 -sMALLOC="emmalloc" -sENVIRONMENT=web"
+  EMSCRIPTEN_FLAGS="-g -sFULL_ES2=1 -sFULL_ES3=1 -sGL_TESTING=1--closure 0 -sSUPPORT_BIG_ENDIAN=0 -sUSE_SDL=2 -sEXPORT_NAME='createModule' -sMODULARIZE=1 -sUSE_WEBGL2=1 -sPRINTF_LONG_DOUBLE=1 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -ffast-math -flto=thin -sSUPPORT_LONGJMP=0 -DNDEBUG -sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=1400mb -O3 -sMALLOC="emmalloc" -sENVIRONMENT=web"
   AC_SUBST([EMSCRIPTEN_FLAGS])
   CFLAGS="$CFLAGS $EMSCRIPTEN_FLAGS"
   CXXFLAGS="$CXXFLAGS $EMSCRIPTEN_FLAGS"
@@ -168,6 +168,8 @@ AS_IF([echo ${host} | grep -Fq android], [],
                         CXXFLAGS="$CXXFLAGS -stdlib=libc++"])
 ])
 
+AX_CHECK_COMPILE_FLAG([-std=c++11], [
+                        CXXFLAGS="$CXXFLAGS -std=c++11"])
 # Qt5
 AC_ARG_ENABLE([qt], AS_HELP_STRING([--enable-qt], [Enable Qt: needed for pulseaudio and jack GUIs]), [], [enable_qt=check])
 AS_IF([test "$enable_qt" != "no"],

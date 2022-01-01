@@ -6,70 +6,7 @@
 #include <cstdlib>
 #include <emscripten.h>
 #include <emscripten/html5.h>
-#include <SDL2/SDL.h>
 
-Uint8 *wptr;
-Uint8 *stm;
-int lft;
-char flnm[16];
-
-static SDL_AudioDeviceID dev;
-static struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-
-static void cls_aud(){
-if(dev!=0){
-SDL_PauseAudioDevice(dev,SDL_TRUE);
-SDL_CloseAudioDevice(dev);
-dev=0;
-}}
-static void qu(int rc){
-SDL_Quit();
-exit(rc);
-}
-static void opn_aud(){
-dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
-if(!dev){
-SDL_FreeWAV(wave.snd);
-qu(2);
-}
-SDL_PauseAudioDevice(dev,SDL_FALSE);
-}
-
-
-static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
-wptr=wave.snd+wave.pos;
-lft=wave.slen-wave.pos;
-while (lft<=len){
-SDL_memcpy(stm,wptr,lft);
-stm+=lft;
-len-=lft;
-wptr=wave.snd;
-lft=wave.slen;
-wave.pos=0;
-}
-SDL_memcpy(stm,wptr,len);
-wave.pos+=len;
-}
-
-
-static void plt(){
-cls_aud();
-SDL_FreeWAV(wave.snd);
-SDL_Quit();
-SDL_SetMainReady();
-if (SDL_Init(SDL_INIT_AUDIO)<0){
-qu(1);
-}
-SDL_strlcpy(flnm,"/snd/sample.wav",sizeof(flnm));
-if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){qu(1);}
-wave.pos=0;
-wave.spec.callback=bfr;
-opn_aud();
-}
-extern "C" {
-void pl(){
-plt();
-}}
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
@@ -91,9 +28,6 @@ function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.fl
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}});
 int main(){
-EM_ASM({
-FS.mkdir('/snd');
-});
 ma();
 return 1;
 }

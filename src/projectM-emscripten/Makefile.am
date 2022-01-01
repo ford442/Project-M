@@ -18,14 +18,13 @@ tst2: safe.cpp  Makefile.am
 	-o safe.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck"]' -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js filesys.js --post-js ccall.js
 
 
-tst3: b3.cpp Makefile.am
-	emcc b3.cpp \
-	-o b3006.js --closure 0 -sEXPORTED_FUNCTIONS='["_main","_pl"]' \
+tst3: b3NoSDL.cpp Makefile.am
+	emcc b3NoSDL.cpp \
+	-o b3007.js --closure 0 \
 	-sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js b3fsys.js \
-	-sUSE_SDL=2 -sPRINTF_LONG_DOUBLE=1 -sENVIRONMENT=web \
-	-sFORCE_FILESYSTEM=1 -ffast-math -sSUPPORT_LONGJMP=0 -DNDEBUG \
-	-sALLOW_MEMORY_GROWTH=0 -g -sFULL_ES2=0 -sFULL_ES3=1 -sGL_TESTING=1 -sINITIAL_MEMORY=1400mb -O3 -flto=thin -sSUPPORT_BIG_ENDIAN=0
-
+	-sUSE_SDL=0  -sENVIRONMENT=web \
+	-sFORCE_FILESYSTEM=1 -ffast-math  -DNDEBUG \
+	-sALLOW_MEMORY_GROWTH=0 -sINITIAL_MEMORY=1400mb -O3 -flto=thin
 
 tst: tst1
 	echo 'Built 1ink.Drop TEST.'

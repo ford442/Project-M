@@ -67,12 +67,12 @@ EGL_NONE};
 
 static void chngt(){
 EmscriptenWebGLContextAttributes attr;
-attr.alpha=EGL_TRUE;
-attr.stencil=EGL_TRUE;
-attr.depth=EGL_TRUE;
-attr.antialias=EGL_FALSE;
-attr.premultipliedAlpha=EGL_FALSE;
-attr.preserveDrawingBuffer=EGL_FALSE;
+attr.alpha=EM_TRUE;
+attr.stencil=EM_TRUE;
+attr.depth=EM_TRUE;
+attr.antialias=EM_FALSE;
+attr.premultipliedAlpha=EM_FALSE;
+attr.preserveDrawingBuffer=EM_FALSE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 emscripten_webgl_init_context_attributes(&attr);
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);

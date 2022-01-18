@@ -16,6 +16,7 @@
 #include <GLES3/gl3.h>
 #define __gl2_h_
 #include <GLES2/gl2ext.h>
+#include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
@@ -226,5 +227,5 @@ FS.mkdir('/presets');
 });
 ma();
 app.done=0;
-return PROJECTM_SUCCESS;
+return 1;
 }

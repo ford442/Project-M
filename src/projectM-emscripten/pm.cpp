@@ -3,41 +3,43 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <ctime>
-#include <GLES3/gl3.h>
-#include <emscripten.h>
-#include <emscripten/html5.h>
-#include <SDL2/SDL.h>
-#include <projectM.hpp>
 #include <vector>
 #include <algorithm>
 #include <iostream>
 #include <cstdarg>
 #include <cstdbool>
+#include <emscripten.h>
+#include <emscripten/html5.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#define __gl2_h_
+#include <GLES2/gl2ext.h>
+#include <SDL2/SDL.h>
+#include <projectM.hpp>
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
 Uint8 *stm;
 Uint8 *wptr;
-EGLDisplay display;
-EGLContext contextegl;
-EGLSurface surface;
-const float FPS=30;
-SDL_AudioDeviceID dev;
+static EGLDisplay display;
+static EGLContext contextegl;
+static EGLSurface surface;
+const int FPS=60;
+static SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
-EGLint config_size,major,minor;
-int lft;
-char flnm[16];
+static EGLint config_size,major,minor;
+static int lft;
+static char flnm[16];
 
 static void renderFrame(){
+glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
-  
-eglSwapBuffers(display,surface);
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
+eglSwapBuffers(display,surface);
 }
 
 static const EGLint attribut_list[]={
@@ -50,11 +52,12 @@ EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
 EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
 EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
-EGL_RED_SIZE,8,
-EGL_GREEN_SIZE,8,
-EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
-EGL_STENCIL_SIZE,8,
+EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
+EGL_RED_SIZE,32,
+EGL_GREEN_SIZE,32,
+EGL_BLUE_SIZE,32,
+EGL_ALPHA_SIZE,32,
+EGL_STENCIL_SIZE,32,
 EGL_DEPTH_SIZE,32,
 EGL_BUFFER_SIZE,32,
 EGL_NONE
@@ -66,33 +69,32 @@ EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
 EGL_NONE};
 
 static void chngt(){
+eglBindAPI(EGL_OPENGL_ES_API);
 EmscriptenWebGLContextAttributes attr;
+emscripten_webgl_init_context_attributes(&attr);
 attr.alpha=EM_TRUE;
 attr.stencil=EM_TRUE;
 attr.depth=EM_TRUE;
 attr.antialias=EM_FALSE;
 attr.premultipliedAlpha=EM_FALSE;
 attr.preserveDrawingBuffer=EM_FALSE;
+attr.enableExtensionsByDefault=EM_FALSE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
-emscripten_webgl_init_context_attributes(&attr);
+attr.failIfMajorPerformanceCaveat=EM_FALSE;
+attr.majorVersion=v2;
+attr.minorVersion=v0;
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
 EGLConfig eglconfig=NULL;
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
-if(eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size)==EGL_TRUE && eglconfig!=NULL){
-if(eglBindAPI(EGL_OPENGL_ES_API)!=EGL_TRUE){
-}
+eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size);
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
-if(contextegl==EGL_NO_CONTEXT){
-}
-else{
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
-}}
 emscripten_webgl_make_context_current(ctx);
+glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
 int width=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 int height=width;
-
 app.settings.meshX=60;
 app.settings.meshY=60;
 app.settings.textureSize=1024;

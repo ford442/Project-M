@@ -26,7 +26,7 @@ Uint8 *wptr;
 static EGLDisplay display;
 static EGLContext contextegl;
 static EGLSurface surface;
-const int FPS=60;
+const float FPS=60;
 static SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}

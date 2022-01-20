@@ -188,16 +188,16 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 extern "C" {
-static void pl(){
+ void pl(){
 plt();
 }
-static void chng(){
+ void chng(){
 chngt();
 }
-static void lck(){
+ void lck(){
 lckt();
 }
-static void swtch(){
+ void swtch(){
 swtcht();
 }}
  EM_JS(void,ma,(),{

@@ -1,14 +1,3 @@
-
-#include <cstring>
-#include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <ctime>
-#include <vector>
-#include <algorithm>
-#include <iostream>
-#include <cstdarg>
-#include <cstdbool>
 #include <GLES3/gl3.h>
 #define __gl2_h_
 #include <GLES2/gl2ext.h>
@@ -19,6 +8,17 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
+#include <vector>
+#include <algorithm>
+#include <iostream>
+#include <cstring>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <cstdarg>
+#include <cstdbool>
+
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
 Uint8 *stm;
@@ -64,7 +64,7 @@ EGL_BUFFER_SIZE,32,
 EGL_NONE
 };
 
-EGLint anEglCtxAttribs2[]={
+static EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
 EGL_NONE};
@@ -84,7 +84,7 @@ attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=2;
 attr.minorVersion=0;
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
+static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#canvas",&attr);
 EGLConfig eglconfig=NULL;
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
@@ -187,19 +187,19 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 extern "C" {
-void pl(){
+static void pl(){
 plt();
 }
-void chng(){
+static void chng(){
 chngt();
 }
-void lck(){
+static void lck(){
 lckt();
 }
-void swtch(){
+static void swtch(){
 swtcht();
 }}
-EM_JS(void,ma,(),{
+static EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);
@@ -220,7 +220,7 @@ function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.fl
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}});
 int main(){
-EM_ASM({
+static EM_ASM({
 FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');

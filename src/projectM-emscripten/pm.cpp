@@ -19,6 +19,11 @@
 #include <cstdarg>
 #include <cstdbool>
 
+using namespace std;
+using namespace std::chrono;
+struct timespec rem;
+struct timespec req={0,1500000000};
+
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
 Uint8 *stm;
@@ -226,6 +231,8 @@ FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
+ nanosleep(&req,&rem);
+
 ma();
 app.done=0;
 return 1;

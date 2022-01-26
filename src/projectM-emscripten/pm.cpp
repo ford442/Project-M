@@ -1,13 +1,15 @@
+#include <emscripten.h>
+#include <emscripten/html5.h>
 #include <GLES3/gl3.h>
 #define __gl2_h_
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <emscripten.h>
-#include <emscripten/html5.h>
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include </usr/include/glm/glm.hpp>
 #include <vector>
 #include <algorithm>
 #include <iostream>
@@ -54,11 +56,11 @@ EGL_NONE
 
 static const EGLint attribute_list[]={
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
+// EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
-EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
-EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
-EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
+// EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
+// EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
+// EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
 // EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
@@ -85,7 +87,7 @@ attr.depth=EM_TRUE;
 attr.antialias=EM_FALSE;
 attr.premultipliedAlpha=EM_FALSE;
 attr.preserveDrawingBuffer=EM_FALSE;
-attr.enableExtensionsByDefault=EM_FALSE;
+attr.enableExtensionsByDefault=EM_TRUE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=2;
@@ -210,7 +212,7 @@ let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);
 w$=Math.round(w$);h$=Math.round(h$);let canvas=document.getElementById("vcanvas");
-let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:true,premultipliedAlpha:false,imageSmoothingEnabled:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2});
+let contx=canvas.getContext('webgl2',{alpha:true,stencil:true,depth:true,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,desynchronized:false});
 const g=new GPU({canvas:canvas,webGl:contx});
 let Rn=parseInt(document.getElementById("frate").innerHTML,10);
 let l=(w$*h$*4);let m=((l/65536)+1);m=Math.floor(m);

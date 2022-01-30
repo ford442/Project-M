@@ -22,7 +22,7 @@
 using namespace std;
 using namespace std::chrono;
 struct timespec rem;
-struct timespec req={0,1500000000)};
+struct timespec req={0,1500000000};
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 Uint8 *stm;

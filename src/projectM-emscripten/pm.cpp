@@ -210,7 +210,7 @@ let d=S();if(d)d();d=S();function S(){
 let w$=document.getElementById("iwid").innerHTML;
 let h$=document.getElementById("ihig").innerHTML;
 w$=Math.round(w$);h$=Math.round(h$);
-// let canvas=document.getElementById("canvas");
+let canvas=document.getElementById("canvas");
 // let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:false,powerPreference:'default',majorVersion:2,desynchronized:false});
 // const g=new GPU({canvas:canvas,webGl:contx});
 const g=new GPU();

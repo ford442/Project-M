@@ -66,9 +66,9 @@ EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,32,
+EGL_DEPTH_SIZE,24,
 EGL_STENCIL_SIZE,8,
-EGL_BUFFER_SIZE,32,
+EGL_BUFFER_SIZE,24,
 EGL_NONE
 };
 
@@ -233,6 +233,7 @@ FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
+nanosleep(&req,&rem);
 ma();
 app.done=0;
 return 1;

@@ -17374,7 +17374,7 @@ class WebGL2Kernel extends WebGLKernel {
   }
 
   initContext() {
-    const settings = {alpha:false,depth:false,stencil:false,preserveDrawingBuffer:false,premultipliedAlpha:false,desynchronized:false,lowLatency:true,powerPreference:'high-performance',};
+    const settings = {alpha:true,depth:false,stencil:false,preserveDrawingBuffer:false,premultipliedAlpha:false,desynchronized:false,lowLatency:true,powerPreference:'default',};
     return this.canvas.getContext('webgl2', settings);
   }
 

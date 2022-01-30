@@ -203,7 +203,7 @@ let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);
 w$=Math.round(w$);h$=Math.round(h$);let canvas=document.getElementById("canvas");
-let contx=canvas.getContext('webgl2',{alpha:false,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,desynchronized:false});
+let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,desynchronized:false});
 const g=new GPU();
 let Rn=parseInt(document.getElementById("frate").innerHTML,10);
 let l=(w$*h$*4);let m=((l/65536)+1);m=Math.floor(m);
@@ -224,9 +224,6 @@ FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
-nanosleep(&req,&rem);
-nanosleep(&req,&rem);
-nanosleep(&req,&rem);
 ma();
 app.done=0;
 return 1;

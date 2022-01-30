@@ -8,6 +8,8 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include </usr/include/glm/glm.hpp>
 #include <vector>
 #include <algorithm>
 #include <iostream>
@@ -25,6 +27,7 @@ struct timespec rem;
 struct timespec req={0,1500000000};
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
+
 Uint8 *stm;
 Uint8 *wptr;
 static EGLDisplay display;
@@ -38,6 +41,7 @@ projectMApp;projectMApp app;
 static EGLint config_size,major,minor;
 static int lft;
 static char flnm[16];
+
 static void renderFrame(){
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
@@ -45,30 +49,34 @@ auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024);
 eglSwapBuffers(display,surface);
 }
+
 static const EGLint attribut_list[]={
 EGL_NONE
 };
+
 static const EGLint attribute_list[]={
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
+ EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
-EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
+ EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
 // EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
 // EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
-EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
+ EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,24,
+EGL_DEPTH_SIZE,32,
 EGL_STENCIL_SIZE,8,
-EGL_BUFFER_SIZE,24,
+EGL_BUFFER_SIZE,32,
 EGL_NONE
 };
+
 static EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
 EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
 EGL_NONE};
+
 static void chngt(){
 eglBindAPI(EGL_OPENGL_ES_API);
 EmscriptenWebGLContextAttributes attr;
@@ -154,6 +162,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
+
 static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
@@ -186,25 +195,25 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 extern "C" {
-void pl(){
+ void pl(){
 plt();
 }
-void chng(){
+ void chng(){
 chngt();
 }
-void lck(){
+ void lck(){
 lckt();
 }
-void swtch(){
+ void swtch(){
 swtcht();
 }}
-EM_JS(void,ma,(),{
+ EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);
-w$=Math.round(w$);h$=Math.round(h$);let canvas=document.getElementById("canvas");
-let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,desynchronized:false});
-const g=new GPU();
+w$=Math.round(w$);h$=Math.round(h$);let canvas=document.getElementById("vcanvas");
+let contx=canvas.getContext('webgl2',{alpha:false,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,desynchronized:false});
+const g=new GPU({canvas:canvas,webGl:contx});
 let Rn=parseInt(document.getElementById("frate").innerHTML,10);
 let l=(w$*h$*4);let m=((l/65536)+1);m=Math.floor(m);
 let W=new WebAssembly.Memory({initial:m});let o=[w$,h$];
@@ -219,7 +228,7 @@ function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.fl
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}});
 int main(){
-EM_ASM({
+ EM_ASM({
 FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');

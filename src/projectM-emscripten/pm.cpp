@@ -22,7 +22,7 @@
 using namespace std;
 using namespace std::chrono;
 struct timespec rem;
-struct timespec req={0,(long)(3500*1000*1000)};
+struct timespec req={0,1500000000)};
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 Uint8 *stm;
@@ -219,11 +219,13 @@ function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.fl
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}});
 int main(){
- EM_ASM({
+EM_ASM({
 FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
+nanosleep(&req,&rem);
+nanosleep(&req,&rem);
 nanosleep(&req,&rem);
 ma();
 app.done=0;

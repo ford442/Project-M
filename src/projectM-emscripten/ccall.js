@@ -1,6 +1,9 @@
 document.getElementById('btn5').addEventListener('click',function(){
 Module.ccall("lck");
 });
+document.getElementById('mv').addEventListener('loadeddata',function(){
+Module.ccall("b3");
+});
 document.getElementById('btn4').addEventListener('click',function(){
 Module.ccall("swtch");
 });

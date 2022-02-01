@@ -233,6 +233,15 @@ FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
+  
+int L=EM_ASM_INT({return parseInt(document.getElementById("load").innerHTML,10);});
+while(L!=1){
+nanosleep(&req,&rem);
+nanosleep(&req,&rem);
+nanosleep(&req,&rem);
+printf("%u \n wait... \n",L);
+L=EM_ASM_INT({return parseInt(document.getElementById("load").innerHTML,10);});
+};
 ma();
 app.done=0;
 return 1;

@@ -8,8 +8,6 @@
 #include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
-#include </usr/include/glm/glm.hpp>
 #include <vector>
 #include <algorithm>
 #include <iostream>
@@ -101,7 +99,9 @@ contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
-int width=EM_ASM_INT({return document.getElementById('pmhig').innerHTML;});
+double client_w,client_h;
+emscripten_get_element_css_size("#canvas",&client_w,&client_h);
+int width=(int)client_h;
 int height=width;
 app.settings.meshX=60;
 app.settings.meshY=60;

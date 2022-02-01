@@ -192,19 +192,7 @@ wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
 }
-extern "C" {
-void pl(){
-plt();
-}
-void chng(){
-chngt();
-}
-void lck(){
-lckt();
-}
-void swtch(){
-swtcht();
-}}
+
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
@@ -227,22 +215,32 @@ $.set(t(v),0);r(t($));$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn
 function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.floor(mq);
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}});
+
+
+extern "C" {
+void pl(){
+plt();
+}
+void chng(){
+chngt();
+}
+void lck(){
+lckt();
+}
+void swtch(){
+swtcht();
+}
+void b3(){
+ma();
+}}
+
 int main(){
 EM_ASM({
 FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
-  
-int L=EM_ASM_INT({return parseInt(document.getElementById("load").innerHTML,10);});
-while(L!=1){
-nanosleep(&req,&rem);
-nanosleep(&req,&rem);
-nanosleep(&req,&rem);
-printf("%u \n wait... \n",L);
-L=EM_ASM_INT({return parseInt(document.getElementById("load").innerHTML,10);});
-};
-ma();
+
 app.done=0;
 return 1;
 }

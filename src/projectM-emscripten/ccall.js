@@ -4,9 +4,8 @@ Module.ccall("lck");
 document.getElementById('mv').addEventListener('loadeddata',function(){
 setTimeout(function(){
 Module.ccall("b3");
-document.getElementById('mv').removeEventListener('loadeddata',onloadeddata);
 },1500);
-});
+},{once:true});
 document.getElementById('btn4').addEventListener('click',function(){
 Module.ccall("swtch");
 });

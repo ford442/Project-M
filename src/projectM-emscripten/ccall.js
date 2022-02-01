@@ -5,7 +5,7 @@ document.getElementById('load').addEventListener('change',function(){
 if(document.getElementById("load").innerHTML==0){
 setTimeout(function(){
 Module.ccall("b3");
-},1500););}
+},1500);});
 document.getElementById('mv').addEventListener('loadeddata',function(){
 document.getElementById("load").innerHTML=1;
 });

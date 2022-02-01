@@ -6,7 +6,6 @@ function lod(){
 setTimeout(function(){
 Module.ccall("b3");
 document.getElementById('mv').removeEventListener('loadeddata',lod);
-},500);
 };
 
 document.getElementById('mv').addEventListener('loadeddata',lod},{once:true});

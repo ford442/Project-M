@@ -2,14 +2,6 @@ document.getElementById('btn5').addEventListener('click',function(){
 Module.ccall("lck");
 });
 
-function lod(){
-setTimeout(function(){
-Module.ccall("b3");
-document.getElementById('mv').removeEventListener('loadeddata',lod);
-},500);
-};
-
-document.getElementById('mv').addEventListener('loadeddata',lod,{once:true});
 document.getElementById('btn4').addEventListener('click',function(){
 Module.ccall("swtch");
 });

@@ -1,8 +1,10 @@
 document.getElementById('btn5').addEventListener('click',function(){
 Module.ccall("lck");
 });
-document.getElementById('mv').addEventListener('canplay',function(){
+document.getElementById('mv').addEventListener('loadeddata',function(){
+setTimeout(function(){
 Module.ccall("b3");
+},1500});
 });
 document.getElementById('btn4').addEventListener('click',function(){
 Module.ccall("swtch");

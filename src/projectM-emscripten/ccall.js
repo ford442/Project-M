@@ -1,17 +1,23 @@
 document.getElementById('btn5').addEventListener('click',function(){
 Module.ccall("lck");
 });
-document.getElementById('mv').addEventListener('loadeddata',function(){
+
+function lod(){
 setTimeout(function(){
 Module.ccall("b3");
-},1500);
-},{once:true});
+document.getElementById('mv').removeEventListener('loadeddata',lod);
+},500);
+};
+
+document.getElementById('mv').addEventListener('loadeddata',lod},{once:true});
 document.getElementById('btn4').addEventListener('click',function(){
 Module.ccall("swtch");
 });
+
 document.getElementById('btn').addEventListener('click',function(){
 Module.ccall('chng');
 });
+
 document.getElementById('btn7').addEventListener('click',function(){
 document.getElementById("contain2").height=1440;
 document.getElementById("contain2").width=1440;

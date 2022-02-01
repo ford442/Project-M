@@ -207,11 +207,11 @@ swtcht();
 }}
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
-let w$=document.getElementById("iwid").innerHTML;
-let h$=document.getElementById("ihig").innerHTML;
+let w$=parseInt(document.getElementById("iwid").innerHTML,10);
+let h$=parseInt(document.getElementById("ihig").innerHTML,10);
 w$=Math.round(w$);h$=Math.round(h$);
 let canvas=document.getElementById("canvas");
-let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:false,powerPreference:'low-power',majorVersion:2,desynchronized:false});
+let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'default',majorVersion:2,desynchronized:false});
 const g=new GPU({canvas:canvas,webGl:contx});
 // const g=new GPU();
 let Rn=document.getElementById("frate").innerHTML;

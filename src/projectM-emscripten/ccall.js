@@ -9,7 +9,7 @@ document.getElementById('mv').removeEventListener('loadeddata',lod);
 },500);
 };
 
-document.getElementById('mv').addEventListener('loadeddata',lod},{once:true});
+document.getElementById('mv').addEventListener('loadeddata',lod,{once:true});
 document.getElementById('btn4').addEventListener('click',function(){
 Module.ccall("swtch");
 });

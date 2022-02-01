@@ -1,7 +1,7 @@
 document.getElementById('btn5').addEventListener('click',function(){
 Module.ccall("lck");
 });
-document.getElementById('mv').addEventListener('onloadeddata',function(){
+document.getElementById('mv').addEventListener('canplay',function(){
 Module.ccall("b3");
 });
 document.getElementById('btn4').addEventListener('click',function(){

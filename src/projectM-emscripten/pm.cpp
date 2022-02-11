@@ -191,9 +191,8 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 
-void ma(){
+static void ma(){
 EM_ASM({
- // EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);

@@ -100,9 +100,9 @@ surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
 double client_w,client_h;
-emscripten_get_element_css_size("#canvas",&client_w,&client_h);
-int width=(int)client_h;
-int height=width;
+GLsizei S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
+int width=(int)S;
+int height=(int)S;
 app.settings.meshX=60;
 app.settings.meshY=60;
 app.settings.textureSize=1024;
@@ -191,15 +191,14 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 
-EM_JS(void,ma,(),{
+void ma(){
+EM_ASM({
+ // EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);
 w$=Math.round(w$);h$=Math.round(h$);
-let canvas=document.getElementById("canvas");
-let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'default',majorVersion:2,desynchronized:false});
-const g=new GPU({canvas:canvas,webGl:contx});
-// const g=new GPU();
+const g=new GPU();
 let Rn=document.getElementById("frate").innerHTML;
 let l=(w$*h$*4);let m=((l/65536)+1);m=Math.floor(m);
 let W=new WebAssembly.Memory({initial:m});let o=[w$,h$];
@@ -212,8 +211,8 @@ let $=new Uint8ClampedArray(W.buffer,0,l);$.set(t(v),0);r(t($));
 $.set(t(v),0);r(t($));$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn);
 function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.floor(mq);
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
-document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}});
-
+document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}
+});}
 
 extern "C" {
 void pl(){
@@ -238,7 +237,6 @@ FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
-
 app.done=0;
 return 1;
 }

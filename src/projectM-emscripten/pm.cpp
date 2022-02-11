@@ -191,8 +191,7 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 
-static void ma(){
-EM_ASM({
+EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);
@@ -211,7 +210,7 @@ $.set(t(v),0);r(t($));$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn
 function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.floor(mq);
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
 document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}
-});}
+});
 
 extern "C" {
 void pl(){

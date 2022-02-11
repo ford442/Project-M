@@ -37,7 +37,6 @@ struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
 projectMApp;projectMApp app;
 static EGLint config_size,major,minor;
-int lft;
 char flnm[16];
 
 static void renderFrame(){
@@ -163,6 +162,8 @@ qu(2);
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
 static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
+Uint8* wptr;
+int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){

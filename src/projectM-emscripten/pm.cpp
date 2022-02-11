@@ -177,13 +177,11 @@ SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
 static void plt(){
-cls_aud();
-SDL_FreeWAV(wave.snd);
-SDL_Quit();
+// cls_aud();
+// SDL_FreeWAV(wave.snd);
+// SDL_Quit();
 SDL_SetMainReady();
-if (SDL_Init(SDL_INIT_AUDIO)<0){
-qu(1);
-}
+SDL_Init(SDL_INIT_AUDIO);
 SDL_strlcpy(flnm,"/snd/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);

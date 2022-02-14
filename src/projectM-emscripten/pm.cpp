@@ -28,9 +28,9 @@ struct timespec req={0,1500000000};
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
 Uint8 *stm;
-EGLDisplay display;
-EGLContext contextegl;
-EGLSurface surface;
+static EGLDisplay display;
+static EGLContext contextegl;
+static EGLSurface surface;
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -43,7 +43,7 @@ static void renderFrame(){
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 app.pm->renderFrame();
 auto sndat=reinterpret_cast<short*>(stm);
-app.pm->pcm()->addPCM16Data(sndat,1024);
+app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
 eglSwapBuffers(display,surface);
 }
 
@@ -102,18 +102,18 @@ double client_w,client_h;
 GLsizei S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 int width=(int)S;
 int height=(int)S;
-app.settings.meshX=60;
-app.settings.meshY=60;
+app.settings.meshX=48;
+app.settings.meshY=48;
 app.settings.textureSize=1024;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=44;
-app.settings.beatSensitivity=5.0;
-app.settings.aspectCorrection=0;
+app.settings.beatSensitivity=0.9;
+app.settings.aspectCorrection=false;
 app.settings.easterEgg=0;
-app.settings.shuffleEnabled=0;
+app.settings.shuffleEnabled=false;
 app.settings.presetURL="/presets";  
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");

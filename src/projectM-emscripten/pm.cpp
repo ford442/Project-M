@@ -104,7 +104,7 @@ emscripten_webgl_make_context_current(ctx);
 int width=(int)S;
 int height=(int)S;
 std::cout<<glGetString(GL_VERSION)<<"\n";
-std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION);
+std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION)<<"\n";
 app.settings.meshX=48;
 app.settings.meshY=48;
 app.settings.textureSize=1024;
@@ -243,7 +243,7 @@ FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
 app.done=0;
-usleep(3000);
+usleep(5000);
 ma();
 return 1;
 }

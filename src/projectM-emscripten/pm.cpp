@@ -96,8 +96,10 @@ contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
-// glGetString(GL_VERSION);
-// glGetString(GL_SHADING_LANGUAGE_VERSION);
+  
+std::cout<<glGetString(GL_VERSION);
+std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION);
+  
 int S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 int width=(int)S;
 int height=(int)S;

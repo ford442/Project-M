@@ -24,6 +24,7 @@ using namespace std;
 using namespace std::chrono;
 struct timespec rem;
 struct timespec req={0,1500000000};
+static EmscriptenWebGLContextAttributes attr;
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
@@ -46,6 +47,7 @@ eglSwapBuffers(display,surface);
 }
 
 static const EGLint attribut_list[]={
+  // EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
 EGL_NONE
 };
 
@@ -70,11 +72,10 @@ EGL_NONE
 static EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,3,
 // EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
+// EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_NONE};
 
 static void chngt(){
-eglBindAPI(EGL_OPENGL_ES_API);
-EmscriptenWebGLContextAttributes attr;
 emscripten_webgl_init_context_attributes(&attr);
 attr.alpha=EM_TRUE;
 attr.stencil=EM_TRUE;
@@ -87,22 +88,25 @@ attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=2;
 attr.minorVersion=0;
+int S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#vcanvas",&attr);
 EGLConfig eglconfig=NULL;
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
 eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size);
+eglBindAPI(EGL_OPENGL_ES_API);
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
+
+int width=(int)S;
+int height=(int)S;
+  app.glCtx=&contextegl;
   
 std::cout<<glGetString(GL_VERSION);
 std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION);
   
-int S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
-int width=(int)S;
-int height=(int)S;
 app.settings.meshX=48;
 app.settings.meshY=48;
 app.settings.textureSize=1024;
@@ -134,6 +138,7 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 //  glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
+  
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 static void swtcht(){

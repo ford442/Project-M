@@ -164,12 +164,12 @@ AC_PREFIX_DEFAULT([/usr/local])
 AC_PROG_MKDIR_P
 
 AS_IF([echo ${host} | grep -Fq android], [],
-  [AX_CHECK_COMPILE_FLAG([-stdlib=libc++], [
-                        CXXFLAGS="$CXXFLAGS -stdlib=libc++"])
+  [AX_CHECK_COMPILE_FLAG([-stdlib=libstdc++], [
+                        CXXFLAGS="$CXXFLAGS -stdlib=libstdc++"])
 ])
 
-AX_CHECK_COMPILE_FLAG([-std=c++17], [
-                        CXXFLAGS="$CXXFLAGS -std=c++17"])
+AX_CHECK_COMPILE_FLAG([-std=c++14], [
+                        CXXFLAGS="$CXXFLAGS -std=c++14"])
 # Qt5
 AC_ARG_ENABLE([qt], AS_HELP_STRING([--enable-qt], [Enable Qt: needed for pulseaudio and jack GUIs]), [], [enable_qt=check])
 AS_IF([test "$enable_qt" != "no"],

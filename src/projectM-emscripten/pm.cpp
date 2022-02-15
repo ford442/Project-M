@@ -243,6 +243,7 @@ FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
 app.done=0;
+nanosleep(&req,&rem);
 ma();
 return 1;
 }

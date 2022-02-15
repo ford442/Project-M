@@ -34,13 +34,11 @@ static EGLSurface surface;
 const float FPS=60;
 static SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}
-projectMApp;projectMApp app;
+typedef struct{projectM *pm;SDL_Window *win;SDL_GLContext *glCtx;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;projectMApp app;
 static EGLint config_size,major,minor;
 char flnm[16];
-
 static void renderFrame(){
-glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
@@ -84,7 +82,7 @@ attr.depth=EM_TRUE;
 attr.antialias=EM_FALSE;
 attr.premultipliedAlpha=EM_FALSE;
 attr.preserveDrawingBuffer=EM_FALSE;
-attr.enableExtensionsByDefault=EM_TRUE;
+attr.enableExtensionsByDefault=EM_FALSE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=2;
@@ -98,8 +96,7 @@ contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 surface=eglCreateWindowSurface(display,eglconfig,NULL,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
-double client_w,client_h;
-GLsizei S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
+int S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 int width=(int)S;
 int height=(int)S;
 app.settings.meshX=48;

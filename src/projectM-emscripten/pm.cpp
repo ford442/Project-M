@@ -245,6 +245,7 @@ FS.mkdir('/presets');
 app.done=0;
 nanosleep(&req,&rem);
 nanosleep(&req,&rem);
+  usleep(5000);
 ma();
 return 1;
 }

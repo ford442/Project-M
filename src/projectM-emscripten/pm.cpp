@@ -198,9 +198,10 @@ opn_aud();
 
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
-let w$=parseInt(document.getElementById("iwid").innerHTML,10);
-let h$=parseInt(document.getElementById("ihig").innerHTML,10);
-w$=Math.round(w$);h$=Math.round(h$);
+  S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
+
+let w$=parseInt(document.getElementById('pmhig').innerHTML,10);
+let h$=w$;
 let canvas=document.getElementById("bcanvas");
 let contx=canvas.getContext('webgl2',{alpha:false,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,minorVersion:0,desynchronized:false});
 const g=new GPU({canvas:canvas,webGl:contx});
@@ -216,7 +217,8 @@ let $=new Uint8ClampedArray(W.buffer,0,l);$.set(t(v),0);r(t($));
 $.set(t(v),0);r(t($));$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn);
 function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.floor(mq);
 let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
-document.getElementById("di").onclick=function(){T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}
+document.getElementById("di").onclick=function(){
+T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}
 });
 
 extern "C" {
@@ -243,7 +245,7 @@ FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
 app.done=0;
-nanosleep(&req,&rem);
+// nanosleep(&req,&rem);
 ma();
 return 1;
 }

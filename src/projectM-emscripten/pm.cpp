@@ -198,7 +198,7 @@ opn_aud();
 
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
-let w$=parseInt(document.getElementById('pmhig').innerHTML,10);
+let w$=document.getElementById('pmhig').innerHTML;
 let h$=w$;
 let canvas=document.getElementById("bcanvas");
 let contx=canvas.getContext('webgl2',{alpha:false,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,minorVersion:0,desynchronized:false});

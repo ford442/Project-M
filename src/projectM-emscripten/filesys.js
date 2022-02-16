@@ -46,8 +46,8 @@ document.getElementById('btn').style="background-color:red;position:absolute;dis
 document.getElementById('btn6').addEventListener('click',function(){
 let midl=(window.innerWidth*0.5)-(window.innerHeight*0.5);
 document.getElementById("contain2").style="pointer-events:none;z-index:999993;height:"+window.innerHeight+"px;width:"+window.innerHeight+"px;position:absolute;top:0px;left:"+midl+"px;right:"+midl+"px;";
-document.getElementById("canvas").style="position:absolute;left:0;top:0;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:auto;width:"+window.innerHeight+"px;height:"+window.innerHeight+"px;";
-document.getElementById("vcanvas").style="z-index:999994;height:100vh;width:auto;position:absolute;text-align:center;background-color:rgba(0,0,0,1);";
+document.getElementById("pcanvas").style="position:absolute;left:0;top:0;background-color:rgba(1,1,1,0);z-index:999995;image-rendering:auto;width:"+window.innerHeight+"px;height:"+window.innerHeight+"px;";
+document.getElementById("bcanvas").style="z-index:999994;height:100vh;width:auto;position:absolute;text-align:center;background-color:rgba(0,0,0,1);";
 document.getElementById('ihig').innerHTML=Math.round(window.innerHeight);
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("circle").width=window.innerWidth;

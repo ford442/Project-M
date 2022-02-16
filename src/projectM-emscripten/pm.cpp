@@ -24,7 +24,7 @@ using namespace std;
 using namespace std::chrono;
 struct timespec rem;
 struct timespec req={0,1500000000};
-static EmscriptenWebGLContextAttributes attr;
+EmscriptenWebGLContextAttributes attr;
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
@@ -37,7 +37,7 @@ static SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;projectMApp app;
 EGLint config_size,major,minor;
-char flnm[16];
+static char flnm[16];
 static EGLint v0=0,v1=1,v2=2,v3=3,v8=8,v24=24,v32=32;
   
 void renderFrame(){
@@ -56,7 +56,7 @@ EGL_NONE
 static const EGLint attribute_list[]={
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 // EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
-// EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
+EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 // EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
 // EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
 // EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,

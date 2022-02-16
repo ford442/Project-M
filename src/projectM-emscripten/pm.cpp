@@ -29,18 +29,18 @@ static EmscriptenWebGLContextAttributes attr;
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
 Uint8 *stm;
-static EGLDisplay display;
-static EGLContext contextegl;
-static EGLSurface surface;
-const float FPS=60;
+EGLDisplay display;
+EGLContext contextegl;
+EGLSurface surface;
+static const float FPS=60.0f;
 static SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;projectMApp app;
-static EGLint config_size,major,minor;
+EGLint config_size,major,minor;
 char flnm[16];
-static EGLint v0=0,v1=1,v2=2,v3=3;
+static EGLint v0=0,v1=1,v2=2,v3=3,v8=8,v24=24,v32=32;
   
-static void renderFrame(){
+void renderFrame(){
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
 auto sndat=reinterpret_cast<short*>(stm);
@@ -61,23 +61,23 @@ static const EGLint attribute_list[]={
 // EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
 // EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
 // EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
-EGL_RED_SIZE,8,
-EGL_GREEN_SIZE,8,
-EGL_BLUE_SIZE,8,
-EGL_ALPHA_SIZE,8,
-EGL_DEPTH_SIZE,24,
-EGL_STENCIL_SIZE,8,
-EGL_BUFFER_SIZE,32,
+EGL_RED_SIZE,v8,
+EGL_GREEN_SIZE,v8,
+EGL_BLUE_SIZE,v8,
+EGL_ALPHA_SIZE,v8,
+EGL_DEPTH_SIZE,v24,
+EGL_STENCIL_SIZE,v8,
+EGL_BUFFER_SIZE,v32,
 EGL_NONE
 };
 
 static EGLint anEglCtxAttribs2[]={
-EGL_CONTEXT_CLIENT_VERSION,3,
+EGL_CONTEXT_CLIENT_VERSION,v3,
 // EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_NONE};
 
-static void chngt(){
+void chngt(){
 emscripten_webgl_init_context_attributes(&attr);
 attr.alpha=EM_TRUE;
 attr.stencil=EM_TRUE;
@@ -88,8 +88,8 @@ attr.preserveDrawingBuffer=EM_FALSE;
 attr.enableExtensionsByDefault=EM_FALSE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
-attr.majorVersion=2;
-attr.minorVersion=0;
+attr.majorVersion=v2;
+attr.minorVersion=v0;
 int S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#vcanvas",&attr);
 EGLConfig eglconfig=NULL;
@@ -157,7 +157,7 @@ static void qu(int rc){
 SDL_Quit();
 exit(rc);
 }
-static void opn_aud(){
+void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 if(!dev){
 SDL_FreeWAV(wave.snd);
@@ -165,7 +165,7 @@ qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
-static void SDLCALL bfr(void *unused,Uint8 *stm,int len){
+void SDLCALL bfr(void *unused,Uint8 *stm,int len){
 Uint8* wptr;
 int lft;
 wptr=wave.snd+wave.pos;
@@ -201,8 +201,8 @@ let d=S();if(d)d();d=S();function S(){
 let w$=parseInt(document.getElementById("iwid").innerHTML,10);
 let h$=parseInt(document.getElementById("ihig").innerHTML,10);
 w$=Math.round(w$);h$=Math.round(h$);
-let canvas=document.getElementById("canvas");
-let contx=canvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'default',majorVersion:2,desynchronized:false});
+let canvas=document.getElementById("bcanvas");
+let contx=canvas.getContext('webgl2',{alpha:false,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,minorVersion:0,desynchronized:false});
 const g=new GPU({canvas:canvas,webGl:contx});
 let Rn=document.getElementById("frate").innerHTML;
 let l=(w$*h$*4);let m=((l/65536)+1);m=Math.floor(m);

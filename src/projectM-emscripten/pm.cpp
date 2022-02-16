@@ -198,8 +198,6 @@ opn_aud();
 
 EM_JS(void,ma,(),{
 let d=S();if(d)d();d=S();function S(){
-  S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
-
 let w$=parseInt(document.getElementById('pmhig').innerHTML,10);
 let h$=w$;
 let canvas=document.getElementById("bcanvas");

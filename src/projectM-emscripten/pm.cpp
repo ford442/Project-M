@@ -7,7 +7,6 @@
 #include <GLES3/gl32.h>
 #define __gl2_h_
 #include <GLES2/gl2ext.h>
-#include "SDL2/SDL_config.h"
 #include <SDL2/SDL.h>
 #include <projectM.hpp>
 #include <algorithm>
@@ -19,6 +18,8 @@
 #include <ctime>
 #include <cstdarg>
 #include <cstdbool>
+#include <unistd.h>
+#include <chrono>
 
 using namespace std;
 using namespace std::chrono;
@@ -32,8 +33,8 @@ Uint8 *stm;
 EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
-static const float FPS=60.0f;
-static SDL_AudioDeviceID dev;
+const float FPS=60.0f;
+SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;projectMApp app;
 EGLint config_size,major,minor;
@@ -73,7 +74,7 @@ EGL_NONE
 
 static EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,v3,
-// EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
+EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 EGL_NONE};
 
@@ -197,26 +198,108 @@ opn_aud();
 }
 
 EM_JS(void,ma,(),{
-let d=S();if(d)d();d=S();function S(){
 let w$=document.getElementById('iwid').innerHTML;
 let h$=document.getElementById('ihig').innerHTML;
-let canvas=document.getElementById("bcanvas");
-let contx=canvas.getContext('webgl2',{alpha:false,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,minorVersion:0,desynchronized:false});
-const g=new GPU({canvas:canvas,webGl:contx});
-let Rn=document.getElementById("frate").innerHTML;
-let l=(w$*h$*4);let m=((l/65536)+1);m=Math.floor(m);
-let W=new WebAssembly.Memory({initial:m});let o=[w$,h$];
-const v=document.getElementById("mv");
-const t=g.createKernel(function(v){const P=v[this.thread.y][this.thread.x];
-return[P[0],P[1],P[2]];}).setTactic("speed").setPipeline(true).setOutput(o);
-const r=g.createKernel(function(f){const p=f[this.thread.y][this.thread.x];
-this.color(p[0],p[1],p[2]);}).setTactic("speed").setGraphical(true).setOutput(o);
-let $=new Uint8ClampedArray(W.buffer,0,l);$.set(t(v),0);r(t($));
-$.set(t(v),0);r(t($));$.set(t(v),0);let T=false;let ms=1;let R=16;let f=(1000/Rn);
-function M(){if(T){return;}r(t($));$.set(t(v),0);let mq=((ms*f)/R);let k=Math.floor(mq);
-let y=((k*f)-(k*Rn));if(y>8){R=8;}ms=ms+1;setTimeout(function(){M();},R);}M();
+var mh$=Math.min(h$,w$);
+let o=[h$,h$];
+const bcanvas=document.getElementById("bcanvas");
+const contx=bcanvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,minorVersion:0,desynchronized:false});
+let v=document.getElementById("mv");
+const g=new GPU({canvas:bcanvas,webGl:contx});
+var blank$=Math.max(((w$-h$)/2),0);
+var nblank$=Math.max(((h$-w$)/2),0);
+var t=g.createKernel(function(v){
+const P=v[this.thread.y][this.thread.x+this.constants.blnk];
+let aveg=1.0-((((P[0]+P[1]+P[2])/3)-0.75)*(((P[0]+P[1]+P[2])/3)*4.0));return[P[0],P[1],P[2],(aveg)];}).setTactic("precision").setPipeline(true).setDynamicOutput(true).setConstants({blnk:blank$}).setOutput(o);
+var r=g.createKernel(function(f){
+const p=f[this.thread.y][this.thread.x-this.constants.nblnk];
+this.color(p[0],p[1],p[2],p[3]);}).setTactic("precision").setGraphical(true).setDynamicOutput(true).setConstants({nblnk:nblank$}).setOutput(o);
+let d=S();if(d)d();d=S();function S(){
+$w=document.getElementById('iwid').innerHTML;
+$h=document.getElementById('pmhig').innerHTML;
+blank$=Math.max(((w$-h$)/2),0);
+nblank$=Math.max((h$-w$),0);
+mh$=Math.min(h$,w$);
+o=[h$,h$];
+t.setOutput(o);
+r.setOutput(o);
+var l=mh$*h$*4;var m=(l/65536)+1;m=Math.floor(m);
+let W1=new WebAssembly.Memory({initial:m});
+let W2=new WebAssembly.Memory({initial:m});
+let W3=new WebAssembly.Memory({initial:m});
+let W4=new WebAssembly.Memory({initial:m});
+let W5=new WebAssembly.Memory({initial:m});
+let W6=new WebAssembly.Memory({initial:m});
+let W7=new WebAssembly.Memory({initial:m});
+let W8=new WebAssembly.Memory({initial:m});
+let $1=new Uint8ClampedArray(W1.buffer,0,l);
+let $2=new Uint8ClampedArray(W2.buffer,0,l);
+let $3=new Uint8ClampedArray(W3.buffer,0,l);
+let $4=new Uint8ClampedArray(W4.buffer,0,l);
+let $5=new Uint8ClampedArray(W5.buffer,0,l);
+let $6=new Uint8ClampedArray(W6.buffer,0,l);
+let $7=new Uint8ClampedArray(W7.buffer,0,l);
+let $8=new Uint8ClampedArray(W8.buffer,0,l);
+let T=false;
+let vv=document.getElementById("mv");
+
+$8.set(t(vv),0);
+r(t($8));
+$1.set(t(vv),0);
+r(t($8));
+$2.set(t(vv),0);
+r(t($8));
+$3.set(t(vv),0);
+let $F=1;
+function M(){
+if(T)
+{return;
+}
+if($F==8){
+r(t($8));
+$4.set(t(vv),0);
+$F=1;
+}
+if($F==7){
+r(t($7));
+$3.set(t(vv),0);
+$F=8;
+}
+if($F==6){
+r(t($6));
+$2.set(t(vv),0);
+$F=7;
+}
+if($F==5){
+r(t($5));
+$1.set(t(vv),0);
+$F=6;
+}
+if($F==4){
+r(t($4));
+$8.set(t(vv),0);
+$F=5;
+}
+if($F==3){
+r(t($3));
+$7.set(t(vv),0);
+$F=4;
+}
+if($F==2){
+r(t($2));
+$6.set(t(vv),0);
+$F=3;
+}
+if($F==1){
+r(t($1));
+$5.set(t(vv),0);
+$F=2;
+}
+setTimeout(function(){M();},16.666);}
+M();
 document.getElementById("di").onclick=function(){
-T=true;t.destroy();r.destroy();g.destroy();S();};return()=>{T=true;};}
+T=true;
+S();};return()=>{T=true;};}
 });
 
 extern "C" {
@@ -243,9 +326,6 @@ FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
 app.done=0;
-nanosleep(&req,&rem);
-nanosleep(&req,&rem);
-  usleep(5000);
 ma();
 return 1;
 }

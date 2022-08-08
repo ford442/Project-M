@@ -56,11 +56,11 @@ EGL_NONE
 
 static const EGLint attribute_list[]={
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-// EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
+EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
-// EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
-// EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
-// EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
+EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
+EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
+EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
 // EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
 EGL_RED_SIZE,v8,
 EGL_GREEN_SIZE,v8,
@@ -106,15 +106,15 @@ int width=(int)S;
 int height=(int)S;
 std::cout<<glGetString(GL_VERSION)<<"\n";
 std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION)<<"\n";
-app.settings.meshX=48;
-app.settings.meshY=48;
-app.settings.textureSize=1024;
+app.settings.meshX=32;
+app.settings.meshY=32;
+app.settings.textureSize=256;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=44;
-app.settings.beatSensitivity=0.9;
+app.settings.beatSensitivity=1;
 app.settings.aspectCorrection=false;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=false;

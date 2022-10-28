@@ -43,7 +43,7 @@
 #ifndef CONFIGFILE_H
 #define CONFIGFILE_H
 
-#include <string>
+#include <string.h>
 #include <map>
 #include <iostream>
 #include <fstream>

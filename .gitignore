@@ -27,6 +27,7 @@ Makefile.in
 ar-lib
 compile
 depcomp
+config.h.in
 install-sh
 ltmain.sh
 missing

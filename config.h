@@ -44,10 +44,10 @@
 #define CONFIGFILE_H
 
 #include <string.h>
-#include <map>
-#include <iostream>
-#include <fstream>
-#include <sstream>
+#include <map.h>
+#include <iostream.h>
+#include <fstream.h>
+#include <sstream.h>
 
 using std::string;
 

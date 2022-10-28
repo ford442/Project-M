@@ -7,10 +7,10 @@ ${my_CFLAGS} \
 -I${top_srcdir}/src/libprojectM/Renderer \
 ${SDL_CFLAGS}
 
-tst1: pm.cpp  Makefile.am
+tst1:
 	emcc $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
-	../libprojectM/KeyHandler.cpp pm.cpp \
-	-o gpu011.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck","_b3"]' -sEXPORTED_RUNTIME_METHODS=ccall 
+	../libprojectM/KeyHandler.cpp october.cpp \
+	-o gpu012.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck","_b3"]' -sEXPORTED_RUNTIME_METHODS=ccall 
 	--post-js filesys.js --post-js ccall.js
 
 tst2: safe.cpp  Makefile.am

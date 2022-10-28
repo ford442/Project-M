@@ -8,7 +8,7 @@ ${my_CFLAGS} \
 ${SDL_CFLAGS}
 
 tst1:
-	emcc $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
+	em++ $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp october.cpp \
 	-o gpu012.js -sEXPORTED_FUNCTIONS='["_main","_pl","_chng","_swtch","_lck","_b3"]' -sEXPORTED_RUNTIME_METHODS=ccall 
 	--post-js filesys.js --post-js ccall.js

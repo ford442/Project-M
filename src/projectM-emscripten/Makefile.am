@@ -24,10 +24,10 @@ tst3: b3NoSDL.cpp Makefile.am
 	emcc ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \
 	../libprojectM/KeyHandler.cpp b3NoSDL.cpp \
 	 -o b3007.js --closure 0 \
-	 -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --post-js b3fsys.js \
+	 -sEXPORTED_RUNTIME_METHODS=ccall --extern-post-js cl-gpu.js --extern-post-js b3fsys.js \
 	 -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 \
 	  -sALLOW_MEMORY_GROWTH=1 
-	 -sINITIAL_MEMORY=1400mb -O2 -flto=thin -sFULL_ES3=1 -sFULL_ES2=1
+	 -sINITIAL_MEMORY=1400mb -O2 -sFULL_ES3=1 -sFULL_ES2=1
 
 tst: tst1
 	echo 'Built 1ink.Drop TEST.'

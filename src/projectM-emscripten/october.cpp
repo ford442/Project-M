@@ -1,5 +1,12 @@
 
-#include <emscripten.h>
+#include <string>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <projectM.hpp>
+
+#include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
 #include <EGL/egl.h>
@@ -9,21 +16,18 @@
 #include <GLES3/gl32.h>
 #include <GLES3/gl3platform.h>
 #include <SDL2/SDL.h>
+#include "SDL2/SDL_config.h"
+
 #include <unistd.h>
-
-
 #include <algorithm>
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
 #include <ctime>
 #include <cstdarg>
 #include <cstdbool>
 #include <chrono>
 
-#include <projectM.hpp>
 
 using namespace std;
 using namespace std::chrono;
@@ -150,6 +154,7 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 //  glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
+glClearColor(1.0,1.0,1.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 
@@ -163,7 +168,6 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 
-extern "C" {
 
 void cls_aud(){
 if(dev!=0){
@@ -322,6 +326,8 @@ T=true;
 S();};return()=>{T=true;};}
 });
 
+  
+extern "C" {
   
 void pl(){
 plt();

@@ -1,7 +1,7 @@
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
-extern "C" {
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -10,7 +10,7 @@ extern "C" {
 #include <GLES3/gl3platform.h>
 #include <SDL2/SDL.h>
 #include <unistd.h>
-}
+
 
 #include <algorithm>
 #include <iostream>
@@ -336,7 +336,7 @@ void swtch(){
 swtcht();
 }
 void b3(){
-// ma();
+ma();
 }
 
 }

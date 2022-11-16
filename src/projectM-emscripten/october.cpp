@@ -36,7 +36,7 @@ EmscriptenWebGLContextAttributes attr;
 EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
-const float fps=60.0;
+const float FPS=60.0;
 SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 
@@ -46,16 +46,15 @@ EGLint config_size,major,minor;
 static char flnm[16];
 int v0=0,v1=1,v2=2,v3=3,v4=4,v6=6,v8=8,v10=10,v16=16,v24=24,v32=32;
   
+Uint8* stm;
+
 void renderFrame(){
-  
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
-  glFlush();
-
+glFlush();
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
-  glFinish();
-
+glFinish();
 }
 
 const EGLint attribut_list[]={

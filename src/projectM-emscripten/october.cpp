@@ -1,5 +1,16 @@
+extern "C" {
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <GLES3/gl31.h>
+#include <GLES3/gl32.h>
+#include <GLES3/gl3platform.h>
+#include <SDL2/SDL.h>
+#include <unistd.h>
+}
+
 #include <algorithm>
 #include <iostream>
 #include <cstring>
@@ -9,12 +20,8 @@
 #include <ctime>
 #include <cstdarg>
 #include <cstdbool>
-#include <unistd.h>
 #include <chrono>
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES3/gl3.h>
-#include <SDL2/SDL.h>
+
 #include <projectM.hpp>
 
 using namespace std;
@@ -28,24 +35,30 @@ EmscriptenWebGLContextAttributes attr;
 EGLDisplay display;
 EGLContext contextegl;
 EGLSurface surface;
-int fps=60;
+const float fps=60.0;
 SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
-typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;projectMApp app;
+
+typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;
+projectMApp app;
 EGLint config_size,major,minor;
 static char flnm[16];
-static EGLint v0=0,v1=1,v2=2,v3=3,v8=8,v24=24,v32=32;
+int v0=0,v1=1,v2=2,v3=3,v4=4,v6=6,v8=8,v10=10,v16=16,v24=24,v32=32;
   
 void renderFrame(){
+  
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
+  glFlush();
+
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
-eglSwapBuffers(display,surface);
+  glFinish();
+
 }
 
 static const EGLint attribut_list[]={
-EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
+// EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
 EGL_NONE
 };
 
@@ -56,7 +69,7 @@ EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
 EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
 EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
-// EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
+EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
 EGL_RED_SIZE,v8,
 EGL_GREEN_SIZE,v8,
 EGL_BLUE_SIZE,v8,
@@ -64,13 +77,18 @@ EGL_ALPHA_SIZE,v8,
 EGL_DEPTH_SIZE,v24,
 EGL_STENCIL_SIZE,v8,
 EGL_BUFFER_SIZE,v32,
+EGL_SAMPLE_BUFFERS,v1,
+EGL_SAMPLES,v4,
 EGL_NONE
 };
 
 static EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,v3,
+EGL_CONTEXT_MINOR_VERSION_KHR,v0,
 EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR,
+EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR,
 EGL_NONE};
 
 void chngt(){
@@ -78,16 +96,16 @@ emscripten_webgl_init_context_attributes(&attr);
 attr.alpha=EM_TRUE;
 attr.stencil=EM_TRUE;
 attr.depth=EM_TRUE;
-attr.antialias=EM_FALSE;
+attr.antialias=EM_TRUE;
 attr.premultipliedAlpha=EM_FALSE;
 attr.preserveDrawingBuffer=EM_FALSE;
-attr.enableExtensionsByDefault=EM_TRUE;
+attr.enableExtensionsByDefault=EM_FALSE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=v2;
 attr.minorVersion=v0;
-int S=EM_ASM_INT({return parseInt(document.getElementById('pmhig').innerHTML,10);});
-static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
+int S=EM_ASM_INT({return parseInt(window.innerHeight);});
+EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
 EGLConfig eglconfig=NULL;
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&v3,&v0);
@@ -97,8 +115,8 @@ contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 surface=eglCreateWindowSurface(display,eglconfig,0,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
-int width=(int)S;
-int height=(int)S;
+int width=S;
+int height=S;
 std::cout<<glGetString(GL_VERSION)<<"\n";
 std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION)<<"\n";
 app.settings.meshX=32;
@@ -303,6 +321,7 @@ S();};return()=>{T=true;};}
 });
 
 extern "C" {
+  
 void pl(){
 plt();
 }
@@ -316,8 +335,10 @@ void swtch(){
 swtcht();
 }
 void b3(){
-ma();
-}}
+// ma();
+}
+
+}
 
 int main(){
 EM_ASM({

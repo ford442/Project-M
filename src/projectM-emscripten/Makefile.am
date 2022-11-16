@@ -5,7 +5,7 @@ ${my_CFLAGS} \
 -DSYSCONFDIR=\""$(sysconfdir)"\" \
 -I${top_srcdir}/src/libprojectM \
 -I${top_srcdir}/src/libprojectM/Renderer \
-
+${SDL_CFLAGS}
 
 tst1:
 	emcc $(EMSCRIPTEN_FLAGS) $(AM_CPPFLAGS) ${top_srcdir}/src/libprojectM/.libs/libprojectM.a \

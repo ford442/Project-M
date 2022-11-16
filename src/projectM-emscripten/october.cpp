@@ -57,12 +57,12 @@ app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
 
 }
 
-static const EGLint attribut_list[]={
+const EGLint attribut_list[]={
 // EGL_GL_COLORSPACE_KHR,EGL_GL_COLORSPACE_SRGB_KHR,
 EGL_NONE
 };
 
-static const EGLint attribute_list[]={
+const EGLint attribute_list[]={
 // EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 // EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
@@ -163,14 +163,16 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 
-static void cls_aud(){
+extern "C" {
+
+void cls_aud(){
 if(dev!=0){
 SDL_PauseAudioDevice(dev,SDL_TRUE);
 SDL_CloseAudioDevice(dev);
 dev=0;
 }}
 
-static void qu(int rc){
+void qu(int rc){
 SDL_Quit();
 exit(rc);
 }
@@ -184,7 +186,7 @@ qu(2);
 SDL_PauseAudioDevice(dev,SDL_FALSE);
 }
 
-void SDLCALL bfr(void *unused,Uint8 *stm,int len){
+void SDLCALL bfr(void *unused,Uint8* stm,int len){
 Uint8* wptr;
 int lft;
 wptr=wave.snd+wave.pos;
@@ -201,7 +203,7 @@ SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
 }
 
-static void plt(){
+void plt(){
 // cls_aud();
 // SDL_FreeWAV(wave.snd);
 // SDL_Quit();
@@ -217,12 +219,12 @@ opn_aud();
 }
 
 EM_JS(void,ma,(),{
-var w$=document.getElementById('iwid').innerHTML;
-var h$=document.getElementById('ihig').innerHTML;
-var mh$=Math.min(h$,w$);
+var w$=window.innerHeight;
+var h$=window.innerHeight;
+var mh$=h$;
 var o=[h$,h$];
 var bcanvas=document.getElementById("bcanvas");
-var contx=bcanvas.getContext('webgl2',{alpha:true,stencil:false,depth:false,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,minorVersion:0,desynchronized:false});
+var contx=bcanvas.getContext('webgl2',{imageSmoothingEnabled:true,alpha:true,stencil:true,depth:true,preserveDrawingBuffer:false,premultipliedAlpha:false,lowLatency:true,powerPreference:'high-performance',majorVersion:2,minorVersion:0,desynchronized:false});
 var vv=document.getElementById("mv");
 var g=new GPU({canvas:bcanvas,webGl:contx});
 var blank$=Math.max(((w$-h$)/2),0);
@@ -320,7 +322,6 @@ T=true;
 S();};return()=>{T=true;};}
 });
 
-extern "C" {
   
 void pl(){
 plt();

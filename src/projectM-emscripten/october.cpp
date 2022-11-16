@@ -1,6 +1,7 @@
-extern "C" {
+
 #include <emscripten.h>
 #include <emscripten/html5.h>
+extern "C" {
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>

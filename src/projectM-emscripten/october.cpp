@@ -166,6 +166,8 @@ glClearColor(1.0,1.0,1.0,0.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 
+extern "C" {
+  
 EM_JS(void,ma,(),{
 var w$=window.innerHeight;
 var h$=window.innerHeight;
@@ -334,8 +336,6 @@ wave.spec.callback=bfr;
 opn_aud();
 }
 
-extern "C" {
-  
 void pl(){
 plt();
 }

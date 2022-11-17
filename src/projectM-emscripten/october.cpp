@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <projectM.hpp>
 
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
@@ -17,6 +16,8 @@
 #include <GLES3/gl31.h>
 #include <GLES3/gl32.h>
 #include <GLES3/gl3platform.h>
+#include "SDL2/SDL_config.h"
+
 #include <SDL2/SDL.h>
 
 #include <unistd.h>
@@ -28,6 +29,7 @@
 #include <cstdarg>
 #include <cstdbool>
 #include <chrono>
+#include <projectM.hpp>
 
 
 using namespace std;
@@ -56,7 +58,7 @@ glFinish();
 }
 
 void chngt(){
-const float FPS=60.0;
+const float FPS=30;
 EmscriptenWebGLContextAttributes attr;
 EGLDisplay display;
 EGLContext contextegl;
@@ -90,9 +92,9 @@ EGL_BLUE_SIZE,v8,
 EGL_ALPHA_SIZE,v8,
 EGL_DEPTH_SIZE,v24,
 EGL_STENCIL_SIZE,v8,
-EGL_BUFFER_SIZE,v32,
-EGL_SAMPLE_BUFFERS,v1,
-EGL_SAMPLES,v4,
+// EGL_BUFFER_SIZE,v32,
+// EGL_SAMPLE_BUFFERS,v1,
+// EGL_SAMPLES,v4,
 EGL_NONE
 };
   
@@ -128,9 +130,9 @@ SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 std::cout<<glGetString(GL_VERSION)<<"\n";
 std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION)<<"\n";
 
-app.settings.meshX=32;
-app.settings.meshY=32;
-app.settings.textureSize=512;
+app.settings.meshX=24;
+app.settings.meshY=24;
+app.settings.textureSize=256;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;

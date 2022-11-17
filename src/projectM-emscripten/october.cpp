@@ -98,7 +98,6 @@ EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR,
 EGL_NONE};
 
 void chngt(){
-emscripten_webgl_init_context_attributes(&attr);
 attr.alpha=EM_TRUE;
 attr.stencil=EM_TRUE;
 attr.depth=EM_TRUE;
@@ -110,6 +109,8 @@ attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=v2;
 attr.minorVersion=v0;
+  emscripten_webgl_init_context_attributes(&attr);
+
 int S=EM_ASM_INT({return parseInt(window.innerHeight);});
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
 EGLConfig eglconfig=NULL;
@@ -123,21 +124,25 @@ eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
 int width=S;
 int height=S;
+app.glCtx=&contextegl;
+SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
+SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 std::cout<<glGetString(GL_VERSION)<<"\n";
 std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION)<<"\n";
 app.settings.meshX=32;
 app.settings.meshY=32;
-app.settings.textureSize=256;
+app.settings.textureSize=512;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
 app.settings.presetDuration=44;
-app.settings.beatSensitivity=1;
+app.settings.beatSensitivity=1.0;
 app.settings.aspectCorrection=false;
 app.settings.easterEgg=0;
 app.settings.shuffleEnabled=false;
 app.settings.presetURL="/presets";  
+app.settings.softCutRatingsEnabled = 1;
 app.pm=new projectM(app.settings);
 printf("Init ProjectM\n");
 app.pm->selectRandom(true);
@@ -356,5 +361,5 @@ FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
 app.done=0;
-return 1;
+return PROJECTM_SUCCESS;
 }

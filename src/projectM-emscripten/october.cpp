@@ -18,7 +18,6 @@
 #include <GLES3/gl32.h>
 #include <GLES3/gl3platform.h>
 #include <SDL2/SDL.h>
-#include "SDL2/SDL_config.h"
 
 #include <unistd.h>
 #include <algorithm>

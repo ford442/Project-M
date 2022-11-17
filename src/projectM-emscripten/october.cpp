@@ -56,7 +56,6 @@ glFinish();
 }
 
 void chngt(){
-static char flnm[16];
 const float FPS=60.0;
 EmscriptenWebGLContextAttributes attr;
 EGLDisplay display;
@@ -318,6 +317,7 @@ wave.pos+=len;
 }
 
 void plt(){
+static char flnm[16];
 // cls_aud();
 // SDL_FreeWAV(wave.snd);
 // SDL_Quit();

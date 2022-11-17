@@ -124,7 +124,6 @@ eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
 int width=S;
 int height=S;
-app.glCtx=&contextegl;
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 std::cout<<glGetString(GL_VERSION)<<"\n";

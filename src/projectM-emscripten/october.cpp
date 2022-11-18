@@ -35,14 +35,11 @@
 using namespace std;
 using namespace std::chrono;
 struct timespec rem;
-struct timespec req={0,1500000000};
+struct timespec req={0,1200000000};
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
-EmscriptenWebGLContextAttributes attr;
-EGLDisplay display;
-EGLContext contextegl;
-EGLSurface surface;
+
 
 SDL_AudioDeviceID dev;
 struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
@@ -64,7 +61,10 @@ glFinish();
 
 void chngt(){
 const float FPS=30;
-
+EmscriptenWebGLContextAttributes attr;
+EGLDisplay display;
+EGLContext contextegl;
+EGLSurface surface;
 EGLint config_size,major,minor;
 static EGLint anEglCtxAttribs2[]={
 EGL_CONTEXT_CLIENT_VERSION,v3,

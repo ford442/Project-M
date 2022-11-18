@@ -59,8 +59,6 @@ app.pm->renderFrame();
 glFlush();
 auto sndat=reinterpret_cast<short*>(stm);
 app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
-eglSwapBuffers(display,surface);
-
 glFinish();
 }
 

@@ -24,7 +24,7 @@ document.getElementById("circle").height=window.innerHeight;
 document.getElementById("contain2").width=window.innerHeight;
 document.getElementById("contain2").height=window.innerHeight;
 document.getElementById('btn3').addEventListener('click',function(){
-window.open('https://test.1ink.us/libflac.js/');
+window.open('./flac');
 });
 document.getElementById('btn2').addEventListener('click',function(){
 document.getElementById("ihig").innerHTML=window.innerHeight;

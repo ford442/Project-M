@@ -291,8 +291,6 @@ struct timespec req={0,1200000000};
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
-SDL_AudioDeviceID dev;
-struct{SDL_AudioSpec spec;Uint8 *snd;Uint32 slen;int pos;}wave;
 Uint8* stm;
 
 typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;
@@ -429,7 +427,10 @@ emscripten_set_main_loop((void (*)())renderFrame,0,0);
 
 
 extern "C" {
-  
+
+SDL_AudioDeviceID dev;
+struct{Uint8* snd;int pos;Uint32 slen;SDL_AudioSpec spec;}wave;
+
 void swtcht(){
 printf("Selecting random preset.\n");
 app.pm->selectRandom(true);
@@ -466,7 +467,7 @@ Uint8* wptr;
 int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
-while (lft<=len){
+while(lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;
 len-=lft;
@@ -479,12 +480,12 @@ wave.pos+=len;
 }
 
 void plt(){
-static char flnm[16];
-// cls_aud();
-// SDL_FreeWAV(wave.snd);
-// SDL_Quit();
+char flnm[24];
+SDL_FreeWAV(wave.snd);
 SDL_SetMainReady();
-SDL_Init(SDL_INIT_AUDIO);
+if (SDL_Init(SDL_INIT_AUDIO)<0){
+qu(1);
+}
 SDL_strlcpy(flnm,"/snd/sample.wav",sizeof(flnm));
 if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
 qu(1);
@@ -492,6 +493,7 @@ qu(1);
 wave.pos=0;
 wave.spec.callback=bfr;
 opn_aud();
+return;
 }
 
 void pl(){

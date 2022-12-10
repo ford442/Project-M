@@ -73,7 +73,7 @@ FS.writeFile("/shader/shader1.toy",sfil);
 ff.send(null);
 setTimeout(function(){
  //  document.getElementById("btn7").click();
-Module.ccall("str");
+Module.ccall("chng");
 
 },1200);
 }

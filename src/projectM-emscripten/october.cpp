@@ -366,7 +366,7 @@ emscripten_webgl_init_context_attributes(&attr);
 // int S=EM_ASM_INT({return parseInt(window.innerHeight);});
 // Size=EM_ASM_INT({return parseInt(window.innerHeight);});
 double wi,hi;
-emscripten_get_element_css_size("canvas",&wi,&hi);
+emscripten_get_element_css_size("pcanvas",&wi,&hi);
 int Size=(int)hi;
 int S=(GLfloat)Size;
 // eglBindAPI(EGL_OPENGL_ES_API);
@@ -450,16 +450,16 @@ dev=0;
 
 void qu(int rc){
 SDL_Quit();
-exit(rc);
+return;
 }
 
 void opn_aud(){
 dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
 if(!dev){
 SDL_FreeWAV(wave.snd);
-qu(2);
 }
 SDL_PauseAudioDevice(dev,SDL_FALSE);
+return;
 }
 
 void SDLCALL bfr(void *unused,Uint8* stm,int len){
@@ -467,7 +467,7 @@ Uint8* wptr;
 int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
-while(lft<=len){
+while (lft<=len){
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;
 len-=lft;
@@ -477,6 +477,7 @@ wave.pos=0;
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
+return;
 }
 
 void plt(){

@@ -369,8 +369,8 @@ emscripten_webgl_init_context_attributes(&attr);
 // Size=EM_ASM_INT({return parseInt(window.innerHeight);});
 double wi,hi;
 emscripten_get_element_css_size("canvas",&wi,&hi);
-Size=(int)hi;
-S=(GLfloat)Size;
+int Size=(int)hi;
+int S=(GLfloat)Size;
 // eglBindAPI(EGL_OPENGL_ES_API);
 
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);

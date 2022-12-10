@@ -106,7 +106,7 @@ dxhttp.open("GET","https://glsl.1ink.us/shaders/",true);
 dxhttp.send();
 }
 scanVideos();
-scanShaders();
+// scanShaders();
 scanSongs();
 document.getElementById("pmhig").innerHTML=parseInt(window.innerHeight,10);
 document.getElementById("ihig").innerHTML=parseInt(window.innerHeight,10);

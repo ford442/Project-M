@@ -74,7 +74,6 @@ ff.send(null);
 setTimeout(function(){
  //  document.getElementById("btn7").click();
 Module.ccall("chng");
-
 },1200);
 }
 

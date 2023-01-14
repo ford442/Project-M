@@ -1,6 +1,6 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
-using namespace std::chrono;
+
 
 void avgFrm(int Fnum,int leng,float *ptr,float *aptr);
 

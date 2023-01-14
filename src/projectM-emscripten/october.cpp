@@ -435,7 +435,7 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 
-void SDLCALL bfr(void * unused,wave.stm,int len){
+void SDLCALL bfr(void * unused,NULL,int len){
 Uint8 * wptr;
 int lft;
 wptr=wave.snd+wave.pos;

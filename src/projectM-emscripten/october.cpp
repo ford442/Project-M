@@ -292,11 +292,15 @@ projectMApp app;
 
 int v0=0,v1=1,v2=2,v3=3,v4=4,v6=6,v8=8,v10=10,v16=16,v24=24,v32=32;
 
+SDL_AudioDeviceID dev;
+
+struct{Uint8 * snd;int pos;Uint32 slen;SDL_AudioSpec request;Uint8 * stm;}wave;
+
 void renderFrame(){
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
 // glFlush();
-auto sndat=reinterpret_cast<short*>(app.stm);
+auto sndat=reinterpret_cast<short*>(wave.stm);
 app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
 // glFinish();
 }
@@ -422,8 +426,6 @@ emscripten_set_main_loop((void (*)())renderFrame,0,0);
 
 
 
-SDL_AudioDeviceID dev;
-struct{Uint8 * snd;int pos;Uint32 slen;SDL_AudioSpec request;}wave;
 
 void swtcht(){
 printf("Selecting random preset.\n");
@@ -435,14 +437,14 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 
-void SDLCALL bfr(void * unused,Uint8 * stm,int len){
+void SDLCALL bfr(void * unused,int len){
 Uint8 * wptr;
 int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_UnlockAudioDevice(dev);
-SDL_memcpy(stm,wptr,lft);
+SDL_memcpy(wave.stm,wptr,lft);
 stm+=lft;
 len-=lft;
 wptr=wave.snd;
@@ -450,7 +452,7 @@ lft=wave.slen;
 wave.pos=0;
 SDL_LockAudioDevice(dev);
 }
-SDL_memcpy(stm,wptr,len);
+SDL_memcpy(wave.stm,wptr,len);
 wave.pos+=len;
 return;
 }

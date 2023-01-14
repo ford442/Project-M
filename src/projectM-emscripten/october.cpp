@@ -1,7 +1,6 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
-
 void avgFrm(int Fnum,int leng,float *ptr,float *aptr);
 
 void avgFrm(int Fnum,int leng,float *ptr,float *aptr){
@@ -356,7 +355,6 @@ attr.premultipliedAlpha=EM_FALSE;
 attr.preserveDrawingBuffer=EM_FALSE;
 attr.enableExtensionsByDefault=EM_FALSE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
-attr.lowLatency=EM_FALSE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=v2;
 attr.minorVersion=v0;
@@ -445,7 +443,7 @@ lft=wave.slen-wave.pos;
 while (lft<=len){
 SDL_UnlockAudioDevice(dev);
 SDL_memcpy(wave.stm,wptr,lft);
-stm+=lft;
+wave.stm+=lft;
 len-=lft;
 wptr=wave.snd;
 lft=wave.slen;

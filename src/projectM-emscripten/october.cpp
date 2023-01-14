@@ -42,7 +42,6 @@ avgFrm(Fnum,leng,ptr,aptr);
 
 }
 
-extern "C" {
 
 EM_JS(void,ma,(),{
 
@@ -251,7 +250,6 @@ T=true;
 }
 })
 
-}
 
 #define GL_FRAGMENT_PRECISION_HIGH 1
 #define GL3_PROTOTYPES 1

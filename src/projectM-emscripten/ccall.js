@@ -3,7 +3,7 @@ Module.ccall("lck");
 });
 
 document.getElementById("btn11").addEventListener("click",function(){
-Module.ccall("b3");
+// Module.ccall("b3");
 });
 
 document.getElementById('btn4').addEventListener('click',function(){

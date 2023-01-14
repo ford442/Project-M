@@ -40,7 +40,7 @@ AS_IF([test "x$emscripten_compiler" = "xyes"], [
   enable_threading=no
   enable_qt=no
   dnl Enable SDL2 and WEBGL2 (OpenGL ES 3)
-  EMSCRIPTEN_FLAGS="-g2 -sNO_EXIT_RUNTIME=1 -sUSE_SDL=2 -sFULL_ES2=1 -sFULL_ES3=1 -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=2048mb -sMAXIMUM_MEMORY=4096mb -sASYNCIFY"
+  EMSCRIPTEN_FLAGS="-g2 -sNO_EXIT_RUNTIME=1 -sUSE_SDL=2 -sFULL_ES2=1 -sFULL_ES3=1 -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=2048mb -sMAXIMUM_MEMORY=4096mb -sPRECISE_F32=2"
   AC_SUBST([EMSCRIPTEN_FLAGS])
   CFLAGS="$CFLAGS $EMSCRIPTEN_FLAGS"
   CXXFLAGS="$CXXFLAGS $EMSCRIPTEN_FLAGS"
@@ -165,8 +165,8 @@ AS_IF([echo ${host} | grep -Fq android], [],
                         CXXFLAGS="$CXXFLAGS -stdlib=libc++"])
 ])
 
-AX_CHECK_COMPILE_FLAG([-std=c++14], [
-                        CXXFLAGS="$CXXFLAGS -std=c++14"])
+AX_CHECK_COMPILE_FLAG([-std=c++2b], [
+                        CXXFLAGS="$CXXFLAGS -std=c++2b"])
 
 # Qt5
 AC_ARG_ENABLE([qt], AS_HELP_STRING([--enable-qt], [Enable Qt: needed for pulseaudio and jack GUIs]), [], [enable_qt=check])

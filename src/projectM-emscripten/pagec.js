@@ -169,7 +169,9 @@ mV.play();
 
 // setTimeout(function(){document.getElementById("btn2").click();},700);
 // setTimeout(function(){document.getElementById("btn11").click();},1700);
-setTimeout(function(){Module.ccall("b3");},3300);
+setTimeout(function(){
+// Module.ccall("b3");
+},3300);
 // setTimeout(function(){document.getElementById("btn").click();},2700);
 setTimeout(function(){
 bz.postMessage({

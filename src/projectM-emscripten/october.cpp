@@ -1,5 +1,3 @@
-
-
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
@@ -255,17 +253,16 @@ T=true;
 
 }
 
-#define GL_GLEXT_PROTOTYPES 1
 #define GL_FRAGMENT_PRECISION_HIGH 1
 #define GL3_PROTOTYPES 1
 
+#include <GL/gl.h>
+#include <GL/glext.h>
 #include <GLES3/gl3.h>
 #include <GLES3/gl31.h>
 #include <GLES3/gl32.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <GL/gl.h>
-#include <GL/glext.h>
 
 #include <SDL2/SDL.h>
 #include <string>
@@ -284,14 +281,10 @@ T=true;
 #include <chrono>
 #include <projectM.hpp>
 
-using namespace std;
-using namespace std::chrono;
 struct timespec rem;
 struct timespec req={0,1200000000};
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
-
-Uint8* stm;
 
 typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;
 projectMApp app;
@@ -299,12 +292,12 @@ projectMApp app;
 int v0=0,v1=1,v2=2,v3=3,v4=4,v6=6,v8=8,v10=10,v16=16,v24=24,v32=32;
 
 void renderFrame(){
-glClear(GL_COLOR_BUFFER_BIT);
+glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 app.pm->renderFrame();
-glFlush();
-auto sndat=reinterpret_cast<short*>(stm);
+// glFlush();
+auto sndat=reinterpret_cast<short*>(app.stm);
 app.pm->pcm()->addPCM16Data(sndat,1024/sizeof(short));
-glFinish();
+// glFinish();
 }
 
 void chngt(){
@@ -315,12 +308,12 @@ EGLContext contextegl;
 EGLSurface surface;
 EGLint config_size,major,minor;
 static EGLint anEglCtxAttribs2[]={
-EGL_CONTEXT_CLIENT_VERSION,v3,
-EGL_CONTEXT_MINOR_VERSION_KHR,v0,
+EGL_CONTEXT_CLIENT_VERSION,(EGLint)4,
+EGL_CONTEXT_MINOR_VERSION_KHR,(EGLint)6,
 EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
-// EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-// EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR,
-// EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR,
+EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR,
+EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR,
 EGL_NONE};
   
 const EGLint attribut_list[]={
@@ -329,21 +322,21 @@ EGL_NONE
 };
 
 const EGLint attribute_list[]={
-// EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
 // EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
 EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
 // EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
 EGL_RENDERABLE_TYPE,EGL_OPENGL_BIT,
-// EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
-// EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
+EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
+EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
 EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV,
-// EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
+EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE,
 EGL_RED_SIZE,8,
 EGL_GREEN_SIZE,8,
 EGL_BLUE_SIZE,8,
 EGL_ALPHA_SIZE,8,
 EGL_DEPTH_SIZE,32,
-EGL_STENCIL_SIZE,0,
+EGL_STENCIL_SIZE,8,
 EGL_BUFFER_SIZE,32,
 EGL_SAMPLE_BUFFERS,64,
 EGL_SAMPLES,32,
@@ -351,13 +344,14 @@ EGL_NONE
 };
   
 attr.alpha=EM_TRUE;
-attr.stencil=EM_FALSE;
+attr.stencil=EM_TRUE;
 attr.depth=EM_TRUE;
 attr.antialias=EM_TRUE;
 attr.premultipliedAlpha=EM_FALSE;
 attr.preserveDrawingBuffer=EM_FALSE;
-attr.enableExtensionsByDefault=EM_TRUE;
+attr.enableExtensionsByDefault=EM_FALSE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
+attr.lowLatency=EM_FALSE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=v2;
 attr.minorVersion=v0;
@@ -373,12 +367,12 @@ int S=(GLfloat)Size;
 
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
 EGLConfig eglconfig=NULL;
-display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
-eglInitialize(display,&v3,&v0);
-eglChooseConfig(display,attribute_list,&eglconfig,1,&config_size);
 eglBindAPI(EGL_OPENGL_API);
+display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
+eglInitialize(display,&major,&minor);
+eglChooseConfig(display,attribute_list,&eglconfig,(EGLint)1,&config_size);
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
-surface=eglCreateWindowSurface(display,eglconfig,0,attribut_list);
+surface=eglCreateWindowSurface(display,eglconfig,(NativeWindowType)0,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
 int width=Size;
@@ -391,12 +385,12 @@ std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION)<<"\n";
 
 app.settings.meshX=24;
 app.settings.meshY=24;
-app.settings.textureSize=256;
+app.settings.textureSize=128;
 app.settings.fps=FPS;
 app.settings.windowWidth=width;
 app.settings.windowHeight=width;
 app.settings.smoothPresetDuration=22;
-app.settings.presetDuration=44;
+app.settings.presetDuration=23;
 app.settings.beatSensitivity=1.0;
 app.settings.aspectCorrection=false;
 app.settings.easterEgg=0;
@@ -421,15 +415,14 @@ for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
 glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
-glClearColor(1.0,1.0,1.0,0.5);
+glClearColor(1.0,1.0,1.0,1.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 
 
-extern "C" {
 
 SDL_AudioDeviceID dev;
-struct{Uint8* snd;int pos;Uint32 slen;SDL_AudioSpec spec;}wave;
+struct{Uint8 * snd;int pos;Uint32 slen;SDL_AudioSpec request;}wave;
 
 void swtcht(){
 printf("Selecting random preset.\n");
@@ -441,39 +434,20 @@ app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
 
-void cls_aud(){
-if(dev!=0){
-SDL_PauseAudioDevice(dev,SDL_TRUE);
-SDL_CloseAudioDevice(dev);
-dev=0;
-}}
-
-void qu(int rc){
-SDL_Quit();
-return;
-}
-
-void opn_aud(){
-dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.spec,NULL,0);
-if(!dev){
-SDL_FreeWAV(wave.snd);
-}
-SDL_PauseAudioDevice(dev,SDL_FALSE);
-return;
-}
-
-void SDLCALL bfr(void *unused,Uint8* stm,int len){
-Uint8* wptr;
+void SDLCALL bfr(void * unused,Uint8 * stm,int len){
+Uint8 * wptr;
 int lft;
 wptr=wave.snd+wave.pos;
 lft=wave.slen-wave.pos;
 while (lft<=len){
+SDL_UnlockAudioDevice(dev);
 SDL_memcpy(stm,wptr,lft);
 stm+=lft;
 len-=lft;
 wptr=wave.snd;
 lft=wave.slen;
 wave.pos=0;
+SDL_LockAudioDevice(dev);
 }
 SDL_memcpy(stm,wptr,len);
 wave.pos+=len;
@@ -482,21 +456,23 @@ return;
 
 void plt(){
 char flnm[24];
-SDL_FreeWAV(wave.snd);
-SDL_SetMainReady();
-if (SDL_Init(SDL_INIT_AUDIO)<0){
-qu(1);
-}
-SDL_strlcpy(flnm,"/snd/sample.wav",sizeof(flnm));
-if(SDL_LoadWAV(flnm,&wave.spec,&wave.snd,&wave.slen)==NULL){
-qu(1);
-}
+SDL_memset(&wave.request,0,sizeof(wave.request));
+wave.request.freq=44100;
+wave.request.format=AUDIO_S32;
+wave.request.channels=2;
+wave.request.samples=1024;
 wave.pos=0;
-wave.spec.callback=bfr;
-opn_aud();
+SDL_strlcpy(flnm,"/snd/sample.wav",sizeof(flnm));
+SDL_Init(SDL_INIT_AUDIO);
+SDL_LoadWAV(flnm,&wave.request,&wave.snd,&wave.slen);
+wave.request.callback=bfr;
+dev=SDL_OpenAudioDevice(NULL,SDL_FALSE,&wave.request,NULL,0);
+SDL_PauseAudioDevice(dev,SDL_FALSE);
 return;
 }
 
+extern "C" {
+  
 void pl(){
 plt();
 }
@@ -516,11 +492,14 @@ ma();
 }
 
 int main(){
+  
 EM_ASM({
 FS.mkdir('/snd');
 FS.mkdir('/textures');
 FS.mkdir('/presets');
 });
+  
 app.done=0;
 return PROJECTM_SUCCESS;
+  
 }

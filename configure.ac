@@ -87,7 +87,6 @@ AC_CONFIG_FILES([
   src/projectM-qt/Makefile
   src/projectM-pulseaudio/Makefile
   src/projectM-jack/Makefile
-  src/projectM-test/Makefile
 ])
 
 # SDL

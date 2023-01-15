@@ -344,7 +344,8 @@ EGL_SAMPLE_BUFFERS,64,
 EGL_SAMPLES,32,
 EGL_NONE
 };
-  
+
+emscripten_webgl_init_context_attributes(&attr);
 attr.alpha=EM_TRUE;
 attr.stencil=EM_TRUE;
 attr.depth=EM_TRUE;
@@ -356,18 +357,14 @@ attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=v2;
 attr.minorVersion=v0;
-emscripten_webgl_init_context_attributes(&attr);
-  
+
+EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
+EGLConfig eglconfig=NULL;
+
 // int S=EM_ASM_INT({return parseInt(window.innerHeight);});
 // Size=EM_ASM_INT({return parseInt(window.innerHeight);});
 double wi,hi;
 emscripten_get_element_css_size("pcanvas",&wi,&hi);
-int Size=(int)hi;
-int S=(GLfloat)Size;
-// eglBindAPI(EGL_OPENGL_ES_API);
-
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
-EGLConfig eglconfig=NULL;
 eglBindAPI(EGL_OPENGL_API);
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
 eglInitialize(display,&major,&minor);
@@ -376,6 +373,12 @@ contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
 surface=eglCreateWindowSurface(display,eglconfig,(NativeWindowType)0,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
+
+int Size=(int)hi;
+int S=(GLfloat)Size;
+// eglBindAPI(EGL_OPENGL_ES_API);
+
+
 int width=Size;
 int height=Size;
 
@@ -420,9 +423,6 @@ glClearColor(1.0,1.0,1.0,1.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 
-
-
-
 void swtcht(){
 printf("Selecting random preset.\n");
 app.pm->selectRandom(true);
@@ -432,6 +432,9 @@ void lckt(){
 app.pm->setPresetLock(true);
 printf("Preset locked.\n");
 }
+
+
+
 
 void SDLCALL bfr(void * unused,Uint8 * stm,int len){
 Uint8 * wptr;

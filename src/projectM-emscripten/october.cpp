@@ -109,27 +109,23 @@ attr.majorVersion=v2;
 attr.minorVersion=v0;
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
 EGLConfig eglconfig=NULL;
-// int S=EM_ASM_INT({return parseInt(window.innerHeight);});
-// Size=EM_ASM_INT({return parseInt(window.innerHeight);});
 double wi,hi;
 emscripten_get_element_css_size("pcanvas",&wi,&hi);
-eglBindAPI(EGL_OPENGL_API);
+// eglBindAPI(EGL_OPENGL_API);
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
+surface=eglCreateWindowSurface(display,eglconfig,(NativeWindowType)0,attribut_list);
 eglInitialize(display,&major,&minor);
 eglChooseConfig(display,attribute_list,&eglconfig,(EGLint)1,&config_size);
 contextegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,anEglCtxAttribs2);
-surface=eglCreateWindowSurface(display,eglconfig,(NativeWindowType)0,attribut_list);
 eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
-
 int Size=(int)hi;
-int S=(GLfloat)hi;
+float S=(float)hi;
 // eglBindAPI(EGL_OPENGL_ES_API);
-
 
 int width=Size;
 int height=Size;
-
+glViewport(0,0,Size,Size);
 SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 std::cout<<glGetString(GL_VERSION)<<"\n";

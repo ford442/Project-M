@@ -1,7 +1,7 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
-#define GL_FRAGMENT_PRECISION_HIGH 1
+// #define GL_FRAGMENT_PRECISION_HIGH 1
 #define GL3_PROTOTYPES 1
 
 #include <GL/gl.h>
@@ -162,8 +162,8 @@ printf("%s\n",dir_entry->d_name);
 for(uint i=0;i<app.pm->getPlaylistSize();i++){
 printf("%d\t%s\n",i,app.pm->getPresetName(i).c_str());
 }
-glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
-glClearColor(1.0,1.0,1.0,1.0);
+// glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
+glClearColor(0.0,1.0,0.0,1.0);
 emscripten_set_main_loop((void (*)())renderFrame,0,0);
 }
 

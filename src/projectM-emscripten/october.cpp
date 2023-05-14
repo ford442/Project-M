@@ -1,7 +1,6 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
-
 #define GL_FRAGMENT_PRECISION_HIGH 1
 #define GL3_PROTOTYPES 1
 
@@ -108,10 +107,8 @@ attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=v2;
 attr.minorVersion=v0;
-
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx=emscripten_webgl_create_context("#pcanvas",&attr);
 EGLConfig eglconfig=NULL;
-
 // int S=EM_ASM_INT({return parseInt(window.innerHeight);});
 // Size=EM_ASM_INT({return parseInt(window.innerHeight);});
 double wi,hi;
@@ -126,7 +123,7 @@ eglMakeCurrent(display,surface,surface,contextegl);
 emscripten_webgl_make_context_current(ctx);
 
 int Size=(int)hi;
-int S=(GLfloat)Size;
+int S=(GLfloat)hi;
 // eglBindAPI(EGL_OPENGL_ES_API);
 
 

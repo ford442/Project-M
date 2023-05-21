@@ -1,4 +1,4 @@
-/*
+
 let bz=new BroadcastChannel('bez');
 document.getElementById('btn').addEventListener('click',function(){
 let hi=window.innerHeight;
@@ -18,7 +18,6 @@ FS.writeFile('/sample.wav',fill);
 Module.ccall("pl");
 });
 
-*/
 document.getElementById("circle").width=window.innerWidth;
 document.getElementById("circle").height=window.innerHeight;
 document.getElementById("contain2").width=window.innerHeight;

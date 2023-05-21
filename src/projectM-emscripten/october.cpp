@@ -228,9 +228,6 @@ lckt();
 void swtch(){
 swtcht();
 }
-void b3(){
-// ma();
-}
 
 }
 

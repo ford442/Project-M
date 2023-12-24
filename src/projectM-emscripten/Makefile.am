@@ -1,7 +1,5 @@
 BIN_NAME = m0-001
 
-AM_CPPFLAGS = \
-
 ${my_CFLAGS} \
 -I$(top_builddir)/config.h \
 -I$(top_builddir)/vendor \

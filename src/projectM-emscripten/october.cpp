@@ -2,13 +2,13 @@
 #include <emscripten/html5.h>
 
 // #define GL_FRAGMENT_PRECISION_HIGH 1
-#define GL3_PROTOTYPES 1
+// #define GL3_PROTOTYPES 1
 
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include <GLES3/gl3.h>
-#include <GLES3/gl31.h>
-#include <GLES3/gl32.h>
+// #include <GLES3/gl31.h>
+// #include <GLES3/gl32.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
@@ -34,14 +34,19 @@ struct timespec req={0,1200000000};
 
 #define FLAG_DISABLE_PLAYLIST_LOAD 1
 
-typedef struct{projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;}projectMApp;
+typedef struct{
+projectM *pm;bool done;projectM::Settings settings;SDL_AudioDeviceID dev;
+}projectMApp;
+
 projectMApp app;
 
 int v0=0,v1=1,v2=2,v3=3,v4=4,v6=6,v8=8,v10=10,v16=16,v24=24,v32=32;
 
 SDL_AudioDeviceID dev;
 
-struct{Uint8 * snd;int pos;Uint32 slen;SDL_AudioSpec request;Uint8 * stm;}wave;
+struct{
+Uint8 * snd;int pos;Uint32 slen;SDL_AudioSpec request;Uint8 * stm;
+}wave;
 
 void renderFrame(){
 glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
@@ -100,9 +105,9 @@ attr.alpha=EM_TRUE;
 attr.stencil=EM_TRUE;
 attr.depth=EM_TRUE;
 attr.antialias=EM_TRUE;
-attr.premultipliedAlpha=EM_FALSE;
-attr.preserveDrawingBuffer=EM_FALSE;
-attr.enableExtensionsByDefault=EM_FALSE;
+attr.premultipliedAlpha=EM_TRUE;
+attr.preserveDrawingBuffer=EM_TRUE;
+attr.enableExtensionsByDefault=EM_TRUE;
 attr.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 attr.failIfMajorPerformanceCaveat=EM_FALSE;
 attr.majorVersion=v2;
@@ -122,7 +127,6 @@ emscripten_webgl_make_context_current(ctx);
 int Size=(int)hi;
 float S=(float)hi;
 // eglBindAPI(EGL_OPENGL_ES_API);
-
 int width=Size;
 int height=Size;
 glViewport(0,0,(GLsizei)600,(GLsizei)600);
@@ -130,7 +134,6 @@ SDL_Log("GL_VERSION: %s",glGetString(GL_VERSION));
 SDL_Log("GLSL_VERSION: %s",glGetString(GL_SHADING_LANGUAGE_VERSION));
 std::cout<<glGetString(GL_VERSION)<<"\n";
 std::cout<<glGetString(GL_SHADING_LANGUAGE_VERSION)<<"\n";
-
 app.settings.meshX=24;
 app.settings.meshY=24;
 app.settings.textureSize=128;

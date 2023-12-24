@@ -1,4 +1,4 @@
-BIN_NAME += m0-001
+BIN_NAME = m0-001
 
 AM_CPPFLAGS = \
 

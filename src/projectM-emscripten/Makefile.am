@@ -1,4 +1,5 @@
 BIN_NAME = m0-001
+AM_CPPFLAGS = \
 
 ${my_CFLAGS} \
 -I$(top_builddir)/config.h \
@@ -16,4 +17,3 @@ wasm:
 
 all: wasm
 	echo 'Built 1ink.Drop TEST.'
-

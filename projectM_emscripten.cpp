@@ -352,6 +352,10 @@ EM_JS(char*, js_get_random_preset_path, (), {
 
 void on_preset_switch_requested(bool is_hard_cut, void* user_data) {
 printf("projectM is requesting a preset switch (hard_cut: %s)!\n", is_hard_cut ? "true" : "false");
+char *str = js_get_random_preset_path();
+AppData* app_datas = (AppData*)user_data;
+projectm_playlist_add_preset(app_datas->playlist,str,false);
+free(str);
 uint32_t indx = projectm_playlist_play_next(app_data.playlist, false);
 return;
 }

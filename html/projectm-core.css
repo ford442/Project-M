@@ -227,6 +227,14 @@ img[id^="logo"] {
   display: none !important;
 }
 
+/* MOD Player Button - fixed position in top-left area */
+.mod-player-btn {
+  position: absolute;
+  left: 3%;
+  bottom: 85%;
+  pointer-events: auto;
+}
+
 /* ====== AUDIO ELEMENT ====== */
 audio {
   display: none;

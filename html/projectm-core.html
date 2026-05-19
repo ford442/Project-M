@@ -57,7 +57,7 @@ body { margin: 0; padding: 0; background-color: black; overflow: hidden; }
       </button>
 
       <!-- Flac Player (top-right) -->
-      <button class="control-btn flac-player-btn" style="background-color:rgba(0,0,0,0.6);">
+      <button id="flacPlayerBtn" class="control-btn flac-player-btn" style="background-color:rgba(0,0,0,0.6);">
         <span class="btn-label">Flac</span>
       </button>
 
@@ -94,6 +94,11 @@ body { margin: 0; padding: 0; background-color: black; overflow: hidden; }
   </div>
 
   <div id="preset-name">Preset: --</div>
+
+  <!-- MOD Player Button (top-left area of overlay) -->
+  <button id="modPlayerBtn" class="control-btn" style="background-color:#0891b2;position:absolute;left:3%;bottom:85%;pointer-events:auto;">
+    <span class="btn-label">MOD Player</span>
+  </button>
 </div>
 
 <!-- Hidden data containers -->
@@ -108,6 +113,8 @@ body { margin: 0; padding: 0; background-color: black; overflow: hidden; }
   <div id="hig">720</div>
   <div id="tim">8500</div>
   <div id="vsiz">0</div>
+  <div id="flacPlayerUrl">https://flac.1ink.us</div>
+  <div id="modPlayerUrl">https://mod.1ink.us</div>
 </div>
 
 <!-- Audio element -->
@@ -340,6 +347,58 @@ document.getElementById("lockPresetBtn").addEventListener('click', function() {
         Module.ccall('set_preset_locked', null, ['number'], [isPresetLocked ? 1 : 0]);
     }
     console.log('Preset lock:', isPresetLocked);
+});
+
+// ====== POPUP AUDIO SOURCE ======
+let playerPopup = null;
+let audioChannel = null;
+
+function feedPCMToModule(buffer) {
+    if (!Module || !Module._projectm_pcm_add_float_wrapper || !Module._malloc || !Module._free) return;
+    const len = buffer.length;
+    if (len === 0) return;
+    const ptr = Module._malloc(len * 4);
+    if (!ptr) return;
+    Module.HEAPF32.set(buffer, ptr >> 2);
+    // Treat as interleaved stereo (L, R, L, R, …); samplesPerChannel = len / 2
+    Module._projectm_pcm_add_float_wrapper(0, ptr, len / 2, 2);
+    Module._free(ptr);
+}
+
+function ensureAudioChannel() {
+    if (audioChannel) return;
+    audioChannel = new BroadcastChannel('projectm-audio');
+    audioChannel.onmessage = (e) => {
+        if (e.data?.type === 'pcm' && Module?._projectm_pcm_add_float_wrapper) {
+            feedPCMToModule(e.data.buffer);
+        }
+    };
+}
+
+function openFlacPlayer() {
+    const url = localStorage.getItem('flacPlayerUrl') ||
+                document.getElementById('flacPlayerUrl')?.textContent?.trim() ||
+                'https://flac.1ink.us';
+    playerPopup = window.open(url, 'flac-player',
+        'width=500,height=650,resizable=yes,scrollbars=no');
+    ensureAudioChannel();
+}
+
+function openModPlayer() {
+    const url = localStorage.getItem('modPlayerUrl') ||
+                document.getElementById('modPlayerUrl')?.textContent?.trim() ||
+                'https://mod.1ink.us';
+    playerPopup = window.open(url, 'mod-player',
+        'width=500,height=650,resizable=yes,scrollbars=no');
+    ensureAudioChannel();
+}
+
+document.getElementById('flacPlayerBtn').addEventListener('click', function() {
+    openFlacPlayer();
+});
+
+document.getElementById('modPlayerBtn').addEventListener('click', function() {
+    openModPlayer();
 });
 
 function syncModuleSize() {

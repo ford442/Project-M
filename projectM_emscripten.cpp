@@ -857,10 +857,10 @@ static double g_transitionStartTime = 0.0;    //!< emscripten_get_now() timestam
 
 // =============================================================================
 
-EGLContext ctxegl;
-EGLDisplay display;
-EGLSurface surface;
-EGLConfig eglconfig=NULL;
+EGLContext ctxegl = EGL_NO_CONTEXT;
+EGLDisplay display = EGL_NO_DISPLAY;
+EGLSurface surface = EGL_NO_SURFACE;
+EGLConfig eglconfig = NULL;
 EGLint config_size,major,minor,atb_pos;
 EGLint numSamples;
 EGLint numSamplesNV;
@@ -875,7 +875,7 @@ EGLint numBuffer;
 EGLint numMBuffers;
 EGLint colorSpace;
 EGLint colorFormat;
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE gl_ctx;
+EMSCRIPTEN_WEBGL_CONTEXT_HANDLE gl_ctx = 0;
 
 typedef struct {
 projectm_handle projectm_engine;
@@ -1084,12 +1084,22 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
     const audioContext = window.projectMAudioContext_Global_Cpp;
     const workletNode = window.projectMWorkletNode_Global_Cpp;
     if (!audioContext || !workletNode) { return; }
+
+    // Prevent concurrent async loads: if a decode is already in flight, skip the new
+    // request.  JavaScript's event loop is single-threaded, so this check-and-set is
+    // atomic with respect to other synchronous callers; only the async callback can
+    // transition the state from 'loading' to 'loaded'/'error'.
+    if (window.projectMSongLoadState === 'loading') {
+        console.warn('JS Load Song: Load already in progress, skipping duplicate request for ' + filePath);
+        return;
+    }
+    window.projectMSongLoadState = 'loading';
     
     async function decodeAndSend() {
         try {
             const fileDataUint8Array = FS.readFile(filePath);
             console.log(`JS Load Song: Read ${fileDataUint8Array.length} bytes from ${filePath}.`);
-            if (fileDataUint8Array.length === 0) { return; }
+            if (fileDataUint8Array.length === 0) { window.projectMSongLoadState = 'error'; return; }
             
             const audioDataArrayBuffer = fileDataUint8Array.buffer.slice(
                 fileDataUint8Array.byteOffset, fileDataUint8Array.byteOffset + fileDataUint8Array.byteLength
@@ -1109,8 +1119,10 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
                 loop: loop,
                 startPlaying: startPlaying // Now consistently using 'startPlaying'
             });
+            window.projectMSongLoadState = 'loaded';
         } catch(e) {
             console.error("JS Load Song: Error during decode and send:", e);
+            window.projectMSongLoadState = 'error';
         }
     }
     decodeAndSend();
@@ -1636,6 +1648,24 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 int init() {
 if (pm) return 0;
+// Clean up any previously created WebGL/EGL resources from a failed prior init attempt
+// so that calling init() again after a partial failure is safe.
+if (gl_ctx) {
+emscripten_webgl_destroy_context(gl_ctx);
+gl_ctx = 0;
+}
+if (ctxegl != EGL_NO_CONTEXT) {
+eglDestroyContext(display, ctxegl);
+ctxegl = EGL_NO_CONTEXT;
+}
+if (surface != EGL_NO_SURFACE) {
+eglDestroySurface(display, surface);
+surface = EGL_NO_SURFACE;
+}
+if (display != EGL_NO_DISPLAY) {
+eglTerminate(display);
+display = EGL_NO_DISPLAY;
+}
 js_init_projectm_dom();
 EmscriptenWebGLContextAttributes webgl_attrs;
 emscripten_webgl_init_context_attributes(&webgl_attrs);
@@ -1708,7 +1738,11 @@ EGL_SAMPLES,numSamples,
 EGL_NONE
 };
 
-eglChooseConfig(display,att_lst,&eglconfig,1,&config_size);
+EGLBoolean configResult = eglChooseConfig(display,att_lst,&eglconfig,1,&config_size);
+if (!configResult || config_size == 0) {
+fprintf(stderr, "eglChooseConfig failed (error: 0x%x)\n", eglGetError());
+return 1;
+}
 ctxegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,ctx_att);
 surface=eglCreateWindowSurface(display,eglconfig,(NativeWindowType)0,att_lst2);
 // eglBindAPI(EGL_OPENGL_ES_API);
@@ -1744,8 +1778,12 @@ emscripten_webgl_enable_extension(gl_ctx, "OES_texture_float");
 
 emscripten_webgl_enable_extension(gl_ctx, "OES_texture_half_float");
 emscripten_webgl_enable_extension(gl_ctx, "OES_texture_half_float_linear");
-emscripten_webgl_enable_extension(gl_ctx,"EXT_color_buffer_float"); // GLES float
-emscripten_webgl_enable_extension(gl_ctx,"EXT_float_blend"); // GLES float
+if (emscripten_webgl_enable_extension(gl_ctx,"EXT_color_buffer_float") != EM_TRUE) {
+fprintf(stderr, "Warning: EXT_color_buffer_float not supported; float FBO rendering will not be available\n");
+}
+if (emscripten_webgl_enable_extension(gl_ctx,"EXT_float_blend") != EM_TRUE) {
+fprintf(stderr, "Warning: EXT_float_blend not supported; float blending will not be available\n");
+}
 
 // Phase 2: Detect the best available floating-point texture format for the
 // dual ping-pong FBO system. DetectFormat() checks EXT_color_buffer_float

@@ -408,6 +408,8 @@ canvas.emscripten {
   <div id="hig">720</div>
   <div id="tim">8500</div>
   <div id="vsiz">0</div>
+  <div id="flacPlayerUrl">https://flac.1ink.us</div>
+  <div id="modPlayerUrl">https://mod.1ink.us</div>
 </div>
 
 <!-- Audio -->
@@ -667,6 +669,71 @@ function updateLayout() {
         if (circle) circle.style.display = 'none';
     }
 }
+
+// ====== POPUP AUDIO SOURCE ======
+const AUDIO_CHANNEL_NAME = 'projectm-audio';
+let flacPlayerPopup = null;
+let modPlayerPopup = null;
+let audioChannel = null;
+
+function feedPCMToModule(buffer) {
+    if (!(buffer instanceof Float32Array)) return;
+    if (!Module || !Module._projectm_pcm_add_float_wrapper || !Module._malloc || !Module._free) return;
+    const len = buffer.length;
+    if (len === 0) return;
+    const ptr = Module._malloc(len * 4);
+    if (!ptr) return;
+    try {
+        Module.HEAPF32.set(buffer, ptr >> 2);
+        // pm_handle_value (first arg) is unused by the wrapper; pass 0 as a placeholder
+        // Treat as interleaved stereo (L, R, L, R, …); samplesPerChannel = len / 2
+        Module._projectm_pcm_add_float_wrapper(0, ptr, len / 2, 2);
+    } finally {
+        Module._free(ptr);
+    }
+}
+
+function ensureAudioChannel() {
+    if (audioChannel) return;
+    audioChannel = new BroadcastChannel(AUDIO_CHANNEL_NAME);
+    audioChannel.onmessage = (e) => {
+        if (e.data?.type === 'pcm' && e.data.buffer instanceof Float32Array) {
+            feedPCMToModule(e.data.buffer);
+        }
+    };
+}
+
+function openFlacPlayer() {
+    const url = localStorage.getItem('flacPlayerUrl') ||
+                document.getElementById('flacPlayerUrl')?.textContent?.trim() ||
+                'https://flac.1ink.us';
+    flacPlayerPopup = window.open(url, 'flac-player',
+        'width=500,height=650,resizable=yes,scrollbars=no');
+    if (!flacPlayerPopup) {
+        console.warn('FLAC player popup was blocked. Please allow popups for this site.');
+    }
+    ensureAudioChannel();
+}
+
+function openModPlayer() {
+    const url = localStorage.getItem('modPlayerUrl') ||
+                document.getElementById('modPlayerUrl')?.textContent?.trim() ||
+                'https://mod.1ink.us';
+    modPlayerPopup = window.open(url, 'mod-player',
+        'width=500,height=650,resizable=yes,scrollbars=no');
+    if (!modPlayerPopup) {
+        console.warn('MOD player popup was blocked. Please allow popups for this site.');
+    }
+    ensureAudioChannel();
+}
+
+document.getElementById('flacPlayerBtn').addEventListener('click', function() {
+    openFlacPlayer();
+});
+
+document.getElementById('modPlayerBtn').addEventListener('click', function() {
+    openModPlayer();
+});
 
 function syncModuleSize() {
     const contain1 = document.querySelector('#contain1');

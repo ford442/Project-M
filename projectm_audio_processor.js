@@ -2,8 +2,10 @@
 class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
     constructor(options) {
         super(options);
-        this.mainAudioBuffer = null; // Will hold the full AudioBuffer from the WAV
-        this.playhead = 0;           // Current sample frame position in this.mainAudioBuffer
+        this.mainChannelData = null; // Array of Float32Arrays, one per channel (received via postMessage)
+        this.totalSamples = 0;       // Total sample frames in the buffer
+        this.numChannels = 0;        // Number of audio channels
+        this.playhead = 0;           // Current sample frame position
         this.looping = true;         // Default to looping
         this.isPlaying = false;
         this.outputChannels = 0;     // Determined from output buffer
@@ -15,7 +17,12 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
 
         this.port.onmessage = (event) => {
             if (event.data.type === 'loadWavData') {
-                this.mainAudioBuffer = event.data.audioBuffer; // This is an AudioBuffer object
+                // Sender posts raw channel data as an Array of Float32Arrays (not an AudioBuffer
+                // object, since AudioBuffer cannot be reliably transferred across the worklet boundary).
+                this.mainChannelData = event.data.channelData;
+                this.numChannels = this.mainChannelData ? this.mainChannelData.length : 0;
+                this.totalSamples = (this.mainChannelData && this.mainChannelData[0])
+                                  ? this.mainChannelData[0].length : 0;
                 this.playhead = event.data.startPlaying ? 0 : -1; // Reset or keep paused
                 this.looping = event.data.loop !== undefined ? event.data.loop : true;
                 this.isPlaying = event.data.startPlaying || false;
@@ -30,7 +37,7 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
                 this.isPlaying = false;
                  console.log('[Worklet] Playback stopped by main thread.');
             } else if (event.data.type === 'startPlayback') {
-                if (this.mainAudioBuffer) { // Only start if buffer is loaded
+                if (this.mainChannelData) { // Only start if buffer is loaded
                     this.isPlaying = true;
                     this.playhead = event.data.playheadPosition || 0; // Allow starting from specific point
                     console.log('[Worklet] Playback (re)started by main thread.');
@@ -45,7 +52,7 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
     }
 
     process(inputs, outputs, parameters) {
-        if (!this.isPlaying || !this.mainAudioBuffer) {
+        if (!this.isPlaying || !this.mainChannelData || this.totalSamples === 0) {
             // Output silence if not playing or no buffer
             for (const outputChannel of outputs[0]) {
                 outputChannel.fill(0);
@@ -58,7 +65,7 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
         const samplesToProcess = outputBuffer[0].length; // e.g., 128 samples (block size)
 
         for (let i = 0; i < samplesToProcess; i++) {
-            if (this.playhead >= this.mainAudioBuffer.length) { // End of buffer
+            if (this.playhead >= this.totalSamples) { // End of buffer
                 if (this.looping) {
                     this.playhead = 0; // Loop
                 } else {
@@ -85,12 +92,12 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
                 }
             }
 
-            // Playback: copy from mainAudioBuffer to outputBuffer
+            // Playback: copy from channel data arrays to outputBuffer
             for (let ch = 0; ch < this.outputChannels; ch++) {
                 // Use source channel if available, else duplicate channel 0 (mono to stereo)
-                const sourceChannelData = this.mainAudioBuffer.numberOfChannels > ch
-                                        ? this.mainAudioBuffer.getChannelData(ch)
-                                        : this.mainAudioBuffer.getChannelData(0);
+                const sourceChannelData = this.numChannels > ch
+                                        ? this.mainChannelData[ch]
+                                        : this.mainChannelData[0];
                 outputBuffer[ch][i] = sourceChannelData[this.playhead];
             }
 

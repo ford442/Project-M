@@ -6,103 +6,397 @@
 <link rel='preconnect' href='https://js.1ink.us'>
 <link rel='preconnect' href='https://glsl.1ink.us'>
 <title>Project M - Advanced Music Visualization</title>
-<link rel="stylesheet" href="./projectm-core.css">
 <style>
-body { margin: 0; padding: 0; background-color: black; overflow: hidden; }
+body {
+  margin: 0;
+  padding: 0;
+  background-color: black;
+  overflow: hidden;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ── Panel Container ──────────────────────────────────────────── */
+.panel-container {
+  position: fixed;
+  bottom: 2vh;
+  left: 2vh;
+  width: 409px;
+  height: 409px;
+  --knob-hue: 220;
+  filter: drop-shadow(0 0 18px hsla(220, 55%, 50%, 0.4));
+  transition: filter 0.6s ease;
+  z-index: 3300;
+}
+
+.panel-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 9px solid #0d1117;
+  box-shadow: inset 0 0 0 2px #1e293b;
+  pointer-events: none;
+  z-index: 9;
+}
+
+.panel-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+  z-index: 9;
+  background: conic-gradient(
+    rgba(255,255,255,0.22) 0deg 48deg,
+    transparent           48deg 185deg,
+    rgba(255,255,255,0.09) 185deg 233deg,
+    transparent           233deg 360deg
+  );
+  mask: radial-gradient(circle at 50%, transparent 91%, black 93%, black 100%);
+  -webkit-mask: radial-gradient(circle at 50%, transparent 91%, black 93%, black 100%);
+}
+
+@keyframes bezel-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.panel-bg {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+  box-shadow: 0 25px 60px -15px rgb(0 0 0 / 0.7);
+  position: relative;
+}
+
+.panel-bg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.panel-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 50%, transparent 52%, rgba(0,0,0,0.48) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.clickable-button {
+  position: absolute;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 10;
+  border-radius: 6px;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.clickable-button::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 9px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255,220,80,0.35), transparent 68%);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+
+.clickable-button:hover::before { opacity: 1; }
+
+.clickable-button:active {
+  transform: scale(0.95);
+  filter: brightness(1.1);
+}
+
+.clickable-button.engaged::before {
+  background: radial-gradient(ellipse at 50% 50%, rgba(255,155,0,0.58), transparent 68%);
+  opacity: 1;
+  box-shadow: 0 0 14px rgba(255,155,0,0.35);
+}
+
+.clickable-button::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 8px;
+  border: 2px solid rgba(255,230,100,0.75);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes btn-pulse {
+  0%   { transform: scale(1);   opacity: 0.85; }
+  100% { transform: scale(1.65); opacity: 0; }
+}
+
+.knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 106px;
+  height: 106px;
+  background: radial-gradient(circle at 40% 30%, #1f2937, #111827 60%, #000);
+  border-radius: 9999px;
+  box-shadow: 0 0 0 8px #1f2937,
+              inset 0 20px 40px rgba(255,255,255,0.15),
+              0 10px 30px rgba(0,0,0,0.8);
+  z-index: 20;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.knob:active { cursor: grabbing; }
+
+.knob::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    rgba(255,255,255,0.13) 0deg 38deg,
+    transparent            38deg 360deg
+  );
+  pointer-events: none;
+}
+
+.knob::after {
+  content: '';
+  width: 12px;
+  height: 12px;
+  background: #ef4444;
+  border-radius: 9999px;
+  box-shadow: 0 0 10px #ef4444;
+}
+
+.led-ring {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.led {
+  position: absolute;
+  left: calc(50% - 5px);
+  top: calc(50% - 175px);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform-origin: 5px 175px;
+}
+
+.led--power {
+  background: #22c55e;
+  box-shadow: 0 0 6px 2px rgba(34,197,94,0.8);
+  transform: rotate(0deg);
+}
+
+.led--audio {
+  background: #4ade80;
+  box-shadow: 0 0 6px 2px rgba(74,222,128,0.8);
+  transform: rotate(72deg);
+}
+
+.led--lock {
+  background: #4b5563;
+  box-shadow: 0 0 3px 1px rgba(75,85,99,0.5);
+  transform: rotate(144deg);
+}
+
+body.has-lock .led--lock {
+  background: #f59e0b;
+  box-shadow: 0 0 7px 2px rgba(245,158,11,0.85);
+}
+
+.led--random {
+  background: #60a5fa;
+  box-shadow: 0 0 6px 2px rgba(96,165,250,0.8);
+  transform: rotate(216deg);
+}
+
+.led--beat {
+  background: #374151;
+  box-shadow: none;
+  transform: rotate(288deg);
+  transition: background 0.06s ease, box-shadow 0.06s ease;
+}
+
+.led--beat.on {
+  background: #f87171;
+  box-shadow: 0 0 8px 3px rgba(248,113,113,0.85);
+}
+
+@keyframes led-heartbeat {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.2; }
+}
+
+@keyframes led-double-blink {
+  0%, 17%, 34%, 100% { opacity: 1; }
+  8.5%, 25.5%         { opacity: 0.08; }
+}
+
+#show-btn {
+  display: none;
+  position: fixed;
+  bottom: 2vh;
+  left: 2vh;
+  z-index: 3301;
+  padding: 12px 20px;
+  background-color: #2a3f5f;
+  color: white;
+  border: 2px solid #555;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+#show-btn:hover {
+  background-color: #3a5f7f;
+  box-shadow: 0 0 12px rgba(61, 213, 243, 0.3);
+}
+
+#show-btn:not(.hidden) {
+  display: block;
+}
+
+#preset-name {
+  position: fixed;
+  bottom: 2vh;
+  left: 450px;
+  z-index: 3299;
+  font-family: "Lucida Console", "Courier New", monospace;
+  font-size: 14px;
+  color: rgba(200, 200, 200, 0.75);
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+#wrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 100vw;
+  padding: 0;
+  pointer-events: none;
+}
+
+#contain1 {
+  position: absolute;
+  padding: 0;
+  background-color: rgba(255, 255, 255, 0.0);
+}
+
+canvas.emscripten {
+  display: block;
+  margin: 0;
+  padding: 0;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+#circle {
+  pointer-events: none;
+  border: 0;
+  position: absolute;
+  overflow: hidden;
+  z-index: 3200;
+  display: block;
+  background-color: rgba(255, 255, 255, 0.0);
+}
+
+.logo {
+  pointer-events: none;
+  position: absolute;
+  z-index: 3300;
+}
+
+#logo-right {
+  top: 2vh;
+  right: 2vh;
+  height: 15vh;
+}
+
+#logo-left {
+  top: 2vh;
+  left: 2vh;
+  height: 15vh;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel-container::after  { animation: bezel-spin 18s linear infinite; }
+  .led--audio              { animation: led-heartbeat 1.2s ease-in-out infinite; }
+  .led--random             { animation: led-double-blink 1.5s ease-in-out infinite; }
+  .clickable-button.pulse::after { animation: btn-pulse 400ms ease-out forwards; }
+}
 </style>
 </head>
 <body>
 
 <!-- Loading Splash Screen -->
-<img id="splash1" src="./image/shroud.jpg" style="position:absolute;height:100vh;width:100vw;z-index:3590;display:block;"></img>
-<img id="splash2" src="./image/spinner.gif" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);height:20vh;width:20vh;z-index:3591;display:block;"></img>
+<img id="splash1" src="./image/shroud.jpg" style="position:absolute;height:100vh;width:100vw;z-index:3590;display:block;"/>
+<img id="splash2" src="./image/spinner.gif" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);height:20vh;width:20vh;z-index:3591;display:block;"/>
 
-<!-- Main Container -->
+<!-- Main Visualization -->
 <div id="wrap">
   <div id="contain1" style="position:absolute;">
-    <!-- Circular bezel overlay -->
     <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;"></canvas>
-
-    <!-- Main visualization canvases -->
-    <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;left:0;image-rendering:auto;transform:scaleY(1.0);"></canvas>
-    <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;left:0;image-rendering:auto;transform:scaleY(-1.0);"></canvas>
+    <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;left:0;"></canvas>
+    <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;left:0;transform:scaleY(-1.0);"></canvas>
   </div>
 </div>
 
-<!-- UI Overlay -->
-<div id="ui-overlay">
-  <!-- Logo -->
-  <img src="./image/scale4x.png" id="logo-right" style="position:absolute;top:2vh;right:2vh;height:15vh;z-index:3300;display:block;"/>
-  <img src="./image/1inkusa.png" id="logo-left" style="position:absolute;top:2vh;left:2vh;height:15vh;z-index:3300;display:block;"/>
+<!-- Logos -->
+<img src="./image/scale4x.png" class="logo" id="logo-right" />
+<img src="./image/1inkusa.png" class="logo" id="logo-left" />
 
-  <!-- Bezel frame overlay -->
-  <img src="./unglass.png" id="bezel-frame" style="position:absolute;z-index:555;pointer-events:none;display:block;"/>
-
-  <!-- Control Panel Container (bottom left) -->
-  <div id="control-panel" class="control-panel-container">
-    <!-- Show/Hide Controls Button with image background -->
-    <button id="showControlsBtn" class="show-controls-btn" style="background-image: url('./panel-bg.jpg');">
-    </button>
-
-    <!-- Control Buttons positioned to match image -->
-    <div id="controls-container" class="controls-container">
-      <!-- Hide Controls (top-left) -->
-      <button id="hideControlsBtn" class="control-btn hide-controls-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Hide</span>
-      </button>
-
-      <!-- Lock Preset (top-center) -->
-      <button id="lockPresetBtn" class="control-btn lock-preset-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Lock</span>
-      </button>
-
-      <!-- Flac Player (top-right) -->
-      <button id="flacPlayerBtn" class="control-btn flac-player-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Flac</span>
-      </button>
-
-      <!-- Start / Change Song (left) -->
-      <button id="musicBtn" class="control-btn music-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Start</span>
-      </button>
-
-      <!-- Random Preset (right) -->
-      <button id="randomPresetBtn" class="control-btn random-preset-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Random</span>
-      </button>
-
-      <!-- Full Window (bottom-left) -->
-      <button id="toggleBezelBtn" class="control-btn full-window-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Window</span>
-      </button>
-
-      <!-- Fullscreen (bottom-center) -->
-      <button class="control-btn fullscreen-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Fullscreen</span>
-      </button>
-
-      <!-- Random Custom (bottom-right) -->
-      <button id="customMilkBtn" class="control-btn custom-milk-btn" style="background-color:rgba(0,0,0,0.6);">
-        <span class="btn-label">Custom</span>
-      </button>
-
-      <!-- Random Preset API (hidden, for functionality) -->
-      <button id="apiRandomPresetBtn" class="control-btn api-preset-btn" style="display:none;">
-        <span class="btn-label">API Random</span>
-      </button>
-    </div>
+<!-- Control Panel -->
+<div class="panel-container" id="panel-container">
+  <div class="panel-bg">
+    <img src="./panel-bg.jpg" alt="Control Panel"/>
   </div>
 
-  <div id="preset-name">Preset: --</div>
+  <div class="led-ring" aria-hidden="true">
+    <span class="led led--power"  title="Power"></span>
+    <span class="led led--audio"  title="Audio Active"></span>
+    <span class="led led--lock"   title="Preset Locked"></span>
+    <span class="led led--random" title="Random Mode"></span>
+    <span class="led led--beat"   title="Beat"></span>
+  </div>
 
-  <!-- MOD Player Button (top-left area of overlay) -->
-  <button id="modPlayerBtn" class="control-btn mod-player-btn" style="background-color:#0891b2;">
-    <span class="btn-label">MOD Player</span>
-  </button>
-  <div id="flac-status" style="position:fixed;bottom:2vh;left:530px;z-index:3299;font-family:'Lucida Console','Courier New',monospace;font-size:14px;color:#22c55e;pointer-events:none;white-space:nowrap;text-shadow:1px 1px 2px rgba(0,0,0,0.85);"></div>
+  <!-- Buttons aligned to panel image -->
+  <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:  9%; left: 34%; width: 32%; height: 12%;"></button>
+  <button onclick="hidePanel()" class="clickable-button" style="top: 16%; left: 10%; width: 22%; height: 16%;"></button>
+  <button onclick="flacPlayer()" class="clickable-button" style="top: 16%; right: 10%; width: 22%; height: 16%;"></button>
+  <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top: 34%; left:  2%; width: 22%; height: 18%;"></button>
+  <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top: 34%; right:  2%; width: 22%; height: 18%;"></button>
+  <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top: 52%; left: 10%; width: 22%; height: 16%;"></button>
+  <button id="customMilkBtn" onclick="randomCustom()" class="clickable-button" style="top: 52%; right: 10%; width: 22%; height: 16%;"></button>
+  <button onclick="toggleFullscreen()" class="clickable-button" style="top: 67%; left: 34%; width: 32%; height: 13%;"></button>
+
+  <div id="knob" class="knob"></div>
 </div>
 
-<!-- Hidden data containers -->
+<!-- Show Button -->
+<button onclick="showPanel()" id="show-btn" class="hidden">Show Controls</button>
+
+<!-- Preset Display -->
+<div id="preset-name">Preset: --</div>
+
+<!-- Hidden data -->
 <div id="dataContainer" style="display:none;">
   <div id="birdsongPath">https://www.noahcohn.com/birdsongs/26HouseFinchSong.mp3</div>
   <div id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
@@ -118,17 +412,97 @@ body { margin: 0; padding: 0; background-color: black; overflow: hidden; }
   <div id="modPlayerUrl">https://mod.1ink.us</div>
 </div>
 
-<!-- Audio element -->
+<!-- Audio -->
 <audio crossorigin id="track" preload="none" style="pointer-events:none;"></audio>
 
 </body>
 <script type="module">
 
-// Initialization flags
-let isBezelMode = true;
-let Module;
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Preset name display helper
+let Module;
+let isBezelMode = true;
+let isPresetLocked = false;
+
+// ====== DRAGGABLE KNOB ======
+const knob = document.getElementById('knob');
+const panelContainer = document.getElementById('panel-container');
+let rot = 0, dragging = false, startAng = 0;
+
+function angle(e) {
+  const r = knob.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  return Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+}
+
+function applyKnobRotation(deg) {
+  knob.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`;
+  const hue = ((deg % 360) + 360) % 360;
+  panelContainer.style.filter = `drop-shadow(0 0 18px hsla(${hue}, 55%, 50%, 0.42))`;
+}
+
+knob.addEventListener('mousedown', e => { dragging = true; startAng = angle(e) - rot; });
+document.addEventListener('mousemove', e => {
+  if (dragging) { rot = angle(e) - startAng; applyKnobRotation(rot); }
+});
+document.addEventListener('mouseup', () => { dragging = false; });
+
+knob.addEventListener('touchstart', e => { dragging = true; startAng = angle(e.touches[0]) - rot; });
+document.addEventListener('touchmove', e => {
+  if (dragging) { rot = angle(e.touches[0]) - startAng; applyKnobRotation(rot); }
+});
+document.addEventListener('touchend', () => { dragging = false; });
+
+// ====== BUTTON PULSE ======
+function pulseButton(btn) {
+  if (prefersReducedMotion) return;
+  btn.classList.remove('pulse');
+  void btn.offsetWidth;
+  btn.classList.add('pulse');
+  setTimeout(() => btn.classList.remove('pulse'), 420);
+}
+
+document.querySelectorAll('.clickable-button').forEach(btn => {
+  btn.addEventListener('click', e => pulseButton(e.target.closest('.clickable-button')));
+});
+
+// ====== PANEL SHOW/HIDE ======
+function hidePanel() {
+  console.log('[ProjectM] Hide Panel');
+  panelContainer.style.transition = 'all 0.3s ease';
+  panelContainer.style.opacity = '0';
+  setTimeout(() => {
+    panelContainer.style.display = 'none';
+    document.getElementById('show-btn').classList.remove('hidden');
+  }, 280);
+}
+
+function showPanel() {
+  panelContainer.style.display = 'block';
+  panelContainer.style.opacity = '0';
+  setTimeout(() => {
+    panelContainer.style.transition = 'all 0.3s ease';
+    panelContainer.style.opacity = '1';
+  }, 10);
+  document.getElementById('show-btn').classList.add('hidden');
+}
+
+// ====== BEAT LED ======
+const beatLed = document.querySelector('.led--beat');
+if (!prefersReducedMotion) {
+  setInterval(() => beatLed.classList.toggle('on'), 500);
+}
+
+// ====== IDLE KNOB WOBBLE ======
+if (!prefersReducedMotion) {
+  setTimeout(() => {
+    knob.style.transition = 'transform 1.5s cubic-bezier(0.34,1.56,0.64,1)';
+    knob.style.transform = `translate(-50%, -50%) rotate(${Math.random() * 25 - 12}deg)`;
+  }, 1200);
+}
+
+// ====== PRESET DISPLAY ======
 window.updatePresetDisplay = function(name) {
     if (!name) return;
     const basename = name.split('/').pop();
@@ -138,103 +512,6 @@ window.updatePresetDisplay = function(name) {
         window.currentPresetName = basename;
     }
 };
-
-// ====== CANVAS SIZE MANAGEMENT ======
-function updateLayout() {
-    const mcanvas = document.querySelector('#mcanvas');
-    const scanvas = document.querySelector('#scanvas');
-    const wrap = document.querySelector('#wrap');
-    const contain1 = document.querySelector('#contain1');
-    const bezelFrame = document.querySelector('#bezel-frame');
-
-    if (isBezelMode) {
-        // === BEZEL MODE (centered square) ===
-        const sz = window.innerHeight;
-
-        if (wrap) {
-            wrap.style.width = ''; wrap.style.height = ''; wrap.style.position = '';
-            wrap.style.top = ''; wrap.style.left = '';
-        }
-        if (contain1) {
-            contain1.style.width = sz + 'px';
-            contain1.style.height = sz + 'px';
-            contain1.style.left = 'calc(50vw - ' + (sz / 2) + 'px)';
-            contain1.style.top = 'calc(50vh - ' + (sz / 2) + 'px)';
-            contain1.style.position = 'absolute';
-        }
-
-        mcanvas.style.left = '0';
-        mcanvas.style.top = '0';
-        scanvas.style.left = '0';
-        scanvas.style.top = '0';
-
-        document.querySelector('#circle').style.display = 'block';
-        if (bezelFrame) bezelFrame.style.display = 'block';
-    } else {
-        // === FULLSCREEN MODE ===
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-
-        if (wrap) {
-            wrap.style.width = '100vw'; wrap.style.height = '100vh';
-            wrap.style.position = 'fixed'; wrap.style.top = '0'; wrap.style.left = '0';
-        }
-        if (contain1) {
-            contain1.style.width = '100vw';
-            contain1.style.height = '100vh';
-            contain1.style.left = '0';
-            contain1.style.top = '0';
-            contain1.style.position = 'fixed';
-        }
-
-        mcanvas.style.left = '0';
-        mcanvas.style.top = '0';
-        scanvas.style.left = '0';
-        scanvas.style.top = '0';
-
-        document.querySelector('#circle').style.display = 'none';
-        if (bezelFrame) bezelFrame.style.display = 'none';
-    }
-}
-
-// ResizeObserver handles internal canvas resolution and Module window size.
-// It fires once immediately on observation, guaranteeing the initial size
-// is synced with the final CSS layout before the Emscripten module loads.
-const resizeObserver = new ResizeObserver((entries) => {
-    for (const entry of entries) {
-        const dpr = window.devicePixelRatio || 1;
-        const cssWidth = entry.contentRect.width;
-        const cssHeight = entry.contentRect.height;
-        const w = Math.max(1, Math.round(cssWidth * dpr));
-        const h = Math.max(1, Math.round(cssHeight * dpr));
-
-        const mcanvas = document.querySelector('#mcanvas');
-        const scanvas = document.querySelector('#scanvas');
-        if (!mcanvas || !scanvas) continue;
-
-        mcanvas.width = w;
-        mcanvas.height = h;
-        scanvas.width = w;
-        scanvas.height = h;
-
-        mcanvas.style.width = cssWidth + 'px';
-        mcanvas.style.height = cssHeight + 'px';
-        scanvas.style.width = cssWidth + 'px';
-        scanvas.style.height = cssHeight + 'px';
-
-        if (typeof Module !== 'undefined' && Module._set_window_size) {
-            Module._set_window_size(w, h);
-        }
-        if (typeof Module !== 'undefined' && Module._set_aspect_correction) {
-            Module._set_aspect_correction(isBezelMode);
-        }
-    }
-});
-
-const contain1El = document.querySelector('#contain1');
-if (contain1El) {
-    resizeObserver.observe(contain1El);
-}
 
 // ====== API PRESET HELPERS ======
 function getPresetDir() {
@@ -246,13 +523,11 @@ function getPresetDir() {
 async function fetchApiPreset(apiBase) {
     const dir = getPresetDir();
     const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
-    if (!res.ok) throw new Error('API error: ' + res.status);
+    if (!res.ok) throw new Error('API error');
     const data = await res.json();
-    if (!data.url || !data.filename || !data.dir) {
-        throw new Error('Invalid API response: missing url, filename, or dir');
-    }
+    if (!data.url || !data.filename || !data.dir) throw new Error('Invalid API response');
     const milkRes = await fetch(data.url);
-    if (!milkRes.ok) throw new Error('Failed to fetch milk: ' + milkRes.status);
+    if (!milkRes.ok) throw new Error('Failed to fetch milk');
     const buffer = await milkRes.arrayBuffer();
     const bytes = new Uint8ClampedArray(buffer);
     const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -269,7 +544,6 @@ async function loadStartupApiPresets(count) {
         try {
             const result = await fetchApiPreset(apiBase);
             results.push(result);
-            console.log('Startup API preset', i, 'loaded:', result.filename);
             updatePresetDisplay(result.filename);
         } catch (e) {
             console.error('Failed to load startup API preset', i, e);
@@ -278,34 +552,6 @@ async function loadStartupApiPresets(count) {
     return results;
 }
 
-// ====== SHOW/HIDE CONTROLS ======
-let controlsVisible = true;
-const showControlsBtn = document.getElementById('showControlsBtn');
-const controlsContainer = document.getElementById('controls-container');
-const hideControlsBtn = document.getElementById('hideControlsBtn');
-
-function toggleControls() {
-    controlsVisible = !controlsVisible;
-    if (!controlsVisible) {
-        controlsContainer.classList.add('hidden');
-    } else {
-        controlsContainer.classList.remove('hidden');
-    }
-}
-
-showControlsBtn.addEventListener('click', function(e) {
-    e.stopPropagation();
-    toggleControls();
-});
-
-if (hideControlsBtn) {
-    hideControlsBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        toggleControls();
-    });
-}
-
-// ====== UI CONTROLS ======
 async function loadRandomApiPreset() {
     if (typeof Module === 'undefined' || !Module._load_preset_file) {
         console.error('Module not ready');
@@ -316,39 +562,113 @@ async function loadRandomApiPreset() {
         const result = await fetchApiPreset(apiBase);
         Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
         updatePresetDisplay(result.filename);
-        console.log('Loaded API preset:', result.filename, 'from', result.dir);
     } catch (e) {
         console.error('Failed to load API preset:', e);
     }
 }
 
-document.getElementById("randomPresetBtn").addEventListener('click', function() {
-    loadRandomApiPreset();
-});
+// ====== BUTTON HANDLERS ======
+function startChangeSong() {
+    console.log('[ProjectM] Start/Change Song');
+}
 
-document.getElementById("apiRandomPresetBtn").addEventListener('click', function() {
-    loadRandomApiPreset();
-});
+function fullWindow() {
+    console.log('[ProjectM] Full Window');
+    isBezelMode = true;
+    updateLayout();
+    syncModuleSize();
+}
 
-let isPresetLocked = false;
-document.getElementById("lockPresetBtn").addEventListener('click', function() {
+function randomPreset() {
+    console.log('[ProjectM] Random Preset');
+    loadRandomApiPreset();
+}
+
+function randomCustom() {
+    console.log('[ProjectM] Random Custom');
+    loadRandomApiPreset();
+}
+
+function flacPlayer() {
+    console.log('[ProjectM] Flac Player');
+}
+
+function lockPreset() {
+    console.log('[ProjectM] Lock Preset');
     isPresetLocked = !isPresetLocked;
-    const btn = document.getElementById("lockPresetBtn");
-    const label = btn.querySelector('.btn-label');
-    if (isPresetLocked) {
-        btn.style.backgroundColor = 'red';
-        if (label) label.textContent = 'Unlock Preset';
-    } else {
-        btn.style.backgroundColor = 'green';
-        if (label) label.textContent = 'Lock Preset';
-    }
-    if (typeof Module !== 'undefined' && Module._set_preset_locked) {
-        Module._set_preset_locked(isPresetLocked ? 1 : 0);
-    } else if (typeof Module !== 'undefined' && Module.ccall) {
+    const btn = document.getElementById('lockPresetBtn');
+    document.body.classList.toggle('has-lock', isPresetLocked);
+    btn.classList.toggle('engaged', isPresetLocked);
+    if (typeof Module !== 'undefined' && Module.ccall) {
         Module.ccall('set_preset_locked', null, ['number'], [isPresetLocked ? 1 : 0]);
     }
-    console.log('Preset lock:', isPresetLocked);
-});
+}
+
+function toggleFullscreen() {
+    console.log('[ProjectM] Fullscreen');
+    isBezelMode = false;
+    updateLayout();
+    syncModuleSize();
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+        document.exitFullscreen().catch(() => {});
+    }
+}
+
+// ====== CANVAS MANAGEMENT ======
+function updateLayout() {
+    const mcanvas = document.querySelector('#mcanvas');
+    const scanvas = document.querySelector('#scanvas');
+    const wrap = document.querySelector('#wrap');
+    const contain1 = document.querySelector('#contain1');
+    const circle = document.querySelector('#circle');
+
+    if (!mcanvas || !scanvas) return;
+
+    if (isBezelMode) {
+        const sz = window.innerHeight;
+        if (wrap) {
+            wrap.style.width = '';
+            wrap.style.height = '';
+            wrap.style.position = '';
+            wrap.style.top = '';
+            wrap.style.left = '';
+        }
+        if (contain1) {
+            contain1.style.width = sz + 'px';
+            contain1.style.height = sz + 'px';
+            contain1.style.left = 'calc(50vw - ' + (sz / 2) + 'px)';
+            contain1.style.top = 'calc(50vh - ' + (sz / 2) + 'px)';
+            contain1.style.position = 'absolute';
+        }
+        mcanvas.style.left = '0';
+        mcanvas.style.top = '0';
+        scanvas.style.left = '0';
+        scanvas.style.top = '0';
+        if (circle) circle.style.display = 'block';
+    } else {
+        if (wrap) {
+            wrap.style.width = '100vw';
+            wrap.style.height = '100vh';
+            wrap.style.position = 'fixed';
+            wrap.style.top = '0';
+            wrap.style.left = '0';
+        }
+        if (contain1) {
+            contain1.style.width = '100vw';
+            contain1.style.height = '100vh';
+            contain1.style.left = '0';
+            contain1.style.top = '0';
+            contain1.style.position = 'fixed';
+        }
+        mcanvas.style.left = '0';
+        mcanvas.style.top = '0';
+        scanvas.style.left = '0';
+        scanvas.style.top = '0';
+        if (circle) circle.style.display = 'none';
+    }
+}
 
 // ====== POPUP AUDIO SOURCE ======
 const AUDIO_CHANNEL_NAME = 'projectm-audio';
@@ -440,33 +760,56 @@ function syncModuleSize() {
     }
 }
 
-document.getElementById("toggleBezelBtn").addEventListener('click', function() {
-    isBezelMode = !isBezelMode;
-    updateLayout();
-    syncModuleSize();
+const resizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+        const dpr = window.devicePixelRatio || 1;
+        const cssWidth = entry.contentRect.width;
+        const cssHeight = entry.contentRect.height;
+        const w = Math.max(1, Math.round(cssWidth * dpr));
+        const h = Math.max(1, Math.round(cssHeight * dpr));
+
+        const mcanvas = document.querySelector('#mcanvas');
+        const scanvas = document.querySelector('#scanvas');
+        if (!mcanvas || !scanvas) continue;
+
+        mcanvas.width = w;
+        mcanvas.height = h;
+        scanvas.width = w;
+        scanvas.height = h;
+
+        mcanvas.style.width = cssWidth + 'px';
+        mcanvas.style.height = cssHeight + 'px';
+        scanvas.style.width = cssWidth + 'px';
+        scanvas.style.height = cssHeight + 'px';
+
+        if (typeof Module !== 'undefined' && Module._set_window_size) {
+            Module._set_window_size(w, h);
+        }
+        if (typeof Module !== 'undefined' && Module._set_aspect_correction) {
+            Module._set_aspect_correction(isBezelMode);
+        }
+    }
 });
 
-// ====== WINDOW RESIZE HANDLER ======
-// ResizeObserver subsumes viewport resize for the canvases themselves,
-// but in bezel mode contain1 has a fixed pixel size derived from
-// window.innerHeight, so we still need to recompute layout on resize.
+const contain1El = document.querySelector('#contain1');
+if (contain1El) {
+    resizeObserver.observe(contain1El);
+}
+
 window.addEventListener('resize', updateLayout);
 
-// ====== MODULE INITIALIZATION ======
-// Initialize layout immediately. ResizeObserver will fire once
-// with the correct CSS-computed size and set internal resolution.
+// ====== INITIALIZATION ======
 updateLayout();
 
-// Hide splash screens after a delay
-setTimeout(function(){
+setTimeout(() => {
     document.querySelector('#splash2').style.display = 'none';
 }, 5200);
-setTimeout(function(){
+
+setTimeout(() => {
     document.querySelector('#splash1').style.display = 'none';
 }, 5500);
 
-// Load Module
-setTimeout(function(){
+setTimeout(() => {
     let scr = document.createElement("script");
     scr.async = true;
     scr.charset = 'utf-8';
@@ -475,46 +818,30 @@ setTimeout(function(){
     scr.src = "./pm/projectm-v.024-thread.1ijs";
     document.body.appendChild(scr);
 
-    setTimeout(function(){
-        createModule().then(async function(instance) {
+    setTimeout(() => {
+        createModule().then(async (instance) => {
             Module = instance;
-
             Module._init();
             updateLayout();
             syncModuleSize();
             const mcanvas = document.querySelector('#mcanvas');
-
-            // Start the render loop *before* downloading presets so that
-            // projectM's TimeKeeper (m_currentTime) is already being advanced
-            // each frame by UpdateTimers().  If start_render is called *after*
-            // load_preset_file, m_transitionStartTime is set to ~0 while the
-            // render loop hasn't started yet; when it does start, m_currentTime
-            // immediately jumps to wall-clock elapsed time, making the
-            // transition appear instant (hard cut) whenever startup takes
-            // longer than the soft-cut duration (~17 s on slow networks/devices).
             Module._start_render(mcanvas.width, mcanvas.height);
 
             const startupResults = await loadStartupApiPresets(5);
             if (startupResults.length > 0) {
-                // The render loop is now running, so m_currentTime is current.
-                // load_preset_file will start a smooth 17-second crossfade from
-                // the idle preset to the first API preset.
                 Module.ccall('load_preset_file', null, ['string'], [startupResults[0].vfsPath]);
                 updatePresetDisplay(startupResults[0].filename);
                 for (let i = 1; i < startupResults.length; i++) {
                     Module.ccall('add_preset_file', null, ['string'], [startupResults[i].vfsPath]);
                 }
-            } else {
-                console.warn('No startup API presets loaded');
             }
-        }).catch(function(err) {
-            console.error('projectM module initialization failed:', err);
+        }).catch((err) => {
+            console.error('projectM initialization failed:', err);
         });
     }, 1000);
 }, 750);
 
-// Start with default audio
-setTimeout(function(){
+setTimeout(() => {
     document.getElementById('musicBtn').click();
 }, 3000);
 

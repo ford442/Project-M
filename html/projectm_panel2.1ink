@@ -1,1 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel='preconnect' href='https://wasm.noahcohn.com'>
+<link rel='preconnect' href='https://js.1ink.us'>
+<link rel='preconnect' href='https://glsl.1ink.us'>
+<title>B3HD • ProjectM</title>
 
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background-color: black; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; }
+html, body { width: 100%; height: 100%; }
+
+#wrap { position: absolute; top: 0; left: 0; height: 100vh; width: 100vw; padding: 0; pointer-events: none; }
+#contain1 { position: absolute; padding: 0; background-color: rgba(255,255,255,0.0); }
+canvas.emscripten { display: block; margin: 0; padding: 0; image-rendering: crisp-edges; }
+
+#circle { pointer-events: none; border: 0; position: absolute; overflow: hidden; z-index: 3200; background: transparent; }
+
+/* Logos */
+.logo { pointer-events: none; position: absolute; z-index: 3300; }
+#logo-right { top: 2vh; right: 2vh; height: 15vh; }
+#logo-left { top: 2vh; left: 2vh; height: 15vh; }
+
+/* ── CIRCULAR CONTROL PANEL ── */
+.panel-container {
+  position: fixed; bottom: 2vh; left: 2vh;
+  width: 409px; height: 409px;
+  filter: drop-shadow(0 0 18px hsla(220, 55%, 50%, 0.4));
+  transition: filter 0.6s ease;
+  z-index: 3300;
+}
+.panel-container::before {
+  content: ''; position: absolute; inset: 0; border-radius: 9999px;
+  border: 9px solid #0d1117; box-shadow: inset 0 0 0 2px #1e293b; pointer-events: none; z-index: 9;
+}
+.panel-container::after {
+  content: ''; position: absolute; inset: 0; border-radius: 9999px; pointer-events: none; z-index: 9;
+  background: conic-gradient(rgba(255,255,255,0.22) 0deg 48deg, transparent 48deg 185deg, rgba(255,255,255,0.09) 185deg 233deg, transparent 233deg 360deg);
+  mask: radial-gradient(circle at 50%, transparent 91%, black 93%, black 100%);
+  -webkit-mask: radial-gradient(circle at 50%, transparent 91%, black 93%, black 100%);
+}
+@keyframes bezel-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.panel-bg { width: 100%; height: 100%; border-radius: 9999px; overflow: hidden; box-shadow: 0 25px 60px -15px rgb(0 0 0 / 0.7); position: relative; }
+.panel-bg img { width: 100%; height: 100%; object-fit: cover; }
+.panel-bg::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(circle at 50% 50%, transparent 52%, rgba(0,0,0,0.48) 100%);
+  pointer-events: none; z-index: 1;
+}
+
+.clickable-button {
+  position: absolute; background: transparent; border: none; cursor: pointer; z-index: 10;
+  border-radius: 6px; transition: transform 0.1s ease, filter 0.1s ease;
+}
+.clickable-button::before {
+  content: ''; position: absolute; inset: -5px; border-radius: 9px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255,220,80,0.35), transparent 68%);
+  opacity: 0; transition: opacity 0.12s ease; pointer-events: none;
+}
+.clickable-button:hover::before { opacity: 1; }
+.clickable-button:active { transform: scale(0.95); filter: brightness(1.1); }
+.clickable-button.engaged::before {
+  background: radial-gradient(ellipse at 50% 50%, rgba(255,155,0,0.58), transparent 68%);
+  opacity: 1; box-shadow: 0 0 14px rgba(255,155,0,0.35);
+}
+
+.knob {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 106px; height: 106px;
+  background: radial-gradient(circle at 40% 30%, #1f2937, #111827 60%, #000);
+  border-radius: 9999px;
+  box-shadow: 0 0 0 8px #1f2937, inset 0 20px 40px rgba(255,255,255,0.15), 0 10px 30px rgba(0,0,0,0.8);
+  z-index: 20; cursor: grab; display: flex; align-items: center; justify-content: center;
+}
+.knob:active { cursor: grabbing; }
+.knob::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(255,255,255,0.13) 0deg 38deg, transparent 38deg 360deg);
+  pointer-events: none;
+}
+.knob::after { content: ''; width: 12px; height: 12px; background: #ef4444; border-radius: 9999px; box-shadow: 0 0 10px #ef4444; }
+
+.led-ring { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.led {
+  position: absolute; left: calc(50% - 5px); top: calc(50% - 175px);
+  width: 10px; height: 10px; border-radius: 50%; transform-origin: 5px 175px;
+}
+.led--power { background: #22c55e; box-shadow: 0 0 6px 2px rgba(34,197,94,0.8); transform: rotate(0deg); }
+.led--audio { background: #4ade80; box-shadow: 0 0 6px 2px rgba(74,222,128,0.8); transform: rotate(72deg); }
+.led--lock { background: #4b5563; box-shadow: 0 0 3px 1px rgba(75,85,99,0.5); transform: rotate(144deg); }
+body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245,158,11,0.85); }
+.led--random { background: #60a5fa; box-shadow: 0 0 6px 2px rgba(96,165,250,0.8); transform: rotate(216deg); }
+.led--beat { background: #374151; box-shadow: none; transform: rotate(288deg); transition: background 0.06s ease, box-shadow 0.06s ease; }
+.led--beat.on { background: #f87171; box-shadow: 0 0 8px 3px rgba(248,113,113,0.85); }
+
+@keyframes led-heartbeat { 0%,100%{opacity:1} 50%{opacity:0.2} }
+@keyframes led-double-blink { 0%,17%,34%,100%{opacity:1} 8.5%,25.5%{opacity:0.08} }
+
+#preset-name {
+  position: fixed; bottom: 2vh; left: 450px; z-index: 3299;
+  font-family: "Lucida Console", "Courier New", monospace; font-size: 14px;
+  color: rgba(200,200,200,0.75); pointer-events: none; white-space: nowrap;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.85);
+}
+
+#show-btn {
+  display: none; position: fixed; bottom: 2vh; left: 2vh; z-index: 3301;
+  padding: 12px 20px; background: #2a3f5f; color: white; border: 2px solid #555;
+  border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+#show-btn:not(.hidden) { display: block; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel-container::after { animation: bezel-spin 18s linear infinite; }
+  .led--audio { animation: led-heartbeat 1.2s ease-in-out infinite; }
+  .led--random { animation: led-double-blink 1.5s ease-in-out infinite; }
+}
+</style>
+</head>
+<body>
+
+<!-- Splash -->
+<img id="splash1" src="./image/shroud.jpg" style="position:absolute;height:100vh;width:100vw;z-index:3590;display:block;"/>
+<img id="splash2" src="./image/spinner.gif" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);height:20vh;width:20vh;z-index:3591;display:block;"/>
+
+<!-- Visualization -->
+<div id="wrap">
+  <div id="contain1" style="position:absolute;">
+    <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;"></canvas>
+    <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background:rgba(0,0,0,0);top:0;left:0;"></canvas>
+    <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background:rgba(0,0,0,1);top:0;left:0;transform:scaleY(-1);"></canvas>
+  </div>
+</div>
+
+<!-- Logos -->
+<img src="./image/scale4x.png" class="logo" id="logo-right"/>
+<img src="./image/1inkusa.png" class="logo" id="logo-left"/>
+
+<!-- Circular Control Panel -->
+<div class="panel-container" id="panel-container">
+  <div class="panel-bg">
+    <img src="./image/panel-bg.jpg" alt="Control Panel"/>
+  </div>
+  <div class="led-ring">
+    <span class="led led--power" title="Power"></span>
+    <span class="led led--audio" title="Audio"></span>
+    <span class="led led--lock" title="Preset Locked"></span>
+    <span class="led led--random" title="Random"></span>
+    <span class="led led--beat" title="Beat"></span>
+  </div>
+
+  <!-- Clickable areas -->
+  <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:9%;left:34%;width:32%;height:12%;"></button>
+  <button onclick="hidePanel()" class="clickable-button" style="top:16%;left:10%;width:22%;height:16%;"></button>
+  <button onclick="flacPlayer()" class="clickable-button" style="top:16%;right:10%;width:22%;height:16%;"></button>
+  <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top:34%;left:2%;width:22%;height:18%;"></button>
+  <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top:34%;right:2%;width:22%;height:18%;"></button>
+  <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top:52%;left:10%;width:22%;height:16%;"></button>
+  <button id="customMilkBtn" onclick="randomCustom()" class="clickable-button" style="top:52%;right:10%;width:22%;height:16%;"></button>
+  <button onclick="toggleFullscreen()" class="clickable-button" style="top:67%;left:34%;width:32%;height:13%;"></button>
+
+  <div id="knob" class="knob"></div>
+</div>
+
+<button onclick="showPanel()" id="show-btn" class="hidden">Show Controls</button>
+
+<div id="preset-name">Preset: --</div>
+
+<!-- Hidden data -->
+<div hidden id="shut">2</div>
+<div hidden id="lns">1</div>
+<div hidden id="presetDir">default</div>
+<div hidden id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
+<div hidden id="birdsongPath">https://www.noahcohn.com/birdsongs/26HouseFinchSong.mp3</div>
+
+<audio crossorigin id="track" preload="none" style="pointer-events:none;"></audio>
+
+<!-- FLAC Player -->
+<section id="flacPlayerSection" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
+  <div style="text-align:center;color:#ccc;font-family:'Lucida Console',monospace;font-size:12px;padding:0.5rem;background:#111;">FLAC Player</div>
+  <iframe id="flacFrame" src="https://test.1ink.us/flac_player" style="width:100%;height:calc(100% - 24px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+</section>
+
+<!-- Bezel assets -->
+<img src='./unglass.png' id="gl" alt="Glass" style="display:none;">
+<img src='./bezel.jpg' id="frm" hidden alt="Frame"/>
+<canvas id="tcan" hidden></canvas>
+
+<script>
+// ==================== BEZEL / SHUTTER DRAWING ====================
+let rec, ccs, mw, tc, iww, img, imgb, hi, sht, lns, glas, rr, mdd, gtop, nw, nh, ndiff, bctx, ttx;
+
+function clo(sz){
+  bctx.globalCompositeOperation='source-over';
+  bctx.fillStyle='rgba(0,0,0,0.3)'; shtr(rr-2);
+  bctx.fillStyle='rgba(0,0,0,0.1)'; shtr(rr-1);
+  bctx.fillStyle='rgba(0,0,0,0.3)'; shtr(rr);
+  bctx.fillStyle='rgba(0,0,0,0.4)'; shtr(rr+1); shtr(rr);
+  bctx.fillStyle='rgba(0,0,0,0.4)'; shtr(rr+2);
+}
+function shtr(sim){
+  if(ccs.getContext){ bctx.beginPath(); bctx.arc(mw, rr, sim, 0, 2*Math.PI, false); bctx.fill(); }
+}
+function op(sz){
+  bctx.globalCompositeOperation='source-over';
+  bctx.fillStyle='rgba(168,168,168,1)'; shtr(rr);
+  bctx.globalCompositeOperation='destination-out'; shtr(sz);
+}
+
+function drawBezel(){
+  hi = window.innerHeight;
+  rec = Math.round(window.innerWidth);
+  document.querySelector('#circle').width = rec;
+  document.querySelector('#circle').height = hi;
+
+  imgb = document.querySelector('#gl');
+  glas = Math.round(hi * 1.133);
+  imgb.height = glas; imgb.width = glas;
+
+  rr = Math.round(hi / 2);
+  mw = Math.round(((rec - hi) / 2) + rr);
+
+  tc = document.querySelector('#tcan');
+  tc.height = hi;
+
+  img = document.querySelector('#frm');
+  mdd = Math.round((rec - glas) / 2);
+  gtop = Math.round((imgb.height - hi) / 2);
+  imgb.style.cssText = `position:absolute;left:${mdd}px;right:${mdd}px;z-index:555;top:-${gtop}px;`;
+
+  nw = img.naturalWidth; nh = img.naturalHeight;
+  iww = Math.round((hi / nh) * nw);
+  ndiff = Math.round(((iww - rec) / 2) * (nh / hi));
+  tc.width = rec;
+
+  sht = document.querySelector('#shut').innerHTML;
+  lns = document.querySelector('#lns').innerHTML;
+
+  if (ccs.getContext) {
+    ccs = document.querySelector('#circle');
+    bctx = ccs.getContext('2d', { alpha: true, desynchronized: false });
+    ttx = tc.getContext('2d', { alpha: true });
+
+    ttx.drawImage(img, ndiff, 0, nw - Math.round(nw*0.02), nh - Math.round(nh*0.02), 0, 0, iww, hi);
+
+    bctx.fillStyle = 'black';
+    bctx.fillRect(0, 0, rec, hi);
+    bctx.fillStyle = bctx.createPattern(tc, 'no-repeat');
+    bctx.fillRect(0, 0, rec, hi);
+
+    bctx.globalCompositeOperation = 'destination-out';
+    shtr(rr);
+    bctx.globalCompositeOperation = 'source-over';
+    bctx.fillStyle = 'rgba(168,168,168,1)';
+    shtr(rr);
+  }
+}
+
+ccs = document.querySelector('#circle');
+</script>
+
+<script type="module">
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let Module;
+let isBezelMode = true;
+let isPresetLocked = false;
+
+// ===== DRAGGABLE KNOB =====
+const knob = document.getElementById('knob');
+const panelContainer = document.getElementById('panel-container');
+let rot = 0, dragging = false, startAng = 0;
+
+function angle(e) {
+  const r = knob.getBoundingClientRect();
+  const cx = r.left + r.width/2;
+  const cy = r.top + r.height/2;
+  return Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+}
+function applyKnobRotation(deg) {
+  knob.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`;
+  const hue = ((deg % 360) + 360) % 360;
+  panelContainer.style.filter = `drop-shadow(0 0 18px hsla(${hue},55%,50%,0.42))`;
+}
+
+knob.addEventListener('mousedown', e => { dragging = true; startAng = angle(e) - rot; });
+document.addEventListener('mousemove', e => { if (dragging) { rot = angle(e) - startAng; applyKnobRotation(rot); } });
+document.addEventListener('mouseup', () => dragging = false);
+knob.addEventListener('touchstart', e => { dragging = true; startAng = angle(e.touches[0]) - rot; });
+document.addEventListener('touchmove', e => { if (dragging) { rot = angle(e.touches[0]) - startAng; applyKnobRotation(rot); } });
+document.addEventListener('touchend', () => dragging = false);
+
+// ===== BUTTON PULSE =====
+function pulseButton(btn) {
+  if (prefersReducedMotion) return;
+  btn.classList.remove('pulse');
+  void btn.offsetWidth;
+  btn.classList.add('pulse');
+  setTimeout(() => btn.classList.remove('pulse'), 420);
+}
+document.querySelectorAll('.clickable-button').forEach(btn => {
+  btn.addEventListener('click', e => pulseButton(e.currentTarget));
+});
+
+// ===== PANEL SHOW/HIDE =====
+function hidePanel() {
+  panelContainer.style.transition = 'all 0.3s ease';
+  panelContainer.style.opacity = '0';
+  setTimeout(() => {
+    panelContainer.style.display = 'none';
+    document.getElementById('show-btn').classList.remove('hidden');
+  }, 280);
+}
+function showPanel() {
+  panelContainer.style.display = 'block';
+  panelContainer.style.opacity = '0';
+  setTimeout(() => {
+    panelContainer.style.transition = 'all 0.3s ease';
+    panelContainer.style.opacity = '1';
+  }, 10);
+  document.getElementById('show-btn').classList.add('hidden');
+}
+window.hidePanel = hidePanel;
+window.showPanel = showPanel;
+
+// ===== BEAT LED =====
+const beatLed = document.querySelector('.led--beat');
+if (!prefersReducedMotion) setInterval(() => beatLed.classList.toggle('on'), 500);
+
+// ===== IDLE KNOB WOBBLE =====
+if (!prefersReducedMotion) {
+  setTimeout(() => {
+    knob.style.transition = 'transform 1.5s cubic-bezier(0.34,1.56,0.64,1)';
+    knob.style.transform = `translate(-50%,-50%) rotate(${Math.random()*25-12}deg)`;
+  }, 1200);
+}
+
+// ===== PRESET DISPLAY =====
+window.updatePresetDisplay = function(name) {
+  if (!name) return;
+  const basename = name.split('/').pop();
+  const el = document.querySelector('#preset-name');
+  if (el) { el.textContent = 'Preset: ' + basename; window.currentPresetName = basename; }
+};
+
+// ===== API PRESET HELPERS =====
+function getPresetDir() {
+  const el = document.getElementById('presetDir');
+  return (el && el.innerHTML.trim() !== 'default') ? el.innerHTML.trim() : 'any';
+}
+
+async function fetchApiPreset(apiBase = 'https://storage.noahcohn.com') {
+  const dir = getPresetDir();
+  const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
+  if (!res.ok) throw new Error('API error');
+  const data = await res.json();
+  const milkRes = await fetch(data.url);
+  const buffer = await milkRes.arrayBuffer();
+  const bytes = new Uint8ClampedArray(buffer);
+  const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const vfsPath = `/presets/api_${data.dir || 'any'}_${safeName}`;
+  if (Module.FS) Module.FS.writeFile(vfsPath, bytes);
+  return { vfsPath, filename: data.filename, dir: data.dir };
+}
+
+async function loadStartupApiPresets(count = 5) {
+  const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
+  const results = [];
+  for (let i = 0; i < count; i++) {
+    try {
+      const r = await fetchApiPreset(apiBase);
+      results.push(r);
+      if (i === 0) window.updatePresetDisplay(r.filename);
+    } catch(e){}
+  }
+  return results;
+}
+
+async function loadRandomApiPreset() {
+  if (!Module || !Module.ccall) return;
+  try {
+    const result = await fetchApiPreset();
+    Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
+    window.updatePresetDisplay(result.filename);
+  } catch(e) { console.error(e); }
+}
+
+// ===== BUTTON HANDLERS =====
+function startChangeSong() { console.log('[B3HD] Start/Change Song'); }
+function randomPreset() { loadRandomApiPreset(); }
+function randomCustom() { loadRandomApiPreset(); }
+function flacPlayer() {
+  const section = document.getElementById('flacPlayerSection');
+  const visible = section.style.display !== 'none';
+  section.style.display = visible ? 'none' : 'block';
+}
+function fullWindow() {
+  isBezelMode = true;
+  updateLayout();
+  syncModuleSize();
+  drawBezel();
+}
+function lockPreset() {
+  isPresetLocked = !isPresetLocked;
+  const btn = document.getElementById('lockPresetBtn');
+  document.body.classList.toggle('has-lock', isPresetLocked);
+  btn.classList.toggle('engaged', isPresetLocked);
+  if (Module && Module.ccall) Module.ccall('set_preset_locked', null, ['number'], [isPresetLocked ? 1 : 0]);
+}
+function toggleFullscreen() {
+  isBezelMode = false;
+  updateLayout();
+  syncModuleSize();
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(()=>{});
+  } else {
+    document.exitFullscreen().catch(()=>{});
+  }
+}
+
+window.lockPreset = lockPreset;
+window.startChangeSong = startChangeSong;
+window.randomPreset = randomPreset;
+window.randomCustom = randomCustom;
+window.flacPlayer = flacPlayer;
+window.fullWindow = fullWindow;
+window.toggleFullscreen = toggleFullscreen;
+
+// ===== LAYOUT =====
+function updateLayout() {
+  const mcanvas = document.querySelector('#mcanvas');
+  const scanvas = document.querySelector('#scanvas');
+  const contain1 = document.querySelector('#contain1');
+  const circle = document.querySelector('#circle');
+
+  if (isBezelMode) {
+    const sz = window.innerHeight;
+    if (contain1) {
+      contain1.style.width = sz + 'px';
+      contain1.style.height = sz + 'px';
+      contain1.style.left = `calc(50vw - ${sz/2}px)`;
+      contain1.style.top = `calc(50vh - ${sz/2}px)`;
+      contain1.style.position = 'absolute';
+    }
+    if (circle) circle.style.display = 'block';
+    drawBezel();
+  } else {
+    if (contain1) {
+      contain1.style.width = '100vw';
+      contain1.style.height = '100vh';
+      contain1.style.left = '0';
+      contain1.style.top = '0';
+      contain1.style.position = 'fixed';
+    }
+    if (circle) circle.style.display = 'none';
+  }
+}
+
+function syncModuleSize() {
+  const contain1 = document.querySelector('#contain1');
+  const mcanvas = document.querySelector('#mcanvas');
+  const scanvas = document.querySelector('#scanvas');
+  if (!contain1 || !mcanvas || !scanvas || !Module) return;
+
+  const rect = contain1.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(rect.width * dpr));
+  const h = Math.max(1, Math.round(rect.height * dpr));
+
+  mcanvas.width = w; mcanvas.height = h;
+  scanvas.width = w; scanvas.height = h;
+  mcanvas.style.width = rect.width + 'px';
+  mcanvas.style.height = rect.height + 'px';
+  scanvas.style.width = rect.width + 'px';
+  scanvas.style.height = rect.height + 'px';
+
+  if (Module._set_window_size) Module._set_window_size(w, h);
+  if (Module._set_aspect_correction) Module._set_aspect_correction(isBezelMode);
+}
+
+const resizeObserver = new ResizeObserver(() => {
+  updateLayout();
+  syncModuleSize();
+});
+const contain1El = document.querySelector('#contain1');
+if (contain1El) resizeObserver.observe(contain1El);
+window.addEventListener('resize', () => { updateLayout(); syncModuleSize(); });
+
+// ===== KEYBOARD =====
+document.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.keyCode === 32) { e.preventDefault(); document.getElementById('randomPresetBtn').click(); }
+  if (e.key.toLowerCase() === 'l') document.getElementById('lockPresetBtn').click();
+  if (e.key.toLowerCase() === 'h') hidePanel();
+});
+
+// ===== INITIALIZATION =====
+updateLayout();
+
+setTimeout(() => { document.getElementById('splash2').style.display = 'none'; }, 5200);
+setTimeout(() => { document.getElementById('splash1').style.display = 'none'; }, 5500);
+
+setTimeout(() => {
+  const scr = document.createElement("script");
+  scr.async = true; scr.charset = 'utf-8'; scr.type = 'text/javascript'; scr.defer = true;
+  scr.src = "./pm/projectm-v.030-thread.1ijs";
+  document.body.appendChild(scr);
+
+  setTimeout(async () => {
+    try {
+      Module = await createModule();
+      Module._init();
+      updateLayout();
+      syncModuleSize();
+
+      const mcanvas = document.querySelector('#mcanvas');
+      Module._start_render(mcanvas.width, mcanvas.height);
+
+      const startup = await loadStartupApiPresets(5);
+      if (startup.length > 0) {
+        Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
+        window.updatePresetDisplay(startup[0].filename);
+        for (let i = 1; i < startup.length; i++) {
+          Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
+        }
+      }
+    } catch (err) {
+      console.error('projectM init failed:', err);
+    }
+  }, 900);
+}, 750);
+
+// Auto click music button after load
+setTimeout(() => {
+  const mb = document.getElementById('musicBtn');
+  if (mb) mb.click();
+}, 3200);
+</script>
+</body>
+</html>

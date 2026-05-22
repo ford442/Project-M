@@ -68,3 +68,7 @@ cmake-build-*
 cmake-build/
 .idea
 build-test-*
+
+# Ignore literal tilde directories created by buggy scripts
+~
+scripts/~

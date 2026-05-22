@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel='preconnect' href='https://wasm.noahcohn.com'>
+<link rel='preconnect' href='https://projectm.1ink.us'>
 <link rel='preconnect' href='https://js.1ink.us'>
 <link rel='preconnect' href='https://glsl.1ink.us'>
 <title>ProjectM with Control Panel</title>
@@ -433,7 +433,7 @@ async function fetchApiPreset(apiBase) {
 }
 
 async function loadStartupApiPresets(count) {
-    const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
+    const apiBase = localStorage.getItem('apiBase') || 'https://projectm.1ink.us';
     const results = [];
     for (let i = 0; i < count; i++) {
         try {
@@ -452,7 +452,7 @@ async function loadRandomApiPreset() {
         console.error('Module not ready');
         return;
     }
-    const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
+    const apiBase = localStorage.getItem('apiBase') || 'https://projectm.1ink.us';
     try {
         const result = await fetchApiPreset(apiBase);
         Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);

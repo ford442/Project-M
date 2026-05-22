@@ -8,9 +8,9 @@ password = "GoogleBez12!"
 port = 22
 
 files = [
-    "projectm-v.024-thread.1ijs",
-    "projectm-v.024-thread.wasm",
-    "projectm-v.024-thread.3ijs",
+    "projectm-v.030-thread.1ijs",
+    "projectm-v.030-thread.wasm",
+    "projectm-v.030-thread.3ijs",
 ]
 
 local_dir = "/root/Project-M"

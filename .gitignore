@@ -43,7 +43,7 @@ m4/lt~obsolete.m4
 /dist
 
 # Emscripten build artifacts
-projectm-v.024-thread.*
+projectm-v.030-thread.*
 
 # Removed large binary
 background.png

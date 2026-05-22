@@ -1,6 +1,6 @@
 
-loc_file1 = "projectm-v.024-thread.1ijs" #@param ["sh4.1ijs", "sh5.1ijs", "g3007.wasm", "g3008.wasm", "g3009.wasm", "sh6.1ijs", "g3010.wasm"] {allow-input: true}
-loc_file2 = "projectm-v.024-thread.wasm" #@param ["sh4.1ijs", "sh5.1ijs", "g3007.wasm", "g3008.wasm", "g3009.wasm", "sh6.1ijs", "g3010.wasm"] {allow-input: true}
+loc_file1 = "projectm-v.030-thread.1ijs" #@param ["sh4.1ijs", "sh5.1ijs", "g3007.wasm", "g3008.wasm", "g3009.wasm", "sh6.1ijs", "g3010.wasm"] {allow-input: true}
+loc_file2 = "projectm-v.030-thread.wasm" #@param ["sh4.1ijs", "sh5.1ijs", "g3007.wasm", "g3008.wasm", "g3009.wasm", "sh6.1ijs", "g3010.wasm"] {allow-input: true}
 import os
 import urllib
 import requests as reqs
@@ -32,7 +32,7 @@ sftp.put(local_path, destination_path)
 sftp.put(local_path, destination_path2)
 sftp.close()
 transport.close()
-loc_file3 = "projectm-v.024-thread.3ijs" #@param ["sh4.1ijs", "sh5.1ijs", "g3007.wasm", "g3008.wasm", "g3009.wasm", "sh6.1ijs", "g3010.wasm"] {allow-input: true}
+loc_file3 = "projectm-v.030-thread.3ijs" #@param ["sh4.1ijs", "sh5.1ijs", "g3007.wasm", "g3008.wasm", "g3009.wasm", "sh6.1ijs", "g3010.wasm"] {allow-input: true}
 import os
 import urllib
 import requests as reqs

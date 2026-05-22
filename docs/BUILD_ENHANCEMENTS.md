@@ -22,7 +22,7 @@ Conduct a thorough audit of the ProjectM Emscripten build pipeline and CMake con
 
 ### 2. **Emscripten-Specific Optimizations**
 - [ ] WASM module size reduction:
-  - Current output size of projectm-v.024-thread.js
+  - Current output size of projectm-v.030-thread.js
   - Potential for gzip/brotli compression
   - Unused function elimination
   - Dead code stripping effectiveness

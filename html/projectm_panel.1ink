@@ -620,7 +620,7 @@ setTimeout(() => {
     scr.charset = 'utf-8';
     scr.type = 'text/javascript';
     scr.defer = true;
-    scr.src = "./pm/projectm-v.024-thread.1ijs";
+    scr.src = "./pm/projectm-v.030-thread.1ijs";
     document.body.appendChild(scr);
 
     setTimeout(() => {

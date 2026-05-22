@@ -18,9 +18,9 @@ PORT="${PORT:-22}"
 
 REMOTE_BASES=("wasm.noahcohn.com/pm/" "noahcohn.com/pm/")
 UPLOAD_FILES=(
-    "projectm-v.024-thread.1ijs"
-    "projectm-v.024-thread.wasm"
-    "projectm-v.024-thread.3ijs"
+    "projectm-v.030-thread.1ijs"
+    "projectm-v.030-thread.wasm"
+    "projectm-v.030-thread.3ijs"
 )
 
 if [ ! -d "$PROJECT_ROOT" ]; then

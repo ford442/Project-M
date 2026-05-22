@@ -113,7 +113,7 @@ source "$EMSDK_ENV"
 emcc projectM_emscripten.cpp \
     -I /usr/local/include -O3 \
     -l embind -pthread -fopenmp "$PROJECT_ROOT/libomp.a" \
-    -o projectm-v.024-thread.js \
+    -o projectm-v.030-thread.js \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s NO_DISABLE_EXCEPTION_CATCHING=1 \
     -s ENVIRONMENT=web,worker \
@@ -133,8 +133,8 @@ emcc projectM_emscripten.cpp \
 
 echo "=== Running optimize.sh and creating UTF-16/UTF-32 versions ==="
 bash "$PROJECT_ROOT/optimize.sh" || echo "Warning: optimize.sh returned non-zero"
-iconv -f UTF-8 -t UTF-16 "$PROJECT_ROOT/projectm-v.024-thread.js" -o "$PROJECT_ROOT/projectm-v.024-thread.1ijs"
-iconv -f UTF-8 -t UTF-32 "$PROJECT_ROOT/projectm-v.024-thread.js" -o "$PROJECT_ROOT/projectm-v.024-thread.3ijs"
+iconv -f UTF-8 -t UTF-16 "$PROJECT_ROOT/projectm-v.030-thread.js" -o "$PROJECT_ROOT/projectm-v.030-thread.1ijs"
+iconv -f UTF-8 -t UTF-32 "$PROJECT_ROOT/projectm-v.030-thread.js" -o "$PROJECT_ROOT/projectm-v.030-thread.3ijs"
 
 echo "=== Colab build complete ==="
-echo "Output files: $PROJECT_ROOT/projectm-v.024-thread.js, .1ijs, .3ijs"
+echo "Output files: $PROJECT_ROOT/projectm-v.030-thread.js, .1ijs, .3ijs"

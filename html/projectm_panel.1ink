@@ -296,9 +296,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 <!-- Preset Display -->
 <div id="preset-name">Preset: --</div>
 
-<!-- Hidden data -->
-<div hidden id="birdsongPath">https://www.noahcohn.com/birdsongs/26HouseFinchSong.mp3</div>
-<div hidden id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
+<!-- Hidden data --><div hidden id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
 <div hidden id="textureDir">textures/</div>
 <div hidden id="songDir">songs/</div>
 <div hidden id="presetDir">default</div>

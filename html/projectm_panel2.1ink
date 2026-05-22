@@ -185,8 +185,9 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 </section>
 
 <!-- Bezel assets -->
-<img src='./unglass.png' id="gl" alt="Glass" style="display:none;">
-<img src='./bezel.jpg' id="frm" hidden alt="Frame"/>
+<img src='https://projectm.1ink.us/unglass.png' id="gl" alt="Glass" style="display:none;">
+<img src='https://projectm.1ink.us/bezel.jpg' id="frm" hidden alt="Frame"/>
+
 <canvas id="tcan" hidden></canvas>
 
 <script>

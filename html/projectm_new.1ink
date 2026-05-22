@@ -572,7 +572,7 @@ document.getElementById("startBtn5").addEventListener('click', function() {
     scr.charset = 'utf-8';
     scr.type = 'text/javascript';
     scr.defer = true;
-    scr.src = "./pm/projectm-v.026-thread.1ijs";   // ← adjust path if needed
+    scr.src = "./pm/projectm-v.030-thread.1ijs";   // ← adjust path if needed
     document.body.appendChild(scr);
 
     setTimeout(function() {

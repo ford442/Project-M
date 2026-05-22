@@ -490,6 +490,18 @@ function toggleFullscreen() {
     }
 }
 
+// Expose handlers globally so inline onclick attributes can find them
+// (module scripts don't expose top-level declarations to window).
+window.lockPreset = lockPreset;
+window.hidePanel = hidePanel;
+window.showPanel = showPanel;
+window.flacPlayer = flacPlayer;
+window.startChangeSong = startChangeSong;
+window.randomPreset = randomPreset;
+window.fullWindow = fullWindow;
+window.randomCustom = randomCustom;
+window.toggleFullscreen = toggleFullscreen;
+
 // ====== CANVAS MANAGEMENT ======
 function updateLayout() {
     const mcanvas = document.querySelector('#mcanvas');

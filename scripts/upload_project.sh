@@ -24,8 +24,7 @@ FILES=(
 
 # Both destinations (matches your original script)
 REMOTE_BASES=(
-    "wasm.noahcohn.com/pm/"
-    "noahcohn.com/pm/"
+    "projectm.1ink.us/"
 )
 # =====================================
 

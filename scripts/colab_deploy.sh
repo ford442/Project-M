@@ -16,7 +16,7 @@ USERNAME="${USERNAME:-ford442}"
 PASSWORD="${PASSWORD:-${SFTP_PASS:-GoogleBez12!}}"
 PORT="${PORT:-22}"
 
-REMOTE_BASES=("wasm.noahcohn.com/pm/" "noahcohn.com/pm/")
+REMOTE_BASES=("projectm.1ink.us/")
 UPLOAD_FILES=(
     "projectm-v.024-thread.1ijs"
     "projectm-v.024-thread.wasm"

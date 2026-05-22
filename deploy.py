@@ -14,7 +14,7 @@ files = [
 ]
 
 local_dir = "/root/Project-M"
-remote_bases = ["wasm.noahcohn.com/pm/", "noahcohn.com/pm/"]
+remote_bases = ["projectm.1ink.us/"]
 
 for filename in files:
     local_path = os.path.join(local_dir, filename)

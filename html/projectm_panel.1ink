@@ -265,7 +265,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 <!-- Control Panel -->
 <div class="panel-container" id="panel-container">
   <div class="panel-bg">
-    <img src="./panel-bg.jpg" alt="Control Panel"/>
+    <img src="./image/panel-bg.jpg" alt="Control Panel"/>
   </div>
 
   <div class="led-ring" aria-hidden="true">

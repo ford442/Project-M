@@ -405,10 +405,13 @@ function flacPlayer() {
   section.style.display = visible ? 'none' : 'block';
 }
 function fullWindow() {
-  isBezelMode = true;
+  isBezelMode = !isBezelMode;
+  if (!isBezelMode && document.fullscreenElement) {
+    document.exitFullscreen().catch(()=>{});
+  }
   updateLayout();
   syncModuleSize();
-  drawBezel();
+  if (isBezelMode) drawBezel();
 }
 function lockPreset() {
   isPresetLocked = !isPresetLocked;

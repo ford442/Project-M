@@ -138,8 +138,8 @@ img[id^="logo"] {
 /* Control Buttons - positioned around the circular panel */
 .control-btn {
   position: absolute;
-  width: 60px;
-  height: 50px;
+  width: 75px;
+  height: 55px;
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -177,50 +177,50 @@ img[id^="logo"] {
 /* Calibrated to overlay button artwork in panel-bg.jpg (768px source -> 409px container) */
 /* Hide Controls (top-left) */
 .hide-controls-btn {
-  left: 87px;
-  top: 90px;
+  left: 80px;
+  top: 88px;
 }
 
 /* Lock Preset (top-center) */
 .lock-preset-btn {
-  left: 175px;
-  top: 63px;
+  left: 167px;
+  top: 60px;
 }
 
 /* Flac Player (top-right) */
 .flac-player-btn {
-  left: 266px;
-  top: 90px;
+  left: 258px;
+  top: 88px;
 }
 
 /* Start / Change Song (left) */
 .music-btn {
-  left: 58px;
-  top: 178px;
+  left: 50px;
+  top: 176px;
 }
 
 /* Random Preset (right) */
 .random-preset-btn {
-  left: 295px;
-  top: 178px;
+  left: 287px;
+  top: 176px;
 }
 
 /* Full Window (bottom-left) */
 .full-window-btn {
-  left: 85px;
-  bottom: 96px;
+  left: 78px;
+  bottom: 93px;
 }
 
 /* Fullscreen (bottom-center) */
 .fullscreen-btn {
-  left: 175px;
-  bottom: 70px;
+  left: 167px;
+  bottom: 67px;
 }
 
 /* Random Custom (bottom-right) */
 .custom-milk-btn {
-  left: 266px;
-  bottom: 96px;
+  left: 258px;
+  bottom: 93px;
 }
 
 /* API Preset Button - hidden but functional */

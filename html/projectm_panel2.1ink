@@ -1,10 +1,15 @@
 <meta charset="utf-8">
 <html lang="en">
 <head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel='preconnect' href='https://wasm.noahcohn.com'>
 <link rel='preconnect' href='https://js.1ink.us'>
 <link rel='preconnect' href='https://glsl.1ink.us'>
+<link rel='preconnect' href='https://storage.1ink.us'>
+<link rel="preload" as="image" href="./image/panel-bg.jpg" fetchpriority="high">
+<link rel="preload" as="image" href="./image/shroud.jpg">
+<link rel="preload" as="script" href="./pm/projectm-v.030-thread.1ijs">
+<title>B3HD • ProjectM</title>
 <title>1ink.us • ProjectM</title>
 
 <style>
@@ -175,7 +180,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 <div hidden id="lns">1</div>
 <div hidden id="presetDir">default</div>
 <div hidden id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
-<div hidden id="birdsongPath">https://www.noahcohn.com/birdsongs/26HouseFinchSong.mp3</div>
+<div hidden id="birdsongPath">https://projectm.1ink.us/birdsongs/26HouseFinchSong.mp3</div>
 
 <audio crossorigin id="track" preload="none" style="pointer-events:none;"></audio>
 
@@ -186,9 +191,8 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 </section>
 
 <!-- Bezel assets -->
-<img src='https://projectm.1ink.us/unglass.png' id="gl" alt="Glass" style="display:none;">
-<img src='https://projectm.1ink.us/bezel.jpg' id="frm" hidden alt="Frame"/>
-
+<img src='https://projectm.1ink.us/unglass.png' id="gl" alt="Glass" style="display:none;" crossorigin="anonymous">
+<img src='https://projectm.1ink.us/bezel.jpg' id="frm" hidden alt="Frame" crossorigin="anonymous"/>
 <canvas id="tcan" hidden></canvas>
 
 <script>
@@ -213,12 +217,26 @@ function op(sz){
 }
 
 function drawBezel(){
+  img = document.querySelector('#frm');
+  imgb = document.querySelector('#gl');
+
+  // Defer until both bezel images are loaded
+  if (!img.complete || !img.naturalWidth || !imgb.complete || !imgb.naturalWidth) {
+    const onLoad = () => {
+      img.removeEventListener('load', onLoad);
+      imgb.removeEventListener('load', onLoad);
+      drawBezel();
+    };
+    img.addEventListener('load', onLoad);
+    imgb.addEventListener('load', onLoad);
+    return;
+  }
+
   hi = window.innerHeight;
   rec = Math.round(window.innerWidth);
   document.querySelector('#circle').width = rec;
   document.querySelector('#circle').height = hi;
 
-  imgb = document.querySelector('#gl');
   glas = Math.round(hi * 1.133);
   imgb.height = glas; imgb.width = glas;
 
@@ -228,7 +246,6 @@ function drawBezel(){
   tc = document.querySelector('#tcan');
   tc.height = hi;
 
-  img = document.querySelector('#frm');
   mdd = Math.round((rec - glas) / 2);
   gtop = Math.round((imgb.height - hi) / 2);
   imgb.style.cssText = `position:absolute;left:${mdd}px;right:${mdd}px;z-index:555;top:-${gtop}px;`;
@@ -359,7 +376,7 @@ function getPresetDir() {
   return (el && el.innerHTML.trim() !== 'default') ? el.innerHTML.trim() : 'any';
 }
 
-async function fetchApiPreset(apiBase = 'https://storage.noahcohn.com') {
+async function fetchApiPreset(apiBase = 'https://storage.1ink.us') {
   const dir = getPresetDir();
   const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
   if (!res.ok) throw new Error('API error');
@@ -374,7 +391,7 @@ async function fetchApiPreset(apiBase = 'https://storage.noahcohn.com') {
 }
 
 async function loadStartupApiPresets(count = 5) {
-  const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
+  const apiBase = localStorage.getItem('apiBase') || 'https://storage.1ink.us';
   const results = [];
   for (let i = 0; i < count; i++) {
     try {
@@ -509,6 +526,17 @@ document.addEventListener('keydown', e => {
 // ===== INITIALIZATION =====
 updateLayout();
 
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const scr = document.createElement('script');
+    scr.src = src;
+    scr.async = true;
+    scr.charset = 'utf-8';
+    scr.onload = () => resolve();
+    scr.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.body.appendChild(scr);
+  });
+}
 setTimeout(() => { document.getElementById('splash2').style.display = 'none'; }, 5200);
 setTimeout(() => { document.getElementById('splash1').style.display = 'none'; }, 5500);
 
@@ -518,34 +546,37 @@ setTimeout(() => {
   scr.src = "./projectm-v.030b-thread.1ijs";
   document.body.appendChild(scr);
 
-  setTimeout(async () => {
-    try {
-      Module = await createModule();
-      Module._init();
-      updateLayout();
-      syncModuleSize();
+async function initProjectM() {
+  try {
+    await loadScript('./pm/projectm-v.030-thread.1ijs');
+    Module = await createModule();
+    Module._init();
+    updateLayout();
+    syncModuleSize();
 
-      const mcanvas = document.querySelector('#mcanvas');
-      Module._start_render(mcanvas.width, mcanvas.height);
+    document.getElementById('splash2').style.display = 'none';
+    requestAnimationFrame(() => {
+      document.getElementById('splash1').style.display = 'none';
+    });
 
-      const startup = await loadStartupApiPresets(5);
-      if (startup.length > 0) {
-        Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
-        window.updatePresetDisplay(startup[0].filename);
-        for (let i = 1; i < startup.length; i++) {
-          Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
-        }
+    const mcanvas = document.querySelector('#mcanvas');
+    Module._start_render(mcanvas.width, mcanvas.height);
+
+    document.getElementById('musicBtn').click();
+
+    const startup = await loadStartupApiPresets(5);
+    if (startup.length > 0) {
+      Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
+      window.updatePresetDisplay(startup[0].filename);
+      for (let i = 1; i < startup.length; i++) {
+        Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
       }
-    } catch (err) {
-      console.error('projectM init failed:', err);
     }
-  }, 900);
-}, 750);
+  } catch (err) {
+    console.error('projectM init failed:', err);
+  }
+}
 
-// Auto click music button after load
-setTimeout(() => {
-  const mb = document.getElementById('musicBtn');
-  if (mb) mb.click();
-}, 3200);
+initProjectM();
 </script>
 </body>

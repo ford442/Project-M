@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<meta charset="utf-8">
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10,6 +10,7 @@
 <link rel="preload" as="image" href="./image/shroud.jpg">
 <link rel="preload" as="script" href="./pm/projectm-v.030-thread.1ijs">
 <title>B3HD • ProjectM</title>
+<title>1ink.us • ProjectM</title>
 
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -157,14 +158,15 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
   </div>
 
   <!-- Clickable areas -->
-  <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:9%;left:34%;width:32%;height:12%;"></button>
-  <button onclick="hidePanel()" class="clickable-button" style="top:16%;left:10%;width:22%;height:16%;"></button>
-  <button onclick="flacPlayer()" class="clickable-button" style="top:16%;right:10%;width:22%;height:16%;"></button>
-  <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top:34%;left:2%;width:22%;height:18%;"></button>
-  <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top:34%;right:2%;width:22%;height:18%;"></button>
-  <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top:52%;left:10%;width:22%;height:16%;"></button>
-  <button id="customMilkBtn" onclick="randomCustom()" class="clickable-button" style="top:52%;right:10%;width:22%;height:16%;"></button>
-  <button onclick="toggleFullscreen()" class="clickable-button" style="top:67%;left:34%;width:32%;height:13%;"></button>
+  <!-- Calibrated against panel-bg.jpg (circular ring of 8 buttons around centered knob) -->
+  <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:14%;left:34%;width:32%;height:12%;"></button>
+  <button onclick="hidePanel()" class="clickable-button" style="top:22%;left:14%;width:22%;height:16%;"></button>
+  <button onclick="flacPlayer()" class="clickable-button" style="top:22%;right:14%;width:22%;height:16%;"></button>
+  <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top:38%;left:6%;width:22%;height:18%;"></button>
+  <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top:38%;right:6%;width:22%;height:18%;"></button>
+  <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top:56%;left:14%;width:22%;height:16%;"></button>
+  <button id="customMilkBtn" onclick="randomCustom()" class="clickable-button" style="top:56%;right:14%;width:22%;height:16%;"></button>
+  <button onclick="toggleFullscreen()" class="clickable-button" style="top:64%;left:34%;width:32%;height:13%;"></button>
 
   <div id="knob" class="knob"></div>
 </div>
@@ -185,7 +187,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 <!-- FLAC Player -->
 <section id="flacPlayerSection" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div style="text-align:center;color:#ccc;font-family:'Lucida Console',monospace;font-size:12px;padding:0.5rem;background:#111;">FLAC Player</div>
-  <iframe id="flacFrame" src="https://test.1ink.us/flac_player" style="width:100%;height:calc(100% - 24px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+  <iframe id="flacFrame" src="https://projectm.1ink.us/flac-player" style="width:100%;height:calc(100% - 24px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
 
 <!-- Bezel assets -->
@@ -328,6 +330,9 @@ function hidePanel() {
   setTimeout(() => {
     panelContainer.style.display = 'none';
     document.getElementById('show-btn').classList.remove('hidden');
+    document.getElementById('logo-left').style.opacity='0';
+    document.getElementById('logo-right').style.opacity='0';
+    document.getElementById('preset-name').style.opacity='0';
   }, 280);
 }
 function showPanel() {
@@ -336,6 +341,9 @@ function showPanel() {
   setTimeout(() => {
     panelContainer.style.transition = 'all 0.3s ease';
     panelContainer.style.opacity = '1';
+        document.getElementById('logo-left').style.opacity='1';
+    document.getElementById('logo-right').style.opacity='1';
+    document.getElementById('preset-name').style.opacity='1';
   }, 10);
   document.getElementById('show-btn').classList.add('hidden');
 }
@@ -414,10 +422,13 @@ function flacPlayer() {
   section.style.display = visible ? 'none' : 'block';
 }
 function fullWindow() {
-  isBezelMode = true;
+  isBezelMode = !isBezelMode;
+  if (!isBezelMode && document.fullscreenElement) {
+    document.exitFullscreen().catch(()=>{});
+  }
   updateLayout();
   syncModuleSize();
-  drawBezel();
+  if (isBezelMode) drawBezel();
 }
 function lockPreset() {
   isPresetLocked = !isPresetLocked;
@@ -526,6 +537,14 @@ function loadScript(src) {
     document.body.appendChild(scr);
   });
 }
+setTimeout(() => { document.getElementById('splash2').style.display = 'none'; }, 5200);
+setTimeout(() => { document.getElementById('splash1').style.display = 'none'; }, 5500);
+
+setTimeout(() => {
+  const scr = document.createElement("script");
+  scr.async = true; scr.charset = 'utf-8'; scr.type = 'text/javascript'; scr.defer = true;
+  scr.src = "./projectm-v.030b-thread.1ijs";
+  document.body.appendChild(scr);
 
 async function initProjectM() {
   try {
@@ -561,4 +580,3 @@ async function initProjectM() {
 initProjectM();
 </script>
 </body>
-</html>

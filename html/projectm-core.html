@@ -590,7 +590,14 @@ function randomCustom() {
 }
 
 function flacPlayer() {
-    console.log('[ProjectM] Flac Player');
+    // Real implementation: opens the external FLAC player popup (or iframe in other UIs)
+    // which should send PCM audio back via postMessage (preferred) or the legacy BroadcastChannel.
+    openFlacPlayer();
+}
+
+function modPlayer() {
+    // Opens the external MOD player (tracker playback). See openModPlayer for details.
+    openModPlayer();
 }
 
 function lockPreset() {
@@ -670,38 +677,98 @@ function updateLayout() {
     }
 }
 
-// ====== POPUP AUDIO SOURCE ======
-const AUDIO_CHANNEL_NAME = 'projectm-audio';
+// ====== EXTERNAL PLAYER AUDIO SOURCE (mod-player + flac_player) ======
+// These players run in popups or iframes (often cross-origin) and push raw PCM
+// so projectM can visualize tracker modules and FLAC files that the browser
+// cannot decode directly in all configurations.
+//
+// Communication contract (updated for reliability):
+//   Child (player) sends: window.opener.postMessage({type:'pcm', buffer: Float32Array, channels?:1|2}, '*')
+//                         or parent.postMessage(...) when embedded as iframe.
+//   Legacy fallback: BroadcastChannel('projectm-audio') is still listened to for same-origin cases.
+//
+// The receiver here uses postMessage (works cross-origin) + a pre-allocated transfer
+// buffer (avoids per-chunk malloc like the worklet path does) + proper channel handling.
+
+const AUDIO_CHANNEL_NAME = 'projectm-audio'; // legacy
 let flacPlayerPopup = null;
 let modPlayerPopup = null;
 let audioChannel = null;
 
-function feedPCMToModule(buffer) {
+// Pre-allocated transfer buffer (mirrors the strategy in projectM_emscripten.cpp worklet path).
+// projectM's analysis only needs the most recent ~576 samples; we support up to 2048.
+let pcmTransferPtr = 0;
+const PCM_TRANSFER_CAP = 2048; // floats
+
+function ensurePcmTransferBuffer() {
+    if (pcmTransferPtr) return pcmTransferPtr;
+    if (!Module || !Module._malloc) return 0;
+    pcmTransferPtr = Module._malloc(PCM_TRANSFER_CAP * 4);
+    return pcmTransferPtr;
+}
+
+function feedPCMToModule(buffer, channels = 2) {
     if (!(buffer instanceof Float32Array)) return;
-    if (!Module || !Module._projectm_pcm_add_float_wrapper || !Module._malloc || !Module._free) return;
-    const len = buffer.length;
-    if (len === 0) return;
-    const ptr = Module._malloc(len * 4);
-    if (!ptr) return;
+    if (!Module || !Module._projectm_pcm_add_float_wrapper) return;
+
+    const totalSamples = buffer.length;
+    if (totalSamples === 0 || channels < 1) return;
+
+    const samplesPerChannel = Math.floor(totalSamples / channels);
+    if (samplesPerChannel === 0) return;
+
+    // Choose prealloc if it fits; otherwise fall back (rare for normal audio chunks).
+    let ptr = 0;
+    let usedPrealloc = false;
+    const neededBytes = totalSamples * 4;
+    if (totalSamples <= PCM_TRANSFER_CAP) {
+        ptr = ensurePcmTransferBuffer();
+        if (ptr) usedPrealloc = true;
+    }
+    if (!ptr) {
+        ptr = Module._malloc(neededBytes);
+        if (!ptr) return;
+    }
+
     try {
         Module.HEAPF32.set(buffer, ptr >> 2);
-        // pm_handle_value (first arg) is unused by the wrapper; pass 0 as a placeholder
-        // Treat as interleaved stereo (L, R, L, R, …); samplesPerChannel = len / 2
-        Module._projectm_pcm_add_float_wrapper(0, ptr, len / 2, 2);
+        // channels can be 1 (mono, duplicated inside PCM::Add) or 2 (stereo interleaved LRLR...)
+        Module._projectm_pcm_add_float_wrapper(0, ptr, samplesPerChannel, channels);
     } finally {
-        Module._free(ptr);
+        if (!usedPrealloc && ptr && Module._free) {
+            Module._free(ptr);
+        }
     }
 }
 
-function ensureAudioChannel() {
-    if (audioChannel) return;
-    audioChannel = new BroadcastChannel(AUDIO_CHANNEL_NAME);
-    audioChannel.onmessage = (e) => {
-        if (e.data?.type === 'pcm' && e.data.buffer instanceof Float32Array) {
-            feedPCMToModule(e.data.buffer);
+function setupExternalAudioReceiver() {
+    // 1) Modern postMessage path (works for popups via opener + iframes via parent, cross-origin safe)
+    window.addEventListener('message', (event) => {
+        const d = event.data;
+        if (d && d.type === 'pcm' && d.buffer instanceof Float32Array) {
+            // In production you may want: if (event.origin !== 'https://allowed') return;
+            feedPCMToModule(d.buffer, d.channels || 2);
         }
-    };
+    });
+
+    // 2) Legacy BroadcastChannel fallback (only works same-origin)
+    if (!audioChannel) {
+        try {
+            audioChannel = new BroadcastChannel(AUDIO_CHANNEL_NAME);
+            audioChannel.onmessage = (e) => {
+                const d = e.data;
+                if (d?.type === 'pcm' && d.buffer instanceof Float32Array) {
+                    feedPCMToModule(d.buffer, d.channels || 2);
+                }
+            };
+        } catch (e) {
+            console.warn('BroadcastChannel not available for legacy audio path:', e);
+        }
+    }
 }
+
+// Call once early so the listener is always active.
+setupExternalAudioReceiver();
 
 function openFlacPlayer() {
     const url = localStorage.getItem('flacPlayerUrl') ||
@@ -710,9 +777,9 @@ function openFlacPlayer() {
     flacPlayerPopup = window.open(url, 'flac-player',
         'width=500,height=650,resizable=yes,scrollbars=no');
     if (!flacPlayerPopup) {
-        console.warn('FLAC player popup was blocked. Please allow popups for this site.');
+        console.warn('FLAC player popup was blocked. Please allow popups for this site. The player page must use postMessage to send PCM: window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")');
     }
-    ensureAudioChannel();
+    // Receiver is already set up globally; no need to re-ensure per open.
 }
 
 function openModPlayer() {
@@ -722,18 +789,21 @@ function openModPlayer() {
     modPlayerPopup = window.open(url, 'mod-player',
         'width=500,height=650,resizable=yes,scrollbars=no');
     if (!modPlayerPopup) {
-        console.warn('MOD player popup was blocked. Please allow popups for this site.');
+        console.warn('MOD player popup was blocked. Please allow popups for this site. The player page must use postMessage to send PCM: window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")');
     }
-    ensureAudioChannel();
 }
 
-document.getElementById('flacPlayerBtn').addEventListener('click', function() {
-    openFlacPlayer();
-});
+// Safe button wiring (guarded; the core panel uses the flacPlayer() / modPlayer() shims above)
+const flacBtn = document.getElementById('flacPlayerBtn');
+if (flacBtn) flacBtn.addEventListener('click', openFlacPlayer);
 
-document.getElementById('modPlayerBtn').addEventListener('click', function() {
-    openModPlayer();
-});
+const modBtn = document.getElementById('modPlayerBtn');
+if (modBtn) modBtn.addEventListener('click', openModPlayer);
+
+// Expose helpers for console / external scripts
+window.openFlacPlayer = openFlacPlayer;
+window.openModPlayer = openModPlayer;
+window.feedPCMToModuleForDebug = (buf, ch) => feedPCMToModule(buf, ch);
 
 function syncModuleSize() {
     const contain1 = document.querySelector('#contain1');
@@ -797,6 +867,137 @@ if (contain1El) {
 }
 
 window.addEventListener('resize', updateLayout);
+
+// Inject minimal visible launcher buttons for the external players if the panel
+// image map doesn't have dedicated hit zones for them yet. Positioned top-left
+// to match historical .mod-player-btn / flac intent. Safe: only created once.
+function ensurePlayerLaunchButtons() {
+    if (document.getElementById('modPlayerLaunchBtn')) return;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .pm-ext-player-btn {
+        position: fixed; z-index: 3500; width: 28px; height: 22px;
+        background: #222; color: #0f0; border: 1px solid #0a0; border-radius: 3px;
+        font: 10px/1 'Lucida Console', monospace; cursor: pointer; opacity: 0.85;
+      }
+      .pm-ext-player-btn:hover { opacity: 1; background:#111; }
+    `;
+    document.head.appendChild(style);
+
+    const modBtn = document.createElement('button');
+    modBtn.id = 'modPlayerLaunchBtn';
+    modBtn.className = 'pm-ext-player-btn';
+    modBtn.textContent = 'MOD';
+    modBtn.title = 'Open MOD Player (tracker) — sends PCM via postMessage';
+    modBtn.style.left = '8px';
+    modBtn.style.top = '8px';
+    modBtn.onclick = () => window.openModPlayer && window.openModPlayer();
+    document.body.appendChild(modBtn);
+
+    const flacBtn2 = document.createElement('button');
+    flacBtn2.id = 'flacPlayerLaunchBtn';
+    flacBtn2.className = 'pm-ext-player-btn';
+    flacBtn2.textContent = 'FLAC';
+    flacBtn2.title = 'Open FLAC Player — sends PCM via postMessage';
+    flacBtn2.style.left = '40px';
+    flacBtn2.style.top = '8px';
+    flacBtn2.onclick = () => window.openFlacPlayer && window.openFlacPlayer();
+    document.body.appendChild(flacBtn2);
+}
+
+// Run after first paint so the rest of the UI is there.
+setTimeout(ensurePlayerLaunchButtons, 1200);
+
+// ====== LOCAL TEST SENDER HELPER (for developing the bridge without the real players) ======
+let testSenderRaf = null;
+let testSenderAnalyser = null;
+let testSenderContext = null;
+let testSenderChannel = null;
+
+window.startLocalProjectMTestSender = async function(useMic = false) {
+  if (testSenderRaf) { console.warn("Test sender already running"); return; }
+
+  testSenderContext = new (window.AudioContext || window.webkitAudioContext)();
+  const analyser = testSenderContext.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.2;
+
+  if (useMic) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const source = testSenderContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      console.log("[TestSender] Using microphone input for projectM PCM");
+    } catch (e) {
+      console.error("Mic access denied, falling back to generated tone", e);
+      useMic = false;
+    }
+  }
+
+  if (!useMic) {
+    const osc = testSenderContext.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = 110;
+    const gain = testSenderContext.createGain();
+    gain.gain.value = 0.3;
+    const filter = testSenderContext.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 800;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(analyser);
+    osc.start();
+    console.log("[TestSender] Using generated tone (saw + filter) for projectM PCM");
+  }
+
+  testSenderAnalyser = analyser;
+  testSenderChannel = new BroadcastChannel("projectm-audio"); // legacy
+
+  const buf = new Float32Array(analyser.fftSize);
+  const tick = () => {
+    analyser.getFloatTimeDomainData(buf);
+    const copy = buf.slice(0); // copy because the view is live
+
+    // Modern primary path
+    try {
+      if (window.opener) window.opener.postMessage({ type: "pcm", buffer: copy, channels: 1 }, "*");
+      if (window.parent && window.parent !== window) window.parent.postMessage({ type: "pcm", buffer: copy, channels: 1 }, "*");
+    } catch (e) {}
+
+    // Legacy BC (for older hosts)
+    try { testSenderChannel.postMessage({ type: "pcm", buffer: copy, channels: 1 }); } catch (e) {}
+
+    testSenderRaf = requestAnimationFrame(tick);
+  };
+
+  testSenderRaf = requestAnimationFrame(tick);
+  console.log("%c[projectM Test Sender] Running — PCM is now being sent locally. Call window.stopLocalProjectMTestSender() to stop.", "color:#0f0");
+};
+
+window.stopLocalProjectMTestSender = function() {
+  if (testSenderRaf) cancelAnimationFrame(testSenderRaf);
+  testSenderRaf = null;
+  if (testSenderChannel) { try { testSenderChannel.close(); } catch {} }
+  if (testSenderContext) { try { testSenderContext.close(); } catch {} }
+  testSenderAnalyser = testSenderContext = testSenderChannel = null;
+  console.log("[projectM Test Sender] Stopped");
+};
+
+// Convenience: a tiny floating debug panel for the test sender (only in dev)
+if (location.hostname === "localhost" || location.hostname === "127.0.0.1" || location.search.includes("debugSender")) {
+  setTimeout(() => {
+    const panel = document.createElement("div");
+    panel.style.cssText = "position:fixed;bottom:8px;right:8px;z-index:99999;background:#111;color:#0f0;font:11px/1.3 monospace;padding:6px 10px;border:1px solid #0a0;border-radius:4px;opacity:0.9";
+    panel.innerHTML = `
+      <div style="margin-bottom:4px;font-weight:bold">projectM Sender Test</div>
+      <button onclick="window.startLocalProjectMTestSender(false)" style="margin-right:4px">Tone → PM</button>
+      <button onclick="window.startLocalProjectMTestSender(true)">Mic → PM</button>
+      <button onclick="window.stopLocalProjectMTestSender()" style="margin-left:4px">Stop</button>
+    `;
+    document.body.appendChild(panel);
+  }, 2000);
+}
 
 // ====== INITIALIZATION ======
 updateLayout();

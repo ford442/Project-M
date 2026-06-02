@@ -565,12 +565,19 @@ let pcmTransferPtr = 0;
 const PCM_TRANSFER_CAP = 2048;
 const pendingExternalPCM = [];
 const MAX_PENDING_EXTERNAL_PCM = 24;
+const DEFAULT_EXTERNAL_PCM_ORIGINS = new Set([
+    window.location.origin,
+    'https://test.1ink.us',
+    'https://projectm.1ink.us',
+    'https://flac.1ink.us',
+    'https://mod.1ink.us'
+].filter(Boolean));
 
 // External PCM bridge receiver architecture:
 // - Sender side (popup/iframe) owns timing/clocking (RAF vs audio clock) and posts chunks.
 // - Receiver side (this page) accepts postMessage/BroadcastChannel payloads and forwards PCM to projectM.
 // - Internal audio/worklet pcmData path remains separate; this only handles external bridge traffic.
-// Contract expected from child iframe/popup: postMessage({ type: 'pcm', buffer: Float32Array, channels: 1|2, sampleRate? }, '*')
+// Contract expected from child iframe/popup: postMessage({ type: 'pcm', buffer: Float32Array, channels: 1|2, sampleRate? }, targetOrigin)
 function moduleCanAcceptExternalPCM() {
     return !!(Module && Module.HEAPF32 && Module._projectm_pcm_add_float_wrapper && Module._malloc);
 }
@@ -584,6 +591,7 @@ function ensurePcmTransferBuffer() {
 
 function queueExternalPCM(buffer, channels, sampleRate) {
     if (pendingExternalPCM.length >= MAX_PENDING_EXTERNAL_PCM) {
+        console.warn('[projectM external PCM] queue full, dropping oldest chunk');
         pendingExternalPCM.shift();
     }
     pendingExternalPCM.push({ buffer, channels, sampleRate });
@@ -625,6 +633,7 @@ function feedPCMToModule(buffer, channels = 2, sampleRate) {
     }
 
     try {
+        // Convert byte pointer to Float32 index (divide by 4).
         Module.HEAPF32.set(buffer, ptr >> 2);
         Module._projectm_pcm_add_float_wrapper(0, ptr, samplesPerChannel, ch);
         console.debug('[projectM external PCM] fed chunk', {
@@ -648,8 +657,26 @@ function flushQueuedExternalPCM() {
     }
 }
 
+function isTrustedExternalPcmOrigin(origin) {
+    try {
+        const raw = localStorage.getItem('externalPcmAllowedOrigins') || '';
+        const allowedOrigins = raw.split(',').map((s) => s.trim()).filter(Boolean);
+        if (allowedOrigins.length > 0) {
+            return allowedOrigins.includes(origin);
+        }
+        return DEFAULT_EXTERNAL_PCM_ORIGINS.has(origin);
+    } catch (_) {
+        console.debug('[projectM external PCM] localStorage unavailable; using default origin allowlist');
+        return DEFAULT_EXTERNAL_PCM_ORIGINS.has(origin);
+    }
+}
+
 function setupExternalAudioReceiver() {
     window.addEventListener('message', (event) => {
+        if (!isTrustedExternalPcmOrigin(event.origin)) {
+            console.debug('[projectM external PCM] ignored untrusted origin:', event.origin);
+            return;
+        }
         const d = event.data;
         if (d && d.type === 'pcm' && d.buffer instanceof Float32Array) {
             feedPCMToModule(d.buffer, d.channels, d.sampleRate);
@@ -672,7 +699,18 @@ function setupExternalAudioReceiver() {
 }
 
 setupExternalAudioReceiver();
-setInterval(flushQueuedExternalPCM, 150);
+const externalPcmFlushInterval = setInterval(flushQueuedExternalPCM, 100);
+window.addEventListener('beforeunload', () => {
+    clearInterval(externalPcmFlushInterval);
+    if (externalAudioChannel) {
+        externalAudioChannel.close();
+        externalAudioChannel = null;
+    }
+    if (pcmTransferPtr && Module && Module._free) {
+        Module._free(pcmTransferPtr);
+        pcmTransferPtr = 0;
+    }
+});
 
 document.getElementById("startBtn5").addEventListener('click', function() {
     if (window._pmLoading || window._pmLoaded) {

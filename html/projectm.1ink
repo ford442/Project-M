@@ -1143,6 +1143,120 @@ document.querySelector('#mvi').style.transform='scaleX(-1.0)';
 <script type="module">
 
 var Module;
+const AUDIO_CHANNEL_NAME = 'projectm-audio';
+let externalAudioChannel = null;
+let pcmTransferPtr = 0;
+const PCM_TRANSFER_CAP = 2048;
+const pendingExternalPCM = [];
+const MAX_PENDING_EXTERNAL_PCM = 24;
+
+// External PCM bridge receiver architecture:
+// - Sender side (popup/iframe) owns timing/clocking (RAF vs audio clock) and posts chunks.
+// - Receiver side (this page) accepts postMessage/BroadcastChannel payloads and forwards PCM to projectM.
+// - Internal audio/worklet pcmData path remains separate; this only handles external bridge traffic.
+// Contract expected from child iframe/popup: postMessage({ type: 'pcm', buffer: Float32Array, channels: 1|2, sampleRate? }, '*')
+function moduleCanAcceptExternalPCM() {
+    return !!(Module && Module.HEAPF32 && Module._projectm_pcm_add_float_wrapper && Module._malloc);
+}
+
+function ensurePcmTransferBuffer() {
+    if (pcmTransferPtr) return pcmTransferPtr;
+    if (!moduleCanAcceptExternalPCM()) return 0;
+    pcmTransferPtr = Module._malloc(PCM_TRANSFER_CAP * 4);
+    return pcmTransferPtr;
+}
+
+function queueExternalPCM(buffer, channels, sampleRate) {
+    if (pendingExternalPCM.length >= MAX_PENDING_EXTERNAL_PCM) {
+        pendingExternalPCM.shift();
+    }
+    pendingExternalPCM.push({ buffer, channels, sampleRate });
+}
+
+function feedPCMToModule(buffer, channels = 2, sampleRate) {
+    if (!(buffer instanceof Float32Array)) {
+        console.debug('[projectM external PCM] ignored non-Float32Array payload');
+        return;
+    }
+
+    const ch = channels === 1 ? 1 : 2;
+    if (channels !== 1 && channels !== 2) {
+        console.debug('[projectM external PCM] invalid channels value; defaulting to stereo:', channels);
+    }
+
+    if (ch === 2 && (buffer.length % 2) !== 0) {
+        console.debug('[projectM external PCM] rejected odd-length stereo payload:', buffer.length);
+        return;
+    }
+
+    const samplesPerChannel = ch === 1 ? buffer.length : (buffer.length / 2);
+    if (samplesPerChannel <= 0) return;
+
+    if (!moduleCanAcceptExternalPCM()) {
+        queueExternalPCM(buffer, ch, sampleRate);
+        return;
+    }
+
+    let ptr = 0;
+    let usedPrealloc = false;
+    if (buffer.length <= PCM_TRANSFER_CAP) {
+        ptr = ensurePcmTransferBuffer();
+        usedPrealloc = !!ptr;
+    }
+    if (!ptr) {
+        ptr = Module._malloc(buffer.length * 4);
+        if (!ptr) return;
+    }
+
+    try {
+        Module.HEAPF32.set(buffer, ptr >> 2);
+        Module._projectm_pcm_add_float_wrapper(0, ptr, samplesPerChannel, ch);
+        console.debug('[projectM external PCM] fed chunk', {
+            channels: ch,
+            samplesPerChannel,
+            totalSamples: buffer.length,
+            sampleRate
+        });
+    } finally {
+        if (!usedPrealloc && ptr && Module._free) {
+            Module._free(ptr);
+        }
+    }
+}
+
+function flushQueuedExternalPCM() {
+    if (!moduleCanAcceptExternalPCM() || pendingExternalPCM.length === 0) return;
+    while (pendingExternalPCM.length) {
+        const next = pendingExternalPCM.shift();
+        feedPCMToModule(next.buffer, next.channels, next.sampleRate);
+    }
+}
+
+function setupExternalAudioReceiver() {
+    window.addEventListener('message', (event) => {
+        const d = event.data;
+        if (d && d.type === 'pcm' && d.buffer instanceof Float32Array) {
+            feedPCMToModule(d.buffer, d.channels, d.sampleRate);
+        }
+    });
+
+    if (!externalAudioChannel) {
+        try {
+            externalAudioChannel = new BroadcastChannel(AUDIO_CHANNEL_NAME);
+            externalAudioChannel.onmessage = (e) => {
+                const d = e.data;
+                if (d && d.type === 'pcm' && d.buffer instanceof Float32Array) {
+                    feedPCMToModule(d.buffer, d.channels, d.sampleRate);
+                }
+            };
+        } catch (e) {
+            console.debug('[projectM external PCM] BroadcastChannel unavailable:', e);
+        }
+    }
+}
+
+setupExternalAudioReceiver();
+setInterval(flushQueuedExternalPCM, 150);
 
 document.getElementById("startBtn").addEventListener('click',function(){
 document.getElementById('mvi').play();
@@ -1227,6 +1341,7 @@ document.body.appendChild(scr);
 setTimeout(function(){
 createModule().then(async function(instance) {
 Module=instance;
+flushQueuedExternalPCM();
 window._pmLoading = false;
 window._pmLoaded = true;
 
@@ -1723,6 +1838,7 @@ document.getElementById("flacPlayerBtn").addEventListener('click', function() {
         document.getElementById('menu').style.display = 'block';
         section.style.display = 'block';
         document.getElementById('flacPlayerBtn').style.borderColor = 'yellow';
+        console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
     }
 });
 

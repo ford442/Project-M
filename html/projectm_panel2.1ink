@@ -111,6 +111,28 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
   text-shadow: 1px 1px 2px rgba(0,0,0,0.85);
 }
 
+#audio-player-status {
+  position: fixed; bottom: 5vh; left: 450px; z-index: 3299;
+  font-family: "Lucida Console", "Courier New", monospace; font-size: 13px;
+  color: rgba(180, 220, 255, 0.85); pointer-events: none; white-space: nowrap;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.85);
+}
+
+.ext-player-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  color: #ccc; font-family: 'Lucida Console', monospace; font-size: 12px;
+  padding: 0.5rem 0.75rem; background: #111;
+}
+
+.ext-player-hide {
+  pointer-events: auto; cursor: pointer; border: 1px solid #555; border-radius: 4px;
+  background: #222; color: #ddd; font-family: inherit; font-size: 11px; padding: 0.2rem 0.55rem;
+}
+
+.ext-player-hide:hover { background: #333; border-color: #888; }
+
+#gl { pointer-events: none; }
+
 #show-btn {
   display: none; position: fixed; bottom: 2vh; left: 2vh; z-index: 3301;
   padding: 12px 20px; background: #2a3f5f; color: white; border: 2px solid #555;
@@ -161,7 +183,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
   <!-- Calibrated against panel-bg.jpg (circular ring of 8 buttons around centered knob) -->
   <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:14%;left:34%;width:32%;height:12%;"></button>
   <button onclick="hidePanel()" class="clickable-button" style="top:22%;left:14%;width:22%;height:16%;"></button>
-  <button onclick="flacPlayer()" class="clickable-button" style="top:22%;right:14%;width:22%;height:16%;"></button>
+  <button id="audioPlayerBtn" onclick="cycleAudioPlayer()" class="clickable-button" title="Audio Player — click to cycle FLAC, MOD, or hide" style="top:22%;right:14%;width:22%;height:16%;"></button>
   <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top:38%;left:6%;width:22%;height:18%;"></button>
   <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top:38%;right:6%;width:22%;height:18%;"></button>
   <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top:56%;left:14%;width:22%;height:16%;"></button>
@@ -173,6 +195,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 
 <button onclick="showPanel()" id="show-btn" class="hidden">Show Controls</button>
 
+<div id="audio-player-status">Audio Player</div>
 <div id="preset-name">Preset: --</div>
 
 <!-- Hidden data -->
@@ -184,11 +207,23 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 
 <audio crossorigin id="track" preload="none" style="pointer-events:none;"></audio>
 
-<!-- FLAC Player -->
-<section id="flacPlayerSection" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
-  <div style="text-align:center;color:#ccc;font-family:'Lucida Console',monospace;font-size:12px;padding:0.5rem;background:#111;">FLAC Player</div>
-  <iframe id="flacFrame" src="https://projectm.1ink.us/flac-player" style="width:100%;height:calc(100% - 24px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+<!-- External audio players (PCM via postMessage) -->
+<section id="flacPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
+  <div class="ext-player-header">
+    <span>FLAC Player</span>
+    <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
+  </div>
+  <iframe id="flacFrame" src="https://projectm.1ink.us/flac-player" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
+<section id="modPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
+  <div class="ext-player-header">
+    <span>MOD Player</span>
+    <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
+  </div>
+  <iframe id="modFrame" src="https://mod.1ink.us" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+</section>
+<div hidden id="flacPlayerUrl">https://projectm.1ink.us/flac-player</div>
+<div hidden id="modPlayerUrl">https://mod.1ink.us</div>
 
 <!-- Bezel assets -->
 <img src='https://projectm.1ink.us/unglass.png' id="gl" alt="Glass" style="display:none;" crossorigin="anonymous">
@@ -248,7 +283,7 @@ function drawBezel(){
 
   mdd = Math.round((rec - glas) / 2);
   gtop = Math.round((imgb.height - hi) / 2);
-  imgb.style.cssText = `position:absolute;left:${mdd}px;right:${mdd}px;z-index:555;top:-${gtop}px;`;
+  imgb.style.cssText = `display:block;position:absolute;left:${mdd}px;right:${mdd}px;z-index:555;top:-${gtop}px;`;
 
   nw = img.naturalWidth; nh = img.naturalHeight;
   iww = Math.round((hi / nh) * nw);
@@ -279,6 +314,20 @@ function drawBezel(){
 }
 
 ccs = document.querySelector('#circle');
+
+// Draw once bezel frame assets finish loading (initial page load).
+(function preloadBezelAssets() {
+  const frm = document.querySelector('#frm');
+  const gl = document.querySelector('#gl');
+  if (!frm || !gl) return;
+  const redraw = () => { if (typeof drawBezel === 'function') drawBezel(); };
+  if (frm.complete && gl.complete && frm.naturalWidth && gl.naturalWidth) {
+    redraw();
+  } else {
+    frm.addEventListener('load', redraw, { once: true });
+    gl.addEventListener('load', redraw, { once: true });
+  }
+})();
 </script>
 
 <script type="module">
@@ -485,6 +534,7 @@ function hidePanel() {
     document.getElementById('logo-left').style.opacity='0';
     document.getElementById('logo-right').style.opacity='0';
     document.getElementById('preset-name').style.opacity='0';
+    document.getElementById('audio-player-status').style.opacity='0';
   }, 280);
 }
 function showPanel() {
@@ -496,6 +546,7 @@ function showPanel() {
         document.getElementById('logo-left').style.opacity='1';
     document.getElementById('logo-right').style.opacity='1';
     document.getElementById('preset-name').style.opacity='1';
+    document.getElementById('audio-player-status').style.opacity='1';
   }, 10);
   document.getElementById('show-btn').classList.add('hidden');
 }
@@ -568,16 +619,59 @@ async function loadRandomApiPreset() {
 function startChangeSong() { console.log('[B3HD] Start/Change Song'); }
 function randomPreset() { loadRandomApiPreset(); }
 function randomCustom() { loadRandomApiPreset(); }
-function flacPlayer() {
-  const section = document.getElementById('flacPlayerSection');
-  const visible = section.style.display !== 'none';
-  section.style.display = visible ? 'none' : 'block';
-  if (!visible) {
-    console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
+const AUDIO_PLAYER_SOURCES = [
+  { id: 'none', label: 'Audio Player' },
+  { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' },
+  { id: 'mod', label: 'MOD Player', sectionId: 'modPlayerSection' }
+];
+let activeAudioSourceIndex = 0;
+
+function updateAudioPlayerUi(source) {
+  const status = document.getElementById('audio-player-status');
+  const btn = document.getElementById('audioPlayerBtn');
+  if (status) {
+    status.textContent = source.id === 'none' ? 'Audio Player' : `Audio: ${source.label}`;
+  }
+  if (btn) {
+    btn.classList.toggle('engaged', source.id !== 'none');
+    btn.title = source.id === 'none'
+      ? 'Audio Player — click to open FLAC, MOD, or hide'
+      : `${source.label} active — click to switch or hide`;
   }
 }
+
+function hideAllAudioPlayers() {
+  document.querySelectorAll('.ext-player-section').forEach((section) => {
+    section.style.display = 'none';
+  });
+}
+
+function showAudioPlayer(sourceId) {
+  const source = AUDIO_PLAYER_SOURCES.find((entry) => entry.id === sourceId) || AUDIO_PLAYER_SOURCES[0];
+  activeAudioSourceIndex = AUDIO_PLAYER_SOURCES.findIndex((entry) => entry.id === source.id);
+  hideAllAudioPlayers();
+  if (source.sectionId) {
+    const section = document.getElementById(source.sectionId);
+    if (section) section.style.display = 'block';
+    console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
+  }
+  updateAudioPlayerUi(source);
+}
+
+function cycleAudioPlayer() {
+  activeAudioSourceIndex = (activeAudioSourceIndex + 1) % AUDIO_PLAYER_SOURCES.length;
+  showAudioPlayer(AUDIO_PLAYER_SOURCES[activeAudioSourceIndex].id);
+}
+
+function closeAudioPlayer() {
+  activeAudioSourceIndex = 0;
+  showAudioPlayer('none');
+}
+
 function fullWindow() {
   isBezelMode = !isBezelMode;
+  const bezelBtn = document.getElementById('toggleBezelBtn');
+  if (bezelBtn) bezelBtn.classList.toggle('engaged', isBezelMode);
   if (!isBezelMode && document.fullscreenElement) {
     document.exitFullscreen().catch(()=>{});
   }
@@ -607,7 +701,10 @@ window.lockPreset = lockPreset;
 window.startChangeSong = startChangeSong;
 window.randomPreset = randomPreset;
 window.randomCustom = randomCustom;
-window.flacPlayer = flacPlayer;
+window.cycleAudioPlayer = cycleAudioPlayer;
+window.closeAudioPlayer = closeAudioPlayer;
+window.flacPlayer = () => showAudioPlayer('flac');
+window.modPlayer = () => showAudioPlayer('mod');
 window.fullWindow = fullWindow;
 window.toggleFullscreen = toggleFullscreen;
 
@@ -617,6 +714,10 @@ function updateLayout() {
   const scanvas = document.querySelector('#scanvas');
   const contain1 = document.querySelector('#contain1');
   const circle = document.querySelector('#circle');
+
+  const gl = document.querySelector('#gl');
+  const bezelBtn = document.getElementById('toggleBezelBtn');
+  if (bezelBtn) bezelBtn.classList.toggle('engaged', isBezelMode);
 
   if (isBezelMode) {
     const sz = window.innerHeight;
@@ -628,8 +729,10 @@ function updateLayout() {
       contain1.style.position = 'absolute';
     }
     if (circle) circle.style.display = 'block';
+    if (gl) gl.style.display = 'block';
     drawBezel();
   } else {
+    if (gl) gl.style.display = 'none';
     if (contain1) {
       contain1.style.width = '100vw';
       contain1.style.height = '100vh';
@@ -676,6 +779,8 @@ document.addEventListener('keydown', e => {
   if (e.key === ' ' || e.keyCode === 32) { e.preventDefault(); document.getElementById('randomPresetBtn').click(); }
   if (e.key.toLowerCase() === 'l') document.getElementById('lockPresetBtn').click();
   if (e.key.toLowerCase() === 'h') hidePanel();
+  if (e.key.toLowerCase() === 'a') cycleAudioPlayer();
+  if (e.key === 'Escape') closeAudioPlayer();
 });
 
 // ===== INITIALIZATION =====

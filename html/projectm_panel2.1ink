@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel='preconnect' href='https://js.1ink.us'>
 <link rel='preconnect' href='https://glsl.1ink.us'>
-<link rel='preconnect' href='https://storage.1ink.us'>
+<link rel='preconnect' href='https://storage.noahcohn.com'>
 <link rel="preload" as="image" href="./image/panel-bg.jpg" fetchpriority="high">
 <link rel="preload" as="image" href="./image/shroud.jpg">
 <link rel="preload" as="script" href="./pm/projectm-v.030-thread.1ijs">
@@ -579,22 +579,47 @@ function getPresetDir() {
   return (el && el.innerHTML.trim() !== 'default') ? el.innerHTML.trim() : 'any';
 }
 
-async function fetchApiPreset(apiBase = 'https://storage.1ink.us') {
+const PRESET_API_BASES = [
+  'https://storage.noahcohn.com',
+  'https://storage.1ink.us'
+];
+
+function getPresetApiBases(preferred) {
+  const fromStorage = localStorage.getItem('apiBase');
+  const ordered = [preferred, fromStorage, ...PRESET_API_BASES].filter(Boolean);
+  return [...new Set(ordered)];
+}
+
+async function fetchApiPreset(apiBase) {
   const dir = getPresetDir();
-  const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
-  if (!res.ok) throw new Error('API error');
-  const data = await res.json();
-  const milkRes = await fetch(data.url);
-  const buffer = await milkRes.arrayBuffer();
-  const bytes = new Uint8ClampedArray(buffer);
-  const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const vfsPath = `/presets/api_${data.dir || 'any'}_${safeName}`;
-  if (Module.FS) Module.FS.writeFile(vfsPath, bytes);
-  return { vfsPath, filename: data.filename, dir: data.dir };
+  const bases = getPresetApiBases(apiBase);
+  let lastError = null;
+
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}/api/presets/random?dir=${encodeURIComponent(dir)}`);
+      if (!res.ok) throw new Error(`API error ${res.status} from ${base}`);
+      const data = await res.json();
+      if (!data.url || !data.filename) throw new Error(`Invalid API response from ${base}`);
+      const milkRes = await fetch(data.url);
+      if (!milkRes.ok) throw new Error(`Failed to fetch preset milk from ${data.url}`);
+      const buffer = await milkRes.arrayBuffer();
+      const bytes = new Uint8ClampedArray(buffer);
+      const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const vfsPath = `/presets/api_${data.dir || 'any'}_${safeName}`;
+      if (Module.FS) Module.FS.writeFile(vfsPath, bytes);
+      return { vfsPath, filename: data.filename, dir: data.dir };
+    } catch (error) {
+      lastError = error;
+      console.warn('[ProjectM] preset API attempt failed:', base, error);
+    }
+  }
+
+  throw lastError || new Error('No preset API base available');
 }
 
 async function loadStartupApiPresets(count = 5) {
-  const apiBase = localStorage.getItem('apiBase') || 'https://storage.1ink.us';
+  const apiBase = localStorage.getItem('apiBase') || PRESET_API_BASES[0];
   const results = [];
   for (let i = 0; i < count; i++) {
     try {

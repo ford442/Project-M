@@ -380,7 +380,7 @@ canvas.emscripten {
   <!-- Buttons aligned to panel image -->
   <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:  9%; left: 34%; width: 32%; height: 12%;"></button>
   <button onclick="hidePanel()" class="clickable-button" style="top: 16%; left: 10%; width: 22%; height: 16%;"></button>
-  <button onclick="flacPlayer()" class="clickable-button" style="top: 16%; right: 10%; width: 22%; height: 16%;"></button>
+  <button id="audioPlayerBtn" onclick="cycleAudioPlayer()" class="clickable-button" title="Audio Player — click to cycle FLAC, MOD, or hide" style="top: 16%; right: 10%; width: 22%; height: 16%;"></button>
   <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top: 34%; left:  2%; width: 22%; height: 18%;"></button>
   <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top: 34%; right:  2%; width: 22%; height: 18%;"></button>
   <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top: 52%; left: 10%; width: 22%; height: 16%;"></button>
@@ -394,6 +394,7 @@ canvas.emscripten {
 <button onclick="showPanel()" id="show-btn" class="hidden">Show Controls</button>
 
 <!-- Preset Display -->
+<div id="audio-player-status" style="position:fixed;bottom:5vh;left:450px;z-index:3299;font-family:'Lucida Console',monospace;font-size:13px;color:rgba(180,220,255,0.85);pointer-events:none;white-space:nowrap;text-shadow:1px 1px 2px rgba(0,0,0,0.85);">Audio Player</div>
 <div id="preset-name">Preset: --</div>
 
 <!-- Hidden data -->
@@ -574,7 +575,12 @@ function startChangeSong() {
 
 function fullWindow() {
     console.log('[ProjectM] Full Window');
-    isBezelMode = true;
+    isBezelMode = !isBezelMode;
+    const bezelBtn = document.getElementById('toggleBezelBtn');
+    if (bezelBtn) bezelBtn.classList.toggle('engaged', isBezelMode);
+    if (!isBezelMode && document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+    }
     updateLayout();
     syncModuleSize();
 }
@@ -589,15 +595,57 @@ function randomCustom() {
     loadRandomApiPreset();
 }
 
+const AUDIO_PLAYER_SOURCES = [
+    { id: 'none', label: 'Audio Player' },
+    { id: 'flac', label: 'FLAC Player', open: openFlacPlayer, close: () => { if (flacPlayerPopup) { flacPlayerPopup.close(); flacPlayerPopup = null; } } },
+    { id: 'mod', label: 'MOD Player', open: openModPlayer, close: () => { if (modPlayerPopup) { modPlayerPopup.close(); modPlayerPopup = null; } } }
+];
+let activeAudioSourceIndex = 0;
+
+function updateAudioPlayerUi(source) {
+    const status = document.getElementById('audio-player-status');
+    const btn = document.getElementById('audioPlayerBtn');
+    if (status) {
+        status.textContent = source.id === 'none' ? 'Audio Player' : `Audio: ${source.label}`;
+    }
+    if (btn) {
+        btn.classList.toggle('engaged', source.id !== 'none');
+        btn.title = source.id === 'none'
+            ? 'Audio Player — click to open FLAC, MOD, or hide'
+            : `${source.label} active — click to switch or hide`;
+    }
+}
+
+function closeAllAudioPlayers() {
+    for (const source of AUDIO_PLAYER_SOURCES) {
+        if (source.close) source.close();
+    }
+}
+
+function showAudioPlayer(sourceId) {
+    const source = AUDIO_PLAYER_SOURCES.find((entry) => entry.id === sourceId) || AUDIO_PLAYER_SOURCES[0];
+    activeAudioSourceIndex = AUDIO_PLAYER_SOURCES.findIndex((entry) => entry.id === source.id);
+    closeAllAudioPlayers();
+    if (source.open) source.open();
+    updateAudioPlayerUi(source);
+}
+
+function cycleAudioPlayer() {
+    activeAudioSourceIndex = (activeAudioSourceIndex + 1) % AUDIO_PLAYER_SOURCES.length;
+    showAudioPlayer(AUDIO_PLAYER_SOURCES[activeAudioSourceIndex].id);
+}
+
+function closeAudioPlayer() {
+    activeAudioSourceIndex = 0;
+    showAudioPlayer('none');
+}
+
 function flacPlayer() {
-    // Real implementation: opens the external FLAC player popup (or iframe in other UIs)
-    // which should send PCM audio back via postMessage (preferred) or the legacy BroadcastChannel.
-    openFlacPlayer();
+    showAudioPlayer('flac');
 }
 
 function modPlayer() {
-    // Opens the external MOD player (tracker playback). See openModPlayer for details.
-    openModPlayer();
+    showAudioPlayer('mod');
 }
 
 function lockPreset() {
@@ -803,6 +851,8 @@ if (modBtn) modBtn.addEventListener('click', openModPlayer);
 // Expose helpers for console / external scripts
 window.openFlacPlayer = openFlacPlayer;
 window.openModPlayer = openModPlayer;
+window.cycleAudioPlayer = cycleAudioPlayer;
+window.closeAudioPlayer = closeAudioPlayer;
 window.feedPCMToModuleForDebug = (buf, ch) => feedPCMToModule(buf, ch);
 
 function syncModuleSize() {

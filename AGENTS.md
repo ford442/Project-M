@@ -262,3 +262,84 @@ GitHub Actions workflows are in `.github/workflows/`:
 - **C API is the supported integration surface.** The C++ interface (`ENABLE_CXX_INTERFACE`) is explicitly discouraged because using C++ STL types across shared-library boundaries is unsafe unless every component is built with the exact same toolchain and C++ standard library. If you must expose C++ symbols, understand the ABI risks.
 - Preset files are parsed from user-provided content. The parser should be resilient to malformed input, but any changes to preset parsing or expression evaluation should be reviewed for potential memory-safety issues (buffer overruns, use-after-free) because preset data is externally supplied.
 - The SDL2 test UI is for development only; do not ship it as a production frontend.
+
+---
+
+## Cursor Cloud specific instructions
+
+### One-time system packages (Ubuntu)
+
+Cloud VMs need these packages before the first CMake configure (match `.github/workflows/build_linux.yml`):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  build-essential g++ ninja-build \
+  libgl1-mesa-dev mesa-common-dev libglu1-mesa-dev \
+  libsdl2-dev libglm-dev libgtest-dev libgmock-dev
+```
+
+Optional for GUI demos: `xvfb`, `scrot`.
+
+### Submodule and dependency refresh (automatic on VM startup)
+
+Run after every pull:
+
+```bash
+git submodule update --init --recursive
+```
+
+The `vendor/projectm-eval` submodule is required when no system `projectM-eval` package is installed (typical on Ubuntu).
+
+### Compiler selection
+
+The default `/usr/bin/c++` on this image is **Clang**, which fails to link against `libstdc++` unless configured carefully. Use GCC explicitly:
+
+```bash
+cmake -G "Ninja Multi-Config" -S . -B cmake-build \
+  -DCMAKE_CXX_COMPILER=g++ \
+  -DCMAKE_C_COMPILER=gcc \
+  -DCMAKE_CXX_FLAGS="-include atomic" \
+  -DBUILD_TESTING=ON \
+  -DENABLE_SDL_UI=ON
+```
+
+The `-include atomic` flag works around a missing `#include <atomic>` in `src/libprojectM/Audio/PCM.hpp` on `main` as of this writing (GCC does not pull it in transitively).
+
+### Build, test, and install
+
+```bash
+cmake --build cmake-build --config Debug --parallel
+ctest --test-dir cmake-build --verbose --build-config Debug
+cmake --build cmake-build --config Debug --target install
+```
+
+There is no separate lint CI job; formatting is manual via `clang-format` (see above).
+
+### C++ interface smoke test (optional, matches Linux CI)
+
+```bash
+cmake -G "Ninja Multi-Config" \
+  -S tests/cxx-interface -B cmake-build-cxx-api \
+  -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc \
+  -DCMAKE_CXX_FLAGS="-include atomic" \
+  -DprojectM4_DIR="$PWD/install/lib/cmake/projectM4"
+cmake --build cmake-build-cxx-api --config Debug
+```
+
+### Running the SDL2 developer test UI
+
+The binary is **not installed**; run it from the build tree:
+
+```bash
+cd cmake-build
+ln -sfn ../presets/tests presets/tests   # Debug builds use DATADIR_PATH "."
+cp ../src/sdl-test-ui/config.inp config.inp
+./src/sdl-test-ui/Debug/projectM-Test-UI
+```
+
+Requires `DISPLAY` and OpenGL (Mesa llvmpipe software rendering works). No ALSA/PulseAudio device is needed — the UI falls back to synthetic PCM when capture fails. Keys: `Left`/`Right` preset, `Space` lock, `f` fullscreen, `q` quit.
+
+### Services
+
+This repo has **no long-running backend services**. CI-style verification is headless `ctest`; visual verification is the optional `projectM-Test-UI` binary above.

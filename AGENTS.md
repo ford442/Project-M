@@ -118,7 +118,7 @@ sudo cmake --build . --target install
 | `ENABLE_DEBUG_POSTFIX` | `ON` | Append `d` to debug binary names. |
 | `ENABLE_MACOS_FRAMEWORK` | `OFF` | Build macOS Framework bundles instead of plain dylibs. |
 | `ENABLE_INSTALL` | `OFF` | Enable install targets when built as a CMake sub-project. |
-| `ENABLE_WASM_TRANSITIONS` | `OFF` | **Emscripten only.** Enable dual-pipeline preset transition support. Adds ASYNCIFY stack-size tuning for non-blocking shader compilation. |
+| `ENABLE_WASM_TRANSITIONS` | `ON` | **Emscripten only.** Enable dual-pipeline preset transition support. Adds ASYNCIFY stack-size tuning for non-blocking shader compilation. |
 
 ### Using vcpkg (especially on Windows)
 
@@ -325,6 +325,17 @@ cmake -G "Ninja Multi-Config" \
   -DCMAKE_CXX_FLAGS="-include atomic" \
   -DprojectM4_DIR="$PWD/install/lib/cmake/projectM4"
 cmake --build cmake-build-cxx-api --config Debug
+```
+
+### Emscripten smoke test (matches WASM CI)
+
+After an Emscripten configure/build/install, run the same wrapper and browser smoke used by `.github/workflows/build_emscripten.yml`:
+
+```bash
+ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR="$PWD/install" OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
+npm install --no-save --no-package-lock playwright
+npx playwright install chromium
+node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk
 ```
 
 ### Running the SDL2 developer test UI

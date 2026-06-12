@@ -13,7 +13,7 @@ on:
 
 jobs:
   build:
-    name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, SDK: ${{ matrix.emsdk-version }}, Arch: WASM, Build OS: ${{ matrix.runs-on }}"
+    name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, SDK: ${{ matrix.emsdk-version }}, Transitions: ${{ matrix.wasm-transitions }}, Arch: WASM, Build OS: ${{ matrix.runs-on }}"
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -22,6 +22,12 @@ jobs:
           - libs: static
             fslib: stl
             emsdk-version: 3.1.53
+            wasm-transitions: OFF
+            runs-on: ubuntu-24.04
+          - libs: static
+            fslib: stl
+            emsdk-version: 3.1.53
+            wasm-transitions: ON
             runs-on: ubuntu-24.04
 
     steps:
@@ -60,13 +66,17 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
             -DCMAKE_VERBOSE_MAKEFILE=YES \
             -DBUILD_TESTING=YES \
+            -DENABLE_WASM_TRANSITIONS=${{ matrix.wasm-transitions }} \
             -DGTest_DIR="${{ github.workspace }}/build-gtest/dist/emscripten/lib/lib/cmake/GTest"
 
       - name: Build Debug
         run: emmake cmake --build "${{ github.workspace }}/cmake-build" --parallel
 
-      # - name: Run Unit Tests
-      #   run: ctest --test-dir "${{ github.workspace }}/cmake-build" --verbose --build-config "Debug"
+      - name: Run Unit Tests
+        env:
+          EMTEST_BROWSER: 0
+          CTEST_OUTPUT_ON_FAILURE: 1
+        run: ctest --test-dir "${{ github.workspace }}/cmake-build" --verbose --build-config "Debug"
 
       # - name: Build Release
       #   run: emcmake cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --parallel
@@ -77,8 +87,36 @@ jobs:
           
         # emcmake cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --target install
 
+      - name: Build WASM Smoke Wrapper
+        env:
+          ENABLE_WASM_TRANSITIONS: ${{ matrix.wasm-transitions }}
+          INSTALL_DIR: ${{ github.workspace }}/install
+          OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke
+        run: scripts/build_wasm_smoke_wrapper.sh
+
+      - name: Validate WASM Artifacts
+        run: |
+          test -s "${{ github.workspace }}/install/lib/libprojectM-4.a"
+          test -s "${{ github.workspace }}/install/lib/libprojectM-4-playlist.a"
+          test -s "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
+          test -s "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.wasm"
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save --no-package-lock playwright
+          npx playwright install --with-deps chromium
+
+      # Local equivalent after an Emscripten configure/build/install:
+      #   ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR=$PWD/install OUT_DIR=$PWD/cmake-build/wasm-smoke scripts/build_wasm_smoke_wrapper.sh
+      #   node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk
+      - name: Run WASM Browser Smoke Test
+        run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-            name: projectm-emscripten-${{ matrix.libs }}-emsdk-${{ matrix.emsdk-version }}
-            path: install/*
+            name: projectm-emscripten-${{ matrix.libs }}-transitions-${{ matrix.wasm-transitions }}-emsdk-${{ matrix.emsdk-version }}
+            if-no-files-found: error
+            path: |
+              install/**
+              cmake-build/wasm-smoke/**

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM WASM smoke</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; background: #000; }
+    canvas { width: 64px; height: 64px; display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="mcanvas" width="64" height="64"></canvas>
+  <canvas id="scanvas" width="64" height="64"></canvas>
+  <div id="preset-name"></div>
+  <div id="stat"></div>
+  <script>
+    const result = {
+      ok: false,
+      steps: [],
+      error: null
+    };
+
+    function mark(step) {
+      result.steps.push(step);
+      console.log('[wasm-smoke]', step);
+    }
+
+    function finish(ok, error) {
+      result.ok = ok;
+      result.error = error ? String(error && error.stack ? error.stack : error) : null;
+      window.__projectMWasmSmokeResult = result;
+      console.log('[wasm-smoke] result', JSON.stringify(result));
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    async function runSmoke() {
+      const params = new URLSearchParams(window.location.search);
+      const moduleSrc = params.get('module');
+      const presetSrc = params.get('preset') || '/presets/tests/000-empty.milk';
+      if (!moduleSrc) throw new Error('Missing ?module=<projectm wasm wrapper js>');
+
+      await loadScript(moduleSrc);
+      mark('wrapper script loaded');
+
+      if (typeof createModule !== 'function') {
+        throw new Error('createModule export is missing');
+      }
+
+      const Module = await createModule({
+        noInitialRun: true,
+        locateFile(path, prefix) {
+          return prefix + path;
+        }
+      });
+      mark('module created');
+
+      for (const exportName of ['_init', 'ccall', 'FS', '_load_preset_file']) {
+        if (!Module[exportName]) throw new Error('Missing Module.' + exportName);
+      }
+
+      const initResult = Module._init();
+      if (initResult !== 0) {
+        throw new Error('Module._init() returned ' + initResult);
+      }
+      mark('Module._init returned 0');
+
+      const presetResponse = await fetch(presetSrc);
+      if (!presetResponse.ok) {
+        throw new Error('Failed to fetch smoke preset: ' + presetResponse.status);
+      }
+      const presetBytes = new Uint8Array(await presetResponse.arrayBuffer());
+      try { Module.FS.mkdir('/presets'); } catch (_) {}
+      try { Module.FS.mkdir('/presets/tests'); } catch (_) {}
+      Module.FS.writeFile('/presets/tests/000-empty.milk', presetBytes);
+      mark('preset copied to MEMFS');
+
+      Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
+      mark('load_preset_file completed');
+
+      const gl = document.getElementById('mcanvas').getContext('webgl2');
+      if (!gl) throw new Error('webgl2 context is unavailable after init');
+      const glError = gl.getError();
+      if (glError !== gl.NO_ERROR) {
+        throw new Error('WebGL error after preset load: 0x' + glError.toString(16));
+      }
+      mark('webgl error check passed');
+
+      finish(true);
+    }
+
+    runSmoke().catch((error) => {
+      console.error('[wasm-smoke] failed', error);
+      finish(false, error);
+    });
+  </script>
+</body>
+</html>

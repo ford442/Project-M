@@ -33,10 +33,10 @@ that are prerequisites for smooth preset cross-fading in the browser.
 
 ### CMake option: `ENABLE_WASM_TRANSITIONS`
 
-An explicit opt-in CMake option is provided to gate additional transition-tuning flags:
+Dual-pipeline transitions are enabled by default for Emscripten builds:
 
 ```shell
-emcmake cmake -B build-wasm -DENABLE_WASM_TRANSITIONS=ON
+emcmake cmake -B build-wasm
 ```
 
 When `ENABLE_WASM_TRANSITIONS=ON`, the following extra flag is applied:
@@ -44,8 +44,8 @@ When `ENABLE_WASM_TRANSITIONS=ON`, the following extra flag is applied:
 - `-s ASYNCIFY_STACK_SIZE=65536`: Tunes the ASYNCIFY stack size to reduce binary bloat while preserving enough stack
   space for concurrent preset loading and shader compilation.
 
-This option defaults to `OFF` until all 5 phases of the dual-pipeline transition implementation are complete. Enable it
-when actively developing or testing preset transition functionality.
+Set `-DENABLE_WASM_TRANSITIONS=OFF` only when explicitly debugging the legacy hard-cut path or comparing transition
+overhead.
 
 ### Future phases
 
@@ -89,18 +89,16 @@ When building for Emscripten/WASM, `USE_GLES=ON` is set automatically by CMake. 
 
 ### Transition gating
 
-JavaScript **must** poll `dual_fbo_is_preset_b_ready()` and wait for it to return `true` before calling `dual_fbo_begin_transition()` to start the compositing blend.
+JavaScript **must** poll `dual_fbo_is_preset_b_ready()` and wait for it to return `true` before starting the compositing blend.
+The HTML demos use `startTransitionWhenReady()` from `html/projectm-external-pcm.js`, which polls with
+`requestAnimationFrame`, allocates Preset B with `dual_fbo_begin_transition()` if needed, confirms
+`dual_fbo_is_preset_b_allocated()`, then calls `transition_start()`.
 
 ```js
-// Example: gate the transition start on both FBO allocation and shader readiness
-function maybeStartTransition() {
-    if (Module._dual_fbo_is_preset_b_ready() && Module._dual_fbo_is_preset_b_allocated()) {
-        // Safe to begin blending — shaders are compiled and FBOs are ready.
-        startCompositing();
-    } else {
-        requestAnimationFrame(maybeStartTransition);
-    }
-}
+import { startTransitionWhenReady } from './projectm-external-pcm.js';
+
+Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+startTransitionWhenReady({ module: Module });
 ```
 
 The flag is reset to `false` on every `load_preset_file()` call, so polling loops correctly handle back-to-back preset switches.

@@ -33,7 +33,7 @@ fi
 emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
     -I "$INSTALL_DIR/include" \
     -I "$PROJECT_ROOT" \
-    -O3 \
+    -O3 -flto \
     -l embind \
     -pthread \
     -fopenmp \
@@ -48,7 +48,7 @@ emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
     -s EXPORT_NAME=createModule \
     -s INVOKE_RUN=0 \
     -s MODULARIZE=1 \
-    -s PTHREAD_POOL_SIZE=4 \
+    -s PTHREAD_POOL_SIZE='navigator.hardwareConcurrency' \
     -s FULL_ES2=0 \
     -s FULL_ES3=1 \
     -s MIN_WEBGL_VERSION=2 \

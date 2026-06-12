@@ -276,3 +276,79 @@ changes described above.
   load (e.g. forcing a 64×48 mesh via `Module._set_mesh(64, 48)`). Both should be checked manually
   with `?perfhud=1` once a display is available — `pmGetQualityTier()` and
   `window.pmOnGovernorTierChange` make the governor's state observable from the page.
+
+## Emscripten link/compile flag audit (issue #80 follow-up)
+
+This section evaluates the Emscripten compile/link flags in `CMakeLists.txt` (`ENABLE_EMSCRIPTEN`
+block, roughly lines 143–222) and the equivalent flags duplicated in
+`scripts/build_wasm_smoke_wrapper.sh`, `scripts/build_projectm.sh`, and `scripts/colab_build.sh` —
+the three scripts that perform the final `emcc projectM_emscripten.cpp ... -o
+projectm-v.030-thread.js` link against the prebuilt `libprojectM-4.a` /
+`libprojectM-4-playlist.a` static libraries.
+
+**Methodology**: this environment has no browser/display, so frame-time (p50/p95) and startup
+time cannot be measured directly (same limitation as the rest of this document). What *can* be
+measured headlessly via `scripts/build_wasm_smoke_wrapper.sh`:
+
+- Build success/failure (including compatibility with `ENABLE_WASM_TRANSITIONS`'s
+  `ASYNCIFY_STACK_SIZE` tuning).
+- Output `.wasm` and `.js` file sizes (smaller artifacts download and parse/instantiate faster,
+  particularly relevant to startup time).
+- Wall-clock build/link time.
+
+Baseline (`Emscripten 5.0.4`, current `main`, smoke wrapper against `/usr/local`-installed static
+libs):
+
+| Build | `.wasm` size | `.js` size | Link time |
+|---|---|---|---|
+| Baseline (current flags) | 2,083,165 B | 232,720 B | 25.4 s |
+
+### Adopted (kept)
+
+| Flag change | `.wasm` size | `.js` size | Link time | Notes |
+|---|---|---|---|---|
+| `-flto` added to final `emcc` link | 2,024,548 B (**-58,617 B / -2.8%**) | 233,291 B (+571 B) | 30.6 s (+5.2 s) | Link-time-only LTO (the prebuilt `.a` libs are not themselves built with `-flto`); free `.wasm` size reduction with no source/behavior change. Build succeeds, including with `ENABLE_WASM_TRANSITIONS`'s `ASYNCIFY_STACK_SIZE=65536`. |
+| `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'` (was `=4`) | 2,024,548 B (unchanged) | +28 B | unchanged | Addresses "Verify OpenMP thread pool sizing": `MilkdropPreset::InitializePreset()` sizes `m_perPixelContextPool` from `omp_get_max_threads()`, which tracks the hardware's logical core count. With a fixed pool of 4, devices with >4 cores would lazily spawn extra Workers the first time an OpenMP parallel region needs them — a classic source of first-seconds jank. `navigator.hardwareConcurrency` is an Emscripten-supported runtime JS expression for `PTHREAD_POOL_SIZE` (see `emscripten/src/settings.js`), so the pre-spawned pool now always matches `omp_get_max_threads()`. |
+| **Combined** (both above) | 2,024,548 B (**-58,617 B / -2.8%**) | 233,319 B (+599 B) | 32.7 s (+7.3 s) | Applied to `build_wasm_smoke_wrapper.sh`, `build_projectm.sh`, `colab_build.sh`. |
+
+Both changes were applied to all three scripts (`build_wasm_smoke_wrapper.sh`,
+`build_projectm.sh`, `colab_build.sh`) to keep their `emcc` invocations in sync, as they already
+duplicate `PTHREAD_POOL_SIZE` and other flags independently of `CMakeLists.txt`. `CMakeLists.txt`'s
+`ENABLE_EMSCRIPTEN` `add_compile_options`/`add_link_options` block does not currently produce
+`projectm-v.030-thread.js` itself (no `add_executable` target exists for it — only the static
+libraries are built via CMake, then linked by the scripts above), so no `CMakeLists.txt` flags
+needed to change for these two items.
+
+### Measured, but deferred pending in-browser verification
+
+These two showed real size wins but touch code paths (GL emulation, JS minification of pthread /
+audio-worklet glue) that cannot be regression-tested without a browser. Per "keep only measurable
+wins", they are **not** adopted in this pass — flagged here so a follow-up with display access can
+verify and land them.
+
+| Flag change | `.wasm` size | `.js` size | Link time | Risk / what to verify |
+|---|---|---|---|---|
+| `-s FULL_ES3=0` (was `=1`), combined with `-flto` | 2,024,444 B (-104 B vs. `-flto` alone) | 222,926 B (**-10,365 B / -4.4%**) | 30.6 s | With `MIN_WEBGL_VERSION=2`/`MAX_WEBGL_VERSION=2` (native WebGL2), `FULL_ES3=1`'s additional ES3-emulation-on-top-of-WebGL2 code may be largely redundant — build links cleanly with no undefined-symbol errors. **Needs verification**: render a frame in-browser (dual-FBO ping-pong, blur chain, transitions) to confirm no GL call relies on `FULL_ES3`-only emulation paths. If confirmed safe, re-check whether `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` are still needed (per the original issue's note) — both are currently sized for the `FULL_ES3=1` temp-buffer emulation path. |
+| `--closure 1`, combined with `-flto` | 2,024,548 B (unchanged) | 96,042 B (**-137,249 B / -58.8%**) | 47.8 s (+22.4 s vs. baseline) | Largest single win measured, but Closure Compiler's advanced renaming/minification is the highest-risk change here: must verify `MODULARIZE=1`/`EXPORT_NAME=createModule`, all `EXPORTED_FUNCTIONS`/`EXPORTED_RUNTIME_METHODS`, the `EM_JS`/`EM_ASM` glue (e.g. `window.pmOnPerfFrame`, `window.pmGetFboFormat`, etc. from `html/projectm-*.js`), `AUDIO_WORKLET=1`, and the pthread Worker bootstrap all still function in-browser. **Needs verification**: full smoke test of audio playback, preset transitions, and all `window.pm*` hooks with `--closure 1` enabled. |
+
+### Analyzed, not changed (high risk / needs dedicated effort)
+
+| Candidate | Finding |
+|---|---|
+| `-s ASYNCIFY=1` | Removing or restructuring this is **not** a flag flip — `ENABLE_WASM_TRANSITIONS` (`ASYNCIFY_STACK_SIZE=65536`) depends on ASYNCIFY for non-blocking shader compilation and concurrent preset loading during transitions (see "Phase 4/5" comments in `projectM_emscripten.cpp`). Replacing it with `-s JSPI=1` for preset loading only, while keeping the render loop ASYNCIFY-free, is a real refactor (separate render vs. load call graphs) requiring its own design + in-browser testing of transitions. Deferred as its own follow-up, not bundled into this flag-audit pass. |
+| `NO_DISABLE_EXCEPTION_CATCHING` → `-fwasm-exceptions` | Changes the exception-handling ABI for **every** translation unit, including the prebuilt static libraries — this requires a full rebuild of `libprojectM-4.a`/`libprojectM-4-playlist.a` with the new flag (not a link-only change like the items above), plus in-browser verification that thrown `MilkdropPresetLoadException`/parser errors during preset loading are still caught correctly by `projectM_emscripten.cpp`'s error-surfacing path. All evergreen browsers now support native WASM exceptions, so this is likely a real win, but the rebuild + verification cost puts it out of scope for this pass. |
+| `-sINITIAL_MEMORY=1024mb` | Right-sizing this requires the *actual* peak heap usage at runtime (with `ALLOW_MEMORY_GROWTH=1` already set, this only controls the initial allocation, trading startup `memory.grow` calls vs. up-front allocation). Static analysis of the `.wasm`/`.a` files cannot determine runtime heap peaks. **Needs**: run with `?benchmark=1` plus a browser memory profiler (e.g. Chrome `performance.memory` or `--enable-precise-memory-info`) across a few presets, then pick the smallest `INITIAL_MEMORY` that avoids `memory.grow` during steady-state playback. |
+| `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` | Tied to the `FULL_ES3` decision above — re-evaluate together once `FULL_ES3=0` is verified in-browser. |
+
+### Verification performed
+
+- `INSTALL_DIR=/usr/local OUT_DIR=... bash scripts/build_wasm_smoke_wrapper.sh` succeeds for the
+  baseline and for both adopted changes (`-flto`, `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'`),
+  individually and combined, including the `ENABLE_WASM_TRANSITIONS=ON` default
+  (`ASYNCIFY_STACK_SIZE=65536`).
+- `.wasm`/`.js` sizes and link times above were measured from the resulting
+  `projectm-v.030-thread.{js,wasm}` artifacts.
+- **Not measured in this environment**: actual frame-time p50/p95 and startup time deltas (no
+  browser/display). The `?benchmark=1` harness from the "Headless benchmark mode" section above
+  should be used to confirm the adopted changes are neutral-to-positive on real frame timing, and
+  to evaluate the deferred candidates once a display is available.

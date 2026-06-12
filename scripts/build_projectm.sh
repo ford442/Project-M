@@ -99,7 +99,7 @@ source "/root/emsdk/emsdk_env.sh"
 
 emcc projectM_emscripten.cpp \
     -I /usr/local/include \
-    -O3 \
+    -O3 -flto \
     -l embind -pthread -fopenmp /root/Project-M/libomp.a \
     -o projectm-v.030-thread.js \
     -s ALLOW_MEMORY_GROWTH=1 \
@@ -109,7 +109,7 @@ emcc projectM_emscripten.cpp \
     -s EXPORTED_FUNCTIONS=_add_audio_data,_main,_pl,_destruct,_get_projectm_handle,_init,_load_preset_file,_switch_preset,_set_aspect_correction,_render_frame,_start_render,_set_window_size,_set_mesh,_add_preset_path,_add_existing_vfs_presets,_add_preset_file,_add_custom_milk_paths,_projectm_pcm_add_float_wrapper,_create_sprite,_stop_worklet_playback,_set_audio_source_to_stream,_set_preset_locked \
     -s EXPORTED_RUNTIME_METHODS=ccall,FS \
     -s EXPORT_NAME=createModule \
-    -s PTHREAD_POOL_SIZE=4 \
+    -s PTHREAD_POOL_SIZE='navigator.hardwareConcurrency' \
     -s FULL_ES2=0 \
     -s FULL_ES3=1 \
     -s MIN_WEBGL_VERSION=2 \

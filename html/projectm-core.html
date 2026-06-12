@@ -420,6 +420,7 @@ canvas.emscripten {
 <script type="module">
 import { createPopupAudioPlayerController } from './projectm-audio-player.js';
 import { feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { setupFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
 import { loadScript } from './projectm-init.js';
 import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
@@ -905,6 +906,13 @@ async function attemptInit() {
         // FPS drop. Override via ?targetFps=/?governor=0|1 or
         // localStorage.targetFps/qualityGovernor. See docs/PERFORMANCE.md.
         setupFpsGovernor(Module);
+
+        // ====== FBO FORMAT / DEGRADED MODE ======
+        // Surfaces the dual ping-pong FBO color format (RGBA32F/RGBA16F vs.
+        // the degraded RGBA8 fallback) chosen in DetectFormat(). Shows a
+        // banner and exposes window.pmGetFboFormat() when running in
+        // degraded (RGBA8) mode. See docs/milkdrop2_vs_projectm_multipass.md.
+        setupFboFormatIndicator(Module);
 
         // ====== PERF HUD / BENCHMARK ======
         // Append ?perfhud=1 for an on-screen FPS/timing breakdown, or

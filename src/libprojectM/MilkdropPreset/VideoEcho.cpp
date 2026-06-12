@@ -93,7 +93,10 @@ void VideoEcho::DrawVideoEcho()
 {
     auto const videoEchoZoom = m_presetState.videoEchoZoom;
     auto const videoEchoAlpha = m_presetState.videoEchoAlpha;
-    auto const videoEchoOrientation = m_presetState.videoEchoOrientation % 4;
+    // Wrap to [0, 3] using a positive modulo, as videoEchoOrientation can now
+    // be driven by per-frame "echo_orient" code and may be negative or out of
+    // the expected 0-3 range.
+    auto const videoEchoOrientation = ((m_presetState.videoEchoOrientation % 4) + 4) % 4;
     auto const gammaAdj = m_presetState.gammaAdj;
 
     Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::Zero);

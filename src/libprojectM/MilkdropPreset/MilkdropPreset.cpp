@@ -228,6 +228,17 @@ void MilkdropPreset::PerFrameUpdate()
     // Clamp gamma and echo zoom values
     *m_perFrameContext.gamma = std::max(0.0, std::min(8.0, *m_perFrameContext.gamma));
     *m_perFrameContext.echo_zoom = std::max(0.001, std::min(1000.0, *m_perFrameContext.echo_zoom));
+
+    // Write the (possibly preset-modified) gamma/video echo values back to the
+    // preset state, as VideoEcho::Draw() and FinalComposite read these from
+    // m_state rather than the per-frame eval context. Without this, presets
+    // that animate "gamma", "echo_zoom", "echo_alpha" or "echo_orient" in
+    // per_frame code (very common in Milkdrop2 presets) would always render
+    // with the preset file's static fGammaAdj/fVideoEcho* header values.
+    m_state.gammaAdj = static_cast<float>(*m_perFrameContext.gamma);
+    m_state.videoEchoZoom = static_cast<float>(*m_perFrameContext.echo_zoom);
+    m_state.videoEchoAlpha = static_cast<float>(*m_perFrameContext.echo_alpha);
+    m_state.videoEchoOrientation = static_cast<int>(*m_perFrameContext.echo_orient);
 }
 
 void MilkdropPreset::Load(const std::string& pathname)

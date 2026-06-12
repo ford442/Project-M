@@ -114,8 +114,9 @@ public:
         else
         {
             m_format = FboFloatFormat::RGBA8;
-            printf("DualFBO: Float textures unavailable, falling back to GL_RGBA8.\n");
-            printf("DualFBO: WARNING – preset shaders should clamp output to [0,1].\n");
+            printf("DualFBO: Float textures unavailable, falling back to GL_RGBA8 (degraded mode).\n");
+            printf("DualFBO: WARNING – recursive warp/feedback presets may show banding; output is dithered/clamped in CompositingBlendShader.\n");
+            printf("DualFBO: Host page can query this via Module._dual_fbo_get_format() (2 == RGBA8).\n");
         }
     }
 
@@ -674,17 +675,43 @@ void main() {
 )";
 
         // GLSL ES 3.00 fragment shader: blends two textures with mix().
+        //
+        // uDither is set to 1.0 only when the dual-FBO source textures are
+        // GL_RGBA8 (see FboFloatFormat::RGBA8 / DetectFormat()). RGBA8
+        // intermediate textures accumulate visible 8-bit banding in
+        // recursive warp/feedback presets; an ordered dither breaks up that
+        // banding in the final on-screen image without requiring any preset
+        // shader changes. clamp() guards against out-of-range values landing
+        // on the (always 8-bit) canvas regardless of source format.
         static const char* kFragSrc = R"(#version 300 es
 precision highp float;
 uniform sampler2D uTexA;
 uniform sampler2D uTexB;
 uniform float uBlend;
+uniform float uDither;
 in vec2 vTexCoord;
 out vec4 fragColor;
+
+// 4x4 Bayer ordered-dither matrix, normalized to [-0.5, 0.5] / 255.
+const float kBayer[16] = float[16](
+     0.0,  8.0,  2.0, 10.0,
+    12.0,  4.0, 14.0,  6.0,
+     3.0, 11.0,  1.0,  9.0,
+    15.0,  7.0, 13.0,  5.0
+);
+
 void main() {
     vec4 colorA = texture(uTexA, vTexCoord);
     vec4 colorB = texture(uTexB, vTexCoord);
-    fragColor = mix(colorA, colorB, uBlend);
+    vec4 color = mix(colorA, colorB, uBlend);
+
+    if (uDither > 0.5) {
+        ivec2 p = ivec2(mod(gl_FragCoord.xy, 4.0));
+        float threshold = (kBayer[p.y * 4 + p.x] / 16.0 - 0.5) / 255.0;
+        color.rgb += threshold;
+    }
+
+    fragColor = clamp(color, 0.0, 1.0);
 }
 )";
 
@@ -722,10 +749,11 @@ void main() {
         }
 
         // Cache uniform / attribute locations.
-        m_locTexA  = glGetUniformLocation(m_program, "uTexA");
-        m_locTexB  = glGetUniformLocation(m_program, "uTexB");
-        m_locBlend = glGetUniformLocation(m_program, "uBlend");
-        m_locPos   = glGetAttribLocation(m_program, "aPosition");
+        m_locTexA   = glGetUniformLocation(m_program, "uTexA");
+        m_locTexB   = glGetUniformLocation(m_program, "uTexB");
+        m_locBlend  = glGetUniformLocation(m_program, "uBlend");
+        m_locDither = glGetUniformLocation(m_program, "uDither");
+        m_locPos    = glGetAttribLocation(m_program, "aPosition");
 
         // Fullscreen triangle-strip quad in NDC (CCW winding):
         //   (-1,-1)  (1,-1)  (-1,1)  (1,1)
@@ -762,8 +790,11 @@ void main() {
      * @param blend  Mix factor: 0.0 = full A, 1.0 = full B.
      * @param width  Viewport width in pixels.
      * @param height Viewport height in pixels.
+     * @param dither If true, applies an ordered dither + clamp to the output
+     *               (use when the source textures are GL_RGBA8, see
+     *               FboFloatFormat::RGBA8).
      */
-    void Draw(GLuint texA, GLuint texB, float blend, int width, int height)
+    void Draw(GLuint texA, GLuint texB, float blend, int width, int height, bool dither = false)
     {
         if (!m_initialized || m_program == 0)
         {
@@ -790,6 +821,7 @@ void main() {
         glUniform1i(m_locTexB, 1);
 
         glUniform1f(m_locBlend, blend);
+        glUniform1f(m_locDither, dither ? 1.0f : 0.0f);
 
         glBindVertexArray(m_vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -836,6 +868,7 @@ private:
     GLint  m_locTexA     = -1;
     GLint  m_locTexB     = -1;
     GLint  m_locBlend    = -1;
+    GLint  m_locDither   = -1;
     GLint  m_locPos      = -1;
 };
 
@@ -1440,7 +1473,12 @@ glEnable(GL_SCISSOR_TEST);
 glScissor(0,0,width,height);
 glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
 glHint(GL_GENERATE_MIPMAP_HINT,GL_NICEST);
-glDisable(GL_DITHER);
+// GL_DITHER only affects fixed-function/blit paths on most GLES drivers and
+// is a no-op for the shader-based render passes used here, but in the
+// degraded RGBA8 dual-FBO fallback (DetectFormat() already ran in init())
+// every bit of extra entropy on the final blit helps hide 8-bit banding, so
+// leave it enabled in that case instead of unconditionally disabling it.
+if(g_dualFbo.GetFormat()==FboFloatFormat::RGBA8){glEnable(GL_DITHER);}else{glDisable(GL_DITHER);}
 glFrontFace(GL_CW);
 glCullFace(GL_BACK);
 app_data.loading=EM_FALSE;
@@ -2344,6 +2382,7 @@ if (!g_dualFbo.IsPresetAAllocated() || !g_compositorShader.IsInitialized())
 
 const int w = g_dualFbo.Width();
 const int h = g_dualFbo.Height();
+const bool ditherOutput = (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8);
 
 // --- Step 1: Render Preset A into its Write FBO ---
 {
@@ -2369,7 +2408,7 @@ if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
 if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
 {
     g_compositorShader.Draw(g_dualFbo.GetAReadTex(), g_dualFbo.GetBReadTex(),
-                            g_transitionBlend, w, h);
+                            g_transitionBlend, w, h, ditherOutput);
 
     // --- Step 4: Advance blend timer ---
     float newBlend;
@@ -2399,7 +2438,7 @@ if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
 else
 {
     // No transition: blit Preset A directly to screen (blend = 0.0).
-    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), 0u, 0.0f, w, h);
+    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), 0u, 0.0f, w, h, ditherOutput);
 }
 return;
 }

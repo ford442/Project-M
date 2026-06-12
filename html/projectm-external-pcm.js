@@ -91,7 +91,7 @@ function queueExternalPCM(buffer, channels, sampleRate) {
     pendingExternalPCM.push({ buffer, channels, sampleRate });
 }
 
-function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel) {
+export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel) {
     const moduleInstance = currentProjectMModule();
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
 

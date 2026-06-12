@@ -419,7 +419,7 @@ canvas.emscripten {
 </body>
 <script type="module">
 import { createPopupAudioPlayerController } from './projectm-audio-player.js';
-import { feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { setupFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
 import { loadScript } from './projectm-init.js';
@@ -427,6 +427,7 @@ import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -434,6 +435,14 @@ const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)
 let Module;
 let isBezelMode = true;
 let isPresetLocked = false;
+
+// ====== OFFSCREENCANVAS RENDER WORKER (opt-in, see docs/PERFORMANCE.md) ======
+// Disabled by default; enable with ?renderWorker=1 or localStorage.renderWorker = '1'.
+// When active, the WASM module and render loop run in a dedicated worker that
+// owns #mcanvas via transferControlToOffscreen(); the main thread only forwards
+// PCM data, resize events and the preset-lock toggle. Falls back to the normal
+// main-thread path (unchanged) if unsupported or if setup fails.
+let renderWorkerHandle = null;
 
 // ====== DRAGGABLE KNOB ======
 const knob = document.getElementById('knob');
@@ -571,7 +580,9 @@ function lockPreset() {
     const btn = document.getElementById('lockPresetBtn');
     document.body.classList.toggle('has-lock', isPresetLocked);
     btn.classList.toggle('engaged', isPresetLocked);
-    if (typeof Module !== 'undefined' && Module.ccall) {
+    if (renderWorkerHandle) {
+        renderWorkerHandle.ccallVoid('set_preset_locked', ['number'], [isPresetLocked ? 1 : 0]);
+    } else if (typeof Module !== 'undefined' && Module.ccall) {
         Module.ccall('set_preset_locked', null, ['number'], [isPresetLocked ? 1 : 0]);
     }
 }
@@ -643,7 +654,20 @@ function updateLayout() {
 }
 
 // ====== EXTERNAL PLAYER AUDIO SOURCE (mod-player + flac_player) ======
-setupExternalAudioReceiver({ preallocSize: 2048 });
+setupExternalAudioReceiver({
+    preallocSize: 2048,
+    onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
+        if (!renderWorkerHandle) {
+            return defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
+        }
+        if (renderWorkerHandle.pcmRing) {
+            renderWorkerHandle.pcmRing.write(buffer, channels);
+        } else {
+            renderWorkerHandle.postPcm(buffer.slice(0), channels);
+        }
+        return true;
+    }
+});
 
 // Safe button wiring (guarded; the core panel uses the flacPlayer() / modPlayer() shims above)
 const flacBtn = document.getElementById('flacPlayerBtn');
@@ -659,7 +683,7 @@ function syncModuleSize() {
     const contain1 = document.querySelector('#contain1');
     const mcanvas = document.querySelector('#mcanvas');
     const scanvas = document.querySelector('#scanvas');
-    if (!contain1 || !mcanvas || !scanvas || typeof Module === 'undefined') return;
+    if (!contain1 || !mcanvas || !scanvas) return;
     const rect = contain1.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.round(rect.width * dpr));
@@ -672,6 +696,11 @@ function syncModuleSize() {
     mcanvas.style.height = rect.height + 'px';
     scanvas.style.width = rect.width + 'px';
     scanvas.style.height = rect.height + 'px';
+    if (renderWorkerHandle) {
+        renderWorkerHandle.postResize(w, h);
+        return;
+    }
+    if (typeof Module === 'undefined') return;
     if (Module._set_window_size) {
         Module._set_window_size(w, h);
     }
@@ -701,6 +730,11 @@ const resizeObserver = new ResizeObserver((entries) => {
         mcanvas.style.height = cssHeight + 'px';
         scanvas.style.width = cssWidth + 'px';
         scanvas.style.height = cssHeight + 'px';
+
+        if (renderWorkerHandle) {
+            renderWorkerHandle.postResize(w, h);
+            continue;
+        }
 
         if (typeof Module !== 'undefined' && Module._set_window_size) {
             Module._set_window_size(w, h);
@@ -866,6 +900,57 @@ setTimeout(() => {
 // URL to preview the overlay without breaking WebGL.
 const initErrors = setupInitErrorHandling(() => attemptInit());
 
+// Resolves the same ?targetFps=/?governor=/?meshQuality= and localStorage
+// overrides as projectm-fps-governor.js/projectm-mesh-quality.js, for the
+// render worker's initial config (the worker has no `location`/localStorage
+// of its own, so these are resolved on the main thread and sent in 'init').
+function resolveRenderWorkerConfig() {
+    const params = new URLSearchParams(location.search);
+
+    const fps = parseInt(params.get('targetFps') || localStorage.getItem('targetFps'), 10);
+    const targetFps = Number.isFinite(fps) && fps > 0 ? fps : 60;
+
+    const governorRaw = params.get('governor') ?? localStorage.getItem('qualityGovernor');
+    const governor = !(governorRaw === '0' || governorRaw === 'false');
+
+    let meshQuality = params.get('meshQuality') || localStorage.getItem('meshQuality') || 'auto';
+    if (meshQuality !== 'low' && meshQuality !== 'high') {
+        meshQuality = (navigator.hardwareConcurrency || 1) < 4 ? 'low' : 'high';
+    }
+
+    return { targetFps, governor, meshQuality };
+}
+
+// Attempts to move rendering into a dedicated OffscreenCanvas worker. Resolves
+// to a render-worker handle on success, or null if unsupported/failed (caller
+// falls back to the normal main-thread path, which remains unchanged).
+function tryStartRenderWorker(mcanvas) {
+    return new Promise((resolve) => {
+        const config = resolveRenderWorkerConfig();
+        const handle = setupRenderWorker({
+            canvas: mcanvas,
+            scriptSrc: new URL('./pm/projectm-v.030-thread.1ijs', import.meta.url).href,
+            width: mcanvas.width,
+            height: mcanvas.height,
+            targetFps: config.targetFps,
+            governor: config.governor,
+            meshQuality: config.meshQuality,
+            onReady: () => resolve(handle),
+            onUnsupported: (reason) => {
+                console.warn('[ProjectM] Render worker setup unsupported:', reason);
+                resolve(null);
+            },
+            onError: (message) => {
+                console.error('[ProjectM] Render worker error:', message);
+            },
+            onStats: (stats) => {
+                window._pmRenderWorkerStats = stats;
+            }
+        });
+        if (!handle) resolve(null);
+    });
+}
+
 async function attemptInit() {
     if (initErrors.simulate) {
         // First call (the automatic one below) just leaves the simulated overlay visible.
@@ -875,6 +960,22 @@ async function attemptInit() {
     }
 
     try {
+        if (!Module && !renderWorkerHandle) {
+            const mcanvas = document.querySelector('#mcanvas');
+            updateLayout();
+            syncModuleSize();
+
+            if (isRenderWorkerEnabled() && isRenderWorkerSupported(mcanvas)) {
+                const rw = await tryStartRenderWorker(mcanvas);
+                if (rw) {
+                    renderWorkerHandle = rw;
+                    flushQueuedExternalPCM();
+                    return;
+                }
+                console.warn('[ProjectM] Render worker unavailable, falling back to main-thread rendering');
+            }
+        }
+
         if (!Module) {
             await loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true });
             Module = await createModule();

@@ -3,6 +3,7 @@
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
 #endif
+#include <algorithm>
 #include <mutex>
 
 namespace libprojectM {
@@ -124,12 +125,19 @@ void PCM::CopyNewWaveformData(const WaveformBuffer& source, WaveformBuffer& dest
     // Acquire fence pairs with the release store in AddToBuffer, ensuring we see completed writes.
     auto const bufferStartIndex = m_start.load(std::memory_order_acquire);
 
-#ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
-#endif
-    for (size_t i = 0; i < AudioBufferSamples; i++)
+    // Split the circular read into at most two contiguous ranges at the wrap
+    // point, instead of computing "% AudioBufferSamples" for every element.
+    // This lets the compiler/runtime use memcpy/memmove (and autovectorize
+    // on wasm SIMD builds) instead of a scalar, modulo-bound loop.
+    size_t const samplesToEnd = AudioBufferSamples - bufferStartIndex;
+    if (samplesToEnd >= AudioBufferSamples)
     {
-        destination[i] = source[(bufferStartIndex + i) % AudioBufferSamples];
+        std::copy(source.begin(), source.end(), destination.begin());
+    }
+    else
+    {
+        std::copy(source.begin() + bufferStartIndex, source.end(), destination.begin());
+        std::copy(source.begin(), source.begin() + bufferStartIndex, destination.begin() + samplesToEnd);
     }
 }
 

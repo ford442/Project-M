@@ -8,6 +8,10 @@
 #include <omp.h>
 #endif
 
+#if defined(__wasm_simd128__)
+#include <wasm_simd128.h>
+#endif
+
 namespace libprojectM {
 namespace Audio {
 
@@ -44,9 +48,32 @@ void WaveformAligner::ResampleOctaves(std::vector<WaveformBuffer>& dstWaveformMi
     // This downsamples the previous octave's waveform by a factor of 2
     for (uint32_t octave = 1; octave < m_octaves; octave++)
     {
-        for (uint32_t sample = 0; sample < m_octaveSamples[octave]; sample++)
+        const float* const src = dstWaveformMips[octave - 1].data();
+        float* const dst = dstWaveformMips[octave].data();
+        uint32_t const sampleCount = m_octaveSamples[octave];
+
+        uint32_t sample{0};
+
+#if defined(__wasm_simd128__)
+        // Process four destination samples (eight source samples) per iteration:
+        // de-interleave the even/odd source lanes via shuffle, then average them.
+        for (; sample + 4 <= sampleCount; sample += 4)
         {
-            dstWaveformMips[octave][sample] = 0.5f * (dstWaveformMips[octave - 1][sample * 2] + dstWaveformMips[octave - 1][sample * 2 + 1]);
+            v128_t const a = wasm_v128_load(src + sample * 2);
+            v128_t const b = wasm_v128_load(src + sample * 2 + 4);
+            v128_t const even = wasm_i32x4_shuffle(a, b, 0, 2, 4, 6);
+            v128_t const odd = wasm_i32x4_shuffle(a, b, 1, 3, 5, 7);
+            v128_t const sum = wasm_f32x4_add(even, odd);
+            v128_t const result = wasm_f32x4_mul(sum, wasm_f32x4_splat(0.5f));
+            wasm_v128_store(dst + sample, result);
+        }
+#endif
+
+        // Scalar fallback: remaining samples on wasm SIMD builds, or the
+        // whole loop on builds without __wasm_simd128__ (e.g. native).
+        for (; sample < sampleCount; sample++)
+        {
+            dst[sample] = 0.5f * (src[sample * 2] + src[sample * 2 + 1]);
         }
     }
 }

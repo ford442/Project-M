@@ -352,3 +352,221 @@ verify and land them.
   browser/display). The `?benchmark=1` harness from the "Headless benchmark mode" section above
   should be used to confirm the adopted changes are neutral-to-positive on real frame timing, and
   to evaluate the deferred candidates once a display is available.
+
+## OffscreenCanvas render worker and SIMD audio hot paths (issue #81/#82 follow-up)
+
+Follow-up to the 60 FPS/quality governor and link-flag work above: moving the render loop off the
+main thread (Part A) and vectorizing the audio analysis hot paths with `wasm_simd128.h` (Part B).
+This depends on the profiling/governor work above and is implemented incrementally, as requested.
+
+### Part A: OffscreenCanvas render worker (opt-in, default OFF)
+
+Added `html/projectm-render-worker.js` (runs in a dedicated Worker) and
+`html/projectm-render-worker-host.js` (main-thread bridge), wired into
+`html/projectm-core.html`'s `attemptInit()`.
+
+**Disabled by default** — enable with `?renderWorker=1` or
+`localStorage.renderWorker = '1'`. This was a deliberate scoping decision: this
+environment has no browser/display, so none of Part A's "Verify" steps (worker
+render path, Safari/Firefox fallback, audio reactivity after migration) can be
+exercised here. Keeping it opt-in with feature detection means:
+
+- Browsers without `OffscreenCanvas`/`transferControlToOffscreen`/`Worker` are
+  completely unaffected (the existing main-thread path is untouched and remains
+  the default for 100% of current users).
+- Browsers *with* OffscreenCanvas support also get the unchanged main-thread
+  path by default, until the opt-in path has been verified in real browsers.
+
+**How it works when enabled**:
+
+1. `attemptInit()` calls `isRenderWorkerEnabled()` /
+   `isRenderWorkerSupported(mcanvas)`. If both are true, it calls
+   `tryStartRenderWorker(mcanvas)` *before* creating the main-thread `Module`.
+2. `setupRenderWorker()` calls `mcanvas.transferControlToOffscreen()` and posts
+   the resulting `OffscreenCanvas` (as a transferable) to a new
+   `projectm-render-worker.js` Worker, along with the WASM script URL, initial
+   canvas size, and the resolved `targetFps`/`governor`/`meshQuality` config
+   (read from `?targetFps=`/`?governor=`/`?meshQuality=`/`localStorage` on the
+   main thread, since a Worker has no `localStorage`).
+3. The worker `importScripts()`s the same `projectm-v.030-thread.1ijs`, calls
+   `createModule({ canvas: offscreenCanvas })`, then `_start_render()`,
+   `_set_target_fps()`, `_set_quality_governor()`, and `_set_mesh()` — the same
+   calls `attemptInit()`/`projectm-fps-governor.js`/`projectm-mesh-quality.js`
+   make on the main thread today.
+4. On success (`{ type: 'ready' }`), `attemptInit()` sets `renderWorkerHandle`
+   and returns early, skipping the main-thread `Module` creation entirely. On
+   `{ type: 'unsupported', ... }` (e.g. `importScripts` or module init failed),
+   it falls through to the normal main-thread path unchanged.
+
+**What's forwarded from the main thread** (per the "main thread forwards PCM
+commands and UI resize/events only" requirement):
+
+- **PCM**: `setupExternalAudioReceiver()`'s `onFeed` hook now branches on
+  `renderWorkerHandle`. When active, PCM is written into a
+  `SharedArrayBuffer`-backed ring buffer (`createPcmRing()` in
+  `projectm-render-worker-host.js`) that the worker drains every 16ms and feeds
+  to `_projectm_pcm_add_float_wrapper` using its *own* WASM heap. `SHARED_MEMORY=1`
+  is already enabled in the build, but `SharedArrayBuffer` additionally requires
+  cross-origin isolation (COOP/COEP headers) at runtime — `createPcmRing()`
+  checks `crossOriginIsolated` and returns `null` if unavailable, in which case
+  PCM falls back to per-chunk `postMessage` (`{ type: 'pcm', buffer, channels }`,
+  transferring the `Float32Array`'s buffer).
+- **Resize**: `syncModuleSize()` and the `ResizeObserver` callback now call
+  `renderWorkerHandle.postResize(w, h)` instead of `Module._set_window_size()`
+  directly. `mcanvas.width`/`.height`/CSS size are still set on the main thread
+  (per spec, setting `.width`/`.height` on a canvas after
+  `transferControlToOffscreen()` still resizes the transferred bitmap).
+- **Preset lock toggle**: `lockPreset()` calls
+  `renderWorkerHandle.ccallVoid('set_preset_locked', ['number'], [...])`, a thin
+  generic `ccall` forwarder (`{ type: 'ccall', name, returnType, argTypes, args }`)
+  that the worker executes against its own `Module.ccall`.
+
+**Known limitations of this opt-in path (not yet wired)**:
+
+- Startup/random preset loading (`projectm-presets.js`'s
+  `loadStartupApiPresets`/`loadRandomApiPreset`), the FBO-format degraded-mode
+  banner (`projectm-fbo-format.js`), and the on-screen perf HUD
+  (`projectm-perf.js`) all call `Module.*` directly *and* manipulate the DOM —
+  neither is available to the worker's `Module` instance. In render-worker mode,
+  the worker renders with whatever preset(s) `_init()`/`main()` load by default;
+  these richer UI integrations are a follow-up once the core worker path is
+  verified in-browser.
+- **Nested OpenMP/pthread workers**: the WASM module is built with
+  `-pthread -fopenmp` and `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'`.
+  When this module is instantiated *inside* `projectm-render-worker.js`, its
+  pthread pool Workers become **nested Workers** (Worker-within-Worker).
+  Chrome and Firefox support `new Worker()` from within a
+  `DedicatedWorkerGlobalScope`; Safari's support for nested Workers has
+  historically lagged. This is the "Verify OpenMP/pthread workers still
+  function from render worker" item from the issue and **could not be checked
+  here** (no browser). If nested Workers fail to spawn on a given browser,
+  `MilkdropPreset::InitializePreset()`'s `m_perPixelContextPool`-based OpenMP
+  parallelism would silently fall back to serial execution inside the worker
+  (OpenMP degrades to single-threaded if `omp_get_max_threads()` workers can't
+  be created) rather than crashing — but this needs confirming on Safari.
+- `requestAnimationFrame` inside the worker: Emscripten's
+  `emscripten_set_main_loop` (used by `_start_render`'s main loop) calls
+  `requestAnimationFrame` when available in the worker's global scope (Chrome
+  105+/Firefox support this for workers that own an `OffscreenCanvas`) and
+  falls back to `setTimeout`-based timing otherwise — this fallback is handled
+  by the Emscripten runtime itself, so no extra code was needed here, but the
+  resulting frame pacing on a `setTimeout` fallback has not been measured.
+
+**Browser matrix tested**: none — no browser/display is available in this
+environment. To test:
+
+1. Serve `html/` (needs to be served with `Cross-Origin-Opener-Policy: same-origin`
+   and `Cross-Origin-Embedder-Policy: require-corp` for the SharedArrayBuffer PCM
+   ring to activate; without those headers, PCM still works via the
+   `postMessage` fallback).
+2. Desktop Chrome, `?renderWorker=1`: open DevTools Performance tab, confirm the
+   main thread is mostly idle while `projectm-render-worker.js` shows
+   `_render_frame`/GL activity; confirm visuals react to
+   `startLocalProjectMTestSender()`.
+3. Firefox: same as above (`OffscreenCanvas`/`transferControlToOffscreen`
+   supported since Firefox 105).
+4. Safari: `transferControlToOffscreen()` support and nested-Worker behavior
+   for the OpenMP pool are the main unknowns — check the console for
+   `{ type: 'unsupported' }`/`{ type: 'error' }` messages from
+   `projectm-render-worker-host.js`'s `onUnsupported`/`onError` callbacks (logged
+   via `console.warn`/`console.error`), which should trigger the main-thread
+   fallback.
+5. Without `?renderWorker=1` (default): confirm behavior is bit-for-bit
+   identical to before this change (no new network requests, no new Workers).
+
+**Perf numbers**: not measured (no browser). The new files add
+`html/projectm-render-worker.js` (~5 KB) and
+`html/projectm-render-worker-host.js` (~5 KB), loaded only when
+`?renderWorker=1` is set — zero added bytes/requests for the default path.
+
+**Drive-by fix**: `scripts/build_projectm.sh` and `scripts/colab_build.sh`'s
+`EXPORTED_FUNCTIONS` lists were missing `_set_target_fps`,
+`_set_quality_governor`, `_get_quality_tier`, `_dual_fbo_get_format`, and the
+other functions added in the 60 FPS/quality-governor and FBO-format work —
+`scripts/build_wasm_smoke_wrapper.sh` and `CMakeLists.txt`'s
+`PROJECTM_WASM_EXPORTED_FUNCTIONS` already had them. Without this, the render
+worker's `if (Module._set_target_fps)`/etc. guards would silently no-op on
+builds produced by those two scripts. Synced all three `EXPORTED_FUNCTIONS`
+lists.
+
+### Part B: SIMD audio hot paths
+
+#### `PCM::CopyNewWaveformData` — contiguous circular-buffer copy (low risk, portable)
+
+`src/libprojectM/Audio/PCM.cpp`'s `CopyNewWaveformData()` previously copied the
+576-sample circular waveform buffer element-by-element with
+`destination[i] = source[(bufferStartIndex + i) % AudioBufferSamples]` (an
+OpenMP-parallelized scalar loop). The per-element `%` defeats autovectorization
+on every target, wasm included.
+
+Replaced with at most two `std::copy()` calls split at the wrap point
+(`source.begin() + bufferStartIndex .. source.end()` then
+`source.begin() .. source.begin() + bufferStartIndex`, or a single full-range
+copy when `bufferStartIndex == 0`). This is portable (no `wasm_simd128.h`
+needed), lets the compiler/`libc` use `memcpy`/`memmove`/autovectorized loops on
+both native and wasm builds, and removes the OpenMP parallel-for entirely (576
+elements is too small to benefit from thread dispatch overhead anyway).
+
+#### `WaveformAligner::ResampleOctaves` — explicit `wasm_simd128.h` pass with scalar fallback
+
+`src/libprojectM/Audio/WaveformAligner.cpp`'s `ResampleOctaves()` downsamples
+each mip level by averaging adjacent sample pairs:
+`dst[sample] = 0.5f * (src[2*sample] + src[2*sample+1])`. Added a
+`#if defined(__wasm_simd128__)` path that processes four destination samples
+(eight source samples) per iteration: loads two `v128_t`s, uses
+`wasm_i32x4_shuffle` to de-interleave the even/odd lanes (the even/odd source
+samples), adds them, and multiplies by `wasm_f32x4_splat(0.5f)`. Any remaining
+samples (when the octave's sample count isn't a multiple of 4), and the entire
+loop on builds without `__wasm_simd128__` (native, this environment's only
+buildable/testable target), fall back to the original scalar expression
+unchanged.
+
+#### `MilkdropFFT.cpp` butterfly (Step 2) — analyzed, not changed
+
+`MilkdropFFT::TimeToFrequencyDomain()`'s Step 2 (the Cooley-Tukey butterfly) has
+a sequential twiddle-factor recurrence (`w *= wp` each iteration of the `m`
+loop), which is inherently serial as written — vectorizing it correctly
+requires precomputing a twiddle-factor table per stage so the `m` loop becomes
+data-parallel. That's an algorithmic restructuring of FFT-correctness-critical
+code, and `tests/libprojectM/` has no FFT unit test to validate the result
+against (only `WaveformAlignerTest.cpp` exists for `Audio/`). Given the risk of
+silently producing incorrect spectrum data with no test to catch it, this was
+**deferred** rather than attempted in this pass. Steps 1 and 3 of the same
+function are already OpenMP-parallelized and were left as-is.
+
+#### `Loudness::SumBand` — analyzed, not changed
+
+`SumBand()` reduces ~`SpectrumSamples/6` (~85) elements per band (3 bands/frame)
+under an `#pragma omp parallel for reduction(+:m_current)`. Two reasons this was
+not also given a `wasm_simd128.h` path:
+
+1. The wasm build already enables `-fopenmp` alongside `-pthread`
+   (`build_projectm.sh`/`colab_build.sh`/`build_wasm_smoke_wrapper.sh` all pass
+   `-fopenmp`), so `PRJM_ENABLE_OPENMP` is defined and `SumBand` already takes
+   the OpenMP-reduction path on wasm — a `wasm_simd128.h` path would only be
+   reachable in a non-OpenMP wasm build, which none of the build scripts produce.
+2. At ~85 elements, a 4-wide SIMD horizontal-sum loop saves at most ~21
+   iterations of scalar add — likely below the noise floor of per-frame timing,
+   especially compared to the FFT/PCM/resample work above.
+
+### Verification performed
+
+- `cmake --build cmake-build-verify --target projectM-unittest` succeeds with
+  the `PCM.cpp`/`WaveformAligner.cpp` changes (native build, so the
+  `__wasm_simd128__` branch is not compiled/tested here — only the scalar
+  fallback path is exercised).
+- `./cmake-build-verify/tests/libprojectM/Debug/projectM-unittest`: all 187
+  tests pass, including `projectMWaveformAligner.AlignDelta`, which exercises
+  `ResampleOctaves()` (via `Align()`) with the new scalar-fallback code path.
+- `node --check` on `html/projectm-render-worker.js`,
+  `html/projectm-render-worker-host.js`, the modified
+  `html/projectm-core.html` `<script type="module">` body, and
+  `html/projectm-external-pcm.js` (new `defaultFeedPCMToModule` export) — all
+  syntactically valid ES modules.
+- **Not measured in this environment** (no GPU/display/browser): input-to-visual
+  latency and frame p95 before/after, the `?renderWorker=1` path end-to-end, and
+  whether the `wasm_simd128.h` branch in `ResampleOctaves()` actually compiles
+  and produces SIMD opcodes under `em++` (no Emscripten toolchain available in
+  this environment to run `wasm-objdump`/`-S` — the `#if defined(__wasm_simd128__)`
+  guard ensures it is simply not compiled here, with no effect on the native
+  build or its tests).

@@ -1144,6 +1144,7 @@ document.querySelector('#mvi').style.transform='scaleX(-1.0)';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
+import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
@@ -1227,41 +1228,72 @@ xhr.send();
 
 */
 
-document.getElementById("startBtn5").addEventListener('click',function(){
-if (window._pmLoading || window._pmLoaded) {
-    console.log('projectM module already loading or loaded, skipping duplicate load');
-    return;
-}
-window._pmLoading = true;
-loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true })
-    .then(() => createModule())
-    .then(async function(instance) {
-Module=instance;
-globalThis.Module = Module;
-window._pmLoading = false;
-window._pmLoaded = true;
+// ====== INIT ERROR HANDLING ======
+// Shows a recovery overlay (#pm-init-error) if Module._init() fails (EGL/WebGL/projectM
+// setup). See docs/EMSCRIPTEN.md#init-error-codes. Append ?simulateInitFail=1 to the page
+// URL to preview the overlay without breaking WebGL.
+const initErrors = setupInitErrorHandling(() => attemptInit());
 
-Module._init();
-updateLayout();
-syncModuleSize();
-const mcanvas = document.querySelector('#mcanvas');
-const startupPaths = await loadStartupApiPresets(5);
-if (startupPaths.length > 0) {
-    Module.ccall('load_preset_file', null, ['string'], [startupPaths[0]]);
-    for (let i = 1; i < startupPaths.length; i++) {
-        Module.ccall('add_preset_file', null, ['string'], [startupPaths[i]]);
+async function attemptInit() {
+    if (initErrors.simulate) {
+        // First call (the automatic one below) just leaves the simulated overlay visible.
+        // Clicking Retry clears the flag and performs a real init attempt.
+        initErrors.simulate = false;
+        return;
     }
-} else {
-    console.warn('No startup API presets loaded');
+
+    if (window._pmLoading) {
+        console.log('projectM module already loading, skipping duplicate load');
+        return;
+    }
+    window._pmLoading = true;
+
+    try {
+        if (!Module) {
+            await loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true });
+            Module = await createModule();
+            globalThis.Module = Module;
+        }
+
+        if (!checkInit(Module)) {
+            return;
+        }
+        window._pmLoaded = true;
+
+        updateLayout();
+        syncModuleSize();
+        const mcanvas = document.querySelector('#mcanvas');
+
+        if (!window._pmStartupPresetsLoaded) {
+            window._pmStartupPresetsLoaded = true;
+            const startupPaths = await loadStartupApiPresets(5);
+            if (startupPaths.length > 0) {
+                Module.ccall('load_preset_file', null, ['string'], [startupPaths[0]]);
+                for (let i = 1; i < startupPaths.length; i++) {
+                    Module.ccall('add_preset_file', null, ['string'], [startupPaths[i]]);
+                }
+            } else {
+                console.warn('No startup API presets loaded');
+            }
+        }
+
+        Module._start_render(mcanvas.width, mcanvas.height);
+        flushQueuedExternalPCM();
+        // Background load remaining presets so rendering isn't blocked
+        // loadRegularMilkPresets();
+    } catch (err) {
+        console.error('projectM module initialization failed:', err);
+    } finally {
+        window._pmLoading = false;
+    }
 }
-Module._start_render(mcanvas.width, mcanvas.height);
-flushQueuedExternalPCM();
-// Background load remaining presets so rendering isn't blocked
-// loadRegularMilkPresets();
-}).catch(function(err) {
-    window._pmLoading = false;
-    console.error('projectM module initialization failed:', err);
-});
+
+document.getElementById("startBtn5").addEventListener('click', function() {
+    if (window._pmLoading || window._pmLoaded) {
+        console.log('projectM module already loading or loaded, skipping duplicate load');
+        return;
+    }
+    attemptInit();
 });
 
 let viewMode = 'bezel';

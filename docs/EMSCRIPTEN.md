@@ -103,6 +103,61 @@ startTransitionWhenReady({ module: Module });
 
 The flag is reset to `false` on every `load_preset_file()` call, so polling loops correctly handle back-to-back preset switches.
 
+## Init Error Codes
+
+`init()` (exported via `EMSCRIPTEN_KEEPALIVE`, see `projectM_emscripten.cpp`) returns an integer
+status code so host pages can detect failures that would otherwise leave the canvas blank with
+only a `stderr` message in the console.
+
+| Code | Stage | Meaning | Common causes |
+|------|-------|---------|----------------|
+| `0` | — | Success. | — |
+| `1` | EGL | `eglChooseConfig` failed, i.e. no suitable EGL config was found. | Browser/GPU does not support the requested EGL config (e.g. floating-point color buffers). |
+| `2` | WebGL | `emscripten_webgl_create_context` failed, or the created context could not be activated. | WebGL 2 unsupported or disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
+| `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (common on low-RAM mobile with `INITIAL_MEMORY=1024mb`), or an internal projectM error. |
+
+### Reporting failures to the host page
+
+On any non-zero return, `init()` calls:
+
+```c
+EM_JS(void, js_report_init_error, (int code, const char* detail), { ... });
+```
+
+which invokes `window.pmReportInitError(code, detail)` if the host page has defined it. On
+success, `init()` calls `js_report_init_success()`, which invokes `window.pmHideInitError()` if
+defined.
+
+`html/projectm-init-errors.js` provides a ready-made implementation of both hooks: it shows a
+styled `#pm-init-error` overlay with a human-readable message, browser/GPU compatibility hints,
+a link back to this document, and a "Retry" button that re-runs `init()`. Host pages call
+`setupInitErrorHandling()` once during setup and `checkInit(Module)` after `Module._init()`:
+
+```js
+import { setupInitErrorHandling, checkInit } from './projectm-init-errors.js';
+
+const initErrors = setupInitErrorHandling(() => attemptInit());
+
+async function attemptInit() {
+    // ... load the WASM module into `Module` ...
+    if (!checkInit(Module)) {
+        return; // overlay is shown; do not call _start_render()
+    }
+    Module._start_render(mcanvas.width, mcanvas.height);
+}
+```
+
+Appending `?simulateInitFail=1` to the page URL forces the overlay to show (using code `2`) for
+QA/testing without needing to actually break WebGL.
+
+### Preset-load failures
+
+Failures that happen *after* a successful `init()` (e.g. an individual preset fails to switch)
+do not use the overlay. Instead, `_on_preset_switch_failed` calls
+`js_report_preset_switch_failed(preset_filename, message)`, which logs a `console.warn` and, if
+the page defines a `#stat` element, sets its text to `Preset failed: <name>` with a red
+background — the same readout already used for preset-loading status messages.
+
 ## Initializing Emscripten's OpenGL Context
 
 In addition to the above linker flags, some additional initialization steps must be performed to set up the OpenGL

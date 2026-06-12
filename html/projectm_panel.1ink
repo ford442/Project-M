@@ -345,6 +345,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
+import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
@@ -622,19 +623,39 @@ setTimeout(() => {
     document.querySelector('#splash1').style.display = 'none';
 }, 5500);
 
-setTimeout(() => {
-    loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true })
-        .then(() => createModule())
-        .then(async (instance) => {
-            Module = instance;
-            globalThis.Module = Module;
-            Module._init();
-            updateLayout();
-            syncModuleSize();
-            const mcanvas = document.querySelector('#mcanvas');
-            Module._start_render(mcanvas.width, mcanvas.height);
-            flushQueuedExternalPCM();
+// ====== INIT ERROR HANDLING ======
+// Shows a recovery overlay (#pm-init-error) if Module._init() fails (EGL/WebGL/projectM
+// setup). See docs/EMSCRIPTEN.md#init-error-codes. Append ?simulateInitFail=1 to the page
+// URL to preview the overlay without breaking WebGL.
+const initErrors = setupInitErrorHandling(() => attemptInit());
 
+async function attemptInit() {
+    if (initErrors.simulate) {
+        // First call (the automatic one below) just leaves the simulated overlay visible.
+        // Clicking Retry clears the flag and performs a real init attempt.
+        initErrors.simulate = false;
+        return;
+    }
+
+    try {
+        if (!Module) {
+            await loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true });
+            Module = await createModule();
+            globalThis.Module = Module;
+        }
+
+        if (!checkInit(Module)) {
+            return;
+        }
+
+        updateLayout();
+        syncModuleSize();
+        const mcanvas = document.querySelector('#mcanvas');
+        Module._start_render(mcanvas.width, mcanvas.height);
+        flushQueuedExternalPCM();
+
+        if (!window._pmStartupPresetsLoaded) {
+            window._pmStartupPresetsLoaded = true;
             const startupResults = await loadStartupApiPresets(5);
             if (startupResults.length > 0) {
                 Module.ccall('load_preset_file', null, ['string'], [startupResults[0].vfsPath]);
@@ -643,9 +664,14 @@ setTimeout(() => {
                     Module.ccall('add_preset_file', null, ['string'], [startupResults[i].vfsPath]);
                 }
             }
-        }).catch((err) => {
-            console.error('projectM initialization failed:', err);
-        });
+        }
+    } catch (err) {
+        console.error('projectM initialization failed:', err);
+    }
+}
+
+setTimeout(() => {
+    attemptInit();
 }, 750);
 
 setTimeout(() => {

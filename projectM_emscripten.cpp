@@ -1219,8 +1219,22 @@ return;
 }
 } // extern "C"
 
+// Surfaces a preset-switch failure to the host page via the #stat readout (if present),
+// so users see something other than a silently frozen preset. Falls back to console.warn.
+EM_JS(void, js_report_preset_switch_failed, (const char* preset_filename, const char* message), {
+    const name = preset_filename ? UTF8ToString(preset_filename) : '(unknown preset)';
+    const msg = message ? UTF8ToString(message) : '';
+    console.warn('[projectM] preset switch failed (' + name + '): ' + msg);
+    const statEl = document.querySelector('#stat');
+    if (statEl) {
+        statEl.innerHTML = 'Preset failed: ' + name.split('/').pop();
+        statEl.style.backgroundColor = 'red';
+    }
+});
+
 void _on_preset_switch_failed(const char *preset_filename, const char *message, void *user_data) {
 printf("Preset switch failed (%s): %s\n", preset_filename, message);
+js_report_preset_switch_failed(preset_filename, message);
 return;
 }
 
@@ -1638,10 +1652,35 @@ if (meshSizeEl) {
 
 });
 
+// Reports an init() failure to the host page. If the page has defined
+// window.pmReportInitError(code, detail) (see html/projectm-init-errors.js), it is
+// called so an overlay can be shown; otherwise the error is just logged.
+//
+// See docs/EMSCRIPTEN.md#init-error-codes for the meaning of `code`.
+EM_JS(void, js_report_init_error, (int code, const char* detail), {
+    const detailStr = detail ? UTF8ToString(detail) : '';
+    if (typeof window.pmReportInitError === 'function') {
+        window.pmReportInitError(code, detailStr);
+    } else {
+        console.error('[projectM] init() failed with code ' + code + (detailStr ? ': ' + detailStr : ''));
+    }
+});
+
+// Notifies the host page that init() succeeded, so any previously shown init-error
+// overlay can be hidden. See html/projectm-init-errors.js.
+EM_JS(void, js_report_init_success, (), {
+    if (typeof window.pmHideInitError === 'function') {
+        window.pmHideInitError();
+    }
+});
+
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 int init() {
-if (pm) return 0;
+if (pm) {
+js_report_init_success();
+return 0;
+}
 // Clean up any previously created WebGL/EGL resources from a failed prior init attempt
 // so that calling init() again after a partial failure is safe.
 if (gl_ctx) {
@@ -1734,7 +1773,10 @@ EGL_NONE
 
 EGLBoolean configResult = eglChooseConfig(display,att_lst,&eglconfig,1,&config_size);
 if (!configResult || config_size == 0) {
-fprintf(stderr, "eglChooseConfig failed (error: 0x%x)\n", eglGetError());
+char detail[64];
+snprintf(detail, sizeof(detail), "eglChooseConfig failed (error: 0x%x)", eglGetError());
+fprintf(stderr, "%s\n", detail);
+js_report_init_error(1, detail);
 return 1;
 }
 ctxegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,ctx_att);
@@ -1744,7 +1786,8 @@ eglBindAPI(EGL_OPENGL_API);
 gl_ctx = emscripten_webgl_create_context("#mcanvas", &webgl_attrs);
 if (!gl_ctx) {
 fprintf(stderr, "Failed to create WebGL context\n");
-return 1;
+js_report_init_error(2, "Failed to create WebGL 2 context");
+return 2;
 }
 EMSCRIPTEN_RESULT em_res = emscripten_webgl_make_context_current(gl_ctx);
 eglMakeCurrent(display,surface,surface,ctxegl);
@@ -1753,7 +1796,8 @@ glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
 glHint(GL_GENERATE_MIPMAP_HINT,GL_NICEST);
 if (em_res != EMSCRIPTEN_RESULT_SUCCESS) {
 fprintf(stderr, "Failed to activate the WebGL context for rendering\n");
-return 1;
+js_report_init_error(2, "Failed to activate the WebGL context for rendering");
+return 2;
 }
 
 // These are probably redundant since all GL extensions are enabled by default
@@ -1787,16 +1831,17 @@ fprintf(stderr, "Warning: EXT_float_blend not supported; float blending will not
 g_dualFbo.DetectFormat(gl_ctx);
 
 pm = projectm_create();
+if (!pm) {
+fprintf(stderr, "Failed to create projectM handle\n");
+js_report_init_error(3, "projectm_create() returned null");
+return 3;
+}
 app_data.projectm_engine = pm;
 playlist = projectm_playlist_create(pm);
 app_data.playlist = playlist;
 const char * loc="/presets/";
 projectm_playlist_add_path(playlist,loc,true,true);
 projectm_playlist_set_preset_switched_event_callback(playlist,&load_preset_callback_done,&app_data);
-if (!pm) {
-fprintf(stderr, "Failed to create projectM handle\n");
-return 1;
-}
 const char* texture_search_paths[] = {"textures"};
 projectm_set_texture_search_paths(pm, texture_search_paths, 1);
 projectm_set_fps(pm, 60);
@@ -1812,6 +1857,7 @@ projectm_set_preset_switch_requested_event_callback(pm, &on_preset_switch_reques
 printf("  --==  projectM initialized!  ==--\n");
 js_initialize_worklet_system_once(reinterpret_cast<uintptr_t>(app_data.projectm_engine));
 js_initialize_stream_analyser();
+js_report_init_success();
 return 0;
 }
 } // extern "C"

@@ -577,49 +577,76 @@ draw();
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
+import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
 let Module;
 setupExternalAudioReceiver({ preallocSize: 2048 });
 
+// ====== INIT ERROR HANDLING ======
+// Shows a recovery overlay (#pm-init-error) if Module._init() fails (EGL/WebGL/projectM
+// setup). See docs/EMSCRIPTEN.md#init-error-codes. Append ?simulateInitFail=1 to the page
+// URL to preview the overlay without breaking WebGL.
+const initErrors = setupInitErrorHandling(() => attemptInit());
+
+async function attemptInit() {
+    if (initErrors.simulate) {
+        // First call (the automatic one below) just leaves the simulated overlay visible.
+        // Clicking Retry clears the flag and performs a real init attempt.
+        initErrors.simulate = false;
+        return;
+    }
+
+    if (window._pmLoading) {
+        console.log('projectM already loading');
+        return;
+    }
+    window._pmLoading = true;
+
+    try {
+        if (!Module) {
+            await loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true });
+            Module = await createModule();
+            globalThis.Module = Module;
+        }
+
+        if (!checkInit(Module)) {
+            return;
+        }
+        window._pmLoaded = true;
+
+        updateLayout();
+        syncModuleSize();
+
+        if (!window._pmStartupPresetsLoaded) {
+            window._pmStartupPresetsLoaded = true;
+            // Load some startup presets via API (optional but recommended)
+            const paths = await loadStartupApiPresets(3);
+            if (paths.length > 0) {
+                Module.ccall('load_preset_file', null, ['string'], [paths[0]]);
+                for (let i = 1; i < paths.length; i++) {
+                    Module.ccall('add_preset_file', null, ['string'], [paths[i]]);
+                }
+            }
+        }
+
+        const mcanvas = document.querySelector('#mcanvas');
+        Module._start_render(mcanvas.width, mcanvas.height);
+        flushQueuedExternalPCM();
+    } catch (err) {
+        console.error('projectM initialization failed:', err);
+    } finally {
+        window._pmLoading = false;
+    }
+}
+
 document.getElementById("startBtn5").addEventListener('click', function() {
     if (window._pmLoading || window._pmLoaded) {
         console.log('projectM already loading or loaded');
         return;
     }
-    window._pmLoading = true;
-
-    loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true })
-        .then(() => createModule())
-        .then(function(instance) {
-            Module = instance;
-            globalThis.Module = Module;
-            window._pmLoading = false;
-            window._pmLoaded = true;
-
-            Module._init();
-            updateLayout();
-            syncModuleSize();
-
-            // Load some startup presets via API (optional but recommended)
-            loadStartupApiPresets(3).then(paths => {
-                if (paths.length > 0) {
-                    Module.ccall('load_preset_file', null, ['string'], [paths[0]]);
-                    for (let i = 1; i < paths.length; i++) {
-                        Module.ccall('add_preset_file', null, ['string'], [paths[i]]);
-                    }
-                }
-            });
-
-            const mcanvas = document.querySelector('#mcanvas');
-            Module._start_render(mcanvas.width, mcanvas.height);
-            flushQueuedExternalPCM();
-
-        }).catch(function(err) {
-            window._pmLoading = false;
-            console.error('projectM initialization failed:', err);
-        });
+    attemptInit();
 });
 
 

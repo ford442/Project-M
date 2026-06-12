@@ -334,6 +334,7 @@ ccs = document.querySelector('#circle');
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
+import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
@@ -581,13 +582,31 @@ updateLayout();
 setTimeout(() => { document.getElementById('splash2').style.display = 'none'; }, 5200);
 setTimeout(() => { document.getElementById('splash1').style.display = 'none'; }, 5500);
 
-setTimeout(() => {
+// ====== INIT ERROR HANDLING ======
+// Shows a recovery overlay (#pm-init-error) if Module._init() fails (EGL/WebGL/projectM
+// setup). See docs/EMSCRIPTEN.md#init-error-codes. Append ?simulateInitFail=1 to the page
+// URL to preview the overlay without breaking WebGL.
+const initErrors = setupInitErrorHandling(() => initProjectM());
+
 async function initProjectM() {
+  if (initErrors.simulate) {
+    // First call (the automatic one below) just leaves the simulated overlay visible.
+    // Clicking Retry clears the flag and performs a real init attempt.
+    initErrors.simulate = false;
+    return;
+  }
+
   try {
-    await loadScript('./pm/projectm-v.030-thread.1ijs', { defer: true });
-    Module = await createModule();
-    globalThis.Module = Module;
-    Module._init();
+    if (!Module) {
+      await loadScript('./pm/projectm-v.030-thread.1ijs', { defer: true });
+      Module = await createModule();
+      globalThis.Module = Module;
+    }
+
+    if (!checkInit(Module)) {
+      return;
+    }
+
     updateLayout();
     syncModuleSize();
 
@@ -600,14 +619,17 @@ async function initProjectM() {
     Module._start_render(mcanvas.width, mcanvas.height);
     flushQueuedExternalPCM();
 
-    document.getElementById('musicBtn').click();
+    if (!window._pmStartupPresetsLoaded) {
+      window._pmStartupPresetsLoaded = true;
+      document.getElementById('musicBtn').click();
 
-    const startup = await loadStartupApiPresets(5);
-    if (startup.length > 0) {
-      Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
-      window.updatePresetDisplay(startup[0].filename);
-      for (let i = 1; i < startup.length; i++) {
-        Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
+      const startup = await loadStartupApiPresets(5);
+      if (startup.length > 0) {
+        Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
+        window.updatePresetDisplay(startup[0].filename);
+        for (let i = 1; i < startup.length; i++) {
+          Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
+        }
       }
     }
   } catch (err) {
@@ -615,7 +637,8 @@ async function initProjectM() {
   }
 }
 
-initProjectM();
+setTimeout(() => {
+  initProjectM();
 }, 750);
 </script>
 </body>

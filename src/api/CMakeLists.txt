@@ -30,6 +30,7 @@ set(PROJECTM_PUBLIC_HEADERS
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/memory.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/parameters.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/projectM.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/projectm_perf.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/render_opengl.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/touch.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/types.h"

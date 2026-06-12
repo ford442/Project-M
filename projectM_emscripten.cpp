@@ -6,6 +6,7 @@
 #include <emscripten/html5.h>
 #include <projectM-4/playlist.h>
 #include <projectM-4/projectM.h>
+#include <projectM-4/projectm_perf.h>
 #include <emscripten/html5_webgl.h>
 #define GL_GLEXT_PROTOTYPES
 #define GL_FRAGMENT_PRECISION_HIGH
@@ -856,6 +857,97 @@ static float  g_transitionBlend     = 0.0f;   //!< Current blend value in [0.0, 
 static double g_transitionStartTime = 0.0;    //!< emscripten_get_now() timestamp (ms) at blend start.
 
 // =============================================================================
+// Perf HUD / Benchmark support (see docs/PERFORMANCE.md)
+//
+// CPU-side per-frame timings come from libprojectM's optional perf timer API
+// (projectm_perf.h). GPU timing uses the EXT_disjoint_timer_query_webgl2
+// extension where available. Both are no-ops unless set_perf_hud(1) was
+// called, so there is no overhead in normal use.
+// =============================================================================
+
+static bool g_perfHudEnabled = false; //!< Whether set_perf_hud(1) has been called.
+
+// Begins a GPU timer query for the upcoming render_frame() call, if the
+// EXT_disjoint_timer_query_webgl2 extension is available. No-op otherwise.
+EM_JS(void, js_perf_gpu_begin_frame, (), {
+    if (!Module.__pmPerfGpu) {
+        const ext = GLctx.getExtension('EXT_disjoint_timer_query_webgl2');
+        Module.__pmPerfGpu = { ext: ext, queries: [], lastMs: -1 };
+    }
+    const gpu = Module.__pmPerfGpu;
+    if (!gpu.ext) {
+        return;
+    }
+    const query = GLctx.createQuery();
+    GLctx.beginQuery(gpu.ext.TIME_ELAPSED_EXT, query);
+    gpu.queries.push(query);
+});
+
+// Ends the GPU timer query started by js_perf_gpu_begin_frame() and polls
+// previously submitted queries (without blocking) for completed results.
+EM_JS(void, js_perf_gpu_end_frame, (), {
+    const gpu = Module.__pmPerfGpu;
+    if (!gpu || !gpu.ext) {
+        return;
+    }
+    GLctx.endQuery(gpu.ext.TIME_ELAPSED_EXT);
+    // GPU timer queries complete asynchronously, often a frame or two later.
+    while (gpu.queries.length > 0) {
+        const oldest = gpu.queries[0];
+        if (!GLctx.getQueryParameter(oldest, GLctx.QUERY_RESULT_AVAILABLE)) {
+            break;
+        }
+        const disjoint = GLctx.getParameter(gpu.ext.GPU_DISJOINT_EXT);
+        if (!disjoint) {
+            const ns = GLctx.getQueryParameter(oldest, GLctx.QUERY_RESULT);
+            gpu.lastMs = ns / 1e6;
+        }
+        GLctx.deleteQuery(oldest);
+        gpu.queries.shift();
+    }
+    // Don't let unresolved queries pile up if results never arrive.
+    while (gpu.queries.length > 8) {
+        GLctx.deleteQuery(gpu.queries.shift());
+    }
+});
+
+// Returns the most recently completed GPU frame time in milliseconds, or -1
+// if the timer query extension is unavailable or no result has arrived yet.
+EM_JS(double, js_perf_gpu_get_last_ms, (), {
+    return (Module.__pmPerfGpu && Module.__pmPerfGpu.ext) ? Module.__pmPerfGpu.lastMs : -1;
+});
+
+// Notifies the host page that perf timer collection was enabled/disabled, so
+// it can show or hide the on-screen HUD. See html/projectm-perf.js.
+EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
+    if (typeof window.pmSetPerfHudEnabled === 'function') {
+        window.pmSetPerfHudEnabled(!!enabled);
+    }
+});
+
+// Reports one frame's worth of CPU/GPU timings to the host page. If
+// window.pmOnPerfFrame(stats) is defined (see html/projectm-perf.js), it is
+// called with a stats object so the HUD and/or benchmark harness can consume it.
+EM_JS(void, js_perf_report_frame, (
+    double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
+    double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps
+), {
+    if (typeof window.pmOnPerfFrame === 'function') {
+        window.pmOnPerfFrame({
+            totalMs: totalMs,
+            audioMs: audioMs,
+            perFrameEvalMs: perFrameEvalMs,
+            perPixelEvalMs: perPixelEvalMs,
+            blurMs: blurMs,
+            waveformsShapesMs: waveformsShapesMs,
+            compositeMs: compositeMs,
+            gpuMs: gpuMs,
+            fps: fps,
+        });
+    }
+});
+
+// =============================================================================
 
 EGLContext ctxegl = EGL_NO_CONTEXT;
 EGLDisplay display = EGL_NO_DISPLAY;
@@ -1175,11 +1267,25 @@ reinterpret_cast<uintptr_t>(app_data.projectm_engine),
 // Phase 3: Wrap the render call in a GLStateGuard so that any blend, texture,
 // or FBO state set by the preset shader is restored before handing control back
 // to the browser's WebGL layer.
+if (g_perfHudEnabled) {
+    js_perf_gpu_begin_frame();
+}
 {
     GLStateGuard guard;
     projectm_opengl_render_frame(pm);
 }
+if (g_perfHudEnabled) {
+    js_perf_gpu_end_frame();
+}
 eglSwapBuffers(display,surface);
+if (g_perfHudEnabled) {
+    projectm_perf_frame_timings timings;
+    projectm_perf_get_frame_timings(&timings);
+    js_perf_report_frame(
+        timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
+        timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
+        timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps);
+}
 return;
 }
 
@@ -1950,6 +2056,19 @@ void set_preset_locked(bool locked) {
 if (!pm) return;
 projectm_set_preset_locked(pm, locked);
 printf("Preset lock set to: %s\n", locked ? "true" : "false");
+return;
+}
+
+// Toggles the frame-time profiling HUD/benchmark instrumentation. When
+// enabled, CPU timers (libprojectM's projectm_perf API) and, if available,
+// a WebGL GPU timer query are collected each frame and reported to the host
+// page via js_perf_report_frame()/window.pmOnPerfFrame. See
+// docs/PERFORMANCE.md and html/projectm-perf.js.
+EMSCRIPTEN_KEEPALIVE
+void set_perf_hud(int enabled) {
+g_perfHudEnabled = enabled != 0;
+projectm_perf_set_enabled(g_perfHudEnabled);
+js_perf_hud_set_enabled(enabled);
 return;
 }
 } // extern "C"

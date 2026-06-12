@@ -158,6 +158,12 @@ do not use the overlay. Instead, `_on_preset_switch_failed` calls
 the page defines a `#stat` element, sets its text to `Preset failed: <name>` with a red
 background — the same readout already used for preset-loading status messages.
 
+## Performance Profiling
+
+`Module._set_perf_hud(1)` enables CPU/GPU frame-time instrumentation and an on-screen HUD; a
+`?benchmark=1&frames=N&preset=...` query param runs a headless benchmark and reports JSON
+mean/median/p95 stats. See [docs/PERFORMANCE.md](PERFORMANCE.md) for details.
+
 ## Initializing Emscripten's OpenGL Context
 
 In addition to the above linker flags, some additional initialization steps must be performed to set up the OpenGL

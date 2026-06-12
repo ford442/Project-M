@@ -22,6 +22,7 @@
 #include "ProjectM.hpp"
 
 #include "Logging.hpp"
+#include "PerfTimers.hpp"
 #include "Preset.hpp"
 #include "PresetFactoryManager.hpp"
 #include "TimeKeeper.hpp"
@@ -115,6 +116,8 @@ void ProjectM::SetTextureLoadCallback(Renderer::TextureLoadCallback callback)
 
 void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 {
+    Perf::FrameGuard perfFrameGuard;
+
     // Don't render if window area is zero.
     if (m_windowWidth == 0 || m_windowHeight == 0)
     {
@@ -125,8 +128,12 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     m_timeKeeper->UpdateTimers();
 
     // Update and retrieve audio data
-    m_audioStorage.UpdateFrameAudioData(m_timeKeeper->SecondsSinceLastFrame(), m_frameCount);
-    auto audioData = m_audioStorage.GetFrameAudioData();
+    libprojectM::Audio::FrameAudioData audioData;
+    {
+        PROJECTM_PERF_SCOPE(AudioAnalysis);
+        m_audioStorage.UpdateFrameAudioData(m_timeKeeper->SecondsSinceLastFrame(), m_frameCount);
+        audioData = m_audioStorage.GetFrameAudioData();
+    }
 
     // Check if the preset isn't locked, and we've not already notified the user
     if (!m_presetChangeNotified)

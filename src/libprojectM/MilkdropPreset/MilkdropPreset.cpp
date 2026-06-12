@@ -26,6 +26,7 @@
 #include "PresetFileParser.hpp"
 
 #include <Logging.hpp>
+#include <PerfTimers.hpp>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -90,7 +91,10 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     m_state.mainTexture = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
 
     // First evaluate per-frame code
-    PerFrameUpdate();
+    {
+        PROJECTM_PERF_SCOPE(PerFrameEval);
+        PerFrameUpdate();
+    }
 
     glViewport(0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY);
 
@@ -113,50 +117,60 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     m_framebuffer.SetAttachment(m_currentFrameBuffer, 1, m_motionVectorUVMap);
 
     // Draw previous frame image warped via per-pixel mesh and warp shader
-    m_perPixelMesh.Draw(m_state, m_perFrameContext, m_perPixelContext);
+    {
+        PROJECTM_PERF_SCOPE(PerPixelEval);
+        m_perPixelMesh.Draw(m_state, m_perFrameContext, m_perPixelContext);
+    }
 
     // Remove the u/v texture from the framebuffer.
     m_framebuffer.RemoveColorAttachment(m_currentFrameBuffer, 1);
 
     // Update blur textures
     {
+        PROJECTM_PERF_SCOPE(Blur);
         const auto warpedImage = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
         assert(warpedImage.get());
         m_state.blurTexture.Update(*warpedImage, m_perFrameContext);
     }
 
     // Draw audio-data-related stuff
-    for (auto& shape : m_customShapes)
     {
-        shape->Draw();
-    }
-    for (auto& wave : m_customWaveforms)
-    {
-        wave->Draw(m_perFrameContext);
-    }
-    m_waveform.Draw(m_perFrameContext);
+        PROJECTM_PERF_SCOPE(WaveformsShapes);
+        for (auto& shape : m_customShapes)
+        {
+            shape->Draw();
+        }
+        for (auto& wave : m_customWaveforms)
+        {
+            wave->Draw(m_perFrameContext);
+        }
+        m_waveform.Draw(m_perFrameContext);
 
-    // Done in DrawSprites() in Milkdrop
-    if (*m_perFrameContext.darken_center > 0)
-    {
-        m_darkenCenter.Draw();
+        // Done in DrawSprites() in Milkdrop
+        if (*m_perFrameContext.darken_center > 0)
+        {
+            m_darkenCenter.Draw();
+        }
+        m_border.Draw(m_perFrameContext);
     }
-    m_border.Draw(m_perFrameContext);
 
     // y-flip the image for final compositing again
-    m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_currentFrameBuffer, 0), nullptr, true, false);
-    m_state.mainTexture = m_flipTexture.Texture();
-
-    // We no longer need the previous frame image, use it to render the final composite.
-    m_framebuffer.BindRead(m_currentFrameBuffer);
-    m_framebuffer.BindDraw(m_previousFrameBuffer);
-
-    m_finalComposite.Draw(m_state, m_perFrameContext);
-
-    if (!m_finalComposite.HasCompositeShader())
     {
-        // Flip texture again in "previous" framebuffer as old-school effects are still upside down.
-        m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), m_framebuffer, m_previousFrameBuffer, true, false);
+        PROJECTM_PERF_SCOPE(Composite);
+        m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_currentFrameBuffer, 0), nullptr, true, false);
+        m_state.mainTexture = m_flipTexture.Texture();
+
+        // We no longer need the previous frame image, use it to render the final composite.
+        m_framebuffer.BindRead(m_currentFrameBuffer);
+        m_framebuffer.BindDraw(m_previousFrameBuffer);
+
+        m_finalComposite.Draw(m_state, m_perFrameContext);
+
+        if (!m_finalComposite.HasCompositeShader())
+        {
+            // Flip texture again in "previous" framebuffer as old-school effects are still upside down.
+            m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), m_framebuffer, m_previousFrameBuffer, true, false);
+        }
     }
 
     // Swap framebuffer IDs for the next frame.

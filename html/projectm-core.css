@@ -346,6 +346,76 @@ input, button {
   box-shadow: 0 0 12px rgba(61, 213, 243, 0.3);
 }
 
+/* ====== PERF HUD ======
+ * Styles for #pm-perf-hud are normally injected at runtime by
+ * html/projectm-perf.js, but are duplicated here for hosts that link this
+ * stylesheet directly. Keep in sync with that file. */
+#pm-perf-hud {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 99998;
+  display: none;
+  min-width: 220px;
+  padding: 10px 12px;
+  background: linear-gradient(160deg, #1b2436, #0d1117);
+  border: 1px solid #2a3f5f;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-family: "Lucida Console", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #e2e8f0;
+  pointer-events: none;
+}
+
+#pm-perf-hud.visible {
+  display: block;
+}
+
+#pm-perf-hud .pm-perf-hud-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #cbd5e1;
+}
+
+#pm-perf-hud .pm-perf-hud-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+#pm-perf-hud .pm-perf-hud-label {
+  flex: 0 0 110px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#pm-perf-hud .pm-perf-hud-bar-track {
+  flex: 1 1 auto;
+  height: 8px;
+  background: #1e293b;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+#pm-perf-hud .pm-perf-hud-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 4px;
+  transition: width 0.1s linear;
+}
+
+#pm-perf-hud .pm-perf-hud-value {
+  flex: 0 0 52px;
+  text-align: right;
+  color: #e2e8f0;
+}
+
 /* ====== PRESET NAME READOUT ====== */
 #preset-name {
   position: fixed;

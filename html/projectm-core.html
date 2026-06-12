@@ -422,6 +422,7 @@ import { createPopupAudioPlayerController } from './projectm-audio-player.js';
 import { feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
 import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
+import { setupPerfTools } from './projectm-perf.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
@@ -886,6 +887,12 @@ async function attemptInit() {
         const mcanvas = document.querySelector('#mcanvas');
         Module._start_render(mcanvas.width, mcanvas.height);
         flushQueuedExternalPCM();
+
+        // ====== PERF HUD / BENCHMARK ======
+        // Append ?perfhud=1 for an on-screen FPS/timing breakdown, or
+        // ?benchmark=1&frames=500&preset=/presets/foo.milk for a headless JSON
+        // report. See docs/PERFORMANCE.md.
+        setupPerfTools(Module);
 
         if (!window._pmStartupPresetsLoaded) {
             window._pmStartupPresetsLoaded = true;

@@ -1,5 +1,6 @@
 #include "ProjectMCWrapper.hpp"
 
+#include "PerfTimers.hpp"
 #include "Renderer/Platform/GladLoader.hpp"
 
 #include <projectM-4/projectM.h>
@@ -10,6 +11,7 @@
 #include <Renderer/Platform/GLResolver.hpp>
 
 #include <projectM-4/parameters.h>
+#include <projectM-4/projectm_perf.h>
 #include <projectM-4/render_opengl.h>
 
 #include <cstring>
@@ -235,6 +237,30 @@ void projectm_opengl_render_frame_fbo(projectm_handle instance, uint32_t framebu
 {
     auto projectMInstance = handle_to_instance(instance);
     projectMInstance->RenderFrame(framebuffer_object_id);
+}
+
+void projectm_perf_set_enabled(bool enabled)
+{
+    libprojectM::Perf::SetEnabled(enabled);
+}
+
+bool projectm_perf_is_enabled()
+{
+    return libprojectM::Perf::IsEnabled();
+}
+
+void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
+{
+    const auto timings = libprojectM::Perf::GetLastFrame();
+
+    out_timings->audio_analysis_ms = timings[libprojectM::Perf::Field::AudioAnalysis];
+    out_timings->per_frame_eval_ms = timings[libprojectM::Perf::Field::PerFrameEval];
+    out_timings->per_pixel_eval_ms = timings[libprojectM::Perf::Field::PerPixelEval];
+    out_timings->blur_ms = timings[libprojectM::Perf::Field::Blur];
+    out_timings->waveforms_shapes_ms = timings[libprojectM::Perf::Field::WaveformsShapes];
+    out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
+    out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
+    out_timings->fps = timings.fps;
 }
 
 void projectm_opengl_burn_texture(projectm_handle instance, uint32_t texture, int left, int top, int width, int height)

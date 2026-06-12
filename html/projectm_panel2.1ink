@@ -331,7 +331,11 @@ ccs = document.querySelector('#circle');
 </script>
 
 <script type="module">
+import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { loadScript } from './projectm-init.js';
+import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
+import { startTransitionWhenReady } from './projectm-transitions.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let Module;
@@ -417,7 +421,7 @@ if (!prefersReducedMotion) {
 }
 
 // ===== PRESET DISPLAY =====
-window.updatePresetDisplay = function(name) {
+window.updatePresetDisplay = (name) => {
   if (!name) return;
   const basename = name.split('/').pop();
   const el = document.querySelector('#preset-name');
@@ -425,124 +429,36 @@ window.updatePresetDisplay = function(name) {
 };
 
 // ===== API PRESET HELPERS =====
-function getPresetDir() {
-  const el = document.getElementById('presetDir');
-  return (el && el.innerHTML.trim() !== 'default') ? el.innerHTML.trim() : 'any';
-}
-
 const PRESET_API_BASES = [
   'https://storage.noahcohn.com',
   'https://storage.1ink.us'
 ];
 
-function getPresetApiBases(preferred) {
-  const fromStorage = localStorage.getItem('apiBase');
-  const ordered = [preferred, fromStorage, ...PRESET_API_BASES].filter(Boolean);
-  return [...new Set(ordered)];
-}
-
-async function fetchApiPreset(apiBase) {
-  const dir = getPresetDir();
-  const bases = getPresetApiBases(apiBase);
-  let lastError = null;
-
-  for (const base of bases) {
-    try {
-      const res = await fetch(`${base}/api/presets/random?dir=${encodeURIComponent(dir)}`);
-      if (!res.ok) throw new Error(`API error ${res.status} from ${base}`);
-      const data = await res.json();
-      if (!data.url || !data.filename) throw new Error(`Invalid API response from ${base}`);
-      const milkRes = await fetch(data.url);
-      if (!milkRes.ok) throw new Error(`Failed to fetch preset milk from ${data.url}`);
-      const buffer = await milkRes.arrayBuffer();
-      const bytes = new Uint8ClampedArray(buffer);
-      const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const vfsPath = `/presets/api_${data.dir || 'any'}_${safeName}`;
-      if (Module.FS) Module.FS.writeFile(vfsPath, bytes);
-      return { vfsPath, filename: data.filename, dir: data.dir };
-    } catch (error) {
-      lastError = error;
-      console.warn('[ProjectM] preset API attempt failed:', base, error);
-    }
-  }
-
-  throw lastError || new Error('No preset API base available');
-}
-
 async function loadStartupApiPresets(count = 5) {
-  const apiBase = localStorage.getItem('apiBase') || PRESET_API_BASES[0];
-  const results = [];
-  for (let i = 0; i < count; i++) {
-    try {
-      const r = await fetchApiPreset(apiBase);
-      results.push(r);
-      if (i === 0) window.updatePresetDisplay(r.filename);
-    } catch(e){}
-  }
-  return results;
+  return loadStartupPresetsFromApi({
+    module: Module,
+    count,
+    apiBase: localStorage.getItem('apiBase') || PRESET_API_BASES[0],
+    fallbackApiBases: PRESET_API_BASES,
+    updateDisplayMode: 'first',
+    requireDir: false
+  });
 }
 
-async function loadRandomApiPreset() {
-  if (!Module || !Module.ccall) return;
-  try {
-    const result = await fetchApiPreset();
-    Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
-    window.updatePresetDisplay(result.filename);
-  } catch(e) { console.error(e); }
+async function loadRandomPresetFromRemote() {
+  return loadRandomPresetFromApi({
+    module: Module,
+    fallbackApiBases: PRESET_API_BASES,
+    requireDir: false,
+    startTransitionWhenReady
+  });
 }
 
 // ===== BUTTON HANDLERS =====
 function startChangeSong() { console.log('[B3HD] Start/Change Song'); }
-function randomPreset() { loadRandomApiPreset(); }
-function randomCustom() { loadRandomApiPreset(); }
-const AUDIO_PLAYER_SOURCES = [
-  { id: 'none', label: 'Audio Player' },
-  { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' },
-  { id: 'mod', label: 'MOD Player', sectionId: 'modPlayerSection' }
-];
-let activeAudioSourceIndex = 0;
-
-function updateAudioPlayerUi(source) {
-  const status = document.getElementById('audio-player-status');
-  const btn = document.getElementById('audioPlayerBtn');
-  if (status) {
-    status.textContent = source.id === 'none' ? 'Audio Player' : `Audio: ${source.label}`;
-  }
-  if (btn) {
-    btn.classList.toggle('engaged', source.id !== 'none');
-    btn.title = source.id === 'none'
-      ? 'Audio Player — click to open FLAC, MOD, or hide'
-      : `${source.label} active — click to switch or hide`;
-  }
-}
-
-function hideAllAudioPlayers() {
-  document.querySelectorAll('.ext-player-section').forEach((section) => {
-    section.style.display = 'none';
-  });
-}
-
-function showAudioPlayer(sourceId) {
-  const source = AUDIO_PLAYER_SOURCES.find((entry) => entry.id === sourceId) || AUDIO_PLAYER_SOURCES[0];
-  activeAudioSourceIndex = AUDIO_PLAYER_SOURCES.findIndex((entry) => entry.id === source.id);
-  hideAllAudioPlayers();
-  if (source.sectionId) {
-    const section = document.getElementById(source.sectionId);
-    if (section) section.style.display = 'block';
-    console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
-  }
-  updateAudioPlayerUi(source);
-}
-
-function cycleAudioPlayer() {
-  activeAudioSourceIndex = (activeAudioSourceIndex + 1) % AUDIO_PLAYER_SOURCES.length;
-  showAudioPlayer(AUDIO_PLAYER_SOURCES[activeAudioSourceIndex].id);
-}
-
-function closeAudioPlayer() {
-  activeAudioSourceIndex = 0;
-  showAudioPlayer('none');
-}
+function randomPreset() { loadRandomPresetFromRemote(); }
+function randomCustom() { loadRandomPresetFromRemote(); }
+const { showAudioPlayer, cycleAudioPlayer, closeAudioPlayer } = createSectionAudioPlayerController();
 
 function fullWindow() {
   isBezelMode = !isBezelMode;
@@ -662,29 +578,13 @@ document.addEventListener('keydown', e => {
 // ===== INITIALIZATION =====
 updateLayout();
 
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const scr = document.createElement('script');
-    scr.src = src;
-    scr.async = true;
-    scr.charset = 'utf-8';
-    scr.onload = () => resolve();
-    scr.onerror = () => reject(new Error(`Failed to load ${src}`));
-    document.body.appendChild(scr);
-  });
-}
 setTimeout(() => { document.getElementById('splash2').style.display = 'none'; }, 5200);
 setTimeout(() => { document.getElementById('splash1').style.display = 'none'; }, 5500);
 
 setTimeout(() => {
-  const scr = document.createElement("script");
-  scr.async = true; scr.charset = 'utf-8'; scr.type = 'text/javascript'; scr.defer = true;
-  scr.src = "./projectm-v.030b-thread.1ijs";
-  document.body.appendChild(scr);
-
 async function initProjectM() {
   try {
-    await loadScript('./pm/projectm-v.030-thread.1ijs');
+    await loadScript('./pm/projectm-v.030-thread.1ijs', { defer: true });
     Module = await createModule();
     globalThis.Module = Module;
     Module._init();

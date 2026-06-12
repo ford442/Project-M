@@ -10,7 +10,6 @@ const LOCAL_STORAGE_ORIGIN_KEYS = [
 ];
 const MAX_PENDING_EXTERNAL_PCM = 24;
 const DEFAULT_PCM_TRANSFER_CAP = 2048;
-
 let configuredAllowedOrigins = null;
 let externalAudioChannel = null;
 let messageListenerInstalled = false;

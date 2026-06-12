@@ -418,7 +418,11 @@ canvas.emscripten {
 
 </body>
 <script type="module">
+import { createPopupAudioPlayerController } from './projectm-audio-player.js';
 import { feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { loadScript } from './projectm-init.js';
+import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { startTransitionWhenReady } from './projectm-transitions.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -505,68 +509,25 @@ if (!prefersReducedMotion) {
 }
 
 // ====== PRESET DISPLAY ======
-window.updatePresetDisplay = function(name) {
-    if (!name) return;
-    const basename = name.split('/').pop();
-    const el = document.querySelector('#preset-name');
-    if (el) {
-        el.textContent = 'Preset: ' + basename;
-        window.currentPresetName = basename;
-    }
-};
+window.updatePresetDisplay = updatePresetDisplay;
 
 // ====== API PRESET HELPERS ======
-function getPresetDir() {
-    const el = document.getElementById('presetDir');
-    const val = el ? el.innerHTML.trim() : 'default';
-    return val === 'default' ? 'any' : val;
-}
-
-async function fetchApiPreset(apiBase) {
-    const dir = getPresetDir();
-    const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
-    if (!res.ok) throw new Error('API error');
-    const data = await res.json();
-    if (!data.url || !data.filename || !data.dir) throw new Error('Invalid API response');
-    const milkRes = await fetch(data.url);
-    if (!milkRes.ok) throw new Error('Failed to fetch milk');
-    const buffer = await milkRes.arrayBuffer();
-    const bytes = new Uint8ClampedArray(buffer);
-    const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const vfsPath = `/presets/api_${data.dir}_${safeName}`;
-    if (!Module.FS) throw new Error('Module.FS not available');
-    Module.FS.writeFile(vfsPath, bytes);
-    return { vfsPath, filename: data.filename, dir: data.dir };
-}
-
 async function loadStartupApiPresets(count) {
-    const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
-    const results = [];
-    for (let i = 0; i < count; i++) {
-        try {
-            const result = await fetchApiPreset(apiBase);
-            results.push(result);
-            updatePresetDisplay(result.filename);
-        } catch (e) {
-            console.error('Failed to load startup API preset', i, e);
-        }
-    }
-    return results;
+    return loadStartupPresetsFromApi({
+        module: Module,
+        count,
+        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
+        requireDir: true
+    });
 }
 
-async function loadRandomApiPreset() {
-    if (typeof Module === 'undefined' || !Module._load_preset_file) {
-        console.error('Module not ready');
-        return;
-    }
-    const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
-    try {
-        const result = await fetchApiPreset(apiBase);
-        Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
-        updatePresetDisplay(result.filename);
-    } catch (e) {
-        console.error('Failed to load API preset:', e);
-    }
+async function loadRandomPresetFromRemote() {
+    return loadRandomPresetFromApi({
+        module: Module,
+        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
+        requireDir: true,
+        startTransitionWhenReady
+    });
 }
 
 // ====== BUTTON HANDLERS ======
@@ -588,66 +549,16 @@ function fullWindow() {
 
 function randomPreset() {
     console.log('[ProjectM] Random Preset');
-    loadRandomApiPreset();
+    loadRandomPresetFromRemote();
 }
 
 function randomCustom() {
     console.log('[ProjectM] Random Custom');
-    loadRandomApiPreset();
+    loadRandomPresetFromRemote();
 }
 
-const AUDIO_PLAYER_SOURCES = [
-    { id: 'none', label: 'Audio Player' },
-    { id: 'flac', label: 'FLAC Player', open: openFlacPlayer, close: () => { if (flacPlayerPopup) { flacPlayerPopup.close(); flacPlayerPopup = null; } } },
-    { id: 'mod', label: 'MOD Player', open: openModPlayer, close: () => { if (modPlayerPopup) { modPlayerPopup.close(); modPlayerPopup = null; } } }
-];
-let activeAudioSourceIndex = 0;
-
-function updateAudioPlayerUi(source) {
-    const status = document.getElementById('audio-player-status');
-    const btn = document.getElementById('audioPlayerBtn');
-    if (status) {
-        status.textContent = source.id === 'none' ? 'Audio Player' : `Audio: ${source.label}`;
-    }
-    if (btn) {
-        btn.classList.toggle('engaged', source.id !== 'none');
-        btn.title = source.id === 'none'
-            ? 'Audio Player — click to open FLAC, MOD, or hide'
-            : `${source.label} active — click to switch or hide`;
-    }
-}
-
-function closeAllAudioPlayers() {
-    for (const source of AUDIO_PLAYER_SOURCES) {
-        if (source.close) source.close();
-    }
-}
-
-function showAudioPlayer(sourceId) {
-    const source = AUDIO_PLAYER_SOURCES.find((entry) => entry.id === sourceId) || AUDIO_PLAYER_SOURCES[0];
-    activeAudioSourceIndex = AUDIO_PLAYER_SOURCES.findIndex((entry) => entry.id === source.id);
-    closeAllAudioPlayers();
-    if (source.open) source.open();
-    updateAudioPlayerUi(source);
-}
-
-function cycleAudioPlayer() {
-    activeAudioSourceIndex = (activeAudioSourceIndex + 1) % AUDIO_PLAYER_SOURCES.length;
-    showAudioPlayer(AUDIO_PLAYER_SOURCES[activeAudioSourceIndex].id);
-}
-
-function closeAudioPlayer() {
-    activeAudioSourceIndex = 0;
-    showAudioPlayer('none');
-}
-
-function flacPlayer() {
-    showAudioPlayer('flac');
-}
-
-function modPlayer() {
-    showAudioPlayer('mod');
-}
+const audioPlayerController = createPopupAudioPlayerController();
+const { cycleAudioPlayer, closeAudioPlayer } = audioPlayerController;
 
 function lockPreset() {
     console.log('[ProjectM] Lock Preset');
@@ -727,46 +638,16 @@ function updateLayout() {
 }
 
 // ====== EXTERNAL PLAYER AUDIO SOURCE (mod-player + flac_player) ======
-let flacPlayerPopup = null;
-let modPlayerPopup = null;
-
 setupExternalAudioReceiver({ preallocSize: 2048 });
-
-function openFlacPlayer() {
-    const url = localStorage.getItem('flacPlayerUrl') ||
-                document.getElementById('flacPlayerUrl')?.textContent?.trim() ||
-                'https://flac.1ink.us';
-    flacPlayerPopup = window.open(url, 'flac-player',
-        'width=500,height=650,resizable=yes,scrollbars=no');
-    if (!flacPlayerPopup) {
-        console.warn('FLAC player popup was blocked. Please allow popups for this site. The player page must use postMessage to send PCM: window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")');
-    }
-    // Receiver is already set up globally; no need to re-ensure per open.
-}
-
-function openModPlayer() {
-    const url = localStorage.getItem('modPlayerUrl') ||
-                document.getElementById('modPlayerUrl')?.textContent?.trim() ||
-                'https://mod.1ink.us';
-    modPlayerPopup = window.open(url, 'mod-player',
-        'width=500,height=650,resizable=yes,scrollbars=no');
-    if (!modPlayerPopup) {
-        console.warn('MOD player popup was blocked. Please allow popups for this site. The player page must use postMessage to send PCM: window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")');
-    }
-}
 
 // Safe button wiring (guarded; the core panel uses the flacPlayer() / modPlayer() shims above)
 const flacBtn = document.getElementById('flacPlayerBtn');
-if (flacBtn) flacBtn.addEventListener('click', openFlacPlayer);
+if (flacBtn) flacBtn.addEventListener('click', audioPlayerController.openFlacPlayer);
 
 const modBtn = document.getElementById('modPlayerBtn');
-if (modBtn) modBtn.addEventListener('click', openModPlayer);
+if (modBtn) modBtn.addEventListener('click', audioPlayerController.openModPlayer);
 
 // Expose helpers for console / external scripts
-window.openFlacPlayer = openFlacPlayer;
-window.openModPlayer = openModPlayer;
-window.cycleAudioPlayer = cycleAudioPlayer;
-window.closeAudioPlayer = closeAudioPlayer;
 window.feedPCMToModuleForDebug = (buf, ch) => feedPCMToModule(buf, ch);
 
 function syncModuleSize() {
@@ -975,16 +856,9 @@ setTimeout(() => {
 }, 5500);
 
 setTimeout(() => {
-    let scr = document.createElement("script");
-    scr.async = true;
-    scr.charset = 'utf-8';
-    scr.type = 'text/javascript';
-    scr.defer = true;
-    scr.src = "./pm/projectm-v.030-thread.1ijs";
-    document.body.appendChild(scr);
-
-    setTimeout(() => {
-        createModule().then(async (instance) => {
+    loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true })
+        .then(() => createModule())
+        .then(async (instance) => {
             Module = instance;
             globalThis.Module = Module;
             Module._init();
@@ -1005,7 +879,6 @@ setTimeout(() => {
         }).catch((err) => {
             console.error('projectM initialization failed:', err);
         });
-    }, 1000);
 }, 750);
 
 setTimeout(() => {

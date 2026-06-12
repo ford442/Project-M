@@ -342,7 +342,11 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 
 </body>
 <script type="module">
+import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { loadScript } from './projectm-init.js';
+import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { startTransitionWhenReady } from './projectm-transitions.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -429,110 +433,34 @@ if (!prefersReducedMotion) {
 }
 
 // ====== PRESET DISPLAY ======
-window.updatePresetDisplay = function(name) {
-    if (!name) return;
-    const basename = name.split('/').pop();
-    const el = document.querySelector('#preset-name');
-    if (el) {
-        el.textContent = 'Preset: ' + basename;
-        window.currentPresetName = basename;
-    }
-};
+window.updatePresetDisplay = updatePresetDisplay;
 
 // ====== API PRESET HELPERS ======
-function getPresetDir() {
-    const el = document.getElementById('presetDir');
-    const val = el ? el.innerHTML.trim() : 'default';
-    return val === 'default' ? 'any' : val;
-}
-
-async function fetchApiPreset(apiBase) {
-    const dir = getPresetDir();
-    const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
-    if (!res.ok) throw new Error('API error');
-    const data = await res.json();
-    if (!data.url || !data.filename || !data.dir) throw new Error('Invalid API response');
-    const milkRes = await fetch(data.url);
-    if (!milkRes.ok) throw new Error('Failed to fetch milk');
-    const buffer = await milkRes.arrayBuffer();
-    const bytes = new Uint8ClampedArray(buffer);
-    const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const vfsPath = `/presets/api_${data.dir}_${safeName}`;
-    if (!Module.FS) throw new Error('Module.FS not available');
-    Module.FS.writeFile(vfsPath, bytes);
-    return { vfsPath, filename: data.filename, dir: data.dir };
-}
-
 async function loadStartupApiPresets(count) {
-    const apiBase = localStorage.getItem('apiBase') || 'https://projectm.1ink.us';
-    const results = [];
-    for (let i = 0; i < count; i++) {
-        try {
-            const result = await fetchApiPreset(apiBase);
-            results.push(result);
-            updatePresetDisplay(result.filename);
-        } catch (e) {
-            console.error('Failed to load startup API preset', i, e);
-        }
-    }
-    return results;
+    return loadStartupPresetsFromApi({
+        module: Module,
+        count,
+        apiBase: localStorage.getItem('apiBase') || 'https://projectm.1ink.us',
+        requireDir: true
+    });
 }
 
-async function loadRandomApiPreset() {
-    if (typeof Module === 'undefined' || !Module._load_preset_file) {
-        console.error('Module not ready');
-        return;
-    }
-    const apiBase = localStorage.getItem('apiBase') || 'https://projectm.1ink.us';
-    try {
-        const result = await fetchApiPreset(apiBase);
-        Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
-        updatePresetDisplay(result.filename);
-    } catch (e) {
-        console.error('Failed to load API preset:', e);
-    }
+async function loadRandomPresetFromRemote() {
+    return loadRandomPresetFromApi({
+        module: Module,
+        apiBase: localStorage.getItem('apiBase') || 'https://projectm.1ink.us',
+        requireDir: true,
+        startTransitionWhenReady
+    });
 }
 
 // ====== BUTTON HANDLERS ======
 function startChangeSong() { console.log('[ProjectM] Start/Change Song'); }
 function fullWindow() { isBezelMode = true; updateLayout(); syncModuleSize(); }
-function randomPreset() { loadRandomApiPreset(); }
-function randomCustom() { loadRandomApiPreset(); }
+function randomPreset() { loadRandomPresetFromRemote(); }
+function randomCustom() { loadRandomPresetFromRemote(); }
 
-const AUDIO_PLAYER_SOURCES = [
-    { id: 'none', label: 'Audio Player' },
-    { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' },
-    { id: 'mod', label: 'MOD Player', sectionId: 'modPlayerSection' }
-];
-let activeAudioSourceIndex = 0;
-
-function hideAllAudioPlayers() {
-    document.querySelectorAll('.ext-player-section').forEach((section) => {
-        section.style.display = 'none';
-    });
-}
-
-function showAudioPlayer(sourceId) {
-    const source = AUDIO_PLAYER_SOURCES.find((entry) => entry.id === sourceId) || AUDIO_PLAYER_SOURCES[0];
-    activeAudioSourceIndex = AUDIO_PLAYER_SOURCES.findIndex((entry) => entry.id === source.id);
-    hideAllAudioPlayers();
-
-    if (source.sectionId) {
-        const section = document.getElementById(source.sectionId);
-        if (section) section.style.display = 'block';
-        console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
-    }
-}
-
-function cycleAudioPlayer() {
-    activeAudioSourceIndex = (activeAudioSourceIndex + 1) % AUDIO_PLAYER_SOURCES.length;
-    showAudioPlayer(AUDIO_PLAYER_SOURCES[activeAudioSourceIndex].id);
-}
-
-function closeAudioPlayer() {
-    activeAudioSourceIndex = 0;
-    showAudioPlayer('none');
-}
+const { showAudioPlayer, cycleAudioPlayer, closeAudioPlayer } = createSectionAudioPlayerController();
 
 function lockPreset() {
     isPresetLocked = !isPresetLocked;
@@ -695,16 +623,9 @@ setTimeout(() => {
 }, 5500);
 
 setTimeout(() => {
-    let scr = document.createElement("script");
-    scr.async = true;
-    scr.charset = 'utf-8';
-    scr.type = 'text/javascript';
-    scr.defer = true;
-    scr.src = "./pm/projectm-v.030-thread.1ijs";
-    document.body.appendChild(scr);
-
-    setTimeout(() => {
-        createModule().then(async (instance) => {
+    loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true })
+        .then(() => createModule())
+        .then(async (instance) => {
             Module = instance;
             globalThis.Module = Module;
             Module._init();
@@ -725,7 +646,6 @@ setTimeout(() => {
         }).catch((err) => {
             console.error('projectM initialization failed:', err);
         });
-    }, 1000);
 }, 750);
 
 setTimeout(() => {

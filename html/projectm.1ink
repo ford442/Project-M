@@ -1141,10 +1141,25 @@ document.querySelector('#mvi').style.transform='scaleX(-1.0)';
 </script>
 
 <script type="module">
+import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { loadScript } from './projectm-init.js';
+import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { startTransitionWhenReady } from './projectm-transitions.js';
 
 var Module;
 setupExternalAudioReceiver({ preallocSize: 2048 });
+const flacAudioPlayerController = createSectionAudioPlayerController({
+    menuId: 'menu',
+    sources: [
+        { id: 'none', label: 'Audio Player' },
+        { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' }
+    ],
+    updateUi(source) {
+        const btn = document.getElementById('flacPlayerBtn');
+        if (btn) btn.style.borderColor = source.id === 'none' ? 'green' : 'yellow';
+    }
+});
 
 document.getElementById("startBtn").addEventListener('click',function(){
 document.getElementById('mvi').play();
@@ -1218,16 +1233,9 @@ if (window._pmLoading || window._pmLoaded) {
     return;
 }
 window._pmLoading = true;
-let scr=document.createElement("script");
-scr.async=true;
-scr.charset='utf-8';
-scr.type='text/javascript';
-scr.defer=true;
-// scr.src="https://wasm.noahcohn.com/b3hd/w0-007-mod.1ijs";
-scr.src="./pm/projectm-v.030-thread.1ijs";
-document.body.appendChild(scr);
-setTimeout(function(){
-createModule().then(async function(instance) {
+loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true })
+    .then(() => createModule())
+    .then(async function(instance) {
 Module=instance;
 globalThis.Module = Module;
 window._pmLoading = false;
@@ -1254,60 +1262,22 @@ flushQueuedExternalPCM();
     window._pmLoading = false;
     console.error('projectM module initialization failed:', err);
 });
-},1000);
 });
 
 let viewMode = 'bezel';
 
 // ====== API PRESET HELPERS ======
-window.updatePresetDisplay = function(name) {
-    if (!name) return;
-    const basename = name.split('/').pop();
-    const el = document.querySelector('#preset-name');
-    if (el) {
-        el.textContent = 'Preset: ' + basename;
-        window.currentPresetName = basename;
-    }
-};
-
-function getPresetDir() {
-    const el = document.getElementById('presetDir');
-    const val = el ? el.innerHTML.trim() : 'default';
-    return val === 'default' ? 'any' : val;
-}
-
-async function fetchApiPreset(apiBase) {
-    const dir = getPresetDir();
-    const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
-    if (!res.ok) throw new Error('API error: ' + res.status);
-    const data = await res.json();
-    if (!data.url || !data.filename || !data.dir) {
-        throw new Error('Invalid API response: missing url, filename, or dir');
-    }
-    const milkRes = await fetch(data.url);
-    if (!milkRes.ok) throw new Error('Failed to fetch milk: ' + milkRes.status);
-    const buffer = await milkRes.arrayBuffer();
-    const bytes = new Uint8ClampedArray(buffer);
-    const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const vfsPath = `/presets/api_${data.dir}_${safeName}`;
-  if (!Module.FS) throw new Error('Module.FS not available');
-  Module.FS.writeFile(vfsPath, bytes);
-  return { vfsPath, filename: data.filename, dir: data.dir };
-}
+window.updatePresetDisplay = updatePresetDisplay;
 
 async function loadStartupApiPresets(count) {
-    const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
-    const paths = [];
-    for (let i = 0; i < count; i++) {
-        try {
-            const result = await fetchApiPreset(apiBase);
-            paths.push(result.vfsPath);
-            console.log('Startup API preset', i, 'loaded:', result.filename);
-        } catch (e) {
-            console.error('Failed to load startup API preset', i, e);
-        }
-    }
-    return paths;
+    return loadStartupPresetsFromApi({
+        module: Module,
+        count,
+        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
+        requireDir: true,
+        returnPaths: true,
+        logLoaded: true
+    });
 }
 
 updateLayout();
@@ -1588,27 +1558,23 @@ if (contain1El) {
     resizeObserver.observe(contain1El);
 }
 
-async function loadRandomApiPreset() {
-    if (typeof Module === 'undefined' || !Module._load_preset_file) {
-        console.error('Module not ready');
-        return;
-    }
-    const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
-    try {
-        const result = await fetchApiPreset(apiBase);
-        Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
-        console.log('Loaded API preset:', result.filename, 'from', result.dir);
-    } catch (e) {
-        console.error('Failed to load API preset:', e);
-    }
+async function loadRandomPresetFromRemote() {
+    return loadRandomPresetFromApi({
+        module: Module,
+        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
+        requireDir: true,
+        startTransitionWhenReady,
+        updateDisplay: false,
+        logLoaded: true
+    });
 }
 
 document.getElementById("randomPresetBtn").addEventListener('click', function() {
-    loadRandomApiPreset();
+    loadRandomPresetFromRemote();
 });
 
 document.getElementById("apiRandomPresetBtn").addEventListener('click', function() {
-    loadRandomApiPreset();
+    loadRandomPresetFromRemote();
 });
 
 let isPresetLocked = false;
@@ -1719,15 +1685,11 @@ document.getElementById("fullscreenBtn").addEventListener('click', function() {
 document.getElementById("flacPlayerBtn").addEventListener('click', function() {
     const section = document.getElementById('flacPlayerSection');
     const isVisible = section.style.display !== 'none';
-    
+
     if (isVisible) {
-        section.style.display = 'none';
-        document.getElementById('flacPlayerBtn').style.borderColor = 'green';
+        flacAudioPlayerController.closeAudioPlayer();
     } else {
-        document.getElementById('menu').style.display = 'block';
-        section.style.display = 'block';
-        document.getElementById('flacPlayerBtn').style.borderColor = 'yellow';
-        console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
+        flacAudioPlayerController.showAudioPlayer('flac');
     }
 });
 

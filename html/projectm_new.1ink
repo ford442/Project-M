@@ -574,7 +574,11 @@ draw();
 </script>
 
 <script type="module">
+import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { loadScript } from './projectm-init.js';
+import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { startTransitionWhenReady } from './projectm-transitions.js';
 
 let Module;
 setupExternalAudioReceiver({ preallocSize: 2048 });
@@ -586,16 +590,9 @@ document.getElementById("startBtn5").addEventListener('click', function() {
     }
     window._pmLoading = true;
 
-    const scr = document.createElement("script");
-    scr.async = true;
-    scr.charset = 'utf-8';
-    scr.type = 'text/javascript';
-    scr.defer = true;
-    scr.src = "./pm/projectm-v.030-thread.1ijs";   // ← adjust path if needed
-    document.body.appendChild(scr);
-
-    setTimeout(function() {
-        createModule().then(function(instance) {
+    loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true })
+        .then(() => createModule())
+        .then(function(instance) {
             Module = instance;
             globalThis.Module = Module;
             window._pmLoading = false;
@@ -623,52 +620,25 @@ document.getElementById("startBtn5").addEventListener('click', function() {
             window._pmLoading = false;
             console.error('projectM initialization failed:', err);
         });
-    }, 900);
 });
 
 
 let viewMode = 'bezel';
 
 // ====== API PRESET HELPERS ======
-window.updatePresetDisplay = function(name) {
-    if (!name) return;
-    const basename = name.split('/').pop();
-    const el = document.querySelector('#preset-name');
-    if (el) {
-        el.textContent = 'Preset: ' + basename;
-        window.currentPresetName = basename;
-    }
-};
-
-function getPresetDir() {
-    const el = document.getElementById('presetDir');
-    const val = el ? el.innerHTML.trim() : 'default';
-    return val === 'default' ? 'any' : val;
-}
-
-async function fetchApiPreset(apiBase = 'https://storage.noahcohn.com') {
-    const dir = 'any';
-    const res = await fetch(`${apiBase}/api/presets/random?dir=${encodeURIComponent(dir)}`);
-    if (!res.ok) throw new Error('API error');
-    const data = await res.json();
-    const milkRes = await fetch(data.url);
-    const buffer = await milkRes.arrayBuffer();
-    const bytes = new Uint8ClampedArray(buffer);
-    const safeName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const vfsPath = `/presets/api_${safeName}`;
-    if (Module.FS) Module.FS.writeFile(vfsPath, bytes);
-    return vfsPath;
-}
+window.updatePresetDisplay = updatePresetDisplay;
 
 async function loadStartupApiPresets(count = 3) {
-    const paths = [];
-    for (let i = 0; i < count; i++) {
-        try {
-            const path = await fetchApiPreset();
-            paths.push(path);
-        } catch(e) {}
-    }
-    return paths;
+    return loadStartupPresetsFromApi({
+        module: Module,
+        count,
+        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
+        returnPaths: true,
+        updateDisplayMode: false,
+        vfsPathForPreset(data) {
+            return `/presets/api_${String(data.filename).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        }
+    });
 }
 
 function syncModuleSize() {
@@ -916,27 +886,22 @@ if (contain1El) {
     resizeObserver.observe(contain1El);
 }
 
-async function loadRandomApiPreset() {
-    if (typeof Module === 'undefined' || !Module._load_preset_file) {
-        console.error('Module not ready');
-        return;
-    }
-    const apiBase = localStorage.getItem('apiBase') || 'https://storage.noahcohn.com';
-    try {
-        const result = await fetchApiPreset(apiBase);
-        Module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
-        console.log('Loaded API preset:', result.filename, 'from', result.dir);
-    } catch (e) {
-        console.error('Failed to load API preset:', e);
-    }
+async function loadRandomPreset() {
+    return loadRandomPresetFromApi({
+        module: Module,
+        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
+        startTransitionWhenReady,
+        updateDisplay: false,
+        logLoaded: true
+    });
 }
 
 document.getElementById("randomPresetBtn").addEventListener('click', function() {
-    loadRandomApiPreset();
+    loadRandomPreset();
 });
 
 document.getElementById("apiRandomPresetBtn").addEventListener('click', function() {
-    loadRandomApiPreset();
+    loadRandomPreset();
 });
 
 let isPresetLocked = false;
@@ -1026,51 +991,7 @@ document.getElementById("fullscreenBtn").addEventListener('click', function() {
     if (viewMode === 'bezel') draw();
 });
 
-const AUDIO_PLAYER_SOURCES = [
-    { id: 'none', label: 'Audio Player' },
-    { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' },
-    { id: 'mod', label: 'MOD Player', sectionId: 'modPlayerSection' }
-];
-let activeAudioSourceIndex = 0;
-
-function updateAudioPlayerUi(source) {
-    const label = document.getElementById('audioPlayerLabel');
-    const btn = document.getElementById('audioPlayerBtn');
-    if (label) {
-        label.textContent = source.id === 'none' ? 'Audio Player' : `Audio: ${source.label}`;
-    }
-    if (btn) {
-        btn.style.borderColor = source.id === 'none' ? 'green' : 'yellow';
-    }
-}
-
-function hideAllAudioPlayers() {
-    document.querySelectorAll('.ext-player-section').forEach((section) => {
-        section.style.display = 'none';
-    });
-}
-
-function showAudioPlayer(sourceId) {
-    const source = AUDIO_PLAYER_SOURCES.find((entry) => entry.id === sourceId) || AUDIO_PLAYER_SOURCES[0];
-    activeAudioSourceIndex = AUDIO_PLAYER_SOURCES.findIndex((entry) => entry.id === source.id);
-    hideAllAudioPlayers();
-    if (source.sectionId) {
-        document.getElementById('menu').style.display = 'block';
-        document.getElementById(source.sectionId).style.display = 'block';
-        console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
-    }
-    updateAudioPlayerUi(source);
-}
-
-function cycleAudioPlayer() {
-    activeAudioSourceIndex = (activeAudioSourceIndex + 1) % AUDIO_PLAYER_SOURCES.length;
-    showAudioPlayer(AUDIO_PLAYER_SOURCES[activeAudioSourceIndex].id);
-}
-
-function closeAudioPlayer() {
-    activeAudioSourceIndex = 0;
-    showAudioPlayer('none');
-}
+const { showAudioPlayer, cycleAudioPlayer, closeAudioPlayer } = createSectionAudioPlayerController({ menuId: 'menu' });
 
 window.cycleAudioPlayer = cycleAudioPlayer;
 window.closeAudioPlayer = closeAudioPlayer;

@@ -237,6 +237,31 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 The CI builds both `Debug` and `Release` configurations and runs `ctest` for each.
 
+### Preset Compatibility Harness
+
+`tests/libprojectM/PresetCompatTest.cpp` parses every `.milk` preset in `presets/tests/` and
+(optionally) `custom_milk_fixed/` and transpiles its warp/composite shaders from HLSL to GLSL,
+without requiring an OpenGL context. It reports the file path and error message for any preset
+that fails to parse or transpile.
+
+```bash
+# Run only the preset compatibility tests (presets/tests/ only)
+ctest --test-dir <build-dir> -R PresetCompat --build-config Debug --verbose
+
+# Or build + run directly, including custom_milk_fixed/ and optionally checking an
+# additional preset directory
+scripts/test_presets.sh [<preset-dir>] [<build-dir>]
+```
+
+`custom_milk_fixed/` currently contains some presets with known shader-format issues, so it is
+opt-in via `PROJECTM_TEST_CUSTOM_MILK_FIXED=1` (set automatically by
+`scripts/test_presets.sh` and the nightly `preset_compat.yml` workflow) to avoid breaking the
+default `projectM-unittest` CTest run used by the main CI build.
+
+To check an arbitrary preset collection without using the script, build `projectM-unittest`
+and set `PROJECTM_PRESET_COMPAT_DIR` to its path before running the binary with
+`--gtest_filter=*PresetCompat*`.
+
 ---
 
 ## CI & Deployment

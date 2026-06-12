@@ -1,0 +1,8 @@
+// Preset with a warp shader that is missing the "shader_body" entry point marker.
+// Used to verify that PresetCompatTest's harness reports preprocessing failures.
+warp_1=`ret = tex2D(sampler_main, uv).xyz;
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = tex2D(sampler_main, uv).xyz;
+comp_4=`}

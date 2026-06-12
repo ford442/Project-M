@@ -1,0 +1,56 @@
+name: Preset Compatibility
+
+# Runs the GPU-free PresetCompat test harness (tests/libprojectM/PresetCompatTest.cpp)
+# against the curated preset test suite (presets/tests/) and the custom_milk_fixed/
+# collection. It parses each preset and transpiles its warp/composite shaders from
+# HLSL to GLSL, reporting any file that fails to parse or transpile.
+#
+# This is intentionally separate from the main Linux build workflow: it is slower to
+# be useful on every push (the custom_milk_fixed/ presets currently include some known
+# format issues) and is meant as a nightly health check / manually-triggered report.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+
+  workflow_dispatch: {}
+
+jobs:
+  preset-compat:
+    name: Preset Compatibility
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgl1-mesa-dev \
+            mesa-common-dev \
+            libsdl2-dev \
+            libglm-dev \
+            libgtest-dev \
+            libgmock-dev \
+            ninja-build
+
+      - name: Configure Build
+        run: |
+          cmake -G "Ninja Multi-Config" \
+            -S "${{ github.workspace }}" \
+            -B "${{ github.workspace }}/cmake-build" \
+            -DBUILD_TESTING=YES
+
+      - name: Build Unit Tests
+        run: cmake --build "${{ github.workspace }}/cmake-build" --config "Debug" --target projectM-unittest --parallel
+
+      - name: Run Preset Compatibility Tests
+        env:
+          # Include custom_milk_fixed/ in the report (opt-in, see PresetCompatTest.cpp).
+          PROJECTM_TEST_CUSTOM_MILK_FIXED: "1"
+        run: |
+          "${{ github.workspace }}/cmake-build/tests/libprojectM/Debug/projectM-unittest" \
+            --gtest_filter="*PresetCompat*"

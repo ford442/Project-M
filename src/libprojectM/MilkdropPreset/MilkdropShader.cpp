@@ -1,19 +1,17 @@
 #include "MilkdropShader.hpp"
 
 #include "PresetState.hpp"
+#include "ShaderTranspiler.hpp"
 #include "Utils.hpp"
 
 #include <MilkdropStaticShaders.hpp>
 
-#include <GLSLGenerator.h>
-#include <HLSLParser.h>
 #include <Logging.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
 
-#include <algorithm>
-#include <regex>
+#include <locale>
 #include <set>
 
 namespace libprojectM {
@@ -331,224 +329,16 @@ auto MilkdropShader::Shader() -> Renderer::Shader&
 
 void MilkdropShader::PreprocessPresetShader(std::string& program)
 {
-    std::string shaderTypeString = "composite";
-    if (m_type == ShaderType::WarpShader)
+    try
     {
-        shaderTypeString = "warp";
+        ShaderTranspiler::PreprocessPresetShader(m_type, program);
     }
-
-    if (program.length() <= 0)
+    catch (const Renderer::ShaderException&)
     {
-        throw Renderer::ShaderException("[MilkdropShader] Preset " + shaderTypeString + " shader is declared, but empty.");
-    }
-
-    size_t found;
-
-    // Find "sampler_state" overrides and remove them first, as they're not supported by GLSL.
-    // The logic isn't totally fool-proof, but should work in general.
-    // Use a comment-stripped copy for searching so commented-out sampler_state blocks are skipped.
-    // StripComments preserves string length, so positions map 1:1 to the original.
-    std::string stripped = Utils::StripComments(program);
-    found = stripped.find("sampler_state");
-    while (found != std::string::npos)
-    {
-        // Now go backwards and find the assignment
-        found = stripped.rfind('=', found);
-        auto startPos = found;
-
-        // Find closing brace and semicolon
-        found = stripped.find('}', found);
-        found = stripped.find(';', found);
-
-        if (found != std::string::npos)
-        {
-            stripped.replace(startPos, found - startPos, "");
-        }
-        else
-        {
-            // No closing brace and semicolon.
-            break;
-        }
-
-        found = stripped.find("sampler_state");
-    }
-
-    // replace shader_body with entry point function
-    // Use the stripped copy so a commented-out shader_body is not matched.
-    found = stripped.find("shader_body");
-    if (found != std::string::npos)
-    {
-        if (m_type == ShaderType::WarpShader)
-        {
-            program.replace(int(found), 11, R"(
-void PS(float4 _vDiffuse : COLOR,
-        float4 _uv : TEXCOORD0,
-        float2 _rad_ang : TEXCOORD1,
-        out float4 _return_value : COLOR0,
-        out float4 _mv_tex_coords : COLOR1)
-)");
-        }
-        else
-        {
-            program.replace(int(found), 11, R"(
-void PS(float4 _vDiffuse : COLOR,
-        float2 _uv : TEXCOORD0,
-        float2 _rad_ang : TEXCOORD1,
-        out float4 _return_value : COLOR)
-)");
-        }
-    }
-    else
-    {
+        std::string shaderTypeString = (m_type == ShaderType::WarpShader) ? "warp" : "composite";
         LOG_DEBUG("[MilkdropShader] Failed " + shaderTypeString + " shader code:\n" + program);
-        throw Renderer::ShaderException("[MilkdropShader] Preset " + shaderTypeString + " shader is missing \"shader_body\" entry point.");
+        throw;
     }
-
-    // replace the "{" immediately following shader_body with some variable declarations
-    found = program.find('{', found);
-    if (found != std::string::npos)
-    {
-        std::string progMain = "{\nfloat3 ret = 0;\n";
-        if (m_type == ShaderType::WarpShader)
-        {
-            progMain.append("_mv_tex_coords.xy = _uv.xy;\n");
-        }
-        program.replace(int(found), 1, progMain);
-    }
-    else
-    {
-        LOG_DEBUG("[MilkdropShader] Failed " + shaderTypeString + " shader code:\n" + program);
-        throw Renderer::ShaderException("[MilkdropShader] Preset " + shaderTypeString + " shader has no opening braces.");
-    }
-
-    // replace "}" with return statement (this can probably be optimized for the GLSL conversion...)
-    found = program.rfind('}');
-    if (found != std::string::npos)
-    {
-#ifdef PROJECTM_HDR_RENDERING
-        // Composite shader: apply Reinhard tone-mapping + sRGB gamma encode at the final
-        // output stage. This is the correct place — the warp shader output stays linear so
-        // the feedback loop operates in linear light, and tone-mapping only runs once here.
-        if (m_type == ShaderType::CompositeShader)
-        {
-            program.replace(int(found), 1, "_return_value = float4(_prjm_hdr_out(ret.xyz), 1.0);\n"
-                                           "}\n");
-        }
-        else
-#endif
-        {
-            program.replace(int(found), 1, "_return_value = float4(ret.xyz, 1.0);\n"
-                                           "}\n");
-        }
-    }
-    else
-    {
-        LOG_DEBUG("[MilkdropShader] Failed " + shaderTypeString + " shader code:\n" + program);
-        throw Renderer::ShaderException("[MilkdropShader] Preset " + shaderTypeString + " shader has no closing brace.");
-    }
-
-    // Find matching closing brace and cut off excess text after shader's main function
-    int bracesOpen = 1;
-    size_t pos = found + 1;
-    for (; pos < program.length() && bracesOpen > 0; ++pos)
-    {
-        switch (program.at(pos))
-        {
-            case '/':
-                // Skip line comments until EoL to prevent false counting
-                if (pos < program.length() - 1 && program.at(pos + 1) == '/')
-                {
-                    for (; pos < program.length(); ++pos)
-                    {
-                        if (program.at(pos) == '\n')
-                        {
-                            break;
-                        }
-                    }
-                }
-                // Skip block comments to prevent false counting
-                else if (pos < program.length() - 1 && program.at(pos + 1) == '*')
-                {
-                    pos += 2;
-                    for (; pos < program.length() - 1; ++pos)
-                    {
-                        if (program.at(pos) == '*' && program.at(pos + 1) == '/')
-                        {
-                            ++pos; // skip past '/'
-                            break;
-                        }
-                    }
-                }
-                continue;
-
-            case '{':
-                bracesOpen++;
-                continue;
-
-            case '}':
-                bracesOpen--;
-        }
-    }
-
-    if (pos < program.length() - 1)
-    {
-        program.resize(pos);
-    }
-
-    std::string fullSource; //!< Full shader source before translation, includes all uniforms etc.
-
-    // First copy the generic "header" into the shader. Includes uniforms and some defines
-    // to unwrap the packed 4-element uniforms into single values.
-    fullSource.append(MilkdropStaticShaders::Get()->GetPresetShaderHeader());
-
-    if (m_type == ShaderType::WarpShader)
-    {
-        fullSource.append("#define rad _rad_ang.x\n"
-                          "#define ang _rad_ang.y\n"
-                          "#define uv _uv.xy\n"
-                          "#define uv_orig _uv.zw\n");
-    }
-    else
-    {
-        fullSource.append("#define rad _rad_ang.x\n"
-                          "#define ang _rad_ang.y\n"
-                          "#define uv _uv.xy\n"
-                          "#define uv_orig _uv.xy\n"
-                          "#define hue_shader _vDiffuse.xyz\n");
-
-#ifdef PROJECTM_HDR_RENDERING
-        // Inject HDR tone-mapping helpers into the composite shader (HLSL syntax).
-        // _prjm_hdr_out is called on ret.xyz just before the output assignment,
-        // converting linear light to tone-mapped, sRGB-gamma-encoded display output.
-        // The transpiler converts saturate→clamp, lerp→mix, mul→matrix multiply, etc.
-        fullSource.append(
-            "float3 _prjm_reinhard(float3 c) {\n"
-            "    float lum = dot(c, float3(0.2126, 0.7152, 0.0722));\n"
-            "    return c * (lum / ((1.0 + lum) * max(lum, 0.0001)));\n"
-            "}\n"
-            "float3 _prjm_linear_to_srgb(float3 c) {\n"
-            "    float3 lo = c * 12.92;\n"
-            "    float3 hi = 1.055 * pow(saturate(c), 1.0 / 2.4) - 0.055;\n"
-            "    return lerp(lo, hi, step(0.0031308, c));\n"
-            "}\n"
-            "float3 _prjm_hdr_out(float3 c) {\n"
-            "    c = _prjm_linear_to_srgb(_prjm_reinhard(c));\n"
-#ifdef PROJECTM_HDR_P3
-            // BT.709 → Display-P3 (D65) color matrix, row-major HLSL convention.
-            "    float3x3 _bt709_to_p3 = float3x3(\n"
-            "        0.8225, 0.1774, 0.0003,\n"
-            "        0.0331, 0.9669, 0.0003,\n"
-            "        0.0171, 0.0724, 0.9108);\n"
-            "    c = saturate(mul(_bt709_to_p3, c));\n"
-#endif
-            "    return c;\n"
-            "}\n");
-#endif
-    }
-
-    fullSource.append(program);
-
-    program = fullSource;
 }
 
 void MilkdropShader::GetReferencedSamplers(const std::string& program)
@@ -651,37 +441,6 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
         shaderTypeString = "warp";
     }
 
-    M4::GLSLGenerator generator;
-    M4::Allocator allocator;
-
-    M4::HLSLTree tree(&allocator);
-    M4::HLSLParser parser(&allocator, &tree);
-
-    // Preprocess define macros
-    std::string sourcePreprocessed;
-    if (!parser.ApplyPreprocessor("", program.c_str(), program.size(), sourcePreprocessed))
-    {
-        LOG_DEBUG("[MilkdropShader] Failed " + shaderTypeString + " shader code:\n" + program);
-        throw Renderer::ShaderException("Error translating HLSL " + shaderTypeString + " shader: Preprocessing failed.");
-    }
-
-    // Remove previous shader declarations
-    // ToDo: Quite some presets declare a sampler_state{} struct to change the wrap mode.
-    //       The below code causes invalid syntax as it leaves part of the expression.
-    //       Leaving it in causes HLSLParser to add "sampler_XYZ = sampler2D( <unknown expression> );"
-    //       in the main() function, which is also bad...
-    std::smatch matches;
-    while (std::regex_search(sourcePreprocessed, matches, std::regex("sampler(2D|3D|)(\\s+|\\().*")))
-    {
-        sourcePreprocessed.replace(matches.position(), matches.length(), "");
-    }
-
-    // Remove previous texsize declarations
-    while (std::regex_search(sourcePreprocessed, matches, std::regex("float4\\s+texsize_.*")))
-    {
-        sourcePreprocessed.replace(matches.position(), matches.length(), "");
-    }
-
     // Collect unique samplers and texsize uniforms
     std::set<std::string> samplerDeclarations;
     std::set<std::string> texSizeDeclarations;
@@ -701,46 +460,28 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
         texSizeDeclarations.insert(desc.TexSizeDeclaration());
     }
 
-    // Now insert them on top.
-    for (const auto& texSizeDeclaration : texSizeDeclarations)
-    {
-        sourcePreprocessed.insert(0, texSizeDeclaration);
-    }
-    for (const auto& samplerDeclaration : samplerDeclarations)
-    {
-        sourcePreprocessed.insert(0, samplerDeclaration);
-    }
-
     // Transpile from HLSL (aka preset shader aka DirectX shader) to GLSL (aka OpenGL shader lang)
-    // First, parse HLSL into a tree
-    if (!parser.Parse("", sourcePreprocessed.c_str(), sourcePreprocessed.size()))
+    std::string glslCode;
+    std::string errorMessage;
+    if (!ShaderTranspiler::TranspileToGlsl(program, samplerDeclarations, texSizeDeclarations,
+                                           MilkdropStaticShaders::Get()->GetGlslGeneratorVersion(),
+                                           glslCode, errorMessage))
     {
         LOG_DEBUG("[MilkdropShader] Failed " + shaderTypeString + " shader code:\n" + program);
-        LOG_DEBUG("[MilkdropShader] Failed preprocessed " + shaderTypeString + " shader code:\n" + sourcePreprocessed);
-        throw Renderer::ShaderException("[MilkdropShader] Error translating HLSL " + shaderTypeString + " shader: HLSL parsing failed.");
+        throw Renderer::ShaderException("[MilkdropShader] Error translating HLSL " + shaderTypeString + " shader: " + errorMessage);
     }
 
-    // Then generate GLSL from the resulting parser tree
-    if (!generator.Generate(&tree, M4::GLSLGenerator::Target_FragmentShader,
-                            MilkdropStaticShaders::Get()->GetGlslGeneratorVersion(),
-                            "PS", M4::GLSLGenerator::Options(M4::GLSLGenerator::Flag_AlternateNanPropagation)))
-    {
-        LOG_DEBUG("[MilkdropShader] Failed " + shaderTypeString + " shader code:\n" + program);
-        LOG_DEBUG("[MilkdropShader] Failed preprocessed " + shaderTypeString + " shader code:\n" + sourcePreprocessed);
-        throw Renderer::ShaderException("[MilkdropShader] Error translating HLSL " + shaderTypeString + " shader: GLSL generating failed.\nSource:\n" + sourcePreprocessed);
-    }
-
-    LOG_TRACE("[MilkdropShader] Transpiled GLSL " + shaderTypeString + " shader code:\n" + std::string(generator.GetResult()));
+    LOG_TRACE("[MilkdropShader] Transpiled GLSL " + shaderTypeString + " shader code:\n" + glslCode);
 
     // Now we have GLSL source for the preset shader program (hopefully it's valid!)
     // Compile the preset shader fragment shader with the standard vertex shader and cross our fingers.
     if (m_type == ShaderType::WarpShader)
     {
-        m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetWarpVertexShader(), generator.GetResult());
+        m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetWarpVertexShader(), glslCode);
     }
     else
     {
-        m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetCompVertexShader(), generator.GetResult());
+        m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetCompVertexShader(), glslCode);
     }
 }
 

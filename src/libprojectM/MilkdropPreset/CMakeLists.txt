@@ -76,6 +76,8 @@ add_library(MilkdropPreset OBJECT
         PresetFileParser.hpp
         PresetState.cpp
         PresetState.hpp
+        ShaderTranspiler.cpp
+        ShaderTranspiler.hpp
         ShapePerFrameContext.cpp
         ShapePerFrameContext.hpp
         VideoEcho.cpp

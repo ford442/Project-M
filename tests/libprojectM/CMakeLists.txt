@@ -30,6 +30,7 @@ add_executable(projectM-unittest
         HLSLParserTest.cpp
         LoggingTest.cpp
         MilkdropShaderCommentParsingTest.cpp
+        PresetCompatTest.cpp
         PresetFileParserTest.cpp
         WaveformAlignerTest.cpp
 
@@ -45,6 +46,8 @@ add_executable(projectM-unittest
 target_compile_definitions(projectM-unittest
         PRIVATE
         PROJECTM_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data"
+        PROJECTM_PRESET_TESTS_DIR="${PROJECTM_SOURCE_DIR}/presets/tests"
+        PROJECTM_CUSTOM_MILK_FIXED_DIR="${PROJECTM_SOURCE_DIR}/custom_milk_fixed"
         )
 
 # Test includes a header file from libprojectM with its full path in the source dir.
@@ -63,3 +66,6 @@ target_link_libraries(projectM-unittest
         )
 
 add_test(NAME projectM-unittest COMMAND projectM-unittest)
+
+# Allows running just the preset compatibility harness via "ctest -R PresetCompat".
+add_test(NAME PresetCompat COMMAND projectM-unittest --gtest_filter=*PresetCompat*)

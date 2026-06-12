@@ -8,6 +8,7 @@
 #pragma once
 
 #include "BlurTexture.hpp"
+#include "ShaderTranspiler.hpp"
 
 #include <Renderer/Shader.hpp>
 #include <Renderer/TextureManager.hpp>
@@ -28,11 +29,7 @@ class PresetState;
 class MilkdropShader
 {
 public:
-    enum class ShaderType
-    {
-        WarpShader,     //!< Warp shader
-        CompositeShader //!< Composite shader
-    };
+    using ShaderType = ShaderTranspiler::ShaderType; //!< Type of preset shader, either warp or composite.
 
     /**
      * constructor.
@@ -99,8 +96,8 @@ private:
     std::string m_preprocessedCode;            //!< The preprocessed preset shader code.
 
     std::set<std::string> m_samplerNames;                                        //!< All sampler names referenced in the shader code.
-    std::vector<Renderer::TextureSamplerDescriptor> m_mainTextureDescriptors;              //!< Descriptors for all main texture references.
-    std::vector<Renderer::TextureSamplerDescriptor> m_textureSamplerDescriptors;           //!< Descriptors of all referenced samplers in the shader code.
+    std::vector<Renderer::TextureSamplerDescriptor> m_mainTextureDescriptors;    //!< Descriptors for all main texture references.
+    std::vector<Renderer::TextureSamplerDescriptor> m_textureSamplerDescriptors; //!< Descriptors of all referenced samplers in the shader code.
     BlurTexture::BlurLevel m_maxBlurLevelRequired{BlurTexture::BlurLevel::None}; //!< Max blur level of main texture required by this shader.
 
     std::array<float, 4> m_randValues{};               //!< Random values which don't change every frame.

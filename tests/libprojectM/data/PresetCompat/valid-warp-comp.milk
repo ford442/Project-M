@@ -1,0 +1,11 @@
+// Minimal preset with a valid warp and composite shader, used to verify that
+// PresetCompatTest's harness reports success for well-formed shaders.
+warp_1=`shader_body
+warp_2=`{
+warp_3=`ret = tex2D(sampler_main, uv).xyz;
+warp_4=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = tex2D(sampler_main, uv).xyz;
+comp_4=`}

@@ -418,6 +418,7 @@ canvas.emscripten {
 
 </body>
 <script type="module">
+import { feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -726,97 +727,10 @@ function updateLayout() {
 }
 
 // ====== EXTERNAL PLAYER AUDIO SOURCE (mod-player + flac_player) ======
-// These players run in popups or iframes (often cross-origin) and push raw PCM
-// so projectM can visualize tracker modules and FLAC files that the browser
-// cannot decode directly in all configurations.
-//
-// Communication contract (updated for reliability):
-//   Child (player) sends: window.opener.postMessage({type:'pcm', buffer: Float32Array, channels?:1|2}, '*')
-//                         or parent.postMessage(...) when embedded as iframe.
-//   Legacy fallback: BroadcastChannel('projectm-audio') is still listened to for same-origin cases.
-//
-// The receiver here uses postMessage (works cross-origin) + a pre-allocated transfer
-// buffer (avoids per-chunk malloc like the worklet path does) + proper channel handling.
-
-const AUDIO_CHANNEL_NAME = 'projectm-audio'; // legacy
 let flacPlayerPopup = null;
 let modPlayerPopup = null;
-let audioChannel = null;
 
-// Pre-allocated transfer buffer (mirrors the strategy in projectM_emscripten.cpp worklet path).
-// projectM's analysis only needs the most recent ~576 samples; we support up to 2048.
-let pcmTransferPtr = 0;
-const PCM_TRANSFER_CAP = 2048; // floats
-
-function ensurePcmTransferBuffer() {
-    if (pcmTransferPtr) return pcmTransferPtr;
-    if (!Module || !Module._malloc) return 0;
-    pcmTransferPtr = Module._malloc(PCM_TRANSFER_CAP * 4);
-    return pcmTransferPtr;
-}
-
-function feedPCMToModule(buffer, channels = 2) {
-    if (!(buffer instanceof Float32Array)) return;
-    if (!Module || !Module._projectm_pcm_add_float_wrapper) return;
-
-    const totalSamples = buffer.length;
-    if (totalSamples === 0 || channels < 1) return;
-
-    const samplesPerChannel = Math.floor(totalSamples / channels);
-    if (samplesPerChannel === 0) return;
-
-    // Choose prealloc if it fits; otherwise fall back (rare for normal audio chunks).
-    let ptr = 0;
-    let usedPrealloc = false;
-    const neededBytes = totalSamples * 4;
-    if (totalSamples <= PCM_TRANSFER_CAP) {
-        ptr = ensurePcmTransferBuffer();
-        if (ptr) usedPrealloc = true;
-    }
-    if (!ptr) {
-        ptr = Module._malloc(neededBytes);
-        if (!ptr) return;
-    }
-
-    try {
-        Module.HEAPF32.set(buffer, ptr >> 2);
-        // channels can be 1 (mono, duplicated inside PCM::Add) or 2 (stereo interleaved LRLR...)
-        Module._projectm_pcm_add_float_wrapper(0, ptr, samplesPerChannel, channels);
-    } finally {
-        if (!usedPrealloc && ptr && Module._free) {
-            Module._free(ptr);
-        }
-    }
-}
-
-function setupExternalAudioReceiver() {
-    // 1) Modern postMessage path (works for popups via opener + iframes via parent, cross-origin safe)
-    window.addEventListener('message', (event) => {
-        const d = event.data;
-        if (d && d.type === 'pcm' && d.buffer instanceof Float32Array) {
-            // In production you may want: if (event.origin !== 'https://allowed') return;
-            feedPCMToModule(d.buffer, d.channels || 2);
-        }
-    });
-
-    // 2) Legacy BroadcastChannel fallback (only works same-origin)
-    if (!audioChannel) {
-        try {
-            audioChannel = new BroadcastChannel(AUDIO_CHANNEL_NAME);
-            audioChannel.onmessage = (e) => {
-                const d = e.data;
-                if (d?.type === 'pcm' && d.buffer instanceof Float32Array) {
-                    feedPCMToModule(d.buffer, d.channels || 2);
-                }
-            };
-        } catch (e) {
-            console.warn('BroadcastChannel not available for legacy audio path:', e);
-        }
-    }
-}
-
-// Call once early so the listener is always active.
-setupExternalAudioReceiver();
+setupExternalAudioReceiver({ preallocSize: 2048 });
 
 function openFlacPlayer() {
     const url = localStorage.getItem('flacPlayerUrl') ||
@@ -1072,11 +986,13 @@ setTimeout(() => {
     setTimeout(() => {
         createModule().then(async (instance) => {
             Module = instance;
+            globalThis.Module = Module;
             Module._init();
             updateLayout();
             syncModuleSize();
             const mcanvas = document.querySelector('#mcanvas');
             Module._start_render(mcanvas.width, mcanvas.height);
+            flushQueuedExternalPCM();
 
             const startupResults = await loadStartupApiPresets(5);
             if (startupResults.length > 0) {

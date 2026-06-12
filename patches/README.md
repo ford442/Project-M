@@ -15,3 +15,18 @@ These patches were produced after live inspection of the production bundles on 2
 Apply the FLAC diff to the player source, then test by loading `html/projectm-core.html?debugSender` (the local test helper) or the real players after they are updated.
 
 The host side (`html/projectm-core.html`) already contains the matching robust receiver + visible launch buttons + local test sender simulator.
+
+## Host Receiver Contract
+
+The browser host pages import `html/projectm-external-pcm.js`, which listens for both modern `postMessage` PCM and the
+legacy same-origin `BroadcastChannel("projectm-audio")` path.
+
+External player pages should send PCM chunks like this:
+
+```js
+window.opener.postMessage({ type: 'pcm', buffer: Float32Array, channels: 1|2, sampleRate: 44100 }, '*');
+```
+
+Use `window.parent.postMessage(...)` instead when the player is embedded as an iframe. The host accepts messages from
+`https://mod.1ink.us`, `https://flac.1ink.us`, and `https://test.1ink.us` by default. Override the allowlist with a
+comma-separated `localStorage.externalPcmOrigins` value on the host page when testing other origins.

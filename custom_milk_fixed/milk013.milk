@@ -1,3 +1,14 @@
+// CHANGELOG 2026-06-12 (Solar Corona WASM upgrade)
+// - Added MILKDROP_PRESET_VERSION=200 + PSVERSION_WARP/COMP=3 for GLES3 HLSL-9
+// - Aspect-corrected polar warp; hot-core corona composite with treb flash
+// - Wave samples reduced to 128; bass-reactive sun-disc radius
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk013_creative_brief.md
+[preset00]
+presetname=Solar Corona
+MILKDROP_PRESET_VERSION=200
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
 fRating=3.000000
 fGammaAdj=1.700000
 fDecay=0.960000
@@ -61,7 +72,7 @@ mv_g=0.900000
 mv_b=0.600000
 mv_a=0.000000
 wavecode_0_enabled=1
-wavecode_0_samples=512
+wavecode_0_samples=128
 wavecode_0_sep=0
 wavecode_0_bspectrum=1
 wavecode_0_busedots=0
@@ -94,6 +105,8 @@ shapecode_0_border_r=1.000000
 shapecode_0_border_g=0.800000
 shapecode_0_border_b=0.000000
 shapecode_0_border_a=0.500000
+shapecode_0_per_frame1=rad=0.08+q10*0.5
+shapecode_0_per_frame2=a=0.4+q2*0.3
 per_frame_1=q1=time*0.6
 per_frame_2=q2=bass_att
 per_frame_3=q3=mid_att
@@ -109,34 +122,42 @@ per_frame_12=q12=q2*0.2
 per_frame_13=q13=q2*0.02
 per_frame_14=q14=q4*q4
 per_frame_15=q15=q7*0.5
-warp_1=`float2 d=uv-0.5;
-warp_2=`float r=length(d);
-warp_3=`float a=atan2(d.y,d.x);
-warp_4=`r*=1.0+q10;
-warp_5=`a+=q12*sin(r*12.0+q1*4.0);
-warp_6=`r+=q11*sin(r*30.0-q1*8.0);
-warp_7=`float2 coords;
-warp_8=`coords.x=cos(a)*r+0.5;
-warp_9=`coords.y=sin(a)*r+0.5;
-warp_10=`coords-=normalize(d+0.0001)*q13;
-warp_11=`ret=tex2D(sampler_main,coords).xyz;
-comp_1=`float3 col=tex2D(sampler_main,uv).xyz;
-comp_2=`float2 d=uv-0.5;
-comp_3=`float r=length(d);
-comp_4=`float core=smoothstep(0.25,0.0,r);
-comp_5=`float corona=smoothstep(0.6,0.1,r)*q2;
-comp_6=`float flash=q14*smoothstep(0.5,0.0,r);
-comp_7=`float3 hotcore=float3(1.0,0.95,0.8);
-comp_8=`float3 corona1=float3(1.0,0.4,0.05);
-comp_9=`float3 corona2=float3(1.0,0.15,0.02);
-comp_10=`float3 ejecta=float3(1.0,0.7,0.2);
-comp_11=`float bright=dot(col,float3(0.3,0.5,0.2));
-comp_12=`float3 outcol=lerp(corona2,corona1,saturate(bright*3.0));
-comp_13=`outcol=lerp(outcol,ejecta,saturate(bright*5.0-1.5));
-comp_14=`outcol=lerp(outcol,hotcore,saturate(bright*8.0-3.0));
-comp_15=`outcol+=flash;
-comp_16=`outcol+=core*hotcore*0.5;
-comp_17=`outcol+=corona*corona1*0.4;
-comp_18=`float vig=smoothstep(0.75,0.35,r);
-comp_19=`outcol*=0.6+0.4*vig;
-comp_20=`ret=saturate(outcol);
+per_pixel_1=zoom=1.0
+per_pixel_2=rot=0.0
+per_pixel_3=warp=0.01
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 d = (uv - 0.5) * aspect.xy;
+warp_4=`float r = length(d);
+warp_5=`float a = atan2(d.y, d.x);
+warp_6=`r *= 1.0 + q10;
+warp_7=`a += q12 * sin(r * 12.0 + q1 * 4.0);
+warp_8=`r += q11 * sin(r * 30.0 - q1 * 8.0);
+warp_9=`float2 coords = float2(cos(a) * r, sin(a) * r);
+warp_10=`coords -= normalize(d + 0.0001) * q13;
+warp_11=`coords = coords * aspect.zw + 0.5;
+warp_12=`ret = tex2D(sampler_main, coords).xyz;
+warp_13=`}
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col = tex2D(sampler_main, uv).xyz;
+comp_4=`float2 d = uv - 0.5;
+comp_5=`float r = length(d);
+comp_6=`float core = smoothstep(0.25, 0.0, r);
+comp_7=`float corona = smoothstep(0.6, 0.1, r) * q2;
+comp_8=`float flash = q14 * smoothstep(0.5, 0.0, r);
+comp_9=`float3 hotcore = float3(1.0, 0.95, 0.8);
+comp_10=`float3 corona1 = float3(1.0, 0.4, 0.05);
+comp_11=`float3 corona2 = float3(1.0, 0.15, 0.02);
+comp_12=`float3 ejecta = float3(1.0, 0.7, 0.2);
+comp_13=`float bright = dot(col, float3(0.3, 0.5, 0.2));
+comp_14=`float3 outcol = lerp(corona2, corona1, saturate(bright * 3.0));
+comp_15=`outcol = lerp(outcol, ejecta, saturate(bright * 5.0 - 1.5));
+comp_16=`outcol = lerp(outcol, hotcore, saturate(bright * 8.0 - 3.0));
+comp_17=`outcol += flash;
+comp_18=`outcol += core * hotcore * 0.5;
+comp_19=`outcol += corona * corona1 * 0.4;
+comp_20=`float vig = smoothstep(0.75, 0.35, r);
+comp_21=`outcol *= 0.6 + 0.4 * vig;
+comp_22=`ret = saturate(outcol);
+comp_23=`}

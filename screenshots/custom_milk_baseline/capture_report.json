@@ -1,0 +1,161 @@
+{
+  "captured_at": "2026-06-12T08:31:13.830Z",
+  "module": "projectm-v.030-thread.1ijs",
+  "frames": 120,
+  "results": [
+    {
+      "preset": "custom_fractal_echo_copilot_gpt54.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_copilot_gpt54.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "custom_fractal_echo_gemini.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_gemini.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "custom_fractal_echo_granite.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_granite.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "fractal_echo_gptoss120b.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_echo_gptoss120b.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "fractal_echo_kimi.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_echo_kimi.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "fractal_tunnel_grok.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_tunnel_grok.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk001.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk001.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk002.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk002.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk003.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk003.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk004.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk004.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk005.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk005.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk006.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk006.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk007.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk007.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk008.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk008.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk009.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk009.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk010.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk010.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk011.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk011.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk011_optimized.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk011_optimized.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk012.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk012.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk013.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk013.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk014.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk014.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    },
+    {
+      "preset": "milk015.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk015.png",
+      "ok": true,
+      "error": null,
+      "frames": 120
+    }
+  ]
+}

@@ -1,3 +1,15 @@
+// CHANGELOG 2026-06-12 (Liquid Mercury WASM upgrade)
+// - Added MILKDROP_PRESET_VERSION=200 + PSVERSION_WARP/COMP=3 for GLES3 HLSL-9
+// - Aspect-corrected centered UVs in warp using aspect.xy; radial/barrel/ripple displacement unchanged
+// - Per-frame q1-q12 pre-cache audio+LFO values; q5/q6/q7 now 0..1 biased per brief
+// - Composite applies cool-metal palette, treb-reactive specular highlight, vignette and final saturate()
+// - Preserved wavecode_0 (bass-reactive PCM scratch) and shapecode_0 (specular pool disc)
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk012_creative_brief.md
+MILKDROP_PRESET_VERSION=200
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
 presetname=Liquid Mercury
 author=projectM AI
 fRating=3.000000
@@ -34,14 +46,16 @@ per_frame_1=q1=time
 per_frame_2=q2=bass_att
 per_frame_3=q3=mid_att
 per_frame_4=q4=treb_att
-per_frame_5=q5=sin(time*0.5)
-per_frame_6=q6=cos(time*0.3)
-per_frame_7=q7=sin(time*1.1)
+per_frame_5=q5=0.5+0.5*sin(time*0.5)
+per_frame_6=q6=0.5+0.5*cos(time*0.3)
+per_frame_7=q7=0.5+0.5*sin(time*1.1)
 per_frame_8=q8=bass
 per_frame_9=q9=0.5+0.5*sin(time*0.2)
 per_frame_10=q10=0.5+0.5*cos(time*0.15)
 per_frame_11=q11=q2*0.1
 per_frame_12=q12=q3*0.08
+per_pixel_1=zoom=1.0
+per_pixel_2=rot=0.0
 wavecode_0_enabled=1
 wavecode_0_samples=200
 wavecode_0_sep=0
@@ -53,7 +67,7 @@ wavecode_0_g=0.850000
 wavecode_0_b=0.950000
 wavecode_0_a=0.400000
 wavecode_0_per_point1=x=sample
-wavecode_0_per_point2=y=0.5+value1*0.25
+wavecode_0_per_point2=y=0.5+value1*(0.2+q8*0.1)
 wavecode_0_per_point3=r=0.8
 wavecode_0_per_point4=g=0.85
 wavecode_0_per_point5=b=0.95
@@ -84,33 +98,39 @@ shapecode_0_per_frame1=rad=0.05+q2*0.08
 shapecode_0_per_frame2=r=0.8+q2*0.2
 shapecode_0_per_frame3=g=0.8+q2*0.15
 shapecode_0_per_frame4=b=0.9+q2*0.1
-warp_1=`float2 c = uv - 0.5;
-warp_2=`float r = length(c);
-warp_3=`float a = atan2(c.y, c.x);
-warp_4=`float t = q1;
-warp_5=`float zoom = 1.0 + q2 * 0.1 + sin(t * 0.4) * 0.02;
-warp_6=`c *= zoom;
-warp_7=`float barrel = 1.0 + r * r * 0.25;
-warp_8=`c *= barrel;
-warp_9=`a += t * 0.04 + q2 * 0.06;
-warp_10=`float rippleR = sin(r * 20.0 - t * 2.8 + q2 * 3.0) * (0.008 + q2 * 0.012);
-warp_11=`float rippleA = cos(a * 5.0 + t * 1.3) * (0.005 + q3 * 0.008);
-warp_12=`float ripple = sin(r * 35.0 - t * 5.0) * 0.003;
-warp_13=`c += float2(cos(a), sin(a)) * (rippleR + ripple);
-warp_14=`c += float2(-sin(a), cos(a)) * rippleA;
-warp_15=`float2 s = c + 0.5;
-warp_16=`float3 col = tex2D(sampler_main, s).xyz;
-warp_17=`ret = col;
-comp_1=`float3 col = tex2D(sampler_main, uv).xyz;
-comp_2=`float lum = (col.x + col.y + col.z) * 0.333;
-comp_3=`float3 darkMetal = float3(0.02, 0.02, 0.03);
-comp_4=`float3 lightMetal = float3(0.85, 0.88, 0.95);
-comp_5=`float3 specular = float3(0.98, 0.99, 1.0);
-comp_6=`float metal = pow(lum, 0.8);
-comp_7=`float3 outCol = lerp(darkMetal, lightMetal, metal);
-comp_8=`float spec = pow(smoothstep(0.6, 1.0, lum), 4.0);
-comp_9=`outCol = lerp(outCol, specular, spec);
-comp_10=`float vig = smoothstep(0.8, 0.3, length(uv - 0.5));
-comp_11=`outCol *= 0.85 + 0.15 * vig;
-comp_12=`outCol = pow(outCol, 1.15);
-comp_13=`ret = saturate(outCol);
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 c = (uv - 0.5) * aspect.xy;
+warp_4=`float r = length(c);
+warp_5=`float a = atan2(c.y, c.x);
+warp_6=`float t = q1;
+warp_7=`float zscale = 1.0 + q2 * 0.1 + sin(t * 0.4) * 0.02;
+warp_8=`c *= zscale;
+warp_9=`float barrel = 1.0 + r * r * 0.25;
+warp_10=`c *= barrel;
+warp_11=`a += t * 0.04 + q2 * 0.06;
+warp_12=`float rippleR = sin(r * 20.0 - t * 2.8 + q2 * 3.0) * (0.008 + q2 * 0.012);
+warp_13=`float rippleA = cos(a * 5.0 + t * 1.3) * (0.005 + q3 * 0.008);
+warp_14=`float rippleF = sin(r * 35.0 - t * 5.0) * 0.003;
+warp_15=`c += float2(cos(a), sin(a)) * (rippleR + rippleF);
+warp_16=`c += float2(-sin(a), cos(a)) * rippleA;
+warp_17=`float2 s = c * aspect.zw + 0.5;
+warp_18=`float3 col = tex2D(sampler_main, s).xyz;
+warp_19=`ret = col;
+warp_20=`}
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col = tex2D(sampler_main, uv).xyz;
+comp_4=`float lum = (col.x + col.y + col.z) * 0.333;
+comp_5=`float3 darkMetal = float3(0.02, 0.02, 0.03);
+comp_6=`float3 lightMetal = float3(0.85, 0.88, 0.95);
+comp_7=`float3 specular = float3(0.98, 0.99, 1.0);
+comp_8=`float metal = pow(lum, 0.8);
+comp_9=`float3 outCol = lerp(darkMetal, lightMetal, metal);
+comp_10=`float spec = pow(smoothstep(0.6, 1.0, lum), 4.0);
+comp_11=`outCol = lerp(outCol, specular, spec * (0.6 + 0.4 * q4));
+comp_12=`float vig = smoothstep(0.8, 0.3, length(uv - 0.5));
+comp_13=`outCol *= 0.85 + 0.15 * vig;
+comp_14=`outCol = pow(outCol, 1.15);
+comp_15=`ret = saturate(outCol);
+comp_16=`}

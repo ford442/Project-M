@@ -1,0 +1,14 @@
+{
+  "captured_at": "2026-06-12T09:57:12.913Z",
+  "module": "projectm-v.030-thread.1ijs",
+  "frames": 180,
+  "results": [
+    {
+      "preset": "milk013.milk",
+      "png": "/root/Project-M/screenshots/custom_milk_upgraded/milk013.png",
+      "ok": true,
+      "error": null,
+      "frames": 180
+    }
+  ]
+}

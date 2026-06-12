@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM preset capture</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; width: 640px; height: 480px; }
+    #stat { color: #0f0; font: 12px monospace; padding: 4px; }
+  </style>
+</head>
+<body>
+  <canvas id="mcanvas" width="640" height="480"></canvas>
+  <canvas id="scanvas" width="640" height="480" hidden></canvas>
+  <!-- Stubs required by js_init_projectm_dom() in the WASM build -->
+  <button id="musicBtn" type="button" hidden></button>
+  <button id="customMilkBtn" type="button" hidden></button>
+  <div id="milkPath" hidden></div>
+  <div id="textureDir" hidden>textures/</div>
+  <div id="songDir" hidden>songs/</div>
+  <audio id="track" hidden></audio>
+  <div id="stat">loading…</div>
+  <script>
+    const capture = {
+      ok: false,
+      preset: null,
+      frames: 0,
+      error: null
+    };
+
+    function setStat(msg) {
+      const el = document.getElementById('stat');
+      if (el) el.textContent = msg;
+      console.log('[preset-capture]', msg);
+    }
+
+    function finish(ok, error) {
+      capture.ok = ok;
+      capture.error = error ? String(error && error.stack ? error.stack : error) : null;
+      window.__projectMPresetCapture = capture;
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    function feedSyntheticPcm(module, frameIndex) {
+      if (!module._projectm_pcm_add_float_wrapper || !module._malloc) return;
+      const samples = 512;
+      const buf = new Float32Array(samples * 2);
+      for (let i = 0; i < samples; i++) {
+        const t = (frameIndex * samples + i) / 44100;
+        const v = 0.35 * Math.sin(2 * Math.PI * 110 * t)
+                + 0.20 * Math.sin(2 * Math.PI * 220 * t)
+                + 0.10 * Math.sin(2 * Math.PI * 55 * t);
+        buf[i * 2] = v;
+        buf[i * 2 + 1] = v;
+      }
+      const ptr = module._malloc(buf.length * 4);
+      if (!ptr) return;
+      try {
+        module.HEAPF32.set(buf, ptr >> 2);
+        module._projectm_pcm_add_float_wrapper(0, ptr, samples, 2);
+      } finally {
+        module._free(ptr);
+      }
+    }
+
+    async function runCapture() {
+      const params = new URLSearchParams(window.location.search);
+      const moduleSrc = params.get('module');
+      const presetSrc = params.get('preset');
+      const frameBudget = Number(params.get('frames') || 90);
+      if (!moduleSrc) throw new Error('Missing ?module=');
+      if (!presetSrc) throw new Error('Missing ?preset=');
+
+      capture.preset = presetSrc;
+
+      await loadScript(moduleSrc);
+      setStat('module script loaded');
+
+      const canvas = document.getElementById('mcanvas');
+      const Module = await createModule({
+        canvas,
+        noInitialRun: true,
+        webglContextAttributes: { preserveDrawingBuffer: true },
+        locateFile(path, prefix) {
+          return prefix + path;
+        }
+      });
+
+      for (const name of ['_init', '_start_render', 'FS', 'ccall', '_projectm_pcm_add_float_wrapper']) {
+        if (!Module[name]) throw new Error('Missing Module.' + name);
+      }
+
+      const initResult = Module._init();
+      if (initResult !== 0) throw new Error('Module._init() returned ' + initResult);
+      setStat('init ok');
+
+      Module._start_render(canvas.width, canvas.height);
+      setStat('render loop started');
+
+      const presetResponse = await fetch(presetSrc);
+      if (!presetResponse.ok) throw new Error('Preset fetch failed: ' + presetResponse.status);
+      const presetBytes = new Uint8Array(await presetResponse.arrayBuffer());
+      const baseName = presetSrc.split('/').pop();
+      const vfsPath = '/presets/' + baseName;
+      try { Module.FS.mkdir('/presets'); } catch (_) {}
+      Module.FS.writeFile(vfsPath, presetBytes);
+      setStat('preset in MEMFS: ' + vfsPath);
+
+      Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+      setStat('preset loaded');
+
+      // Allow shader compile + first frames before screenshot
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      await new Promise((resolve) => {
+        let frame = 0;
+        const tick = () => {
+          feedSyntheticPcm(Module, frame++);
+          capture.frames = frame;
+          if (frame >= frameBudget) {
+            setStat('capture ready after ' + frame + ' frames');
+            resolve();
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+
+      const gl = canvas.getContext('webgl2');
+      if (gl) {
+        const err = gl.getError();
+        if (err !== gl.NO_ERROR) throw new Error('WebGL error 0x' + err.toString(16));
+      }
+
+      finish(true);
+    }
+
+    runCapture().catch((error) => {
+      setStat('failed: ' + error);
+      finish(false, error);
+    });
+  </script>
+</body>
+</html>

@@ -130,3 +130,49 @@ be logged the same way. For an apples-to-apples comparison:
 A ratio close to 1.0 indicates WASM parity for that preset. Large gaps, combined with the
 `breakdownMs` data above, point at which stage (per-pixel eval, blur, composite, GPU, etc.) to
 target next — i.e. how to prioritize #81–#85.
+
+## Mesh resolution and parallel per-pixel evaluation
+
+The per-vertex ("per-pixel") equations (`q1..q32`, `x`/`y`/`rad`/`ang`/`zoom`/`rot`/`warp`/etc.)
+are evaluated once per mesh vertex per frame via `PerPixelMesh::CalculateMesh()` /
+`PerPixelContext`. The default mesh size (`ProjectM::m_meshX` / `m_meshY` in `ProjectM.hpp`) is
+now **48×36** (1813 vertices), up from the previous 32×24 (792 vertices), matching the resolution
+commonly used by MilkDrop 2 presets and removing the straight-line artifacts visible in strong
+warp/zoom/rotation presets at 32×24.
+
+To keep this affordable on the additional ~2.3x vertices, `PerPixelMesh::CalculateMesh()` runs the
+per-pixel evaluation loop with `#pragma omp parallel for` when built with `ENABLE_OPENMP=ON`.
+Since `projectm-eval` contexts are not re-entrant (see
+`vendor/projectm-eval/docs/Memory-Handling.md`), `MilkdropPreset` maintains a pool of one
+`PerPixelContext` per extra OpenMP worker thread (`m_perPixelContextPool`), each compiled with the
+same per-pixel code and sharing the preset's `gmegabuf`/`reg00-99` storage
+(`PresetState::globalMemory` / `globalRegisters`). Access to that shared storage is now protected
+by a real mutex in `EvalLibMutex.cpp` (previously a no-op), avoiding heap corruption in
+`MemoryBuffer.c` when multiple threads read/write `gmegabuf` concurrently. Per-frame read-only
+variables and `q1..q32` are broadcast to the pool contexts once per frame via
+`PerPixelContext::CopyFrameStateFrom()` — O(thread count), not O(vertex count).
+
+### Quality setting
+
+`projectm_set_mesh_size(instance, width, height)` (WASM: `Module._set_mesh(width, height)`) can be
+used to change the mesh resolution at runtime. `html/projectm-mesh-quality.js` wires this up in
+`projectm-core.html`:
+
+- `'high'` → 48×36 (default)
+- `'low'` → 32×24 (previous default, used as the fallback on `navigator.hardwareConcurrency < 4`)
+- `'auto'` (default) picks between the two based on `navigator.hardwareConcurrency`
+
+The choice is persisted in `localStorage.meshQuality` and can be overridden per page load with
+`?meshQuality=high|low|auto`, or changed at runtime via `window.pmSetMeshQuality(quality)`.
+
+### Verification performed
+
+- Native build with `cmake -B cmake-build-openmp -DENABLE_OPENMP=ON -DENABLE_SDL_UI=OFF
+  -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release` configures with OpenMP 4.5 enabled and builds
+  `projectM`/`projectM_playlist` cleanly with the 48×36 default and the parallel per-pixel loop.
+- **Not yet measured in this environment** (no GPU/display available): actual frame times for
+  48×36 vs. 32×24 via the `?benchmark=1` harness described above. Given the per-pixel loop is
+  embarrassingly parallel and scales with `omp_get_max_threads()`, the expected frame-time
+  increase from the ~2.3x vertex count is sub-linear on multi-core hardware, but this should be
+  confirmed with real `breakdownMs.perPixelEvalMs` numbers (32×24 vs. 48×36, OpenMP on/off) before
+  relying on it for low-end device targeting.

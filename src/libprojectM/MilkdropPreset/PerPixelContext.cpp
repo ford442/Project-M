@@ -99,6 +99,31 @@ void PerPixelContext::LoadPerFrameQVariables(PresetState& state, PerFrameContext
     }
 }
 
+void PerPixelContext::CopyFrameStateFrom(const PerPixelContext& source)
+{
+    *time = *source.time;
+    *fps = *source.fps;
+    *frame = *source.frame;
+    *progress = *source.progress;
+    *bass = *source.bass;
+    *mid = *source.mid;
+    *treb = *source.treb;
+    *bass_att = *source.bass_att;
+    *mid_att = *source.mid_att;
+    *treb_att = *source.treb_att;
+    *meshx = *source.meshx;
+    *meshy = *source.meshy;
+    *pixelsx = *source.pixelsx;
+    *pixelsy = *source.pixelsy;
+    *aspectx = *source.aspectx;
+    *aspecty = *source.aspecty;
+
+    for (int q = 0; q < QVarCount; q++)
+    {
+        *q_vars[q] = *source.q_vars[q];
+    }
+}
+
 void PerPixelContext::CompilePerPixelCode(const std::string& perPixelCode)
 {
     if (perPixelCode.empty())

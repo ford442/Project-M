@@ -167,6 +167,8 @@ if(ENABLE_EMSCRIPTEN)
     set(PROJECTM_WASM_EXPORTED_FUNCTIONS
             _main
             _projectm_touch
+            # Mesh quality (see docs/PERFORMANCE.md)
+            _set_mesh
             # Phase 2: Dual ping-pong FBO lifecycle API
             _dual_fbo_begin_transition
             _dual_fbo_end_transition

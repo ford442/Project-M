@@ -47,6 +47,18 @@ public:
     void LoadPerFrameQVariables(PresetState& state, PerFrameContext& perFrameState);
 
     /**
+     * @brief Copies the per-frame read-only and Q variables from another context.
+     *
+     * Used to broadcast the values loaded via LoadStateReadOnlyVariables() and
+     * LoadPerFrameQVariables() into the additional per-thread contexts used by
+     * the parallel per-vertex evaluation loop. Each context has its own
+     * registered variable storage, so the values must be copied explicitly.
+     *
+     * @param source The context to copy the per-frame values from.
+     */
+    void CopyFrameStateFrom(const PerPixelContext& source);
+
+    /**
      * @brief Compiles the per-pixel code and stores the code handle in the class.
      * @throws MilkdropCompileException Thrown if the per-pixel code couldn't be compiled.
      * @param perPixelCode The code to compile.

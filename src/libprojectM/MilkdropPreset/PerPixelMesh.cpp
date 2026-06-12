@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
@@ -89,7 +90,8 @@ void PerPixelMesh::CompileWarpShader(PresetState& presetState)
 
 void PerPixelMesh::Draw(const PresetState& presetState,
                         const PerFrameContext& perFrameContext,
-                        PerPixelContext& perPixelContext)
+                        PerPixelContext& perPixelContext,
+                        const std::vector<std::unique_ptr<PerPixelContext>>& perPixelContextPool)
 {
     if (presetState.renderContext.viewportSizeX == 0 ||
         presetState.renderContext.viewportSizeY == 0 ||
@@ -103,7 +105,7 @@ void PerPixelMesh::Draw(const PresetState& presetState,
     InitializeMesh(presetState);
 
     // Calculate the dynamic movement values
-    CalculateMesh(presetState, perFrameContext, perPixelContext);
+    CalculateMesh(presetState, perFrameContext, perPixelContext, perPixelContextPool);
 
     // Render the resulting mesh.
     WarpedBlit(presetState, perFrameContext);
@@ -202,7 +204,9 @@ void PerPixelMesh::InitializeMesh(const PresetState& presetState)
     }
 }
 
-void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameContext& perFrameContext, PerPixelContext& perPixelContext)
+void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameContext& perFrameContext,
+                                 PerPixelContext& perPixelContext,
+                                 const std::vector<std::unique_ptr<PerPixelContext>>& perPixelContextPool)
 {
     // Cache some per-frame values as floats
     float zoom = static_cast<float>(*perFrameContext.zoom);
@@ -218,12 +222,12 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
 
     // Can't make this multithreaded as per-pixel code may use gmegabuf or regXX vars.
     auto& vertices = m_warpMesh.Vertices();
-    
+
     // When no per-pixel code is active, we can safely parallelize the mesh calculation
     if (!perPixelContext.perPixelCodeHandle)
     {
         const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
-        
+
 #ifdef PRJM_ENABLE_OPENMP
 #pragma omp parallel for schedule(static)
 #endif
@@ -231,7 +235,7 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
         {
             int y = vertex / (m_gridSizeX + 1);
             int x = vertex % (m_gridSizeX + 1);
-            
+
             auto& curVertex = vertices[vertex];
             auto& curRadiusAngle = m_radiusAngleBuffer[vertex];
             auto& curZoomRotWarp = m_zoomRotWarpBuffer[vertex];
@@ -250,50 +254,66 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
     }
     else
     {
-        // Serial path when per-pixel code is active (not thread-safe)
-        int vertex = 0;
-        for (int y = 0; y <= m_gridSizeY; y++)
+        // Per-pixel code is active. Each vertex only reads its own static grid
+        // data (vertices[]/m_radiusAngleBuffer[]) and per-frame values, and
+        // writes to its own output slot, so the loop can run in parallel as
+        // long as each thread uses its own eval context (q1..q32, x, y, rad,
+        // ang, zoom, etc. are registered per-context). gmegabuf/reg vars are
+        // shared across contexts and protected by EvalLibMutex.
+        const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
+
+#ifdef PRJM_ENABLE_OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+        for (int vertex = 0; vertex < vertexCount; vertex++)
         {
-            for (int x = 0; x <= m_gridSizeX; x++)
+#ifdef PRJM_ENABLE_OPENMP
+            const int threadIndex = omp_get_thread_num();
+#else
+            const int threadIndex = 0;
+#endif
+            PerPixelContext* threadContext = &perPixelContext;
+            if (threadIndex > 0 && static_cast<std::size_t>(threadIndex - 1) < perPixelContextPool.size())
             {
-                auto& curVertex = vertices[vertex];
-                auto& curRadiusAngle = m_radiusAngleBuffer[vertex];
-                auto& curZoomRotWarp = m_zoomRotWarpBuffer[vertex];
-                auto& curCenter = m_centerBuffer[vertex];
-                auto& curDistance = m_distanceBuffer[vertex];
-                auto& curStretch = m_stretchBuffer[vertex];
-
-                // Execute per-vertex/per-pixel code if the preset uses it.
-                *perPixelContext.x = static_cast<double>(curVertex.X() * 0.5f * presetState.renderContext.aspectX + 0.5f);
-                *perPixelContext.y = static_cast<double>(curVertex.Y() * 0.5f * presetState.renderContext.aspectY + 0.5f);
-                *perPixelContext.rad = static_cast<double>(curRadiusAngle.radius);
-                *perPixelContext.ang = static_cast<double>(-curRadiusAngle.angle);
-                *perPixelContext.zoom = static_cast<double>(*perFrameContext.zoom);
-                *perPixelContext.zoomexp = static_cast<double>(*perFrameContext.zoomexp);
-                *perPixelContext.rot = static_cast<double>(*perFrameContext.rot);
-                *perPixelContext.warp = static_cast<double>(*perFrameContext.warp);
-                *perPixelContext.cx = static_cast<double>(*perFrameContext.cx);
-                *perPixelContext.cy = static_cast<double>(*perFrameContext.cy);
-                *perPixelContext.dx = static_cast<double>(*perFrameContext.dx);
-                *perPixelContext.dy = static_cast<double>(*perFrameContext.dy);
-                *perPixelContext.sx = static_cast<double>(*perFrameContext.sx);
-                *perPixelContext.sy = static_cast<double>(*perFrameContext.sy);
-
-                perPixelContext.ExecutePerPixelCode();
-
-                curZoomRotWarp.zoom = static_cast<float>(*perPixelContext.zoom);
-                curZoomRotWarp.zoomExp = static_cast<float>(*perPixelContext.zoomexp);
-                curZoomRotWarp.rot = static_cast<float>(*perPixelContext.rot);
-                curZoomRotWarp.warp = static_cast<float>(*perPixelContext.warp);
-                curCenter = {static_cast<float>(*perPixelContext.cx),
-                             static_cast<float>(*perPixelContext.cy)};
-                curDistance = {static_cast<float>(*perPixelContext.dx),
-                               static_cast<float>(*perPixelContext.dy)};
-                curStretch = {static_cast<float>(*perPixelContext.sx),
-                              static_cast<float>(*perPixelContext.sy)};
-
-                vertex++;
+                threadContext = perPixelContextPool[threadIndex - 1].get();
             }
+            PerPixelContext& ctx = *threadContext;
+
+            auto& curVertex = vertices[vertex];
+            auto& curRadiusAngle = m_radiusAngleBuffer[vertex];
+            auto& curZoomRotWarp = m_zoomRotWarpBuffer[vertex];
+            auto& curCenter = m_centerBuffer[vertex];
+            auto& curDistance = m_distanceBuffer[vertex];
+            auto& curStretch = m_stretchBuffer[vertex];
+
+            // Execute per-vertex/per-pixel code if the preset uses it.
+            *ctx.x = static_cast<double>(curVertex.X() * 0.5f * presetState.renderContext.aspectX + 0.5f);
+            *ctx.y = static_cast<double>(curVertex.Y() * 0.5f * presetState.renderContext.aspectY + 0.5f);
+            *ctx.rad = static_cast<double>(curRadiusAngle.radius);
+            *ctx.ang = static_cast<double>(-curRadiusAngle.angle);
+            *ctx.zoom = static_cast<double>(*perFrameContext.zoom);
+            *ctx.zoomexp = static_cast<double>(*perFrameContext.zoomexp);
+            *ctx.rot = static_cast<double>(*perFrameContext.rot);
+            *ctx.warp = static_cast<double>(*perFrameContext.warp);
+            *ctx.cx = static_cast<double>(*perFrameContext.cx);
+            *ctx.cy = static_cast<double>(*perFrameContext.cy);
+            *ctx.dx = static_cast<double>(*perFrameContext.dx);
+            *ctx.dy = static_cast<double>(*perFrameContext.dy);
+            *ctx.sx = static_cast<double>(*perFrameContext.sx);
+            *ctx.sy = static_cast<double>(*perFrameContext.sy);
+
+            ctx.ExecutePerPixelCode();
+
+            curZoomRotWarp.zoom = static_cast<float>(*ctx.zoom);
+            curZoomRotWarp.zoomExp = static_cast<float>(*ctx.zoomexp);
+            curZoomRotWarp.rot = static_cast<float>(*ctx.rot);
+            curZoomRotWarp.warp = static_cast<float>(*ctx.warp);
+            curCenter = {static_cast<float>(*ctx.cx),
+                         static_cast<float>(*ctx.cy)};
+            curDistance = {static_cast<float>(*ctx.dx),
+                           static_cast<float>(*ctx.dy)};
+            curStretch = {static_cast<float>(*ctx.sx),
+                          static_cast<float>(*ctx.sy)};
         }
     }
 

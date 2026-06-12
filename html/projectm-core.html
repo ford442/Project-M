@@ -422,6 +422,7 @@ import { createPopupAudioPlayerController } from './projectm-audio-player.js';
 import { feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
 import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
+import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -887,6 +888,14 @@ async function attemptInit() {
         const mcanvas = document.querySelector('#mcanvas');
         Module._start_render(mcanvas.width, mcanvas.height);
         flushQueuedExternalPCM();
+
+        // ====== MESH QUALITY ======
+        // Per-pixel mesh resolution: 'high' (48x36, Milkdrop-parity) or 'low'
+        // (32x24, for low-core-count devices). Auto-selected from
+        // navigator.hardwareConcurrency unless overridden via
+        // ?meshQuality=high|low or localStorage.meshQuality. See
+        // docs/PERFORMANCE.md.
+        setupMeshQuality(Module);
 
         // ====== PERF HUD / BENCHMARK ======
         // Append ?perfhud=1 for an on-screen FPS/timing breakdown, or

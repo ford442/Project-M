@@ -292,8 +292,15 @@ private:
 
     auto GetRenderContext() -> Renderer::RenderContext;
 
-    uint32_t m_meshX{32};            //!< Per-point mesh horizontal resolution.
-    uint32_t m_meshY{24};            //!< Per-point mesh vertical resolution.
+    // Default mesh resolution. 48x36 matches the resolution commonly used by
+    // original Milkdrop 2 and reduces straight-line warp/zoom/rotation
+    // artifacts vs. the previous 32x24 default. The per-vertex evaluation
+    // loop (PerPixelMesh::CalculateMesh()) is parallelized via OpenMP when
+    // PRJM_ENABLE_OPENMP is defined, making the extra 768 -> 1813 evaluations
+    // per frame affordable on multi-core hardware. Call SetMeshSize() to use
+    // a lower resolution (e.g. 32x24) on low-thread-count devices.
+    uint32_t m_meshX{48};            //!< Per-point mesh horizontal resolution.
+    uint32_t m_meshY{36};            //!< Per-point mesh vertical resolution.
     uint32_t m_targetFps{35};        //!< Target frames per second.
     uint32_t m_windowWidth{0};       //!< EvaluateFrameData window width. If 0, nothing is rendered.
     uint32_t m_windowHeight{0};      //!< EvaluateFrameData window height. If 0, nothing is rendered.
@@ -309,7 +316,7 @@ private:
     float m_texelOffsetX{0.0};       //!< Horizontal warp shader texel offset
     float m_texelOffsetY{0.0};       //!< Vertical warp shader texel offset
 
-    std::vector<std::string> m_textureSearchPaths;     ///!< List of paths to search for texture files
+    std::vector<std::string> m_textureSearchPaths;       ///!< List of paths to search for texture files
     Renderer::TextureLoadCallback m_textureLoadCallback; //!< Optional callback for loading textures from non-filesystem sources.
 
     /** Timing information */

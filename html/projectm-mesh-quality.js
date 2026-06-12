@@ -1,0 +1,65 @@
+// projectm-mesh-quality.js
+//
+// Per-pixel mesh resolution ("quality") setting for the projectM WASM build.
+// See docs/PERFORMANCE.md.
+//
+// The libprojectM default is 48x36 (close to original Milkdrop 2), and the
+// per-vertex evaluation loop is parallelized across CPU cores via OpenMP
+// (PRJM_ENABLE_OPENMP). On devices with few logical cores, fall back to the
+// previous 32x24 default to avoid dropping frames on heavy per-pixel-code
+// presets.
+//
+// The chosen quality is persisted in localStorage under 'meshQuality':
+// 'high' (48x36), 'low' (32x24), or unset/'auto' (derived from
+// navigator.hardwareConcurrency). It can also be set for one page load via
+// the `?meshQuality=high|low|auto` query parameter.
+
+const MESH_SIZES = {
+    low: [32, 24],
+    high: [48, 36],
+};
+
+// Below this number of logical CPU cores, 'auto' resolves to 'low'.
+const AUTO_LOW_THRESHOLD_CORES = 4;
+
+function resolveQuality(quality) {
+    if (quality === 'low' || quality === 'high') {
+        return quality;
+    }
+    const cores = navigator.hardwareConcurrency || 1;
+    return cores < AUTO_LOW_THRESHOLD_CORES ? 'low' : 'high';
+}
+
+/**
+ * Applies a mesh quality setting by calling `Module._set_mesh(width, height)`.
+ * @param {*} Module The Emscripten module instance.
+ * @param {string} quality 'high', 'low', or 'auto'.
+ * @returns {string} The resolved quality ('high' or 'low').
+ */
+export function setMeshQuality(Module, quality) {
+    const resolved = resolveQuality(quality);
+    const [width, height] = MESH_SIZES[resolved];
+    Module._set_mesh(width, height);
+    return resolved;
+}
+
+/**
+ * Applies the mesh quality from `?meshQuality=`, localStorage, or
+ * navigator.hardwareConcurrency (in that order of precedence), and exposes
+ * `window.pmSetMeshQuality(quality)` for host UIs to change and persist it.
+ *
+ * @param {*} Module The Emscripten module instance (must already be initialized).
+ * @returns {{ quality: string }} The quality that was actually applied.
+ */
+export function setupMeshQuality(Module) {
+    const params = new URLSearchParams(location.search);
+    const requested = params.get('meshQuality') || localStorage.getItem('meshQuality') || 'auto';
+    const resolved = setMeshQuality(Module, requested);
+
+    window.pmSetMeshQuality = (quality) => {
+        localStorage.setItem('meshQuality', quality);
+        return setMeshQuality(Module, quality);
+    };
+
+    return { quality: resolved };
+}

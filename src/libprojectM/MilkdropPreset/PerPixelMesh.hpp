@@ -3,6 +3,9 @@
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Shader.hpp>
 
+#include <memory>
+#include <vector>
+
 namespace libprojectM {
 namespace MilkdropPreset {
 
@@ -45,11 +48,14 @@ public:
      * @brief Renders the transformation mesh.
      * @param presetState The preset state to retrieve the configuration values from.
      * @param presetPerFrameContext The per-frame context to retrieve the initial vars from.
-     * @param perPixelContext The per-pixel code context to use.
+     * @param perPixelContext The per-pixel code context to use on thread 0.
+     * @param perPixelContextPool Additional per-pixel code contexts, one per OpenMP worker
+     *                            thread 1..N-1, used to evaluate per-vertex code in parallel.
      */
     void Draw(const PresetState& presetState,
               const PerFrameContext& perFrameContext,
-              PerPixelContext& perPixelContext);
+              PerPixelContext& perPixelContext,
+              const std::vector<std::unique_ptr<PerPixelContext>>& perPixelContextPool);
 
 
 private:
@@ -96,11 +102,13 @@ private:
      * The x/y coordinates are either a static grid or computed by the per-vertex expression.
      * @param presetState The preset state to retrieve the configuration values from.
      * @param presetPerFrameContext The per-frame context to retrieve the initial vars from.
-     * @param perPixelContext The per-pixel code context to use.
+     * @param perPixelContext The per-pixel code context to use on thread 0.
+     * @param perPixelContextPool Additional per-pixel code contexts for OpenMP worker threads.
      */
     void CalculateMesh(const PresetState& presetState,
                        const PerFrameContext& perFrameContext,
-                       PerPixelContext& perPixelContext);
+                       PerPixelContext& perPixelContext,
+                       const std::vector<std::unique_ptr<PerPixelContext>>& perPixelContextPool);
 
     /**
      * @brief Draws the warp mesh with or without a warp shader.

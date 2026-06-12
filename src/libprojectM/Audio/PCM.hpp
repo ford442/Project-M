@@ -15,6 +15,7 @@
 
 #include <projectM-4/projectM_cxx_export.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
@@ -94,7 +95,7 @@ private:
     // External input buffer
     WaveformBuffer m_inputBufferL{0.f}; //!< Circular buffer for left-channel PCM data.
     WaveformBuffer m_inputBufferR{0.f}; //!< Circular buffer for right-channel PCM data.
-    std::atomic<size_t> m_start{0};                  //!< Circular buffer start index.
+    std::atomic<size_t> m_start{0};     //!< Circular buffer start index.
 
     // Frame waveform data
     WaveformBuffer m_waveformL{0.f}; //!< Left-channel waveform data, aligned. Only the first WaveformSamples number of samples are valid.

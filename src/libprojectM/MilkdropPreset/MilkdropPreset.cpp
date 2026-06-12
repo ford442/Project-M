@@ -28,6 +28,12 @@
 #include <Logging.hpp>
 #include <PerfTimers.hpp>
 
+#include <algorithm>
+
+#ifdef PRJM_ENABLE_OPENMP
+#include <omp.h>
+#endif
+
 namespace libprojectM {
 namespace MilkdropPreset {
 
@@ -119,7 +125,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // Draw previous frame image warped via per-pixel mesh and warp shader
     {
         PROJECTM_PERF_SCOPE(PerPixelEval);
-        m_perPixelMesh.Draw(m_state, m_perFrameContext, m_perPixelContext);
+        m_perPixelMesh.Draw(m_state, m_perFrameContext, m_perPixelContext, m_perPixelContextPool);
     }
 
     // Remove the u/v texture from the framebuffer.
@@ -212,6 +218,13 @@ void MilkdropPreset::PerFrameUpdate()
 
     m_perPixelContext.LoadPerFrameQVariables(m_state, m_perFrameContext);
 
+    // Broadcast the per-frame read-only and Q variables to the additional
+    // per-thread per-pixel contexts used by the parallel mesh evaluation loop.
+    for (auto& perPixelContext : m_perPixelContextPool)
+    {
+        perPixelContext->CopyFrameStateFrom(m_perPixelContext);
+    }
+
     // Clamp gamma and echo zoom values
     *m_perFrameContext.gamma = std::max(0.0, std::min(8.0, *m_perFrameContext.gamma));
     *m_perFrameContext.echo_zoom = std::max(0.001, std::min(1000.0, *m_perFrameContext.echo_zoom));
@@ -243,7 +256,7 @@ void MilkdropPreset::Load(std::istream& stream)
 
     if (!parser.Read(stream))
     {
-        const std::string error =  "[MilkdropPreset] Could not parse preset data.";
+        const std::string error = "[MilkdropPreset] Could not parse preset data.";
         LOG_ERROR(error)
         throw MilkdropPresetLoadException(error);
     }
@@ -271,6 +284,24 @@ void MilkdropPreset::InitializePreset(PresetFileParser& parsedFile)
     // Register code context variables
     m_perFrameContext.RegisterBuiltinVariables();
     m_perPixelContext.RegisterBuiltinVariables();
+
+    // Create one additional per-pixel evaluation context per extra OpenMP
+    // worker thread (threads 1..N-1). projectm-eval contexts are not
+    // re-entrant, so PerPixelMesh::CalculateMesh() needs a dedicated context
+    // per thread to evaluate per-pixel code in parallel. All contexts share
+    // the gmegabuf/reg vars via m_state.globalMemory/m_state.globalRegisters,
+    // which is protected by EvalLibMutex.
+    m_perPixelContextPool.clear();
+#ifdef PRJM_ENABLE_OPENMP
+    const int threadCount = std::max(1, omp_get_max_threads());
+    m_perPixelContextPool.reserve(threadCount - 1);
+    for (int i = 1; i < threadCount; i++)
+    {
+        auto perPixelContext = std::make_unique<PerPixelContext>(m_state.globalMemory, &m_state.globalRegisters);
+        perPixelContext->RegisterBuiltinVariables();
+        m_perPixelContextPool.push_back(std::move(perPixelContext));
+    }
+#endif
 
     // Custom waveforms:
     for (int i = 0; i < CustomWaveformCount; i++)
@@ -301,6 +332,10 @@ void MilkdropPreset::CompileCodeAndRunInitExpressions()
 
     // Per-vertex code
     m_perPixelContext.CompilePerPixelCode(m_state.perPixelCode);
+    for (auto& perPixelContext : m_perPixelContextPool)
+    {
+        perPixelContext->CompilePerPixelCode(m_state.perPixelCode);
+    }
 
     for (int i = 0; i < CustomWaveformCount; i++)
     {

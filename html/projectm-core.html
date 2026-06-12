@@ -420,6 +420,7 @@ canvas.emscripten {
 <script type="module">
 import { createPopupAudioPlayerController } from './projectm-audio-player.js';
 import { feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { setupFpsGovernor } from './projectm-fps-governor.js';
 import { loadScript } from './projectm-init.js';
 import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
@@ -896,6 +897,14 @@ async function attemptInit() {
         // ?meshQuality=high|low or localStorage.meshQuality. See
         // docs/PERFORMANCE.md.
         setupMeshQuality(Module);
+
+        // ====== TARGET FPS / ADAPTIVE QUALITY GOVERNOR ======
+        // Target 60 FPS (Milkdrop default). If the measured frame time
+        // consistently exceeds budget, the governor steps the mesh
+        // resolution down (then back up once recovered) instead of letting
+        // FPS drop. Override via ?targetFps=/?governor=0|1 or
+        // localStorage.targetFps/qualityGovernor. See docs/PERFORMANCE.md.
+        setupFpsGovernor(Module);
 
         // ====== PERF HUD / BENCHMARK ======
         // Append ?perfhud=1 for an on-screen FPS/timing breakdown, or

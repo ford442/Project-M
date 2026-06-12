@@ -299,9 +299,17 @@ private:
     // PRJM_ENABLE_OPENMP is defined, making the extra 768 -> 1813 evaluations
     // per frame affordable on multi-core hardware. Call SetMeshSize() to use
     // a lower resolution (e.g. 32x24) on low-thread-count devices.
-    uint32_t m_meshX{48};            //!< Per-point mesh horizontal resolution.
-    uint32_t m_meshY{36};            //!< Per-point mesh vertical resolution.
-    uint32_t m_targetFps{35};        //!< Target frames per second.
+    uint32_t m_meshX{48}; //!< Per-point mesh horizontal resolution.
+    uint32_t m_meshY{36}; //!< Per-point mesh vertical resolution.
+
+    // Default target FPS. Winamp Milkdrop defaults to 60; this value is also
+    // used as the adaptive quality governor's frame budget reference on the
+    // WASM build (see html/projectm-fps-governor.js). It is purely
+    // informational for the renderer itself - ctx.fps (passed to presets as
+    // the "fps" variable) reflects the actually measured frame rate
+    // (m_measuredFps), not this target.
+    uint32_t m_targetFps{60};        //!< Target frames per second.
+    double m_measuredFps{60.0};      //!< Smoothed, measured frames per second (exposed to presets as "fps").
     uint32_t m_windowWidth{0};       //!< EvaluateFrameData window width. If 0, nothing is rendered.
     uint32_t m_windowHeight{0};      //!< EvaluateFrameData window height. If 0, nothing is rendered.
     double m_presetDuration{30.0};   //!< Preset duration in seconds.

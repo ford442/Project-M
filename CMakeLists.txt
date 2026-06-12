@@ -169,6 +169,10 @@ if(ENABLE_EMSCRIPTEN)
             _projectm_touch
             # Mesh quality (see docs/PERFORMANCE.md)
             _set_mesh
+            # Target FPS + adaptive quality governor (see docs/PERFORMANCE.md)
+            _set_target_fps
+            _set_quality_governor
+            _get_quality_tier
             # Phase 2: Dual ping-pong FBO lifecycle API
             _dual_fbo_begin_transition
             _dual_fbo_end_transition

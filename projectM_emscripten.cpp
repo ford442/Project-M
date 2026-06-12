@@ -982,6 +982,137 @@ projectm_playlist_handle playlist={};
 bool g_is_streaming_audio = false;
 
 // =============================================================================
+// Adaptive quality governor (see docs/PERFORMANCE.md)
+//
+// Original Milkdrop holds 60 FPS and lets quality settings absorb load
+// instead of letting the frame rate drop. This is a minimal v1: it watches
+// the wall-clock time of renderLoop() (always-on, independent of the perf
+// HUD) and steps the per-pixel mesh resolution between two tiers
+// (48x36 "high" / 32x24 "low", matching html/projectm-mesh-quality.js) when
+// the frame time is consistently over or under budget.
+//
+// Tuning (see PR description for rationale):
+//   - Budget = 1000 / targetFps ms (default targetFps = 60 -> ~16.7ms).
+//   - Step DOWN a tier after kOverBudgetFrameThreshold consecutive frames
+//     that take longer than kOverBudgetRatio * budget.
+//   - Step UP a tier after kUnderBudgetFrameThreshold consecutive frames
+//     that take less than kUnderBudgetRatio * budget.
+//   - Frames rendered while a preset is loading (app_data.loading) are
+//     skipped entirely (renderLoop returns early), and the
+//     kPostLoadGraceFrames frames immediately after a load completes are
+//     excluded from the over/under-budget counters, so a single slow
+//     ASYNCIFY preset compile cannot trigger a permanent downgrade.
+// =============================================================================
+
+static bool g_governorEnabled = true; //!< Whether the adaptive quality governor is active.
+static int g_targetFps = 60;          //!< Frame budget reference, set via set_target_fps().
+static int g_qualityTier = 0;         //!< 0 = high (48x36 mesh), 1 = low (32x24 mesh).
+static bool g_qualityTierInitialized = false;
+
+static int g_overBudgetFrames = 0;
+static int g_underBudgetFrames = 0;
+static bool g_wasLoading = false;
+static int g_postLoadGraceFrames = 0;
+
+constexpr double kOverBudgetRatio = 1.5;        //!< Step down once frame time exceeds 1.5x budget...
+constexpr int kOverBudgetFrameThreshold = 30;   //!< ...for this many consecutive frames (~0.5s @ 60fps).
+constexpr double kUnderBudgetRatio = 0.8;       //!< Step back up once frame time is under 0.8x budget...
+constexpr int kUnderBudgetFrameThreshold = 120; //!< ...for this many consecutive frames (~2s @ 60fps).
+constexpr int kPostLoadGraceFrames = 10;        //!< Frames to ignore right after a preset finishes loading.
+constexpr int kMaxQualityTier = 1;              //!< Highest (lowest-quality) tier index.
+
+struct QualityTierMeshSize
+{
+    size_t width;
+    size_t height;
+};
+
+constexpr QualityTierMeshSize kQualityTierMeshSizes[kMaxQualityTier + 1] = {
+    {48, 36}, // tier 0: high
+    {32, 24}, // tier 1: low
+};
+
+// Notifies the host page when the governor changes the quality tier, so the
+// UI can reflect it (e.g. show a "reduced quality" indicator).
+EM_JS(void, js_governor_report_tier, (int tier), {
+    if (typeof window.pmOnGovernorTierChange === 'function') {
+        window.pmOnGovernorTierChange(tier);
+    }
+});
+
+static void ApplyQualityTier(int tier)
+{
+    tier = std::max(0, std::min(kMaxQualityTier, tier));
+    g_qualityTier = tier;
+    projectm_set_mesh_size(pm, kQualityTierMeshSizes[tier].width, kQualityTierMeshSizes[tier].height);
+    js_governor_report_tier(tier);
+}
+
+// Resets the consecutive over/under-budget frame counters. Called whenever
+// the governor's configuration changes or a tier transition happens, so a
+// single step doesn't immediately trigger another one based on stale counts.
+static void ResetGovernorCounters()
+{
+    g_overBudgetFrames = 0;
+    g_underBudgetFrames = 0;
+}
+
+// Evaluates one frame's wall-clock time against the budget and steps the
+// quality tier up or down if warranted. No-op if the governor is disabled or
+// the frame falls within the post-load grace period.
+static void UpdateQualityGovernor(double frameMs)
+{
+    if (!g_qualityTierInitialized)
+    {
+        size_t width = 0;
+        size_t height = 0;
+        projectm_get_mesh_size(pm, &width, &height);
+        g_qualityTier = (width <= kQualityTierMeshSizes[kMaxQualityTier].width) ? kMaxQualityTier : 0;
+        g_qualityTierInitialized = true;
+    }
+
+    if (g_postLoadGraceFrames > 0)
+    {
+        g_postLoadGraceFrames--;
+        return;
+    }
+
+    if (!g_governorEnabled)
+    {
+        return;
+    }
+
+    const double budgetMs = 1000.0 / static_cast<double>(g_targetFps > 0 ? g_targetFps : 60);
+
+    if (frameMs > budgetMs * kOverBudgetRatio)
+    {
+        g_overBudgetFrames++;
+        g_underBudgetFrames = 0;
+    }
+    else if (frameMs < budgetMs * kUnderBudgetRatio)
+    {
+        g_underBudgetFrames++;
+        g_overBudgetFrames = 0;
+    }
+    else
+    {
+        g_overBudgetFrames = 0;
+        g_underBudgetFrames = 0;
+    }
+
+    if (g_overBudgetFrames >= kOverBudgetFrameThreshold && g_qualityTier < kMaxQualityTier)
+    {
+        ApplyQualityTier(g_qualityTier + 1);
+        ResetGovernorCounters();
+    }
+    else if (g_underBudgetFrames >= kUnderBudgetFrameThreshold && g_qualityTier > 0)
+    {
+        ApplyQualityTier(g_qualityTier - 1);
+        ResetGovernorCounters();
+    }
+}
+
+// =============================================================================
 // Phase 4: Async preset loading / transition gating
 // =============================================================================
 
@@ -1252,8 +1383,15 @@ void stop_worklet_playback() {
 
 void renderLoop(){
 if(app_data.loading==EM_TRUE){
+g_wasLoading = true;
 return;
 }
+if (g_wasLoading) {
+    g_wasLoading = false;
+    g_postLoadGraceFrames = kPostLoadGraceFrames;
+    ResetGovernorCounters();
+}
+const double frameStartMs = emscripten_get_now();
 if (g_is_streaming_audio) {
 js_feed_stream_data_to_projectm(
 reinterpret_cast<uintptr_t>(app_data.projectm_engine),
@@ -1286,6 +1424,7 @@ if (g_perfHudEnabled) {
         timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
         timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps);
 }
+UpdateQualityGovernor(emscripten_get_now() - frameStartMs);
 return;
 }
 
@@ -2021,6 +2160,38 @@ EMSCRIPTEN_KEEPALIVE
 void set_mesh(int w,int h){
 projectm_set_mesh_size(pm,w,h);
 return;
+}
+
+// Sets the target FPS used both as the preset "fps" hint (projectm_set_fps)
+// and as the adaptive quality governor's frame budget reference
+// (1000 / target_fps). See html/projectm-fps-governor.js.
+EMSCRIPTEN_KEEPALIVE
+void set_target_fps(int fps) {
+if (fps <= 0) {
+fps = 60;
+}
+g_targetFps = fps;
+if (pm) {
+projectm_set_fps(pm, fps);
+}
+ResetGovernorCounters();
+return;
+}
+
+// Enables/disables the adaptive quality governor (see UpdateQualityGovernor
+// above). Disabling does not change the current quality tier, it just stops
+// further automatic adjustments.
+EMSCRIPTEN_KEEPALIVE
+void set_quality_governor(int enabled) {
+g_governorEnabled = enabled != 0;
+ResetGovernorCounters();
+return;
+}
+
+// Returns the governor's current quality tier (0 = high/48x36, 1 = low/32x24).
+EMSCRIPTEN_KEEPALIVE
+int get_quality_tier() {
+return g_qualityTier;
 }
 
 EMSCRIPTEN_KEEPALIVE

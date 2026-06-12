@@ -37,6 +37,8 @@
 
 #include <UserSprites/SpriteManager.hpp>
 
+#include <algorithm>
+
 namespace libprojectM {
 
 ProjectM::ProjectM()
@@ -126,6 +128,25 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 
     // Update FPS and other timer values.
     m_timeKeeper->UpdateTimers();
+
+    // Update the smoothed measured FPS from the actual frame time, so presets
+    // relying on the "fps" variable for time-step compensation animate at the
+    // correct speed regardless of the achieved frame rate. An exponential
+    // moving average smooths out single-frame jitter (e.g. GC pauses).
+    {
+        const double secondsSinceLastFrame = m_timeKeeper->SecondsSinceLastFrame();
+        if (secondsSinceLastFrame > 0.0)
+        {
+            constexpr double minFps{1.0};
+            constexpr double maxFps{1000.0};
+            constexpr double smoothing{0.1};
+
+            double instantFps = 1.0 / secondsSinceLastFrame;
+            instantFps = std::max(minFps, std::min(maxFps, instantFps));
+
+            m_measuredFps += smoothing * (instantFps - m_measuredFps);
+        }
+    }
 
     // Update and retrieve audio data
     libprojectM::Audio::FrameAudioData audioData;
@@ -592,7 +613,7 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
     ctx.viewportSizeY = m_windowHeight;
     ctx.time = static_cast<float>(m_timeKeeper->GetRunningTime());
     ctx.progress = static_cast<float>(m_timeKeeper->PresetProgressA());
-    ctx.fps = static_cast<float>(m_targetFps);
+    ctx.fps = static_cast<float>(m_measuredFps);
     ctx.frame = m_frameCount;
     ctx.aspectX = (m_windowHeight > m_windowWidth) ? static_cast<float>(m_windowWidth) / static_cast<float>(m_windowHeight) : 1.0f;
     ctx.aspectY = (m_windowWidth > m_windowHeight) ? static_cast<float>(m_windowHeight) / static_cast<float>(m_windowWidth) : 1.0f;

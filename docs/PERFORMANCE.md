@@ -176,3 +176,103 @@ The choice is persisted in `localStorage.meshQuality` and can be overridden per 
   increase from the ~2.3x vertex count is sub-linear on multi-core hardware, but this should be
   confirmed with real `breakdownMs.perPixelEvalMs` numbers (32×24 vs. 48×36, OpenMP on/off) before
   relying on it for low-end device targeting.
+
+## 60 FPS default and adaptive quality governor
+
+Original Winamp Milkdrop targets 60 FPS and lets quality settings absorb load instead of letting
+the frame rate drop. Previously, `ProjectM::m_targetFps` defaulted to **35**, and was also used
+directly as the `fps` value passed to presets (`ctx.fps` in `GetRenderContext()`), regardless of
+the actually achieved frame rate. Presets that use `fps` for per-frame time-step compensation
+(e.g. `q1 = 1/fps`-style expressions in `per_frame`/`per_pixel`/`per_frame_init` equations) would
+therefore animate at the wrong speed whenever the real frame rate diverged from 35.
+
+### `m_targetFps` vs. `m_measuredFps`
+
+- `ProjectM::m_targetFps` (`ProjectM.hpp`) now defaults to **60**. It remains a purely
+  informational target — read/write via `TargetFramesPerSecond()` /
+  `SetTargetFramesPerSecond()` — and on WASM also sets the adaptive governor's frame-time budget
+  (`1000 / targetFps`).
+- A new `ProjectM::m_measuredFps` (`ProjectM.hpp`) holds an exponentially-smoothed (smoothing
+  factor 0.1, clamped to [1, 1000] fps) measurement of the actual frame time, computed in
+  `RenderFrame()` from `TimeKeeper::SecondsSinceLastFrame()`.
+- `GetRenderContext()` now sets `ctx.fps = m_measuredFps` (previously `m_targetFps`), so the `fps`
+  preset variable — and therefore `time`/`frame` time-step compensation that depends on it —
+  reflects the actually achieved frame rate.
+
+### Render loop cadence (WASM)
+
+The WASM render loop already drives `renderLoop()` via
+`emscripten_set_main_loop((void (*)())renderLoop, 0, 0)` with
+`emscripten_set_main_loop_timing(EM_TIMING_RAF, 1)` (`projectM_emscripten.cpp`), i.e. it is already
+vsync/`requestAnimationFrame`-driven, uncapped by a fixed timer. No change was needed here; this
+section documents that the acceptance criterion was already satisfied.
+`emscripten_request_animation_frame_loop` was considered but not adopted — the existing
+`emscripten_set_main_loop` + `EM_TIMING_RAF` combination already provides rAF-paced callbacks
+without the API and lifecycle changes that switching would require.
+
+### Adaptive quality governor (WASM, v1)
+
+Implemented in `projectM_emscripten.cpp` as `UpdateQualityGovernor()`, called once per frame from
+`renderLoop()` with the wall-clock time of the whole render (measured via `emscripten_get_now()`,
+always-on, independent of `g_perfHudEnabled`). v1 is intentionally minimal — it only steps the
+per-pixel mesh resolution between two tiers (matching `html/projectm-mesh-quality.js`):
+
+- **Tier 0 (high)**: 48×36 mesh (the new default, see above).
+- **Tier 1 (low)**: 32×24 mesh.
+
+Thresholds, relative to a budget of `1000 / targetFps` ms (≈16.7 ms at the default 60 fps):
+
+- **Step down** a tier after **30 consecutive frames** (~0.5 s @ 60 fps) where the frame time
+  exceeds **1.5×** budget (~25 ms).
+- **Step up** a tier after **120 consecutive frames** (~2 s @ 60 fps) where the frame time is
+  under **0.8×** budget (~13.3 ms).
+- Frames within **10 frames** after a preset finishes loading (`app_data.loading` transitioning
+  `true` → `false`) are excluded from both counters, so a single slow ASYNCIFY preset-compile
+  spike cannot trigger a permanent downgrade. Frames while `app_data.loading == true` are skipped
+  entirely (pre-existing `renderLoop()` early return).
+
+On startup, the governor's tier is lazily synced from whatever mesh size
+`html/projectm-mesh-quality.js` already applied (`projectm_get_mesh_size`), so the two systems
+don't fight each other.
+
+Full multi-subsystem governance (blur passes, FBO resolution, etc.) is out of scope for v1 — see
+`html/projectm-fps-governor.js` and `UpdateQualityGovernor()` for where to extend it.
+
+### Exported controls
+
+New WASM exports (`projectM_emscripten.cpp`, wired up in `CMakeLists.txt` and
+`scripts/build_wasm_smoke_wrapper.sh`):
+
+- `Module._set_target_fps(fps)` — sets `m_targetFps` (`projectm_set_fps`) and the governor's
+  budget reference. Resets the governor's consecutive-frame counters.
+- `Module._set_quality_governor(enabled)` — enables/disables automatic tier changes without
+  affecting the current tier.
+- `Module._get_quality_tier()` — returns the current tier (0 = high/48×36, 1 = low/32×24).
+
+`html/projectm-fps-governor.js` (`setupFpsGovernor(Module)`, called from `projectm-core.html`)
+applies `?targetFps=`/`?governor=0|1` query params or `localStorage.targetFps` /
+`localStorage.qualityGovernor`, and exposes `window.pmSetTargetFps(fps)`,
+`window.pmSetQualityGovernorEnabled(enabled)`, and `window.pmGetQualityTier()` for host UIs.
+`window.pmOnGovernorTierChange(tier)`, if defined by the host page, is called whenever the
+governor changes tiers.
+
+### Native build
+
+The native (SDL) build's default also changed from 35 to 60 via the shared `m_targetFps{60}`
+default in `ProjectM.hpp` — there is no separate native code path for this value, so no
+"keep 35 for native" divergence was introduced. The adaptive quality governor itself is WASM-only
+(`projectM_emscripten.cpp`); the native build is unaffected beyond the `m_targetFps`/`ctx.fps`
+changes described above.
+
+### Verification performed
+
+- Native build (`cmake --build cmake-build-openmp --target projectM projectM_playlist`) succeeds
+  with the `m_targetFps`/`m_measuredFps` changes.
+- `projectM_emscripten.cpp` syntax-checks cleanly with `em++ -fsyntax-only` (only the 4
+  pre-existing unrelated "empty character constant" warnings from embedded JS string literals
+  remain).
+- **Not yet measured in this environment** (no browser/display available): the `fps` preset
+  variable converging to ~60 on desktop Chrome, and the governor stepping down under artificial
+  load (e.g. forcing a 64×48 mesh via `Module._set_mesh(64, 48)`). Both should be checked manually
+  with `?perfhud=1` once a display is available — `pmGetQualityTier()` and
+  `window.pmOnGovernorTierChange` make the governor's state observable from the page.

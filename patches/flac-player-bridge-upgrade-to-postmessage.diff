@@ -35,3 +35,33 @@ index 1234567..abcdef0 100644
 
  // Recommended: also expose a clean function the host can call if it wants to
  // window.__projectM_sendPCM = (float32Array, channels=1) => { ... postMessage logic ... }
+
+================================================================================
+HOST-SIDE STATE (already landed in Project-M — no action needed in this repo)
+================================================================================
+
+Transport / contract (host receiver: html/projectm-external-pcm.js):
+  - Accepts `{ type: 'pcm', buffer: Float32Array, channels?: 1|2, sampleRate? }`
+    over BOTH window.postMessage (primary) and BroadcastChannel("projectm-audio")
+    (legacy fallback). `channels` defaults to 2; for stereo, `buffer` must be
+    interleaved L/R with even length.
+  - postMessage origin allow-list: https://mod.1ink.us, https://flac.1ink.us,
+    https://test.1ink.us (+ localStorage `externalPcmOrigins` override).
+  => The sender should send `channels: 1` explicitly (AnalyserNode time-domain is
+     mono) and may include `sampleRate: ctx.sampleRate`, exactly as the diff above.
+
+Audio-only / projectM-embed mode (`?projectm=1`):
+  - The host now appends `?projectm=1` when opening the player as a pure decoder,
+    for BOTH the popup launcher (withProjectMAudioFlag() in
+    html/projectm-audio-player.js; popup window.name target = `flac-player`) and
+    the iframe embeds in projectm_panel.1ink / projectm_panel2.1ink.
+  - The in-repo loader shell html/flac-player/index.html detects the flag BEFORE
+    loading the bundle and exposes:
+        window.__projectMAudioOnly === true
+        window.__projectMEmbed === true
+        document.documentElement[data-projectm-audio-only="1"]
+  => The bundle should read either the `?projectm=1` query param or these globals
+     and, when set: SKIP WebGPU pipeline init (projectM draws the visuals) and show
+     a compact transport-only UI. When the flag is absent, keep the full standalone
+     WebGPU UI (no regression). Tear down the RAF bridge + BroadcastChannel on
+     pause/stop/close (cancelAnimationFrame(r); t.close();).

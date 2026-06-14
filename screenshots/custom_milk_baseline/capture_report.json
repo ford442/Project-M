@@ -1,161 +1,412 @@
 {
-  "captured_at": "2026-06-12T08:31:13.830Z",
+  "captured_at": "2026-06-14T02:04:19.826Z",
   "module": "projectm-v.030-thread.1ijs",
-  "frames": 120,
+  "frames": 60,
+  "darkThreshold": 5,
+  "allowDark": true,
   "results": [
     {
       "preset": "custom_fractal_echo_copilot_gpt54.milk",
+      "presetPath": "/custom_milk_fixed/custom_fractal_echo_copilot_gpt54.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_copilot_gpt54.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fcustom_fractal_echo_copilot_gpt54.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "custom_fractal_echo_gemini.milk",
+      "presetPath": "/custom_milk_fixed/custom_fractal_echo_gemini.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_gemini.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 64,
+      "canvasMeanRgb": {
+        "r": 43.6016015625,
+        "g": 30.8188671875,
+        "b": 27.871207682291665,
+        "mean": 34.097225477430555
+      },
+      "meanRgb": 34.097225477430555,
+      "nonBlackFraction": 0.56083984375,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "custom_fractal_echo_granite.milk",
+      "presetPath": "/custom_milk_fixed/custom_fractal_echo_granite.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_granite.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fcustom_fractal_echo_granite.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "fractal_echo_gptoss120b.milk",
+      "presetPath": "/custom_milk_fixed/fractal_echo_gptoss120b.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_echo_gptoss120b.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Ffractal_echo_gptoss120b.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "fractal_echo_kimi.milk",
+      "presetPath": "/custom_milk_fixed/fractal_echo_kimi.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_echo_kimi.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Ffractal_echo_kimi.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "fractal_tunnel_grok.milk",
+      "presetPath": "/custom_milk_fixed/fractal_tunnel_grok.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_tunnel_grok.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 63,
+      "canvasMeanRgb": {
+        "r": 109.03384765625,
+        "g": 93.25903971354167,
+        "b": 89.63861328125,
+        "mean": 97.3105002170139
+      },
+      "meanRgb": 97.3105002170139,
+      "nonBlackFraction": 0.8610481770833334,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "milk001.milk",
+      "presetPath": "/custom_milk_fixed/milk001.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk001.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk001.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk002.milk",
+      "presetPath": "/custom_milk_fixed/milk002.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk002.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk002.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk003.milk",
+      "presetPath": "/custom_milk_fixed/milk003.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk003.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk003.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk004.milk",
+      "presetPath": "/custom_milk_fixed/milk004.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk004.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk004.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk005.milk",
+      "presetPath": "/custom_milk_fixed/milk005.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk005.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk005.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk006.milk",
+      "presetPath": "/custom_milk_fixed/milk006.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk006.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk006.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk007.milk",
+      "presetPath": "/custom_milk_fixed/milk007.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk007.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk007.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk008.milk",
+      "presetPath": "/custom_milk_fixed/milk008.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk008.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 65,
+      "canvasMeanRgb": {
+        "r": 23.244755859375,
+        "g": 31.041897786458332,
+        "b": 21.42917317708333,
+        "mean": 25.238608940972224
+      },
+      "meanRgb": 25.238608940972224,
+      "nonBlackFraction": 0.36970703125,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "milk009.milk",
+      "presetPath": "/custom_milk_fixed/milk009.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk009.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 65,
+      "canvasMeanRgb": {
+        "r": 1.4463053385416667,
+        "g": 1.0863541666666667,
+        "b": 1.0264876302083332,
+        "mean": 1.1863823784722223
+      },
+      "meanRgb": 1.1863823784722223,
+      "nonBlackFraction": 0.008395182291666666,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "milk010.milk",
+      "presetPath": "/custom_milk_fixed/milk010.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk010.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 65,
+      "canvasMeanRgb": {
+        "r": 1.3770149739583333,
+        "g": 1.28240234375,
+        "b": 1.0233365885416668,
+        "mean": 1.2275846354166668
+      },
+      "meanRgb": 1.2275846354166668,
+      "nonBlackFraction": 0.025397135416666668,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "milk011.milk",
+      "presetPath": "/custom_milk_fixed/milk011.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk011.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 65,
+      "canvasMeanRgb": {
+        "r": 2.77630859375,
+        "g": 2.5758072916666666,
+        "b": 2.353359375,
+        "mean": 2.5684917534722222
+      },
+      "meanRgb": 2.5684917534722222,
+      "nonBlackFraction": 0.10769205729166667,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "milk011_optimized.milk",
+      "presetPath": "/custom_milk_fixed/milk011_optimized.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk011_optimized.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 65,
+      "canvasMeanRgb": {
+        "r": 7.811194661458333,
+        "g": 7.330983072916666,
+        "b": 8.235530598958333,
+        "mean": 7.792569444444443
+      },
+      "meanRgb": 7.792569444444443,
+      "nonBlackFraction": 0.3575260416666667,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "milk012.milk",
+      "presetPath": "/custom_milk_fixed/milk012.milk",
+      "presetDisplayName": "Liquid Mercury",
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk012.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 65,
+      "canvasMeanRgb": {
+        "r": 51.89816080729167,
+        "g": 53.887275390625,
+        "b": 60.234554036458334,
+        "mean": 55.33999674479167
+      },
+      "meanRgb": 55.33999674479167,
+      "nonBlackFraction": 1,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     },
     {
       "preset": "milk013.milk",
+      "presetPath": "/custom_milk_fixed/milk013.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk013.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk013.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk014.milk",
+      "presetPath": "/custom_milk_fixed/milk014.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk014.png",
-      "ok": true,
-      "error": null,
-      "frames": 120
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk014.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk015.milk",
+      "presetPath": "/custom_milk_fixed/milk015.milk",
+      "presetDisplayName": null,
       "png": "/root/Project-M/screenshots/custom_milk_baseline/milk015.png",
+      "ok": false,
+      "frames": 0,
+      "canvasMeanRgb": null,
+      "meanRgb": null,
+      "nonBlackFraction": null,
+      "consoleErrors": [],
+      "presetSwitchFailed": false,
+      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk015.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
+    },
+    {
+      "preset": "milk016.milk",
+      "presetPath": "/custom_milk_fixed/milk016.milk",
+      "presetDisplayName": null,
+      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk016.png",
       "ok": true,
-      "error": null,
-      "frames": 120
+      "frames": 65,
+      "canvasMeanRgb": {
+        "r": 68.71730143229166,
+        "g": 62.80685546875,
+        "b": 58.02833658854167,
+        "mean": 63.18416449652778
+      },
+      "meanRgb": 63.18416449652778,
+      "nonBlackFraction": 0.9644270833333334,
+      "consoleErrors": [
+        "[error] JS Stream Init: AudioContext or audio element not found.",
+        "[error] CompositingBlendShader: initialized successfully.",
+        "[unhandledrejection] AbortError: Unable to load a worklet's module."
+      ],
+      "presetSwitchFailed": false,
+      "error": null
     }
   ]
 }

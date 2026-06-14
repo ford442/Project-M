@@ -110,6 +110,9 @@ enum HLSLToken
     HLSLToken_PreprocessorIf,
     HLSLToken_PreprocessorElse,
     HLSLToken_PreprocessorEndif,
+    HLSLToken_PreprocessorIfDef,
+    HLSLToken_PreprocessorIfNDef,
+    HLSLToken_PreprocessorElif,
 
     // Input modifiers.
     HLSLToken_Uniform,

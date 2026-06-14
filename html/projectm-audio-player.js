@@ -4,6 +4,24 @@ const DEFAULT_AUDIO_SOURCES = [
     { id: 'mod', label: 'MOD Player', sectionId: 'modPlayerSection' }
 ];
 
+// Signals an external audio player (MOD/FLAC) that it is being opened purely as
+// a PCM feeder for projectM, so it can run in compact "audio-only" mode and skip
+// its own standalone visualizer (e.g. the mod-player's WebGPU pattern/spectrum
+// display) to save GPU budget for the projectM WASM renderer. The player is
+// expected to detect `?projectm=1` (the host can't disable the remote player's
+// canvas itself). Preserves any existing query string and returns the input
+// unchanged if it can't be parsed as a URL.
+export function withProjectMAudioFlag(url) {
+    if (!url) return url;
+    try {
+        const parsed = new URL(url, window.location.href);
+        parsed.searchParams.set('projectm', '1');
+        return parsed.toString();
+    } catch (_) {
+        return url;
+    }
+}
+
 function defaultUpdateUi(source, {
     statusId = 'audio-player-status',
     buttonId = 'audioPlayerBtn',
@@ -118,7 +136,7 @@ export function createPopupAudioPlayerController({
     }
 
     function openPopup(source) {
-        const popup = window.open(sourceUrl(source), source.target || `${source.id}-player`,
+        const popup = window.open(withProjectMAudioFlag(sourceUrl(source)), source.target || `${source.id}-player`,
             'width=500,height=650,resizable=yes,scrollbars=no');
         if (popup) {
             popups.set(source.id, popup);

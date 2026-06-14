@@ -231,6 +231,12 @@ Random Custom
 Random Preset (API)
 </div>
 
+<input type=button id=localPresetBtn style='background-color:#0f766e;position:absolute;display:none;left:3%;bottom:60%;z-index:3300;border:3px solid #22d3ee;border-radius:20%;width:4vh;height:3.5vh;' />
+<div id="localPresetLabel" style='position:absolute;display:none;left:6%;bottom:60%;z-index:3300;font-family: "Lucida Console", "Courier New", monospace;font-size: 14px;color:lightgrey;'>
+Local Preset (.milk)
+</div>
+<input type="file" id="localPresetInput" accept=".milk" style="display:none;" />
+
 <input type=button id=audioPlayerBtn style='background-color:magenta;position:absolute;display:block;left:3%;bottom:48%;z-index:3300;border:3px solid green;border-radius:20%;width:4vh;height:3.5vh;' />
 <label for="audioPlayerBtn" id="audioPlayerLabel" style='position:absolute;display:block;left:6%;bottom:48%;z-index:3300;font-family: "Lucida Console", "Courier New", monospace;font-size: 14px;color:lightgrey;cursor:pointer;'>
 Audio Player
@@ -407,7 +413,7 @@ Click to upload image
     <button type="button" onclick="closeAudioPlayer()" style="cursor:pointer;border:1px solid #555;border-radius:4px;background:#222;color:#ddd;font-family:inherit;font-size:11px;padding:0.2rem 0.55rem;">Hide</button>
   </div>
   <iframe id="modFrame"
-    src="https://mod.1ink.us"
+    src="https://mod.1ink.us?projectm=1"
     style="width:100%;height:calc(100% - 32px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
@@ -574,14 +580,17 @@ draw();
 </script>
 
 <script type="module">
+import { setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
-import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
-import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
+import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
 let Module;
+const enableLocalPresets = new URLSearchParams(window.location.search).get('localPresets') === '1';
 setupExternalAudioReceiver({ preallocSize: 2048 });
 
 // ====== INIT ERROR HANDLING ======
@@ -605,6 +614,10 @@ async function attemptInit() {
     window._pmLoading = true;
 
     try {
+        if (!checkCrossOriginIsolation()) {
+            return;
+        }
+
         if (!Module) {
             await loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true });
             Module = await createModule();
@@ -614,6 +627,8 @@ async function attemptInit() {
         if (!checkInit(Module)) {
             return;
         }
+        setupAudioUnlock();
+        setupContextLossRecovery(Module);
         window._pmLoaded = true;
 
         updateLayout();
@@ -923,6 +938,40 @@ async function loadRandomPreset() {
     });
 }
 
+function setLocalPresetError(message) {
+    const stat = document.getElementById('stat');
+    if (!stat) return;
+    stat.textContent = message;
+    stat.style.display = 'block';
+    stat.style.background = 'rgba(127, 29, 29, 0.92)';
+    stat.style.color = '#fecaca';
+    stat.style.padding = '0.45rem 0.7rem';
+    stat.style.borderRadius = '0.45rem';
+    stat.style.border = '1px solid rgba(248,113,113,0.5)';
+}
+
+function updateLastLocalPresetLabel() {
+    const label = document.getElementById('localPresetLabel');
+    if (!label) return;
+    const last = localStorage.getItem(LOCAL_PRESET_LAST_NAME_KEY);
+    label.textContent = last ? `Local Preset: ${last}` : 'Local Preset (.milk)';
+}
+
+async function handleLocalPresetSelection(file) {
+    if (!file) return;
+    try {
+        await loadLocalPresetFile(file, {
+            module: Module,
+            startTransitionWhenReady,
+            documentRef: document
+        });
+        updateLastLocalPresetLabel();
+    } catch (error) {
+        setLocalPresetError(error instanceof Error ? error.message : String(error));
+        console.error('Failed to load local preset:', error);
+    }
+}
+
 document.getElementById("randomPresetBtn").addEventListener('click', function() {
     loadRandomPreset();
 });
@@ -930,6 +979,23 @@ document.getElementById("randomPresetBtn").addEventListener('click', function() 
 document.getElementById("apiRandomPresetBtn").addEventListener('click', function() {
     loadRandomPreset();
 });
+
+if (enableLocalPresets) {
+    const localPresetBtn = document.getElementById('localPresetBtn');
+    const localPresetLabel = document.getElementById('localPresetLabel');
+    const localPresetInput = document.getElementById('localPresetInput');
+    if (localPresetBtn && localPresetLabel && localPresetInput) {
+        localPresetBtn.style.display = 'block';
+        localPresetLabel.style.display = 'block';
+        updateLastLocalPresetLabel();
+        localPresetBtn.addEventListener('click', () => localPresetInput.click());
+        localPresetInput.addEventListener('change', event => {
+            const file = event.target.files?.[0];
+            void handleLocalPresetSelection(file);
+            event.target.value = '';
+        });
+    }
+}
 
 let isPresetLocked = false;
 document.addEventListener('keydown', function(event) {

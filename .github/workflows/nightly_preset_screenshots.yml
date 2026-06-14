@@ -1,0 +1,84 @@
+name: Nightly Preset Screenshots
+
+# Full custom_milk_fixed/ screenshot capture (all ~23 presets) for manual
+# review. Kept out of the PR build_emscripten.yml job to stay within its
+# <2 min capture budget — see docs/kimi_preset_authoring_plan.md section 9.
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  capture:
+    name: "Full custom_milk_fixed capture (transitions ON)"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Setup emsdk
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.53
+          actions-cache-folder: 'emsdk-cache'
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev mesa-common-dev libsdl2-dev libglm-dev ninja-build
+
+      - name: Build GoogleTest From Source
+        run: |
+          git clone https://github.com/projectM-visualizer/build-gtest.git ${{ github.workspace }}/build-gtest
+          cd ${{ github.workspace }}/build-gtest && ./setup.sh && ./build-emscripten.sh
+
+      - name: Configure Build
+        run: |
+          emcmake cmake -G "Unix Makefiles" \
+            -S "${{ github.workspace }}" \
+            -B "${{ github.workspace }}/cmake-build" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
+            -DCMAKE_VERBOSE_MAKEFILE=YES \
+            -DBUILD_TESTING=NO \
+            -DENABLE_WASM_TRANSITIONS=ON \
+            -DGTest_DIR="${{ github.workspace }}/build-gtest/dist/emscripten/lib/lib/cmake/GTest"
+
+      - name: Build
+        run: emmake cmake --build "${{ github.workspace }}/cmake-build" --parallel
+
+      - name: Install
+        run: cd "${{ github.workspace }}/cmake-build" && emmake make install
+
+      - name: Build WASM Smoke Wrapper
+        env:
+          ENABLE_WASM_TRANSITIONS: "ON"
+          INSTALL_DIR: ${{ github.workspace }}/install
+          OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke
+        run: scripts/build_wasm_smoke_wrapper.sh
+
+      - name: Install Smoke Test Dependencies
+        working-directory: tests/wasm-smoke
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # No --presets filter: captures every preset in custom_milk_fixed/
+      # plus the 000-empty baseline. continue-on-error so a single dark/failed
+      # preset doesn't prevent uploading the rest of the report for review.
+      - name: Capture All custom_milk_fixed Presets
+        continue-on-error: true
+        env:
+          PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js
+        run: |
+          node scripts/capture_custom_milk_screenshots.mjs \
+            --out screenshots/nightly \
+            --frames 120
+
+      - name: Upload Nightly Screenshot Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+            name: preset-screenshots-nightly
+            if-no-files-found: warn
+            path: screenshots/nightly/**

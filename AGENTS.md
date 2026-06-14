@@ -280,6 +280,21 @@ GitHub Actions workflows are in `.github/workflows/`:
 - macOS Framework bundles when `ENABLE_MACOS_FRAMEWORK=ON`
 - CPack configuration is included in the root `CMakeLists.txt`
 
+### WASM Bundle Deployment
+
+`deploy.py` uploads the compiled WASM/JS bundle to `storage.noahcohn.com` /
+`projectm.1ink.us/`. It requires `DEPLOY_TOKEN` as an environment variable (no default —
+see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for usage and token rotation).
+
+**Cross-origin isolation headers are required.** This build is compiled with
+`-s SHARED_MEMORY=1 -pthread -s WASM_WORKERS=1`, so the hosting server *must* send
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`
+(or `credentialless`) — otherwise `SharedArrayBuffer`/pthreads are unavailable and the
+module fails to start (reported client-side as init error code `4`). After deploying, run
+`scripts/check_coop_coep.sh <url>` to verify. See
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep) for example
+nginx/Caddy/Cloudflare configs and the cross-origin-iframe/postMessage impact.
+
 ---
 
 ## Security Considerations

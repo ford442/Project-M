@@ -328,24 +328,26 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
     <span>FLAC Player</span>
     <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
   </div>
-  <iframe id="flacFrame" src="https://flac.1ink.us" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+  <iframe id="flacFrame" src="https://flac.1ink.us?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
 <section id="modPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div class="ext-player-header">
     <span>MOD Player</span>
     <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
   </div>
-  <iframe id="modFrame" src="https://mod.1ink.us" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+  <iframe id="modFrame" src="https://mod.1ink.us?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
 <div hidden id="flacPlayerUrl">https://flac.1ink.us</div>
 <div hidden id="modPlayerUrl">https://mod.1ink.us</div>
 
 </body>
 <script type="module">
+import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { loadScript } from './projectm-init.js';
-import { checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
+import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
@@ -456,7 +458,7 @@ async function loadRandomPresetFromRemote() {
 }
 
 // ====== BUTTON HANDLERS ======
-function startChangeSong() { console.log('[ProjectM] Start/Change Song'); }
+function startChangeSong() { console.log('[ProjectM] Start/Change Song'); ensureAudioRunning(); }
 function fullWindow() { isBezelMode = true; updateLayout(); syncModuleSize(); }
 function randomPreset() { loadRandomPresetFromRemote(); }
 function randomCustom() { loadRandomPresetFromRemote(); }
@@ -638,6 +640,10 @@ async function attemptInit() {
     }
 
     try {
+        if (!checkCrossOriginIsolation()) {
+            return;
+        }
+
         if (!Module) {
             await loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true });
             Module = await createModule();
@@ -647,6 +653,8 @@ async function attemptInit() {
         if (!checkInit(Module)) {
             return;
         }
+        setupAudioUnlock();
+        setupContextLossRecovery(Module);
 
         updateLayout();
         syncModuleSize();
@@ -673,10 +681,6 @@ async function attemptInit() {
 setTimeout(() => {
     attemptInit();
 }, 750);
-
-setTimeout(() => {
-    document.getElementById('musicBtn').click();
-}, 3000);
 
 </script>
 </body>

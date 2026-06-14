@@ -18,6 +18,21 @@ This directory contains files and templates to help collaborate with Grok (and o
 - `code_review_checklist.md` — Checklist for reviewing AI-generated code
 - `kimi_prompt_short.md` — Short copy-paste prompts for quick tasks
 
+## Agent onboarding docs
+
+`claude.md` (repo root) now has a "Which doc should I read first?" table pointing to
+`AGENTS.md`, `html/README.md`, and `docs/kimi_preset_authoring_plan.md` depending on the
+task. Start there if you're unsure which doc applies.
+
+## Kimi preset authoring pipeline
+
+For batch `.milk` preset creation/upgrades with kimi-cli, follow
+[`docs/kimi_preset_authoring_plan.md`](../docs/kimi_preset_authoring_plan.md) — the
+canonical Kimi runbook. It documents `scripts/kimi_validate_preset.sh` (parse/transpile
+validation, exits non-zero on failure) and `scripts/kimi_upgrade_preset.sh` (generates
+an upgrade prompt with the pitfall checklist baked in), plus example create/upgrade/fix
+invocations.
+
 ---
 
-**Last updated:** 2026-05-07 (by Grok)
+**Last updated:** 2026-06-12 (by Claude)

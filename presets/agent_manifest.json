@@ -1,0 +1,39 @@
+{
+  "$comment": "Regression preset manifest for AI agents (Kimi, Codex, Claude, Grok). See docs/kimi_preset_authoring_plan.md.",
+  "validator": "scripts/kimi_validate_preset.sh",
+  "upgrader": "scripts/kimi_upgrade_preset.sh",
+  "directories": {
+    "parser_fixtures": {
+      "path": "presets/tests",
+      "description": "Small fixtures exercising specific parser/shader features; covered by the default projectM-unittest PresetCompat run."
+    },
+    "regression_corpus": {
+      "path": "custom_milk_fixed",
+      "description": "Curated AI-authored presets used as the fork's regression set. Opt-in via PROJECTM_TEST_CUSTOM_MILK_FIXED=1."
+    },
+    "bulk_corpus": {
+      "path": "weeks_presets",
+      "description": "Large community preset corpus; validate via PROJECTM_PRESET_COMPAT_DIR before bulk upgrades."
+    }
+  },
+  "known_good": [
+    "presets/tests/000-empty.milk",
+    "custom_milk_fixed/milk011.milk",
+    "custom_milk_fixed/milk011_optimized.milk"
+  ],
+  "known_broken_fixtures": [
+    "tests/libprojectM/data/PresetCompat/broken-invalid-hlsl.milk",
+    "tests/libprojectM/data/PresetCompat/broken-missing-shader-body.milk"
+  ],
+  "worked_example": {
+    "brief": "docs/milk011_creative_brief.md",
+    "preset": "custom_milk_fixed/milk011.milk"
+  },
+  "creative_briefs": [
+    "docs/milk011_creative_brief.md",
+    "docs/milk012_creative_brief.md",
+    "docs/milk013_creative_brief.md",
+    "docs/milk014_creative_brief.md",
+    "docs/milk015_creative_brief.md"
+  ]
+}

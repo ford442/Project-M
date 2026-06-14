@@ -173,6 +173,10 @@ if(ENABLE_EMSCRIPTEN)
             _set_target_fps
             _set_quality_governor
             _get_quality_tier
+            # WASM smoke/capture readiness probes
+            _is_preset_ready
+            _get_rendered_frame_count
+            _preset_switch_failed
             # Phase 2: Dual ping-pong FBO lifecycle API
             _dual_fbo_begin_transition
             _dual_fbo_end_transition

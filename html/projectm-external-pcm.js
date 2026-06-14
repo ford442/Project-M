@@ -10,7 +10,18 @@ const LOCAL_STORAGE_ORIGIN_KEYS = [
 ];
 const MAX_PENDING_EXTERNAL_PCM = 24;
 const DEFAULT_PCM_TRANSFER_CAP = 2048;
+// projectM's internal analysis buffer is 576 samples per channel (AudioBufferSamples).
+// The built-in stream path (js_feed_stream_data_to_projectm in projectM_emscripten.cpp)
+// trims its analyser output to the most recent 576 samples before feeding, so anything
+// larger just overwrites the ring buffer before analysis. Mirror that here so external
+// PCM hits projectm_pcm_add_float with the same analysis window as #track/stream, keeping
+// beat detection and reactivity comparable across sources.
+const PROJECTM_ANALYSIS_WINDOW = 576;
+const GAIN_STORAGE_KEYS = ['externalPcmGain'];
+const DEFAULT_EXTERNAL_PCM_GAIN = 1.0;
 let configuredAllowedOrigins = null;
+let configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
+let debugRmsEnabled = false;
 let externalAudioChannel = null;
 let messageListenerInstalled = false;
 let flushInterval = 0;
@@ -54,6 +65,53 @@ function isTrustedExternalPcmOrigin(origin) {
     return allowedOriginSet().has(origin);
 }
 
+// Reads an optional input-gain multiplier for external PCM. External players feed
+// raw AnalyserNode time-domain data, whose amplitude can differ from the decoded
+// levels the internal worklet path sees, making presets look less reactive at the
+// same beat-sensitivity. A gain lets operators match flac/mod loudness to #track on
+// a reference preset without rebuilding the WASM module. Default 1.0 (no change).
+function externalPcmGain() {
+    let gain = configuredGain;
+    try {
+        for (const key of GAIN_STORAGE_KEYS) {
+            const raw = localStorage.getItem(key);
+            if (raw === null || raw === '') continue;
+            const parsed = Number(raw);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                gain = parsed;
+                break;
+            }
+        }
+    } catch (_) {
+        // localStorage unavailable; fall back to the configured/default gain.
+    }
+    return Number.isFinite(gain) && gain > 0 ? gain : DEFAULT_EXTERNAL_PCM_GAIN;
+}
+
+// Matches the internal stream path's preprocessing: trim to the most recent
+// PROJECTM_ANALYSIS_WINDOW samples per channel, then apply input gain. Returns the
+// samples to feed plus the post-trim samplesPerChannel. Returns a Float32Array view
+// (subarray) when no gain scaling is needed (gain === 1 and untrimmed), otherwise a
+// fresh scaled copy — never mutates the caller's buffer (queued chunks are reused).
+function preprocessExternalPcm(buffer, channels, samplesPerChannel) {
+    const window = Math.min(samplesPerChannel, PROJECTM_ANALYSIS_WINDOW);
+    const trimmedLength = window * channels;
+    const trimmed = trimmedLength < buffer.length
+        ? buffer.subarray(buffer.length - trimmedLength)
+        : buffer;
+
+    const gain = externalPcmGain();
+    if (gain === 1) {
+        return { samples: trimmed, samplesPerChannel: window };
+    }
+
+    const scaled = new Float32Array(trimmed.length);
+    for (let i = 0; i < trimmed.length; i++) {
+        scaled[i] = trimmed[i] * gain;
+    }
+    return { samples: scaled, samplesPerChannel: window };
+}
+
 function moduleCanAcceptExternalPCM(moduleInstance) {
     return !!(
         moduleInstance &&
@@ -95,25 +153,30 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
     const moduleInstance = currentProjectMModule();
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
 
+    // Match the internal stream path: 576-sample analysis window + input gain.
+    const { samples, samplesPerChannel: framesPerChannel } = preprocessExternalPcm(
+        buffer, channels, samplesPerChannel
+    );
+
     let ptr = 0;
     let usedPrealloc = false;
-    if (buffer.length <= pcmTransferCap) {
+    if (samples.length <= pcmTransferCap) {
         ptr = ensurePcmTransferBuffer(moduleInstance);
         usedPrealloc = !!ptr;
     }
 
     if (!ptr) {
-        ptr = moduleInstance._malloc(buffer.length * 4);
+        ptr = moduleInstance._malloc(samples.length * 4);
         if (!ptr) return false;
     }
 
     try {
-        moduleInstance.HEAPF32.set(buffer, ptr >> 2);
-        moduleInstance._projectm_pcm_add_float_wrapper(0, ptr, samplesPerChannel, channels);
+        moduleInstance.HEAPF32.set(samples, ptr >> 2);
+        moduleInstance._projectm_pcm_add_float_wrapper(0, ptr, framesPerChannel, channels);
         console.debug('[projectM external PCM] fed chunk', {
             channels,
-            samplesPerChannel,
-            totalSamples: buffer.length,
+            samplesPerChannel: framesPerChannel,
+            totalSamples: samples.length,
             sampleRate
         });
         return true;
@@ -151,9 +214,28 @@ function normalizePcmPayload(buffer, channels, sampleRate) {
     };
 }
 
+function logExternalPcmRms(buffer) {
+    let sumSquares = 0;
+    for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i];
+    const rms = buffer.length > 0 ? Math.sqrt(sumSquares / buffer.length) : 0;
+    let peak = 0;
+    for (let i = 0; i < buffer.length; i++) {
+        const abs = Math.abs(buffer[i]);
+        if (abs > peak) peak = abs;
+    }
+    console.debug('[projectM external PCM] chunk RMS', {
+        rms: rms.toFixed(4),
+        peak: peak.toFixed(4),
+        gain: externalPcmGain(),
+        samples: buffer.length
+    });
+}
+
 export function feedPCMToModule(buffer, channels = 2, sampleRate) {
     const payload = normalizePcmPayload(buffer, channels, sampleRate);
     if (!payload) return false;
+
+    if (debugRmsEnabled) logExternalPcmRms(payload.buffer);
 
     const feedResult = customFeed
         ? customFeed(payload.buffer, payload.channels, payload.sampleRate, payload.samplesPerChannel)
@@ -199,12 +281,19 @@ function cleanupExternalPCM() {
     pcmTransferModule = null;
 }
 
-export function setupExternalAudioReceiver({ onFeed, allowedOrigins, preallocSize } = {}) {
+export function setExternalPcmGain(gain) {
+    configuredGain = Number.isFinite(gain) && gain > 0 ? gain : DEFAULT_EXTERNAL_PCM_GAIN;
+    return configuredGain;
+}
+
+export function setupExternalAudioReceiver({ onFeed, allowedOrigins, preallocSize, gain, debugRms } = {}) {
     customFeed = typeof onFeed === 'function' ? onFeed : null;
     configuredAllowedOrigins = allowedOrigins ? normalizedOriginList(allowedOrigins) : DEFAULT_EXTERNAL_PCM_ORIGINS;
     pcmTransferCap = Number.isFinite(preallocSize) && preallocSize > 0
         ? Math.floor(preallocSize)
         : DEFAULT_PCM_TRANSFER_CAP;
+    if (gain !== undefined) setExternalPcmGain(gain);
+    debugRmsEnabled = !!debugRms;
 
     if (!messageListenerInstalled) {
         window.addEventListener('message', (event) => {

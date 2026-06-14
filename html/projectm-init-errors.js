@@ -33,6 +33,14 @@ const ERROR_INFO = {
             'If the problem persists, reload the page.',
         ],
     },
+    4: {
+        title: 'Cross-Origin Isolation Unavailable',
+        message: 'This build uses shared memory (SharedArrayBuffer) for audio and worker threads, which requires the page to be served with Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers.',
+        hints: [
+            'If you are the site operator, see docs/DEPLOYMENT.md for required COOP/COEP headers.',
+            'Reloading will not fix this — it depends on how the server sends this page.',
+        ],
+    },
 };
 
 const GENERIC_ERROR_INFO = {
@@ -223,6 +231,28 @@ export function setupInitErrorHandling(onRetry) {
     }
 
     return state;
+}
+
+/**
+ * Checks `window.crossOriginIsolated` and shows the init-error overlay (code 4) if it is
+ * false. This build is compiled with `-s SHARED_MEMORY=1 -pthread -s WASM_WORKERS=1`
+ * (see CMakeLists.txt and docs/DEPLOYMENT.md), which requires the page to be served with
+ * `Cross-Origin-Opener-Policy: same-origin` and a `Cross-Origin-Embedder-Policy` header —
+ * without them, `SharedArrayBuffer` is unavailable and the WASM module's pthread runtime
+ * fails to initialize.
+ *
+ * Call this *before* loading/instantiating the WASM module, so the failure is reported
+ * with a clear message instead of a cryptic exception from the module loader.
+ *
+ * @returns {boolean} true if cross-origin isolation is available (or the browser does not
+ *   expose `crossOriginIsolated`, e.g. very old browsers) and module loading can proceed.
+ */
+export function checkCrossOriginIsolation() {
+    if (typeof window.crossOriginIsolated !== 'undefined' && !window.crossOriginIsolated) {
+        showInitError(4);
+        return false;
+    }
+    return true;
 }
 
 /**

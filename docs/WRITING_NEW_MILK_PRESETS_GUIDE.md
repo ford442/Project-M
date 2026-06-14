@@ -283,7 +283,7 @@ per_frame_1=z = zoom + 0.01;
 | Types | `float`, `float2`, `float3`, `float4` | `int`, `bool`, `double`, structs with semantics |
 | Math | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `pow`, `exp`, `log`, `sqrt`, `rsqrt`, `abs`, `sign`, `floor`, `ceil`, `frac`, `min`, `max`, `clamp`, `saturate`, `lerp`, `smoothstep`, `dot`, `cross`, `normalize`, `length`, `distance`, `fmod`, `mad` | `round`, `trunc`, `asinh`, `acosh`, `atanh` |
 | Texture | `tex2D`, `tex2Dproj` | `textureLod`, `textureGrad`, `Texture2D`, `SamplerState` |
-| Pre-processor | Simple `#define` (macro substitution) | `#include`, `#if`, `#ifdef`, `#pragma`, `#undef` |
+| Pre-processor | `#define` (macro substitution, with or without a value), `#if`/`#elif`/`#else`/`#endif` (integer literals only — macros are **not** evaluated as conditions), `#ifdef`/`#ifndef` (checks whether a name was `#define`d) | `#include`, `#pragma`, `#undef`, expressions in `#if`/`#elif` (e.g. `#if VALUE > 1`) |
 | Functions | Static helper functions (before `PS` body) | Overloading, templates, recursion |
 | Loops | `for`, `while` with bounded/compile-time-resolvable iteration | Dynamic unbounded loops |
 | Branching | `if`/`else` (shallow only) | `switch`, deep per-pixel branching |
@@ -968,6 +968,31 @@ Relying on `float` precision for high-frequency oscillators (e.g., `sin(time * 1
 
 **Mouse input:**
 There is no mouse input in projectM. If porting ShaderToy code that uses `iMouse`, replace it with a Q-variable or a time-based condition.
+
+**Preprocessor directives — supported subset:**
+The shader preprocessor supports `#define NAME` / `#define NAME VALUE` (with or
+without arguments), `#ifdef NAME`, `#ifndef NAME`, `#if`/`#elif`/`#else`/`#endif`.
+Keep these in mind:
+
+- `#if`/`#elif` conditions must be a literal integer (e.g. `#if 1`, `#elif 0`) —
+  macro names and expressions like `#if VALUE > 1` are **not** evaluated.
+- `#ifdef`/`#ifndef` only check whether a name was `#define`d anywhere in the
+  shader (in any order, before or after the check) — they do not look at the
+  macro's value.
+- Every `#if`/`#ifdef`/`#ifndef` needs a matching `#endif`, and every
+  `#else`/`#elif`/`#endif` needs a preceding `#if`/`#ifdef`/`#ifndef` — a
+  mismatch is reported as a "Preprocessing failed" shader error rather than
+  loading a corrupted shader.
+- `#include`, `#pragma`, and `#undef` are not supported.
+
+```hlsl
+#define HAS_HEART
+#define USE_POST_PROCESSING 1
+
+#ifdef HAS_HEART
+float T = 1;
+#endif
+```
 
 [← Back to Table of Contents](#-table-of-contents)
 

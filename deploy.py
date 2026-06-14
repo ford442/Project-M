@@ -22,7 +22,6 @@ import os
 import sys
 import zipfile
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -40,11 +39,8 @@ DEPLOY_FILE_PATTERNS: list = ["*.wasm", "*.1ijs", "*.3ijs"]
 # Matches the original SFTP remote target: projectm.1ink.us/
 DEPLOY_FOLDER: str = "projectm.1ink.us"
 
-# Set via environment: export DEPLOY_TOKEN="your_long_token_from_vps_env"
-DEPLOY_TOKEN: Optional[str] = os.getenv(
-    "DEPLOY_TOKEN",
-    "6de44dca5425348f2e2ef9456fc820bfe56a5ace68bddeb6da4a1c2a9d9cadc0",
-)
+# Required. No default — see docs/DEPLOYMENT.md for how to obtain/rotate this token.
+DEPLOY_TOKEN: str = os.environ.get("DEPLOY_TOKEN", "")
 # ============================================================
 
 HERE = Path(__file__).parent
@@ -109,6 +105,15 @@ def deploy_bundle() -> bool:
 
 
 def main():
+    if not DEPLOY_TOKEN:
+        print(
+            "ERROR: DEPLOY_TOKEN is not set.\n"
+            "  export DEPLOY_TOKEN=\"your_long_token_from_vps_env\"\n"
+            "See docs/DEPLOYMENT.md and .env.example for details.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print(f"\n=== Deploying '{PROJECT_NAME}' via Contabo -> projectm.1ink.us/ ===\n")
 
     try:

@@ -1163,6 +1163,9 @@ static void UpdateQualityGovernor(double frameMs)
  * frame.
  */
 static bool g_presetBReady = false;
+static uint32_t g_renderedFrameCount = 0;
+static uint32_t g_presetReadyFrame = 0;
+static bool g_presetSwitchFailed = false;
 
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
@@ -1263,6 +1266,7 @@ app_data.loading=EM_FALSE;
 // confirmed inside Shader::CompileProgram before this callback was reached).
 // Signal to the transition system that the new preset is safe to blend in.
 g_presetBReady = true;
+g_presetReadyFrame = g_renderedFrameCount;
 
 uint32_t pos = projectm_playlist_get_position(app_data.playlist);
 char* preset_path = projectm_playlist_item(app_data.playlist, pos);
@@ -1414,6 +1418,11 @@ void stop_worklet_playback() {
 
 } // extern "C"
 
+// Forward declaration: render_frame() is defined later in this file (Phase 5
+// dual-FBO compositor pipeline), but renderLoop() — registered as the
+// Emscripten main loop by start_render() — must call it every frame.
+extern "C" void render_frame();
+
 void renderLoop(){
 if(app_data.loading==EM_TRUE){
 g_wasLoading = true;
@@ -1435,19 +1444,25 @@ reinterpret_cast<uintptr_t>(app_data.projectm_engine),
 
 );
 }
-// Phase 3: Wrap the render call in a GLStateGuard so that any blend, texture,
-// or FBO state set by the preset shader is restored before handing control back
-// to the browser's WebGL layer.
+// Phase 5: Route through render_frame(), the dual-FBO compositor pipeline.
+// Once start_render() has allocated Preset A's FBOs and initialised
+// g_compositorShader, render_frame() renders into the ping-pong FBOs and
+// blits the (possibly cross-faded) result to the default framebuffer (the
+// canvas) via g_compositorShader.Draw(). Before that point (or if the
+// compositor shader failed to initialise), render_frame() transparently
+// falls back to a single-pass projectm_opengl_render_frame() straight to
+// the canvas, wrapped in its own GLStateGuard. Either way it increments
+// g_renderedFrameCount exactly once.
 if (g_perfHudEnabled) {
     js_perf_gpu_begin_frame();
 }
-{
-    GLStateGuard guard;
-    projectm_opengl_render_frame(pm);
-}
+render_frame();
 if (g_perfHudEnabled) {
     js_perf_gpu_end_frame();
 }
+// The compositor (and the legacy fallback) both leave the composited frame
+// in the default framebuffer (FBO 0); eglSwapBuffers() is still required to
+// present that framebuffer to the browser canvas.
 eglSwapBuffers(display,surface);
 if (g_perfHudEnabled) {
     projectm_perf_frame_timings timings;
@@ -1507,6 +1522,8 @@ return;
 EM_JS(void, js_report_preset_switch_failed, (const char* preset_filename, const char* message), {
     const name = preset_filename ? UTF8ToString(preset_filename) : '(unknown preset)';
     const msg = message ? UTF8ToString(message) : '';
+    window.projectMPresetSwitchFailed = true;
+    window.projectMPresetSwitchFailure = { preset: name, message: msg };
     console.warn('[projectM] preset switch failed (' + name + '): ' + msg);
     const statEl = document.querySelector('#stat');
     if (statEl) {
@@ -1517,6 +1534,8 @@ EM_JS(void, js_report_preset_switch_failed, (const char* preset_filename, const 
 
 void _on_preset_switch_failed(const char *preset_filename, const char *message, void *user_data) {
 printf("Preset switch failed (%s): %s\n", preset_filename, message);
+g_presetSwitchFailed = true;
+app_data.loading = EM_FALSE;
 js_report_preset_switch_failed(preset_filename, message);
 return;
 }
@@ -1590,6 +1609,11 @@ return;
 EM_JS(void, js_init_projectm_dom, (), {
 if (window.projectMDOMInitialized) return;
 window.projectMDOMInitialized = true;
+var isCaptureMode = window.__projectMCaptureMode === true;
+try {
+    var params = new URLSearchParams(window.location.search || '');
+    isCaptureMode = isCaptureMode || params.get('capture') === '1' || params.get('capture') === 'true';
+} catch (e) {}
 
 function vfsPathExists(path) {
     try {
@@ -1911,9 +1935,13 @@ if (createSpriteBtnEl) {
 }
 
 var pth=document.querySelector('#milkPath').innerHTML;
-scanTextures();
-scanSongs();
-scanCustomMilk();
+if (isCaptureMode) {
+    console.log('projectM capture mode: skipping texture, song, and custom milk network scans.');
+} else {
+    scanTextures();
+    scanSongs();
+    scanCustomMilk();
+}
 var meshSizeEl = document.querySelector('#meshSize');
 if (meshSizeEl) {
     meshSizeEl.addEventListener('change', (event) => {
@@ -1992,7 +2020,14 @@ webgl_attrs.stencil = EM_TRUE;
 webgl_attrs.depth = EM_TRUE;
 webgl_attrs.antialias = EM_TRUE;
 webgl_attrs.premultipliedAlpha=EM_TRUE;
-webgl_attrs.preserveDrawingBuffer=EM_FALSE;
+webgl_attrs.preserveDrawingBuffer = EM_ASM_INT({
+    try {
+        var params = new URLSearchParams(window.location.search || '');
+        return (window.__projectMCaptureMode === true || params.get('capture') === '1' || params.get('capture') === 'true') ? 1 : 0;
+    } catch (e) {
+        return window.__projectMCaptureMode === true ? 1 : 0;
+    }
+}) ? EM_TRUE : EM_FALSE;
 webgl_attrs.enableExtensionsByDefault=EM_TRUE;
 webgl_attrs.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -2246,6 +2281,29 @@ gl_ctx = NULL;
 return;
 }
 
+// Called from the host page's "webglcontextlost" handler (see
+// html/projectm-context-loss.js), before the browser's "webglcontextrestored"
+// event fires. At this point the WebGL context is already gone, so every GL
+// call below (inside projectm_destroy() and g_dualFbo.ReleaseAll()) is a
+// no-op per the WebGL spec; they only exist to reset projectM's bookkeeping
+// (pm, playlist, gl_ctx, dual-FBO allocation flags) so that a subsequent
+// init() call takes the full re-initialization path instead of the
+// "already initialized" early return.
+EMSCRIPTEN_KEEPALIVE
+void pm_handle_context_loss() {
+if (pm) {
+projectm_destroy(pm);
+}
+pm = NULL;
+app_data.projectm_engine = NULL;
+playlist = NULL;
+app_data.playlist = NULL;
+g_dualFbo.ReleaseAll();
+if (gl_ctx) emscripten_webgl_destroy_context(gl_ctx);
+gl_ctx = NULL;
+return;
+}
+
 EMSCRIPTEN_KEEPALIVE
 void switch_preset() {
 if (!app_data.playlist) return;
@@ -2291,6 +2349,8 @@ void load_preset_file(const char* filename) {
     // layer does not start blending before the new preset's shaders are fully
     // compiled and linked.
     g_presetBReady = false;
+    g_presetReadyFrame = g_renderedFrameCount;
+    g_presetSwitchFailed = false;
 
     // Pause the render loop while shader compilation runs.  This prevents GL
     // state conflicts between the render call and the compile/link operations
@@ -2348,11 +2408,34 @@ void load_preset_file(const char* filename) {
     // Phase 4: Preset shaders compiled; signal ready and clear the loading
     // guard (the playlist-path callback handles this for the playlist route).
     g_presetBReady = true;
+    g_presetReadyFrame = g_renderedFrameCount;
     app_data.loading = EM_FALSE;
 }
 } // extern "C"
 
 extern "C" {
+EMSCRIPTEN_KEEPALIVE
+int get_rendered_frame_count() {
+    return static_cast<int>(g_renderedFrameCount);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int preset_switch_failed() {
+    return g_presetSwitchFailed ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int is_preset_ready(int min_frames_since_ready) {
+    if (!pm) return 0;
+    if (app_data.loading == EM_TRUE) return 0;
+    if (!g_presetBReady) return 0;
+    if (g_presetSwitchFailed) return 0;
+    const uint32_t requiredFrames = min_frames_since_ready > 0
+        ? static_cast<uint32_t>(min_frames_since_ready)
+        : 0u;
+    return (g_renderedFrameCount - g_presetReadyFrame) >= requiredFrames ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE
 void render_frame() {
 if (!pm) return;
@@ -2375,8 +2458,13 @@ if (!pm) return;
 
 if (!g_dualFbo.IsPresetAAllocated() || !g_compositorShader.IsInitialized())
 {
-    // Legacy fallback: render directly to the default framebuffer.
+    // Legacy fallback: render directly to the default framebuffer. Wrapped
+    // in GLStateGuard so any blend/texture/FBO state set by the preset
+    // shader is restored before handing control back to the browser's
+    // WebGL layer (matching the dual-FBO path's per-pass guards below).
+    GLStateGuard guard;
     projectm_opengl_render_frame(pm);
+    g_renderedFrameCount++;
     return;
 }
 
@@ -2385,10 +2473,13 @@ const int h = g_dualFbo.Height();
 const bool ditherOutput = (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8);
 
 // --- Step 1: Render Preset A into its Write FBO ---
+// Note: projectm_opengl_render_frame() hardcodes its final composite blit to
+// FBO 0 (the default framebuffer / canvas) regardless of which FBO is bound
+// when called. Use projectm_opengl_render_frame_fbo() so the final composite
+// lands in our Write FBO instead of clobbering the canvas directly.
 {
     GLStateGuard guard;
-    glBindFramebuffer(GL_FRAMEBUFFER, g_dualFbo.GetAWriteFBO());
-    projectm_opengl_render_frame(pm);
+    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
 }
 g_dualFbo.SwapPresetA();
 
@@ -2398,8 +2489,7 @@ if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
     gl_reset_state_between_pipelines();
     {
         GLStateGuard guard;
-        glBindFramebuffer(GL_FRAMEBUFFER, g_dualFbo.GetBWriteFBO());
-        projectm_opengl_render_frame(pm);
+        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
     }
     g_dualFbo.SwapPresetB();
 }
@@ -2440,6 +2530,7 @@ else
     // No transition: blit Preset A directly to screen (blend = 0.0).
     g_compositorShader.Draw(g_dualFbo.GetAReadTex(), 0u, 0.0f, w, h, ditherOutput);
 }
+g_renderedFrameCount++;
 return;
 }
 

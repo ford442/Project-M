@@ -21,12 +21,124 @@
   <audio id="track" hidden></audio>
   <div id="stat">loading…</div>
   <script>
+    // Capture-mode isolation: js_init_projectm_dom() (projectM_emscripten.cpp)
+    // checks window.__projectMCaptureMode (and `?capture=1`/`?capture=true`)
+    // and, if set, skips the scanTextures()/scanSongs()/scanCustomMilk() remote
+    // XHR scans it would otherwise fire during init(). Setting the flag here
+    // (rather than relying solely on the query string) keeps this page capture-safe
+    // even if it's loaded without `?capture=1`.
+    window.__projectMCaptureMode = true;
+    window.projectMPresetSwitchFailed = false;
+
     const capture = {
       ok: false,
       preset: null,
+      presetPath: null,
+      presetDisplayName: null,
       frames: 0,
+      canvasMeanRgb: null,
+      nonBlackFraction: null,
+      consoleErrors: [],
+      presetSwitchFailed: false,
       error: null
     };
+
+    // Collect console.error/warn output and uncaught errors/rejections so the
+    // calling script (capture_custom_milk_screenshots.mjs) can surface them
+    // even when capture.ok === true (e.g. a shader compile warning that didn't
+    // abort the run, but explains a black/garbled frame).
+    (function installErrorCapture() {
+      const origError = console.error.bind(console);
+      const origWarn = console.warn.bind(console);
+      const origLog = console.log.bind(console);
+      function record(prefix, args) {
+        try {
+          const text = prefix + Array.from(args).map(String).join(' ');
+          if (text.includes('Preset switch failed')) {
+            window.projectMPresetSwitchFailed = true;
+            window.projectMPresetSwitchFailure = { message: text };
+          }
+          if (prefix !== '[log] ') {
+            capture.consoleErrors.push(text);
+          }
+        } catch (_) {}
+      }
+      console.log = function (...args) {
+        record('[log] ', args);
+        origLog(...args);
+      };
+      console.error = function (...args) {
+        record('[error] ', args);
+        origError(...args);
+      };
+      console.warn = function (...args) {
+        record('[warn] ', args);
+        origWarn(...args);
+      };
+      window.addEventListener('error', (event) => {
+        record('[uncaught] ', [event.message || event.error]);
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        record('[unhandledrejection] ', [event.reason]);
+      });
+    })();
+
+    (function installCaptureNetworkIsolation() {
+      if (!window.__projectMCaptureMode) return;
+      const NativeXHR = window.XMLHttpRequest;
+      const blockedPath = /\/(?:textures|songs)\/?$/;
+      const blockedRemote = /^https:\/\/glsl\.1ink\.us\/custom_milk\/?/;
+
+      function shouldBlock(url) {
+        try {
+          const parsed = new URL(url, window.location.href);
+          return blockedRemote.test(parsed.href) || blockedPath.test(parsed.pathname);
+        } catch (_) {
+          return false;
+        }
+      }
+
+      window.XMLHttpRequest = function CaptureXMLHttpRequest() {
+        const xhr = new NativeXHR();
+        let method = 'GET';
+        let url = '';
+        const originalOpen = xhr.open.bind(xhr);
+        const originalSend = xhr.send.bind(xhr);
+        xhr.open = function open(nextMethod, nextUrl, ...rest) {
+          method = String(nextMethod || 'GET').toUpperCase();
+          url = String(nextUrl || '');
+          if (method === 'GET' && shouldBlock(url)) {
+            return;
+          }
+          return originalOpen(nextMethod, nextUrl, ...rest);
+        };
+        xhr.send = function send(...args) {
+          if (method === 'GET' && shouldBlock(url)) {
+            console.log('[preset-capture] blocked capture-mode XHR: ' + url);
+            setTimeout(() => {
+              Object.defineProperties(xhr, {
+                readyState: { configurable: true, value: 4 },
+                status: { configurable: true, value: 200 },
+                responseText: { configurable: true, value: '<html><body><pre></pre></body></html>' },
+                response: {
+                  configurable: true,
+                  value: xhr.responseType === 'arraybuffer'
+                    ? new ArrayBuffer(0)
+                    : '<html><body><pre></pre></body></html>'
+                }
+              });
+              if (typeof xhr.onreadystatechange === 'function') xhr.onreadystatechange();
+              xhr.dispatchEvent(new Event('load'));
+              xhr.dispatchEvent(new Event('loadend'));
+            }, 0);
+            return;
+          }
+          return originalSend(...args);
+        };
+        return xhr;
+      };
+      window.XMLHttpRequest.prototype = NativeXHR.prototype;
+    })();
 
     function setStat(msg) {
       const el = document.getElementById('stat');
@@ -35,8 +147,13 @@
     }
 
     function finish(ok, error) {
+      const module = window.__projectMModule;
       capture.ok = ok;
       capture.error = error ? String(error && error.stack ? error.stack : error) : null;
+      capture.presetSwitchFailed = capture.presetSwitchFailed
+        || Boolean(window.projectMPresetSwitchFailed)
+        || Boolean(window.projectMPresetSwitchFailure)
+        || Boolean(module && module._preset_switch_failed && module._preset_switch_failed() !== 0);
       window.__projectMPresetCapture = capture;
     }
 
@@ -73,15 +190,84 @@
       }
     }
 
+    // Waits until the preset is ready to screenshot:
+    //   - app_data.loading === false (shader compile/link finished), and
+    //   - at least `minFrames` frames have rendered since the preset became
+    //     ready (so the dual-FBO/compositor pipeline has had time to produce
+    //     a composited frame), or
+    //   - the preset switch failed (no point waiting further), or
+    //   - `timeoutMs` elapses (defensive fallback so a stuck shader compile
+    //     can't hang the capture forever).
+    // Backed by `is_preset_ready()` / `preset_switch_failed()`
+    // (EMSCRIPTEN_KEEPALIVE, projectM_emscripten.cpp).
+    function nextAnimationFrame() {
+      return new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+
+    async function waitForPresetReady(Module, { minFrames = 3, timeoutMs = 15000 } = {}) {
+      const start = performance.now();
+      let fallbackFramesSinceLoad = 0;
+      while ((performance.now() - start) <= timeoutMs) {
+        feedSyntheticPcm(Module, capture.frames);
+        await nextAnimationFrame();
+        capture.frames += 1;
+        fallbackFramesSinceLoad += 1;
+
+        const failed = Module._preset_switch_failed ? Module._preset_switch_failed() !== 0 : false;
+        const ready = Module._is_preset_ready
+          ? Module._is_preset_ready(minFrames) !== 0
+          : (Module._dual_fbo_is_preset_b_ready ? Module._dual_fbo_is_preset_b_ready() !== 0 : true)
+            && fallbackFramesSinceLoad >= minFrames;
+        if (failed) return { failed, timedOut: false };
+        if (ready) return { failed: false, timedOut: false };
+      }
+      return { failed: false, timedOut: true };
+    }
+
+    // A pixel counts as "non-black" if any channel exceeds this value. Chosen
+    // to be well above typical 8-bit dither/rounding noise on an all-black
+    // (or near-black-clearcolor) frame, but well below any deliberately dark
+    // preset visual.
+    const NON_BLACK_CHANNEL_THRESHOLD = 8;
+
+    function computeCanvasStats(canvas) {
+      const gl = canvas.getContext('webgl2');
+      if (!gl) return null;
+      const w = canvas.width;
+      const h = canvas.height;
+      const pixels = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let rSum = 0, gSum = 0, bSum = 0, nonBlackCount = 0;
+      const pixelCount = w * h;
+      for (let i = 0; i < pixels.length; i += 4) {
+        const pr = pixels[i];
+        const pg = pixels[i + 1];
+        const pb = pixels[i + 2];
+        rSum += pr;
+        gSum += pg;
+        bSum += pb;
+        if (pr > NON_BLACK_CHANNEL_THRESHOLD || pg > NON_BLACK_CHANNEL_THRESHOLD || pb > NON_BLACK_CHANNEL_THRESHOLD) {
+          nonBlackCount++;
+        }
+      }
+      const r = rSum / pixelCount;
+      const g = gSum / pixelCount;
+      const b = bSum / pixelCount;
+      return { r, g, b, mean: (r + g + b) / 3, nonBlackFraction: nonBlackCount / pixelCount };
+    }
+
     async function runCapture() {
       const params = new URLSearchParams(window.location.search);
       const moduleSrc = params.get('module');
       const presetSrc = params.get('preset');
       const frameBudget = Number(params.get('frames') || 90);
+      const minReadyFrames = Number(params.get('minReadyFrames') || 3);
+      const readyTimeoutMs = Number(params.get('readyTimeoutMs') || 30000);
       if (!moduleSrc) throw new Error('Missing ?module=');
       if (!presetSrc) throw new Error('Missing ?preset=');
 
       capture.preset = presetSrc;
+      capture.presetPath = presetSrc;
 
       await loadScript(moduleSrc);
       setStat('module script loaded');
@@ -95,6 +281,7 @@
           return prefix + path;
         }
       });
+      window.__projectMModule = Module;
 
       for (const name of ['_init', '_start_render', 'FS', 'ccall', '_projectm_pcm_add_float_wrapper']) {
         if (!Module[name]) throw new Error('Missing Module.' + name);
@@ -110,6 +297,16 @@
       const presetResponse = await fetch(presetSrc);
       if (!presetResponse.ok) throw new Error('Preset fetch failed: ' + presetResponse.status);
       const presetBytes = new Uint8Array(await presetResponse.arrayBuffer());
+
+      // Best-effort extraction of `presetname=...` from the .milk file for
+      // human-readable reporting (e.g. diff_report.json); absent on many
+      // presets, so this is purely informational.
+      try {
+        const presetText = new TextDecoder('utf-8').decode(presetBytes);
+        const match = presetText.match(/^\s*presetname\s*=\s*(.+?)\s*$/m);
+        if (match) capture.presetDisplayName = match[1];
+      } catch (_) {}
+
       const baseName = presetSrc.split('/').pop();
       const vfsPath = '/presets/' + baseName;
       try { Module.FS.mkdir('/presets'); } catch (_) {}
@@ -119,29 +316,37 @@
       Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
       setStat('preset loaded');
 
-      // Allow shader compile + first frames before screenshot
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for the shader compile/link to finish and for the dual-FBO
+      // compositor pipeline to render at least a few frames of the new
+      // preset, instead of an arbitrary fixed sleep.
+      const { failed: presetSwitchFailedDuringWait, timedOut } = await waitForPresetReady(
+        Module,
+        { minFrames: minReadyFrames, timeoutMs: readyTimeoutMs },
+      );
+      if (presetSwitchFailedDuringWait) throw new Error('Preset switch failed while waiting for readiness');
+      if (timedOut) throw new Error('Timed out waiting for preset readiness');
+      setStat('preset ready after ' + capture.frames + ' frames; starting frame budget');
 
-      await new Promise((resolve) => {
-        let frame = 0;
-        const tick = () => {
-          feedSyntheticPcm(Module, frame++);
-          capture.frames = frame;
-          if (frame >= frameBudget) {
-            setStat('capture ready after ' + frame + ' frames');
-            resolve();
-            return;
-          }
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      });
+      for (let frame = 0; frame < frameBudget; frame++) {
+        feedSyntheticPcm(Module, capture.frames);
+        await nextAnimationFrame();
+        capture.frames += 1;
+      }
+      setStat('capture ready after ' + capture.frames + ' total frames');
 
       const gl = canvas.getContext('webgl2');
       if (gl) {
         const err = gl.getError();
         if (err !== gl.NO_ERROR) throw new Error('WebGL error 0x' + err.toString(16));
       }
+
+      const stats = computeCanvasStats(canvas);
+      if (stats) {
+        capture.canvasMeanRgb = { r: stats.r, g: stats.g, b: stats.b, mean: stats.mean };
+        capture.nonBlackFraction = stats.nonBlackFraction;
+      }
+      capture.presetSwitchFailed = presetSwitchFailedDuringWait
+        || (Module._preset_switch_failed ? Module._preset_switch_failed() !== 0 : false);
 
       finish(true);
     }

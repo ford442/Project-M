@@ -3417,8 +3417,11 @@ bool HLSLParser::ParsePreprocessorDefine()
     macro->name = macroName;
     m_macros.PushBack(macro);
 
-    // Prepare next token
-    m_tokenizer.Next();
+    // Prepare next token. Use EOLSkipping=false so that a macro with no value
+    // (e.g. "#define HAS_HEART" followed immediately by a newline) stops at
+    // HLSLToken_EndOfLine instead of skipping onto the next line's tokens,
+    // which would otherwise be consumed as this macro's value.
+    m_tokenizer.Next(false);
 
     std::string value;
     if (macroWithArguments)
@@ -3512,7 +3515,7 @@ bool HLSLParser::ParsePreprocessorDefine()
     }
 
     // Remove extra parenthesis
-    if (value[0] == '(')
+    if (!value.empty() && value[0] == '(')
     {
         value.erase(value.length()-1, 1);
         value.erase(0, 1);
@@ -3636,8 +3639,71 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
             }
             addOriginalSource = false;
         }
+        else if (m_tokenizer.GetToken() == HLSLToken_PreprocessorIfDef ||
+                 m_tokenizer.GetToken() == HLSLToken_PreprocessorIfNDef)
+        {
+            const bool isIfNDef = (m_tokenizer.GetToken() == HLSLToken_PreprocessorIfNDef);
+
+            while (m_tokenizer.GetToken() != HLSLToken_Identifier && m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+            {
+                m_tokenizer.Next(false);
+            }
+
+            if (m_tokenizer.GetToken() == HLSLToken_Identifier)
+            {
+                bool isDefined = false;
+                for (int i = 0; i < m_macros.GetSize(); ++i)
+                {
+                    if (String_Equal(m_macros[i]->name, m_tokenizer.GetIdentifier()))
+                    {
+                        isDefined = true;
+                        break;
+                    }
+                }
+                isCodeActive.push(isIfNDef ? !isDefined : isDefined);
+            }
+            else
+            {
+                m_tokenizer.Error(isIfNDef ? "#ifndef evaluation failed: missing macro name"
+                                            : "#ifdef evaluation failed: missing macro name");
+                return false;
+            }
+            addOriginalSource = false;
+        }
+        else if (m_tokenizer.GetToken() == HLSLToken_PreprocessorElif)
+        {
+            if (isCodeActive.size() <= 1)
+            {
+                m_tokenizer.Error("#elif without matching #if/#ifdef/#ifndef");
+                return false;
+            }
+
+            isCodeActive.pop();
+
+            while (m_tokenizer.GetToken() != HLSLToken_IntLiteral && m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+            {
+                m_tokenizer.Next(false);
+            }
+
+            if (m_tokenizer.GetToken() == HLSLToken_IntLiteral)
+            {
+                isCodeActive.push(m_tokenizer.GetInt() != 0);
+            }
+            else
+            {
+                m_tokenizer.Error("#elif evaluation failed: not an integer");
+                return false;
+            }
+            addOriginalSource = false;
+        }
         else if (m_tokenizer.GetToken() == HLSLToken_PreprocessorElse)
         {
+            if (isCodeActive.size() <= 1)
+            {
+                m_tokenizer.Error("#else without matching #if/#ifdef/#ifndef");
+                return false;
+            }
+
             // Invert stack state
             bool state = isCodeActive.top();
             isCodeActive.pop();
@@ -3646,6 +3712,12 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
         }
         else if (m_tokenizer.GetToken() == HLSLToken_PreprocessorEndif)
         {
+            if (isCodeActive.size() <= 1)
+            {
+                m_tokenizer.Error("#endif without matching #if/#ifdef/#ifndef");
+                return false;
+            }
+
             isCodeActive.pop();
             addOriginalSource = false;
         }
@@ -3678,7 +3750,13 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
     }
 
 
-    return isCodeActive.size() == 1;
+    if (isCodeActive.size() != 1)
+    {
+        m_tokenizer.Error("Unterminated #if/#ifdef/#ifndef: missing #endif");
+        return false;
+    }
+
+    return true;
 }
 
 

@@ -102,6 +102,52 @@ The host (`projectm-core.html` + the improved receiver) now:
 
 Once the MOD player calls the bridge above, tracker audio will drive projectM beautifully.
 
+## Sender Contract (must match the host receiver)
+
+The host receiver lives in `html/projectm-external-pcm.js`
+(`setupExternalAudioReceiver()`). It accepts a message whose `data` is exactly:
+
+```js
+{
+  type: 'pcm',              // required literal
+  buffer: Float32Array,     // required; rejected if not a Float32Array
+  channels: 1 | 2,          // optional, defaults to 2; non-1/2 values coerced to 2
+  sampleRate: number        // optional (informational)
+}
+```
+
+Notes for the sender:
+- For `channels: 2`, `buffer` must be **interleaved L/R with an even length** —
+  odd-length stereo payloads are dropped by the host.
+- Transport: the host listens on **both** `window.postMessage` (primary — works
+  for popup `window.opener` and iframe `window.parent`) and a legacy
+  `BroadcastChannel("projectm-audio")` fallback. Send via whichever is available;
+  sending both (as in the snippets above) is fine — the host de-dupes by feeding
+  whatever arrives.
+- Host origin allow-list: the receiver only accepts `postMessage` from
+  `https://mod.1ink.us`, `https://flac.1ink.us`, `https://test.1ink.us` (plus any
+  `externalPcmOrigins`/`externalPcmAllowedOrigins` localStorage override).
+
+## Audio-only / projectM-embed mode (`?projectm=1`)
+
+When projectM opens the player as a pure audio feeder it now appends
+**`?projectm=1`** to the player URL — both for popups
+(`createPopupAudioPlayerController` → `withProjectMAudioFlag()` in
+`html/projectm-audio-player.js`) and for the iframe embeds in the
+`projectm_panel*.1ink` / `projectm_new.1ink` variants. The popup `window.name`
+target is also `mod-player` / `flac-player`.
+
+The player should detect this (`new URLSearchParams(location.search).get('projectm') === '1'`,
+or `window.name === 'mod-player'`) and, when set:
+
+- **Skip WebGPU / pattern-canvas initialization** — projectM is the visualizer,
+  so the standalone pattern/VU/spectrum display is redundant and wastes GPU
+  budget. The host cannot disable the remote player's canvas; only the player can.
+- Render a **compact transport-only UI** (play/pause, file load, position).
+- **Auto-start the PCM bridge** on playback and **tear it down on pause/stop/close**
+  (`cancelAnimationFrame(rafId); bc.close();`) so there is no runaway
+  `requestAnimationFrame` after playback ends.
+
 ## Files to Touch (approximate from bundle analysis)
 - The main React component that owns `ke.current`, `_e.current` (analyser), `Ce.current` (worklet node).
 - `openmpt-worklet.js` / native worklet (for Option B).

@@ -1,0 +1,18 @@
+[preset00]
+per_frame_1000=// solid color composite shader sanity check
+
+fDecay=1
+zoom=1
+rot=0
+warp=0
+wave_a=0
+
+// Always outputs a solid mid-gray-ish color, independent of warp/per_pixel
+// content. If the dual-FBO compositor blit reaches the canvas (issue #95),
+// the captured frame's meanRgb should be well above the "near-black"
+// quality-gate threshold (issue #97), regardless of what the rest of the
+// preset renders.
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = float3(0.5, 0.3, 0.2);
+comp_4=`}

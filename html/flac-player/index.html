@@ -18,6 +18,22 @@ body {
 // Node-style globals expected by the webpack bundle (music-metadata / ID3 parsing).
 window.global = window;
 window.process = window.process || { env: {}, browser: true };
+
+// projectM audio-only / embed mode. When this page is opened by the projectM host
+// purely as an external decoder (popup target `flac-player`, or iframe with
+// `?projectm=1`), projectM renders the visuals — so the standalone WebGPU
+// spectrum/pattern view is redundant and just wastes GPU budget. We surface the
+// flag as globals *before* the bundle loads so the bundle can skip WebGPU init
+// and render its compact audio-only transport UI. When the flag is absent the
+// bundle keeps its full standalone UI (no regression). The bundle is external,
+// so it must read these globals (or re-parse `?projectm=1`) to act on them.
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var audioOnly = params.get('projectm') === '1' || window.name === 'flac-player';
+  window.__projectMAudioOnly = audioOnly;
+  window.__projectMEmbed = audioOnly;
+  if (audioOnly) document.documentElement.setAttribute('data-projectm-audio-only', '1');
+})();
 </script>
 <script type="module">
 import { Buffer } from './vendor/buffer.bundle.mjs';

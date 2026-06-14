@@ -30,10 +30,15 @@ if [[ "${ENABLE_WASM_TRANSITIONS:-ON}" == "ON" ]]; then
     transition_args+=("-s" "ASYNCIFY_STACK_SIZE=65536")
 fi
 
+# Note: no -flto here. projectM_emscripten.cpp is the only LTO/bitcode TU in
+# this link; libprojectM-4.a/libprojectM-4-playlist.a are built without LTO
+# (see CMakeLists.txt), and mixing bitcode + non-bitcode inputs with -flto
+# makes wasm-ld fail with "attempt to add bitcode file after LTO" against the
+# emscripten lto/ system libs (observed with emsdk 3.1.53).
 emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
     -I "$INSTALL_DIR/include" \
     -I "$PROJECT_ROOT" \
-    -O3 -flto \
+    -O3 \
     -l embind \
     -pthread \
     -fopenmp \
@@ -43,7 +48,7 @@ emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
     -s NO_DISABLE_EXCEPTION_CATCHING=1 \
     -s ENVIRONMENT=web,worker \
     -s SHARED_MEMORY=1 \
-    -s EXPORTED_FUNCTIONS=_add_audio_data,_main,_pl,_destruct,_get_projectm_handle,_init,_load_preset_file,_switch_preset,_set_aspect_correction,_render_frame,_start_render,_set_window_size,_set_mesh,_add_preset_path,_add_existing_vfs_presets,_add_preset_file,_add_custom_milk_paths,_projectm_pcm_add_float_wrapper,_create_sprite,_stop_worklet_playback,_set_audio_source_to_stream,_set_preset_locked,_dual_fbo_begin_transition,_dual_fbo_is_preset_b_allocated,_dual_fbo_is_preset_b_ready,_dual_fbo_get_format,_transition_start,_transition_is_active,_set_perf_hud,_set_target_fps,_set_quality_governor,_get_quality_tier \
+    -s EXPORTED_FUNCTIONS=_add_audio_data,_main,_pl,_destruct,_get_projectm_handle,_init,_load_preset_file,_switch_preset,_set_aspect_correction,_render_frame,_start_render,_set_window_size,_set_mesh,_add_preset_path,_add_existing_vfs_presets,_add_preset_file,_add_custom_milk_paths,_projectm_pcm_add_float_wrapper,_create_sprite,_stop_worklet_playback,_set_audio_source_to_stream,_set_preset_locked,_dual_fbo_begin_transition,_dual_fbo_is_preset_b_allocated,_dual_fbo_is_preset_b_ready,_dual_fbo_get_format,_transition_start,_transition_is_active,_set_perf_hud,_set_target_fps,_set_quality_governor,_get_quality_tier,_is_preset_ready,_get_rendered_frame_count,_preset_switch_failed \
     -s EXPORTED_RUNTIME_METHODS=ccall,FS \
     -s EXPORT_NAME=createModule \
     -s INVOKE_RUN=0 \

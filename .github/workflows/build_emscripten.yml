@@ -101,9 +101,10 @@ jobs:
           test -s "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
           test -s "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.wasm"
 
-      - name: Install Playwright
+      - name: Install Smoke Test Dependencies
+        working-directory: tests/wasm-smoke
         run: |
-          npm install --no-save --no-package-lock playwright
+          npm ci
           npx playwright install --with-deps chromium
 
       # Local equivalent after an Emscripten configure/build/install:
@@ -111,6 +112,26 @@ jobs:
       #   node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk
       - name: Run WASM Browser Smoke Test
         run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
+
+      # Smoke subset only (not all of custom_milk_fixed/) to keep PR runtime
+      # down; see docs/kimi_preset_authoring_plan.md section 9 for the full
+      # baseline/upgrade/diff workflow run manually or in the nightly job.
+      - name: Capture Preset Screenshot Smoke
+        env:
+          PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js
+        run: |
+          node scripts/capture_custom_milk_screenshots.mjs \
+            --presets milk011,milk012,milk013,000-empty \
+            --out screenshots/ci \
+            --frames 60
+
+      - name: Upload Preset Screenshot Report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+            name: preset-screenshot-smoke-${{ matrix.libs }}-transitions-${{ matrix.wasm-transitions }}-emsdk-${{ matrix.emsdk-version }}
+            if-no-files-found: warn
+            path: screenshots/ci/**
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

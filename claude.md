@@ -10,6 +10,19 @@ This repository contains **libprojectM**, the core visualization library that ca
 - Android
 - iOS (experimental)
 
+## Which doc should I read first?
+
+| If you're... | Read this first |
+|---|---|
+| Doing any C++/CMake/build/test work | [`AGENTS.md`](AGENTS.md) — canonical build, style, and testing reference |
+| Touching `projectM_emscripten.cpp` or the WASM build | This file's [WASM Port Status](#wasm-port-status) section, then [`docs/EMSCRIPTEN.md`](docs/EMSCRIPTEN.md) |
+| Editing `html/*.js`/`*.html` demo pages | [`html/README.md`](html/README.md) (architecture) and [`html/REFACTORING_NOTES.md`](html/REFACTORING_NOTES.md) |
+| Creating/upgrading `.milk` presets (Kimi/Codex/Grok) | [`docs/kimi_preset_authoring_plan.md`](docs/kimi_preset_authoring_plan.md) |
+| Picking up a task from a human/another agent | [`grok_agent/README.md`](grok_agent/README.md) |
+
+This file (`claude.md`) is a WASM-focused supplement to `AGENTS.md` — it does not duplicate
+build/style/testing rules. When in doubt, `AGENTS.md` wins.
+
 ## Repository Structure
 
 ```
@@ -20,135 +33,106 @@ Project-M/
 │   ├── playlist/         # Playlist management
 │   └── sdl-test-ui/      # SDL2 test UI
 ├── presets/              # Visualization presets (.milk files)
-├── projectM_emscripten.cpp  # WASM/Emscripten bindings
+├── custom_milk_fixed/    # Curated AI-authored preset regression set
+├── html/                 # WASM demo hosts + shared browser modules (see html/README.md)
+├── projectM_emscripten.cpp  # WASM/Emscripten bindings (C API + EM_JS glue)
 ├── projectm_audio_processor.js  # Web Audio Worklet for audio processing
 ├── CMakeLists.txt        # Build configuration
-├── EMSCRIPTEN.md         # WASM-specific documentation
-└── docs/                 # Additional documentation
+└── docs/
+    ├── EMSCRIPTEN.md     # WASM-specific documentation
+    └── ...                # Preset guides, Kimi runbook, plans
 ```
 
 ## Key Development Areas
 
 ### C++ Code
-- **Main Files**: `projectM_emscripten.cpp`, src/libprojectM/
-- **Language**: C++11/14
-- **Build System**: CMake
-- **Code Style**: Follow .clang-format and .clang-tidy configs
+- **Main Files**: `projectM_emscripten.cpp`, `src/libprojectM/`
+- **Language**: **C++20** (enforced by CMake — see `AGENTS.md` Technology Stack)
+- **Build System**: CMake (see `AGENTS.md` Build System & Commands; do not duplicate here)
+- **Code Style**: Follow `.clang-format` and `.clang-tidy` configs (see `AGENTS.md`)
 
 ### WASM/JavaScript Integration
-- **Emscripten Bindings**: Lines 832-849 in projectM_emscripten.cpp
-- **Audio Processing**: projectm_audio_processor.js (Web Audio Worklet)
-- **Interop**: EM_JS macros for C++/JS communication
+- **Emscripten exports**: `projectM_emscripten.cpp` exports C functions via
+  `EMSCRIPTEN_KEEPALIVE` + an explicit `-s EXPORTED_FUNCTIONS=...` list in `CMakeLists.txt`
+  (no `EMSCRIPTEN_BINDINGS`/embind block). Grep `EMSCRIPTEN_KEEPALIVE` to find all exports.
+- **Audio Processing**: `projectm_audio_processor.js` (Web Audio Worklet) — receives raw
+  per-channel `Float32Array` data via `postMessage` (not an `AudioBuffer`) and batches
+  samples before calling into WASM.
+- **Shared HTML modules** (`html/`): `projectm-init.js` (bootstrap), `projectm-presets.js`
+  (preset fetch/VFS/load), `projectm-external-pcm.js` (external MOD/FLAC PCM bridge,
+  origin allowlist), `projectm-transitions.js` (dual-FBO transition readiness). See
+  `html/README.md` for the target architecture.
 
-## Known Issues in WASM Port (Review Priority)
+## WASM Port Status
 
-### Critical Issues
-1. **Memory Leak in preset switching** (Line 342-346)
-   - String allocated via `stringToNewUTF8()` is never freed
-   - Impact: Memory accumulates when presets are switched
-   - Fix: Use `free()` after the string is used, or switch to Emscripten string binding
+### Completed fixes (do not re-report these)
 
-2. **EGL Configuration Bug** (Lines 39, 649-661)
-   - `eglconfig` initialized to NULL but used in eglGetConfigAttrib calls
-   - eglChooseConfig() result not checked before using eglconfig
-   - Impact: May query uninitialized config, leading to undefined behavior
-   - Fix: Check eglChooseConfig result; handle NULL config
+| Fix | Commit(s) | Issue |
+|---|---|---|
+| `stringToNewUTF8` leak in `js_get_random_preset_path` | `7ebfbc8d4` | #74 (closed) |
+| `init()` reinit safety: tear down stale EGL/WebGL context/surface/display before recreating | `4f5a4952f` | #58 (closed) |
+| `eglChooseConfig()` result checked before use; reports init error via `js_report_init_error` | `4f5a4952f` | #58 (closed) |
+| `projectm_audio_processor.js` no longer accesses non-existent `AudioBuffer.length`; uses per-channel `Float32Array` + `mainChannelData[0].length` | `4f5a4952f` | #58 (closed) |
+| Init/WebGL failures surfaced to UI with recovery overlay (`js_report_init_error`/`js_report_init_success`) | `faab5ad26` | #79 (closed) |
+| Frame-time profiling HUD + benchmark harness | `5345d3360` | #80 (closed) |
+| Default 60 FPS + adaptive quality governor | `9e2cdb4e6` | #82 (closed) |
+| RGBA16F FBO preferred + blur/echo Milkdrop parity audit | `5a65ddb45` | #83 (closed) |
+| Shared external-PCM bridge module (`html/projectm-external-pcm.js`) | (see #73) | #73 (closed) |
+| HTML host consolidation into shared modules (`html/projectm-*.js`) | — | #78 (closed) |
 
-3. **AudioBuffer Property Access Error** (projectm_audio_processor.js, Line 61)
-   - `this.mainAudioBuffer.length` is incorrect
-   - AudioBuffer doesn't have a `.length` property
-   - Correct access: `this.mainAudioBuffer.duration * this.mainAudioBuffer.sampleRate`
-   - Impact: Loop detection breaks, playback might stop prematurely
+### Open issues (verified via `gh issue list`, current as of 2026-06-12)
 
-### High Priority Issues
-4. **Global State Not Reinitialized** (Lines 36-64, 757-761)
-   - Calling init() multiple times causes undefined behavior
-   - Global pointers (pm, playlist, display, surface, ctxegl, gl_ctx) not reset
-   - Fix: Add safety checks or redesign to support multiple contexts
+| Area | Issue | Summary |
+|---|---|---|
+| Rendering | [#95](https://github.com/ford442/Project-M/issues/95) | `renderLoop` should call `render_frame()` so dual-FBO output reaches the canvas |
+| Rendering | [#93](https://github.com/ford442/Project-M/issues/93) | WebGL context loss detection and recovery in demo pages |
+| Audio | [#91](https://github.com/ford442/Project-M/issues/91) | Unified Web Audio bootstrap: AudioContext resume gate / autoplay policy |
+| Audio | [#103](https://github.com/ford442/Project-M/issues/103), [#104](https://github.com/ford442/Project-M/issues/104) | External PCM path parity + wiring across `.1ink` panels |
+| Presets | [#90](https://github.com/ford442/Project-M/issues/90) | hlslparser preprocessor: `#ifdef`/`#ifndef` crash on malformed directives (upstream projectm#993) |
+| Presets | [#92](https://github.com/ford442/Project-M/issues/92) | Local `.milk` file picker into WASM VFS |
+| Deploy/CI | [#94](https://github.com/ford442/Project-M/issues/94) | Document/enforce cross-origin isolation headers for pthread/SharedArrayBuffer |
+| Deploy/CI | [#100](https://github.com/ford442/Project-M/issues/100) | Rebuild WASM smoke bundle after emscripten render fix |
+| Security | [#88](https://github.com/ford442/Project-M/issues/88) | Remove hardcoded `DEPLOY_TOKEN` default from `deploy.py` |
 
-5. **Missing Error Handling**
-   - EGL initialization (lines 646-729) has no error handling
-   - WebGL context creation (lines 723-730) minimal error checking
-   - projectm_create() failure leads to NULL pointer (line 757)
-   - Fix: Add comprehensive error checks and recovery
+When fixing one of these, close the loop by updating this table (move the row to
+"Completed fixes" with the commit hash) rather than leaving it stale again.
 
-6. **Canvas Size Hardcoding** (Lines 296, 408-411)
-   - Viewport hardcoded to 8192x8192 then overwritten to window height
-   - Not responsive to window resize events
-   - Fix: Use dynamic sizing and add resize event listener
+## WASM Build Flags (current, from `CMakeLists.txt`)
 
-### Medium Priority Issues
-7. **Type Safety in Emscripten Bindings** (Lines 832-849)
-   - std::string passed to C-style functions may have encoding issues
-   - No validation of parameters passed from JS
-   - Fix: Add input validation, consider using proper Emscripten string types
+The authoritative flag list is `CMakeLists.txt` (search `PROJECTM_WASM_EXPORTED_FUNCTIONS`
+and the surrounding `target_link_options`/`target_compile_options` for `ENABLE_EMSCRIPTEN`).
+As of this writing, the Emscripten target uses:
 
-8. **Deprecated EM_ASM Usage**
-   - Many EM_JS functions could be optimized
-   - Some EM_ASM blocks could use proper BIND_FUNCTION patterns
-   - Fix: Modernize to Emscripten 3.x+ patterns
+- `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -s USE_WEBGL2=1`
+- `-s FULL_ES2=0 -s FULL_ES3=1` (ES2 emulation is **off**; do not document `FULL_ES2=1`)
+- `-s SHARED_MEMORY=1 -s WASM_WORKERS=1 -pthread`
+- `-s ALLOW_MEMORY_GROWTH=1 -sMALLOC='mimalloc' -sMAXIMUM_MEMORY=4gb -sINITIAL_MEMORY=1024mb`
+- `-s NO_DISABLE_EXCEPTION_CATCHING`
+- `-s FORCE_FILESYSTEM=1 -s ASYNCIFY=1` (plus `-s ASYNCIFY_STACK_SIZE=65536` when
+  `ENABLE_WASM_TRANSITIONS=ON`, the default)
+- `-s EXPORTED_RUNTIME_METHODS='ccall,cwrap'` and an explicit `EXPORTED_FUNCTIONS` list
 
-9. **Race Conditions in Async Operations**
-   - js_load_song_into_worklet uses async without proper synchronization
-   - May have race conditions if called while previous load is pending
-   - Fix: Add state tracking (loading, loaded, error states)
+There is no `-sUSE_SDL=2` in the Emscripten build (SDL2 is only used by the native
+`projectM-Test-UI`, gated behind `ENABLE_SDL_UI`).
 
-### Low Priority Enhancements
-10. **WebGL Extension Handling** (Lines 746-755)
-    - Extensions enabled but not checked if supported
-    - Missing fallback for unsupported formats
-    - Consider: Device capability detection and graceful degradation
+## Build, Test, and Workflow
 
-11. **Performance Optimization Opportunities**
-    - EM_JS inline JS could be cached/memoized
-    - Preset switching could batch updates
-    - Consider: Implement double-buffering for smooth transitions
+Build/test/lint commands live in `AGENTS.md` — in particular the "Cursor Cloud specific
+instructions" section (GCC + `-include atomic` workaround, `cmake-build` layout) and
+"Testing Instructions" (CTest, `PresetCompat` harness). Use those verbatim; this file
+only adds WASM-specific notes:
 
-## Building the Project
-
-### Native Build
-```bash
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-```
-
-### WASM Build with Emscripten
-Requires Emscripten SDK installed:
-```bash
-emconfigure cmake -B build-wasm
-emmake make -C build-wasm -j$(nproc)
-```
-
-Key Emscripten flags used:
-- `-sUSE_SDL=2`: Emscripten SDL2 port
-- `-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2`: WebGL 2.0
-- `-sFULL_ES2=1 -sFULL_ES3=1`: OpenGL ES 2.0/3.0 emulation
-- `-sALLOW_MEMORY_GROWTH=1`: Dynamic memory allocation
-
-## Code Standards
-
-- **C++ Standard**: C++11 minimum (C++14 preferred)
-- **Formatting**: Run `clang-format` before commit
-- **Linting**: Use `clang-tidy` with `.clang-tidy` config
-- **Comments**: Document complex logic, especially in WASM bindings
-
-## Testing
-
-Run tests after modifications:
-```bash
-ctest -j$(nproc) --output-on-failure
-```
-
-WASM-specific testing requires serving files over HTTP due to browser security policies.
+- WASM-specific testing requires serving files over HTTP due to browser security policies
+  (see `AGENTS.md` "Emscripten smoke test" for the Playwright-based headless flow).
+- `.milk` preset changes: validate with `scripts/kimi_validate_preset.sh <preset.milk>`
+  (see [`docs/kimi_preset_authoring_plan.md`](docs/kimi_preset_authoring_plan.md)).
 
 ## Common Tasks
 
-### Adding a New Emscripten Binding
-1. Define function in C++
-2. Add EMSCRIPTEN_KEEPALIVE if needed
-3. Add to EMSCRIPTEN_BINDINGS block
-4. Test from JavaScript
+### Adding a New Emscripten Export
+1. Define the function in `projectM_emscripten.cpp` with `EMSCRIPTEN_KEEPALIVE`
+2. Add its name (prefixed with `_`) to `PROJECTM_WASM_EXPORTED_FUNCTIONS` in `CMakeLists.txt`
+3. Call it from JS via `Module.ccall`/`Module.cwrap`
 
 ### Debugging WASM Build Issues
 - Check Emscripten version compatibility
@@ -157,26 +141,35 @@ WASM-specific testing requires serving files over HTTP due to browser security p
 - Test with `emrun` for better error messages
 
 ### Adding Web Audio Features
-1. Extend projectm_audio_processor.js
-2. Add message handler in constructor
-3. Update C++ js_* functions to trigger new JS code
-4. Add bindings in EMSCRIPTEN_BINDINGS
+1. Extend `projectm_audio_processor.js` (operates on per-channel `Float32Array`, not `AudioBuffer`)
+2. Add a message handler in the worklet's `port.onmessage`
+3. Update C++ `js_*` EM_JS functions to trigger new JS code
+4. Add the new export to `PROJECTM_WASM_EXPORTED_FUNCTIONS` if called from C++
+
+### Creating or Upgrading `.milk` Presets (Kimi/agent pipeline)
+Follow [`docs/kimi_preset_authoring_plan.md`](docs/kimi_preset_authoring_plan.md) — the
+canonical runbook for create/upgrade/fix-shader-error loops. Validate any preset with
+`scripts/kimi_validate_preset.sh <preset.milk>` (exits non-zero on parse/transpile
+failure) before considering a preset change done.
 
 ## Important Notes
 
-- **WASM Memory**: Emscripten uses a linear memory model. Monitor memory growth for long-running sessions.
-- **Audio Context**: WebAudio API requires user interaction to start (autoplay policy).
-- **WebGL Compatibility**: Not all features work in all browsers/devices; test on target platforms.
-- **Performance**: Profile in browser DevTools; WASM overhead is significant for real-time graphics.
+- **WASM Memory**: Emscripten uses a linear memory model with `ALLOW_MEMORY_GROWTH=1` and
+  `mimalloc`. Monitor memory growth for long-running sessions.
+- **Audio Context**: WebAudio API requires user interaction to start (autoplay policy) —
+  see issue #91 for the unified bootstrap effort.
+- **WebGL Compatibility**: Target is WebGL2/GLES3 (`FULL_ES2=0`); not all features work in
+  all browsers/devices. See issue #93 for context-loss recovery work.
+- **Performance**: Profile in browser DevTools and with the in-app perf HUD
+  (`js_perf_*`/`js_governor_*` functions); WASM overhead is significant for real-time graphics.
 
 ## Useful References
 
 - [Emscripten Documentation](https://emscripten.org/docs/)
 - [WebGL 2.0 Spec](https://www.khronos.org/webgl/wiki/Getting_Started_with_WebGL)
 - [Web Audio API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API)
-- [projectM Documentation](./EMSCRIPTEN.md)
+- [projectM WASM/Emscripten Documentation](docs/EMSCRIPTEN.md)
 - [GLSL MilkDrop Preset Format](https://github.com/projectM-visualizer/projectm/wiki)
-
-## Session Notes
-
-This development branch (`claude/review-wasm-port-bfKhi`) is focused on reviewing and improving the WASM port. See the "Known Issues" section above for detailed defects found during this review.
+- `AGENTS.md` — canonical build/style/test reference
+- `html/README.md` — HTML host architecture (issue #78)
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — WASM bundle deploy flow, `DEPLOY_TOKEN` setup/rotation (issue #88)

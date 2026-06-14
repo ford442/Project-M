@@ -72,3 +72,8 @@ build-test-*
 # Ignore literal tilde directories created by buggy scripts
 ~
 scripts/~
+
+# Local secrets (copy .env.example -> .env, never commit)
+.env
+.env.*
+!.env.example

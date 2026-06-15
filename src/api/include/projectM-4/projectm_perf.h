@@ -88,6 +88,35 @@ PROJECTM_EXPORT bool projectm_perf_is_enabled();
  */
 PROJECTM_EXPORT void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings);
 
+/**
+ * @brief OpenMP build/runtime information for profiling and benchmark reports.
+ *
+ * @param out_info Pointer to a struct that will receive OpenMP status. Must not be NULL.
+ * @since 4.2.0
+ */
+typedef struct {
+    /** true when built with PRJM_ENABLE_OPENMP (pragma regions are compiled in). */
+    bool compiled_enabled;
+    /** omp_get_max_threads() when compiled_enabled, otherwise 1. */
+    int max_threads;
+} projectm_perf_openmp_info;
+
+/**
+ * @brief Fills @p out_info with OpenMP compile-time and runtime thread-pool sizing.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_perf_get_openmp_info(projectm_perf_openmp_info* out_info);
+
+/**
+ * @brief Returns the number of threads executing a parallel region.
+ *
+ * When called from outside any parallel region this returns 1. Useful in
+ * benchmarks to confirm OpenMP worker threads are actually spawned.
+ *
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT int projectm_perf_openmp_thread_count_in_parallel();
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

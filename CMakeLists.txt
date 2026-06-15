@@ -130,8 +130,20 @@ if(CMAKE_SYSTEM_NAME STREQUAL Darwin)
 endif()
 
 # OpenMP support
+if(ENABLE_EMSCRIPTEN)
+    include(EmscriptenOpenMP)
+    projectm_configure_emscripten_openmp()
+    if(PROJECTM_EMSCRIPTEN_OPENMP_AVAILABLE AND NOT ENABLE_OPENMP)
+        # WASM builds pass -fopenmp at compile time; enable the pragma guards too.
+        set(ENABLE_OPENMP ON CACHE BOOL "Enable OpenMP parallelization for performance-critical sections" FORCE)
+        message(STATUS "Emscripten: auto-enabled ENABLE_OPENMP (bundled libomp.a found)")
+    endif()
+endif()
+
 if(ENABLE_OPENMP)
-    find_package(OpenMP)
+    if(NOT OpenMP_CXX_FOUND)
+        find_package(OpenMP)
+    endif()
     if(OpenMP_CXX_FOUND)
         message(STATUS "OpenMP found: version ${OpenMP_CXX_VERSION}")
         message(STATUS "OpenMP parallelization will be enabled in performance-critical sections")
@@ -158,7 +170,7 @@ if(ENABLE_EMSCRIPTEN)
     add_compile_options(
             "SHELL:-O3 -mtune=wasm32 "
             "SHELL:-s NO_DISABLE_EXCEPTION_CATCHING -s SHARED_MEMORY=1 -s WASM_WORKERS=1 "
-            "SHELL:-msimd128 -mrelaxed-simd -fopenmp -mmutable-globals -mbulk-memory -matomics -mnontrapping-fptoint -msign-ext -fno-strict-aliasing -fno-math-errno -pthread"
+            "SHELL:-msimd128 -mrelaxed-simd -fopenmp=libomp -mmutable-globals -mbulk-memory -matomics -mnontrapping-fptoint -msign-ext -fno-strict-aliasing -fno-math-errno -pthread"
             )
 
     # Exported C functions accessible from JavaScript via ccall/cwrap.
@@ -177,6 +189,10 @@ if(ENABLE_EMSCRIPTEN)
             _is_preset_ready
             _get_rendered_frame_count
             _preset_switch_failed
+            # OpenMP introspection (see docs/PERFORMANCE.md)
+            _get_omp_enabled
+            _get_omp_max_threads
+            _get_omp_thread_count_in_parallel
             # Phase 2: Dual ping-pong FBO lifecycle API
             _dual_fbo_begin_transition
             _dual_fbo_end_transition
@@ -207,11 +223,12 @@ if(ENABLE_EMSCRIPTEN)
 
     add_link_options(
             "SHELL:-std=c++20 -O3 -rtlib=compiler-rt-mt -mtune=wasm32 -s SHARED_MEMORY=1 -s WASM_WORKERS=1 -pthread "
+            "SHELL:-s PTHREAD_POOL_SIZE='navigator.hardwareConcurrency' "
             "SHELL:-s MIN_WEBGL_VERSION=2 "
             "SHELL:-s MAX_WEBGL_VERSION=2 "
             "SHELL:-s USE_WEBGL2=1 -s FULL_ES2=0 -s FULL_ES3=1 -s GL_POOL_TEMP_BUFFERS=0 -s GL_MAX_TEMP_BUFFER_SIZE=33177600 -s GL_TRACK_ERRORS=0 "
             "SHELL:-s NO_DISABLE_EXCEPTION_CATCHING -s ALLOW_MEMORY_GROWTH=1 -sMALLOC='mimalloc' -sMAXIMUM_MEMORY=4gb -sINITIAL_MEMORY=1024mb "
-            "SHELL:-msimd128 -mrelaxed-simd -fopenmp -mmutable-globals -mbulk-memory -matomics -mnontrapping-fptoint -msign-ext -fno-strict-aliasing "
+            "SHELL:-msimd128 -mrelaxed-simd -fopenmp=libomp -mmutable-globals -mbulk-memory -matomics -mnontrapping-fptoint -msign-ext -fno-strict-aliasing "
             "SHELL:--typed-function-references --enable-reference-types -fno-math-errno "
             "SHELL:-s TRUSTED_TYPES=1 -s WASM_BIGINT=1 -sAUDIO_WORKLET=1 "
             "SHELL:-s FORCE_FILESYSTEM=1 -s ASYNCIFY=1 -s EXPORTED_RUNTIME_METHODS='ccall,cwrap' -s EXPORTED_FUNCTIONS='${PROJECTM_WASM_EXPORTED_FUNCTIONS_STR}'"

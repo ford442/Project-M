@@ -2338,6 +2338,35 @@ projectm_perf_set_enabled(g_perfHudEnabled);
 js_perf_hud_set_enabled(enabled);
 return;
 }
+
+// OpenMP introspection for benchmark reports and runtime verification.
+// See docs/PERFORMANCE.md and projectm_perf_get_openmp_info().
+EMSCRIPTEN_KEEPALIVE
+int get_omp_enabled() {
+    projectm_perf_openmp_info info{};
+    projectm_perf_get_openmp_info(&info);
+    return info.compiled_enabled ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int get_omp_max_threads() {
+    projectm_perf_openmp_info info{};
+    projectm_perf_get_openmp_info(&info);
+    return info.max_threads;
+}
+
+// Returns omp_get_num_threads() from inside a short parallel region so
+// benchmarks can confirm worker threads are actually spawned (not just compiled).
+EMSCRIPTEN_KEEPALIVE
+int get_omp_thread_count_in_parallel() {
+    int observed = 1;
+#pragma omp parallel
+    {
+#pragma omp single
+        observed = omp_get_num_threads();
+    }
+    return observed;
+}
 } // extern "C"
 
 extern "C" {

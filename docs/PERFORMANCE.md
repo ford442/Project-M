@@ -353,6 +353,55 @@ verify and land them.
   should be used to confirm the adopted changes are neutral-to-positive on real frame timing, and
   to evaluate the deferred candidates once a display is available.
 
+## OpenMP on Emscripten/WASM (verification)
+
+### Problem fixed
+
+The Emscripten `CMakeLists.txt` block always passed `-fopenmp`, but `PRJM_ENABLE_OPENMP` was only
+defined when `find_package(OpenMP)` succeeded — which does not work on the Emscripten toolchain.
+Result: every `#ifdef PRJM_ENABLE_OPENMP` region in `libprojectM` compiled **without** pragmas even
+though the final `emcc` link used `-fopenmp` and `libomp.a`.
+
+`cmake/EmscriptenOpenMP.cmake` now detects the bundled `libomp.a` + `omp/omp.h`, defines
+`OpenMP::OpenMP_CXX`, auto-enables `ENABLE_OPENMP`, and links `libomp.a` into the static libraries.
+Compile flags use `-fopenmp=libomp` (LLVM-recommended for wasm).
+
+Build `libomp.a` once per emsdk version:
+
+```sh
+scripts/build_libomp_emscripten.sh
+```
+
+### Runtime introspection
+
+WASM exports (also in `projectm_perf.h` for native):
+
+| Export | Purpose |
+|---|---|
+| `_get_omp_enabled()` | 1 when `PRJM_ENABLE_OPENMP` was compiled into `libprojectM` |
+| `_get_omp_max_threads()` | `omp_get_max_threads()` (matches `PTHREAD_POOL_SIZE`) |
+| `_get_omp_thread_count_in_parallel()` | Spawns a short `#pragma omp parallel` and returns observed thread count |
+
+The `?benchmark=1` harness (`html/projectm-perf.js`) now includes an `openmp` object in the JSON
+report. The wasm-smoke test logs OpenMP status when the exports are present.
+
+### Native microbenchmark
+
+```sh
+scripts/benchmark_openmp_native.sh
+```
+
+Runs `OpenMPBenchTest` (gtest) with `ENABLE_OPENMP` on/off and prints JSON with FFT throughput.
+On a 4-core VM (2026-06): OpenMP ON compiled with 4 threads; FFT microbench showed parallel
+overhead dominating the small 512-bin loop (expected — per-pixel mesh at 48×36 is the real win).
+
+### Verification performed
+
+- Native: `scripts/benchmark_openmp_native.sh` — OpenMP ON reports `compiled=1 maxThreads=4`,
+  parallel region observes multiple threads; all `OpenMPInfoTest`/`OpenMPBenchTest` cases pass.
+- WASM: CI builds `libomp.a` via `scripts/build_libomp_emscripten.sh` before `emcmake` configure;
+  smoke test reports `openmp.compiled` / `parallelThreadsObserved` when linked.
+
 ## OffscreenCanvas render worker and SIMD audio hot paths (issue #81/#82 follow-up)
 
 Follow-up to the 60 FPS/quality governor and link-flag work above: moving the render loop off the

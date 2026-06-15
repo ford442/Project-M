@@ -58,6 +58,13 @@ jobs:
           git clone https://github.com/projectM-visualizer/build-gtest.git ${{ github.workspace }}/build-gtest
           cd ${{ github.workspace }}/build-gtest && ./setup.sh && ./build-emscripten.sh
 
+      - name: Build libomp for Emscripten (when not cached)
+        run: |
+          if [[ ! -f "${{ github.workspace }}/libomp.a" ]]; then
+            EMSDK_ROOT="$(dirname "$(dirname "$(which emcc)")")" \
+              bash "${{ github.workspace }}/scripts/build_libomp_emscripten.sh"
+          fi
+
       - name: Configure Build
         run: |
           emcmake cmake -G "Unix Makefiles" \
@@ -66,6 +73,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
             -DCMAKE_VERBOSE_MAKEFILE=YES \
             -DBUILD_TESTING=YES \
+            -DENABLE_OPENMP=ON \
             -DENABLE_WASM_TRANSITIONS=${{ matrix.wasm-transitions }} \
             -DGTest_DIR="${{ github.workspace }}/build-gtest/dist/emscripten/lib/lib/cmake/GTest"
 

@@ -14,6 +14,10 @@
 #include <projectM-4/projectm_perf.h>
 #include <projectM-4/render_opengl.h>
 
+#ifdef PRJM_ENABLE_OPENMP
+#include <omp.h>
+#endif
+
 #include <cstring>
 #include <sstream>
 
@@ -261,6 +265,26 @@ void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
     out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
     out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
     out_timings->fps = timings.fps;
+}
+
+void projectm_perf_get_openmp_info(projectm_perf_openmp_info* out_info)
+{
+#ifdef PRJM_ENABLE_OPENMP
+    out_info->compiled_enabled = true;
+    out_info->max_threads = omp_get_max_threads();
+#else
+    out_info->compiled_enabled = false;
+    out_info->max_threads = 1;
+#endif
+}
+
+int projectm_perf_openmp_thread_count_in_parallel()
+{
+#ifdef PRJM_ENABLE_OPENMP
+    return omp_get_num_threads();
+#else
+    return 1;
+#endif
 }
 
 void projectm_opengl_burn_texture(projectm_handle instance, uint32_t texture, int left, int top, int width, int height)

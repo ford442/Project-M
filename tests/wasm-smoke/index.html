@@ -68,6 +68,20 @@
         if (!Module[exportName]) throw new Error('Missing Module.' + exportName);
       }
 
+      if (typeof Module._get_omp_enabled === 'function') {
+        const ompCompiled = Module._get_omp_enabled();
+        const ompMax = Module._get_omp_max_threads();
+        const ompParallel = typeof Module._get_omp_thread_count_in_parallel === 'function'
+          ? Module._get_omp_thread_count_in_parallel()
+          : 1;
+        mark('openmp compiled=' + ompCompiled + ' maxThreads=' + ompMax + ' parallelObserved=' + ompParallel);
+        result.openmp = {
+          compiled: ompCompiled !== 0,
+          maxThreads: ompMax,
+          parallelThreadsObserved: ompParallel
+        };
+      }
+
       const initResult = Module._init();
       if (initResult !== 0) {
         throw new Error('Module._init() returned ' + initResult);

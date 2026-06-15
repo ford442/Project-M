@@ -181,6 +181,19 @@ function percentile(sortedValues, p) {
     return sortedValues[idx];
 }
 
+function collectOpenmpInfo(Module) {
+    if (!Module || typeof Module._get_omp_enabled !== 'function') {
+        return { compiled: false, maxThreads: 1, parallelThreadsObserved: 1 };
+    }
+    return {
+        compiled: Module._get_omp_enabled() !== 0,
+        maxThreads: Module._get_omp_max_threads(),
+        parallelThreadsObserved: typeof Module._get_omp_thread_count_in_parallel === 'function'
+            ? Module._get_omp_thread_count_in_parallel()
+            : 1,
+    };
+}
+
 function summarize(values) {
     const sorted = values.slice().sort((a, b) => a - b);
     const sum = sorted.reduce((a, b) => a + b, 0);
@@ -241,6 +254,7 @@ export function setupPerfTools(Module) {
         const result = {
             frames: samples.totalMs.length,
             preset: presetPath || null,
+            openmp: collectOpenmpInfo(Module),
             totalMs: summarize(samples.totalMs),
             fps: summarize(samples.fps),
             breakdownMs: breakdownMs,

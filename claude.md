@@ -79,20 +79,20 @@ Project-M/
 | RGBA16F FBO preferred + blur/echo Milkdrop parity audit | `5a65ddb45` | #83 (closed) |
 | Shared external-PCM bridge module (`html/projectm-external-pcm.js`) | (see #73) | #73 (closed) |
 | HTML host consolidation into shared modules (`html/projectm-*.js`) | — | #78 (closed) |
+| Emscripten main `renderLoop()` now routes through dual-FBO `render_frame()` compositor (blit to canvas) | `9172332a2`, `0436b9d26` (OffscreenCanvas/render worker) | #95 (closed) |
+| WebGL context loss detection + graceful recovery overlay + re-init in demo pages | `0436b9d26` + context-loss module | #93 (closed) |
+| Document/enforce COOP/COEP cross-origin isolation headers (DEPLOYMENT.md + examples + check script) | recent docs updates + `0436b9d26` | #94 (closed) |
+| Remove hardcoded `DEPLOY_TOKEN` default from `deploy.py` (require env, fail fast) | (deploy.py cleanup) | #88 (closed) |
+| Unified Web Audio bootstrap: AudioContext resume gate / autoplay policy UX | (audio bootstrap work) | #91 (closed) |
 
-### Open issues (verified via `gh issue list`, current as of 2026-06-12)
+### Open issues (verified via `gh issue list`, current as of 2026-06-15)
 
 | Area | Issue | Summary |
 |---|---|---|
-| Rendering | [#95](https://github.com/ford442/Project-M/issues/95) | `renderLoop` should call `render_frame()` so dual-FBO output reaches the canvas |
-| Rendering | [#93](https://github.com/ford442/Project-M/issues/93) | WebGL context loss detection and recovery in demo pages |
-| Audio | [#91](https://github.com/ford442/Project-M/issues/91) | Unified Web Audio bootstrap: AudioContext resume gate / autoplay policy |
 | Audio | [#103](https://github.com/ford442/Project-M/issues/103), [#104](https://github.com/ford442/Project-M/issues/104) | External PCM path parity + wiring across `.1ink` panels |
 | Presets | [#90](https://github.com/ford442/Project-M/issues/90) | hlslparser preprocessor: `#ifdef`/`#ifndef` crash on malformed directives (upstream projectm#993) |
 | Presets | [#92](https://github.com/ford442/Project-M/issues/92) | Local `.milk` file picker into WASM VFS |
-| Deploy/CI | [#94](https://github.com/ford442/Project-M/issues/94) | Document/enforce cross-origin isolation headers for pthread/SharedArrayBuffer |
 | Deploy/CI | [#100](https://github.com/ford442/Project-M/issues/100) | Rebuild WASM smoke bundle after emscripten render fix |
-| Security | [#88](https://github.com/ford442/Project-M/issues/88) | Remove hardcoded `DEPLOY_TOKEN` default from `deploy.py` |
 
 When fixing one of these, close the loop by updating this table (move the row to
 "Completed fixes" with the commit hash) rather than leaving it stale again.

@@ -79,3 +79,28 @@ Or apply this change around the existing bridge:
 **Labels**: `enhancement`, `web`, `wasm`, `audio-integration`
 
 **Related work**: See full diagnosis and host-side fixes in the `diagnose-mod-flac` branch.
+
+---
+
+## Resolution (in-repo sender, no bundle rebuild required)
+
+The earlier `patches/flac-player-bridge-upgrade-to-postmessage.diff` targets the
+player's *minified external bundle*, whose source we don't have. Instead, the
+sender now lives in the in-repo player shell as a bundle-independent module:
+
+- `html/flac-player/projectm-pcm-bridge.js` — patches the Web Audio graph at the
+  prototype level: when any node connects to `context.destination`, it taps that
+  node into a passive `AnalyserNode` and streams the time-domain PCM to the host
+  via `postMessage` (opener for popups, parent for iframes) **and** the legacy
+  BroadcastChannel. Emits the documented contract
+  `{ type:'pcm', buffer:Float32Array, channels:1, sampleRate }`. No-ops when the
+  page is opened standalone (not a feeder).
+- `html/flac-player/index.html` — installs the bridge *before* loading the player
+  bundle, so the prototype patches are in place when the bundle builds its graph.
+- `tests/web/flac-pcm-bridge.test.mjs` — `node --test` coverage (feeder-mode
+  detection, sender contract, the connect→tap→pump flow, and uninstall).
+
+**Deployment dependency:** this fixes audio only if the host opens a player whose
+served `index.html` includes the bridge — i.e. deploy `html/flac-player/` to
+`flac.1ink.us` (the popup origin `projectm-core.html` opens, already on the host
+receiver's allowlist), or point `localStorage.flacPlayerUrl` at the in-repo copy.

@@ -37,9 +37,20 @@ window.process = window.process || { env: {}, browser: true };
 </script>
 <script type="module">
 import { Buffer } from './vendor/buffer.bundle.mjs';
+import { installProjectMPcmBridge } from './projectm-pcm-bridge.js';
 
 globalThis.Buffer = Buffer;
 window.Buffer = Buffer;
+
+// Stream decoded audio to the projectM host via postMessage (cross-origin safe).
+// Must run BEFORE the player bundle builds its Web Audio graph so the bridge can
+// tap nodes as they connect to the destination. See projectm-pcm-bridge.js and
+// DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md. No-ops when opened standalone.
+try {
+  window.__projectMPcmBridge = installProjectMPcmBridge();
+} catch (error) {
+  console.debug('[projectM FLAC bridge] install failed (non-fatal):', error);
+}
 
 const bundle = document.createElement('script');
 bundle.defer = true;

@@ -173,6 +173,7 @@ file custom_milk_fixed/*.milk
 After Kimi edits a preset:
 
 1. Fast local loop: open `html/projectm-core.html?localPresets=1` and use the **Local Preset Loader** to pick or drag-drop a `.milk` file. The page writes it to `/presets/local_<sanitized_name>.milk`, calls `load_preset_file`, and triggers `startTransitionWhenReady({ module: Module })`.  
+   - To preview the whole curated set by name (instead of blind-random), **right-click the Random Custom button** in `projectm-core.html` to open the **🎛 Custom Preset picker** (`html/projectm-preset-picker.js`). It lists every `custom_milk_fixed/` preset with a green/red badge for the last capture's known-good/known-broken status, plus prev/next and "Random ✓" (known-good only). After adding/upgrading a preset or re-running the screenshot capture, regenerate its data: `node scripts/generate_custom_preset_manifest.mjs` (writes `html/custom_presets_manifest.json`; `--check` for CI).  
 2. Or upload to `storage.noahcohn.com` API (production path in `html/projectm-presets.js`)  
 3. Load: `Module.ccall('load_preset_file', null, ['string'], ['/presets/<name>.milk'])`  
 4. With transitions: `startTransitionWhenReady({ module: Module })` from `projectm-external-pcm.js`  

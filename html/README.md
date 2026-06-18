@@ -12,6 +12,7 @@ Core behavior belongs in shared modules:
 
 - `projectm-init.js`: script loading and reusable WASM/canvas bootstrap helpers.
 - `projectm-presets.js`: API preset fetch, VFS writes, startup preset loading, and random preset loading.
+- `projectm-preset-picker.js`: named, searchable picker for the curated `custom_milk_fixed` presets, with known-good/known-broken status badges. Reads `custom_presets_manifest.json` (regenerate with `scripts/generate_custom_preset_manifest.mjs`); loads the raw `.milk` from a resilient list of bases (override via `localStorage.customPresetBase`). Backs the "Random Custom" button and a right-click "🎛 Presets" browser in `projectm-core.html`.
 - `projectm-external-pcm.js`: external MOD/FLAC `postMessage` PCM contract, origin allowlist, queued feeding, and preallocated transfer buffers.
 - `projectm-transitions.js`: readiness polling before starting dual-FBO transitions.
 
@@ -52,6 +53,7 @@ Every HTML-facing PR should state which hosts are affected and which shared modu
 
 - Does the change affect `projectm-core.html`, panel hosts, full hosts, or the test harness?
 - Does Random Preset still go through `projectm-presets.js`?
+- Does the custom preset picker still load through `projectm-preset-picker.js`, and is `custom_presets_manifest.json` regenerated if `custom_milk_fixed/` or the capture baseline changed?
 - Does external PCM still go through `projectm-external-pcm.js`?
 - Does FLAC/MOD UI still go through `projectm-audio-player.js`?
 - If layout changed, was panel2 bezel calibration preserved or intentionally updated?

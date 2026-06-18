@@ -527,6 +527,7 @@ import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './
 import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
 import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { setupPresetPicker } from './projectm-preset-picker.js';
 import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
@@ -697,14 +698,44 @@ function fullWindow() {
     syncModuleSize();
 }
 
+// ====== CUSTOM PRESET PICKER ======
+// Named, searchable list of the fork's curated custom_milk_fixed presets with
+// known-good/known-broken badges (see projectm-preset-picker.js). Adds a
+// floating "🎛 Presets" launcher so you can preview a *specific* upgraded
+// shader instead of only blind-random selection.
+const presetPicker = setupPresetPicker({
+    getModule: () => (typeof Module !== 'undefined' ? Module : null),
+    startTransitionWhenReady
+});
+window.presetPicker = presetPicker;
+
 function randomPreset() {
     console.log('[ProjectM] Random Preset');
     loadRandomPresetFromRemote();
 }
 
+// "Random Custom" now draws from the curated custom_milk_fixed set (via the
+// picker manifest), preferring verified-rendering presets, instead of falling
+// through to the generic preset API. Right-click opens the full named picker.
 function randomCustom() {
     console.log('[ProjectM] Random Custom');
-    loadRandomPresetFromRemote();
+    presetPicker.ready.then((presets) => {
+        if (presets && presets.length) {
+            presetPicker.pickRandom({ onlyOk: true });
+        } else {
+            // Manifest unavailable — fall back to the generic preset API.
+            loadRandomPresetFromRemote();
+        }
+    });
+}
+
+const customMilkBtn = document.getElementById('customMilkBtn');
+if (customMilkBtn) {
+    customMilkBtn.title = 'Random custom preset — right-click to browse by name';
+    customMilkBtn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        presetPicker.toggle();
+    });
 }
 
 if (enableLocalPresets) {

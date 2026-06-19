@@ -94,10 +94,10 @@ shapecode_0_border_r=0.700000
 shapecode_0_border_g=0.750000
 shapecode_0_border_b=0.850000
 shapecode_0_border_a=0.300000
-shapecode_0_per_frame1=rad=0.05+q2*0.08;
-shapecode_0_per_frame2=r=0.8+q2*0.2;
-shapecode_0_per_frame3=g=0.8+q2*0.15;
-shapecode_0_per_frame4=b=0.9+q2*0.1;
+shape_0_per_frame1=rad=0.05+q2*0.08;
+shape_0_per_frame2=r=0.8+q2*0.2;
+shape_0_per_frame3=g=0.8+q2*0.15;
+shape_0_per_frame4=b=0.9+q2*0.1;
 warp_1=`shader_body
 warp_2=`{
 warp_3=`float2 c = (uv - 0.5) * aspect.xy;

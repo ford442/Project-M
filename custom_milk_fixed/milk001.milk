@@ -1,7 +1,16 @@
+// CHANGELOG 2026-06-19 — WASM upgrade
+// - Ported segmented plasma from per_pixel HLSL → comp_ shader (projectM WASM path)
+// - Added MILKDROP_PRESET_VERSION=200 + PSVERSION_WARP/COMP=3
+// Author: projectM AI | Plasma Mosaic
+MILKDROP_PRESET_VERSION=200
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
 [preset00]
+presetname=Plasma Mosaic
 fRating=4.0
 fGammaAdj=2.0
-fDecay=0.98
+fDecay=0.980
 fVideoEchoZoom=1.0
 fVideoEchoAlpha=0.0
 nVideoEchoOrientation=0
@@ -27,64 +36,58 @@ fModWaveAlphaEnd=1.0
 fWarpAnimSpeed=1.0
 fWarpScale=1.331
 fZoomExponent=1.0
-fShader=1.0
+fShader=0.0
 zoom=1.0
 rot=0.0
 cx=0.5
 cy=0.5
 dx=0.0
 dy=0.0
+warp=0.01
+sx=1.0
+sy=1.0
+ob_size=0.01
+ib_size=0.01
+mv_a=0.0
 
-per_frame_1=// --- Motion and Segmentation Control ---
-per_frame_2=rot = rot + 0.002;
-per_frame_3=
-per_frame_4=// q1 controls the number of segments.
-per_frame_5=q1 = 1 + 30*(0.5 + 0.5*sin(time*0.15));
-per_frame_6=
-per_frame_7=// q2 controls the transition between smooth and segmented plasma.
-per_frame_8=q2 = 0.5 + 0.5*sin(time*0.4);
-per_frame_9=
-per_frame_10=// Precompute time+rot combinations for performance
-per_frame_11=q3 = time*0.8 + rot;
-per_frame_12=q4 = time*0.9 + rot;
-per_frame_13=q5 = time + rot;
-per_frame_14=q6 = time*0.4;
+per_frame_1=rot=rot+0.002;
+per_frame_2=q1=1+30*(0.5+0.5*sin(time*0.15));
+per_frame_3=q2=0.5+0.5*sin(time*0.4);
+per_frame_4=q3=time*0.8+rot;
+per_frame_5=q4=time*0.9+rot;
+per_frame_6=q5=time+rot;
+per_frame_7=q6=time*0.4;
+per_frame_8=q7=bass_att;
 
-per_pixel_1=// --- Adding Complexity and Detail ---
-per_pixel_2=
-per_pixel_3=// Coordinate setup (with segmentation)
-per_pixel_4=seg_x = floor(uv.x * q1) / q1;
-per_pixel_5=seg_y = floor(uv.y * q1) / q1;
-per_pixel_6=work_x = lerp(uv.x, seg_x, q2);
-per_pixel_7=work_y = lerp(uv.y, seg_y, q2);
-per_pixel_8=
-per_pixel_9=// --- Pattern 1: Soft Background Plasma ---
-per_pixel_10=bg_r = 0.5 + 0.5*sin(work_x*4 + q3);
-per_pixel_11=bg_g = 0.5 + 0.5*sin(work_y*4 + q4);
-per_pixel_12=bg_b = 0.5 + 0.5*sin((work_x+work_y)*2 + q5);
-per_pixel_13=
-per_pixel_14=// --- Pattern 2: Sharp Geometric Overlay ---
-per_pixel_15=// Using abs() for V-shapes and mod() for repeating grids.
-per_pixel_16=sharp_x = 1 - abs(sin(mod(work_x*25 + q6, 6.283)));
-per_pixel_17=sharp_y = 1 - abs(cos(mod(work_y*25 - q6, 6.283)));
-per_pixel_18=
-per_pixel_19=// Squaring the result creates thinner, higher-contrast lines.
-per_pixel_20=sharp_pattern = pow(sharp_x * sharp_y, 3.0);
-per_pixel_21=
-per_pixel_22=// --- Final Compositing ---
-per_pixel_23=// We'll use the soft plasma for base color and the sharp pattern for highlights.
-per_pixel_24=
-per_pixel_25=// Mix the background colors for a richer palette
-per_pixel_26=base_col_r = bg_r*0.7 + bg_g*0.3;
-per_pixel_27=base_col_g = bg_g*0.7 + bg_b*0.3;
-per_pixel_28=base_col_b = bg_b*0.7 + bg_r*0.3;
-per_pixel_29=
-per_pixel_30=// Add the sharp pattern on top of the base colors.
-per_pixel_31=final_r = base_col_r + sharp_pattern*1.8;
-per_pixel_32=final_g = base_col_g + sharp_pattern*1.6;
-per_pixel_33=final_b = base_col_b + sharp_pattern*2.0;
-per_pixel_34=
-per_pixel_35=// Final audio-reactive brightness boost
-per_pixel_36=boost = 2.2 + 0.8*bass_att;
-per_pixel_37=
-per_pixel_38=ret = float3(min(final_r * boost, 1.0), min(final_g * boost, 1.0), min(final_b * boost, 1.0));
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.01;
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`    ret = tex2D(sampler_main, uv).xyz;
+warp_4=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`    float segX = floor(uv.x * q1) / q1;
+comp_4=`    float segY = floor(uv.y * q1) / q1;
+comp_5=`    float workX = lerp(uv.x, segX, q2);
+comp_6=`    float workY = lerp(uv.y, segY, q2);
+comp_7=`    float bgR = 0.5 + 0.5 * sin(workX * 4.0 + q3);
+comp_8=`    float bgG = 0.5 + 0.5 * sin(workY * 4.0 + q4);
+comp_9=`    float bgB = 0.5 + 0.5 * sin((workX + workY) * 2.0 + q5);
+comp_10=`    float sharpX = 1.0 - abs(sin(fmod(workX * 25.0 + q6, 6.283)));
+comp_11=`    float sharpY = 1.0 - abs(cos(fmod(workY * 25.0 - q6, 6.283)));
+comp_12=`    float sharpPattern = pow(sharpX * sharpY, 3.0);
+comp_13=`    float baseR = bgR * 0.7 + bgG * 0.3;
+comp_14=`    float baseG = bgG * 0.7 + bgB * 0.3;
+comp_15=`    float baseB = bgB * 0.7 + bgR * 0.3;
+comp_16=`    float boost = 2.2 + 0.8 * q7;
+comp_17=`    float3 col = float3(
+comp_18=`        min(baseR + sharpPattern * 1.8, 1.0),
+comp_19=`        min(baseG + sharpPattern * 1.6, 1.0),
+comp_20=`        min(baseB + sharpPattern * 2.0, 1.0));
+comp_21=`    col *= boost;
+comp_22=`    ret = saturate(col);
+comp_23=`}

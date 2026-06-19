@@ -1,4 +1,10 @@
+// CHANGELOG 2026-06-19 — WASM upgrade: headers, shape/wave keys, avoid ang/rad shader builtins
+MILKDROP_PRESET_VERSION=200
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
 [preset00]
+presetname=Fractal Echo Gemini
 fRating=5.0
 fGammaAdj=1.000
 fDecay=0.980
@@ -27,7 +33,7 @@ fModWaveAlphaEnd=1.000
 fWarpAnimSpeed=1.000
 fWarpScale=1.000
 fZoomExponent=1.000
-fShader=1.000
+fShader=0.0
 zoom=1.000
 rot=0.000
 cx=0.500
@@ -87,7 +93,7 @@ per_frame_12=q6 = 0.5 + 0.5*sin(mtime*0.61);
 per_frame_13=q7 = 0.5 + 0.5*sin(mtime*0.73);
 
 wavecode_0_enabled=1
-wavecode_0_samples=512
+wavecode_0_samples=128
 wavecode_0_sep=0
 wavecode_0_bSpectrum=1
 wavecode_0_bUseDots=0
@@ -99,13 +105,13 @@ wavecode_0_r=1.000
 wavecode_0_g=1.000
 wavecode_0_b=1.000
 wavecode_0_a=0.600
-wave_0_per_point_1=ang = (sample * 6.2831) + q1;
-wave_0_per_point_2=rad = 0.2 + value1 * 0.2 + q2*0.1;
-wave_0_per_point_3=x = 0.5 + rad * cos(ang);
-wave_0_per_point_4=y = 0.5 + rad * sin(ang);
-wave_0_per_point_5=r = q5;
-wave_0_per_point_6=g = q6;
-wave_0_per_point_7=b = q7;
+wave_0_per_point1=ang=(sample*6.2831)+q1;
+wave_0_per_point2=rad=0.2+value1*0.2+q2*0.1;
+wave_0_per_point3=x=0.5+rad*cos(ang);
+wave_0_per_point4=y=0.5+rad*sin(ang);
+wave_0_per_point5=r=q5;
+wave_0_per_point6=g=q6;
+wave_0_per_point7=b=q7;
 
 shapecode_0_enabled=1
 shapecode_0_sides=6
@@ -131,57 +137,35 @@ shapecode_0_border_r=1.000
 shapecode_0_border_g=1.000
 shapecode_0_border_b=1.000
 shapecode_0_border_a=1.000
-shape_0_per_frame_1=rad = 0.3 + q2*0.1;
-shape_0_per_frame_2=ang = q1 * 0.5;
-shape_0_per_frame_3=r = q5; g = q6; b = q7;
-shape_0_per_frame_4=r2 = q7; g2 = q5; b2 = q6;
-shape_0_per_frame_5=border_a = q2 * 0.5;
+shape_0_per_frame1=rad=0.3+q2*0.1;
+shape_0_per_frame2=ang=q1*0.5;
+shape_0_per_frame3=r=q5; g=q6; b=q7;
+shape_0_per_frame4=r2=q7; g2=q5; b2=q6;
+shape_0_per_frame5=border_a=q2*0.5;
 
-PSVERSION_WARP=3
-warp_1=`shader_body`
-warp_2=`{`
-warp_3=`    // Move origin to center`
-warp_4=`    float2 uv2 = uv - 0.5;`
-warp_5=`    `
-warp_6=`    // Convert to Polar Coordinates`
-warp_7=`    float rad = length(uv2);`
-warp_8=`    float ang = atan2(uv2.y, uv2.x);`
-warp_9=`    `
-warp_10=`    // Kaleidoscopic Symmetry`
-warp_11=`    float slices = 8.0;`
-warp_12=`    float pi2 = 6.2831853;`
-warp_13=`    ang = fmod(ang + pi2 * 10.0, pi2);`
-warp_14=`    float seg = pi2 / slices;`
-warp_15=`    ang = fmod(ang, seg);`
-warp_16=`    ang = abs(ang - seg/2.0);`
-warp_17=`    `
-warp_18=`    // Tunnel zoom & twist modulated by bass (q2) and time`
-warp_19=`    float zoom = 0.98 - 0.05 * q2;`
-warp_20=`    rad = rad * zoom;`
-warp_21=`    ang += 0.05 * sin(rad * 15.0 - time * 2.0);`
-warp_22=`    `
-warp_23=`    // Convert back to Cartesian`
-warp_24=`    uv2 = float2(cos(ang), sin(ang)) * rad;`
-warp_25=`    uv = uv2 + 0.5;`
-warp_26=`    `
-warp_27=`    // Feedback loop`
-warp_28=`    float3 col = tex2D(sampler_main, uv).xyz;`
-warp_29=`    ret = col * 0.95 - 0.005;`
-warp_30=`}`
+warp_1=`shader_body
+warp_2=`{
+warp_3=`    float2 uv2 = uv - 0.5;
+warp_4=`    float radius = length(uv2);
+warp_5=`    float aAngle = atan2(uv2.y, uv2.x);
+warp_6=`    float pi2 = 6.2831853;
+warp_7=`    float seg = pi2 / 8.0;
+warp_8=`    aAngle = fmod(aAngle + pi2 * 10.0, pi2);
+warp_9=`    aAngle = fmod(aAngle, seg);
+warp_10=`    aAngle = abs(aAngle - seg * 0.5);
+warp_11=`    radius = radius * (0.98 - 0.05 * q2);
+warp_12=`    aAngle += 0.05 * sin(radius * 15.0 - time * 2.0);
+warp_13=`    float2 sampleUV = float2(cos(aAngle), sin(aAngle)) * radius + 0.5;
+warp_14=`    ret = tex2D(sampler_main, sampleUV).xyz * 0.95 - 0.005;
+warp_15=`}
 
-PSVERSION_COMP=3
-comp_1=`shader_body`
-comp_2=`{`
-comp_3=`    // Chromatic aberration expanding with mid frequencies (q3)`
-comp_4=`    float2 d = (uv - 0.5) * 0.015 * q3;`
-comp_5=`    float r = tex2D(sampler_main, uv - d).x;`
-comp_6=`    float g = tex2D(sampler_main, uv).y;`
-comp_7=`    float b = tex2D(sampler_main, uv + d).z;`
-comp_8=`    float3 col = float3(r, g, b);`
-comp_9=`    `
-comp_10=`    // Color tinting using per_frame time-based colors`
-comp_11=`    float3 tint = float3(q5, q6, q7);`
-comp_12=`    `
-comp_13=`    // Overbright output driven by treble (q4)`
-comp_14=`    ret = col * 1.4 + col * tint * q4;`
-comp_15=`}`
+comp_1=`shader_body
+comp_2=`{
+comp_3=`    float2 d = (uv - 0.5) * 0.015 * q3;
+comp_4=`  float red = tex2D(sampler_main, uv - d).x;
+comp_5=`    float green = tex2D(sampler_main, uv).y;
+comp_6=`    float blue = tex2D(sampler_main, uv + d).z;
+comp_7=`    float3 col = float3(red, green, blue);
+comp_8=`    float3 tint = float3(q5, q6, q7);
+comp_9=`    ret = saturate(col * 1.4 + col * tint * q4);
+comp_10=`}

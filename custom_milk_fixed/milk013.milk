@@ -1,3 +1,4 @@
+// CHANGELOG 2026-06-19 — fix shape_0_per_frame key prefix for projectM parser
 // CHANGELOG 2026-06-12 (Solar Corona WASM upgrade)
 // - Added MILKDROP_PRESET_VERSION=200 + PSVERSION_WARP/COMP=3 for GLES3 HLSL-9
 // - Aspect-corrected polar warp; hot-core corona composite with treb flash
@@ -105,8 +106,8 @@ shapecode_0_border_r=1.000000
 shapecode_0_border_g=0.800000
 shapecode_0_border_b=0.000000
 shapecode_0_border_a=0.500000
-shapecode_0_per_frame1=rad=0.08+q10*0.5
-shapecode_0_per_frame2=a=0.4+q2*0.3
+shape_0_per_frame1=rad=0.08+q10*0.5;
+shape_0_per_frame2=a=0.4+q2*0.3;
 per_frame_1=q1=time*0.6
 per_frame_2=q2=bass_att
 per_frame_3=q3=mid_att

@@ -1,3 +1,4 @@
+// CHANGELOG 2026-06-19 — fix shape_0_per_frame key prefix for projectM parser
 // CHANGELOG 2026-06-12 (Ice Lattice WASM upgrade)
 // - Added MILKDROP_PRESET_VERSION=200 + PSVERSION_WARP/COMP=3 for GLES3 HLSL-9
 // - Aspect-corrected hex ice-lattice warp; rainbow-ice composite with bass brighten
@@ -97,8 +98,8 @@ shapecode_0_border_r=0.400000
 shapecode_0_border_g=0.700000
 shapecode_0_border_b=1.000000
 shapecode_0_border_a=0.400000
-shapecode_0_per_frame1=rad=0.08+q2*0.04
-shapecode_0_per_frame2=ang=q1*0.2
+shape_0_per_frame1=rad=0.08+q2*0.04;
+shape_0_per_frame2=ang=q1*0.2;
 per_frame_1=q1=time
 per_frame_2=q2=bass_att
 per_frame_3=q3=mid_att

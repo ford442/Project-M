@@ -1,6 +1,10 @@
+// CHANGELOG 2026-06-19 — WASM upgrade: added [preset00], shader_body wrappers
+MILKDROP_PRESET_VERSION=200
+PSVERSION=3
 PSVERSION_WARP=3
 PSVERSION_COMP=3
-
+[preset00]
+presetname=Fractal Echo Kimi
 fRating=4.000000
 fGammaAdj=1.900000
 fDecay=0.965000
@@ -77,59 +81,69 @@ per_frame_10=q10=0.15
 per_frame_11=q11=1.0+q2*0.2
 per_frame_12=q12=time*0.5
 
-warp_1=`float2 uvc=uv-0.5;
-warp_2=`float r=length(uvc);
-warp_3=`float a=atan2(uvc.y,uvc.x);
-warp_4=`float seg=6.2831853/q6;
-warp_5=`a=a+seg*0.5;
-warp_6=`a=a-floor(a/seg)*seg;
-warp_7=`a=abs(a-seg*0.5);
-warp_8=`a=a+q5*q1;
-warp_9=`float tunnelR=r*(1.0+q2*0.3*sin(q1*2.5));
-warp_10=`tunnelR=pow(tunnelR,0.5+q4*0.5);
-warp_11=`float2 baseUV=float2(cos(a)*tunnelR,sin(a)*tunnelR);
-warp_12=`float2 e0=baseUV+0.5;
-warp_13=`float3 accum=tex2D(sampler_main,e0).xyz*1.0;
-warp_14=`float twist1=q10*sin(q1*0.8+2.094);
-warp_15=`float c1=cos(twist1); float s1=sin(twist1);
-warp_16=`float2 uv1=baseUV*1.8;
-warp_17=`uv1=float2(uv1.x*c1-uv1.y*s1,uv1.x*s1+uv1.y*c1);
-warp_18=`uv1+=0.5;
-warp_19=`accum+=tex2D(sampler_main,uv1).xyz*0.82;
-warp_20=`float twist2=q10*sin(q1*0.8+4.188);
-warp_21=`float c2=cos(twist2); float s2=sin(twist2);
-warp_22=`float2 uv2=baseUV*2.6;
-warp_23=`uv2=float2(uv2.x*c2-uv2.y*s2,uv2.x*s2+uv2.y*c2);
-warp_24=`uv2+=0.5;
-warp_25=`accum+=tex2D(sampler_main,uv2).xyz*0.67;
-warp_26=`float twist3=q10*sin(q1*0.8+6.283);
-warp_27=`float c3=cos(twist3); float s3=sin(twist3);
-warp_28=`float2 uv3=baseUV*3.4;
-warp_29=`uv3=float2(uv3.x*c3-uv3.y*s3,uv3.x*s3+uv3.y*c3);
-warp_30=`uv3+=0.5;
-warp_31=`accum+=tex2D(sampler_main,uv3).xyz*0.55;
-warp_32=`float3 tint=float3(0.4+q8*0.6,0.2+q3*0.5,0.6+q2*0.4);
-warp_33=`accum*=tint*(1.0+q9*0.3);
-warp_34=`ret=accum;
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.01;
 
-comp_1=`float3 col=tex2D(sampler_main,uv).xyz;
-comp_2=`float2 center=uv-0.5;
-comp_3=`float centerDist=length(center);
-comp_4=`float glow=1.0-smoothstep(0.0,0.45,centerDist);
-comp_5=`glow=pow(glow,2.0);
-comp_6=`float3 glowColor=float3(0.3+q2*0.7,0.15+q8*0.5,0.5+q3*0.5);
-comp_7=`col+=glowColor*glow*(0.15+q3*0.25);
-comp_8=`float ringAngle=atan2(center.y,center.x);
-comp_9=`float ring=sin(ringAngle*3.0+q1*1.5)*0.5+0.5;
-comp_10=`ring*=(1.0-smoothstep(0.1,0.5,centerDist));
-comp_11=`ring*=q3*0.4;
-comp_12=`col+=float3(0.5,0.8,1.0)*ring;
-comp_13=`float vignette=1.0-smoothstep(0.3,0.85,centerDist*(1.0-q2*0.15));
-comp_14=`col*=vignette;
-comp_15=`float luminance=dot(col,float3(0.299,0.587,0.114));
-comp_16=`float overbright=max(luminance-0.7,0.0)*q3*2.0;
-comp_17=`col+=float3(0.8,0.9,1.0)*overbright;
-comp_18=`float3 hueTint=float3(0.5+0.5*sin(q12),0.5+0.5*sin(q12+2.094),0.5+0.5*sin(q12+4.188));
-comp_19=`col*=0.7+hueTint*0.6;
-comp_20=`col*=q11;
-comp_21=`ret=saturate(col);
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 uvc=uv-0.5;
+warp_4=`float r=length(uvc);
+warp_5=`float a=atan2(uvc.y,uvc.x);
+warp_6=`float seg=6.2831853/q6;
+warp_7=`a=a+seg*0.5;
+warp_8=`a=a-floor(a/seg)*seg;
+warp_9=`a=abs(a-seg*0.5);
+warp_10=`a=a+q5*q1;
+warp_11=`float tunnelR=r*(1.0+q2*0.3*sin(q1*2.5));
+warp_12=`tunnelR=pow(tunnelR,0.5+q4*0.5);
+warp_13=`float2 baseUV=float2(cos(a)*tunnelR,sin(a)*tunnelR);
+warp_14=`float2 e0=baseUV+0.5;
+warp_15=`float3 accum=tex2D(sampler_main,e0).xyz*1.0;
+warp_16=`float twist1=q10*sin(q1*0.8+2.094);
+warp_17=`float c1=cos(twist1); float s1=sin(twist1);
+warp_18=`float2 uv1=baseUV*1.8;
+warp_19=`uv1=float2(uv1.x*c1-uv1.y*s1,uv1.x*s1+uv1.y*c1);
+warp_20=`uv1+=0.5;
+warp_21=`accum+=tex2D(sampler_main,uv1).xyz*0.82;
+warp_22=`float twist2=q10*sin(q1*0.8+4.188);
+warp_23=`float c2=cos(twist2); float s2=sin(twist2);
+warp_24=`float2 uv2=baseUV*2.6;
+warp_25=`uv2=float2(uv2.x*c2-uv2.y*s2,uv2.x*s2+uv2.y*c2);
+warp_26=`uv2+=0.5;
+warp_27=`accum+=tex2D(sampler_main,uv2).xyz*0.67;
+warp_28=`float twist3=q10*sin(q1*0.8+6.283);
+warp_29=`float c3=cos(twist3); float s3=sin(twist3);
+warp_30=`float2 uv3=baseUV*3.4;
+warp_31=`uv3=float2(uv3.x*c3-uv3.y*s3,uv3.x*s3+uv3.y*c3);
+warp_32=`uv3+=0.5;
+warp_33=`accum+=tex2D(sampler_main,uv3).xyz*0.55;
+warp_34=`float3 tint=float3(0.4+q8*0.6,0.2+q3*0.5,0.6+q2*0.4);
+warp_35=`accum*=tint*(1.0+q9*0.3);
+warp_36=`ret=accum;
+warp_37=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col=tex2D(sampler_main,uv).xyz;
+comp_4=`float2 center=uv-0.5;
+comp_5=`float centerDist=length(center);
+comp_6=`float glow=1.0-smoothstep(0.0,0.45,centerDist);
+comp_7=`glow=pow(glow,2.0);
+comp_8=`float3 glowColor=float3(0.3+q2*0.7,0.15+q8*0.5,0.5+q3*0.5);
+comp_9=`col+=glowColor*glow*(0.15+q3*0.25);
+comp_10=`float ringAngle=atan2(center.y,center.x);
+comp_11=`float ring=sin(ringAngle*3.0+q1*1.5)*0.5+0.5;
+comp_12=`ring*=(1.0-smoothstep(0.1,0.5,centerDist));
+comp_13=`ring*=q3*0.4;
+comp_14=`col+=float3(0.5,0.8,1.0)*ring;
+comp_15=`float vignette=1.0-smoothstep(0.3,0.85,centerDist*(1.0-q2*0.15));
+comp_16=`col*=vignette;
+comp_17=`float luminance=dot(col,float3(0.299,0.587,0.114));
+comp_18=`float overbright=max(luminance-0.7,0.0)*q3*2.0;
+comp_19=`col+=float3(0.8,0.9,1.0)*overbright;
+comp_20=`float3 hueTint=float3(0.5+0.5*sin(q12),0.5+0.5*sin(q12+2.094),0.5+0.5*sin(q12+4.188));
+comp_21=`col*=0.7+hueTint*0.6;
+comp_22=`col*=q11;
+comp_23=`ret=saturate(col);
+comp_24=`}

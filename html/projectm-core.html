@@ -522,7 +522,7 @@ import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { setupFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
-import { loadScript } from './projectm-init.js';
+import { loadScript, PROJECTM_WASM_SCRIPT } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
@@ -1127,7 +1127,7 @@ function tryStartRenderWorker(mcanvas) {
         const config = resolveRenderWorkerConfig();
         const handle = setupRenderWorker({
             canvas: mcanvas,
-            scriptSrc: new URL('./pm/projectm-v.030-thread.1ijs', import.meta.url).href,
+            scriptSrc: new URL(PROJECTM_WASM_SCRIPT, import.meta.url).href,
             width: mcanvas.width,
             height: mcanvas.height,
             targetFps: config.targetFps,
@@ -1179,7 +1179,7 @@ async function attemptInit() {
         }
 
         if (!Module) {
-            await loadScript("./pm/projectm-v.030-thread.1ijs", { defer: true });
+            await loadScript(PROJECTM_WASM_SCRIPT, { defer: true });
             Module = await createModule();
             globalThis.Module = Module;
         }

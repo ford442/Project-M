@@ -31,9 +31,24 @@ import requests
 PROJECT_NAME: str = "project-m"
 CONTABO_BASE_URL: str = "https://storage.noahcohn.com"
 
-# Files to deploy — globs matched against the project root.
-# These are the compiled WASM + JS output artifacts.
-DEPLOY_FILE_PATTERNS: list = ["*.wasm", "*.1ijs", "*.3ijs"]
+# WASM artifacts at the repo root (built + iconv'd before deploy).
+DEPLOY_FILE_PATTERNS: list = [
+    "projectm-v.*-thread.wasm",
+    "projectm-v.*-thread.1ijs",
+    "projectm-v.*-thread.3ijs",
+    "projectm-v.*-thread.worker.js",
+]
+
+# Host pages load the module from ./pm/…; mirror every WASM artifact there too.
+DEPLOY_MIRROR_SUBDIRS: list = ["pm"]
+
+# Shared browser modules and demo hosts (flattened to the deploy root).
+DEPLOY_HTML_GLOBS: list = [
+    "html/projectm-*.js",
+    "html/projectm-*.1ink",
+    "html/projectm-core.html",
+    "html/projectm-core.css",
+]
 
 # Deploy under this remote folder (empty = use PROJECT_NAME).
 # Matches the original SFTP remote target: projectm.1ink.us/
@@ -46,23 +61,71 @@ DEPLOY_TOKEN: str = os.environ.get("DEPLOY_TOKEN", "")
 HERE = Path(__file__).parent
 
 
-def build_zip() -> bytes:
-    """Zip only the WASM/JS output files from the project root."""
-    buf = io.BytesIO()
+def _unique_paths(paths: list[Path]) -> list[Path]:
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        ordered.append(path)
+    return ordered
+
+
+def collect_deploy_files() -> list[Path]:
     matched: list[Path] = []
     for pattern in DEPLOY_FILE_PATTERNS:
-        matched.extend(sorted(HERE.glob(pattern)))
+        matched.extend(HERE.glob(pattern))
+
+    for pattern in DEPLOY_HTML_GLOBS:
+        matched.extend(HERE.glob(pattern))
+
+    return _unique_paths(matched)
+
+
+def zip_entry_name(file: Path) -> str:
+    """Place html/ sources at the deploy root (hosts import ./projectm-*.js)."""
+    try:
+        relative = file.relative_to(HERE)
+    except ValueError:
+        return file.name
+
+    if relative.parts and relative.parts[0] == "html":
+        return str(Path(*relative.parts[1:]))
+    return file.name
+
+
+def build_zip() -> bytes:
+    """Zip WASM artifacts (plus pm/ mirrors) and shared html host files."""
+    matched = collect_deploy_files()
 
     if not matched:
         print("ERROR: No files matched deploy patterns:")
-        for p in DEPLOY_FILE_PATTERNS:
-            print(f"  {p}")
+        for pattern in DEPLOY_FILE_PATTERNS + DEPLOY_HTML_GLOBS:
+            print(f"  {pattern}")
         sys.exit(1)
 
+    wasm_files = [
+        path for path in matched if path.suffix in {".wasm", ".1ijs", ".3ijs", ".js"}
+        and path.name.startswith("projectm-v.")
+        and "-thread." in path.name
+        and path.parent == HERE
+    ]
+
+    buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for file in matched:
-            zf.write(file, file.name)
-            print(f"  + {file.name}")
+            archive_name = zip_entry_name(file)
+            zf.write(file, archive_name)
+            print(f"  + {archive_name}")
+
+            if file in wasm_files:
+                for subdir in DEPLOY_MIRROR_SUBDIRS:
+                    mirrored = f"{subdir}/{file.name}"
+                    zf.write(file, mirrored)
+                    print(f"  + {mirrored} (mirror)")
+
     return buf.getvalue()
 
 

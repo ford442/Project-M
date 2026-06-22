@@ -1,3 +1,8 @@
+// Bump when publishing a new threaded WASM smoke build. Files must exist under ./pm/
+// after deploy (see scripts/prepare_deploy_bundle.sh and docs/DEPLOYMENT.md).
+export const PROJECTM_WASM_BUNDLE = 'projectm-v.033-thread';
+export const PROJECTM_WASM_SCRIPT = `./pm/${PROJECTM_WASM_BUNDLE}.1ijs`;
+
 export function loadScript(src, {
     documentRef = document,
     async = true,
@@ -19,7 +24,7 @@ export function loadScript(src, {
 }
 
 export async function createProjectMModule({
-    scriptSrc = './pm/projectm-v.030-thread.1ijs',
+    scriptSrc = PROJECTM_WASM_SCRIPT,
     createModuleName = 'createModule',
     windowRef = window
 } = {}) {

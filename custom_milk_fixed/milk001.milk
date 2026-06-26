@@ -1,7 +1,11 @@
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
 [preset00]
-fRating=4.0
-fGammaAdj=2.0
-fDecay=0.98
+fRating=5.0
+fGammaAdj=1.0
+fDecay=0.97
 fVideoEchoZoom=1.0
 fVideoEchoAlpha=0.0
 nVideoEchoOrientation=0
@@ -21,70 +25,230 @@ bInvert=0
 fWaveAlpha=0.001
 fWaveScale=1.002
 fWaveSmoothing=0.261
-fWaveParam=0.0
-fModWaveAlphaStart=0.5
-fModWaveAlphaEnd=1.0
-fWarpAnimSpeed=1.0
+fWaveParam=0.000
+fModWaveAlphaStart=0.500
+fModWaveAlphaEnd=1.000
+fWarpAnimSpeed=1.000
 fWarpScale=1.331
 fZoomExponent=1.0
-fShader=1.0
+fShader=0.0
 zoom=1.0
 rot=0.0
 cx=0.5
 cy=0.5
 dx=0.0
 dy=0.0
+warp=0.0
+sx=1.0
+sy=1.0
+ob_size=0.01
+ib_size=0.01
+mv_a=0.0
 
-per_frame_1=// --- Motion and Segmentation Control ---
-per_frame_2=rot = rot + 0.002;
-per_frame_3=
-per_frame_4=// q1 controls the number of segments.
-per_frame_5=q1 = 1 + 30*(0.5 + 0.5*sin(time*0.15));
-per_frame_6=
-per_frame_7=// q2 controls the transition between smooth and segmented plasma.
-per_frame_8=q2 = 0.5 + 0.5*sin(time*0.4);
-per_frame_9=
-per_frame_10=// Precompute time+rot combinations for performance
-per_frame_11=q3 = time*0.8 + rot;
-per_frame_12=q4 = time*0.9 + rot;
-per_frame_13=q5 = time + rot;
-per_frame_14=q6 = time*0.4;
+per_frame_init_1=`
+    rot = 0;
+    decay = 0.97;
+`
 
-per_pixel_1=// --- Adding Complexity and Detail ---
-per_pixel_2=
-per_pixel_3=// Coordinate setup (with segmentation)
-per_pixel_4=seg_x = floor(uv.x * q1) / q1;
-per_pixel_5=seg_y = floor(uv.y * q1) / q1;
-per_pixel_6=work_x = lerp(uv.x, seg_x, q2);
-per_pixel_7=work_y = lerp(uv.y, seg_y, q2);
-per_pixel_8=
-per_pixel_9=// --- Pattern 1: Soft Background Plasma ---
-per_pixel_10=bg_r = 0.5 + 0.5*sin(work_x*4 + q3);
-per_pixel_11=bg_g = 0.5 + 0.5*sin(work_y*4 + q4);
-per_pixel_12=bg_b = 0.5 + 0.5*sin((work_x+work_y)*2 + q5);
-per_pixel_13=
-per_pixel_14=// --- Pattern 2: Sharp Geometric Overlay ---
-per_pixel_15=// Using abs() for V-shapes and mod() for repeating grids.
-per_pixel_16=sharp_x = 1 - abs(sin(mod(work_x*25 + q6, 6.283)));
-per_pixel_17=sharp_y = 1 - abs(cos(mod(work_y*25 - q6, 6.283)));
-per_pixel_18=
-per_pixel_19=// Squaring the result creates thinner, higher-contrast lines.
-per_pixel_20=sharp_pattern = pow(sharp_x * sharp_y, 3.0);
-per_pixel_21=
-per_pixel_22=// --- Final Compositing ---
-per_pixel_23=// We'll use the soft plasma for base color and the sharp pattern for highlights.
-per_pixel_24=
-per_pixel_25=// Mix the background colors for a richer palette
-per_pixel_26=base_col_r = bg_r*0.7 + bg_g*0.3;
-per_pixel_27=base_col_g = bg_g*0.7 + bg_b*0.3;
-per_pixel_28=base_col_b = bg_b*0.7 + bg_r*0.3;
-per_pixel_29=
-per_pixel_30=// Add the sharp pattern on top of the base colors.
-per_pixel_31=final_r = base_col_r + sharp_pattern*1.8;
-per_pixel_32=final_g = base_col_g + sharp_pattern*1.6;
-per_pixel_33=final_b = base_col_b + sharp_pattern*2.0;
-per_pixel_34=
-per_pixel_35=// Final audio-reactive brightness boost
-per_pixel_36=boost = 2.2 + 0.8*bass_att;
-per_pixel_37=
-per_pixel_38=ret = float3(min(final_r * boost, 1.0), min(final_g * boost, 1.0), min(final_b * boost, 1.0));
+per_frame_1=`
+    // Plasma time phases at different rates
+    q1 = time * 0.8;
+    q2 = time * 0.9;
+    q3 = time * 0.4;
+
+    // Smoothed audio envelopes
+    q4 = bass_att;
+    q5 = mid_att;
+    q6 = treb_att;
+
+    // Segmentation controls (heritage of original milk001)
+    q7 = 1.0 + 30.0 * (0.5 + 0.5 * sin(time * 0.15));
+    q8 = 0.5 + 0.5 * sin(time * 0.4);
+
+    // Rotation accumulator, slightly accelerated by bass
+    rot = rot + 0.002 + 0.001 * bass_att;
+
+    // Kaleidoscope rotation phase (slow drift)
+    q9 = time * 0.25;
+
+    // Swirl strength oscillation
+    q10 = 0.5 + 0.5 * sin(time * 0.07);
+
+    // Slow color hue cycle
+    q11 = time * 0.17;
+
+    // Beat-zoom scale factor
+    q12 = 1.0 + 0.10 * bass_att;
+
+    // Fine detail time phase
+    q13 = time * 1.2;
+
+    // Second domain-warp phase (offset from q1 for variety)
+    q14 = time * 0.95;
+`
+
+warp_1=`
+    float2 d = uv - 0.5;
+    float r = length(d);
+    float a = atan2(d.y, d.x);
+
+    // Radially-varying swirl: peaks at mid-radius
+    float swirl_amt = (q10 * 0.4 + 0.1) * sin(r * 9.0 - q3 * 2.5) * (1.0 - r * 0.8);
+    a += swirl_amt;
+
+    // Reconstruct offset vector from rotated angle
+    float2 sd = float2(cos(a) * r, sin(a) * r);
+
+    // Domain warp pass 1: coarse sine displacement, bass-reactive strength
+    float dw1 = 0.013 + 0.009 * q4;
+    sd.x += sin(sd.y * 8.0 + q1  + r * 5.0) * dw1;
+    sd.y += cos(sd.x * 8.0 + q14 + r * 5.0) * dw1;
+
+    // Domain warp pass 2: fine-grain treble-reactive detail
+    float dw2 = 0.006 + 0.004 * q6;
+    sd.x += sin(sd.y * 18.0 + q13) * dw2;
+    sd.y += cos(sd.x * 18.0 + q13 * 1.1) * dw2;
+
+    // Slight zoom-out on bass beat pulls energy inward
+    float2 wuv = sd / q12 + 0.5;
+
+    ret = tex2D(sampler_main, wuv).xyz;
+`
+
+comp_1=`
+    float twopi = 6.28318;
+
+    // ---- Segmented Coordinates (original milk001 heritage) ----
+    float seg_x0 = floor(uv.x * q7) / q7;
+    float seg_y0 = floor(uv.y * q7) / q7;
+    float wx = lerp(uv.x, seg_x0, q8);
+    float wy = lerp(uv.y, seg_y0, q8);
+
+    // ---- Polar Coordinates from Screen Center ----
+    float2 pc = float2(wx - 0.5, wy - 0.5);
+    float pr = length(pc);
+    float pa = atan2(pc.y, pc.x);
+
+    // ---- Kaleidoscope: 6-fold mirror symmetry ----
+    float fold_n  = 6.0;
+    float seg_ang = twopi / fold_n;
+    float pa_fold = mod(pa + q9, seg_ang);
+    pa_fold = abs(pa_fold - seg_ang * 0.5);   // mirror within each segment
+    float kx = cos(pa_fold) * pr;
+    float ky = sin(pa_fold) * pr;
+
+    // ---- Plasma Layer 1: Coarse (original sin-plasma basis, now kaleidoscoped) ----
+    float bg_r = 0.5 + 0.5 * sin(kx * 5.5 + q1);
+    float bg_g = 0.5 + 0.5 * sin(ky * 5.5 + q2);
+    float bg_b = 0.5 + 0.5 * sin((kx + ky) * 2.8 + q3 * 1.5);
+
+    // ---- Plasma Layer 2: Medium octave ----
+    float m_r = 0.5 + 0.5 * sin(kx * 13.0 + q2 + ky * 3.5);
+    float m_g = 0.5 + 0.5 * sin(ky * 13.0 + q1 + kx * 3.5);
+    float m_b = 0.5 + 0.5 * sin((kx * 9.0 - ky * 9.0) + q3 * 2.5);
+
+    // ---- Plasma Layer 3: Fine octave (treble-driven scale) ----
+    float fine_s = 24.0 + q6 * 14.0;
+    float f_r = 0.3 * sin(kx * fine_s + q13);
+    float f_g = 0.3 * sin(ky * fine_s + q13 * 1.1);
+    float f_b = 0.3 * sin((kx + ky) * fine_s * 0.6 + q14 * 2.0);
+
+    // Cross-channel mixing for richer, less primary-colored palette
+    float3 plasma;
+    plasma.r = bg_r * 0.44 + bg_g * 0.14 + m_r * 0.24 + f_r;
+    plasma.g = bg_g * 0.44 + bg_b * 0.14 + m_g * 0.24 + f_g;
+    plasma.b = bg_b * 0.44 + bg_r * 0.14 + m_b * 0.24 + f_b;
+
+    // Audio color tinting: bass warms, treble cools
+    plasma.r += q4 * 0.35;
+    plasma.g += q5 * 0.12;
+    plasma.b += q6 * 0.30;
+
+    // ---- Grid Layer 1: Cartesian sharp grid (from original milk001) ----
+    float gx = 1.0 - abs(sin(mod(wx * 25.0 + q3, twopi)));
+    float gy = 1.0 - abs(cos(mod(wy * 25.0 - q3, twopi)));
+    float cart_grid = pow(gx * gy, 3.0);
+
+    // ---- Grid Layer 2: Diagonal cross-hatch (new) ----
+    float gd1 = 1.0 - abs(sin(mod((wx + wy) * 18.0 + q1 * 0.5, twopi)));
+    float gd2 = 1.0 - abs(cos(mod((wx - wy) * 18.0 - q1 * 0.5, twopi)));
+    float diag_grid = pow(gd1 * gd2, 3.5) * 0.7;
+
+    // ---- Grid Layer 3: Polar radial + ring grid ----
+    float radials   = sin(pa_fold * fold_n * 2.0 + q1 * 2.5) * 0.5 + 0.5;
+    float ring_lines = sin(pr * 50.0 - q1 * 6.0 + q4 * 12.0) * 0.5 + 0.5;
+    float polar_grid = pow(radials * ring_lines, 2.5) * 0.65;
+
+    float total_grid = max(max(cart_grid, diag_grid), polar_grid);
+
+    // Grid color: treble brightens, bass warms
+    float3 grid_col = float3(
+        0.5 + q6 * 1.4 + q4 * 0.4,
+        0.7 + q5 * 0.8,
+        1.1 + q6 * 0.4 - q4 * 0.3
+    );
+
+    // ---- Central Vortex Glow ----
+    float glow_r    = exp(-pr * 4.8);
+    float3 glow_col = float3(
+        0.85 + sin(q11) * 0.15,
+        0.22 + cos(q11 * 0.7) * 0.22,
+        0.92 - sin(q11 * 0.5) * 0.22
+    ) * glow_r * (0.4 + q4 * 0.9);
+
+    // ---- Mid-radius Halo Ring (matches shape ring below) ----
+    float ring_dist = abs(pr - 0.32);
+    float3 halo_col = float3(
+        0.3 + cos(q11 * 1.3) * 0.3,
+        0.6 + sin(q11 * 0.9) * 0.2,
+        0.9
+    ) * exp(-ring_dist * 42.0) * (0.2 + q5 * 0.6);
+
+    // ---- Compositing ----
+    // Warped feedback from warp stage (already decay-dimmed by fDecay)
+    float3 feedback = tex2D(sampler_main, uv).xyz;
+
+    // Blend evolved feedback with fresh plasma
+    float3 col = lerp(feedback, plasma, 0.55);
+
+    // Add all grid layers
+    col += total_grid * grid_col * (0.75 + q6 * 0.45);
+
+    // Central glow and mid halo on top
+    col += glow_col;
+    col += halo_col;
+
+    // Beat brightness pulse
+    col *= 1.0 + 0.40 * q4;
+
+    // Vignette: smoothly darken corners
+    float2 vc  = uv - 0.5;
+    float  vig = saturate(1.0 - dot(vc * 2.3, vc * 2.3));
+    col *= 0.2 + 0.8 * vig;
+
+    ret = saturate(col);
+`
+
+// Bass-reactive outer ring that locks to the halo in the comp shader
+shapecode_0_enabled=1
+shapecode_0_sides=120
+shapecode_0_additive=1
+shapecode_0_thickoutline=0
+shapecode_0_textured=0
+shapecode_0_num_inst=1
+shapecode_0_x=0.5
+shapecode_0_y=0.5
+shapecode_0_rad=0.32
+shapecode_0_r=0.0
+shapecode_0_g=0.0
+shapecode_0_b=0.0
+shapecode_0_a=0.0
+shapecode_0_border_r=0.5
+shapecode_0_border_g=0.8
+shapecode_0_border_b=1.0
+shapecode_0_border_a=0.3
+shapecode_0_per_frame1=rad=0.32+q4*0.06
+shapecode_0_per_frame2=border_a=0.25+q4*0.55
+shapecode_0_per_frame3=border_r=0.3+sin(q11)*0.3
+shapecode_0_per_frame4=border_g=0.6+cos(q11*0.7)*0.2
+shapecode_0_per_frame5=border_b=0.9+q6*0.1

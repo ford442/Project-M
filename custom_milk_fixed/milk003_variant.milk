@@ -1,0 +1,115 @@
+[preset00]
+fRating=3.0
+fGammaAdj=2.0
+fDecay=0.98
+fVideoEchoZoom=1.0
+fVideoEchoAlpha=0.0
+nVideoEchoOrientation=0
+nWaveMode=0
+bAdditiveWaves=0
+bWaveDots=0
+bWaveThick=0
+bModWaveAlphaByVolume=0
+bMaximizeWaveColor=0
+bTexWrap=1
+bDarkenCenter=0
+bRedBlueStereo=0
+bBrighten=0
+bDarken=0
+bSolarize=0
+bInvert=0
+fWaveAlpha=0.001
+fWaveScale=1.002
+fWaveSmoothing=0.261
+fWaveParam=0.0
+fModWaveAlphaStart=0.5
+fModWaveAlphaEnd=1.0
+fWarpAnimSpeed=1.0
+fWarpScale=1.331
+fZoomExponent=1.0
+fShader=1.0
+zoom=1.003
+rot=0.0
+cx=0.5
+cy=0.5
+dx=0.0
+dy=0.0
+
+per_frame_1=// --- Cosmic mosaic motion ---
+per_frame_2=rot = rot + 0.0018 + 0.0025*bass_att;
+per_frame_3=zoom = 1.002 + 0.012*sin(time*0.19) - 0.007*bass_att;
+per_frame_4=
+per_frame_5=// q1: mosaic tile count (slow breathing grid).
+per_frame_6=q1 = 6 + 34*(0.5 + 0.5*sin(time*0.15));
+per_frame_7=
+per_frame_8=// q2: blend smooth nebula field with faceted mosaic cells.
+per_frame_9=q2 = 0.40 + 0.45*(0.5 + 0.5*sin(time*0.38 + mid_att));
+per_frame_10=
+per_frame_11=// Shared oscillators for the pixel program.
+per_frame_12=q3 = time*0.22 + rot*1.8;
+per_frame_13=q4 = time*0.37 - rot*1.2;
+per_frame_14=q5 = time*0.67 + bass_att*2.5;
+per_frame_15=q6 = time*1.95 + treb_att*3.5;
+per_frame_16=q7 = 5.0 + 3.0*(0.5 + 0.5*sin(time*0.24));
+per_frame_17=q8 = 0.30 + 0.70*bass_att;
+per_frame_18=q9 = time*2.1;
+per_frame_19=
+per_frame_20=// Audio-reactive drift of the nebula core.
+per_frame_21=cx = 0.5 + 0.06*bass_att*sin(time*0.31);
+per_frame_22=cy = 0.5 + 0.06*treb_att*cos(time*0.27);
+
+per_pixel_1=// --- Cosmic plasma mosaic ---
+per_pixel_2=
+per_pixel_3=// Faceted UVs: snap to cell centers for the mosaic layer.
+per_pixel_4=seg_x = (floor(uv.x * q1) + 0.5) / q1;
+per_pixel_5=seg_y = (floor(uv.y * q1) + 0.5) / q1;
+per_pixel_6=
+per_pixel_7=// Blend smooth and segmented space.
+per_pixel_8=work_x = lerp(uv.x, seg_x, q2);
+per_pixel_9=work_y = lerp(uv.y, seg_y, q2);
+per_pixel_10=px = work_x - 0.5;
+per_pixel_11=py = work_y - 0.5;
+per_pixel_12=dist = sqrt(px*px + py*py);
+per_pixel_13=ang = atan2(py, px);
+per_pixel_14=
+per_pixel_15=// Kaleidoscope fold: mirror the nebula into star-petal symmetry.
+per_pixel_16=fold_ang = abs(frac(ang*q7/(6.283) + 0.5) - 0.5) * (6.283/q7);
+per_pixel_17=kale_x = 0.5 + dist*cos(fold_ang);
+per_pixel_18=kale_y = 0.5 + dist*sin(fold_ang);
+per_pixel_19=
+per_pixel_20=// Four-layer plasma field (classic + kaleidoscopic + radial).
+per_pixel_21=v1 = sin(work_x*10.0 + q5);
+per_pixel_22=v2 = sin((work_x*sin(q3) + work_y*cos(q4))*10.0 + q5);
+per_pixel_23=v3 = sin(sqrt(100.0*(px*px + py*py)) + q5);
+per_pixel_24=v4 = sin((kale_x + kale_y)*14.0 - q6 + dist*8.0);
+per_pixel_25=plasma = v1 + v2 + v3 + v4;
+per_pixel_26=
+per_pixel_27=// Nebula bands and a soft central iris.
+per_pixel_28=band = 0.5 + 0.5*sin(dist*(28.0 + 8.0*q8) - q6 + plasma*0.35);
+per_pixel_29=iris = pow(max(0.0, 1.0 - dist*1.45), 2.2);
+per_pixel_30=
+per_pixel_31=// Mosaic grout: thin glowing seams between cells.
+per_pixel_32=grid_x = 1.0 - abs(sin(uv.x*q1*3.14159));
+per_pixel_33=grid_y = 1.0 - abs(sin(uv.y*q1*3.14159));
+per_pixel_34=grout = pow(max(grid_x, grid_y), 14.0) * (0.45 + 0.55*q2);
+per_pixel_35=
+per_pixel_36=// Stellar flares along folded petals plus fine stardust.
+per_pixel_37=flare = pow(max(0.0, sin((fold_ang + dist*6.0)*20.0 + q6)), 20.0) * treb_att;
+per_pixel_38=dust = (1.0 - dist) * step(0.985, sin((ang + q9)*14.0)) * (0.25 + 0.75*mid_att);
+per_pixel_39=sparkle = flare*(0.55 + iris) + dust*0.65;
+per_pixel_40=
+per_pixel_41=// Aurora palette: violet shadows, teal mids, rose highlights.
+per_pixel_42=base_r = 0.08 + 0.38*sin(plasma*1.05 + q6) + 0.28*band + 0.22*grout;
+per_pixel_43=base_g = 0.12 + 0.42*sin(plasma*1.05 + q6 + 2.1) + 0.32*iris + 0.18*grout;
+per_pixel_44=base_b = 0.22 + 0.48*sin(plasma*1.05 + q6 + 4.2) + 0.26*band + 0.30*grout;
+per_pixel_45=
+per_pixel_46=rose = pow(band*iris, 2.5) * (0.55 + 0.65*treb_att);
+per_pixel_47=teal = pow(max(0.0, v4*0.25 + 0.5), 3.0) * (0.40 + 0.60*mid_att);
+per_pixel_48=vignette = 0.40 + 0.60*max(0.0, 1.0 - dist*1.10);
+per_pixel_49=boost = 1.00 + 0.70*bass_att + 0.20*mid_att;
+per_pixel_50=
+per_pixel_51=final_r = (base_r + rose*1.10 + sparkle*0.95 + teal*0.15) * vignette * boost;
+per_pixel_52=final_g = (base_g + rose*0.55 + sparkle*0.80 + teal*1.05) * vignette * boost;
+per_pixel_53=final_b = (base_b + rose*0.35 + sparkle*1.25 + teal*0.45) * vignette * boost;
+per_pixel_54=
+per_pixel_55=ret = float3(min(final_r, 1.0), min(final_g, 1.0), min(final_b, 1.0));

@@ -32,17 +32,23 @@ publish a new smoke build.
 ## Usage
 
 ```bash
-# 1. Build + stage artifacts at repo root and pm/
-PROJECTM_WASM_VERSION=033 \
+# 0. Activate Emscripten (once per shell). SDK 3.1.53 recommended.
+source /path/to/emsdk/emsdk_env.sh
+
+# 1. Build + install libprojectM static libs for wasm (required before staging)
+INSTALL_DIR=install scripts/build_wasm_install.sh
+
+# 2. Build wrapper + stage artifacts at repo root and pm/
+PROJECTM_WASM_VERSION=034 \
   INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
   scripts/prepare_deploy_bundle.sh
 
-# 2. Upload
+# 3. Upload
 export DEPLOY_TOKEN="your_long_token_from_vps_env"
 python deploy.py
 
-# 3. Verify (no HTML 404s under pm/)
-scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.033-thread
+# 4. Verify (no HTML 404s under pm/)
+scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.034-thread
 scripts/check_coop_coep.sh https://projectm.1ink.us/
 ```
 

@@ -2,7 +2,12 @@
 # Prepare WASM + iconv artifacts at the repo root (and pm/ mirror) before deploy.py.
 #
 # Usage:
-#   PROJECTM_WASM_VERSION=033 \
+#   # First-time / after C++ changes: build and install Emscripten static libs
+#   source /path/to/emsdk/emsdk_env.sh
+#   INSTALL_DIR=install scripts/build_wasm_install.sh
+#
+#   # Then stage deploy artifacts
+#   PROJECTM_WASM_VERSION=034 \
 #     INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
 #     scripts/prepare_deploy_bundle.sh
 #
@@ -16,7 +21,24 @@ set -euo pipefail
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 INSTALL_DIR="${INSTALL_DIR:-"$PROJECT_ROOT/install"}"
 OUT_DIR="${OUT_DIR:-"$PROJECT_ROOT/cmake-build/wasm-smoke"}"
-PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-033}"
+PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-034}"
+
+projectm_lib="$INSTALL_DIR/lib/libprojectM-4.a"
+playlist_lib="$INSTALL_DIR/lib/libprojectM-4-playlist.a"
+
+if [[ ! -s "$projectm_lib" || ! -s "$playlist_lib" ]]; then
+    echo "Missing Emscripten static libraries under $INSTALL_DIR/lib/" >&2
+    echo "Run the WASM install step first (requires emcc):" >&2
+    echo "  source /path/to/emsdk/emsdk_env.sh" >&2
+    echo "  INSTALL_DIR=$INSTALL_DIR scripts/build_wasm_install.sh" >&2
+    echo >&2
+    echo "Or, if you already built elsewhere, point INSTALL_DIR at that prefix." >&2
+    if [[ "${PROJECTM_AUTO_BUILD_WASM:-0}" == "1" ]]; then
+        INSTALL_DIR="$INSTALL_DIR" bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
+    else
+        exit 1
+    fi
+fi
 
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
 src_js="$OUT_DIR/${bundle}.js"

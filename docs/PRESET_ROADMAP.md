@@ -7,8 +7,9 @@ progress bar live in the GitHub epic
 ([Linear JUL-981](https://linear.app/jules-1inkus/issue/JUL-981));
 this file is the in-repo companion so the plan travels with the code.
 
-**Status (2026-07-10):** **7/8** sub-issues closed. M1 + M2 complete. M3 in progress
-(only [#118](https://github.com/ford442/Project-M/issues/118) remains open).
+**Status (2026-07-10):** **8/8** sub-issues closed. M1 + M2 + M3 complete.
+Experimental hooks documented in [`EXPERIMENTAL_PRESET_HOOKS.md`](EXPERIMENTAL_PRESET_HOOKS.md)
+(issue [#118](https://github.com/ford442/Project-M/issues/118)).
 
 ## Goals
 
@@ -47,12 +48,12 @@ shipped, Signature Series workflow documented with a first batch.
 - #114 — Preset metadata, tagging, search/browser improvements
 - #113 — Systematic workflow + tooling for new custom presets (Signature Series)
 
-### M3 — Explore & Maintain (`P2`) — **in progress**
+### M3 — Explore & Maintain (`P2`) — **complete**
 Upstream sync cadence established, experimental feature prototypes evaluated.
 - #116 — Monitor upstream `projectM-visualizer/projectm` and evaluate backports
   — see [`UPSTREAM_SYNC.md`](UPSTREAM_SYNC.md) + `scripts/upstream_sync_check.sh` · **done**
 - #118 — Explore experimental features (Depth Anything, glTF, Transformers.js)
-  — see [`EXPERIMENTAL_PRESET_HOOKS.md`](EXPERIMENTAL_PRESET_HOOKS.md) · **open**
+  — see [`EXPERIMENTAL_PRESET_HOOKS.md`](EXPERIMENTAL_PRESET_HOOKS.md) · **done**
 
 ## Tracked Sub-Issues
 
@@ -72,7 +73,7 @@ Upstream sync cadence established, experimental feature prototypes evaluated.
 | Issue | Area | Priority | Milestone | Status |
 |-------|------|----------|-----------|--------|
 | [#113](https://github.com/ford442/Project-M/issues/113) | Systematic workflow + tooling for new custom presets (Signature Series) | `P1` | M2 | closed |
-| [#118](https://github.com/ford442/Project-M/issues/118) | Explore experimental features (Depth Anything, glTF, Transformers.js) with presets | `P2` | M3 | **open** |
+| [#118](https://github.com/ford442/Project-M/issues/118) | Explore experimental features (Depth Anything, glTF, Transformers.js) with presets | `P2` | M3 | closed |
 
 ## Working Corpora & Tooling
 

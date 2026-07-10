@@ -86,7 +86,13 @@ async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenRead
     } else if (module._load_preset_file) {
         module._load_preset_file(vfsPath);
     }
-    updatePresetDisplay(displayName || vfsPath);
+    let milkText;
+    try {
+        milkText = new TextDecoder().decode(bytes);
+    } catch (_) {
+        milkText = undefined;
+    }
+    updatePresetDisplay(displayName || vfsPath, { text: milkText });
     if (typeof startTransitionWhenReady === 'function') {
         await startTransitionWhenReady();
     }

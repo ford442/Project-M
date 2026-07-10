@@ -19,6 +19,7 @@ export function parseExperimentalMetadata(milkText) {
     const match = milkText.match(PM_EXPERIMENTAL_HEADER);
     if (!match) return meta;
     for (const token of match[1].split(/\s+/)) {
+        if (!token) continue;
         const eq = token.indexOf('=');
         if (eq === -1) {
             meta[token] = 'true';
@@ -27,6 +28,17 @@ export function parseExperimentalMetadata(milkText) {
         }
     }
     return meta;
+}
+
+/**
+ * True when a preset opts into experimental host features.
+ * @param {Record<string, string>} meta
+ */
+export function wantsExperimentalDepth(meta) {
+    if (!meta || typeof meta !== 'object') return false;
+    return meta.depth === 'auto'
+        || Boolean(meta['depth-texture'])
+        || meta.depth === 'true';
 }
 
 function decodeUtf32Module(uint8Array, littleEndian = true) {
@@ -60,11 +72,6 @@ export function injectVfsTexture(module, vfsPath, bytes) {
     module.FS.writeFile(vfsPath, bytes);
 }
 
-async function dataUrlToBytes(dataUrl) {
-    const res = await fetch(dataUrl);
-    return new Uint8Array(await res.arrayBuffer());
-}
-
 async function imageToPngBytes(imageSource, maxSize = 512) {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -87,6 +94,7 @@ async function imageToPngBytes(imageSource, maxSize = 512) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, width, height);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('Failed to encode PNG');
     return new Uint8Array(await blob.arrayBuffer());
 }
 
@@ -118,9 +126,14 @@ export async function loadDepthModule(url = DEFAULT_DEPTH_MODULE_URL) {
     return window.__pmDepthModuleLoading;
 }
 
+/**
+ * Post an *input* image into the Depth Anything pipeline.
+ * Legacy B3HD uses BroadcastChannel('imageChannel') for inputs only.
+ * Results appear on #resultImage (or messages with role=depth-result).
+ */
 function postImageToDepthPipeline(imageDataUrl) {
     const ch = new BroadcastChannel('imageChannel');
-    ch.postMessage({ imageDataURL: imageDataUrl });
+    ch.postMessage({ imageDataURL: imageDataUrl, role: 'depth-input' });
     ch.close();
 }
 
@@ -128,6 +141,22 @@ function requestGltfLoad(title) {
     const ch = new BroadcastChannel('loaderChannel');
     ch.postMessage({ GLloc: title || 'projectm_snapshot' });
     ch.close();
+}
+
+/**
+ * Ensure a hidden #resultImage exists so the depth module can write results
+ * even on projectm-core.html (which has no legacy depth DOM).
+ */
+function ensureResultImage() {
+    let el = document.getElementById('resultImage');
+    if (el) return el;
+    el = document.createElement('img');
+    el.id = 'resultImage';
+    el.alt = 'Depth Anything result';
+    el.hidden = true;
+    el.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(el);
+    return el;
 }
 
 /**
@@ -151,6 +180,7 @@ export async function applyDepthTexture(module, depthImageSource, options = {}) 
 
 /**
  * Capture the live visualization canvas and run it through the depth pipeline.
+ * Does not inject the raw canvas as a texture — waits for depth model output.
  */
 export async function captureCanvasForDepth(module, canvas, options = {}) {
     if (!canvas) throw new Error('Canvas not found');
@@ -158,6 +188,30 @@ export async function captureCanvasForDepth(module, canvas, options = {}) {
     await loadDepthModule(options.depthModuleUrl);
     postImageToDepthPipeline(dataUrl);
     return dataUrl;
+}
+
+/**
+ * Build Milkdrop user-sprite code that layers the depth texture as a parallax overlay.
+ * Call via create_sprite-style host API when available; otherwise useful as a template.
+ * @param {{ image?: string, scale?: number, blendmode?: number }} opts
+ */
+export function buildDepthSpriteCode(opts = {}) {
+    const image = opts.image || `textures/${DEPTH_TEXTURE_NAME}`;
+    const scale = Number.isFinite(opts.scale) ? opts.scale : 1.0;
+    const blendmode = Number.isFinite(opts.blendmode) ? opts.blendmode : 1;
+    return [
+        '[preset01]',
+        `img='${image}';`,
+        `per_frame_1=blendmode=${blendmode};`,
+        'per_frame_2=x=0.5;',
+        'per_frame_3=y=0.5;',
+        'per_frame_4=z=0.0;',
+        `per_frame_5=scaling=${scale};`,
+        'per_pixel_1=a=0.55+0.35*bass_att;',
+        'per_pixel_2=r=1.0;',
+        'per_pixel_3=g=1.0;',
+        'per_pixel_4=b=1.0;'
+    ].join('\n');
 }
 
 /**
@@ -173,38 +227,69 @@ export function setupExperimentalBridge(module, options = {}) {
     const state = {
         enabled: true,
         lastMetadata: {},
+        lastMilkText: '',
         depthModuleUrl,
-        pendingSource: null
+        pendingSource: null,
+        lastResultSrc: null,
+        lastDepthVfsPath: null
     };
 
     window.pmExperimental = {
         state,
         parseExperimentalMetadata,
+        wantsExperimentalDepth,
         injectVfsTexture,
         applyDepthTexture: (src, opts) => applyDepthTexture(module, src, opts),
         captureCanvasForDepth: (canvas, opts) => captureCanvasForDepth(module, canvas, { depthModuleUrl, ...opts }),
         loadDepthModule: () => loadDepthModule(depthModuleUrl),
         postImageToDepthPipeline,
         requestGltfLoad,
-        /** Feed an upload / example image into Depth Anything, then bind result to presets. */
-        async runDepthFromUpload(imageDataUrl, reloadOptions = {}) {
+        buildDepthSpriteCode,
+        /** Feed an upload / example image into Depth Anything (input only). */
+        async runDepthFromUpload(imageDataUrl) {
             await loadDepthModule(depthModuleUrl);
             postImageToDepthPipeline(imageDataUrl);
             state.pendingSource = imageDataUrl;
             return imageDataUrl;
+        },
+        /** Manually bind the current #resultImage (or any data URL) as pm_depth_map.png. */
+        async bindDepthResult(src) {
+            const source = src || document.getElementById('resultImage')?.src;
+            if (!source) throw new Error('No depth result available');
+            const path = await applyDepthTexture(module, source, {
+                reloadPresetPath: window.currentPresetPath,
+                displayName: window.currentPresetName
+            });
+            state.lastDepthVfsPath = path;
+            return path;
+        },
+        /**
+         * Attempt user-sprite overlay via the hard-coded create_sprite export if present,
+         * after rewriting is not available — logs sprite code for manual use.
+         */
+        spawnDepthSpriteHint() {
+            const code = buildDepthSpriteCode();
+            console.info('[pm:experimental] depth sprite template (paste into create_sprite host or Milkdrop sprite):\n', code);
+            setStatus('Depth sprite template logged to console');
+            return code;
         }
     };
 
-    // Legacy B3HD channels — depth module posts results here; glTF loader listens here.
+    // Inputs travel on imageChannel; only *results* (role=depth-result or explicit flag)
+    // are auto-injected. Legacy posts without a role are treated as inputs.
     const imageChannel = new BroadcastChannel('imageChannel');
     imageChannel.addEventListener('message', async (event) => {
-        const url = event.data?.imageDataURL || event.data?.data;
+        const data = event.data || {};
+        const isResult = data.role === 'depth-result' || data.depthResult === true;
+        if (!isResult) return;
+        const url = data.imageDataURL || data.data;
         if (!url) return;
         try {
             await applyDepthTexture(module, url, {
                 reloadPresetPath: window.currentPresetPath,
                 displayName: window.currentPresetName
             });
+            state.lastDepthVfsPath = DEPTH_VFS_PATH;
             setStatus('Depth map injected as pm_depth_map.png');
         } catch (err) {
             console.warn('[pm:experimental] depth inject failed:', err);
@@ -212,53 +297,63 @@ export function setupExperimentalBridge(module, options = {}) {
         }
     });
 
-    const resultImage = document.getElementById('resultImage');
-    if (resultImage) {
-        const observer = new MutationObserver(async () => {
-            if (!resultImage.src || resultImage.src === state.lastResultSrc) return;
-            state.lastResultSrc = resultImage.src;
-            try {
-                await applyDepthTexture(module, resultImage.src, {
-                    reloadPresetPath: window.currentPresetPath,
-                    displayName: window.currentPresetName
-                });
-                setStatus('Depth result bound to preset textures');
-            } catch (err) {
-                console.warn('[pm:experimental] resultImage hook failed:', err);
-            }
-        });
-        observer.observe(resultImage, { attributes: true, attributeFilter: ['src'] });
-    }
+    const resultImage = ensureResultImage();
+    const observer = new MutationObserver(async () => {
+        if (!resultImage.src || resultImage.src === state.lastResultSrc) return;
+        // Ignore empty data URLs / about:blank
+        if (resultImage.src === 'about:blank' || resultImage.src.endsWith('#')) return;
+        state.lastResultSrc = resultImage.src;
+        try {
+            await applyDepthTexture(module, resultImage.src, {
+                reloadPresetPath: window.currentPresetPath,
+                displayName: window.currentPresetName
+            });
+            state.lastDepthVfsPath = DEPTH_VFS_PATH;
+            setStatus('Depth result bound to preset textures');
+        } catch (err) {
+            console.warn('[pm:experimental] resultImage hook failed:', err);
+            setStatus(`Depth bind failed: ${err.message}`, true);
+        }
+    });
+    observer.observe(resultImage, { attributes: true, attributeFilter: ['src'] });
 
     window.addEventListener('pm:preset-loaded', async (event) => {
         const { name, path, text: detailText } = event.detail || {};
-        let milkText = detailText || '';
+        let milkText = detailText || state.lastMilkText || '';
         if (!milkText && path && module?.FS) {
             try {
                 milkText = new TextDecoder().decode(module.FS.readFile(path));
             } catch (_) { /* preset may live outside VFS */ }
         }
+        if (milkText) state.lastMilkText = milkText;
         const meta = parseExperimentalMetadata(milkText);
         state.lastMetadata = meta;
         if (!Object.keys(meta).length) return;
 
-        if (meta.depth === 'auto' || meta['depth-texture']) {
-            const source = meta['depth-source'] || state.pendingSource;
+        if (wantsExperimentalDepth(meta)) {
+            const source = meta['depth-source'] === 'upload'
+                ? state.pendingSource
+                : (state.pendingSource || null);
             if (source) {
                 setStatus('Preset requests depth map — processing…');
-                await window.pmExperimental.runDepthFromUpload(source, {
-                    reloadPresetPath: window.currentPresetPath,
-                    displayName: name
-                });
+                await window.pmExperimental.runDepthFromUpload(source);
+            } else if (state.lastDepthVfsPath) {
+                setStatus('Preset uses depth texture (already injected)');
             } else {
-                setStatus('Preset wants depth:auto — upload an image or capture canvas', true);
+                setStatus('Preset wants depth — upload an image or capture canvas', true);
             }
         }
 
         if (meta['gltf-export'] === 'true' || meta['gltf-export'] === 'on-lock') {
             // Coordinator only — actual Three.js export lives in the legacy depth/glTF module.
             window.pmExperimental._gltfExportMode = meta['gltf-export'];
+            setStatus(`glTF export mode: ${meta['gltf-export']}`);
         }
+    });
+
+    // Remember milk text from local loads so depth:auto works without re-reading VFS races.
+    window.addEventListener('pm:preset-text', (event) => {
+        if (event.detail?.text) state.lastMilkText = event.detail.text;
     });
 
     injectPanel(module, state);
@@ -294,6 +389,10 @@ function injectPanel(module, state) {
 #pm-experimental-panel .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 #pm-experimental-panel .pm-experimental-status { margin-top: 6px; min-height: 1.2em; color: #86efac; }
 #pm-experimental-panel .pm-experimental-status.err { color: #fca5a5; }
+#pm-experimental-panel label.file-btn {
+  background: #4c1d95; color: #f5f3ff; border: 1px solid #a78bfa;
+  border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px;
+}
 `;
     document.head.appendChild(style);
 
@@ -304,11 +403,15 @@ function injectPanel(module, state) {
 <div class="row">
   <button type="button" id="pm-exp-load-depth">Load depth AI</button>
   <button type="button" id="pm-exp-capture">Depth from canvas</button>
-  <button type="button" id="pm-exp-gltf-load">glTF load</button>
-  <button type="button" id="pm-exp-gltf-save">glTF save</button>
+  <button type="button" id="pm-exp-bind">Bind result</button>
 </div>
 <div class="row">
-  <label style="cursor:pointer"><input type="file" id="pm-exp-upload" accept="image/*" hidden />Upload image</label>
+  <button type="button" id="pm-exp-gltf-load">glTF load</button>
+  <button type="button" id="pm-exp-gltf-save">glTF save</button>
+  <button type="button" id="pm-exp-sprite">Sprite template</button>
+</div>
+<div class="row">
+  <label class="file-btn"><input type="file" id="pm-exp-upload" accept="image/*" hidden />Upload image</label>
 </div>
 <div id="pm-experimental-status" class="pm-experimental-status">Idle</div>
 `;
@@ -329,7 +432,17 @@ function injectPanel(module, state) {
         try {
             setStatus('Capturing canvas → depth pipeline…');
             await captureCanvasForDepth(module, canvas, { depthModuleUrl: state.depthModuleUrl });
-            setStatus('Sent canvas frame to depth pipeline');
+            setStatus('Sent canvas frame to depth pipeline (await result)');
+        } catch (err) {
+            setStatus(err.message, true);
+        }
+    });
+
+    document.getElementById('pm-exp-bind')?.addEventListener('click', async () => {
+        try {
+            setStatus('Binding depth result…');
+            await window.pmExperimental.bindDepthResult();
+            setStatus('Depth result bound');
         } catch (err) {
             setStatus(err.message, true);
         }
@@ -344,7 +457,7 @@ function injectPanel(module, state) {
                 setStatus('Upload → depth pipeline…');
                 await window.pmExperimental.runDepthFromUpload(reader.result);
                 state.pendingSource = reader.result;
-                setStatus('Image sent to depth pipeline');
+                setStatus('Image sent to depth pipeline (await result)');
             } catch (err) {
                 setStatus(err.message, true);
             }
@@ -366,5 +479,9 @@ function injectPanel(module, state) {
         if (savedName) savedName.value = title || '';
         setStatus(`Ready for glTF save: ${title || '(untitled)'}`);
         window.dispatchEvent(new CustomEvent('pm:gltf-save-requested', { detail: { title } }));
+    });
+
+    document.getElementById('pm-exp-sprite')?.addEventListener('click', () => {
+        window.pmExperimental.spawnDepthSpriteHint();
     });
 }

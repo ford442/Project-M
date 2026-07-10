@@ -10,7 +10,9 @@ export function updatePresetDisplay(name, {
     documentRef = document,
     windowRef = window,
     selector = '#preset-name',
-    prefix = 'Preset: '
+    prefix = 'Preset: ',
+    /** Optional .milk source text for experimental metadata / host bridges. */
+    text = undefined
 } = {}) {
     if (!name) return;
     const basename = String(name).split('/').pop();
@@ -24,9 +26,12 @@ export function updatePresetDisplay(name, {
     if (el) {
         el.textContent = prefix + basename;
     }
-    windowRef.dispatchEvent(new CustomEvent('pm:preset-loaded', {
-        detail: { name: basename, path: windowRef.currentPresetPath || name }
-    }));
+    const detail = { name: basename, path: windowRef.currentPresetPath || name };
+    if (typeof text === 'string') {
+        detail.text = text;
+        windowRef.dispatchEvent(new CustomEvent('pm:preset-text', { detail: { text, path: detail.path } }));
+    }
+    windowRef.dispatchEvent(new CustomEvent('pm:preset-loaded', { detail }));
 }
 
 export function getPresetDir({
@@ -254,8 +259,14 @@ export async function loadLocalPresetFile(file, {
     if (startTransitionWhenReady) {
         startTransitionWhenReady({ module });
     }
+    let milkText;
+    try {
+        milkText = new TextDecoder().decode(bytes);
+    } catch (_) {
+        milkText = undefined;
+    }
     if (updateDisplay) {
-        updatePresetDisplay(vfsPath, { documentRef });
+        updatePresetDisplay(vfsPath, { documentRef, text: milkText });
     }
     if (rememberLast) {
         localStorage.setItem(LOCAL_PRESET_LAST_NAME_KEY, file.name);

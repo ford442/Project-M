@@ -1,0 +1,67 @@
+// Signature Series | experimental glTF export flag demo
+// pm:experimental gltf-export=true
+// tags: experimental, gltf, export
+// tier: light
+// reactivity: low
+// author: projectM-experimental-bridge
+//
+// Host coordinator only: when loaded with ?experimental=1, the bridge sets
+// pmExperimental._gltfExportMode and the experimental panel can request a
+// Three.js glTF save via BroadcastChannel/loaderChannel. Does not change
+// Milkdrop rendering — safe without the experimental bridge.
+MILKDROP_PRESET_VERSION=201
+PSVERSION=2
+PSVERSION_WARP=2
+PSVERSION_COMP=2
+[preset00]
+fRating=2.0
+fGammaAdj=1.0
+fDecay=0.98
+fVideoEchoZoom=1.0
+fVideoEchoAlpha=0.0
+nVideoEchoOrientation=0
+nWaveMode=0
+bAdditiveWaves=0
+bWaveDots=0
+bWaveThick=1
+bModWaveAlphaByVolume=0
+bMaximizeWaveColor=1
+bTexWrap=1
+bDarkenCenter=0
+bRedBlueStereo=0
+bBrighten=0
+bDarken=0
+bSolarize=0
+bInvert=0
+fWaveAlpha=0.9
+fWaveScale=0.8
+fWaveSmoothing=0.75
+fWaveParam=0.0
+fModWaveAlphaStart=0.75
+fModWaveAlphaEnd=0.95
+fWarpAnimSpeed=1.0
+fWarpScale=1.0
+fZoomExponent=1.0
+fShader=0.0
+zoom=1.004
+rot=0.0
+cx=0.5
+cy=0.5
+dx=0.0
+dy=0.0
+warp=0.0
+sx=1.0
+sy=1.0
+wave_r=0.6
+wave_g=0.85
+wave_b=1.0
+wave_x=0.5
+wave_y=0.5
+ob_size=0.0
+ib_size=0.0
+mv_a=0.0
+
+per_frame_1=wave_r=0.5+0.3*sin(time*0.4)
+per_frame_2=wave_g=0.6+0.2*cos(time*0.3)
+per_frame_3=wave_b=0.9+0.1*bass_att
+per_frame_4=zoom=1.004+mid_att*0.004

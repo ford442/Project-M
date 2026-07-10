@@ -522,7 +522,7 @@ import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { setupFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
-import { loadScript, PROJECTM_WASM_SCRIPT } from './projectm-init.js';
+import { loadProjectMWasmScript, resolveWasmScriptUrl } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
@@ -1161,12 +1161,16 @@ function resolveRenderWorkerConfig() {
 // Attempts to move rendering into a dedicated OffscreenCanvas worker. Resolves
 // to a render-worker handle on success, or null if unsupported/failed (caller
 // falls back to the normal main-thread path, which remains unchanged).
-function tryStartRenderWorker(mcanvas) {
+async function tryStartRenderWorker(mcanvas) {
+    const config = resolveRenderWorkerConfig();
+    const scriptSrc = new URL(
+        await resolveWasmScriptUrl({ baseUrl: import.meta.url }),
+        import.meta.url
+    ).href;
     return new Promise((resolve) => {
-        const config = resolveRenderWorkerConfig();
         const handle = setupRenderWorker({
             canvas: mcanvas,
-            scriptSrc: new URL(PROJECTM_WASM_SCRIPT, import.meta.url).href,
+            scriptSrc,
             width: mcanvas.width,
             height: mcanvas.height,
             targetFps: config.targetFps,
@@ -1218,7 +1222,7 @@ async function attemptInit() {
         }
 
         if (!Module) {
-            await loadScript(PROJECTM_WASM_SCRIPT, { defer: true });
+            await loadProjectMWasmScript({ defer: true });
             Module = await createModule();
             globalThis.Module = Module;
         }

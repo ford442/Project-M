@@ -2,15 +2,15 @@
 # Verify deployed WASM + host assets return 200 (not HTML 404 pages).
 #
 # Usage:
-#   scripts/verify_deploy_urls.sh [BASE_URL] [BUNDLE projectm-v.033-thread]
+#   scripts/verify_deploy_urls.sh [BASE_URL] [BUNDLE projectm-v.034-thread]
 #
 # Example:
-#   scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.033-thread
+#   scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.034-thread
 
 set -euo pipefail
 
 BASE_URL="${1:-https://projectm.1ink.us/}"
-BUNDLE="${2:-projectm-v.033-thread}"
+BUNDLE="${2:-projectm-v.034-thread}"
 BASE_URL="${BASE_URL%/}"
 
 paths=(

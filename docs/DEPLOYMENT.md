@@ -26,7 +26,7 @@ root, because hosts `import './projectm-*.js'`):
 - `projectm-*.js`, `projectm-*.1ink`, `projectm-core.html`, `projectm-core.css`
 
 The active bundle version is defined once in `html/projectm-init.js`
-(`PROJECTM_WASM_BUNDLE`, currently `projectm-v.033-thread`). Bump it when you
+(`PROJECTM_WASM_BUNDLE`, currently `projectm-v.034-thread`). Bump it when you
 publish a new smoke build.
 
 ## Usage
@@ -177,7 +177,7 @@ console on the deployed page: `crossOriginIsolated` should be `true`.
 
 | Symptom | Typical cause | Fix |
 |---------|---------------|-----|
-| `Unexpected token '<'` loading `projectm-v.*.1ijs` | `./pm/…` path 404 (Apache returns HTML) | Re-run `python deploy.py` after `prepare_deploy_bundle.sh` so `pm/` mirrors exist; or copy all four artifacts into your site's `pm/` folder |
+| `Unexpected token '<'` loading `projectm-v.*.1ijs` | `./pm/…` path 404 (Apache returns HTML) | Re-run `python deploy.py` after `prepare_deploy_bundle.sh` so `pm/` mirrors exist; or copy all four artifacts into your site's `pm/` folder. Hosts also fall back to `./projectm-v.*-thread.1ijs` at the site root when `pm/` is missing (`resolveWasmScriptUrl()` in `projectm-init.js`). |
 | Module loads but WASM fails | `.wasm` missing next to the `.1ijs` under the same directory | Deploy/copy `pm/projectm-v.<ver>-thread.wasm` alongside the `.1ijs` |
 | `projectm_panel2.1ink` 404 on `projectm-*.js` | Only WASM was deployed; HTML modules were not | Include `html/projectm-*.js` in the bundle (`deploy.py` does this automatically) |
 | Duplicate script tags (root + `pm/`) | Custom host loads `./projectm-v.*.1ijs` and `./pm/…` | Load **only** from `./pm/` via `PROJECTM_WASM_SCRIPT` in `projectm-init.js` |

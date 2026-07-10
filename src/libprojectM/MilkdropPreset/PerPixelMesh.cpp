@@ -144,7 +144,7 @@ void PerPixelMesh::InitializeMesh(const PresetState& presetState)
     // Either viewport size or mesh size changed, reinitialize the vertices.
     auto& vertices = m_warpMesh.Vertices();
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for collapse(2) schedule(static)
 #endif
     for (int gridY = 0; gridY <= m_gridSizeY; gridY++)
     {
@@ -168,39 +168,49 @@ void PerPixelMesh::InitializeMesh(const PresetState& presetState)
         }
     }
 
-    // Generate triangle lists for drawing the main warp mesh
-    int vertexListIndex{0};
-    for (int quadrant = 0; quadrant < 4; quadrant++)
+    // Generate triangle lists for drawing the main warp mesh.
+    // Flatten (quadrant, slice, gridX) -> cellIndex so each thread writes a
+    // disjoint 6-index slice of m_warpMesh.Indices().
+    const int halfGridX = m_gridSizeX / 2;
+    const int halfGridY = m_gridSizeY / 2;
+    const int cellsPerQuadrant = halfGridX * halfGridY;
+    const int totalCells = 4 * cellsPerQuadrant;
+
+#ifdef PRJM_ENABLE_OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (int cellIndex = 0; cellIndex < totalCells; cellIndex++)
     {
-        for (int slice = 0; slice < m_gridSizeY / 2; slice++)
+        const int quadrant = cellIndex / cellsPerQuadrant;
+        const int local = cellIndex % cellsPerQuadrant;
+        const int slice = local / halfGridX;
+        const int gridX = local % halfGridX;
+        const int vertexListIndex = cellIndex * 6;
+
+        int xReference = gridX;
+        int yReference = slice;
+
+        if ((quadrant & 1) != 0)
         {
-            for (int gridX = 0; gridX < m_gridSizeX / 2; gridX++)
-            {
-                int xReference = gridX;
-                int yReference = slice;
-
-                if ((quadrant & 1) != 0)
-                {
-                    xReference = m_gridSizeX - 1 - xReference;
-                }
-                if ((quadrant & 2) != 0)
-                {
-                    yReference = m_gridSizeY - 1 - yReference;
-                }
-
-                int const vertex = xReference + yReference * (m_gridSizeX + 1);
-
-                // 0 - 1      3
-                //   /      /
-                // 2      4 - 5
-                m_warpMesh.Indices()[vertexListIndex++] = vertex;
-                m_warpMesh.Indices()[vertexListIndex++] = vertex + 1;
-                m_warpMesh.Indices()[vertexListIndex++] = vertex + m_gridSizeX + 1;
-                m_warpMesh.Indices()[vertexListIndex++] = vertex + 1;
-                m_warpMesh.Indices()[vertexListIndex++] = vertex + m_gridSizeX + 1;
-                m_warpMesh.Indices()[vertexListIndex++] = vertex + m_gridSizeX + 2;
-            }
+            xReference = m_gridSizeX - 1 - xReference;
         }
+        if ((quadrant & 2) != 0)
+        {
+            yReference = m_gridSizeY - 1 - yReference;
+        }
+
+        int const vertex = xReference + yReference * (m_gridSizeX + 1);
+
+        // 0 - 1      3
+        //   /      /
+        // 2      4 - 5
+        auto& indices = m_warpMesh.Indices();
+        indices[vertexListIndex + 0] = vertex;
+        indices[vertexListIndex + 1] = vertex + 1;
+        indices[vertexListIndex + 2] = vertex + m_gridSizeX + 1;
+        indices[vertexListIndex + 3] = vertex + 1;
+        indices[vertexListIndex + 4] = vertex + m_gridSizeX + 1;
+        indices[vertexListIndex + 5] = vertex + m_gridSizeX + 2;
     }
 }
 

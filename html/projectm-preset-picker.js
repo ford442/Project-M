@@ -1,31 +1,29 @@
 // Named custom-preset picker for the WASM demo hosts.
 //
-// Surfaces the fork's curated custom_milk_fixed/ presets (see
-// docs/kimi_preset_authoring_plan.md) as a searchable, named list with
-// known-good/known-broken status badges (from the screenshot capture
-// baseline, baked into custom_presets_manifest.json by
-// scripts/generate_custom_preset_manifest.mjs) plus prev/next and random.
-//
-// This is the "preview a specific upgraded shader" complement to the blind
-// "Random Custom" button: instead of only random selection, you can pick a
-// named preset and see which ones are verified-rendering vs. still broken.
-//
-// Loading reuses the same VFS-write → load_preset_file → transition flow as
-// projectm-presets.js, fetching the raw .milk from a resilient list of bases
-// (override via localStorage 'customPresetBase').
+// Searchable list with tags/tier/reactivity filters, favorites, quality-weighted
+// random, and optional Featured pack tab. Metadata from custom_presets_manifest.json
+// (schemaVersion ≥ 2) and featured_pack_manifest.json.
 
 import { updatePresetDisplay } from './projectm-presets.js';
+import {
+    filterPresets,
+    pickWeightedRandom,
+    collectTags,
+    loadPresetEntry,
+    fetchFeaturedManifest,
+    isFavorite,
+    toggleFavorite,
+    presetId,
+    DEFAULT_FEATURED_MANIFEST_URL,
+} from './projectm-preset-library.js';
+import { preloadFeaturedPack } from './projectm-preset-cache.js';
 
 export const DEFAULT_MANIFEST_URL = './custom_presets_manifest.json';
 
-// Candidate hosts/paths for the raw .milk bytes, tried in order. The first is
-// the legacy production custom-milk host (matches projectM_emscripten.cpp's
-// historical scan of https://glsl.1ink.us/custom_milk/); the relative paths
-// work when the repo root is served directly (local dev).
 export const DEFAULT_CUSTOM_PRESET_BASES = [
     'https://glsl.1ink.us/custom_milk/',
     '../custom_milk_fixed/',
-    './custom_milk_fixed/'
+    './custom_milk_fixed/',
 ];
 
 function safePresetName(filename) {
@@ -37,14 +35,14 @@ export function getCustomPresetBases({ preferred, fallbacks = DEFAULT_CUSTOM_PRE
     try {
         fromStorage = localStorage.getItem('customPresetBase');
     } catch {
-        // localStorage may be unavailable (sandboxed iframe); ignore.
+        // localStorage may be unavailable
     }
     return [...new Set([preferred, fromStorage, ...fallbacks].filter(Boolean))];
 }
 
 export async function fetchCustomPresetManifest({
     url = DEFAULT_MANIFEST_URL,
-    fetchImpl = fetch
+    fetchImpl = fetch,
 } = {}) {
     const res = await fetchImpl(url);
     if (!res.ok) throw new Error(`Failed to fetch custom preset manifest (${res.status})`);
@@ -52,49 +50,29 @@ export async function fetchCustomPresetManifest({
     if (!data || !Array.isArray(data.presets)) {
         throw new Error('Invalid custom preset manifest: missing presets[]');
     }
-    return data.presets;
+    return data;
 }
 
-// Fetch a custom preset's bytes (trying each base), write to the WASM VFS, load
-// it, and kick off the transition. Returns { vfsPath, filename, base }.
+/** @deprecated use loadPresetEntry from projectm-preset-library.js */
 export async function loadCustomPresetFile(file, {
     module,
     startTransitionWhenReady,
     bases,
     updateDisplay = true,
     label,
-    fetchImpl = fetch
+    fetchImpl = fetch,
 } = {}) {
-    if (!module || !module.FS || !module.ccall || !module._load_preset_file) {
-        throw new Error('Module not ready');
-    }
-    const filename = String(file).split('/').pop();
-    const candidates = bases || getCustomPresetBases();
-    let lastError = null;
-
-    for (const base of candidates) {
-        try {
-            const sep = base.endsWith('/') ? '' : '/';
-            const res = await fetchImpl(`${base}${sep}${encodeURIComponent(filename)}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status} from ${base}`);
-            const bytes = new Uint8ClampedArray(await res.arrayBuffer());
-
-            const vfsPath = `/presets/custom_${safePresetName(filename)}`;
-            module.FS.writeFile(vfsPath, bytes);
-            module.ccall('load_preset_file', null, ['string'], [vfsPath]);
-            if (startTransitionWhenReady) startTransitionWhenReady({ module });
-            if (updateDisplay) updatePresetDisplay(label || filename);
-            return { vfsPath, filename, base };
-        } catch (error) {
-            lastError = error;
-            console.warn('[ProjectM] custom preset fetch attempt failed:', base, error);
-        }
-    }
-    throw lastError || new Error('No custom preset base available');
+    return loadPresetEntry(
+        { file, base: 'custom_milk_fixed', label: label || file },
+        { module, startTransitionWhenReady, updateDisplay, fetchImpl, bases },
+    );
 }
 
-export function pickRandomFromList(presets, { onlyOk = false } = {}) {
-    const pool = onlyOk ? presets.filter((p) => p.status === 'ok') : presets;
+export function pickRandomFromList(presets, { onlyOk = false, weighted = true } = {}) {
+    if (weighted && presets.some((p) => typeof p.weight === 'number')) {
+        return pickWeightedRandom(presets, { onlyOk, excludeBroken: !onlyOk });
+    }
+    const pool = onlyOk ? presets.filter((p) => p.status === 'ok') : presets.filter((p) => p.status !== 'broken');
     const effective = pool.length ? pool : presets;
     if (!effective.length) return null;
     return effective[Math.floor(Math.random() * effective.length)];
@@ -104,7 +82,7 @@ const PICKER_STYLE_ID = 'pm-preset-picker-style';
 const PICKER_CSS = `
 #pm-preset-picker {
   position: fixed; right: 2vh; bottom: 2vh; z-index: 3303;
-  width: min(24rem, 44vw); max-height: 70vh; display: flex; flex-direction: column;
+  width: min(26rem, 46vw); max-height: 78vh; display: flex; flex-direction: column;
   padding: 0.8rem; border-radius: 0.9rem;
   background: rgba(2, 6, 23, 0.92); border: 1px solid rgba(56, 189, 248, 0.3);
   color: #dbeafe; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px);
@@ -114,33 +92,49 @@ const PICKER_CSS = `
 .pm-pp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
 .pm-pp-title { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: #7dd3fc; }
 .pm-pp-close { background: none; border: none; color: #93c5fd; font-size: 1.1rem; cursor: pointer; line-height: 1; }
+.pm-pp-tabs { display: flex; gap: 0.35rem; margin-bottom: 0.45rem; }
+.pm-pp-tab {
+  flex: 1; padding: 0.3rem 0.4rem; border-radius: 0.45rem; font-size: 0.72rem;
+  border: 1px solid rgba(56,189,248,0.25); background: rgba(15,23,42,0.6); color: #93c5fd; cursor: pointer;
+}
+.pm-pp-tab.active { background: rgba(8,145,178,0.35); color: #e0f2fe; border-color: rgba(56,189,248,0.5); }
+.pm-pp-filters { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.45rem; }
+.pm-pp-filters select {
+  flex: 1 1 45%; min-width: 5.5rem; padding: 0.3rem 0.35rem; border-radius: 0.45rem;
+  border: 1px solid rgba(56,189,248,0.25); background: rgba(15,23,42,0.75); color: #e0f2fe; font-size: 0.72rem;
+}
 .pm-pp-search {
-  width: 100%; box-sizing: border-box; padding: 0.45rem 0.6rem; margin-bottom: 0.5rem;
+  width: 100%; box-sizing: border-box; padding: 0.45rem 0.6rem; margin-bottom: 0.45rem;
   border-radius: 0.55rem; border: 1px solid rgba(56,189,248,0.3);
   background: rgba(15,23,42,0.8); color: #e0f2fe; font-size: 0.82rem;
 }
-.pm-pp-list { overflow-y: auto; flex: 1 1 auto; margin: 0; padding: 0; list-style: none; }
+.pm-pp-list { overflow-y: auto; flex: 1 1 auto; margin: 0; padding: 0; list-style: none; min-height: 6rem; }
 .pm-pp-item {
-  display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem;
-  border-radius: 0.5rem; cursor: pointer; font-size: 0.82rem;
+  display: flex; align-items: center; gap: 0.4rem; padding: 0.38rem 0.45rem;
+  border-radius: 0.5rem; cursor: pointer; font-size: 0.8rem;
 }
 .pm-pp-item:hover, .pm-pp-item.active { background: rgba(8,145,178,0.22); }
+.pm-pp-fav {
+  flex: 0 0 auto; background: none; border: none; cursor: pointer; font-size: 0.9rem;
+  line-height: 1; padding: 0; color: rgba(148,163,184,0.5);
+}
+.pm-pp-fav.on { color: #fbbf24; text-shadow: 0 0 6px rgba(251,191,36,0.6); }
 .pm-pp-badge {
-  flex: 0 0 auto; width: 0.6rem; height: 0.6rem; border-radius: 50%;
+  flex: 0 0 auto; width: 0.55rem; height: 0.55rem; border-radius: 50%;
   background: #6b7280;
 }
 .pm-pp-badge.ok { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.8); }
 .pm-pp-badge.broken { background: #f87171; box-shadow: 0 0 6px rgba(248,113,113,0.7); }
 .pm-pp-label { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pm-pp-file { flex: 0 0 auto; font-size: 0.7rem; color: rgba(148,163,184,0.8); }
-.pm-pp-actions { display: flex; gap: 0.4rem; margin-top: 0.55rem; }
+.pm-pp-meta { flex: 0 0 auto; font-size: 0.65rem; color: rgba(148,163,184,0.85); text-transform: uppercase; }
+.pm-pp-actions { display: flex; gap: 0.35rem; margin-top: 0.5rem; flex-wrap: wrap; }
 .pm-pp-btn {
-  flex: 1 1 auto; padding: 0.4rem 0.5rem; border-radius: 0.5rem;
+  flex: 1 1 40%; padding: 0.38rem 0.45rem; border-radius: 0.5rem;
   border: 1px solid rgba(56,189,248,0.35); background: rgba(8,145,178,0.18);
-  color: #e0f2fe; cursor: pointer; font-size: 0.76rem;
+  color: #e0f2fe; cursor: pointer; font-size: 0.74rem;
 }
 .pm-pp-btn:hover { background: rgba(8,145,178,0.32); }
-.pm-pp-status { margin-top: 0.45rem; font-size: 0.72rem; color: rgba(191,219,254,0.75); min-height: 1em; }
+.pm-pp-status { margin-top: 0.4rem; font-size: 0.7rem; color: rgba(191,219,254,0.75); min-height: 1em; }
 .pm-pp-launch {
   position: fixed; right: 2vh; bottom: 2vh; z-index: 3302;
   padding: 0.5rem 0.8rem; border-radius: 0.6rem;
@@ -158,14 +152,17 @@ function injectStyle(documentRef) {
     documentRef.head.appendChild(style);
 }
 
-// Build the picker UI and wire it up. Returns control methods. `getModule`
-// must return the live Module (init is async, so we read it at click time).
 export function setupPresetPicker({
     getModule,
     startTransitionWhenReady,
     manifestUrl = DEFAULT_MANIFEST_URL,
+    featuredManifestUrl = DEFAULT_FEATURED_MANIFEST_URL,
     documentRef = document,
-    showLauncher = true
+    showLauncher = true,
+    isLocked = () => false,
+    onLockBlocked,
+    transitionDurationSec = 1.5,
+    preloadFeatured = true,
 } = {}) {
     injectStyle(documentRef);
 
@@ -174,15 +171,38 @@ export function setupPresetPicker({
     panel.hidden = true;
     panel.innerHTML = `
       <div class="pm-pp-head">
-        <span class="pm-pp-title">Custom Presets</span>
+        <span class="pm-pp-title">Preset Library</span>
         <button class="pm-pp-close" title="Close" aria-label="Close">×</button>
       </div>
-      <input class="pm-pp-search" type="search" placeholder="Filter presets…" aria-label="Filter presets" />
+      <div class="pm-pp-tabs" role="tablist">
+        <button class="pm-pp-tab active" data-tab="all" role="tab">All</button>
+        <button class="pm-pp-tab" data-tab="featured" role="tab">Featured</button>
+        <button class="pm-pp-tab" data-tab="favorites" role="tab">★ Favs</button>
+      </div>
+      <div class="pm-pp-filters">
+        <select class="pm-pp-tier" aria-label="Performance tier">
+          <option value="all">Any tier</option>
+          <option value="light">Light</option>
+          <option value="medium">Medium</option>
+          <option value="heavy">Heavy</option>
+        </select>
+        <select class="pm-pp-reactivity" aria-label="Reactivity">
+          <option value="all">Any reactivity</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="none">Static</option>
+        </select>
+        <select class="pm-pp-tag" aria-label="Tag">
+          <option value="all">All tags</option>
+        </select>
+      </div>
+      <input class="pm-pp-search" type="search" placeholder="Search name, tags, author…" aria-label="Filter presets" />
       <ul class="pm-pp-list" role="listbox"></ul>
       <div class="pm-pp-actions">
         <button class="pm-pp-btn" data-act="prev" title="Previous preset">‹ Prev</button>
-        <button class="pm-pp-btn" data-act="random-ok" title="Random known-good preset">Random ✓</button>
-        <button class="pm-pp-btn" data-act="random" title="Random (any) preset">Random</button>
+        <button class="pm-pp-btn" data-act="random-ok" title="Weighted random (verified)">Random ✓</button>
+        <button class="pm-pp-btn" data-act="random" title="Weighted random (any)">Random</button>
         <button class="pm-pp-btn" data-act="next" title="Next preset">Next ›</button>
       </div>
       <div class="pm-pp-status" role="status"></div>
@@ -192,58 +212,106 @@ export function setupPresetPicker({
     const listEl = panel.querySelector('.pm-pp-list');
     const searchEl = panel.querySelector('.pm-pp-search');
     const statusEl = panel.querySelector('.pm-pp-status');
+    const tierEl = panel.querySelector('.pm-pp-tier');
+    const reactEl = panel.querySelector('.pm-pp-reactivity');
+    const tagEl = panel.querySelector('.pm-pp-tag');
+    const tabEls = panel.querySelectorAll('.pm-pp-tab');
 
     let launcher = null;
     if (showLauncher) {
         launcher = documentRef.createElement('button');
         launcher.className = 'pm-pp-launch';
         launcher.textContent = '🎛 Presets';
-        launcher.title = 'Browse & preview custom presets by name';
+        launcher.title = 'Browse presets — tags, favorites, featured pack';
         documentRef.body.appendChild(launcher);
         launcher.addEventListener('click', () => toggle());
     }
 
-    let presets = [];
+    let allPresets = [];
+    let featuredPresets = [];
+    let activeTab = 'all';
     let filtered = [];
-    let currentIndex = -1;
+    let currentId = null;
+
+    function activePool() {
+        if (activeTab === 'featured' && featuredPresets.length) return featuredPresets;
+        if (activeTab === 'favorites') {
+            return allPresets.filter((p) => isFavorite(p));
+        }
+        return allPresets;
+    }
+
+    function currentFilters() {
+        return {
+            query: searchEl.value,
+            tier: tierEl.value,
+            reactivity: reactEl.value,
+            tag: tagEl.value,
+            pack: 'all',
+        };
+    }
 
     function setStatus(msg, isError = false) {
         statusEl.textContent = msg || '';
         statusEl.style.color = isError ? '#fecaca' : 'rgba(191,219,254,0.75)';
     }
 
+    function populateTagSelect() {
+        const tags = collectTags(allPresets);
+        tagEl.innerHTML = '<option value="all">All tags</option>';
+        for (const t of tags) {
+            const opt = documentRef.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            tagEl.appendChild(opt);
+        }
+    }
+
     function render() {
-        const q = searchEl.value.trim().toLowerCase();
-        filtered = q
-            ? presets.filter((p) => p.label.toLowerCase().includes(q) || p.file.toLowerCase().includes(q))
-            : presets.slice();
+        filtered = filterPresets(activePool(), currentFilters());
         listEl.textContent = '';
         for (const p of filtered) {
             const li = documentRef.createElement('li');
             li.className = 'pm-pp-item';
             li.setAttribute('role', 'option');
-            li.dataset.file = p.file;
-            if (p.file === (presets[currentIndex] && presets[currentIndex].file)) li.classList.add('active');
-            const badgeTitle = p.status === 'broken'
-                ? `Known-broken in last capture${p.note ? `: ${p.note}` : ''}`
-                : p.status === 'ok'
-                    ? `Verified rendering (meanRgb ${p.meanRgb ?? '?'})`
-                    : 'Not yet captured';
-            li.innerHTML = `
-              <span class="pm-pp-badge ${p.status}" title="${badgeTitle}"></span>
-              <span class="pm-pp-label" title="${p.label}">${p.label}</span>
-              <span class="pm-pp-file">${p.file.replace(/\.milk$/i, '')}</span>
-            `;
-            li.addEventListener('click', () => loadByFile(p.file));
+            li.dataset.id = presetId(p);
+            if (presetId(p) === currentId) li.classList.add('active');
+
+            const favBtn = documentRef.createElement('button');
+            favBtn.className = `pm-pp-fav${isFavorite(p) ? ' on' : ''}`;
+            favBtn.textContent = '★';
+            favBtn.title = isFavorite(p) ? 'Remove favorite' : 'Add favorite';
+            favBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleFavorite(p);
+                render();
+            });
+
+            const badge = documentRef.createElement('span');
+            badge.className = `pm-pp-badge ${p.status || 'unknown'}`;
+            badge.title = p.status === 'ok' ? 'Verified' : p.status === 'broken' ? 'Broken' : 'Unknown';
+
+            const label = documentRef.createElement('span');
+            label.className = 'pm-pp-label';
+            label.title = p.label;
+            label.textContent = p.label;
+
+            const meta = documentRef.createElement('span');
+            meta.className = 'pm-pp-meta';
+            meta.textContent = p.tier ? p.tier.slice(0, 1) : '';
+
+            li.appendChild(favBtn);
+            li.appendChild(badge);
+            li.appendChild(label);
+            li.appendChild(meta);
+            li.addEventListener('click', () => loadByEntry(p));
             listEl.appendChild(li);
         }
     }
 
-    async function loadByFile(file) {
-        const idx = presets.findIndex((p) => p.file === file);
-        const preset = presets[idx];
+    async function loadByEntry(preset) {
         if (!preset) return;
-        currentIndex = idx;
+        currentId = presetId(preset);
         const module = getModule ? getModule() : null;
         if (!module) {
             setStatus('Visualizer not ready yet.', true);
@@ -252,32 +320,48 @@ export function setupPresetPicker({
         setStatus(`Loading ${preset.label}…`);
         render();
         try {
-            await loadCustomPresetFile(preset.file, {
+            await loadPresetEntry(preset, {
                 module,
                 startTransitionWhenReady,
-                label: preset.label
+                transitionDurationSec,
             });
-            setStatus(
-                preset.status === 'broken'
-                    ? `Loaded ${preset.label} (flagged broken — may not render)`
-                    : `Loaded ${preset.label}`
-            );
+            setStatus(`Loaded ${preset.label}${preset.tier ? ` · ${preset.tier}` : ''}`);
         } catch (error) {
-            setStatus(`Failed to load ${preset.file}: ${error instanceof Error ? error.message : error}`, true);
+            setStatus(`Failed: ${error instanceof Error ? error.message : error}`, true);
         }
     }
 
+    async function loadByFile(file) {
+        const preset = allPresets.find((p) => p.file === file)
+            || featuredPresets.find((p) => p.file === file);
+        if (preset) await loadByEntry(preset);
+    }
+
+    function guardLocked() {
+        if (isLocked()) {
+            onLockBlocked?.();
+            setStatus('Preset locked — unlock to change.', true);
+            return true;
+        }
+        return false;
+    }
+
     function step(delta) {
-        if (!presets.length) return;
-        currentIndex = currentIndex < 0
-            ? (delta > 0 ? 0 : presets.length - 1)
-            : (currentIndex + delta + presets.length) % presets.length;
-        loadByFile(presets[currentIndex].file);
+        if (guardLocked()) return;
+        const pool = filtered.length ? filtered : filterPresets(activePool(), currentFilters());
+        if (!pool.length) return;
+        let idx = pool.findIndex((p) => presetId(p) === currentId);
+        idx = idx < 0
+            ? (delta > 0 ? 0 : pool.length - 1)
+            : (idx + delta + pool.length) % pool.length;
+        loadByEntry(pool[idx]);
     }
 
     function pickRandom({ onlyOk = false } = {}) {
-        const choice = pickRandomFromList(presets, { onlyOk });
-        if (choice) loadByFile(choice.file);
+        if (guardLocked()) return null;
+        const pool = filterPresets(activePool(), { ...currentFilters(), onlyOk, excludeBroken: true });
+        const choice = pickWeightedRandom(pool.length ? pool : activePool(), { onlyOk, excludeBroken: true });
+        if (choice) loadByEntry(choice);
         return choice;
     }
 
@@ -287,6 +371,16 @@ export function setupPresetPicker({
 
     panel.querySelector('.pm-pp-close').addEventListener('click', close);
     searchEl.addEventListener('input', render);
+    tierEl.addEventListener('change', render);
+    reactEl.addEventListener('change', render);
+    tagEl.addEventListener('change', render);
+    tabEls.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            activeTab = tab.dataset.tab;
+            tabEls.forEach((t) => t.classList.toggle('active', t === tab));
+            render();
+        });
+    });
     panel.querySelectorAll('.pm-pp-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
             const act = btn.dataset.act;
@@ -298,12 +392,27 @@ export function setupPresetPicker({
     });
 
     const ready = fetchCustomPresetManifest({ url: manifestUrl })
-        .then((items) => {
-            presets = items;
+        .then(async (data) => {
+            allPresets = data.presets;
+            populateTagSelect();
             render();
-            const okCount = presets.filter((p) => p.status === 'ok').length;
-            setStatus(`${presets.length} custom presets — ${okCount} verified rendering.`);
-            return presets;
+            const okCount = allPresets.filter((p) => p.status === 'ok').length;
+            setStatus(`${allPresets.length} presets — ${okCount} verified.`);
+
+            try {
+                const featured = await fetchFeaturedManifest({ url: featuredManifestUrl });
+                featuredPresets = featured.presets || [];
+                if (preloadFeatured && featuredPresets.length) {
+                    preloadFeaturedPack(featured, {
+                        onProgress: (done, total) => {
+                            if (done === total) setStatus(`${allPresets.length} presets · featured pack cached (${total}).`);
+                        },
+                    }).catch(() => {});
+                }
+            } catch {
+                featuredPresets = allPresets.filter((p) => p.featured);
+            }
+            return allPresets;
         })
         .catch((error) => {
             setStatus(`Could not load preset list: ${error instanceof Error ? error.message : error}`, true);
@@ -311,5 +420,8 @@ export function setupPresetPicker({
             return [];
         });
 
-    return { open, close, toggle, loadByFile, step, pickRandom, ready, element: panel };
+    return {
+        open, close, toggle, loadByFile, loadByEntry, step, pickRandom, ready,
+        element: panel, getPresets: () => allPresets,
+    };
 }

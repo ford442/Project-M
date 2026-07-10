@@ -1324,10 +1324,14 @@ EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm),
                     }
                     const buf = window.projectMAudioBufferPtr;
                     const audioData = event.data.audioData;
+                    const projectm_buffer_size = 576;
+                    const src = (audioData.length > projectm_buffer_size)
+                        ? audioData.subarray(audioData.length - projectm_buffer_size)
+                        : audioData;
 
                     // Write via a fresh Float32Array view of the live SharedArrayBuffer.
-                    new Float32Array(wasmMemory.buffer).set(audioData, buf >> 2);
-                    _projectm_pcm_add_float_wrapper(pm_handle_for_addpcm, buf, event.data.samplesPerChannel, event.data.channelsForPM);
+                    new Float32Array(wasmMemory.buffer).set(src, buf >> 2);
+                    _projectm_pcm_add_float_wrapper(pm_handle_for_addpcm, buf, src.length, event.data.channelsForPM);
                 }
             };
             workletNode.connect(audioContext.destination);

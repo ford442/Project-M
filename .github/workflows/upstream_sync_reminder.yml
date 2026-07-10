@@ -1,0 +1,81 @@
+# Monthly reminder to review upstream projectM-visualizer/projectm.
+# Does not merge or modify code — generates a report and opens a tracking issue.
+#
+# See docs/UPSTREAM_SYNC.md
+
+name: Upstream sync reminder
+
+on:
+  schedule:
+    # 09:00 UTC on the 1st of every month (~4–5 week cadence)
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  upstream-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install GitHub CLI
+        run: |
+          type gh >/dev/null 2>&1 || sudo apt-get update && sudo apt-get install -y gh
+
+      - name: Generate upstream sync report
+        id: report
+        run: |
+          chmod +x scripts/upstream_sync_check.sh
+          ./scripts/upstream_sync_check.sh --markdown > upstream_sync_report.md
+          echo "report_path=upstream_sync_report.md" >> "$GITHUB_OUTPUT"
+          # Expose upstream-ahead count for issue body
+          git fetch --quiet https://github.com/projectM-visualizer/projectm.git master:refs/remotes/upstream-sync/master
+          MB=$(git merge-base HEAD refs/remotes/upstream-sync/master)
+          AHEAD=$(git rev-list --count "$MB..refs/remotes/upstream-sync/master")
+          echo "upstream_ahead=$AHEAD" >> "$GITHUB_OUTPUT"
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-sync-report-${{ github.run_number }}
+          path: upstream_sync_report.md
+          retention-days: 90
+
+      - name: Open upstream sync tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="Upstream sync review $(date -u +%Y-%m-%d)"
+          LABEL="upstream-sync"
+          BODY_FILE=upstream_sync_report.md
+
+          # Ensure label exists (ignore error if already present)
+          gh label create "$LABEL" --color "1d76db" --description "Periodic upstream projectM review" 2>/dev/null || true
+
+          EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [[ -n "$EXISTING" && "$EXISTING" != "null" ]]; then
+            echo "Commenting on existing issue #$EXISTING"
+            gh issue comment "$EXISTING" --body-file "$BODY_FILE"
+            gh issue comment "$EXISTING" --body "Automated monthly reminder. See artifact **upstream-sync-report-${{ github.run_number }}** on [workflow run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          else
+            gh issue create \
+              --title "$TITLE" \
+              --label "$LABEL" \
+              --body-file "$BODY_FILE"
+          fi
+
+      - name: Workflow summary
+        run: |
+          {
+            echo "### Upstream sync"
+            echo ""
+            echo "Upstream commits ahead of merge-base: **${{ steps.report.outputs.upstream_ahead }}**"
+            echo ""
+            cat upstream_sync_report.md
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -24,6 +24,9 @@ export function updatePresetDisplay(name, {
     if (el) {
         el.textContent = prefix + basename;
     }
+    windowRef.dispatchEvent(new CustomEvent('pm:preset-loaded', {
+        detail: { name: basename, path: windowRef.currentPresetPath || name }
+    }));
 }
 
 export function getPresetDir({
@@ -202,7 +205,7 @@ export async function loadRandomApiPreset({
             startTransitionWhenReady({ module });
         }
         if (updateDisplay) {
-            updatePresetDisplay(result.filename);
+            updatePresetDisplay(result.vfsPath);
         }
         if (logLoaded) {
             console.log('Loaded API preset:', result.filename, 'from', result.dir);
@@ -252,7 +255,7 @@ export async function loadLocalPresetFile(file, {
         startTransitionWhenReady({ module });
     }
     if (updateDisplay) {
-        updatePresetDisplay(file.name, { documentRef });
+        updatePresetDisplay(vfsPath, { documentRef });
     }
     if (rememberLast) {
         localStorage.setItem(LOCAL_PRESET_LAST_NAME_KEY, file.name);

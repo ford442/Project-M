@@ -39,13 +39,16 @@ Audio reactivity verified, repeatable benchmarking in place, metadata/browser UX
 shipped, Signature Series workflow documented with a first batch.
 - #115 — Verify accurate audio data reactivity
 - #117 — Enhance `optimize.sh` + preset-specific benchmarking/profiling
+  — see [`BENCHMARKING.md`](BENCHMARKING.md)
 - #114 — Preset metadata, tagging, search/browser improvements
 - #113 — Systematic workflow + tooling for new custom presets (Signature Series)
 
 ### M3 — Explore & Maintain (`P2`)
 Upstream sync cadence established, experimental feature prototypes evaluated.
 - #116 — Monitor upstream `projectM-visualizer/projectm` and evaluate backports
+  — see [`UPSTREAM_SYNC.md`](UPSTREAM_SYNC.md) + `scripts/upstream_sync_check.sh`
 - #118 — Explore experimental features (Depth Anything, glTF, Transformers.js)
+  — see [`EXPERIMENTAL_PRESET_HOOKS.md`](EXPERIMENTAL_PRESET_HOOKS.md)
 
 ## Tracked Sub-Issues
 
@@ -56,7 +59,7 @@ Upstream sync cadence established, experimental feature prototypes evaluated.
 | [#111](https://github.com/ford442/Project-M/issues/111) | Audit, upgrade & harden existing presets (`weeks_presets/` + `custom_milk_fixed/`) | `P0` | M1 |
 | [#112](https://github.com/ford442/Project-M/issues/112) | Extend OpenMP pragmas + SIMD to preset evaluation and rendering | `P0` | M1 |
 | [#115](https://github.com/ford442/Project-M/issues/115) | Verify accurate audio data reactivity (FFT, beat, waveform, per-frame eqs) | `P1` | M2 |
-| [#117](https://github.com/ford442/Project-M/issues/117) | Enhance `optimize.sh` + preset benchmarking/profiling | `P1` | M2 |
+| [#117](https://github.com/ford442/Project-M/issues/117) | `optimize.sh` + preset benchmarking (`docs/BENCHMARKING.md`) | `P1` | M2 |
 | [#114](https://github.com/ford442/Project-M/issues/114) | Preset metadata, tagging, search/browser improvements in demo UI | `P1` | M2 |
 | [#116](https://github.com/ford442/Project-M/issues/116) | Monitor upstream projectM + evaluate backports | `P2` | M3 |
 
@@ -91,7 +94,9 @@ Author/validate/upgrade helpers:
 - `scripts/kimi_validate_preset.sh` — validate a preset against the current build.
 - `scripts/kimi_upgrade_preset.sh` — AI-assisted upgrade pass.
 - `scripts/test_presets.sh` — batch smoke test.
-- `scripts/generate_custom_preset_manifest.mjs` — regenerate the demo picker manifest.
+- `scripts/generate_custom_preset_manifest.mjs` — regenerate the demo picker manifest (tags, tier, weight).
+- `scripts/build_featured_pack.mjs` — curated Featured / Signature pack for B3HD (`html/featured_pack_manifest.json`).
+- [`docs/PRESET_METADATA.md`](PRESET_METADATA.md) — header-comment + sidecar JSON metadata spec.
 - `scripts/capture_custom_milk_screenshots.mjs` — capture reference screenshots.
 - `grok_agent/` — agent plans, prompts, and review checklists for generation/review.
 
@@ -99,6 +104,10 @@ Authoring references: [`docs/WRITING_NEW_MILK_PRESETS_GUIDE.md`](WRITING_NEW_MIL
 [`docs/MILK_PRESET_GUIDE.md`](MILK_PRESET_GUIDE.md),
 [`docs/kimi_preset_authoring_plan.md`](kimi_preset_authoring_plan.md), and the
 `docs/milk0xx_creative_brief.md` worked examples.
+
+New-preset pipeline: [`SIGNATURE_SERIES_WORKFLOW.md`](SIGNATURE_SERIES_WORKFLOW.md) (issue #113).
+
+Audio reactivity verification: [`AUDIO_PIPELINE.md`](AUDIO_PIPELINE.md) (issue #115).
 
 ## Definition of Done (per harden issue)
 

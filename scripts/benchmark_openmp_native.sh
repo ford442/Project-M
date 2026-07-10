@@ -36,7 +36,7 @@ run_bench() {
         -DENABLE_OPENMP="$openmp_flag"
     cmake --build "$dir" --target projectM-unittest -j"$JOBS"
     "$dir/tests/libprojectM/projectM-unittest" \
-        --gtest_filter='OpenMPBenchTest.FftThroughput:OpenMPInfoTest.*' \
+        --gtest_filter='OpenMPBenchTest.FftThroughput:OpenMPInfoTest.*:PresetPerfBenchTest.ParseThroughput' \
         --gtest_brief=1
 }
 

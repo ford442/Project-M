@@ -11,7 +11,7 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
         this.outputChannels = 0;     // Determined from output buffer
 
         // Buffering for projectM (optimization)
-        this.pmBufferSize = 512;     // Target batch size (reduce JS-Wasm calls)
+        this.pmBufferSize = 576;     // Match AudioBufferSamples (projectM PCM ring)
         this.pmBuffer = new Float32Array(this.pmBufferSize);
         this.pmBufferIndex = 0;
 

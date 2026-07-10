@@ -59,6 +59,9 @@ the `window.pmOnPerfFrame` / `window.pmSetPerfHudEnabled` hooks called from C++.
 
 ## Headless benchmark mode
 
+> **Full preset benchmark guide:** [`docs/BENCHMARKING.md`](BENCHMARKING.md) — `optimize.sh --bench`,
+> curated manifest, native parse/audio/OpenMP modes, before/after baselines.
+
 Append the following query parameters to `projectm-core.html`:
 
 ```

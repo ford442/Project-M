@@ -1,0 +1,97 @@
+// Signature Series | experimental depth overlay demo
+// pm:experimental depth-texture=pm_depth_map
+// tags: experimental, depth, overlay
+// tier: light
+// reactivity: medium
+// author: projectM-experimental-bridge
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+fRating=3.0
+fGammaAdj=1.0
+fDecay=0.965
+fVideoEchoZoom=1.0
+fVideoEchoAlpha=0.0
+nVideoEchoOrientation=0
+nWaveMode=2
+bAdditiveWaves=1
+bWaveDots=0
+bWaveThick=0
+bModWaveAlphaByVolume=1
+bMaximizeWaveColor=0
+bTexWrap=1
+bDarkenCenter=0
+bRedBlueStereo=0
+bBrighten=0
+bDarken=0
+bSolarize=0
+bInvert=0
+fWaveAlpha=0.75
+fWaveScale=1.0
+fWaveSmoothing=0.6
+fWaveParam=0.0
+fModWaveAlphaStart=0.5
+fModWaveAlphaEnd=1.0
+fWarpAnimSpeed=1.0
+fWarpScale=1.2
+fZoomExponent=1.0
+fShader=0.0
+zoom=1.01
+rot=0.0
+cx=0.5
+cy=0.5
+dx=0.0
+dy=0.0
+warp=0.02
+sx=1.0
+sy=1.0
+wave_r=0.4
+wave_g=0.7
+wave_b=1.0
+wave_x=0.5
+wave_y=0.5
+ob_size=0.0
+ib_size=0.0
+mv_a=0.0
+
+per_frame_1=warp=0.02+bass_att*0.04
+per_frame_2=zoom=1.01+treb_att*0.008
+per_frame_3=rot=sin(time*0.3)*0.01
+
+warp_1=`shader_body
+float2 uv = uv_orig;
+float d = length(uv - 0.5);
+uv += (uv - 0.5) * d * 0.15 * bass;
+ret = tex2D(sampler_main, uv);
+`
+
+comp_1=`shader_body
+ret = tex2D(sampler_main, uv);
+ret.rgb *= 1.0 + 0.08 * bass;
+`
+
+shapecode_0_enabled=1
+shapecode_0_sides=64
+shapecode_0_additive=1
+shapecode_0_thickOutline=0
+shapecode_0_textured=1
+shapecode_0_image=pm_depth_map.png
+shapecode_0_num_inst=1
+shapecode_0_x=0.5
+shapecode_0_y=0.5
+shapecode_0_rad=0.45
+shapecode_0_r=1.0
+shapecode_0_g=1.0
+shapecode_0_b=1.0
+shapecode_0_a=0.0
+shapecode_0_border_r=0.2
+shapecode_0_border_g=0.6
+shapecode_0_border_b=1.0
+shapecode_0_border_a=0.0
+shapecode_0_per_frame1=rad=0.38+bass_att*0.12
+shapecode_0_per_frame2=a=0.35+treb_att*0.45
+shapecode_0_per_frame3=r=0.5+sin(time*0.5)*0.3
+shapecode_0_per_frame4=g=0.6+cos(time*0.4)*0.2
+shapecode_0_per_frame5=b=0.9+mid_att*0.1

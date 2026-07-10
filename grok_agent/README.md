@@ -28,7 +28,19 @@ task. Start there if you're unsure which doc applies.
 
 For batch `.milk` preset creation/upgrades with kimi-cli, follow
 [`docs/kimi_preset_authoring_plan.md`](../docs/kimi_preset_authoring_plan.md) — the
-canonical Kimi runbook. It documents `scripts/kimi_validate_preset.sh` (parse/transpile
+canonical Kimi runbook.
+
+For the **Signature Series** workflow (idea → AI → demo → optimize → commit), see
+[`docs/SIGNATURE_SERIES_WORKFLOW.md`](../docs/SIGNATURE_SERIES_WORKFLOW.md).
+
+| Task | File |
+|------|------|
+| Generation prompt | [`preset_generation_prompt.md`](preset_generation_prompt.md) |
+| Creative briefs (batch 1) | [`signature_series_briefs.md`](signature_series_briefs.md) |
+| Review checklist | [`preset_review_checklist.md`](preset_review_checklist.md) |
+| Agent registry | [`presets/agent_manifest.json`](../presets/agent_manifest.json) |
+
+It documents `scripts/kimi_validate_preset.sh` (parse/transpile
 validation, exits non-zero on failure) and `scripts/kimi_upgrade_preset.sh` (generates
 an upgrade prompt with the pitfall checklist baked in), plus example create/upgrade/fix
 invocations.

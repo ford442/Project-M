@@ -1,4 +1,5 @@
-# EmscriptenOpenMP.cmake
+# EmscriptenOpenMP.cmake — see also wasm_link_common.inc.sh (SIMD/thread flags for the
+# projectM_emscripten.cpp wrapper link) and docs/PERFORMANCE.md.
 #
 # Configures OpenMP for WebAssembly/Emscripten builds using the bundled
 # libomp.a and omp/omp.h shipped in the repository root (see docs/openmp.md).

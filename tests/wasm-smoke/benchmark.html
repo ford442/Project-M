@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM WASM preset benchmark</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; background: #000; }
+    canvas { width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="mcanvas" width="1280" height="720"></canvas>
+  <canvas id="scanvas" width="1280" height="720" hidden></canvas>
+  <div id="preset-name"></div>
+  <div id="stat"></div>
+  <script type="module">
+    import { setupPerfTools } from '../../html/projectm-perf.js';
+    import { feedPcmToModule, generateBeatPulse, PROJECTM_ANALYSIS_WINDOW } from '../../html/projectm-synthetic-audio.js';
+
+    function percentile(sortedValues, p) {
+      if (sortedValues.length === 0) return 0;
+      const idx = Math.min(sortedValues.length - 1, Math.floor(p * sortedValues.length));
+      return sortedValues[idx];
+    }
+
+    function summarize(values) {
+      const sorted = values.slice().sort((a, b) => a - b);
+      const sum = sorted.reduce((a, b) => a + b, 0);
+      return {
+        mean: sorted.length ? sum / sorted.length : 0,
+        median: percentile(sorted, 0.5),
+        p95: percentile(sorted, 0.95),
+        min: sorted.length ? sorted[0] : 0,
+        max: sorted.length ? sorted[sorted.length - 1] : 0,
+      };
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    async function fetchPresetBytes(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch preset: ' + url + ' (' + response.status + ')');
+      }
+      return new Uint8Array(await response.arrayBuffer());
+    }
+
+    function vfsPathFromUrl(url) {
+      const path = new URL(url, location.href).pathname;
+      return path.startsWith('/') ? path : '/' + path;
+    }
+
+    async function waitForPresetReady(Module, timeoutMs = 120000) {
+      const start = performance.now();
+      while (performance.now() - start < timeoutMs) {
+        if (Module._preset_switch_failed && Module._preset_switch_failed() !== 0) {
+          throw new Error('preset_switch_failed');
+        }
+        if (Module._is_preset_ready && Module._is_preset_ready() !== 0) {
+          return performance.now() - start;
+        }
+        await new Promise((r) => setTimeout(r, 16));
+        Module._render_frame && Module._render_frame();
+      }
+      throw new Error('Timed out waiting for preset readiness');
+    }
+
+    async function runBenchmark() {
+      const params = new URLSearchParams(location.search);
+      const moduleSrc = params.get('module');
+      if (!moduleSrc) throw new Error('Missing ?module=<wasm wrapper js>');
+
+      const width = Math.max(64, parseInt(params.get('width'), 10) || 1280);
+      const height = Math.max(64, parseInt(params.get('height'), 10) || 720);
+      const framesPerPreset = Math.max(1, parseInt(params.get('frames'), 10) || 300);
+      const warmupFrames = Math.max(0, parseInt(params.get('warmup'), 10) || 30);
+      const switchIterations = Math.max(1, parseInt(params.get('switchIterations'), 10) || 3);
+      const audioLoad = params.get('audioLoad') === '1';
+      const presetList = (params.get('presets') || params.get('preset') || '/presets/tests/000-empty.milk')
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+      await loadScript(moduleSrc);
+      if (typeof createModule !== 'function') {
+        throw new Error('createModule export is missing');
+      }
+
+      const canvas = document.getElementById('mcanvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const Module = await createModule({
+        canvas,
+        noInitialRun: true,
+        locateFile(path, prefix) {
+          return prefix + path;
+        }
+      });
+
+      const initResult = Module._init();
+      if (initResult !== 0) {
+        throw new Error('Module._init() returned ' + initResult);
+      }
+
+      Module._set_window_size(width, height);
+      Module._set_target_fps && Module._set_target_fps(parseFloat(params.get('targetFps')) || 60);
+      Module._set_quality_governor && Module._set_quality_governor(0);
+      Module._set_mesh && Module._set_mesh(48, 36);
+      Module._set_perf_hud(1);
+
+      setupPerfTools(Module);
+
+      const frameSamples = [];
+      const originalOnPerfFrame = window.pmOnPerfFrame;
+      window.pmOnPerfFrame = (stats) => {
+        frameSamples.push(stats);
+        if (typeof originalOnPerfFrame === 'function') {
+          originalOnPerfFrame(stats);
+        }
+      };
+
+      Module._start_render(width, height);
+
+      let audioPhase = 0;
+      function feedSyntheticAudio() {
+        if (!audioLoad) return;
+        const pcm = generateBeatPulse(PROJECTM_ANALYSIS_WINDOW, { bpm: 120, amplitude: 0.85 });
+        feedPcmToModule(Module, pcm, 1);
+        audioPhase += 1;
+      }
+
+      const presetResults = [];
+      const switchMs = [];
+
+      for (const presetUrl of presetList) {
+        const vfsPath = vfsPathFromUrl(presetUrl);
+        const presetBytes = await fetchPresetBytes(presetUrl);
+        try { Module.FS.mkdir('/presets'); } catch (_) {}
+        const dir = vfsPath.slice(0, vfsPath.lastIndexOf('/'));
+        if (dir) {
+          dir.split('/').filter(Boolean).reduce((acc, part) => {
+            const next = acc + '/' + part;
+            try { Module.FS.mkdir(next); } catch (_) {}
+            return next;
+          }, '');
+        }
+        Module.FS.writeFile(vfsPath, presetBytes);
+
+        const switchStart = performance.now();
+        const loadCallStart = performance.now();
+        Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+        const loadCallMs = performance.now() - loadCallStart;
+        const readyMs = await waitForPresetReady(Module);
+        switchMs.push(readyMs);
+
+        for (let i = 0; i < warmupFrames; ++i) {
+          feedSyntheticAudio();
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+
+        const beforeCount = frameSamples.length;
+        const targetCount = beforeCount + framesPerPreset;
+        while (frameSamples.length < targetCount) {
+          feedSyntheticAudio();
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+
+        const samples = frameSamples.slice(beforeCount, targetCount);
+        const totalMs = samples.map((s) => s.totalMs);
+        const fps = samples.map((s) => s.fps);
+        const breakdownKeys = ['audioMs', 'perFrameEvalMs', 'perPixelEvalMs', 'blurMs', 'waveformsShapesMs', 'compositeMs', 'gpuMs'];
+        const breakdownMs = {};
+        breakdownKeys.forEach((key) => {
+          breakdownMs[key] = summarize(samples.map((s) => s[key]).filter((v) => typeof v === 'number' && v >= 0));
+        });
+
+        presetResults.push({
+          preset: vfsPath,
+          presetUrl,
+          loadCallMs,
+          switchReadyMs: summarize(switchMs.slice(-switchIterations)),
+          frames: samples.length,
+          totalMs: summarize(totalMs),
+          fps: summarize(fps),
+          breakdownMs,
+          metTargetFps: summarize(fps).median >= (parseFloat(params.get('targetFps')) || 60) * 0.95,
+        });
+      }
+
+      const openmp = {
+        compiled: Module._get_omp_enabled ? Module._get_omp_enabled() !== 0 : false,
+        maxThreads: Module._get_omp_max_threads ? Module._get_omp_max_threads() : 1,
+        parallelThreadsObserved: Module._get_omp_thread_count_in_parallel
+          ? Module._get_omp_thread_count_in_parallel()
+          : 1,
+      };
+
+      const result = {
+        ok: true,
+        canvas: { width, height },
+        framesPerPreset,
+        warmupFrames,
+        audioLoad,
+        openmp,
+        presets: presetResults,
+        switchReadyMs: summarize(switchMs),
+      };
+
+      console.log('[projectM preset-benchmark] ' + JSON.stringify(result, null, 2));
+      window.__projectMPresetBenchmarkResult = result;
+      window.postMessage({ type: 'pm-preset-benchmark-result', result }, '*');
+    }
+
+    runBenchmark().catch((error) => {
+      const result = { ok: false, error: String(error && error.stack ? error.stack : error) };
+      console.error('[projectM preset-benchmark] failed', result.error);
+      window.__projectMPresetBenchmarkResult = result;
+      window.postMessage({ type: 'pm-preset-benchmark-result', result }, '*');
+    });
+  </script>
+</body>
+</html>

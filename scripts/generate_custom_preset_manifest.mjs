@@ -2,11 +2,9 @@
 // Generate html/custom_presets_manifest.json — the data source for the named
 // custom-preset picker in html/projectm-core.html (see projectm-preset-picker.js).
 //
-// For each .milk in custom_milk_fixed/, emit a friendly label (derived from the
-// preset's leading // comment, falling back to the filename) and merge the most
-// recent screenshot-capture quality status from
-// screenshots/custom_milk_baseline/capture_report.json so the picker can badge
-// which upgraded shaders are known-good vs. known-broken.
+// For each .milk in custom_milk_fixed/, emit a friendly label, metadata fields
+// (tags, tier, reactivity, author, version), and merge screenshot-capture
+// quality status from screenshots/custom_milk_baseline/capture_report.json.
 //
 // Usage: node scripts/generate_custom_preset_manifest.mjs [--check]
 //   --check  exit non-zero if the on-disk manifest is stale (for CI)
@@ -14,39 +12,21 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import {
+    parseHeaderMetadata,
+    loadSidecarMeta,
+    deriveLabel,
+    estimateTierFromSource,
+    estimateReactivity,
+    computeQualityWeight,
+    loadAuditIndex,
+} from './preset_metadata.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const presetDir = join(repoRoot, 'custom_milk_fixed');
 const captureReport = join(repoRoot, 'screenshots', 'custom_milk_baseline', 'capture_report.json');
+const auditPath = join(repoRoot, 'docs', 'preset_audit_report.json');
 const outPath = join(repoRoot, 'html', 'custom_presets_manifest.json');
-
-function deriveLabel(source, file) {
-    // Use the first non-empty // comment line that isn't a bare "CHANGELOG"/date
-    // marker; strip a leading "CHANGELOG <date> (" wrapper if present.
-    const lines = source.split(/\r?\n/);
-    for (const raw of lines) {
-        const line = raw.trim();
-        if (!line.startsWith('//')) {
-            if (line.startsWith('[') || line.startsWith('MILKDROP_')) break; // past the header comment
-            continue;
-        }
-        let text = line.replace(/^\/\/\s*/, '').trim();
-        const changelog = text.match(/^CHANGELOG[^(]*\(([^)]+)\)/i);
-        if (changelog) {
-            const inner = changelog[1].trim();
-            // Only trust a CHANGELOG parenthetical as a name if it reads like one
-            // (multi-word, has letters) — skip bare markers like "initial"/dates.
-            text = /\s/.test(inner) && /[a-z]/i.test(inner) ? inner : '';
-        }
-        // Skip empties, leftover CHANGELOG markers, bullet lines, and ASCII
-        // divider rules (e.g. "======" or "------"). Require ≥3 letters.
-        const letters = (text.match(/[a-z]/gi) || []).length;
-        const isMetadata = /PSVERSION|MILKDROP_|docs\/|^(Target|Brief|Pattern|Author|Date|Intent)\s*:/i.test(text);
-        if (!text || /^CHANGELOG/i.test(text) || /^[-*]/.test(text) || letters < 3 || isMetadata) continue;
-        return text.length > 64 ? `${text.slice(0, 61)}…` : text;
-    }
-    return file.replace(/\.milk$/i, '');
-}
 
 function loadCaptureStatus() {
     if (!existsSync(captureReport)) return new Map();
@@ -60,41 +40,72 @@ function loadCaptureStatus() {
             ok: r.ok === true,
             meanRgb: typeof r.meanRgb === 'number' ? Math.round(r.meanRgb * 100) / 100 : null,
             presetSwitchFailed: !!r.presetSwitchFailed,
-            error: shortError
+            error: shortError,
         });
     }
     return byFile;
 }
 
 const status = loadCaptureStatus();
+const auditIndex = loadAuditIndex(auditPath);
+
 const presets = readdirSync(presetDir)
     .filter((f) => f.toLowerCase().endsWith('.milk'))
     .sort()
     .map((file) => {
         const source = readFileSync(join(presetDir, file), 'utf8');
+        const header = parseHeaderMetadata(source);
+        const sidecar = loadSidecarMeta(presetDir, file);
+        const audit = auditIndex.get(file) || null;
         const s = status.get(file) || null;
-        return {
+
+        const merged = {
+            ...header,
+            ...sidecar,
+            tags: [...new Set([...(header.tags || []), ...(sidecar.tags || [])])],
+        };
+
+        const tier = merged.tier || audit?.tier || estimateTierFromSource(source);
+        const reactivity = merged.reactivity
+            || estimateReactivity(source, audit?.reactive);
+        const author = merged.author || audit?.author || null;
+        const version = merged.version || null;
+        const featured = merged.featured === true
+            || merged.tags?.includes('signature')
+            || merged.series != null;
+
+        const entry = {
             file,
-            label: deriveLabel(source, file),
+            base: 'custom_milk_fixed',
+            label: sidecar.label || deriveLabel(source, file),
             status: s ? (s.ok ? 'ok' : 'broken') : 'unknown',
             meanRgb: s ? s.meanRgb : null,
-            note: s && !s.ok ? (s.error || (s.presetSwitchFailed ? 'preset switch failed' : 'capture failed')) : null
+            note: s && !s.ok ? (s.error || (s.presetSwitchFailed ? 'preset switch failed' : 'capture failed')) : null,
+            tags: merged.tags,
+            tier,
+            reactivity,
+            author,
+            version,
+            project: merged.project || null,
+            featured,
         };
+        entry.weight = computeQualityWeight(entry);
+        return entry;
     });
 
 const manifest = {
     $comment: 'AUTO-GENERATED by scripts/generate_custom_preset_manifest.mjs — do not edit by hand.',
+    schemaVersion: 2,
     generatedAt: new Date().toISOString().slice(0, 10),
     source: 'custom_milk_fixed',
     captureBaseline: existsSync(captureReport) ? 'screenshots/custom_milk_baseline/capture_report.json' : null,
-    presets
+    presets,
 };
 
 const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 
 if (process.argv.includes('--check')) {
     const current = existsSync(outPath) ? readFileSync(outPath, 'utf8') : '';
-    // Ignore generatedAt when comparing so a date bump alone isn't "stale".
     const normalize = (s) => s.replace(/"generatedAt":\s*"[^"]*"/, '"generatedAt":"_"');
     if (normalize(current) !== normalize(serialized)) {
         console.error(`Stale manifest: ${outPath} is out of date. Run: node scripts/generate_custom_preset_manifest.mjs`);
@@ -105,4 +116,6 @@ if (process.argv.includes('--check')) {
 }
 
 writeFileSync(outPath, serialized);
-console.log(`Wrote ${outPath} (${presets.length} presets, ${presets.filter((p) => p.status === 'ok').length} ok).`);
+const okCount = presets.filter((p) => p.status === 'ok').length;
+const featuredCount = presets.filter((p) => p.featured).length;
+console.log(`Wrote ${outPath} (${presets.length} presets, ${okCount} ok, ${featuredCount} featured).`);

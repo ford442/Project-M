@@ -273,6 +273,13 @@ GitHub Actions workflows are in `.github/workflows/`:
 - `build_emscripten.yml` — Emscripten WASM build
 - `build_android.yml` — Android NDK build (arm64-v8a, armeabi-v7a, x86_64)
 - `push_release.yml` — Release artifact publishing
+- `upstream_sync_reminder.yml` — monthly upstream drift report + tracking issue (see [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md))
+
+### Upstream maintenance (fork)
+
+This tree tracks [projectM-visualizer/projectm](https://github.com/projectM-visualizer/projectm).
+Run `./scripts/upstream_sync_check.sh` before large refactors or when upstream ships a release.
+Deliberate divergences (WASM glue, OpenMP, AI presets) are documented in `docs/UPSTREAM_SYNC.md`.
 
 ### Packaging Outputs
 - CMake config files: `projectM4Config.cmake`, `projectM4Targets.cmake`

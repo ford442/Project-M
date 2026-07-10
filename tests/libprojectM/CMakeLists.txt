@@ -31,8 +31,11 @@ add_executable(projectM-unittest
         LoggingTest.cpp
         MilkdropShaderCommentParsingTest.cpp
         OpenMPBenchTest.cpp
+        PresetPerfBenchTest.cpp
         PresetCompatTest.cpp
         PresetFileParserTest.cpp
+        PCMAudioReactivityTest.cpp
+        PCMAudioBenchTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>
@@ -62,6 +65,7 @@ target_include_directories(projectM-unittest
 target_link_libraries(projectM-unittest
         PRIVATE
         projectM_main
+        projectM::Eval
         GTest::gtest
         GTest::gtest_main
         )

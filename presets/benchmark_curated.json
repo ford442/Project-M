@@ -1,0 +1,47 @@
+{
+  "$comment": "Curated presets for WASM/native performance benchmarking. See docs/PERFORMANCE.md and scripts/benchmark_presets_wasm.mjs.",
+  "targetFps": 60,
+  "framesPerPreset": 300,
+  "warmupFrames": 30,
+  "canvas": { "width": 1280, "height": 720 },
+  "switchBench": {
+    "enabled": true,
+    "iterations": 3
+  },
+  "audioBench": {
+    "enabled": false,
+    "comment": "Set true or pass --audio-load to measure audioMs under synthetic beat PCM"
+  },
+  "presets": [
+    {
+      "path": "presets/tests/000-empty.milk",
+      "label": "empty baseline",
+      "tier": "light"
+    },
+    {
+      "path": "presets/tests/110-per_pixel.milk",
+      "label": "per-pixel zoom warp",
+      "tier": "medium"
+    },
+    {
+      "path": "presets/tests/300-beatdetect-bassmidtreb.milk",
+      "label": "audio reactive per-pixel",
+      "tier": "medium"
+    },
+    {
+      "path": "custom_milk_fixed/milk011_optimized.milk",
+      "label": "optimized custom (GPU warp + per-pixel)",
+      "tier": "heavy"
+    },
+    {
+      "path": "custom_milk_fixed/milk012.milk",
+      "label": "signature series 012",
+      "tier": "heavy"
+    },
+    {
+      "path": "custom_milk_fixed/milk015.milk",
+      "label": "signature series 015",
+      "tier": "heavy"
+    }
+  ]
+}

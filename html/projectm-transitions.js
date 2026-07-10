@@ -1,6 +1,17 @@
 const DEFAULT_TRANSITION_READY_TIMEOUT_FRAMES = 300;
+export const DEFAULT_TRANSITION_DURATION_SEC = 1.5;
 
 let transitionReadyToken = 0;
+
+export function setTransitionDuration(module = currentProjectMModule(), seconds = DEFAULT_TRANSITION_DURATION_SEC) {
+    if (!module) return false;
+    const sec = Number.isFinite(seconds) && seconds >= 0 ? seconds : DEFAULT_TRANSITION_DURATION_SEC;
+    if (module._transition_set_duration) {
+        module._transition_set_duration(sec);
+        return true;
+    }
+    return false;
+}
 
 function currentProjectMModule() {
     return globalThis.Module;
@@ -18,8 +29,10 @@ function hasTransitionApi(moduleInstance) {
 
 export function startTransitionWhenReady({
     module = currentProjectMModule(),
-    timeoutFrames = DEFAULT_TRANSITION_READY_TIMEOUT_FRAMES
+    timeoutFrames = DEFAULT_TRANSITION_READY_TIMEOUT_FRAMES,
+    durationSec = DEFAULT_TRANSITION_DURATION_SEC,
 } = {}) {
+    setTransitionDuration(module, durationSec);
     if (!hasTransitionApi(module)) {
         console.debug('[projectM transitions] dual-FBO transition API unavailable; keeping legacy preset switch');
         return Promise.resolve(false);

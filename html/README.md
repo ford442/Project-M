@@ -13,6 +13,8 @@ Core behavior belongs in shared modules:
 - `projectm-init.js`: script loading and reusable WASM/canvas bootstrap helpers.
 - `projectm-presets.js`: API preset fetch, VFS writes, startup preset loading, and random preset loading.
 - `projectm-preset-picker.js`: named, searchable picker for the curated `custom_milk_fixed` presets, with known-good/known-broken status badges. Reads `custom_presets_manifest.json` (regenerate with `scripts/generate_custom_preset_manifest.mjs`); loads the raw `.milk` from a resilient list of bases (override via `localStorage.customPresetBase`). Backs the "Random Custom" button and a right-click "🎛 Presets" browser in `projectm-core.html`.
+- `projectm-preset-dev.js`: hot-reload dev panel (`?devPreset=1`), URL polling, inline `.milk` editor. See `docs/SIGNATURE_SERIES_WORKFLOW.md`.
+- `projectm-preset-tweaker.js`: header param sliders (decay, zoom, warp, wave RGB) used by the dev panel.
 - `projectm-external-pcm.js`: external MOD/FLAC `postMessage` PCM contract, origin allowlist, queued feeding, and preallocated transfer buffers.
 - `projectm-transitions.js`: readiness polling before starting dual-FBO transitions.
 
@@ -29,6 +31,8 @@ Preserve calibrated panel2 bezel artwork and hotspot positions when moving chrom
 ### Extended Features
 
 Full UI features such as GLTF, depth, image pipelines, and experimental render controls should be lazy-loaded modules. They should not become required dependencies for `projectm-core.html` or panel-only hosts.
+
+- `projectm-experimental-bridge.js`: opt-in (`?experimental=1`) bridge from Depth Anything / glTF / `BroadcastChannel` hooks to preset textures and metadata. See `docs/EXPERIMENTAL_PRESET_HOOKS.md`.
 
 Keep remote asset endpoints configurable. Existing pages read `localStorage.apiBase`; new modules should continue accepting explicit API bases or localStorage-derived values.
 

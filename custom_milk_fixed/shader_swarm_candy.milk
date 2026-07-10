@@ -1,0 +1,66 @@
+// Signature Series | shader_swarm | Candy World
+// tags: candy, playful, swarm, medium
+// author: projectM-signature-batch-2026-07
+// project: candy-world
+// music: playful pop, chiptune
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+presetname=Shader Swarm Candy
+fRating=4.500000
+fGammaAdj=1.650000
+fDecay=0.962000
+fVideoEchoZoom=1.000000
+fVideoEchoAlpha=0.000000
+nWaveMode=0
+bAdditiveWaves=0
+fWaveAlpha=0.001000
+fWarpScale=1.331000
+zoom=1.000000
+rot=0.000000
+warp=0.010000
+cx=0.500000
+cy=0.500000
+mv_a=0.000000
+
+per_frame_1=q1=time
+per_frame_2=q2=bass_att
+per_frame_3=q3=mid_att
+per_frame_4=q4=treb_att
+per_frame_5=q5=0.5+0.5*sin(time*0.8)
+per_frame_6=q6=5.0
+per_frame_7=q7=0.1+q4*0.15
+per_frame_8=q8=mid_att
+per_frame_9=q9=sin(time*1.5)
+per_frame_10=q10=0.12+q4*0.1
+per_frame_11=q11=1.0+q2*0.2
+per_frame_12=q12=time*0.8
+
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.01;
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 uvc=uv-0.5;
+warp_4=`float a=atan2(uvc.y,uvc.x)+q1*q7;
+warp_5=`float r=length(uvc);
+warp_6=`float2 base=float2(cos(a)*r,sin(a)*r);
+warp_7=`float3 acc=float3(0,0,0);
+warp_8=`float2 p0=base*0.0+0.5; acc+=tex2D(sampler_main,p0).xyz;
+warp_9=`float2 p1=base*0.15*q10+0.5; acc+=tex2D(sampler_main,p1).xyz*0.8;
+warp_10=`float2 p2=base*0.30*q10+0.5; acc+=tex2D(sampler_main,p2).xyz*0.6;
+warp_11=`float2 p3=base*0.45*q10+0.5; acc+=tex2D(sampler_main,p3).xyz*0.4;
+warp_12=`float3 candy=float3(1.0,0.5+q8*0.5,0.7+q3*0.3);
+warp_13=`ret=acc*0.25*candy*q11;
+warp_14=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col=tex2D(sampler_main,uv).xyz;
+comp_4=`float sparkle=pow(max(col.r,max(col.g,col.b)),2.0)*q4;
+comp_5=`col+=float3(1.0,0.8,0.9)*sparkle*0.3;
+comp_6=`ret=saturate(col);
+comp_7=`}

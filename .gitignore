@@ -77,3 +77,7 @@ scripts/~
 .env
 .env.*
 !.env.example
+
+# Generated benchmark outputs (commit baselines manually when needed)
+benchmark-results/*
+!benchmark-results/.gitkeep

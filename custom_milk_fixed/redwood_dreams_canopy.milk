@@ -1,0 +1,65 @@
+// Signature Series | redwood_dreams | Redwood
+// tags: nature, forest, green, light
+// author: projectM-signature-batch-2026-07
+// project: redwood
+// music: nature ambient, acoustic
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+presetname=Redwood Dreams Canopy
+fRating=4.000000
+fGammaAdj=1.400000
+fDecay=0.975000
+fVideoEchoZoom=1.000000
+fVideoEchoAlpha=0.000000
+nWaveMode=0
+bAdditiveWaves=0
+fWaveAlpha=0.001000
+fWarpScale=1.250000
+zoom=1.000000
+rot=0.000000
+warp=0.009000
+cx=0.500000
+cy=0.500000
+mv_a=0.000000
+
+per_frame_1=q1=time*0.2
+per_frame_2=q2=bass_att
+per_frame_3=q3=mid
+per_frame_4=q4=treb_att
+per_frame_5=q5=0.5+0.5*sin(time*0.25)
+per_frame_6=q6=1.0
+per_frame_7=q7=0.05
+per_frame_8=q8=mid_att
+per_frame_9=q9=time*0.04
+per_frame_10=q10=0.08
+per_frame_11=q11=1.0
+per_frame_12=q12=time
+
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.009;
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 uvc=uv-0.5;
+warp_4=`uvc.y-=q9*0.03;
+warp_5=`float r=length(uvc);
+warp_6=`float a=atan2(uvc.y,uvc.x)+q7*sin(q1*0.5);
+warp_7=`float2 nuv=float2(cos(a)*r,sin(a)*r)+0.5;
+warp_8=`float3 col=tex2D(sampler_main,nuv).xyz;
+warp_9=`float3 green=float3(0.1,0.45+q8*0.2,0.15);
+warp_10=`ret=lerp(col,green,0.12);
+warp_11=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col=tex2D(sampler_main,uv).xyz;
+comp_4=`float shaft=smoothstep(0.3,0.7,uv.x)*smoothstep(0.0,0.6,uv.y);
+comp_5=`shaft*=q3*0.35;
+comp_6=`col+=float3(0.6,0.85,0.35)*shaft;
+comp_7=`col*=float3(0.85,1.0,0.9);
+comp_8=`ret=saturate(col);
+comp_9=`}

@@ -258,6 +258,19 @@ function auditText(text, rel) {
   const cost = perPixel * 3 + tex2d * 2 + Math.ceil(shaderLines / 10) + Math.ceil(perFrame / 5);
   const tier = cost >= 30 ? 'heavy' : cost >= 12 ? 'medium' : 'light';
 
+  const warpShaderLines = (model.shaderPieces.warp || []).length;
+  const compShaderLines = (model.shaderPieces.comp || []).length;
+  if (perPixel >= 2 && warpShaderLines === 0 && tier !== 'light') {
+    add('warn', 'per-pixel-to-gpu',
+      'heavy per_pixel equations without a custom warp shader_body — move zoom/warp math into warp_*/shader_body for GPU per-fragment evaluation',
+      g.per_pixel[0]?.line || 1);
+  }
+  if (perPixel >= 4 && tex2d < 2 && compShaderLines <= 1) {
+    add('info', 'composite-shader-opportunity',
+      'consider composite shader_body for per-pixel color/feedback effects instead of CPU per_pixel equations',
+      g.per_pixel[0]?.line || 1);
+  }
+
   // -- metadata --
   const author = /grok/i.test(rel) ? 'grok'
     : /kimi/i.test(rel) ? 'kimi'

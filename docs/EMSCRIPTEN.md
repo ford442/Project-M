@@ -207,6 +207,9 @@ The `?debugSender` test panel (see `html/projectm-core.html`) creates its own in
 
 ## External Audio Sources (sensitivity parity)
 
+See **[`docs/AUDIO_PIPELINE.md`](AUDIO_PIPELINE.md)** for the full ingress diagram, synthetic
+test harness (`?audioTest=1`), automated `PCMAudioReactivity` tests, and WASM smoke runner.
+
 projectM has several audio ingress paths and they don't all preprocess PCM identically, so an
 external player (MOD/FLAC popup or iframe) can look *less* reactive than a local `#track` even when
 audio is clearly audible. The beat-sensitivity setting itself is the same for every source —

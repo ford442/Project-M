@@ -1,0 +1,49 @@
+# TOML draft example — Signature Series orbital rave
+# Convert: node scripts/toml_to_milk.mjs presets/drafts/orbital_rave_example.toml -o custom_milk_fixed/orbital_rave_example.milk
+
+[meta]
+signature = "orbital_rave | Zephyr Orbital"
+tags = "rave, orbital, bass-reactive, medium"
+author = "your-handle"
+project = "zephyr-orbital"
+music = "uptempo electronic"
+
+[preset]
+presetname = "Orbital Rave Example"
+fDecay = 0.968
+fGammaAdj = 1.7
+zoom = 1.0
+rot = 0.0
+warp = 0.01
+cx = 0.5
+cy = 0.5
+mv_a = 0.0
+
+[per_frame]
+1 = "q1=time"
+2 = "q2=bass_att"
+3 = "q3=mid_att"
+4 = "q4=treb_att"
+5 = "q11=1.0+q2*0.2"
+
+[per_pixel]
+1 = "zoom=1.0;"
+2 = "rot=0.0;"
+3 = "warp=0.01;"
+
+[warp]
+body = '''shader_body
+{
+  float2 uvc = uv - 0.5;
+  float a = atan2(uvc.y, uvc.x) + q1 * 0.1;
+  float r = length(uvc);
+  float2 nuv = float2(cos(a) * r, sin(a) * r) + 0.5;
+  ret = tex2D(sampler_main, nuv).xyz * q11;
+}'''
+
+[comp]
+body = '''shader_body
+{
+  float3 col = tex2D(sampler_main, uv).xyz;
+  ret = saturate(col * q11);
+}'''

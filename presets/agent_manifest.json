@@ -1,7 +1,10 @@
 {
-  "$comment": "Regression preset manifest for AI agents (Kimi, Codex, Claude, Grok). See docs/kimi_preset_authoring_plan.md.",
+  "$comment": "Regression + Signature Series manifest for AI agents. See docs/SIGNATURE_SERIES_WORKFLOW.md and docs/kimi_preset_authoring_plan.md.",
   "validator": "scripts/kimi_validate_preset.sh",
   "upgrader": "scripts/kimi_upgrade_preset.sh",
+  "auditor": "scripts/audit_presets.mjs",
+  "toml_converter": "scripts/toml_to_milk.mjs",
+  "workflow_doc": "docs/SIGNATURE_SERIES_WORKFLOW.md",
   "directories": {
     "parser_fixtures": {
       "path": "presets/tests",
@@ -11,15 +14,87 @@
       "path": "custom_milk_fixed",
       "description": "Curated AI-authored presets used as the fork's regression set. Opt-in via PROJECTM_TEST_CUSTOM_MILK_FIXED=1."
     },
+    "drafts": {
+      "path": "presets/drafts",
+      "description": "TOML or WIP .milk drafts before promotion to custom_milk_fixed/."
+    },
     "bulk_corpus": {
       "path": "weeks_presets",
       "description": "Large community preset corpus; validate via PROJECTM_PRESET_COMPAT_DIR before bulk upgrades."
     }
   },
+  "agent_tasks": {
+    "generate": {
+      "prompt": "grok_agent/preset_generation_prompt.md",
+      "briefs": "grok_agent/signature_series_briefs.md",
+      "output_dir": "custom_milk_fixed",
+      "naming": "<family_prefix>_<descriptor>.milk"
+    },
+    "review": {
+      "checklist": "grok_agent/preset_review_checklist.md",
+      "code_review": "grok_agent/code_review_checklist.md"
+    },
+    "validate": {
+      "static": "node scripts/audit_presets.mjs <file>",
+      "transpile": "scripts/kimi_validate_preset.sh <file>",
+      "demo": "html/projectm-core.html?devPreset=1&localPresets=1"
+    },
+    "optimize": {
+      "doc": "docs/PERFORMANCE.md",
+      "bench": "./optimize.sh --bench"
+    },
+    "publish": {
+      "manifest": "node scripts/generate_custom_preset_manifest.mjs",
+      "screenshots": "scripts/capture_custom_milk_screenshots.mjs"
+    }
+  },
+  "project_ties": {
+    "zephyr-orbital": {
+      "prefix": "orbital_rave_",
+      "mood": "neon tunnels, rave energy, fast orbit",
+      "audio": ["bass_att", "treb_att"],
+      "presets": ["custom_milk_fixed/orbital_rave_zephyr.milk", "custom_milk_fixed/orbital_rave_neon.milk"]
+    },
+    "watershed": {
+      "prefix": "cinematic_pedal_steel_",
+      "mood": "warm cinematic, pedal steel, slow pans",
+      "audio": ["mid_att", "bass_att"],
+      "presets": ["custom_milk_fixed/cinematic_pedal_steel_watershed.milk", "custom_milk_fixed/cinematic_pedal_steel_horizon.milk"]
+    },
+    "redwood": {
+      "prefix": "redwood_dreams_",
+      "mood": "forest, mist, nature ambient",
+      "audio": ["mid", "vol"],
+      "presets": ["custom_milk_fixed/redwood_dreams_canopy.milk", "custom_milk_fixed/redwood_dreams_fog.milk"]
+    },
+    "candy-world": {
+      "prefix": "shader_swarm_",
+      "mood": "playful candy colors, particle swarms",
+      "audio": ["treb_att", "bass_att"],
+      "presets": ["custom_milk_fixed/shader_swarm_candy.milk", "custom_milk_fixed/shader_swarm_reactive.milk"]
+    }
+  },
+  "signature_series": {
+    "workflow": "docs/SIGNATURE_SERIES_WORKFLOW.md",
+    "target_fps": 60,
+    "batch_size_goal": "5-10",
+    "prefixes": ["orbital_rave_", "cinematic_pedal_steel_", "redwood_dreams_", "shader_swarm_"],
+    "presets": [
+      "custom_milk_fixed/orbital_rave_zephyr.milk",
+      "custom_milk_fixed/orbital_rave_neon.milk",
+      "custom_milk_fixed/cinematic_pedal_steel_watershed.milk",
+      "custom_milk_fixed/cinematic_pedal_steel_horizon.milk",
+      "custom_milk_fixed/redwood_dreams_canopy.milk",
+      "custom_milk_fixed/redwood_dreams_fog.milk",
+      "custom_milk_fixed/shader_swarm_candy.milk",
+      "custom_milk_fixed/shader_swarm_reactive.milk"
+    ]
+  },
   "known_good": [
     "presets/tests/000-empty.milk",
     "custom_milk_fixed/milk011.milk",
-    "custom_milk_fixed/milk011_optimized.milk"
+    "custom_milk_fixed/milk011_optimized.milk",
+    "custom_milk_fixed/fractal_echo_kimi.milk"
   ],
   "known_broken_fixtures": [
     "tests/libprojectM/data/PresetCompat/broken-invalid-hlsl.milk",
@@ -34,10 +109,17 @@
     "docs/milk012_creative_brief.md",
     "docs/milk013_creative_brief.md",
     "docs/milk014_creative_brief.md",
-    "docs/milk015_creative_brief.md"
+    "docs/milk015_creative_brief.md",
+    "grok_agent/signature_series_briefs.md"
   ],
-  "new_presets_2026_06": [
-    "custom_milk_fixed/milk017.milk",
-    "custom_milk_fixed/milk018.milk"
+  "new_presets_2026_07": [
+    "custom_milk_fixed/orbital_rave_zephyr.milk",
+    "custom_milk_fixed/orbital_rave_neon.milk",
+    "custom_milk_fixed/cinematic_pedal_steel_watershed.milk",
+    "custom_milk_fixed/cinematic_pedal_steel_horizon.milk",
+    "custom_milk_fixed/redwood_dreams_canopy.milk",
+    "custom_milk_fixed/redwood_dreams_fog.milk",
+    "custom_milk_fixed/shader_swarm_candy.milk",
+    "custom_milk_fixed/shader_swarm_reactive.milk"
   ]
 }

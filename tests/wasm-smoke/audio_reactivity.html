@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM audio reactivity smoke test</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; width: 640px; height: 480px; }
+    #stat { color: #7dd3fc; font: 12px monospace; padding: 6px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <canvas id="mcanvas" width="640" height="480"></canvas>
+  <canvas id="scanvas" width="640" height="480" hidden></canvas>
+  <button id="musicBtn" type="button" hidden></button>
+  <button id="customMilkBtn" type="button" hidden></button>
+  <div id="milkPath" hidden></div>
+  <div id="textureDir" hidden>textures/</div>
+  <div id="songDir" hidden>songs/</div>
+  <audio id="track" hidden></audio>
+  <div id="stat">loading…</div>
+  <script type="module">
+    import {
+      feedPcmToModule,
+      generateSilence,
+      generateSine,
+      PROJECTM_ANALYSIS_WINDOW,
+    } from '../../html/projectm-synthetic-audio.js';
+
+    window.__projectMCaptureMode = true;
+
+    const result = {
+      ok: false,
+      preset: '300-beatdetect-bassmidtreb.milk',
+      tests: {},
+      error: null,
+    };
+    window.__projectMAudioReactivity = result;
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(s);
+      });
+    }
+
+    function canvasChannelMeans(canvas) {
+      const gl = canvas.getContext('webgl2');
+      if (!gl) return null;
+      const w = canvas.width;
+      const h = canvas.height;
+      const pixels = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let r = 0, g = 0, b = 0;
+      const n = w * h;
+      for (let i = 0; i < pixels.length; i += 4) {
+        r += pixels[i];
+        g += pixels[i + 1];
+        b += pixels[i + 2];
+      }
+      return { r: r / n, g: g / n, b: b / n };
+    }
+
+    async function renderWithPcm(Module, generator, frames = 90) {
+      for (let f = 0; f < frames; f += 1) {
+        const mono = generator(f);
+        feedPcmToModule(Module, mono, 1);
+        Module._render_frame?.();
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+    }
+
+    async function main() {
+      const params = new URLSearchParams(location.search);
+      const wasmScript = params.get('wasm') || './projectm-v.030-thread.js';
+      await loadScript(wasmScript);
+
+      const Module = await createModule({
+        canvas: document.getElementById('mcanvas'),
+        secondaryCanvas: document.getElementById('scanvas'),
+      });
+      window.Module = Module;
+
+      const presetPath = '/presets/beatdetect.milk';
+      const presetUrl = params.get('preset')
+        || '../../presets/tests/300-beatdetect-bassmidtreb.milk';
+      const res = await fetch(presetUrl);
+      if (!res.ok) throw new Error(`preset fetch ${res.status}`);
+      Module.FS.writeFile(presetPath, new Uint8Array(await res.arrayBuffer()));
+      Module.ccall('load_preset_file', null, ['string'], [presetPath]);
+
+      for (let i = 0; i < 30; i += 1) {
+        Module._render_frame?.();
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+
+      await renderWithPcm(Module, () => generateSilence(PROJECTM_ANALYSIS_WINDOW), 60);
+      const silenceMeans = canvasChannelMeans(document.getElementById('mcanvas'));
+
+      await renderWithPcm(Module, (f) => generateSine(PROJECTM_ANALYSIS_WINDOW, {
+        frequencyHz: 80,
+        amplitude: 0.9,
+        phase: f * PROJECTM_ANALYSIS_WINDOW,
+      }), 90);
+      const bassMeans = canvasChannelMeans(document.getElementById('mcanvas'));
+
+      await renderWithPcm(Module, (f) => generateSine(PROJECTM_ANALYSIS_WINDOW, {
+        frequencyHz: 5000,
+        amplitude: 0.9,
+        phase: f * PROJECTM_ANALYSIS_WINDOW,
+      }), 90);
+      const trebleMeans = canvasChannelMeans(document.getElementById('mcanvas'));
+
+      result.tests = { silenceMeans, bassMeans, trebleMeans };
+      // beatdetect preset: wave0=bass(red), wave1=mid(green), wave2=treb(blue)
+      const bassReacts = bassMeans.r > silenceMeans.r + 8;
+      const trebleReacts = trebleMeans.b > silenceMeans.b + 8;
+      const bandsDiffer = Math.abs(bassMeans.r - trebleMeans.r) > 5
+        || Math.abs(bassMeans.b - trebleMeans.b) > 5;
+      result.ok = bassReacts && trebleReacts && bandsDiffer;
+      result.error = result.ok ? null : 'channel means did not diverge as expected';
+
+      document.getElementById('stat').textContent = JSON.stringify(result, null, 2);
+    }
+
+    main().catch((err) => {
+      result.error = String(err);
+      document.getElementById('stat').textContent = JSON.stringify(result, null, 2);
+    });
+  </script>
+</body>
+</html>

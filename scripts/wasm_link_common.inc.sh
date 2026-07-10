@@ -33,6 +33,8 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _dual_fbo_get_format
     _transition_start
     _transition_is_active
+    _transition_set_duration
+    _transition_get_duration
     _set_perf_hud
     _set_target_fps
     _set_quality_governor
@@ -48,6 +50,24 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
 projectm_wasm_join_exported_functions() {
     local IFS=,
     echo "${PROJECTM_WASM_EXPORTED_FUNCTIONS[*]}"
+}
+
+# SIMD + atomics compile flags for the final emcc link of projectM_emscripten.cpp.
+# Must stay in sync with ENABLE_EMSCRIPTEN add_compile_options in CMakeLists.txt so
+# the wrapper TU and prebuilt libprojectM-4.a agree on wasm32 feature levels.
+projectm_wasm_simd_compile_args() {
+    local -n _out=$1
+    _out=(
+        -msimd128
+        -mrelaxed-simd
+        -mmutable-globals
+        -mbulk-memory
+        -matomics
+        -mnontrapping-fptoint
+        -msign-ext
+        -fno-strict-aliasing
+        -fno-math-errno
+    )
 }
 
 # Common emcc arguments (array). Caller may append lib paths and -o.
@@ -66,9 +86,13 @@ projectm_wasm_common_link_args() {
         lto_args+=("-flto")
     fi
 
+    local simd_args=()
+    projectm_wasm_simd_compile_args simd_args
+
     _out=(
         -O3
         "${lto_args[@]}"
+        "${simd_args[@]}"
         -l embind
         -pthread
         -fopenmp=libomp

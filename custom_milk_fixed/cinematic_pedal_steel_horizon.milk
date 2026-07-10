@@ -1,0 +1,67 @@
+// Signature Series | cinematic_pedal_steel | Watershed
+// tags: cinematic, horizon, blue-hour, light
+// author: projectM-signature-batch-2026-07
+// project: watershed
+// music: cinematic ambient, long pads
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+presetname=Cinematic Pedal Steel Horizon
+fRating=4.000000
+fGammaAdj=1.300000
+fDecay=0.980000
+fVideoEchoZoom=1.000000
+fVideoEchoAlpha=0.000000
+nWaveMode=0
+bAdditiveWaves=0
+fWaveAlpha=0.001000
+fWarpScale=1.150000
+zoom=1.000000
+rot=0.000000
+warp=0.006000
+cx=0.500000
+cy=0.500000
+mv_a=0.000000
+
+per_frame_1=q1=time*0.1
+per_frame_2=q2=bass_att
+per_frame_3=q3=mid_att
+per_frame_4=q4=treb_att
+per_frame_5=q5=0.5+0.5*sin(time*0.15)
+per_frame_6=q6=1.0
+per_frame_7=q7=0.03
+per_frame_8=q8=mid_att
+per_frame_9=q9=time*0.03
+per_frame_10=q10=0.05
+per_frame_11=q11=1.0
+per_frame_12=q12=time
+
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.006;
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 uvc=uv-0.5;
+warp_4=`float zoom=1.0+q1*0.02;
+warp_5=`uvc*=zoom;
+warp_6=`float2 nuv=uvc*0.98+0.5;
+warp_7=`float3 col=tex2D(sampler_main,nuv).xyz;
+warp_8=`float horizon=smoothstep(0.35,0.55,uv.y);
+warp_9=`col=lerp(col,float3(0.15,0.25,0.55),horizon*0.25);
+warp_10=`ret=col;
+warp_11=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col=tex2D(sampler_main,uv).xyz;
+comp_4=`float band=smoothstep(0.42,0.52,uv.y);
+comp_5=`col+=float3(1.0,0.75,0.45)*band*(0.15+q3*0.2);
+comp_6=`float2 c=uv-0.5;
+comp_7=`float d=length(c);
+comp_8=`float letter=1.0-smoothstep(0.3,0.95,d)*(0.05+q2*0.08);
+comp_9=`col*=1.0-letter;
+comp_10=`ret=saturate(col);
+comp_11=`}

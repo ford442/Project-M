@@ -526,6 +526,9 @@ import { loadScript, PROJECTM_WASM_SCRIPT } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
+import { setupAudioTestPanel } from './projectm-synthetic-audio.js';
+import { setupExperimentalBridge } from './projectm-experimental-bridge.js';
+import { setupPresetDevTools } from './projectm-preset-dev.js';
 import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { setupPresetPicker } from './projectm-preset-picker.js';
 import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
@@ -699,31 +702,64 @@ function fullWindow() {
 }
 
 // ====== CUSTOM PRESET PICKER ======
-// Named, searchable list of the fork's curated custom_milk_fixed presets with
-// known-good/known-broken badges (see projectm-preset-picker.js). Adds a
-// floating "🎛 Presets" launcher so you can preview a *specific* upgraded
-// shader instead of only blind-random selection.
+// Named, searchable preset library with tags, favorites, featured pack, and
+// quality-weighted random (see projectm-preset-picker.js + projectm-preset-library.js).
+function flashLockToast() {
+    const el = document.getElementById('stat');
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = 'Preset locked — tap lock to unlock';
+    el.style.background = 'rgba(120, 53, 15, 0.92)';
+    el.style.color = '#fde68a';
+    el.style.padding = '0.45rem 0.7rem';
+    el.style.borderRadius = '0.45rem';
+    el.style.border = '1px solid rgba(245,158,11,0.5)';
+    clearTimeout(flashLockToast._t);
+    flashLockToast._t = setTimeout(() => { el.style.display = 'none'; }, 2200);
+}
+
+try {
+    const savedLock = localStorage.getItem('projectm:presetLocked');
+    if (savedLock === '1') isPresetLocked = true;
+} catch { /* ignore */ }
+
 const presetPicker = setupPresetPicker({
     getModule: () => (typeof Module !== 'undefined' ? Module : null),
-    startTransitionWhenReady
+    startTransitionWhenReady,
+    isLocked: () => isPresetLocked,
+    onLockBlocked: flashLockToast,
+    transitionDurationSec: 1.5,
+    preloadFeatured: true,
 });
 window.presetPicker = presetPicker;
 
+if (isPresetLocked) {
+    document.body.classList.add('has-lock');
+    const lockBtn = document.getElementById('lockPresetBtn');
+    if (lockBtn) lockBtn.classList.add('engaged');
+}
+
 function randomPreset() {
+    if (isPresetLocked) {
+        flashLockToast();
+        return;
+    }
     console.log('[ProjectM] Random Preset');
     loadRandomPresetFromRemote();
 }
 
-// "Random Custom" now draws from the curated custom_milk_fixed set (via the
-// picker manifest), preferring verified-rendering presets, instead of falling
-// through to the generic preset API. Right-click opens the full named picker.
+// "Random Custom" draws from the curated library with quality weighting,
+// preferring verified-rendering presets. Right-click opens the full picker.
 function randomCustom() {
+    if (isPresetLocked) {
+        flashLockToast();
+        return;
+    }
     console.log('[ProjectM] Random Custom');
     presetPicker.ready.then((presets) => {
         if (presets && presets.length) {
             presetPicker.pickRandom({ onlyOk: true });
         } else {
-            // Manifest unavailable — fall back to the generic preset API.
             loadRandomPresetFromRemote();
         }
     });
@@ -778,6 +814,9 @@ function lockPreset() {
     const btn = document.getElementById('lockPresetBtn');
     document.body.classList.toggle('has-lock', isPresetLocked);
     btn.classList.toggle('engaged', isPresetLocked);
+    try {
+        localStorage.setItem('projectm:presetLocked', isPresetLocked ? '1' : '0');
+    } catch { /* ignore */ }
     if (renderWorkerHandle) {
         renderWorkerHandle.ccallVoid('set_preset_locked', ['number'], [isPresetLocked ? 1 : 0]);
     } else if (typeof Module !== 'undefined' && Module.ccall) {
@@ -1224,6 +1263,9 @@ async function attemptInit() {
         // ?benchmark=1&frames=500&preset=/presets/foo.milk for a headless JSON
         // report. See docs/PERFORMANCE.md.
         setupPerfTools(Module);
+        setupPresetDevTools(Module, { startTransitionWhenReady });
+        setupExperimentalBridge(Module);
+        setupAudioTestPanel(() => Module);
 
         if (!window._pmStartupPresetsLoaded) {
             window._pmStartupPresetsLoaded = true;

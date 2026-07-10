@@ -10,7 +10,7 @@
 set -euo pipefail
 
 BASE_URL="${1:-https://projectm.1ink.us/}"
-BUNDLE="${2:-projectm-v.034-thread}"
+BUNDLE="${2:-projectm-v.035-thread}"
 BASE_URL="${BASE_URL%/}"
 
 paths=(

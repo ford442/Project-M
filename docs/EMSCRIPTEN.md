@@ -119,6 +119,24 @@ only a `stderr` message in the console.
 | `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (common on low-RAM mobile with `INITIAL_MEMORY=1024mb`), or an internal projectM error. |
 | `4` | Cross-origin isolation | *(JS-side only, not returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
 
+### Main-thread freeze on 033/034 (OpenMP vs. pthread pool)
+
+If the page becomes completely unresponsive a second or two after loading a threaded build
+(`projectm-v.033-thread` / `034`), with `crossOriginIsolated === true` and no console error,
+the likely cause is an **OpenMP thread-count mismatch**:
+
+- Builds from `d862448f4` onward enable OpenMP on wasm (`PRJM_ENABLE_OPENMP`).
+- libomp's default `omp_get_max_threads()` follows `navigator.hardwareConcurrency`
+  (`_emscripten_num_logical_cores` in the glue).
+- Only **four** pthread Workers are pre-spawned (`PTHREAD_POOL_SIZE=4`).
+- `#pragma omp parallel` regions then wait for more threads than Workers exist → silent
+  main-thread deadlock.
+
+**Fix (035+):** `projectM_emscripten.cpp::init()` calls `omp_set_num_threads(4)` to match
+`PTHREAD_POOL_SIZE`. Rebuild with `scripts/build_wasm_install.sh` +
+`scripts/prepare_deploy_bundle.sh` and redeploy. v0.32 did not exhibit this because OpenMP
+was not active in that bundle.
+
 ### Reporting failures to the host page
 
 Code `4` is a special case: it is detected and reported entirely in JavaScript via

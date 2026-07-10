@@ -9,7 +9,7 @@ import {
 test('resolveWasmScriptUrl prefers pm/ when available', async () => {
     const fetchFn = async (url, options) => {
         assert.equal(options.method, 'HEAD');
-        if (url.endsWith('/pm/projectm-v.034-thread.1ijs')) {
+        if (url.endsWith('/pm/projectm-v.035-thread.1ijs')) {
             return { ok: true };
         }
         return { ok: false };

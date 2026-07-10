@@ -72,10 +72,17 @@ projectm_wasm_simd_compile_args() {
 
 # Common emcc arguments (array). Caller may append lib paths and -o.
 # Optional env overrides:
-#   PROJECTM_WASM_LTO=1     add -flto to the final wrapper link (link-time only)
-#   ENABLE_WASM_TRANSITIONS=ON (default) adds ASYNCIFY_STACK_SIZE
+#   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link (link-time only)
+#   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default 4)
+#   ENABLE_WASM_TRANSITIONS=ON       (default) adds ASYNCIFY_STACK_SIZE
+projectm_wasm_pthread_pool_size() {
+    echo "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-4}"
+}
+
 projectm_wasm_common_link_args() {
     local -n _out=$1
+    local pthread_pool_size
+    pthread_pool_size="$(projectm_wasm_pthread_pool_size)"
     local transition_args=()
     if [[ "${ENABLE_WASM_TRANSITIONS:-ON}" == "ON" ]]; then
         transition_args+=("-s" "ASYNCIFY_STACK_SIZE=65536")
@@ -103,7 +110,7 @@ projectm_wasm_common_link_args() {
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS=ccall,FS
         -s EXPORT_NAME=createModule
-        -s PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'
+        -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"
         -s FULL_ES2=0
         -s FULL_ES3=1
         -s MIN_WEBGL_VERSION=2

@@ -110,7 +110,7 @@ emcc projectM_emscripten.cpp \
     -s EXPORTED_FUNCTIONS=_add_audio_data,_main,_pl,_destruct,_get_projectm_handle,_init,_load_preset_file,_switch_preset,_set_aspect_correction,_render_frame,_start_render,_set_window_size,_set_mesh,_add_preset_path,_add_existing_vfs_presets,_add_preset_file,_add_custom_milk_paths,_projectm_pcm_add_float_wrapper,_create_sprite,_stop_worklet_playback,_set_audio_source_to_stream,_set_preset_locked,_dual_fbo_begin_transition,_dual_fbo_is_preset_b_allocated,_dual_fbo_is_preset_b_ready,_dual_fbo_get_format,_transition_start,_transition_is_active,_set_perf_hud,_set_target_fps,_set_quality_governor,_get_quality_tier,_is_preset_ready,_get_rendered_frame_count,_preset_switch_failed,_get_omp_enabled,_get_omp_max_threads,_get_omp_thread_count_in_parallel \
     -s EXPORTED_RUNTIME_METHODS=ccall,FS \
     -s EXPORT_NAME=createModule \
-    -s PTHREAD_POOL_SIZE='navigator.hardwareConcurrency' \
+    -s PTHREAD_POOL_SIZE=4 \
     -s FULL_ES2=0 \
     -s FULL_ES3=1 \
     -s MIN_WEBGL_VERSION=2 \

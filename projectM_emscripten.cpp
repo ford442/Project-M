@@ -36,6 +36,20 @@
 
 using namespace emscripten;
 
+// Must stay in sync with PTHREAD_POOL_SIZE in wasm_link_common.inc.sh / CMakeLists.txt.
+// libomp's default omp_get_max_threads() on wasm follows navigator.hardwareConcurrency
+// via _emscripten_num_logical_cores. Using more OpenMP threads than pre-spawned pthread
+// Workers causes the main thread to block forever inside OpenMP barriers (033/034 freeze).
+constexpr int kWasmPthreadPoolSize = 4;
+
+static void ConfigureWasmOpenMPThreadCount()
+{
+#ifdef _OPENMP
+    omp_set_dynamic(0);
+    omp_set_num_threads(kWasmPthreadPoolSize);
+#endif
+}
+
 // =============================================================================
 // Phase 2: Dual Ping-Pong FBO Architecture with Floating-Point Texture Support
 // =============================================================================
@@ -1996,6 +2010,7 @@ if (pm) {
 js_report_init_success();
 return 0;
 }
+ConfigureWasmOpenMPThreadCount();
 // Clean up any previously created WebGL/EGL resources from a failed prior init attempt
 // so that calling init() again after a partial failure is safe.
 if (gl_ctx) {

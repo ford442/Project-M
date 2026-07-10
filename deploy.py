@@ -6,7 +6,8 @@ Deployment now goes through storage.noahcohn.com (Contabo VPS).
 No SFTP passwords are stored in this repo.
 
 Usage:
-  python deploy.py
+  python deploy.py              # upload bundle
+  python deploy.py --dry-run    # list files that would be uploaded
 
 This script zips the compiled WASM/JS output files and uploads them as a
 single bundle. The server pushes them to projectm.1ink.us/ via a persistent
@@ -16,7 +17,7 @@ Requirements:
   pip install requests
 """
 
-import glob
+import argparse
 import io
 import os
 import sys
@@ -39,13 +40,21 @@ DEPLOY_FILE_PATTERNS: list = [
     "projectm-v.*-thread.worker.js",
 ]
 
+# Optional on-disk pm/ mirror (also auto-generated in the zip from root WASM files).
+DEPLOY_PM_GLOBS: list = [
+    "pm/projectm-v.*-thread.wasm",
+    "pm/projectm-v.*-thread.1ijs",
+    "pm/projectm-v.*-thread.3ijs",
+    "pm/projectm-v.*-thread.worker.js",
+]
+
 # Host pages load the module from ./pm/…; mirror every WASM artifact there too.
 DEPLOY_MIRROR_SUBDIRS: list = ["pm"]
 
 # Shared browser modules and demo hosts (flattened to the deploy root).
 DEPLOY_HTML_GLOBS: list = [
     "html/projectm-*.js",
-    "html/projectm-*.1ink",
+    "html/projectm*.1ink",  # projectm_panel2.1ink, projectm.1ink, etc.
     "html/projectm-core.html",
     "html/projectm-core.css",
 ]
@@ -75,7 +84,7 @@ def _unique_paths(paths: list[Path]) -> list[Path]:
 
 def collect_deploy_files() -> list[Path]:
     matched: list[Path] = []
-    for pattern in DEPLOY_FILE_PATTERNS:
+    for pattern in DEPLOY_FILE_PATTERNS + DEPLOY_PM_GLOBS:
         matched.extend(HERE.glob(pattern))
 
     for pattern in DEPLOY_HTML_GLOBS:
@@ -85,7 +94,7 @@ def collect_deploy_files() -> list[Path]:
 
 
 def zip_entry_name(file: Path) -> str:
-    """Place html/ sources at the deploy root (hosts import ./projectm-*.js)."""
+    """Place html/ sources at the deploy root; keep pm/ paths as-is."""
     try:
         relative = file.relative_to(HERE)
     except ValueError:
@@ -93,7 +102,7 @@ def zip_entry_name(file: Path) -> str:
 
     if relative.parts and relative.parts[0] == "html":
         return str(Path(*relative.parts[1:]))
-    return file.name
+    return str(relative)
 
 
 def build_zip() -> bytes:
@@ -107,11 +116,17 @@ def build_zip() -> bytes:
         sys.exit(1)
 
     wasm_files = [
-        path for path in matched if path.suffix in {".wasm", ".1ijs", ".3ijs", ".js"}
+        path for path in matched
+        if path.suffix in {".wasm", ".1ijs", ".3ijs", ".js"}
         and path.name.startswith("projectm-v.")
         and "-thread." in path.name
         and path.parent == HERE
     ]
+
+    mirrored_names: set[str] = set()
+    for path in matched:
+        if path.parent == HERE / "pm":
+            mirrored_names.add(path.name)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -123,23 +138,22 @@ def build_zip() -> bytes:
             if file in wasm_files:
                 for subdir in DEPLOY_MIRROR_SUBDIRS:
                     mirrored = f"{subdir}/{file.name}"
+                    if file.name in mirrored_names:
+                        continue
                     zf.write(file, mirrored)
                     print(f"  + {mirrored} (mirror)")
+                    mirrored_names.add(file.name)
 
     return buf.getvalue()
 
 
-def deploy_bundle() -> bool:
-    """Zip the output files and upload as a single bundle."""
+def deploy_bundle(zip_bytes: bytes) -> bool:
+    """Upload a pre-built zip bundle."""
     target_folder = DEPLOY_FOLDER or PROJECT_NAME
     url = f"{CONTABO_BASE_URL}/api/deploy/{PROJECT_NAME}/bundle"
     headers = {}
     if DEPLOY_TOKEN:
         headers["X-Deploy-Token"] = DEPLOY_TOKEN
-
-    print("Building zip archive...")
-    zip_bytes = build_zip()
-    print(f"Archive size: {len(zip_bytes) / 1024:.1f} KB\n")
 
     print("Uploading bundle...")
     try:
@@ -168,6 +182,24 @@ def deploy_bundle() -> bool:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Deploy projectM WASM + host assets")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List bundle contents without uploading",
+    )
+    args = parser.parse_args()
+
+    print(f"\n=== Deploying '{PROJECT_NAME}' via Contabo -> projectm.1ink.us/ ===\n")
+
+    print("Building zip archive...")
+    zip_bytes = build_zip()
+    print(f"Archive size: {len(zip_bytes) / 1024:.1f} KB\n")
+
+    if args.dry_run:
+        print("Dry run complete (no upload).")
+        sys.exit(0)
+
     if not DEPLOY_TOKEN:
         print(
             "ERROR: DEPLOY_TOKEN is not set.\n"
@@ -177,8 +209,6 @@ def main():
         )
         sys.exit(1)
 
-    print(f"\n=== Deploying '{PROJECT_NAME}' via Contabo -> projectm.1ink.us/ ===\n")
-
     try:
         health = requests.get(f"{CONTABO_BASE_URL}/api/deploy/health", timeout=10)
         if health.status_code == 200:
@@ -187,7 +217,7 @@ def main():
         print("Warning: Could not contact storage.noahcohn.com (continuing anyway).")
 
     print()
-    success = deploy_bundle()
+    success = deploy_bundle(zip_bytes)
 
     print(f"\n=== {'Deployment complete' if success else 'Deployment finished with errors'} ===")
     sys.exit(0 if success else 1)

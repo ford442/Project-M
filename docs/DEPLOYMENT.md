@@ -43,8 +43,9 @@ PROJECTM_WASM_VERSION=035 \
   INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
   scripts/prepare_deploy_bundle.sh
 
-# 3. Upload
+# 3. Upload (ships root WASM, pm/ mirror, and html/projectm-*.js hosts)
 export DEPLOY_TOKEN="your_long_token_from_vps_env"
+python deploy.py --dry-run   # optional: preview bundle contents
 python deploy.py
 
 # 4. Verify (no HTML 404s under pm/)
@@ -185,7 +186,7 @@ console on the deployed page: `crossOriginIsolated` should be `true`.
 |---------|---------------|-----|
 | `Unexpected token '<'` loading `projectm-v.*.1ijs` | `./pm/…` path 404 (Apache returns HTML) | Re-run `python deploy.py` after `prepare_deploy_bundle.sh` so `pm/` mirrors exist; or copy all four artifacts into your site's `pm/` folder. Hosts also fall back to `./projectm-v.*-thread.1ijs` at the site root when `pm/` is missing (`resolveWasmScriptUrl()` in `projectm-init.js`). |
 | Module loads but WASM fails | `.wasm` missing next to the `.1ijs` under the same directory | Deploy/copy `pm/projectm-v.<ver>-thread.wasm` alongside the `.1ijs` |
-| `projectm_panel2.1ink` 404 on `projectm-*.js` | Only WASM was deployed; HTML modules were not | Include `html/projectm-*.js` in the bundle (`deploy.py` does this automatically) |
+| Root WASM 200 but `pm/` + `projectm-*.js` 302 | Legacy SFTP uploaded only `.wasm`/`.1ijs` to site root | Run `python deploy.py` (not `upload_module.py` alone). It zips root WASM, auto-mirrors under `pm/`, and flattens `html/projectm-*.js` + `projectm_panel2.1ink` to the deploy root. Preview with `python deploy.py --dry-run`. |
 | Duplicate script tags (root + `pm/`) | Custom host loads `./projectm-v.*.1ijs` and `./pm/…` | Load **only** from `./pm/` via `PROJECTM_WASM_SCRIPT` in `projectm-init.js` |
 
 Custom hosts on other domains must mirror the full `pm/` directory locally (or

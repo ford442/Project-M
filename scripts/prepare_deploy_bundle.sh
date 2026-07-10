@@ -21,7 +21,7 @@ set -euo pipefail
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 INSTALL_DIR="${INSTALL_DIR:-"$PROJECT_ROOT/install"}"
 OUT_DIR="${OUT_DIR:-"$PROJECT_ROOT/cmake-build/wasm-smoke"}"
-PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-034}"
+PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-035}"
 
 projectm_lib="$INSTALL_DIR/lib/libprojectM-4.a"
 playlist_lib="$INSTALL_DIR/lib/libprojectM-4-playlist.a"

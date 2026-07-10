@@ -26,7 +26,7 @@ root, because hosts `import './projectm-*.js'`):
 - `projectm-*.js`, `projectm-*.1ink`, `projectm-core.html`, `projectm-core.css`
 
 The active bundle version is defined once in `html/projectm-init.js`
-(`PROJECTM_WASM_BUNDLE`, currently `projectm-v.034-thread`). Bump it when you
+(`PROJECTM_WASM_BUNDLE`, currently `projectm-v.035-thread`). Bump it when you
 publish a new smoke build.
 
 ## Usage
@@ -39,7 +39,7 @@ source /path/to/emsdk/emsdk_env.sh
 INSTALL_DIR=install scripts/build_wasm_install.sh
 
 # 2. Build wrapper + stage artifacts at repo root and pm/
-PROJECTM_WASM_VERSION=034 \
+PROJECTM_WASM_VERSION=035 \
   INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
   scripts/prepare_deploy_bundle.sh
 

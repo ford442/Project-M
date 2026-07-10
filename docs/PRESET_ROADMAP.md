@@ -81,6 +81,13 @@ The preset work operates over three corpora, described in
 
 Author/validate/upgrade helpers:
 
+- `scripts/audit_presets.mjs` — **GPU-free static reliability audit** (Node only, no
+  build). Complements the compat harness by catching runtime hazards (division by
+  zero, unbalanced `()`/`{}`/`[]` across equation and shader groups, literal NaN
+  sources), tiering presets `light`/`medium`/`heavy`, and emitting metadata
+  (description, author, audio-reactivity, PSVERSION). Run `--selftest` to verify the
+  checker; gated per push by `.github/workflows/preset_audit.yml`. Latest run:
+  [`docs/PRESET_AUDIT.md`](PRESET_AUDIT.md) / [`docs/preset_audit_report.json`](preset_audit_report.json).
 - `scripts/kimi_validate_preset.sh` — validate a preset against the current build.
 - `scripts/kimi_upgrade_preset.sh` — AI-assisted upgrade pass.
 - `scripts/test_presets.sh` — batch smoke test.

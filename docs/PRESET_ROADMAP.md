@@ -3,8 +3,12 @@
 Living tracker for the effort to **curate, upgrade, and expand the preset library**,
 building on the recent OpenMP + SIMD performance wins. The canonical discussion and
 progress bar live in the GitHub epic
-[#110 — Preset Modernization Roadmap](https://github.com/ford442/Project-M/issues/110);
+[#110 — Preset Modernization Roadmap](https://github.com/ford442/Project-M/issues/110)
+([Linear JUL-981](https://linear.app/jules-1inkus/issue/JUL-981));
 this file is the in-repo companion so the plan travels with the code.
+
+**Status (2026-07-10):** **7/8** sub-issues closed. M1 + M2 complete. M3 in progress
+(only [#118](https://github.com/ford442/Project-M/issues/118) remains open).
 
 ## Goals
 
@@ -28,13 +32,13 @@ default to the harden track unless a creative item is explicitly scheduled.
 
 ## Milestones
 
-### M1 — Harden & Baseline (`P0`)
+### M1 — Harden & Baseline (`P0`) — **complete**
 Every high-value preset passes a smoke test at 60fps with no crashes; preset hot
 paths are profiled and SIMD/OpenMP-optimized.
 - #111 — Audit, upgrade and harden existing presets
 - #112 — Extend OpenMP/SIMD to preset evaluation and rendering
 
-### M2 — Verify & Tool (`P1`)
+### M2 — Verify & Tool (`P1`) — **complete**
 Audio reactivity verified, repeatable benchmarking in place, metadata/browser UX
 shipped, Signature Series workflow documented with a first batch.
 - #115 — Verify accurate audio data reactivity
@@ -43,32 +47,32 @@ shipped, Signature Series workflow documented with a first batch.
 - #114 — Preset metadata, tagging, search/browser improvements
 - #113 — Systematic workflow + tooling for new custom presets (Signature Series)
 
-### M3 — Explore & Maintain (`P2`)
+### M3 — Explore & Maintain (`P2`) — **in progress**
 Upstream sync cadence established, experimental feature prototypes evaluated.
 - #116 — Monitor upstream `projectM-visualizer/projectm` and evaluate backports
-  — see [`UPSTREAM_SYNC.md`](UPSTREAM_SYNC.md) + `scripts/upstream_sync_check.sh`
+  — see [`UPSTREAM_SYNC.md`](UPSTREAM_SYNC.md) + `scripts/upstream_sync_check.sh` · **done**
 - #118 — Explore experimental features (Depth Anything, glTF, Transformers.js)
-  — see [`EXPERIMENTAL_PRESET_HOOKS.md`](EXPERIMENTAL_PRESET_HOOKS.md)
+  — see [`EXPERIMENTAL_PRESET_HOOKS.md`](EXPERIMENTAL_PRESET_HOOKS.md) · **open**
 
 ## Tracked Sub-Issues
 
 ### Upgrade & Harden (70%)
 
-| Issue | Area | Priority | Milestone |
-|-------|------|----------|-----------|
-| [#111](https://github.com/ford442/Project-M/issues/111) | Audit, upgrade & harden existing presets (`weeks_presets/` + `custom_milk_fixed/`) | `P0` | M1 |
-| [#112](https://github.com/ford442/Project-M/issues/112) | Extend OpenMP pragmas + SIMD to preset evaluation and rendering | `P0` | M1 |
-| [#115](https://github.com/ford442/Project-M/issues/115) | Verify accurate audio data reactivity (FFT, beat, waveform, per-frame eqs) | `P1` | M2 |
-| [#117](https://github.com/ford442/Project-M/issues/117) | `optimize.sh` + preset benchmarking (`docs/BENCHMARKING.md`) | `P1` | M2 |
-| [#114](https://github.com/ford442/Project-M/issues/114) | Preset metadata, tagging, search/browser improvements in demo UI | `P1` | M2 |
-| [#116](https://github.com/ford442/Project-M/issues/116) | Monitor upstream projectM + evaluate backports | `P2` | M3 |
+| Issue | Area | Priority | Milestone | Status |
+|-------|------|----------|-----------|--------|
+| [#111](https://github.com/ford442/Project-M/issues/111) | Audit, upgrade & harden existing presets (`weeks_presets/` + `custom_milk_fixed/`) | `P0` | M1 | closed |
+| [#112](https://github.com/ford442/Project-M/issues/112) | Extend OpenMP pragmas + SIMD to preset evaluation and rendering | `P0` | M1 | closed |
+| [#115](https://github.com/ford442/Project-M/issues/115) | Verify accurate audio data reactivity (FFT, beat, waveform, per-frame eqs) | `P1` | M2 | closed |
+| [#117](https://github.com/ford442/Project-M/issues/117) | `optimize.sh` + preset benchmarking (`docs/BENCHMARKING.md`) | `P1` | M2 | closed |
+| [#114](https://github.com/ford442/Project-M/issues/114) | Preset metadata, tagging, search/browser improvements in demo UI | `P1` | M2 | closed |
+| [#116](https://github.com/ford442/Project-M/issues/116) | Monitor upstream projectM + evaluate backports | `P2` | M3 | closed (ongoing cadence) |
 
 ### New & Creative (30%)
 
-| Issue | Area | Priority | Milestone |
-|-------|------|----------|-----------|
-| [#113](https://github.com/ford442/Project-M/issues/113) | Systematic workflow + tooling for new custom presets (Signature Series) | `P1` | M2 |
-| [#118](https://github.com/ford442/Project-M/issues/118) | Explore experimental features (Depth Anything, glTF, Transformers.js) with presets | `P2` | M3 |
+| Issue | Area | Priority | Milestone | Status |
+|-------|------|----------|-----------|--------|
+| [#113](https://github.com/ford442/Project-M/issues/113) | Systematic workflow + tooling for new custom presets (Signature Series) | `P1` | M2 | closed |
+| [#118](https://github.com/ford442/Project-M/issues/118) | Explore experimental features (Depth Anything, glTF, Transformers.js) with presets | `P2` | M3 | **open** |
 
 ## Working Corpora & Tooling
 

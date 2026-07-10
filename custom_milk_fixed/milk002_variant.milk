@@ -1,3 +1,8 @@
+// Legacy per_pixel variant of milk002 (no HLSL warp/comp shaders).
+// MILKDROP_PRESET_VERSION=100 makes the MilkDrop 1.x pipeline explicit; this is the
+// engine default (PresetState presetVersion{100}) so rendering is unchanged, and it
+// keeps the preset from being flagged as missing a required version header.
+MILKDROP_PRESET_VERSION=100
 [preset00]
 fRating=3.0
 fGammaAdj=2.0

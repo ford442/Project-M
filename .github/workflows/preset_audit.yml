@@ -1,0 +1,45 @@
+name: Preset Static Audit
+
+# Fast, GPU-free static reliability audit of the .milk preset corpora
+# (scripts/audit_presets.mjs). Unlike preset_compat.yml this needs no CMake/vcpkg
+# build — only Node — so it runs on every push/PR as a quick gate:
+#
+#   * self-test locks the parser/check logic against regressions,
+#   * custom_milk_fixed/ (curated corpus) is gated: any `error` fails the job,
+#   * weeks_presets/ (large community corpus) is advisory (report only).
+
+on:
+  push:
+    paths:
+      - 'custom_milk_fixed/**'
+      - 'weeks_presets/**'
+      - 'scripts/audit_presets.mjs'
+      - '.github/workflows/preset_audit.yml'
+  pull_request:
+    paths:
+      - 'custom_milk_fixed/**'
+      - 'weeks_presets/**'
+      - 'scripts/audit_presets.mjs'
+      - '.github/workflows/preset_audit.yml'
+  workflow_dispatch: {}
+
+jobs:
+  preset-audit:
+    name: Preset Static Audit
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Self-test the auditor
+        run: node scripts/audit_presets.mjs --selftest
+
+      - name: Gate curated corpus (custom_milk_fixed)
+        run: node scripts/audit_presets.mjs custom_milk_fixed --fail-on error
+
+      - name: Audit community corpus (advisory report)
+        run: node scripts/audit_presets.mjs weeks_presets --fail-on none

@@ -24,6 +24,42 @@ function resolveBaseUrl(documentRef, baseUrl) {
 }
 
 /**
+ * True when a probe response is a real WASM glue script, not an HTML ErrorDocument.
+ *
+ * Hosting that 302s missing paths to a soft-404 page (HTTP 200 text/html) will make
+ * bare `response.ok` true for missing ./pm/ files — reject those here.
+ */
+export function isUsableWasmScriptResponse(response, requestUrl) {
+    if (!response || !response.ok) {
+        return false;
+    }
+
+    const contentType = (
+        typeof response.headers?.get === 'function'
+            ? response.headers.get('content-type')
+            : response.headers?.['content-type']
+    ) || '';
+    if (String(contentType).toLowerCase().includes('text/html')) {
+        return false;
+    }
+
+    // fetch() follows redirects by default; a soft-404 lands on a different URL.
+    if (response.redirected && response.url && requestUrl) {
+        try {
+            const requestedName = new URL(requestUrl, 'https://placeholder.local').pathname.split('/').pop();
+            const finalName = new URL(response.url).pathname.split('/').pop();
+            if (requestedName && finalName && requestedName !== finalName) {
+                return false;
+            }
+        } catch {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Resolves the threaded WASM glue script URL. Tries ./pm/ first (canonical deploy
  * layout), then falls back to ./ at the site root for legacy uploads that only
  * pushed projectm-v.*-thread.{1ijs,wasm} without the pm/ mirror.
@@ -47,7 +83,7 @@ export async function resolveWasmScriptUrl({
         const url = resolvedBase ? new URL(candidate, resolvedBase).href : candidate;
         try {
             const response = await fetchFn(url, { method: 'HEAD', cache: 'no-store' });
-            if (response.ok) {
+            if (isUsableWasmScriptResponse(response, url)) {
                 resolvedWasmScript = candidate;
                 return candidate;
             }

@@ -1,3 +1,6 @@
+export const FLAC_PLAYER_BASE_URL = 'https://go.1ink.us/flac-player/';
+export const MOD_PLAYER_BASE_URL = 'https://go.1ink.us/xm-player/';
+
 const DEFAULT_AUDIO_SOURCES = [
     { id: 'none', label: 'Audio Player' },
     { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' },
@@ -115,7 +118,7 @@ export function createPopupAudioPlayerController({
             label: 'FLAC Player',
             storageKey: 'flacPlayerUrl',
             elementId: 'flacPlayerUrl',
-            defaultUrl: 'https://flac.1ink.us',
+            defaultUrl: FLAC_PLAYER_BASE_URL,
             target: 'flac-player'
         },
         {
@@ -123,7 +126,7 @@ export function createPopupAudioPlayerController({
             label: 'MOD Player',
             storageKey: 'modPlayerUrl',
             elementId: 'modPlayerUrl',
-            defaultUrl: 'https://mod.1ink.us',
+            defaultUrl: MOD_PLAYER_BASE_URL,
             target: 'mod-player'
         }
     ];

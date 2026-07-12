@@ -213,17 +213,17 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
     <span>FLAC Player</span>
     <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
   </div>
-  <iframe id="flacFrame" src="https://flac.1ink.us?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+  <iframe id="flacFrame" src="https://go.1ink.us/flac-player/?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
 <section id="modPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div class="ext-player-header">
     <span>MOD Player</span>
     <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
   </div>
-  <iframe id="modFrame" src="https://mod.1ink.us?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+  <iframe id="modFrame" src="https://go.1ink.us/xm-player/?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
-<div hidden id="flacPlayerUrl">https://flac.1ink.us</div>
-<div hidden id="modPlayerUrl">https://mod.1ink.us</div>
+<div hidden id="flacPlayerUrl">https://go.1ink.us/flac-player/</div>
+<div hidden id="modPlayerUrl">https://go.1ink.us/xm-player/</div>
 
 <!-- Bezel assets -->
 <img src='https://projectm.1ink.us/unglass.png' id="gl" alt="Glass" style="display:none;" crossorigin="anonymous">

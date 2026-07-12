@@ -1,7 +1,6 @@
 const AUDIO_CHANNEL_NAME = 'projectm-audio';
 const DEFAULT_EXTERNAL_PCM_ORIGINS = [
-    'https://mod.1ink.us',
-    'https://flac.1ink.us',
+    'https://go.1ink.us',
     'https://test.1ink.us'
 ];
 const LOCAL_STORAGE_ORIGIN_KEYS = [

@@ -402,7 +402,7 @@ Click to upload image
     <button type="button" onclick="closeAudioPlayer()" style="cursor:pointer;border:1px solid #555;border-radius:4px;background:#222;color:#ddd;font-family:inherit;font-size:11px;padding:0.2rem 0.55rem;">Hide</button>
   </div>
   <iframe id="flacFrame"
-    src="https://flac.1ink.us"
+    src="https://go.1ink.us/flac-player/?projectm=1"
     style="width:100%;height:calc(100% - 32px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
@@ -413,13 +413,13 @@ Click to upload image
     <button type="button" onclick="closeAudioPlayer()" style="cursor:pointer;border:1px solid #555;border-radius:4px;background:#222;color:#ddd;font-family:inherit;font-size:11px;padding:0.2rem 0.55rem;">Hide</button>
   </div>
   <iframe id="modFrame"
-    src="https://mod.1ink.us?projectm=1"
+    src="https://go.1ink.us/xm-player/?projectm=1"
     style="width:100%;height:calc(100% - 32px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
 </section>
-<div hidden id="flacPlayerUrl">https://flac.1ink.us</div>
-<div hidden id="modPlayerUrl">https://mod.1ink.us</div>
+<div hidden id="flacPlayerUrl">https://go.1ink.us/flac-player/</div>
+<div hidden id="modPlayerUrl">https://go.1ink.us/xm-player/</div>
 </body>
 <script>
 

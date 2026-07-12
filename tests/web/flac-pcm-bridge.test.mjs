@@ -32,6 +32,7 @@ test('resolveFeedTarget prefers opener, then parent, else null', () => {
 test('isProjectMFeederMode detects the feeder signals', () => {
     assert.equal(isProjectMFeederMode(fakeWindow({ search: '?projectm=1' })), true);
     assert.equal(isProjectMFeederMode(fakeWindow({ name: 'flac-player' })), true);
+    assert.equal(isProjectMFeederMode(fakeWindow({ name: 'mod-player' })), true);
     assert.equal(isProjectMFeederMode(fakeWindow({ opener: {} })), true);
     assert.equal(isProjectMFeederMode(fakeWindow({})), false);
 });

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#06b6d4" />
+  <title>MOD Player Pro</title>
+  <link rel="manifest" href="./manifest.json">
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
+      }
+    }
+  </script>
+  <script>
+    // projectM audio-only / embed mode — see html/flac-player/index.html.
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var audioOnly = params.get('projectm') === '1' || window.name === 'mod-player';
+      window.__projectMAudioOnly = audioOnly;
+      window.__projectMEmbed = audioOnly;
+      if (audioOnly) document.documentElement.setAttribute('data-projectm-audio-only', '1');
+    })();
+  </script>
+  <script type="module">
+    import { installProjectMPcmBridge } from '../flac-player/projectm-pcm-bridge.js';
+
+    // Tap the Web Audio graph before the app bundle connects to destination.
+    try {
+      window.__projectMPcmBridge = installProjectMPcmBridge();
+    } catch (error) {
+      console.debug('[projectM MOD bridge] install failed (non-fatal):', error);
+    }
+  </script>
+  <script type="module" crossorigin src="./assets/index-CHqFyfX2.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-CRjC7esB.css">
+</head>
+
+<body class="bg-gray-900 text-gray-200">
+  <div id="root"></div>
+
+  <!--
+    Note: Define the libopenmpt configuration object BEFORE the script loads.
+    This prevents the script from overwriting our onRuntimeInitialized callback.
+    A promise is used to signal readiness to the React application.
+  -->
+  <script>
+    window.libopenmptReady = new Promise((resolve, reject) => {
+      window.libopenmpt = {
+        onRuntimeInitialized: function () {
+          console.log('libopenmpt runtime initialized via pre-load script.');
+          resolve(this);
+        }
+      };
+      window._libopenmptReject = reject;
+    });
+  </script>
+  <script charset="utf-8" src="https://wasm.noahcohn.com/libmpt/libopenmptjs.js"
+    onerror="window._libopenmptReject && window._libopenmptReject(new Error('Failed to load libopenmpt script from CDN'))"></script>
+</body>
+
+</html>

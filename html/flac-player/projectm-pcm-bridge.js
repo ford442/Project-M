@@ -3,7 +3,7 @@
 // Why this exists: the FLAC player's own (externally-built, minified) bundle only
 // ships PCM to projectM over a BroadcastChannel("projectm-audio"). BroadcastChannel
 // is *same-origin only*, so when the player is opened as a cross-origin popup
-// (https://flac.1ink.us) from the projectM host, the audio never arrives — see
+// (https://go.1ink.us/flac-player/) from the projectM host, the audio never arrives — see
 // DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md. The host receiver
 // (html/projectm-external-pcm.js) already accepts the cross-origin-safe
 // `window.postMessage` path; this module supplies the matching sender without
@@ -41,6 +41,7 @@ export function isProjectMFeederMode(win) {
     }
     if (params && params.get('projectm') === '1') return true;
     if (win.name === 'flac-player') return true;
+    if (win.name === 'mod-player') return true;
     return !!resolveFeedTarget(win);
 }
 

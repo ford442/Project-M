@@ -43,6 +43,7 @@ projectm_wasm_simd_compile_args simd_compile_args
 emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
     -I "$INSTALL_DIR/include" \
     -I "$PROJECT_ROOT" \
+    -I "$PROJECT_ROOT/cmake/generated" \
     -I "$PROJECT_ROOT/omp" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \

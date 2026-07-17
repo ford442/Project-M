@@ -74,6 +74,11 @@ projectm_wasm_join_exported_functions() {
     echo "${PROJECTM_WASM_EXPORTED_FUNCTIONS[*]}"
 }
 
+# EXPORTED_RUNTIME_METHODS for the final wrapper link (common + VFS FS helper).
+projectm_wasm_exported_runtime_methods() {
+    echo "ccall,cwrap,FS"
+}
+
 # SIMD + atomics compile flags for the final emcc link of projectM_emscripten.cpp.
 # Must stay in sync with projectm_apply_emscripten_lib_compile_flags() in
 # cmake/EmscriptenWasmFlags.cmake so the wrapper TU and prebuilt libprojectM-4.a
@@ -93,7 +98,6 @@ projectm_wasm_simd_compile_args() {
     )
 }
 
-# Common emcc arguments (array). Caller may append lib paths and -o.
 # Optional env overrides:
 #   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link (link-time only)
 #   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default 4)
@@ -116,32 +120,42 @@ projectm_wasm_common_link_args() {
         lto_args+=("-flto")
     fi
 
-    local simd_args=()
-    projectm_wasm_simd_compile_args simd_args
-
     _out=(
-        -O3
         "${lto_args[@]}"
-        "${simd_args[@]}"
-        -l embind
+        -std=c++20
+        -O3
+        -rtlib=compiler-rt-mt
+        -mtune=wasm32
         -pthread
         -fopenmp=libomp
-        -s ALLOW_MEMORY_GROWTH=1
-        -s NO_DISABLE_EXCEPTION_CATCHING=1
-        -s ENVIRONMENT=web,worker
+        --typed-function-references
+        --enable-reference-types
+        -fno-math-errno
         -s SHARED_MEMORY=1
-        -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
-        -s EXPORTED_RUNTIME_METHODS=ccall,FS
-        -s EXPORT_NAME=createModule
-        -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"
-        -s FULL_ES2=0
-        -s FULL_ES3=1
+        -s WASM_WORKERS=1
         -s MIN_WEBGL_VERSION=2
         -s MAX_WEBGL_VERSION=2
-        -s MODULARIZE=1
-        -s ASYNCIFY=1
-        "${transition_args[@]}"
+        -s USE_WEBGL2=1
+        -s FULL_ES2=0
+        -s FULL_ES3=1
+        -s GL_POOL_TEMP_BUFFERS=0
+        -s GL_MAX_TEMP_BUFFER_SIZE=33177600
+        -s GL_TRACK_ERRORS=0
+        -s NO_DISABLE_EXCEPTION_CATCHING=1
+        -s ALLOW_MEMORY_GROWTH=1
+        -s MALLOC=mimalloc
+        -s MAXIMUM_MEMORY=4gb
+        -s INITIAL_MEMORY=1024mb
         -s FORCE_FILESYSTEM=1
+        -s ASYNCIFY=1
+        -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"
+        -s ENVIRONMENT=web,worker
+        -s EXPORT_NAME=createModule
+        -s MODULARIZE=1
+        -l embind
+        -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
+        -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"
+        "${transition_args[@]}"
     )
 }
 

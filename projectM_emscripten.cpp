@@ -1,3 +1,4 @@
+#include "ProjectMWasmBuildConfig.hpp"
 #include "omp.h"
 #include <unistd.h>
 #include <emscripten.h>
@@ -34,12 +35,8 @@
 
 using namespace emscripten;
 
-// Must stay in sync with PROJECTM_WASM_PTHREAD_POOL_SIZE in cmake/EmscriptenWasmFlags.cmake.
-// libomp's default omp_get_max_threads() on wasm follows navigator.hardwareConcurrency
-// via _emscripten_num_logical_cores. Using more OpenMP threads than pre-spawned pthread
-// Workers causes the main thread to block forever inside OpenMP barriers (033/034 freeze).
-constexpr int kWasmPthreadPoolSize = 4;
-
+// kWasmPthreadPoolSize comes from cmake/generated/ProjectMWasmBuildConfig.hpp
+// (generated from PROJECTM_WASM_PTHREAD_POOL_SIZE in EmscriptenWasmFlags.cmake).
 static void ConfigureWasmOpenMPThreadCount()
 {
 #ifdef _OPENMP

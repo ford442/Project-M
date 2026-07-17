@@ -71,19 +71,44 @@ presented when the WebGL canvas is composited by the browser.
 
 ## Emscripten flag single source of truth
 
-WASM compile/link flags and the browser `EXPORTED_FUNCTIONS` list are defined in `cmake/EmscriptenWasmFlags.cmake`.
-That module drives:
+WASM compile/link flags, `EXPORTED_FUNCTIONS`, and the OpenMP/pthread pool cap are defined in
+`cmake/EmscriptenWasmFlags.cmake`. That module drives:
 
 - The `ENABLE_EMSCRIPTEN` block in `CMakeLists.txt` (static lib build)
 - The generated `scripts/wasm_link_common.inc.sh` (final `projectM_emscripten.cpp` wrapper link)
+- The generated `cmake/generated/ProjectMWasmBuildConfig.hpp` (`kWasmPthreadPoolSize` for OpenMP)
 
-Regenerate the shell include after editing the CMake module:
+Regenerate derived artifacts after editing the CMake module:
 
 ```bash
 scripts/sync_wasm_link_common.sh
 ```
 
-CI runs `scripts/verify_wasm_link_common.sh` to ensure the generated file is committed in sync.
+CI runs `scripts/verify_wasm_link_common.sh` to ensure generated files are committed in sync.
+
+### Flag matrix (CMake lib link vs. shell wrapper link)
+
+| Setting | CMake lib link | Shell wrapper link | Notes |
+|---------|:--------------:|:------------------:|-------|
+| `SHARED_MEMORY=1`, `WASM_WORKERS=1`, `-pthread` | yes | yes | Required for pthread pool + SharedArrayBuffer |
+| `PTHREAD_POOL_SIZE` | yes (`4`) | yes (`4`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | Must match `kWasmPthreadPoolSize` / `omp_set_num_threads()` |
+| `MALLOC=mimalloc`, `INITIAL_MEMORY=1024mb`, `MAXIMUM_MEMORY=4gb`, `ALLOW_MEMORY_GROWTH=1` | yes | yes | See `docs/PERFORMANCE.md` for right-sizing |
+| `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=1` | yes | yes | WebGL 2 / GLES 3 target |
+| `GL_POOL_TEMP_BUFFERS=0`, `GL_MAX_TEMP_BUFFER_SIZE=33177600`, `GL_TRACK_ERRORS=0` | yes | yes | GL emulation tuning |
+| `ASYNCIFY=1`, `ASYNCIFY_STACK_SIZE=65536` | yes / when `ENABLE_WASM_TRANSITIONS=ON` | yes / when `ENABLE_WASM_TRANSITIONS=ON` | Non-blocking shader compile |
+| `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | yes | yes | Single list in `EmscriptenWasmFlags.cmake` |
+| `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
+| `TRUSTED_TYPES=1`, `WASM_BIGINT=1`, `AUDIO_WORKLET=1` | yes | no | Applied when linking static libs via CMake |
+| `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
+| `-l embind` | no | yes | Wrapper TU uses embind |
+| OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(kWasmPthreadPoolSize)` from generated header |
+
+**OpenMP / pthread pool:** libomp's default `omp_get_max_threads()` on wasm follows
+`navigator.hardwareConcurrency`, but only `PTHREAD_POOL_SIZE` Workers are pre-spawned.
+`projectM_emscripten.cpp::ConfigureWasmOpenMPThreadCount()` calls `omp_set_num_threads(kWasmPthreadPoolSize)`
+so OpenMP never requests more threads than Workers exist (fixes 033/034 main-thread freeze).
+Change the pool size only in `PROJECTM_WASM_PTHREAD_POOL_SIZE` inside `EmscriptenWasmFlags.cmake`, then
+regenerate with `scripts/sync_wasm_link_common.sh`.
 
 ### Future phases
 
@@ -167,8 +192,9 @@ the likely cause is an **OpenMP thread-count mismatch**:
 - `#pragma omp parallel` regions then wait for more threads than Workers exist → silent
   main-thread deadlock.
 
-**Fix (035+):** `projectM_emscripten.cpp::init()` calls `omp_set_num_threads(4)` to match
-`PTHREAD_POOL_SIZE`. Rebuild with `scripts/build_wasm_install.sh` +
+**Fix (035+):** `projectM_emscripten.cpp::init()` calls `omp_set_num_threads(kWasmPthreadPoolSize)` (from
+`cmake/generated/ProjectMWasmBuildConfig.hpp`, sourced from `PROJECTM_WASM_PTHREAD_POOL_SIZE` in
+`cmake/EmscriptenWasmFlags.cmake`) to match `PTHREAD_POOL_SIZE`. Rebuild with `scripts/build_wasm_install.sh` +
 `scripts/prepare_deploy_bundle.sh` and redeploy. v0.32 did not exhibit this because OpenMP
 was not active in that bundle.
 

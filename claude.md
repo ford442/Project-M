@@ -113,7 +113,8 @@ As of this writing, the Emscripten target uses:
 - `-s NO_DISABLE_EXCEPTION_CATCHING`
 - `-s FORCE_FILESYSTEM=1 -s ASYNCIFY=1` (plus `-s ASYNCIFY_STACK_SIZE=65536` when
   `ENABLE_WASM_TRANSITIONS=ON`, the default)
-- `-s EXPORTED_RUNTIME_METHODS='ccall,cwrap'` and an explicit `EXPORTED_FUNCTIONS` list
+- `-s EXPORTED_RUNTIME_METHODS='ccall,cwrap'` (wrapper link also exports `FS`) and an explicit `EXPORTED_FUNCTIONS` list
+- `PTHREAD_POOL_SIZE=4` aligned with `kWasmPthreadPoolSize` in `cmake/generated/ProjectMWasmBuildConfig.hpp`
 
 There is no `-sUSE_SDL=2` in the Emscripten build (SDL2 is only used by the native
 `projectM-Test-UI`, gated behind `ENABLE_SDL_UI`).
@@ -136,6 +137,7 @@ only adds WASM-specific notes:
 1. Define the function in `projectM_emscripten.cpp` with `EMSCRIPTEN_KEEPALIVE`
 2. Add its name (prefixed with `_`) to `PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS` in
    `cmake/EmscriptenWasmFlags.cmake`, then run `scripts/sync_wasm_link_common.sh`
+   (regenerates `wasm_link_common.inc.sh` and `ProjectMWasmBuildConfig.hpp`)
 3. Call it from JS via `Module.ccall`/`Module.cwrap`
 
 ### Debugging WASM Build Issues

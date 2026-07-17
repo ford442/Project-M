@@ -95,6 +95,9 @@ jobs:
           
         # emcmake cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --target install
 
+      - name: Verify WASM link flags are in sync
+        run: scripts/verify_wasm_link_common.sh
+
       - name: Build WASM Smoke Wrapper
         env:
           ENABLE_WASM_TRANSITIONS: ${{ matrix.wasm-transitions }}

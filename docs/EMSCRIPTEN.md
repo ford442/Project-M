@@ -49,6 +49,42 @@ When `ENABLE_WASM_TRANSITIONS=ON`, the following extra flag is applied:
 Set `-DENABLE_WASM_TRANSITIONS=OFF` only when explicitly debugging the legacy hard-cut path or comparing transition
 overhead.
 
+## WebGL context attributes
+
+`projectM_emscripten.cpp::init()` creates the rendering context with Emscripten's html5 WebGL API only — there is
+no parallel EGL config path. `ProjectMDefaultWebGLAttributes()` sets a minimal, documented attribute block:
+
+| Attribute | Value | Rationale |
+|-----------|-------|-----------|
+| `majorVersion` / `minorVersion` | 2 / 0 | WebGL 2 required for GLES 3 emulation |
+| `alpha` | `true` | Enables future transparency overlays (`#135`) |
+| `depth` / `stencil` | `true` | Preset shaders may use depth/stencil |
+| `antialias` | `true` | MSAA on the canvas (disable only if mobile profiling shows a measurable win) |
+| `premultipliedAlpha` | `true` | Matches browser compositing defaults |
+| `preserveDrawingBuffer` | `true` only when `?capture=1` or `window.__projectMCaptureMode` | Screenshot/capture harnesses need a stable back-buffer |
+| `enableExtensionsByDefault` | `true` | Lets projectM probe float/half-float FBO formats |
+| `powerPreference` | `high-performance` | Prefer discrete GPU on hybrid laptops |
+
+Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, half-float samplers) are enabled
+explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
+presented when the WebGL canvas is composited by the browser.
+
+## Emscripten flag single source of truth
+
+WASM compile/link flags and the browser `EXPORTED_FUNCTIONS` list are defined in `cmake/EmscriptenWasmFlags.cmake`.
+That module drives:
+
+- The `ENABLE_EMSCRIPTEN` block in `CMakeLists.txt` (static lib build)
+- The generated `scripts/wasm_link_common.inc.sh` (final `projectM_emscripten.cpp` wrapper link)
+
+Regenerate the shell include after editing the CMake module:
+
+```bash
+scripts/sync_wasm_link_common.sh
+```
+
+CI runs `scripts/verify_wasm_link_common.sh` to ensure the generated file is committed in sync.
+
 ### Future phases
 
 The full dual-pipeline transition feature is being implemented in 5 phases:
@@ -114,7 +150,6 @@ only a `stderr` message in the console.
 | Code | Stage | Meaning | Common causes |
 |------|-------|---------|----------------|
 | `0` | — | Success. | — |
-| `1` | EGL | `eglChooseConfig` failed, i.e. no suitable EGL config was found. | Browser/GPU does not support the requested EGL config (e.g. floating-point color buffers). |
 | `2` | WebGL | `emscripten_webgl_create_context` failed, or the created context could not be activated. | WebGL 2 unsupported or disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
 | `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (common on low-RAM mobile with `INITIAL_MEMORY=1024mb`), or an internal projectM error. |
 | `4` | Cross-origin isolation | *(JS-side only, not returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |

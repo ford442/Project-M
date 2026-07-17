@@ -98,29 +98,8 @@ cd "${PROJECT_DIR}"
 export JVM_HEAP_SIZE=${JVM_HEAP_SIZE}
 source "/root/emsdk/emsdk_env.sh"
 
-emcc projectM_emscripten.cpp \
-    -I /usr/local/include \
-    -O3 -flto \
-    -l embind -pthread -fopenmp=libomp /root/Project-M/libomp.a \
-    -o projectm-v.030-thread.js \
-    -s ALLOW_MEMORY_GROWTH=1 \
-    -s NO_DISABLE_EXCEPTION_CATCHING=1 \
-    -s ENVIRONMENT=web,worker \
-    -s SHARED_MEMORY=1 \
-    -s EXPORTED_FUNCTIONS=_add_audio_data,_main,_pl,_destruct,_get_projectm_handle,_init,_load_preset_file,_switch_preset,_set_aspect_correction,_render_frame,_start_render,_set_window_size,_set_mesh,_add_preset_path,_add_existing_vfs_presets,_add_preset_file,_add_custom_milk_paths,_projectm_pcm_add_float_wrapper,_create_sprite,_stop_worklet_playback,_set_audio_source_to_stream,_set_preset_locked,_dual_fbo_begin_transition,_dual_fbo_is_preset_b_allocated,_dual_fbo_is_preset_b_ready,_dual_fbo_get_format,_transition_start,_transition_is_active,_set_perf_hud,_set_target_fps,_set_quality_governor,_get_quality_tier,_is_preset_ready,_get_rendered_frame_count,_preset_switch_failed,_get_omp_enabled,_get_omp_max_threads,_get_omp_thread_count_in_parallel \
-    -s EXPORTED_RUNTIME_METHODS=ccall,FS \
-    -s EXPORT_NAME=createModule \
-    -s PTHREAD_POOL_SIZE=4 \
-    -s FULL_ES2=0 \
-    -s FULL_ES3=1 \
-    -s MIN_WEBGL_VERSION=2 \
-    -s MAX_WEBGL_VERSION=2 \
-    -s MODULARIZE=1 \
-    -s ASYNCIFY=1 \
-    -s FORCE_FILESYSTEM=1 \
-    -s WASMFS=1 \
-    "${PROJECT_DIR}/build/src/libprojectM/libprojectM-4.a" \
-    "${PROJECT_DIR}/build/src/playlist/libprojectM-4-playlist.a"
+INSTALL_DIR=/usr/local OUT_DIR="${PROJECT_DIR}" PROJECT_ROOT="${PROJECT_DIR}" \
+    bash "${PROJECT_DIR}/scripts/build_wasm_smoke_wrapper.sh"
 
 # 7. Run optimize.sh + iconv conversions (as in original Colab)
 echo "=== Running optimize.sh and iconv conversions ==="

@@ -25,8 +25,6 @@
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
 #define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <cstdint>
 #include <vector>
 #include <limits>
@@ -36,7 +34,7 @@
 
 using namespace emscripten;
 
-// Must stay in sync with PTHREAD_POOL_SIZE in wasm_link_common.inc.sh / CMakeLists.txt.
+// Must stay in sync with PROJECTM_WASM_PTHREAD_POOL_SIZE in cmake/EmscriptenWasmFlags.cmake.
 // libomp's default omp_get_max_threads() on wasm follows navigator.hardwareConcurrency
 // via _emscripten_num_logical_cores. Using more OpenMP threads than pre-spawned pthread
 // Workers causes the main thread to block forever inside OpenMP barriers (033/034 freeze).
@@ -996,25 +994,54 @@ EM_JS(void, js_perf_report_frame, (
 
 // =============================================================================
 
-EGLContext ctxegl = EGL_NO_CONTEXT;
-EGLDisplay display = EGL_NO_DISPLAY;
-EGLSurface surface = EGL_NO_SURFACE;
-EGLConfig eglconfig = NULL;
-EGLint config_size,major,minor,atb_pos;
-EGLint numSamples;
-EGLint numSamplesNV;
-EGLint numBuffersNV;
-EGLint numGreen;
-EGLint numRed;
-EGLint numBlue;
-EGLint numAlpha;
-EGLint numDepth;
-EGLint numStencil;
-EGLint numBuffer;
-EGLint numMBuffers;
-EGLint colorSpace;
-EGLint colorFormat;
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE gl_ctx = 0;
+
+/**
+ * @brief Minimal WebGL 2 context attributes for projectM.
+ *
+ * Documented in docs/EMSCRIPTEN.md § WebGL context attributes. We intentionally
+ * avoid exotic EGL-style config lists — Emscripten's html5 WebGL API is the
+ * only supported path on wasm; browser presentation does not use eglSwapBuffers.
+ */
+static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
+{
+    EmscriptenWebGLContextAttributes attrs;
+    emscripten_webgl_init_context_attributes(&attrs);
+    attrs.majorVersion = 2;
+    attrs.minorVersion = 0;
+    attrs.alpha = EM_TRUE;
+    attrs.depth = EM_TRUE;
+    attrs.stencil = EM_TRUE;
+    attrs.antialias = EM_TRUE;
+    attrs.premultipliedAlpha = EM_TRUE;
+    attrs.preserveDrawingBuffer = EM_ASM_INT({
+        try {
+            var params = new URLSearchParams(window.location.search || '');
+            return (window.__projectMCaptureMode === true || params.get('capture') === '1' || params.get('capture') === 'true') ? 1 : 0;
+        } catch (e) {
+            return window.__projectMCaptureMode === true ? 1 : 0;
+        }
+    }) ? EM_TRUE : EM_FALSE;
+    attrs.enableExtensionsByDefault = EM_TRUE;
+    attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
+    return attrs;
+}
+
+static bool ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx)
+{
+    emscripten_webgl_enable_extension(ctx, "OES_texture_float");
+    emscripten_webgl_enable_extension(ctx, "OES_texture_half_float");
+    emscripten_webgl_enable_extension(ctx, "OES_texture_half_float_linear");
+    if (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") != EM_TRUE)
+    {
+        fprintf(stderr, "Warning: EXT_color_buffer_float not supported; float FBO rendering will not be available\n");
+    }
+    if (emscripten_webgl_enable_extension(ctx, "EXT_float_blend") != EM_TRUE)
+    {
+        fprintf(stderr, "Warning: EXT_float_blend not supported; float blending will not be available\n");
+    }
+    return true;
+}
 
 typedef struct {
 projectm_handle projectm_engine;
@@ -1479,9 +1506,8 @@ if (g_perfHudEnabled) {
     js_perf_gpu_end_frame();
 }
 // The compositor (and the legacy fallback) both leave the composited frame
-// in the default framebuffer (FBO 0); eglSwapBuffers() is still required to
-// present that framebuffer to the browser canvas.
-eglSwapBuffers(display,surface);
+// in the default framebuffer (FBO 0). The browser presents the canvas directly;
+// no eglSwapBuffers() is required on wasm.
 if (g_perfHudEnabled) {
     projectm_perf_frame_timings timings;
     projectm_perf_get_frame_timings(&timings);
@@ -2011,115 +2037,14 @@ js_report_init_success();
 return 0;
 }
 ConfigureWasmOpenMPThreadCount();
-// Clean up any previously created WebGL/EGL resources from a failed prior init attempt
+// Clean up any previously created WebGL resources from a failed prior init attempt
 // so that calling init() again after a partial failure is safe.
 if (gl_ctx) {
 emscripten_webgl_destroy_context(gl_ctx);
 gl_ctx = 0;
 }
-if (ctxegl != EGL_NO_CONTEXT) {
-eglDestroyContext(display, ctxegl);
-ctxegl = EGL_NO_CONTEXT;
-}
-if (surface != EGL_NO_SURFACE) {
-eglDestroySurface(display, surface);
-surface = EGL_NO_SURFACE;
-}
-if (display != EGL_NO_DISPLAY) {
-eglTerminate(display);
-display = EGL_NO_DISPLAY;
-}
 js_init_projectm_dom();
-EmscriptenWebGLContextAttributes webgl_attrs;
-emscripten_webgl_init_context_attributes(&webgl_attrs);
-webgl_attrs.majorVersion = 2;
-webgl_attrs.minorVersion = 0;
-webgl_attrs.alpha = EM_TRUE;
-webgl_attrs.stencil = EM_TRUE;
-webgl_attrs.depth = EM_TRUE;
-webgl_attrs.antialias = EM_TRUE;
-webgl_attrs.premultipliedAlpha=EM_TRUE;
-webgl_attrs.preserveDrawingBuffer = EM_ASM_INT({
-    try {
-        var params = new URLSearchParams(window.location.search || '');
-        return (window.__projectMCaptureMode === true || params.get('capture') === '1' || params.get('capture') === 'true') ? 1 : 0;
-    } catch (e) {
-        return window.__projectMCaptureMode === true ? 1 : 0;
-    }
-}) ? EM_TRUE : EM_FALSE;
-webgl_attrs.enableExtensionsByDefault=EM_TRUE;
-webgl_attrs.powerPreference=EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
-display=eglGetDisplay(EGL_DEFAULT_DISPLAY);
-eglInitialize(display,&major,&minor);
-// eglconfig is not yet initialized here; query attributes after eglChooseConfig selects a config.
-
-static EGLint ctx_att[]={
-EGL_CONTEXT_CLIENT_TYPE,EGL_OPENGL_ES_API,
-EGL_CONTEXT_CLIENT_VERSION,3,
-EGL_CONTEXT_MAJOR_VERSION_KHR,3,
-EGL_CONTEXT_MINOR_VERSION_KHR,0,
-// EGL_CONTEXT_FLAGS_KHR,EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR,
-EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_REALTIME_NV,
-// EGL_CONTEXT_PRIORITY_LEVEL_IMG,EGL_CONTEXT_PRIORITY_HIGH_IMG,
-EGL_NONE
-};
-
-static EGLint att_lst2[]={
-EGL_GL_COLORSPACE_KHR,colorSpace,
-EGL_NONE
-};
-
-static EGLint att_lst[]={
-EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
-// EGL_COLOR_COMPONENT_TYPE_EXT,EGL_COLOR_COMPONENT_TYPE_FIXED_EXT,
-// EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
-// EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
-EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,
-// EGL_RENDERABLE_TYPE,EGL_OPENGL_BIT,  // EGL 1.5 needed  (WASM cannot Window surface)
-// EGL_RENDERABLE_TYPE,EGL_NONE,
-// EGL_CONFORMANT,EGL_OPENGL_BIT,
-// EGL_CONFORMANT,EGL_NONE,
-//  EGL_CONFIG_CAVEAT,EGL_NONE,
-EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT,EGL_TRUE,
-EGL_CONTEXT_OPENGL_NO_ERROR_KHR,EGL_TRUE,
-// EGL_DEPTH_ENCODING_NV,EGL_DEPTH_ENCODING_NONLINEAR_NV,
-// EGL_RENDER_BUFFER,EGL_TRIPLE_BUFFER_NV,
-EGL_RENDER_BUFFER,EGL_QUADRUPLE_BUFFER_NV, //   available in OpenGL
-// EGL_SURFACE_TYPE,EGL_MULTISAMPLE_RESOLVE_BOX_BIT,
-EGL_SURFACE_TYPE,EGL_SWAP_BEHAVIOR_PRESERVED_BIT|EGL_MULTISAMPLE_RESOLVE_BOX_BIT,
-EGL_MULTISAMPLE_RESOLVE,EGL_MULTISAMPLE_RESOLVE_BOX,
-//  EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE,EGL_TRUE, // EGL 1.5 "...the context will only support OpenGL ES 3.0 and later features."
-EGL_COLOR_FORMAT_HI,colorFormat, //  available in OpenGL
-// EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY,EGL_NO_RESET_NOTIFICATION,
-// EGL_NATIVE_RENDERABLE,EGL_TRUE,
-EGL_COLOR_BUFFER_TYPE,EGL_RGB_BUFFER,
-EGL_LUMINANCE_SIZE,0, // available in OpenGL
-EGL_RED_SIZE,numRed,
-EGL_GREEN_SIZE,numGreen,
-EGL_BLUE_SIZE,numBlue,
-EGL_ALPHA_SIZE,numAlpha,
-EGL_DEPTH_SIZE,numDepth,
-EGL_STENCIL_SIZE,numStencil,
-EGL_BUFFER_SIZE,numBuffer,
-EGL_COVERAGE_BUFFERS_NV,numBuffersNV, // available in GLES 3.1
-EGL_COVERAGE_SAMPLES_NV,numSamplesNV,
-EGL_SAMPLE_BUFFERS,numMBuffers,
-EGL_SAMPLES,numSamples,
-EGL_NONE
-};
-
-EGLBoolean configResult = eglChooseConfig(display,att_lst,&eglconfig,1,&config_size);
-if (!configResult || config_size == 0) {
-char detail[64];
-snprintf(detail, sizeof(detail), "eglChooseConfig failed (error: 0x%x)", eglGetError());
-fprintf(stderr, "%s\n", detail);
-js_report_init_error(1, detail);
-return 1;
-}
-ctxegl=eglCreateContext(display,eglconfig,EGL_NO_CONTEXT,ctx_att);
-surface=eglCreateWindowSurface(display,eglconfig,(NativeWindowType)0,att_lst2);
-// eglBindAPI(EGL_OPENGL_ES_API);
-eglBindAPI(EGL_OPENGL_API);
+EmscriptenWebGLContextAttributes webgl_attrs = ProjectMDefaultWebGLAttributes();
 gl_ctx = emscripten_webgl_create_context("#mcanvas", &webgl_attrs);
 if (!gl_ctx) {
 fprintf(stderr, "Failed to create WebGL context\n");
@@ -2127,38 +2052,14 @@ js_report_init_error(2, "Failed to create WebGL 2 context");
 return 2;
 }
 EMSCRIPTEN_RESULT em_res = emscripten_webgl_make_context_current(gl_ctx);
-eglMakeCurrent(display,surface,surface,ctxegl);
-emscripten_webgl_make_context_current(gl_ctx);
-glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
-glHint(GL_GENERATE_MIPMAP_HINT,GL_NICEST);
 if (em_res != EMSCRIPTEN_RESULT_SUCCESS) {
 fprintf(stderr, "Failed to activate the WebGL context for rendering\n");
 js_report_init_error(2, "Failed to activate the WebGL context for rendering");
 return 2;
 }
-
-// These are probably redundant since all GL extensions are enabled by default
-// https://github.com/emscripten-core/emscripten/blob/1b01a9ef2b60184eb70616bbb294cf33d011bbb2/src/settings.js#L481
-// https://emscripten.org/docs/api_reference/html5.h.html#c.EmscriptenWebGLContextAttributes.enableExtensionsByDefault
-//
-// enable floating-point texture support for motion vector grid
-// https://github.com/projectM-visualizer/projectm/blob/master/docs/emscripten.rst#initializing-emscriptens-opengl-context
-// https://emscripten.org/docs/api_reference/html5.h.html#c.emscripten_webgl_enable_extension
-
-emscripten_webgl_enable_extension(gl_ctx, "OES_texture_float");
-// projectM uses half-float textures for the motion vector grid to store
-// the displacement of the previous frame's warp mesh. WebGL 2.0 sadly
-// doesn't support this texture format by default (while OpenGL ES 3 does)
-// so we have to enable the following WebGL extensions.
-
-emscripten_webgl_enable_extension(gl_ctx, "OES_texture_half_float");
-emscripten_webgl_enable_extension(gl_ctx, "OES_texture_half_float_linear");
-if (emscripten_webgl_enable_extension(gl_ctx,"EXT_color_buffer_float") != EM_TRUE) {
-fprintf(stderr, "Warning: EXT_color_buffer_float not supported; float FBO rendering will not be available\n");
-}
-if (emscripten_webgl_enable_extension(gl_ctx,"EXT_float_blend") != EM_TRUE) {
-fprintf(stderr, "Warning: EXT_float_blend not supported; float blending will not be available\n");
-}
+glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT,GL_NICEST);
+glHint(GL_GENERATE_MIPMAP_HINT,GL_NICEST);
+ProjectMEnableRequiredWebGLExtensions(gl_ctx);
 
 // Phase 2: Detect the best available floating-point texture format for the
 // dual ping-pong FBO system. DetectFormat() checks EXT_color_buffer_float

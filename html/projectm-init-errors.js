@@ -1,20 +1,11 @@
 // projectm-init-errors.js
 //
-// Shows a user-visible overlay when projectM's WASM `init()` fails (EGL/WebGL/projectM
+// Shows a user-visible overlay when projectM's WASM `init()` fails (WebGL/projectM
 // setup), instead of leaving the user with a blank canvas and console-only errors.
 //
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
 
 const ERROR_INFO = {
-    1: {
-        title: 'Graphics Setup Failed (EGL)',
-        message: 'Your browser could not create the graphics surface that projectM needs to render.',
-        hints: [
-            'Make sure hardware acceleration is enabled in your browser settings, then reload the page.',
-            'Update your graphics drivers.',
-            'Try a recent version of Chrome, Firefox, or Edge.',
-        ],
-    },
     2: {
         title: 'WebGL 2 Unavailable',
         message: 'projectM needs WebGL 2 with floating-point texture support, which your browser or GPU could not provide.',

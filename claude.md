@@ -98,10 +98,12 @@ Project-M/
 When fixing one of these, close the loop by updating this table (move the row to
 "Completed fixes" with the commit hash) rather than leaving it stale again.
 
-## WASM Build Flags (current, from `CMakeLists.txt`)
+## WASM Build Flags (current, from `cmake/EmscriptenWasmFlags.cmake`)
 
-The authoritative flag list is `CMakeLists.txt` (search `PROJECTM_WASM_EXPORTED_FUNCTIONS`
-and the surrounding `target_link_options`/`target_compile_options` for `ENABLE_EMSCRIPTEN`).
+The authoritative flag list is `cmake/EmscriptenWasmFlags.cmake` (included by the
+`ENABLE_EMSCRIPTEN` block in `CMakeLists.txt` and regenerated into
+`scripts/wasm_link_common.inc.sh`). After editing the module, run
+`scripts/sync_wasm_link_common.sh`.
 As of this writing, the Emscripten target uses:
 
 - `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -s USE_WEBGL2=1`
@@ -132,7 +134,8 @@ only adds WASM-specific notes:
 
 ### Adding a New Emscripten Export
 1. Define the function in `projectM_emscripten.cpp` with `EMSCRIPTEN_KEEPALIVE`
-2. Add its name (prefixed with `_`) to `PROJECTM_WASM_EXPORTED_FUNCTIONS` in `CMakeLists.txt`
+2. Add its name (prefixed with `_`) to `PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS` in
+   `cmake/EmscriptenWasmFlags.cmake`, then run `scripts/sync_wasm_link_common.sh`
 3. Call it from JS via `Module.ccall`/`Module.cwrap`
 
 ### Debugging WASM Build Issues
@@ -145,7 +148,8 @@ only adds WASM-specific notes:
 1. Extend `projectm_audio_processor.js` (operates on per-channel `Float32Array`, not `AudioBuffer`)
 2. Add a message handler in the worklet's `port.onmessage`
 3. Update C++ `js_*` EM_JS functions to trigger new JS code
-4. Add the new export to `PROJECTM_WASM_EXPORTED_FUNCTIONS` if called from C++
+4. Add the new export to `PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS` in
+   `cmake/EmscriptenWasmFlags.cmake` (and regenerate `wasm_link_common.inc.sh`) if called from C++
 
 ### Creating or Upgrading `.milk` Presets (Kimi/agent pipeline)
 Follow [`docs/kimi_preset_authoring_plan.md`](docs/kimi_preset_authoring_plan.md) — the

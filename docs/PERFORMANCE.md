@@ -311,16 +311,15 @@ libs):
 | Flag change | `.wasm` size | `.js` size | Link time | Notes |
 |---|---|---|---|---|
 | `-flto` added to final `emcc` link | 2,024,548 B (**-58,617 B / -2.8%**) | 233,291 B (+571 B) | 30.6 s (+5.2 s) | Link-time-only LTO (the prebuilt `.a` libs are not themselves built with `-flto`); free `.wasm` size reduction with no source/behavior change. Build succeeds, including with `ENABLE_WASM_TRANSITIONS`'s `ASYNCIFY_STACK_SIZE=65536`. |
-| `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'` (was `=4`) | 2,024,548 B (unchanged) | +28 B | unchanged | **Reverted (2026-07):** matched `omp_get_max_threads()` to core count while only 4 pthread Workers were pre-spawned, deadlocking OpenMP barriers on 033/034 (main-thread freeze). Keep `PTHREAD_POOL_SIZE=4` and call `omp_set_num_threads(4)` in `projectM_emscripten.cpp::init()` so OpenMP and the Worker pool stay aligned. Lazy extra Worker spawns on >4-core devices are acceptable vs. a silent hang. |
+| `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'` (was `=4`) | 2,024,548 B (unchanged) | +28 B | unchanged | **Reverted (2026-07):** matched `omp_get_max_threads()` to core count while only 4 pthread Workers were pre-spawned, deadlocking OpenMP barriers on 033/034 (main-thread freeze). Keep `PTHREAD_POOL_SIZE=4` (see `PROJECTM_WASM_PTHREAD_POOL_SIZE` in `cmake/EmscriptenWasmFlags.cmake`) and call `omp_set_num_threads(kWasmPthreadPoolSize)` in `projectM_emscripten.cpp::init()` so OpenMP and the Worker pool stay aligned. Lazy extra Worker spawns on >4-core devices are acceptable vs. a silent hang. |
 | **Combined** (both above) | 2,024,548 B (**-58,617 B / -2.8%**) | 233,319 B (+599 B) | 32.7 s (+7.3 s) | Applied to `build_wasm_smoke_wrapper.sh`, `build_projectm.sh`, `colab_build.sh`. |
 
-Both changes were applied to all three scripts (`build_wasm_smoke_wrapper.sh`,
-`build_projectm.sh`, `colab_build.sh`) to keep their `emcc` invocations in sync, as they already
-duplicate `PTHREAD_POOL_SIZE` and other flags independently of `CMakeLists.txt`. `CMakeLists.txt`'s
-`ENABLE_EMSCRIPTEN` `add_compile_options`/`add_link_options` block does not currently produce
-`projectm-v.030-thread.js` itself (no `add_executable` target exists for it — only the static
-libraries are built via CMake, then linked by the scripts above), so no `CMakeLists.txt` flags
-needed to change for these two items.
+Both changes were applied via the shared `scripts/wasm_link_common.inc.sh` include (generated from
+`cmake/EmscriptenWasmFlags.cmake`) so smoke, Colab, and helper wrapper links stay aligned with
+CMake's `ENABLE_EMSCRIPTEN` flags. `CMakeLists.txt` still does not produce `projectm-v.030-thread.js`
+directly (no `add_executable` target — only static libraries are built via CMake, then linked by
+`scripts/build_wasm_smoke_wrapper.sh` et al.), so wrapper-critical flags must live in the generated
+shell include.
 
 ### Measured, but deferred pending in-browser verification
 

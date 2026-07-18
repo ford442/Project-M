@@ -31,7 +31,11 @@
 #include <limits>
 #include <cmath>
 #include <algorithm>
+#include <optional>
 #include <string>
+
+#include <MilkdropPreset/MilkdropStaticShaders.hpp>
+#include <Renderer/ShaderTranspileCache.hpp>
 
 using namespace emscripten;
 
@@ -1227,6 +1231,87 @@ static uint32_t g_renderedFrameCount = 0;
 static uint32_t g_presetReadyFrame = 0;
 static bool g_presetSwitchFailed = false;
 
+// =============================================================================
+// Transpiled GLSL cache (browser IndexedDB via JS hooks)
+// =============================================================================
+
+static std::string g_shaderCacheKey;
+static std::optional<std::string> g_importedWarpGlsl;
+static std::optional<std::string> g_importedCompGlsl;
+
+EM_JS(void, js_on_transpiled_shader_stored, (const char* key, int kind, const char* glsl), {
+    if (typeof window.pmOnTranspiledShaderStored === 'function') {
+        window.pmOnTranspiledShaderStored(UTF8ToString(key), kind, UTF8ToString(glsl));
+    }
+});
+
+static void InstallShaderTranspileCacheHooks()
+{
+    libprojectM::Renderer::SetTranspiledGlslCacheCallbacks(
+        [](const std::string& key, int shaderType) -> std::optional<std::string> {
+            if (key != g_shaderCacheKey)
+            {
+                return std::nullopt;
+            }
+            if (shaderType == 0 && g_importedWarpGlsl)
+            {
+                return g_importedWarpGlsl;
+            }
+            if (shaderType == 1 && g_importedCompGlsl)
+            {
+                return g_importedCompGlsl;
+            }
+            return std::nullopt;
+        },
+        [](const std::string& key, int shaderType, const std::string& glsl) {
+            js_on_transpiled_shader_stored(key.c_str(), shaderType, glsl.c_str());
+        });
+}
+
+extern "C" {
+EMSCRIPTEN_KEEPALIVE
+void shader_cache_begin_load(const char* key)
+{
+    g_shaderCacheKey = key ? key : "";
+    g_importedWarpGlsl.reset();
+    g_importedCompGlsl.reset();
+    libprojectM::Renderer::SetTranspiledGlslCacheKey(g_shaderCacheKey);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void shader_cache_import_glsl(int shaderType, const char* glsl)
+{
+    if (!glsl)
+    {
+        return;
+    }
+    if (shaderType == 0)
+    {
+        g_importedWarpGlsl = glsl;
+    }
+    else if (shaderType == 1)
+    {
+        g_importedCompGlsl = glsl;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void shader_cache_end_load()
+{
+    libprojectM::Renderer::ClearTranspiledGlslCacheKey();
+    g_shaderCacheKey.clear();
+    g_importedWarpGlsl.reset();
+    g_importedCompGlsl.reset();
+}
+
+EMSCRIPTEN_KEEPALIVE
+int get_glsl_generator_version()
+{
+    return static_cast<int>(
+        libprojectM::MilkdropPreset::MilkdropStaticShaders::Get()->GetGlslGeneratorVersion());
+}
+} // extern "C"
+
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void create_sprite() {
@@ -2110,6 +2195,7 @@ projectm_set_beat_sensitivity(pm, 1.50);
 projectm_playlist_set_shuffle(playlist,true);
 projectm_set_preset_switch_failed_event_callback(pm, &_on_preset_switch_failed, nullptr);
 projectm_set_preset_switch_requested_event_callback(pm, &on_preset_switch_requested, &app_data);
+InstallShaderTranspileCacheHooks();
 // projectm_playlist_connect(app_data.playlist,app_data.projectm_engine);
 printf("  --==  projectM initialized!  ==--\n");
 js_initialize_worklet_system_once(reinterpret_cast<uintptr_t>(app_data.projectm_engine));

@@ -16,7 +16,8 @@ import {
     presetId,
     DEFAULT_FEATURED_MANIFEST_URL,
 } from './projectm-preset-library.js';
-import { preloadFeaturedPack } from './projectm-preset-cache.js';
+import { preloadFeaturedPack, preloadFavoritePresets } from './projectm-preset-cache.js';
+import { getFavorites } from './projectm-preset-favorites.js';
 
 export const DEFAULT_MANIFEST_URL = './custom_presets_manifest.json';
 
@@ -406,6 +407,16 @@ export function setupPresetPicker({
                     preloadFeaturedPack(featured, {
                         onProgress: (done, total) => {
                             if (done === total) setStatus(`${allPresets.length} presets · featured pack cached (${total}).`);
+                        },
+                    }).catch(() => {});
+                }
+                const favorites = getFavorites();
+                if (favorites.size > 0) {
+                    preloadFavoritePresets(allPresets, favorites, {
+                        onProgress: (done, total) => {
+                            if (done === total && total > 0) {
+                                setStatus(`${allPresets.length} presets · ${total} favorite(s) cached.`);
+                            }
                         },
                     }).catch(() => {});
                 }

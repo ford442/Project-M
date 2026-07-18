@@ -57,6 +57,10 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _get_omp_enabled
         _get_omp_max_threads
         _get_omp_thread_count_in_parallel
+        _shader_cache_begin_load
+        _shader_cache_import_glsl
+        _shader_cache_end_load
+        _get_glsl_generator_version
         _pm_handle_context_loss
         _dual_fbo_begin_transition
         _dual_fbo_end_transition

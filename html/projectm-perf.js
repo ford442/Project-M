@@ -10,6 +10,8 @@ import {
     loadPresetFile,
     setPerfHud,
 } from './generated/projectm-wasm-api.js';
+import { measurePresetSwitchTimings } from './projectm-shader-cache.js';
+import { fetchFeaturedManifest, loadPresetEntry } from './projectm-preset-library.js';
 
 // - HUD: toggled via setPerfHud(module, 1/0). Shows FPS, total frame time, and bars.
 // - Benchmark mode: append `?benchmark=1&frames=1000&preset=/presets/foo.milk` to
@@ -293,5 +295,23 @@ export function setupPerfTools(Module) {
         };
     }
 
-    return { benchmarkRequested };
+    const presetSwitchBench = params.get('presetSwitchBench') === '1';
+    if (presetSwitchBench) {
+        fetchFeaturedManifest()
+            .then((manifest) => {
+                const presets = (manifest.presets || []).slice(0, 3);
+                if (!presets.length) {
+                    console.warn('[projectM] presetSwitchBench: no featured presets in manifest');
+                    return null;
+                }
+                return measurePresetSwitchTimings(Module, presets, {
+                    loadEntry: (entry, opts) => loadPresetEntry(entry, opts),
+                });
+            })
+            .catch((err) => {
+                console.warn('[projectM] presetSwitchBench failed:', err);
+            });
+    }
+
+    return { benchmarkRequested, presetSwitchBench };
 }

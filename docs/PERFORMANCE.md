@@ -280,6 +280,90 @@ changes described above.
   with `?perfhud=1` once a display is available — `pmGetQualityTier()` and
   `window.pmOnGovernorTierChange` make the governor's state observable from the page.
 
+## Preset shader transpile cache (IndexedDB)
+
+Repeat preset visits previously re-ran HLSL parse/transpile and `glCompileShader` on every
+session. The audit in `docs/DETAILED_AUDIT_REPORT.md` estimated **50–200 ms** savings per
+revisit on mid-tier mobile from caching transpiled GLSL (compile/link still runs each session
+because WebGL program binaries are not portable across context loss).
+
+### What is cached
+
+| Layer | Store (IndexedDB) | Key | Invalidation |
+|---|---|---|---|
+| `.milk` bytes | `presets` | `{base}::{file}` | Manual / quota LRU (bytes only) |
+| Transpiled GLSL (warp + composite) | `shaders` | `shader::{wasmVer}::{glslVer}::{sha256}` | WASM bundle bump (`PROJECTM_WASM_VERSION`), GLSL generator version change, LRU eviction |
+
+`PROJECTM_WASM_VERSION` lives in `html/projectm-wasm-version.js`. The GLSL generator version
+comes from `Module._get_glsl_generator_version()` (GLES vs desktop shader headers). On engine
+version change, `localStorage.projectm:shaderCacheEngineVersion` mismatch clears the `shaders`
+store automatically.
+
+**Not cached:** `WEBGL_get_program_binary` / `getProgramBinary` program blobs (browser support
+is limited). Transpiled GLSL is the portable win; true program-binary caching remains a possible
+future enhancement.
+
+### C++ / WASM hooks
+
+`MilkdropShader::TranspileHLSLShader()` consults `Renderer::ShaderTranspileCache` before
+calling `ShaderTranspiler::TranspileToGlsl()`. On a miss it transpiles, stores via a host
+callback, then compiles. Stale cache entries that fail `glCompileShader` fall back to a fresh
+transpile.
+
+Emscripten exports (see `cmake/WasmApiManifest.cmake`):
+
+- `_shader_cache_begin_load(key)` — set per-load cache key
+- `_shader_cache_import_glsl(type, glsl)` — inject cached warp (`0`) or composite (`1`) GLSL
+- `_shader_cache_end_load()` — clear key after load
+- `_get_glsl_generator_version()` — cache-key component for JS
+
+`projectM_emscripten.cpp` forwards stored GLSL to JS via `window.pmOnTranspiledShaderStored`.
+
+### JavaScript modules
+
+- `html/projectm-shader-cache.js` — SHA-256 content hash, IDB read/write, LRU eviction
+  (96 entries / 48 MiB default caps), `prepareShaderCacheForLoad()` /
+  `finalizeShaderCacheForLoad()` wrappers
+- `html/projectm-preset-cache.js` — shared DB `projectm-preset-cache` v2 (`presets` +
+  `shaders` stores); `preloadFeaturedPack()` and new `preloadFavoritePresets()` for Signature
+  Series / user favorites
+- `html/projectm-preset-library.js` — `loadPresetEntry()` caches fetched bytes, warms shader
+  cache before `loadPresetFile()`, persists new transpile output after load
+
+### Measuring cold vs warm preset switch
+
+Append to `projectm-core.html`:
+
+```
+?presetSwitchBench=1
+```
+
+`html/projectm-perf.js` loads the first three featured-pack presets twice each (cold then warm)
+and logs JSON prefixed with `[projectM preset-switch benchmark]`, also posting
+`{ type: 'pm-preset-switch-benchmark', result }` for Playwright harnesses.
+
+Example shape (values illustrative until measured on target hardware):
+
+```json
+{
+  "presets": [
+    { "preset": "Signature Series | …", "coldMs": 142, "warmMs": 38, "savedMs": 104 }
+  ],
+  "timestamp": "2026-07-18T12:00:00.000Z"
+}
+```
+
+Warm savings are dominated by skipping HLSL parse/transpile; `glCompileShader` + link still run.
+
+### Verification performed
+
+- Native `projectM` build with `ShaderTranspileCache` + `MilkdropShader` hook compiles cleanly.
+- `node --check` on `html/projectm-shader-cache.js`, `html/projectm-preset-cache.js`,
+  `html/projectm-perf.js`.
+- **Not measured in this environment** (no browser): actual cold/warm ms on mid-tier mobile;
+  run `?presetSwitchBench=1` on a device after deploying a WASM build that includes the new
+  exports.
+
 ## Emscripten link/compile flag audit (issue #80 follow-up)
 
 This section evaluates the Emscripten compile/link flags in `CMakeLists.txt` (`ENABLE_EMSCRIPTEN`

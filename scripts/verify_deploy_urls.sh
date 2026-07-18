@@ -23,7 +23,7 @@ paths=(
     "${BUNDLE}.worker.js"
     "pm/${BUNDLE}.worker.js"
     "projectm-init.js"
-    "projectm_panel2.1ink",
+    "projectm_panel2.1ink"
     "projectm-audio-bootstrap.js"
     "projectm-external-pcm.js"
     "projectm-presets.js"

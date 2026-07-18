@@ -85,18 +85,16 @@ Project-M/
 | Remove hardcoded `DEPLOY_TOKEN` default from `deploy.py` (require env, fail fast) | (deploy.py cleanup) | #88 (closed) |
 | Unified Web Audio bootstrap: AudioContext resume gate / autoplay policy UX | (audio bootstrap work) | #91 (closed) |
 
-### Open issues (verified via `gh issue list`, current as of 2026-06-15)
+### Open issues (verified via GitHub, current as of 2026-07-18)
 
-| Area | Issue | Summary |
-|---|---|---|
-| Audio | [#103](https://github.com/ford442/Project-M/issues/103), [#104](https://github.com/ford442/Project-M/issues/104) | External PCM path parity + wiring across `.1ink` panels |
-| Presets | [#90](https://github.com/ford442/Project-M/issues/90) | hlslparser preprocessor: `#ifdef`/`#ifndef` crash on malformed directives (upstream projectm#993) |
-| Upstream | [#116](https://github.com/ford442/Project-M/issues/116) | Periodic sync with projectM-visualizer/projectm — see [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md) |
-| Presets | [#92](https://github.com/ford442/Project-M/issues/92) | Local `.milk` file picker into WASM VFS |
-| Deploy/CI | [#100](https://github.com/ford442/Project-M/issues/100) | Rebuild WASM smoke bundle after emscripten render fix |
+All issues previously tracked here (#103, #104, #90, #116, #92, #100) are now
+**closed** — see "Completed fixes" above. No open WASM-port issues are tracked in
+this file as of this writing; check `gh issue list` / the GitHub issue tracker for
+anything filed since.
 
-When fixing one of these, close the loop by updating this table (move the row to
-"Completed fixes" with the commit hash) rather than leaving it stale again.
+When fixing an open issue, close the loop by updating this table (move the row to
+"Completed fixes" with the commit hash, or remove it if superseded) rather than
+leaving it stale again.
 
 ## WASM Build Flags (current, from `cmake/EmscriptenWasmFlags.cmake`)
 

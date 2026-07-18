@@ -13,7 +13,7 @@ HTML_PATH="${HTML_PATH:-${BUILD_DIR}/index.html}"
 
 HOST="${HOST:-1ink.us}"
 USERNAME="${USERNAME:-ford442}"
-PASSWORD="${PASSWORD:-${SFTP_PASS:-GoogleBez12!}}"
+PASSWORD="${PASSWORD:-${SFTP_PASS:?Set PASSWORD or SFTP_PASS before running}}"
 PORT="${PORT:-22}"
 
 REMOTE_BASES=("projectm.1ink.us/")

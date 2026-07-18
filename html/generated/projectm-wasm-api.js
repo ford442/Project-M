@@ -27,7 +27,13 @@ export const WASM_API_SYMBOLS = {
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
     setTransparencyMode: 'set_transparency_mode',
+<<<<<<< HEAD
     setTransparencyThreshold: 'set_transparency_threshold',
+=======
+    getTransparencyMode: 'get_transparency_mode',
+    setTransparencyThreshold: 'set_transparency_threshold',
+    getTransparencyThreshold: 'get_transparency_threshold',
+>>>>>>> origin/main
     setPerfHud: 'set_perf_hud',
     setTargetFps: 'set_target_fps',
     setQualityGovernor: 'set_quality_governor',
@@ -187,16 +193,37 @@ export function setPresetLocked(module, locked) {
     module._set_preset_locked(locked ? 1 : 0);
 }
 
+<<<<<<< HEAD
 /** Enable glass-layer transparency on near-black pixels */
+=======
+/** Enable near-black transparency on final output */
+>>>>>>> origin/main
 export function setTransparencyMode(module, enabled) {
     module._set_transparency_mode(enabled ? 1 : 0);
 }
 
+<<<<<<< HEAD
 /** Set RGB threshold for transparency mode (default 0.01) */
+=======
+/** Whether transparency mode is enabled */
+export function getTransparencyMode(module) {
+    return !!module._get_transparency_mode();
+}
+
+/** RGB threshold below which pixels become transparent */
+>>>>>>> origin/main
 export function setTransparencyThreshold(module, threshold) {
     module._set_transparency_threshold(threshold);
 }
 
+<<<<<<< HEAD
+=======
+/** Current near-black transparency threshold */
+export function getTransparencyThreshold(module) {
+    return module._get_transparency_threshold();
+}
+
+>>>>>>> origin/main
 /** Toggle on-canvas performance HUD */
 export function setPerfHud(module, enabled) {
     module._set_perf_hud(enabled);
@@ -386,7 +413,13 @@ export const PUBLIC_WASM_API = [
     projectmPcmAddFloatWrapper,
     setPresetLocked,
     setTransparencyMode,
+<<<<<<< HEAD
     setTransparencyThreshold,
+=======
+    getTransparencyMode,
+    setTransparencyThreshold,
+    getTransparencyThreshold,
+>>>>>>> origin/main
     setTargetFps,
     setQualityGovernor,
     getQualityTier,

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="projectM glass layer transparency demo">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a0533"/>
+      <stop offset="35%" stop-color="#0d3b66"/>
+      <stop offset="70%" stop-color="#ee6c4d"/>
+      <stop offset="100%" stop-color="#f4d35e"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="30%" cy="40%" r="35%">
+      <stop offset="0%" stop-color="#7df9ff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#7df9ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="72%" cy="58%" r="28%">
+      <stop offset="0%" stop-color="#ff4fd8" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ff4fd8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <text x="32" y="42" fill="#ffffff" font-family="monospace" font-size="22">Background video / album art (#bg-layer)</text>
+  <rect x="24" y="64" width="912" height="420" rx="18" fill="#000000" fill-opacity="0.12" stroke="#ffffff" stroke-opacity="0.25"/>
+  <text x="48" y="110" fill="#d7f7ff" font-family="monospace" font-size="16">z-index 2999</text>
+  <circle cx="290" cy="260" r="120" fill="url(#glowA)"/>
+  <circle cx="640" cy="300" r="95" fill="url(#glowB)"/>
+  <rect x="48" y="140" width="864" height="320" rx="14" fill="#000000" fill-opacity="0.55" stroke="#ff8cff" stroke-width="2"/>
+  <text x="72" y="188" fill="#ffb8ff" font-family="monospace" font-size="20">WebGL canvas (#mcanvas)  near-black pixels alpha = 0</text>
+  <text x="72" y="220" fill="#ffffff" font-family="monospace" font-size="16">z-index 3001, alpha=true, premultipliedAlpha=true</text>
+  <ellipse cx="360" cy="300" rx="180" ry="90" fill="#00ffc8" fill-opacity="0.35"/>
+  <ellipse cx="560" cy="280" rx="140" ry="110" fill="#8b5cff" fill-opacity="0.45"/>
+  <text x="72" y="430" fill="#ffffff" font-family="monospace" font-size="16">#scanvas hidden while Glass Layer is ON</text>
+</svg>

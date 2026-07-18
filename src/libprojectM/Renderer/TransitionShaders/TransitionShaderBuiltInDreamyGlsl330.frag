@@ -32,9 +32,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     oldBlur /= max(wsum, 0.0001);
     newBlur /= max(wsum, 0.0001);
 
-    // Crossfade with smooth ease.
+    // Crossfade with smooth ease and optional advanced blending mode.
     float dissolve = smoothstep(0.0, 1.0, p);
-    vec3 col = mix(oldBlur, newBlur, dissolve);
+    vec3 col = prjmBlendPresets(oldBlur, newBlur, dissolve);
 
     // Desaturate at midpoint, lift toward soft pastel.
     float lum = dot(col, vec3(0.299, 0.587, 0.114));

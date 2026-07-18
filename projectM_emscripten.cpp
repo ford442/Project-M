@@ -698,6 +698,8 @@ uniform sampler2D uTexA;
 uniform sampler2D uTexB;
 uniform float uBlend;
 uniform float uDither;
+uniform int u_transparencyEnabled;
+uniform float u_transparencyThreshold;
 in vec2 vTexCoord;
 out vec4 fragColor;
 
@@ -721,6 +723,13 @@ void main() {
     }
 
     fragColor = clamp(color, 0.0, 1.0);
+
+    if (u_transparencyEnabled > 0) {
+        float maxComponent = max(max(fragColor.r, fragColor.g), fragColor.b);
+        if (maxComponent < u_transparencyThreshold) {
+            fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        }
+    }
 }
 )";
 
@@ -762,6 +771,8 @@ void main() {
         m_locTexB   = glGetUniformLocation(m_program, "uTexB");
         m_locBlend  = glGetUniformLocation(m_program, "uBlend");
         m_locDither = glGetUniformLocation(m_program, "uDither");
+        m_locTransparencyEnabled = glGetUniformLocation(m_program, "u_transparencyEnabled");
+        m_locTransparencyThreshold = glGetUniformLocation(m_program, "u_transparencyThreshold");
         m_locPos    = glGetAttribLocation(m_program, "aPosition");
 
         // Fullscreen triangle-strip quad in NDC (CCW winding):
@@ -803,7 +814,8 @@ void main() {
      *               (use when the source textures are GL_RGBA8, see
      *               FboFloatFormat::RGBA8).
      */
-    void Draw(GLuint texA, GLuint texB, float blend, int width, int height, bool dither = false)
+    void Draw(GLuint texA, GLuint texB, float blend, int width, int height, bool dither = false,
+              bool transparencyMode = false, float transparencyThreshold = 0.01f)
     {
         if (!m_initialized || m_program == 0)
         {
@@ -831,6 +843,14 @@ void main() {
 
         glUniform1f(m_locBlend, blend);
         glUniform1f(m_locDither, dither ? 1.0f : 0.0f);
+        if (m_locTransparencyEnabled >= 0)
+        {
+            glUniform1i(m_locTransparencyEnabled, transparencyMode ? 1 : 0);
+        }
+        if (m_locTransparencyThreshold >= 0)
+        {
+            glUniform1f(m_locTransparencyThreshold, transparencyThreshold);
+        }
 
         glBindVertexArray(m_vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -878,6 +898,8 @@ private:
     GLint  m_locTexB     = -1;
     GLint  m_locBlend    = -1;
     GLint  m_locDither   = -1;
+    GLint  m_locTransparencyEnabled = -1;
+    GLint  m_locTransparencyThreshold = -1;
     GLint  m_locPos      = -1;
 };
 
@@ -2251,12 +2273,30 @@ return;
 }
 
 EMSCRIPTEN_KEEPALIVE
+<<<<<<< HEAD
+=======
+bool get_transparency_mode() {
+if (!pm) return false;
+return projectm_get_transparency_mode(pm);
+}
+
+EMSCRIPTEN_KEEPALIVE
+>>>>>>> origin/main
 void set_transparency_threshold(float threshold) {
 if (!pm) return;
 projectm_set_transparency_threshold(pm, threshold);
 return;
 }
 
+<<<<<<< HEAD
+=======
+EMSCRIPTEN_KEEPALIVE
+float get_transparency_threshold() {
+if (!pm) return 0.01f;
+return projectm_get_transparency_threshold(pm);
+}
+
+>>>>>>> origin/main
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
 // enabled, CPU timers (libprojectM's projectm_perf API) and, if available,
 // a WebGL GPU timer query are collected each frame and reported to the host
@@ -2431,6 +2471,8 @@ if (!g_dualFbo.IsPresetAAllocated() || !g_compositorShader.IsInitialized())
 const int w = g_dualFbo.Width();
 const int h = g_dualFbo.Height();
 const bool ditherOutput = (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8);
+const bool transparencyMode = projectm_get_transparency_mode(pm);
+const float transparencyThreshold = projectm_get_transparency_threshold(pm);
 
 // --- Step 1: Render Preset A into its Write FBO ---
 // Note: projectm_opengl_render_frame() hardcodes its final composite blit to
@@ -2458,7 +2500,8 @@ if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
 if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
 {
     g_compositorShader.Draw(g_dualFbo.GetAReadTex(), g_dualFbo.GetBReadTex(),
-                            g_transitionBlend, w, h, ditherOutput);
+                            g_transitionBlend, w, h, ditherOutput,
+                            transparencyMode, transparencyThreshold);
 
     // --- Step 4: Advance blend timer ---
     float newBlend;
@@ -2488,7 +2531,8 @@ if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
 else
 {
     // No transition: blit Preset A directly to screen (blend = 0.0).
-    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), 0u, 0.0f, w, h, ditherOutput);
+    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), 0u, 0.0f, w, h, ditherOutput,
+                            transparencyMode, transparencyThreshold);
 }
 g_renderedFrameCount++;
 return;

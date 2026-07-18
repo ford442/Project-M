@@ -395,6 +395,7 @@ PROJECTM_EXPORT void projectm_set_preset_start_clean(projectm_handle instance, b
 PROJECTM_EXPORT bool projectm_get_preset_start_clean(projectm_handle instance);
 
 /**
+<<<<<<< HEAD
  * @brief Enables or disables transparency mode for the final framebuffer output.
  *
  * When enabled, near-black pixels in the final copy and transition shaders are
@@ -402,6 +403,15 @@ PROJECTM_EXPORT bool projectm_get_preset_start_clean(projectm_handle instance);
  *
  * @param instance The projectM instance handle.
  * @param enabled True to enable transparency mode, false for opaque output. Default: false
+=======
+ * @brief Enables shader-based near-black transparency on the final output blit.
+ *
+ * When enabled, pixels whose maximum RGB component is below the transparency
+ * threshold are written with alpha = 0, allowing content behind the canvas to show through.
+ *
+ * @param instance The projectM instance handle.
+ * @param enabled True to enable transparency mode, false for opaque output.
+>>>>>>> origin/main
  * @since 4.2.0
  */
 PROJECTM_EXPORT void projectm_set_transparency_mode(projectm_handle instance, bool enabled);
@@ -409,26 +419,42 @@ PROJECTM_EXPORT void projectm_set_transparency_mode(projectm_handle instance, bo
 /**
  * @brief Returns whether transparency mode is enabled.
  * @param instance The projectM instance handle.
+<<<<<<< HEAD
  * @return True if transparency mode is enabled, false otherwise.
+=======
+ * @return True if transparency mode is enabled.
+>>>>>>> origin/main
  * @since 4.2.0
  */
 PROJECTM_EXPORT bool projectm_get_transparency_mode(projectm_handle instance);
 
 /**
+<<<<<<< HEAD
  * @brief Sets the RGB threshold below which pixels become transparent.
  *
  * Only used when transparency mode is enabled. Default is 0.01.
  *
  * @param instance The projectM instance handle.
  * @param threshold Max RGB component below which a pixel is fully transparent. Default: 0.01
+=======
+ * @brief Sets the RGB threshold below which pixels become fully transparent.
+ * @param instance The projectM instance handle.
+ * @param threshold Value in [0, 1]. Default is 0.01.
+>>>>>>> origin/main
  * @since 4.2.0
  */
 PROJECTM_EXPORT void projectm_set_transparency_threshold(projectm_handle instance, float threshold);
 
 /**
+<<<<<<< HEAD
  * @brief Returns the current transparency threshold.
  * @param instance The projectM instance handle.
  * @return The current transparency threshold.
+=======
+ * @brief Returns the current near-black transparency threshold.
+ * @param instance The projectM instance handle.
+ * @return The RGB max-component threshold in [0, 1].
+>>>>>>> origin/main
  * @since 4.2.0
  */
 PROJECTM_EXPORT float projectm_get_transparency_threshold(projectm_handle instance);

@@ -239,12 +239,18 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     }
     else
     {
+<<<<<<< HEAD
         m_textureCopier->Draw(*renderContext.shaderCache,
                               m_activePreset->OutputTexture(),
                               false,
                               false,
                               m_transparencyMode,
                               m_transparencyThreshold);
+=======
+        m_textureCopier->SetTransparencyMode(m_transparencyMode);
+        m_textureCopier->SetTransparencyThreshold(m_transparencyThreshold);
+        m_textureCopier->Draw(*renderContext.shaderCache, m_activePreset->OutputTexture(), false, false);
+>>>>>>> origin/main
     }
 
     // Draw user sprites
@@ -460,7 +466,11 @@ auto ProjectM::TransparencyMode() const -> bool
 
 void ProjectM::SetTransparencyThreshold(float threshold)
 {
+<<<<<<< HEAD
     m_transparencyThreshold = std::max(threshold, 0.0f);
+=======
+    m_transparencyThreshold = std::max(0.0f, threshold);
+>>>>>>> origin/main
 }
 
 auto ProjectM::TransparencyThreshold() const -> float

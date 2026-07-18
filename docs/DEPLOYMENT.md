@@ -25,9 +25,10 @@ root, because hosts `import './projectm-*.js'`):
 
 - `projectm-*.js`, `projectm-*.1ink`, `projectm-core.html`, `projectm-core.css`
 
-The active bundle version is defined once in `html/projectm-init.js`
-(`PROJECTM_WASM_BUNDLE`, currently `projectm-v.035-thread`). Bump it when you
-publish a new smoke build.
+The active bundle version is defined once in `html/projectm-wasm-version.js`
+(`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.035-thread`).
+Keep it aligned with `scripts/prepare_deploy_bundle.sh` and
+`scripts/verify_deploy_urls.sh` (checked by `scripts/verify_wasm_version_sync.sh`).
 
 ## Usage
 

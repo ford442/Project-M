@@ -58,6 +58,7 @@ DEPLOY_HTML_GLOBS: list = [
     "html/projectm*.1ink",  # projectm_panel2.1ink, projectm.1ink, etc.
     "html/projectm-core.html",
     "html/projectm-core.css",
+    "html/embed-demo.html",
 ]
 
 # Deploy under this remote folder (empty = use PROJECT_NAME).

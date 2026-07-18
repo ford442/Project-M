@@ -1,12 +1,17 @@
-// Bump when publishing a new threaded WASM smoke build. Files must exist under ./pm/
-// after deploy (see scripts/prepare_deploy_bundle.sh and docs/DEPLOYMENT.md).
-export const PROJECTM_WASM_BUNDLE = 'projectm-v.035-thread';
-export const PROJECTM_WASM_SCRIPT_PM = `./pm/${PROJECTM_WASM_BUNDLE}.1ijs`;
-export const PROJECTM_WASM_SCRIPT_ROOT = `./${PROJECTM_WASM_BUNDLE}.1ijs`;
-
-// Preferred path (pm/ mirror). Hosts should call resolveWasmScriptUrl() or
-// loadProjectMWasmScript() so production still works when only root artifacts exist.
-export const PROJECTM_WASM_SCRIPT = PROJECTM_WASM_SCRIPT_PM;
+// Version constants live in projectm-wasm-version.js (single source of truth).
+export {
+    PROJECTM_WASM_VERSION,
+    PROJECTM_WASM_BUNDLE,
+    PROJECTM_WASM_SCRIPT,
+    PROJECTM_WASM_SCRIPT_PM,
+    PROJECTM_WASM_SCRIPT_ROOT,
+    PROJECTM_WASM_DEFAULT_CDN_BASE,
+    buildProjectMWasmUrls,
+} from './projectm-wasm-version.js';
+import {
+    PROJECTM_WASM_SCRIPT_PM,
+    PROJECTM_WASM_SCRIPT_ROOT,
+} from './projectm-wasm-version.js';
 
 let resolvedWasmScript;
 

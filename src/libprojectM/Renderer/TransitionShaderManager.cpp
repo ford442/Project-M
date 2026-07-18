@@ -62,6 +62,31 @@ auto TransitionShaderManager::RandomTransition() -> std::shared_ptr<Shader>
     return m_fallbackShader;
 }
 
+auto TransitionShaderManager::CompiledShaderCount() const -> std::size_t
+{
+    return m_transitionShaders.size();
+}
+
+auto TransitionShaderManager::CompiledShaderAt(std::size_t index) const -> std::shared_ptr<Shader>
+{
+    if (index >= m_transitionShaders.size())
+    {
+        return nullptr;
+    }
+
+    return m_transitionShaders.at(index).shader;
+}
+
+auto TransitionShaderManager::PassCountAt(std::size_t index) const -> int
+{
+    if (index >= m_transitionShaders.size())
+    {
+        return m_fallbackPassCount;
+    }
+
+    return m_transitionShaders.at(index).passCount;
+}
+
 auto TransitionShaderManager::GetPassCount(const std::shared_ptr<Shader>& shader) const -> int
 {
     if (!shader)

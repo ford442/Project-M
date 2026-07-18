@@ -19,6 +19,16 @@ public:
     CopyTexture();
 
     /**
+     * @brief Configures near-black transparency for subsequent Draw() calls.
+     */
+    void SetTransparencyMode(bool enabled);
+
+    /**
+     * @brief Sets the RGB threshold below which pixels become fully transparent.
+     */
+    void SetTransparencyThreshold(float threshold);
+
+    /**
      * @brief Copies the original texture into the currently bound framebuffer.
      * @param shaderCache The global shader cache instance.
      * @param originalTexture The texture to be copied.
@@ -118,6 +128,8 @@ private:
 
     int m_width{};  //!< Last known framebuffer/texture width
     int m_height{}; //!< Last known framebuffer/texture height
+    bool m_transparencyMode{false};       //!< Near-black transparency for final blit.
+    float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold.
     std::shared_ptr<Shader> BindShader(ShaderCache& shaderCache);
 };
 

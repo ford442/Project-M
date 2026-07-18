@@ -58,6 +58,10 @@ PresetTransition::PresetTransition(const std::shared_ptr<Shader>& transitionShad
 
     // Pick a random easing curve for this transition (default smoothstep).
     m_easingType = static_cast<EasingType>(rand32() % static_cast<int>(EasingType::Count));
+
+    // Randomize shader-side blending mode (Alpha through Screen; Masked is reserved).
+    constexpr int implementedBlendModes = static_cast<int>(TransitionBlendMode::Masked);
+    m_blendMode = static_cast<TransitionBlendMode>(rand32() % implementedBlendModes);
 }
 
 auto PresetTransition::IsDone(double currentFrameTime) const -> bool
@@ -154,6 +158,7 @@ void PresetTransition::SetTransparencyMode(bool enabled)
     m_transparencyMode = enabled;
 }
 
+<<<<<<< HEAD
 auto PresetTransition::TransparencyMode() const -> bool
 {
     return m_transparencyMode;
@@ -167,6 +172,11 @@ void PresetTransition::SetTransparencyThreshold(float threshold)
 auto PresetTransition::TransparencyThreshold() const -> float
 {
     return m_transparencyThreshold;
+=======
+void PresetTransition::SetTransparencyThreshold(float threshold)
+{
+    m_transparencyThreshold = std::max(0.0f, threshold);
+>>>>>>> origin/main
 }
 
 /**
@@ -261,6 +271,8 @@ void PresetTransition::Draw(const Preset& oldPreset,
     m_transitionShader->SetUniformFloat("iInvAspectY", context.invAspectY);
 
     m_transitionShader->SetUniformInt("iBlendMode", static_cast<int>(m_blendMode));
+    m_transitionShader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
+    m_transitionShader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
 
     auto setTransparencyUniforms = [&](bool enabled) {
         m_transitionShader->SetUniformInt("u_transparencyEnabled", enabled && m_transparencyMode ? 1 : 0);

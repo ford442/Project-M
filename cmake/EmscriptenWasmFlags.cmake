@@ -44,7 +44,13 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _set_audio_source_to_stream
         _set_preset_locked
         _set_transparency_mode
+<<<<<<< HEAD
         _set_transparency_threshold
+=======
+        _get_transparency_mode
+        _set_transparency_threshold
+        _get_transparency_threshold
+>>>>>>> origin/main
         _set_perf_hud
         _set_target_fps
         _set_quality_governor

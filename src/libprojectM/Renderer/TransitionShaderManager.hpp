@@ -36,6 +36,25 @@ public:
      */
     auto GetPassCount(const std::shared_ptr<Shader>& shader) const -> int;
 
+    /**
+     * @brief Returns the number of successfully compiled transition shaders.
+     */
+    auto CompiledShaderCount() const -> std::size_t;
+
+    /**
+     * @brief Returns a compiled transition shader by index.
+     * @param index Zero-based index into the compiled shader list.
+     * @return The shader at @p index, or nullptr if out of range.
+     */
+    auto CompiledShaderAt(std::size_t index) const -> std::shared_ptr<Shader>;
+
+    /**
+     * @brief Returns the pass count for a compiled shader by index.
+     * @param index Zero-based index into the compiled shader list.
+     * @return The pass count, or 1 if @p index is out of range.
+     */
+    auto PassCountAt(std::size_t index) const -> int;
+
 private:
     /**
      * @brief Compiles a single transition shader program.

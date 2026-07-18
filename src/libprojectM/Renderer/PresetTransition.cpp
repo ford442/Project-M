@@ -58,6 +58,10 @@ PresetTransition::PresetTransition(const std::shared_ptr<Shader>& transitionShad
 
     // Pick a random easing curve for this transition (default smoothstep).
     m_easingType = static_cast<EasingType>(rand32() % static_cast<int>(EasingType::Count));
+
+    // Randomize shader-side blending mode (Alpha through Screen; Masked is reserved).
+    constexpr int implementedBlendModes = static_cast<int>(TransitionBlendMode::Masked);
+    m_blendMode = static_cast<TransitionBlendMode>(rand32() % implementedBlendModes);
 }
 
 auto PresetTransition::IsDone(double currentFrameTime) const -> bool

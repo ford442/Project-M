@@ -37,7 +37,8 @@ jobs:
             libglm-dev \
             libgtest-dev \
             libgmock-dev \
-            ninja-build
+            ninja-build \
+            xvfb
 
       - name: Install boost-filesystem-dev
         if: "${{ contains(matrix.fslib, 'boost') }}"

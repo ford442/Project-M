@@ -113,8 +113,30 @@ fork-specific surrounding code.
 | 2026-07-10 | `7778852ff` projectm-eval 1.0.6 | **Evaluate** | `git submodule status vendor/projectm-eval` |
 | 2026-07-10 | `149bfc439` CI actions v4→v7 | Skip / cherry-pick later | Low impact on library |
 | 2026-07-10 | GLAD + `projectm_create_with_opengl_load_proc` | Skip for WASM | Native/desktop only |
+| 2026-07-18 | `76c8ff7e8` HLSLParser preprocessor stack | **Backported** | On `main`; `&& !isCodeActive.empty()` guard in `vendor/hlslparser/src/HLSLParser.cpp`; verified HLSLParser gtests |
+| 2026-07-18 | `83292ed44` MilkdropShader sampler-in-comments | **Backported** | On `main` via `ShaderTranspiler` + `Utils::StripComments`; `MilkdropShaderCommentParsingTest` green |
+| 2026-07-18 | `98101f56f` Detach FBO textures before delete | **Backported** | On `main`; detach→resize→reattach in `Framebuffer::SetSize()`, FBO-first teardown in destructor |
+| 2026-07-18 | `7778852ff` projectm-eval 1.0.6 | **Backported** | Submodule at `da885dc` (v1.0.6), matches upstream pointer |
+| 2026-07-18 | `149bfc439` CI actions v4→v7 | **Deferred** | Low library impact; cherry-pick when touching workflows |
+| 2026-07-18 | GLAD + `projectm_create_with_opengl_load_proc` | **Rejected** | Desktop-only; fork already ships GLAD + resolver; no WASM value |
+| 2026-07-18 | `2f2441413` libprojectM 4.2.0 version bump | **Deferred** | Metadata-only upstream commit; no functional delta since merge-base |
 
 *Update this table after each sync review.*
+
+### Latest sync snapshot (2026-07-18)
+
+```
+Merge-base: 4d2849333 (2026-05-08)
+Upstream since merge-base: 2 commits (4.2.0 version bump, CI actions v4→v7)
+Fork-only since merge-base: 3727 commits
+Upstream release: v4.1.7 (2026-07-14)
+```
+
+Verification on this review (Debug build, GCC 13):
+
+- `ctest -R PresetCompat` — pass (`presets/tests/`)
+- `projectM-unittest` — pass (incl. `HLSLParser` + `SamplerParsing` suites, 30 tests)
+- No Renderer/Emscripten code changes required; WASM smoke not re-run (no delta)
 
 ## GitHub Action
 

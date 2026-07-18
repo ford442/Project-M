@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>projectM embed demo</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #050505;
+      color: #cbd5e1;
+      font-family: system-ui, sans-serif;
+    }
+
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 14px;
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      font-size: 14px;
+    }
+
+    project-m-visualizer {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #status {
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>projectM embed demo</strong>
+    <span id="status">Starting…</span>
+  </header>
+
+  <!--
+    Requires COOP/COEP on the page. WASM glue resolves from ./pm/ (see projectm-init.js).
+    For local dev, symlink or copy deploy artifacts and presets next to this file.
+  -->
+  <project-m-visualizer
+    preset-url="./presets/tests/000-empty.milk"
+    audio-source="none"
+    mesh-quality="auto"
+    target-fps="60"
+  ></project-m-visualizer>
+
+  <script type="module">
+    import './projectm-element.js';
+
+    const status = document.getElementById('status');
+    const viz = document.querySelector('project-m-visualizer');
+
+    viz.addEventListener('pm-ready', () => {
+      status.textContent = 'Ready';
+    });
+
+    viz.addEventListener('pm-preset-changed', (event) => {
+      status.textContent = `Preset: ${event.detail.name}`;
+    });
+
+    viz.addEventListener('pm-error', (event) => {
+      status.textContent = `Error: ${event.detail.message}`;
+      console.error(event.detail);
+    });
+
+    viz.addEventListener('pm-fps', (event) => {
+      status.dataset.fps = String(Math.round(event.detail.fps));
+    });
+  </script>
+</body>
+</html>

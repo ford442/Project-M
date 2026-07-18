@@ -1,0 +1,67 @@
+{
+  "name": "@projectm/web",
+  "version": "0.1.0",
+  "description": "Embeddable projectM web components and context API for music visualizers",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "sideEffects": [
+    "./projectm-element.js"
+  ],
+  "files": [
+    "../../html/projectm-wasm-version.js",
+    "../../html/projectm-init.js",
+    "../../html/projectm-init-errors.js",
+    "../../html/projectm-context.js",
+    "../../html/projectm-context.ts",
+    "../../html/projectm-element.js",
+    "../../html/projectm-element.ts",
+    "../../html/projectm-external-pcm.js",
+    "../../html/projectm-audio-bootstrap.js",
+    "../../html/projectm-context-loss.js",
+    "../../html/projectm-mesh-quality.js",
+    "../../html/projectm-fps-governor.js",
+    "../../html/projectm-presets.js",
+    "../../html/generated/projectm-wasm-api.js",
+    "../../html/generated/projectm-wasm-api.ts",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./types/entry.d.ts",
+      "default": "../../html/projectm-element.js"
+    },
+    "./element": {
+      "types": "./types/element.d.ts",
+      "default": "../../html/projectm-element.js"
+    },
+    "./context": {
+      "types": "./types/context.d.ts",
+      "default": "../../html/projectm-context.js"
+    },
+    "./wasm-version": {
+      "types": "./types/wasm-version.d.ts",
+      "default": "../../html/projectm-wasm-version.js"
+    },
+    "./wasm-api": {
+      "types": "../../html/generated/projectm-wasm-api.ts",
+      "default": "../../html/generated/projectm-wasm-api.js"
+    }
+  },
+  "types": "./types/entry.d.ts",
+  "peerDependencies": {},
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/projectM-visualizer/projectm.git",
+    "directory": "packages/web"
+  },
+  "keywords": [
+    "projectm",
+    "milkdrop",
+    "visualizer",
+    "web-component",
+    "wasm"
+  ]
+}

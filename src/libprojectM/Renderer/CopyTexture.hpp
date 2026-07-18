@@ -27,7 +27,8 @@ public:
      */
     void Draw(ShaderCache& shaderCache,
               const std::shared_ptr<Texture>& originalTexture,
-              bool flipVertical = false, bool flipHorizontal = false);
+              bool flipVertical = false, bool flipHorizontal = false,
+              bool transparencyMode = false, float transparencyThreshold = 0.01f);
 
     /**
      * @brief Copies the original texture either into the object's internal framebuffer or a given target texture.
@@ -104,7 +105,8 @@ private:
     void UpdateTextureSize(int width, int height);
 
     void Copy(ShaderCache& shaderCache,
-              bool flipVertical, bool flipHorizontal);
+              bool flipVertical, bool flipHorizontal,
+              bool transparencyMode, float transparencyThreshold);
 
     void Copy(ShaderCache& shaderCache,
               int left, int top, int width, int height);

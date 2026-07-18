@@ -37,6 +37,8 @@ set(PROJECTM_WASM_API_MANIFEST
     "stop_worklet_playback|internal|direct|void||Stop audio worklet playback"
     "set_audio_source_to_stream|internal|direct|void|isStreaming:boolean|Toggle streaming vs capture audio source"
     "set_preset_locked|public|direct|void|locked:boolean|Lock or unlock automatic preset switching"
+    "set_transparency_mode|public|direct|void|enabled:boolean|Enable glass-layer transparency on near-black pixels"
+    "set_transparency_threshold|public|direct|void|threshold:number|Set RGB threshold for transparency mode (default 0.01)"
     "set_perf_hud|internal|direct|void|enabled:number|Toggle on-canvas performance HUD"
     "set_target_fps|public|direct|void|fps:number|Set render target frame rate"
     "set_quality_governor|public|direct|void|enabled:boolean|Enable adaptive quality governor"

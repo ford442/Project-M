@@ -233,11 +233,18 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 
     if (m_transition != nullptr && m_transitioningPreset != nullptr)
     {
+        m_transition->SetTransparencyMode(m_transparencyMode);
+        m_transition->SetTransparencyThreshold(m_transparencyThreshold);
         m_transition->Draw(*m_activePreset, *m_transitioningPreset, renderContext, audioData, m_timeKeeper->GetFrameTime());
     }
     else
     {
-        m_textureCopier->Draw(*renderContext.shaderCache, m_activePreset->OutputTexture(), false, false);
+        m_textureCopier->Draw(*renderContext.shaderCache,
+                              m_activePreset->OutputTexture(),
+                              false,
+                              false,
+                              m_transparencyMode,
+                              m_transparencyThreshold);
     }
 
     // Draw user sprites
@@ -350,6 +357,8 @@ void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hard
         if (m_transition && transitionShader)
         {
             m_transition->SetPassCount(m_transitionShaderManager->GetPassCount(transitionShader));
+            m_transition->SetTransparencyMode(m_transparencyMode);
+            m_transition->SetTransparencyThreshold(m_transparencyThreshold);
         }
     }
 }
@@ -437,6 +446,26 @@ void ProjectM::SetPresetStartClean(bool enabled)
 auto ProjectM::PresetStartClean() const -> bool
 {
     return m_presetStartClean;
+}
+
+void ProjectM::SetTransparencyMode(bool enabled)
+{
+    m_transparencyMode = enabled;
+}
+
+auto ProjectM::TransparencyMode() const -> bool
+{
+    return m_transparencyMode;
+}
+
+void ProjectM::SetTransparencyThreshold(float threshold)
+{
+    m_transparencyThreshold = std::max(threshold, 0.0f);
+}
+
+auto ProjectM::TransparencyThreshold() const -> float
+{
+    return m_transparencyThreshold;
 }
 
 void ProjectM::SetFrameTime(double secondsSinceStart)

@@ -26,6 +26,8 @@ export const WASM_API_SYMBOLS = {
     stopWorkletPlayback: 'stop_worklet_playback',
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
+    setTransparencyMode: 'set_transparency_mode',
+    setTransparencyThreshold: 'set_transparency_threshold',
     setPerfHud: 'set_perf_hud',
     setTargetFps: 'set_target_fps',
     setQualityGovernor: 'set_quality_governor',
@@ -183,6 +185,16 @@ export function setAudioSourceToStream(module, isStreaming) {
 /** Lock or unlock automatic preset switching */
 export function setPresetLocked(module, locked) {
     module._set_preset_locked(locked ? 1 : 0);
+}
+
+/** Enable glass-layer transparency on near-black pixels */
+export function setTransparencyMode(module, enabled) {
+    module._set_transparency_mode(enabled ? 1 : 0);
+}
+
+/** Set RGB threshold for transparency mode (default 0.01) */
+export function setTransparencyThreshold(module, threshold) {
+    module._set_transparency_threshold(threshold);
 }
 
 /** Toggle on-canvas performance HUD */
@@ -373,6 +385,8 @@ export const PUBLIC_WASM_API = [
     addPresetFile,
     projectmPcmAddFloatWrapper,
     setPresetLocked,
+    setTransparencyMode,
+    setTransparencyThreshold,
     setTargetFps,
     setQualityGovernor,
     getQualityTier,

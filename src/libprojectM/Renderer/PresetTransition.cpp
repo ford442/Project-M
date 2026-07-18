@@ -149,6 +149,26 @@ auto PresetTransition::GetBlendMode() const -> TransitionBlendMode
     return m_blendMode;
 }
 
+void PresetTransition::SetTransparencyMode(bool enabled)
+{
+    m_transparencyMode = enabled;
+}
+
+auto PresetTransition::TransparencyMode() const -> bool
+{
+    return m_transparencyMode;
+}
+
+void PresetTransition::SetTransparencyThreshold(float threshold)
+{
+    m_transparencyThreshold = std::max(threshold, 0.0f);
+}
+
+auto PresetTransition::TransparencyThreshold() const -> float
+{
+    return m_transparencyThreshold;
+}
+
 /**
  * @brief Renders the transition blend between two presets.
  *
@@ -242,6 +262,11 @@ void PresetTransition::Draw(const Preset& oldPreset,
 
     m_transitionShader->SetUniformInt("iBlendMode", static_cast<int>(m_blendMode));
 
+    auto setTransparencyUniforms = [&](bool enabled) {
+        m_transitionShader->SetUniformInt("u_transparencyEnabled", enabled && m_transparencyMode ? 1 : 0);
+        m_transitionShader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
+    };
+
     // Texture samplers
     // Explicitly activate each texture unit before binding to ensure correct
     // state on all drivers, including Emscripten/WebGL where implicit state
@@ -295,10 +320,12 @@ void PresetTransition::Draw(const Preset& oldPreset,
         // Pass 1 samples the intermediate result via iLastPassTex.
 
         BeginPass(0, context.viewportSizeX, context.viewportSizeY);
+        setTransparencyUniforms(false);
         m_mesh.Draw();
         EndPass();
 
         BeginPass(1, context.viewportSizeX, context.viewportSizeY);
+        setTransparencyUniforms(true);
 
         auto pass0Tex = GetPassTexture(0);
         if (pass0Tex)
@@ -323,6 +350,7 @@ void PresetTransition::Draw(const Preset& oldPreset,
     {
         // Single-pass (default): set iPass to 0 so single-pass shaders work unchanged.
         BeginPass(0, context.viewportSizeX, context.viewportSizeY);
+        setTransparencyUniforms(true);
         m_mesh.Draw();
         EndPass();
     }

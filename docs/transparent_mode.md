@@ -101,7 +101,23 @@ Modify the final-output shaders (`CopyTexture` and transition shaders) to condit
   - Update button label/color to indicate active state.
 
 ### Design Notes
-- **Threshold**: `0.01` handles floating-point noise and dithering while treating true black as transparent.
+- **Threshold**: `0.01` handles floating-point noise and dithering while treating true black as transparent. Tune at runtime via `projectm_set_transparency_threshold()` / `set_transparency_threshold()` (WASM).
 - **Premultiplied Alpha**: The WebGL context already uses `premultipliedAlpha = EM_TRUE`. For black pixels, RGB is near-zero, so premultiplication does not alter the color.
 - **Why not `discard`**: Using `discard` in fragment shaders can hurt performance on tile-based GPUs and may leave previous-frame pixels visible if the drawing buffer is not cleared. Explicitly writing `vec4(0,0,0,0)` is safer.
 - **No extra FBO**: This approach avoids an intermediate framebuffer and extra render pass, keeping the change minimal and performant.
+
+### Dual-FBO transitions
+Preset rendering still uses the existing dual ping-pong FBO pair inside each `MilkdropPreset`. Transparency is applied only on the **final** blit to the default framebuffer:
+
+1. **Normal frames** — `CopyTexture::Draw()` writes near-black pixels with `alpha = 0` when transparency mode is on.
+2. **Soft transitions** — `PresetTransition` applies the same rule in `TransitionShaderMainGlsl330.frag`. For **multi-pass** transition shaders, pass 0 (intermediate FBO) keeps opaque alpha so pass 1 can sample a full RGB buffer; transparency is enabled only on the final pass draw.
+3. **Internal copies** — `CopyTexture` burn-in / flip paths leave `u_transparencyEnabled = 0` so preset textures are not corrupted.
+
+The WASM dual-FBO transition API (`dual_fbo_*`) is unchanged; hosts that composite externally should enable transparency mode on the engine before the final `render_frame` / default-FBO present.
+
+### Demo (`html/projectm-core.html`)
+- Background image `#bg-media` sits at `z-index: 2999` (between `#scanvas` and `#mcanvas`).
+- Panel button **Glass transparency** toggles engine transparency mode and hides the black `#scanvas` underlay.
+- URL: `?transparent=1` enables on load (persisted in `localStorage` as `projectm:transparencyMode`).
+
+![Transparency mode demo](images/transparent-mode-demo.png)

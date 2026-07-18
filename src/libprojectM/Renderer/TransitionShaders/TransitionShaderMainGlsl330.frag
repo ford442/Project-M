@@ -18,5 +18,13 @@ void main() {
 
     mainImage(_user_out_color, gl_FragCoord.xy);
 
-    _prjm_transition_out = vec4(_user_out_color.xyz + _prjm_tpd_dither(gl_FragCoord.xy), 1.0);
+    vec3 finalColor = _user_out_color.xyz + _prjm_tpd_dither(gl_FragCoord.xy);
+    float alpha = 1.0;
+    if (u_transparencyEnabled > 0) {
+        float maxComponent = max(max(finalColor.r, finalColor.g), finalColor.b);
+        if (maxComponent < u_transparencyThreshold) {
+            alpha = 0.0;
+        }
+    }
+    _prjm_transition_out = vec4(finalColor, alpha);
 }

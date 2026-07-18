@@ -33,6 +33,8 @@ export type ProjectMModule = EmscriptenModule & {
     _stop_worklet_playback: () => void;
     _set_audio_source_to_stream: (isStreaming: number) => void;
     _set_preset_locked: (locked: number) => void;
+    _set_transparency_mode: (enabled: number) => void;
+    _set_transparency_threshold: (threshold: number) => void;
     _set_perf_hud: (enabled: number) => void;
     _set_target_fps: (fps: number) => void;
     _set_quality_governor: (enabled: number) => void;
@@ -93,6 +95,8 @@ export const WASM_API_SYMBOLS = {
     stopWorkletPlayback: 'stop_worklet_playback',
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
+    setTransparencyMode: 'set_transparency_mode',
+    setTransparencyThreshold: 'set_transparency_threshold',
     setPerfHud: 'set_perf_hud',
     setTargetFps: 'set_target_fps',
     setQualityGovernor: 'set_quality_governor',
@@ -252,6 +256,16 @@ export function setAudioSourceToStream(module: ProjectMModule, isStreaming: bool
 /** Lock or unlock automatic preset switching */
 export function setPresetLocked(module: ProjectMModule, locked: boolean): void {
     module._set_preset_locked(locked ? 1 : 0);
+}
+
+/** Enable glass-layer transparency on near-black pixels */
+export function setTransparencyMode(module: ProjectMModule, enabled: boolean): void {
+    module._set_transparency_mode(enabled ? 1 : 0);
+}
+
+/** Set RGB threshold for transparency mode (default 0.01) */
+export function setTransparencyThreshold(module: ProjectMModule, threshold: number): void {
+    module._set_transparency_threshold(threshold);
 }
 
 /** Toggle on-canvas performance HUD */
@@ -442,6 +456,8 @@ export const PUBLIC_WASM_API = [
     addPresetFile,
     projectmPcmAddFloatWrapper,
     setPresetLocked,
+    setTransparencyMode,
+    setTransparencyThreshold,
     setTargetFps,
     setQualityGovernor,
     getQualityTier,

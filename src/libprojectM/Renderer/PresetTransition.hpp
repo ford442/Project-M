@@ -143,6 +143,26 @@ public:
      */
     auto GetBlendMode() const -> TransitionBlendMode;
 
+    /**
+     * @brief Enables or disables transparency mode for the final transition output.
+     */
+    void SetTransparencyMode(bool enabled);
+
+    /**
+     * @brief Returns whether transparency mode is enabled.
+     */
+    auto TransparencyMode() const -> bool;
+
+    /**
+     * @brief Sets the RGB threshold below which pixels become transparent.
+     */
+    void SetTransparencyThreshold(float threshold);
+
+    /**
+     * @brief Returns the current transparency threshold.
+     */
+    auto TransparencyThreshold() const -> float;
+
 private:
     std::vector<std::string> m_noiseTextureNames{"noise_lq",
                                                  "pw_noise_lq",
@@ -169,6 +189,9 @@ private:
     int m_currentPass{-1}; //!< Currently active pass index (-1 = none).
 
     TransitionBlendMode m_blendMode{TransitionBlendMode::Alpha}; //!< Blending mode for this transition.
+
+    bool m_transparencyMode{false};     //!< If true, near-black final-output pixels are written with alpha = 0.
+    float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
     std::shared_ptr<Framebuffer> m_passFramebuffer; //!< Intermediate FBO for multi-pass transitions (pass 0 output).
     GLint m_originalDrawFbo{0}; //!< Original draw framebuffer saved before pass 0 binds the intermediate FBO.

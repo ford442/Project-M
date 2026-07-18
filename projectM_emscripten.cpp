@@ -2243,6 +2243,20 @@ printf("Preset lock set to: %s\n", locked ? "true" : "false");
 return;
 }
 
+EMSCRIPTEN_KEEPALIVE
+void set_transparency_mode(bool enabled) {
+if (!pm) return;
+projectm_set_transparency_mode(pm, enabled);
+return;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void set_transparency_threshold(float threshold) {
+if (!pm) return;
+projectm_set_transparency_threshold(pm, threshold);
+return;
+}
+
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
 // enabled, CPU timers (libprojectM's projectm_perf API) and, if available,
 // a WebGL GPU timer query are collected each frame and reported to the host

@@ -437,6 +437,7 @@ canvas.emscripten {
 <!-- Main Visualization -->
 <div id="wrap">
   <div id="contain1" style="position:absolute;">
+    <img id="bg-media" src="./image/shroud.jpg" alt="" style="display:none;position:absolute;z-index:2999;object-fit:cover;top:0;left:0;width:100%;height:100%;pointer-events:none;" />
     <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;"></canvas>
     <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;left:0;"></canvas>
     <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;left:0;transform:scaleY(-1.0);"></canvas>
@@ -458,6 +459,7 @@ canvas.emscripten {
     <span class="led led--audio"  title="Audio Active"></span>
     <span class="led led--lock"   title="Preset Locked"></span>
     <span class="led led--random" title="Random Mode"></span>
+    <span class="led led--glass" title="Transparency Mode"></span>
     <span class="led led--beat"   title="Beat"></span>
   </div>
 
@@ -470,6 +472,7 @@ canvas.emscripten {
   <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top: 52%; left: 10%; width: 22%; height: 16%;"></button>
   <button id="customMilkBtn" onclick="randomCustom()" class="clickable-button" style="top: 52%; right: 10%; width: 22%; height: 16%;"></button>
   <button onclick="toggleFullscreen()" class="clickable-button" style="top: 67%; left: 34%; width: 32%; height: 13%;"></button>
+  <button id="transparencyBtn" onclick="toggleTransparencyMode()" class="clickable-button" title="Glass transparency — show page background through near-black pixels" style="top: 80%; left: 10%; width: 22%; height: 12%;"></button>
 
   <div id="knob" class="knob"></div>
 </div>
@@ -540,6 +543,8 @@ const enableLocalPresets = new URLSearchParams(window.location.search).get('loca
 let Module;
 let isBezelMode = true;
 let isPresetLocked = false;
+let isTransparencyMode = false;
+const TRANSPARENCY_THRESHOLD = 0.01;
 
 // ====== OFFSCREENCANVAS RENDER WORKER (opt-in, see docs/PERFORMANCE.md) ======
 // Disabled by default; enable with ?renderWorker=1 or localStorage.renderWorker = '1'.
@@ -723,6 +728,15 @@ try {
     if (savedLock === '1') isPresetLocked = true;
 } catch { /* ignore */ }
 
+try {
+    const params = new URLSearchParams(window.location.search);
+    const transparentParam = params.get('transparent');
+    const savedTransparency = localStorage.getItem('projectm:transparencyMode');
+    if (transparentParam === '1' || transparentParam === 'true' || savedTransparency === '1') {
+        isTransparencyMode = true;
+    }
+} catch { /* ignore */ }
+
 const presetPicker = setupPresetPicker({
     getModule: () => (typeof Module !== 'undefined' ? Module : null),
     startTransitionWhenReady,
@@ -737,6 +751,13 @@ if (isPresetLocked) {
     document.body.classList.add('has-lock');
     const lockBtn = document.getElementById('lockPresetBtn');
     if (lockBtn) lockBtn.classList.add('engaged');
+}
+
+if (isTransparencyMode) {
+    const transparencyBtn = document.getElementById('transparencyBtn');
+    if (transparencyBtn) transparencyBtn.classList.add('engaged');
+    const glassLed = document.querySelector('.led--glass');
+    if (glassLed) glassLed.classList.add('on');
 }
 
 function randomPreset() {
@@ -807,6 +828,46 @@ if (enableLocalPresets) {
 
 const audioPlayerController = createPopupAudioPlayerController();
 const { cycleAudioPlayer, closeAudioPlayer } = audioPlayerController;
+
+function applyTransparencyMode(enabled) {
+    isTransparencyMode = enabled;
+    const scanvas = document.querySelector('#scanvas');
+    const bgMedia = document.querySelector('#bg-media');
+    const btn = document.getElementById('transparencyBtn');
+    const led = document.querySelector('.led--glass');
+
+    if (scanvas) scanvas.style.display = enabled ? 'none' : 'block';
+    if (bgMedia) bgMedia.style.display = enabled ? 'block' : 'none';
+    if (btn) btn.classList.toggle('engaged', enabled);
+    if (led) led.classList.toggle('on', enabled);
+    document.body.classList.toggle('has-transparency', enabled);
+
+    if (renderWorkerHandle) {
+        renderWorkerHandle.ccallVoid('set_transparency_mode', ['number'], [enabled ? 1 : 0]);
+        renderWorkerHandle.ccallVoid('set_transparency_threshold', ['number'], [TRANSPARENCY_THRESHOLD]);
+    } else if (typeof Module !== 'undefined') {
+        if (Module._set_transparency_mode) {
+            Module._set_transparency_mode(enabled ? 1 : 0);
+        } else if (Module.ccall) {
+            Module.ccall('set_transparency_mode', null, ['number'], [enabled ? 1 : 0]);
+        }
+        if (Module._set_transparency_threshold) {
+            Module._set_transparency_threshold(TRANSPARENCY_THRESHOLD);
+        } else if (Module.ccall) {
+            Module.ccall('set_transparency_threshold', null, ['number'], [TRANSPARENCY_THRESHOLD]);
+        }
+    }
+
+    try {
+        localStorage.setItem('projectm:transparencyMode', enabled ? '1' : '0');
+    } catch { /* ignore */ }
+}
+
+function toggleTransparencyMode() {
+    console.log('[ProjectM] Toggle Transparency Mode');
+    applyTransparencyMode(!isTransparencyMode);
+}
+window.toggleTransparencyMode = toggleTransparencyMode;
 
 function lockPreset() {
     console.log('[ProjectM] Lock Preset');
@@ -1215,6 +1276,9 @@ async function attemptInit() {
                 if (rw) {
                     renderWorkerHandle = rw;
                     flushQueuedExternalPCM();
+                    if (isTransparencyMode) {
+                        applyTransparencyMode(true);
+                    }
                     return;
                 }
                 console.warn('[ProjectM] Render worker unavailable, falling back to main-thread rendering');
@@ -1270,6 +1334,10 @@ async function attemptInit() {
         setupPresetDevTools(Module, { startTransitionWhenReady });
         setupExperimentalBridge(Module);
         setupAudioTestPanel(() => Module);
+
+        if (isTransparencyMode) {
+            applyTransparencyMode(true);
+        }
 
         if (!window._pmStartupPresetsLoaded) {
             window._pmStartupPresetsLoaded = true;

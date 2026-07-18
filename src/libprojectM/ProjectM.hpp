@@ -220,6 +220,31 @@ public:
      */
     auto PresetStartClean() const -> bool;
 
+    /**
+     * @brief Enables or disables transparency mode for the final framebuffer output.
+     *
+     * When enabled, near-black pixels in the final copy and transition shaders are
+     * written with alpha = 0 so hosts can composite over video or page content.
+     */
+    void SetTransparencyMode(bool enabled);
+
+    /**
+     * @brief Returns whether transparency mode is enabled.
+     */
+    auto TransparencyMode() const -> bool;
+
+    /**
+     * @brief Sets the RGB threshold below which pixels become transparent.
+     *
+     * Only used when transparency mode is enabled. Default is 0.01.
+     */
+    void SetTransparencyThreshold(float threshold);
+
+    /**
+     * @brief Returns the current transparency threshold.
+     */
+    auto TransparencyThreshold() const -> float;
+
     auto PCM() -> Audio::PCM&;
 
     auto WindowWidth() -> int;
@@ -333,6 +358,8 @@ private:
     bool m_presetLocked{false};         //!< If true, the preset change event will not be sent.
     bool m_presetChangeNotified{false}; //!< Stores whether the user has been notified that projectM wants to switch the preset.
     bool m_presetStartClean{false};     //!< If true, new presets start with a black canvas instead of the previous frame.
+    bool m_transparencyMode{false};     //!< If true, near-black final-output pixels are written with alpha = 0.
+    float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
     std::unique_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories.
 

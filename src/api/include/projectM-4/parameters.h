@@ -394,6 +394,45 @@ PROJECTM_EXPORT void projectm_set_preset_start_clean(projectm_handle instance, b
  */
 PROJECTM_EXPORT bool projectm_get_preset_start_clean(projectm_handle instance);
 
+/**
+ * @brief Enables or disables transparency mode for the final framebuffer output.
+ *
+ * When enabled, near-black pixels in the final copy and transition shaders are
+ * written with alpha = 0 so hosts can composite over video or page content.
+ *
+ * @param instance The projectM instance handle.
+ * @param enabled True to enable transparency mode, false for opaque output. Default: false
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_transparency_mode(projectm_handle instance, bool enabled);
+
+/**
+ * @brief Returns whether transparency mode is enabled.
+ * @param instance The projectM instance handle.
+ * @return True if transparency mode is enabled, false otherwise.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT bool projectm_get_transparency_mode(projectm_handle instance);
+
+/**
+ * @brief Sets the RGB threshold below which pixels become transparent.
+ *
+ * Only used when transparency mode is enabled. Default is 0.01.
+ *
+ * @param instance The projectM instance handle.
+ * @param threshold Max RGB component below which a pixel is fully transparent. Default: 0.01
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_transparency_threshold(projectm_handle instance, float threshold);
+
+/**
+ * @brief Returns the current transparency threshold.
+ * @param instance The projectM instance handle.
+ * @return The current transparency threshold.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT float projectm_get_transparency_threshold(projectm_handle instance);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

@@ -59,6 +59,10 @@ float _prjm_getEasedProgress(float t, float easingType)
 uniform int iPass;              //!< Current render pass (0 = first, 1 = second).
 uniform sampler2D iLastPassTex; //!< Result of the previous pass (valid in pass 1+).
 
+// Transparency mode for glass-layer compositing over host page content.
+uniform int u_transparencyEnabled;
+uniform float u_transparencyThreshold;
+
 // === Advanced Blending Library (Phase B3) ===
 uniform int iBlendMode;   // 0=Alpha, 1=Additive, 2=Multiplicative, 3=Screen
 

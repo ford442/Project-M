@@ -153,6 +153,16 @@ auto PresetTransition::GetBlendMode() const -> TransitionBlendMode
     return m_blendMode;
 }
 
+void PresetTransition::SetTransparencyMode(bool enabled)
+{
+    m_transparencyMode = enabled;
+}
+
+void PresetTransition::SetTransparencyThreshold(float threshold)
+{
+    m_transparencyThreshold = std::max(0.0f, threshold);
+}
+
 /**
  * @brief Renders the transition blend between two presets.
  *
@@ -245,6 +255,8 @@ void PresetTransition::Draw(const Preset& oldPreset,
     m_transitionShader->SetUniformFloat("iInvAspectY", context.invAspectY);
 
     m_transitionShader->SetUniformInt("iBlendMode", static_cast<int>(m_blendMode));
+    m_transitionShader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
+    m_transitionShader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
 
     // Texture samplers
     // Explicitly activate each texture unit before binding to ensure correct

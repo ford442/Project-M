@@ -501,6 +501,30 @@ bool projectm_get_preset_start_clean(projectm_handle instance)
     return projectMInstance->PresetStartClean();
 }
 
+void projectm_set_transparency_mode(projectm_handle instance, bool enabled)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetTransparencyMode(enabled);
+}
+
+bool projectm_get_transparency_mode(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->TransparencyMode();
+}
+
+void projectm_set_transparency_threshold(projectm_handle instance, float threshold)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetTransparencyThreshold(threshold);
+}
+
+float projectm_get_transparency_threshold(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->TransparencyThreshold();
+}
+
 unsigned int projectm_pcm_get_max_samples()
 {
     return libprojectM::Audio::WaveformSamples;

@@ -220,6 +220,30 @@ public:
      */
     auto PresetStartClean() const -> bool;
 
+    /**
+     * @brief Enables shader-based near-black transparency on the final output blit.
+     *
+     * When enabled, pixels whose maximum RGB component is below the transparency
+     * threshold are written with alpha = 0, allowing content behind the canvas to show through.
+     */
+    void SetTransparencyMode(bool enabled);
+
+    /**
+     * @brief Returns whether transparency mode is enabled.
+     */
+    auto TransparencyMode() const -> bool;
+
+    /**
+     * @brief Sets the RGB threshold below which pixels become fully transparent.
+     * @param threshold Value in [0, 1]. Default is 0.01.
+     */
+    void SetTransparencyThreshold(float threshold);
+
+    /**
+     * @brief Returns the current near-black transparency threshold.
+     */
+    auto TransparencyThreshold() const -> float;
+
     auto PCM() -> Audio::PCM&;
 
     auto WindowWidth() -> int;
@@ -333,6 +357,8 @@ private:
     bool m_presetLocked{false};         //!< If true, the preset change event will not be sent.
     bool m_presetChangeNotified{false}; //!< Stores whether the user has been notified that projectM wants to switch the preset.
     bool m_presetStartClean{false};     //!< If true, new presets start with a black canvas instead of the previous frame.
+    bool m_transparencyMode{false};     //!< If true, near-black pixels in the final blit are written with alpha = 0.
+    float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
     std::unique_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories.
 

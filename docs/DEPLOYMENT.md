@@ -186,7 +186,7 @@ console on the deployed page: `crossOriginIsolated` should be `true`.
 |---------|---------------|-----|
 | `Unexpected token '<'` loading `projectm-v.*.1ijs` | `./pm/…` path 404 (Apache returns HTML) | Re-run `python deploy.py` after `prepare_deploy_bundle.sh` so `pm/` mirrors exist; or copy all four artifacts into your site's `pm/` folder. Hosts also fall back to `./projectm-v.*-thread.1ijs` at the site root when `pm/` is missing (`resolveWasmScriptUrl()` in `projectm-init.js`). |
 | Module loads but WASM fails | `.wasm` missing next to the `.1ijs` under the same directory | Deploy/copy `pm/projectm-v.<ver>-thread.wasm` alongside the `.1ijs` |
-| Root WASM 200 but `pm/` + `projectm-*.js` 302 | Legacy SFTP uploaded only `.wasm`/`.1ijs` to site root | Run `python deploy.py` (not `upload_module.py` alone). It zips root WASM, auto-mirrors under `pm/`, and flattens `html/projectm-*.js` + `projectm_panel2.1ink` to the deploy root. Preview with `python deploy.py --dry-run`. |
+| Root WASM 200 but `pm/` + `projectm-*.js` 302 | Legacy SFTP uploaded only `.wasm`/`.1ijs` to site root | Run `python deploy.py` (not a legacy direct-SFTP script). It zips root WASM, auto-mirrors under `pm/`, and flattens `html/projectm-*.js` + `projectm_panel2.1ink` to the deploy root. Preview with `python deploy.py --dry-run`. |
 | Duplicate script tags (root + `pm/`) | Custom host loads `./projectm-v.*.1ijs` and `./pm/…` | Load **only** from `./pm/` via `PROJECTM_WASM_SCRIPT` in `projectm-init.js` |
 
 Custom hosts on other domains must mirror the full `pm/` directory locally (or
@@ -195,16 +195,17 @@ symlink to `https://projectm.1ink.us/pm/…` with CORP headers). Loading from
 
 ## Other deploy-related scripts (legacy / audit)
 
-A repo-wide grep for `token|password|api_key` turned up additional **hardcoded SFTP
-credentials** outside the scope of this doc's `deploy.py` flow:
+A repo-wide grep for `token|password|api_key` previously turned up additional
+**hardcoded SFTP credentials** outside the scope of this doc's `deploy.py` flow:
 
-- `deploy_old.py` — hardcoded SFTP `password`
-- `upload_module.py` — hardcoded SFTP `username`/`password` (legacy direct-SFTP path,
-  superseded by `deploy.py`)
-- `scripts/colab_deploy.sh`, `scripts/upload_project.sh` — default SFTP password
-  fallback (overridable via `PASSWORD`/`SFTP_PASS` env vars)
+- `deploy_old.py`, `upload_module.py` — direct-SFTP scripts hardcoding the same
+  plaintext password, fully superseded by `deploy.py`; deleted from the tree.
+- `scripts/colab_deploy.sh`, `scripts/upload_project.sh` — Colab/manual SFTP
+  helpers, kept (still useful outside the `deploy.py` token flow) but now
+  **require** `PASSWORD`/`SFTP_PASS` to be set — no hardcoded fallback.
 
-These were **not** modified as part of the `DEPLOY_TOKEN` fix above. If these
-credentials are still live, they should be rotated on the VPS/SFTP side and the scripts
-updated to require environment variables (no hardcoded fallback), matching the pattern
-in this file.
+**The plaintext password itself was committed to git history** before this cleanup
+(it is gone from the current tree, but still recoverable from old commits until the
+history is rewritten). If that SFTP password is still live on the `1ink.us` VPS,
+rotate it now — deleting/fixing the scripts does not invalidate a credential that
+was already exposed.

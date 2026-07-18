@@ -10,8 +10,7 @@ set -euo pipefail
 # ============== CONFIG ==============
 HOST="1ink.us"
 USER="ford442"
-# ← BEST PRACTICE: use environment variable instead of hardcoding
-PASS="GoogleBez12!"
+PASS="${SFTP_PASS:?Set SFTP_PASS before running: export SFTP_PASS='your-real-password'}"
 
 LOCAL_DIR="~/Project-M/"     # ← change only if your build folder is different
 
@@ -27,11 +26,6 @@ REMOTE_BASES=(
     "projectm.1ink.us/"
 )
 # =====================================
-
-if [ -z "$PASS" ] || [ "$PASS" = "GoogleBez12!" ]; then
-    echo "⚠️  WARNING: Using default/hardcoded password!"
-    echo "   Better: export SFTP_PASS='your-real-password' && ./upload_projectm.sh"
-fi
 
 echo "=== Starting upload to $HOST ==="
 

@@ -43,9 +43,9 @@ else
 fi
 cd "${PROJECT_DIR}"
 
-# Copy omp headers (repo contains /omp folder and omp.zip)
-cp -r "/root/Project-M/omp/"* "/root/Project-M/"
-unzip -o "/root/Project-M/omp.zip" -d "/root/Project-M/"
+# Unpack the prebuilt libomp.a (repo ships it zipped in omp/omp.zip to dodge the
+# *.a gitignore rule); omp/ is the canonical OpenMP location cmake looks for.
+unzip -o "${PROJECT_DIR}/omp/omp.zip" -d "${PROJECT_DIR}/omp/"
 
 # 3. Build vendor/projectm-eval
 echo "=== Building projectm-eval ==="
@@ -105,8 +105,8 @@ INSTALL_DIR=/usr/local OUT_DIR="${PROJECT_DIR}" PROJECT_ROOT="${PROJECT_DIR}" \
 echo "=== Running optimize.sh and iconv conversions ==="
 bash "${PROJECT_DIR}/optimize.sh" || echo "Warning: optimize.sh returned non-zero (may be expected)"
 
-iconv -f UTF-8 -t UTF-16 "/root/Project-M/projectm-v.030-thread.js" -o "/root/Project-M/projectm-v.030-thread.1ijs"
-iconv -f UTF-8 -t UTF-32 "/root/Project-M/projectm-v.030-thread.js" -o "/root/Project-M/projectm-v.030-thread.3ijs"
+iconv -f UTF-8 -t UTF-16 "${PROJECT_DIR}/projectm-v.030-thread.js" -o "${PROJECT_DIR}/projectm-v.030-thread.1ijs"
+iconv -f UTF-8 -t UTF-32 "${PROJECT_DIR}/projectm-v.030-thread.js" -o "${PROJECT_DIR}/projectm-v.030-thread.3ijs"
 
 echo "=== Build completed successfully! ==="
-echo "Output files are in: /root/Project-M/"
+echo "Output files are in: ${PROJECT_DIR}/"

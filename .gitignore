@@ -45,11 +45,10 @@ m4/lt~obsolete.m4
 # Type-check toolchain for html/generated (scripts/check_html_types.sh)
 html/node_modules/
 
-# Emscripten build artifacts
-projectm-v.030-thread.*
-
-# Removed large binary
-background.png
+# Emscripten build artifacts (all bundle versions — the canonical version is
+# PROJECTM_WASM_BUNDLE in html/projectm-init.js, currently v.035)
+projectm-v.*-thread.*
+pm/projectm-v.*-thread.*
 
 
 # Visual Studio w/CMake
@@ -84,3 +83,21 @@ scripts/~
 # Generated benchmark outputs (commit baselines manually when needed)
 benchmark-results/*
 !benchmark-results/.gitkeep
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Removed large binary, unreferenced by any HTML/JS/docs
+background.png
+
+# OpenMP prebuilts: omp/ is the canonical tracked location (see docs/openmp.md);
+# root copies are transient, produced by scripts/build_libomp_emscripten.sh output
+# staging — do not commit them here.
+/omp.h
+/omp.zip
+/libomp.a
+
+# CMake install-prefix build output dirs (see docs/EMSCRIPTEN.md)
+/install/
+/install-wasm/

@@ -113,10 +113,10 @@ fork-specific surrounding code.
 | 2026-07-10 | `7778852ff` projectm-eval 1.0.6 | **Evaluate** | `git submodule status vendor/projectm-eval` |
 | 2026-07-10 | `149bfc439` CI actions v4→v7 | Skip / cherry-pick later | Low impact on library |
 | 2026-07-10 | GLAD + `projectm_create_with_opengl_load_proc` | Skip for WASM | Native/desktop only |
-| 2026-07-18 | `76c8ff7e8` HLSLParser preprocessor stack | **Backported** | On `main`; `&& !isCodeActive.empty()` guard in `vendor/hlslparser/src/HLSLParser.cpp`; verified HLSLParser gtests |
-| 2026-07-18 | `83292ed44` MilkdropShader sampler-in-comments | **Backported** | On `main` via `ShaderTranspiler` + `Utils::StripComments`; `MilkdropShaderCommentParsingTest` green |
-| 2026-07-18 | `98101f56f` Detach FBO textures before delete | **Backported** | On `main`; detach→resize→reattach in `Framebuffer::SetSize()`, FBO-first teardown in destructor |
-| 2026-07-18 | `7778852ff` projectm-eval 1.0.6 | **Backported** | Submodule at `da885dc` (v1.0.6), matches upstream pointer |
+| 2026-07-18 | `76c8ff7e8` HLSLParser preprocessor stack | **Backported** | On `main`; verified in [#142](https://github.com/ford442/Project-M/pull/142) |
+| 2026-07-18 | `83292ed44` MilkdropShader sampler-in-comments | **Backported** | On `main`; verified in [#142](https://github.com/ford442/Project-M/pull/142) |
+| 2026-07-18 | `98101f56f` Detach FBO textures before delete | **Backported** | On `main`; verified in [#142](https://github.com/ford442/Project-M/pull/142) |
+| 2026-07-18 | `7778852ff` projectm-eval 1.0.6 | **Backported** | Submodule at `da885dc`; verified in [#142](https://github.com/ford442/Project-M/pull/142) |
 | 2026-07-18 | `149bfc439` CI actions v4→v7 | **Deferred** | Low library impact; cherry-pick when touching workflows |
 | 2026-07-18 | GLAD + `projectm_create_with_opengl_load_proc` | **Rejected** | Desktop-only; fork already ships GLAD + resolver; no WASM value |
 | 2026-07-18 | `2f2441413` libprojectM 4.2.0 version bump | **Deferred** | Metadata-only upstream commit; no functional delta since merge-base |

@@ -1,10 +1,15 @@
 // Preset library: filter, favorites, quality-weighted random, multi-base loading.
 
 import { getFavorites, isFavorite, toggleFavorite, presetId } from './projectm-preset-favorites.js';
-import { getCachedPreset, defaultBasesForBase } from './projectm-preset-cache.js';
+import { getCachedPreset, cachePreset, defaultBasesForBase } from './projectm-preset-cache.js';
 import { updatePresetDisplay } from './projectm-presets.js';
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
 import { setTransitionDuration, startTransitionWhenReady as startTransition } from './projectm-transitions.js';
+import {
+    prepareShaderCacheForLoad,
+    finalizeShaderCacheForLoad,
+    setupShaderTranspileCacheHooks,
+} from './projectm-shader-cache.js';
 
 export const DEFAULT_FEATURED_MANIFEST_URL = './featured_pack_manifest.json';
 
@@ -116,14 +121,25 @@ export async function loadPresetEntry(entry, {
             }
         }
         if (!bytes) throw lastError || new Error(`Could not fetch ${filename}`);
+        cachePreset(id, bytes, {
+            file: entry.file,
+            base: entry.base || 'custom_milk_fixed',
+            label: entry.label,
+        }).catch(() => {});
     }
 
+    setupShaderTranspileCacheHooks();
     setTransitionDuration(module, transitionDurationSec);
     const vfsPath = `/presets/${entry.base || 'custom'}_${safePresetName(filename)}`;
     module.FS.writeFile(vfsPath, bytes);
-    loadPresetFile(module, vfsPath);
-    if (startTransitionWhenReady) {
-        await startTransitionWhenReady({ module, durationSec: transitionDurationSec });
+    await prepareShaderCacheForLoad(module, bytes);
+    try {
+        loadPresetFile(module, vfsPath);
+        if (startTransitionWhenReady) {
+            await startTransitionWhenReady({ module, durationSec: transitionDurationSec });
+        }
+    } finally {
+        finalizeShaderCacheForLoad(module);
     }
     if (updateDisplay) updatePresetDisplay(entry.label || filename);
     return { vfsPath, filename, entry };

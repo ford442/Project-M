@@ -47,6 +47,8 @@ export type ProjectMModule = EmscriptenModule & {
     _get_omp_enabled: () => number;
     _get_omp_max_threads: () => number;
     _get_omp_thread_count_in_parallel: () => number;
+    _shader_cache_end_load: () => void;
+    _get_glsl_generator_version: () => number;
     _pm_handle_context_loss: () => void;
     _dual_fbo_begin_transition: () => boolean;
     _dual_fbo_end_transition: () => void;
@@ -111,6 +113,10 @@ export const WASM_API_SYMBOLS = {
     getOmpEnabled: 'get_omp_enabled',
     getOmpMaxThreads: 'get_omp_max_threads',
     getOmpThreadCountInParallel: 'get_omp_thread_count_in_parallel',
+    shaderCacheBeginLoad: 'shader_cache_begin_load',
+    shaderCacheImportGlsl: 'shader_cache_import_glsl',
+    shaderCacheEndLoad: 'shader_cache_end_load',
+    getGlslGeneratorVersion: 'get_glsl_generator_version',
     pmHandleContextLoss: 'pm_handle_context_loss',
     dualFboBeginTransition: 'dual_fbo_begin_transition',
     dualFboEndTransition: 'dual_fbo_end_transition',
@@ -332,6 +338,26 @@ export function getOmpThreadCountInParallel(module: ProjectMModule): number {
     return module._get_omp_thread_count_in_parallel();
 }
 
+/** Begin preset load with optional transpiled GLSL cache key */
+export function shaderCacheBeginLoad(module: ProjectMModule, cacheKey: string): void {
+    module.ccall('shader_cache_begin_load', null, ['string'], [cacheKey]);
+}
+
+/** Inject cached transpiled GLSL (0=warp, 1=composite) */
+export function shaderCacheImportGlsl(module: ProjectMModule, shaderType: number, glsl: string): void {
+    module.ccall('shader_cache_import_glsl', null, ['number', 'string'], [shaderType, glsl]);
+}
+
+/** Clear transpiled GLSL cache key after preset load */
+export function shaderCacheEndLoad(module: ProjectMModule): void {
+    module._shader_cache_end_load();
+}
+
+/** GLSL generator version enum for cache invalidation */
+export function getGlslGeneratorVersion(module: ProjectMModule): number {
+    return module._get_glsl_generator_version();
+}
+
 /** Tear down GL state after WebGL context loss */
 export function pmHandleContextLoss(module: ProjectMModule): void {
     module._pm_handle_context_loss();
@@ -477,6 +503,7 @@ export const PUBLIC_WASM_API = [
     setTargetFps,
     setQualityGovernor,
     getQualityTier,
+    getGlslGeneratorVersion,
     pmHandleContextLoss,
     dualFboBeginTransition,
     dualFboIsPresetBAllocated,

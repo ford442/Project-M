@@ -6,6 +6,8 @@
 
 #include <MilkdropStaticShaders.hpp>
 
+#include <Renderer/ShaderTranspileCache.hpp>
+
 #include <Logging.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -460,6 +462,38 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
         texSizeDeclarations.insert(desc.TexSizeDeclaration());
     }
 
+    const auto& cacheKey = Renderer::GetTranspiledGlslCacheKey();
+    const int shaderTypeInt = static_cast<int>(m_type);
+
+    auto compileGlsl = [&](const std::string& glslCode) {
+        if (m_type == ShaderType::WarpShader)
+        {
+            m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetWarpVertexShader(), glslCode);
+        }
+        else
+        {
+            m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetCompVertexShader(), glslCode);
+        }
+    };
+
+    if (!cacheKey.empty())
+    {
+        if (auto cachedGlsl = Renderer::LookupTranspiledGlsl(cacheKey, shaderTypeInt))
+        {
+            try
+            {
+                LOG_TRACE("[MilkdropShader] Using cached transpiled GLSL " + shaderTypeString + " shader");
+                compileGlsl(*cachedGlsl);
+                return;
+            }
+            catch (const Renderer::ShaderException&)
+            {
+                LOG_WARN("[MilkdropShader] Cached transpiled GLSL failed to compile; re-transpiling "
+                         + shaderTypeString + " shader");
+            }
+        }
+    }
+
     // Transpile from HLSL (aka preset shader aka DirectX shader) to GLSL (aka OpenGL shader lang)
     std::string glslCode;
     std::string errorMessage;
@@ -473,16 +507,14 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
 
     LOG_TRACE("[MilkdropShader] Transpiled GLSL " + shaderTypeString + " shader code:\n" + glslCode);
 
+    if (!cacheKey.empty())
+    {
+        Renderer::StoreTranspiledGlsl(cacheKey, shaderTypeInt, glslCode);
+    }
+
     // Now we have GLSL source for the preset shader program (hopefully it's valid!)
     // Compile the preset shader fragment shader with the standard vertex shader and cross our fingers.
-    if (m_type == ShaderType::WarpShader)
-    {
-        m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetWarpVertexShader(), glslCode);
-    }
-    else
-    {
-        m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetCompVertexShader(), glslCode);
-    }
+    compileGlsl(glslCode);
 }
 
 void MilkdropShader::UpdateMaxBlurLevel(BlurTexture::BlurLevel requestedLevel)

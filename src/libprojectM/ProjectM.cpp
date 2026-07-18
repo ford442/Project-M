@@ -239,9 +239,12 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     }
     else
     {
-        m_textureCopier->SetTransparencyMode(m_transparencyMode);
-        m_textureCopier->SetTransparencyThreshold(m_transparencyThreshold);
-        m_textureCopier->Draw(*renderContext.shaderCache, m_activePreset->OutputTexture(), false, false);
+        m_textureCopier->Draw(*renderContext.shaderCache,
+                              m_activePreset->OutputTexture(),
+                              false,
+                              false,
+                              m_transparencyMode,
+                              m_transparencyThreshold);
     }
 
     // Draw user sprites

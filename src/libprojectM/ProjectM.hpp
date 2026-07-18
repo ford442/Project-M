@@ -221,11 +221,11 @@ public:
     auto PresetStartClean() const -> bool;
 
     /**
-     * @brief Enables shader-based near-black transparency on the final output blit.
-     *
-     * When enabled, pixels whose maximum RGB component is below the transparency
-     * threshold are written with alpha = 0, allowing content behind the canvas to show through.
-     */
+    * @brief Enables or disables transparency mode for the final framebuffer output.
+    *
+    * When enabled, near-black pixels in the final copy and transition shaders are
+    * written with alpha = 0 so hosts can composite over video or page content.
+    */
     void SetTransparencyMode(bool enabled);
 
     /**
@@ -234,13 +234,14 @@ public:
     auto TransparencyMode() const -> bool;
 
     /**
-     * @brief Sets the RGB threshold below which pixels become fully transparent.
-     * @param threshold Value in [0, 1]. Default is 0.01.
+     * @brief Sets the RGB threshold below which pixels become transparent.
+     *
+     * Only used when transparency mode is enabled. Default is 0.01.
      */
     void SetTransparencyThreshold(float threshold);
 
     /**
-     * @brief Returns the current near-black transparency threshold.
+     * @brief Returns the current transparency threshold.
      */
     auto TransparencyThreshold() const -> float;
 
@@ -354,10 +355,10 @@ private:
     /** Timing information */
     int m_frameCount{0}; //!< Rendered frame count since start
 
-    bool m_presetLocked{false};         //!< If true, the preset change event will not be sent.
-    bool m_presetChangeNotified{false}; //!< Stores whether the user has been notified that projectM wants to switch the preset.
-    bool m_presetStartClean{false};     //!< If true, new presets start with a black canvas instead of the previous frame.
-    bool m_transparencyMode{false};     //!< If true, near-black pixels in the final blit are written with alpha = 0.
+    bool m_presetLocked{false};           //!< If true, the preset change event will not be sent.
+    bool m_presetChangeNotified{false};   //!< Stores whether the user has been notified that projectM wants to switch the preset.
+    bool m_presetStartClean{false};       //!< If true, new presets start with a black canvas instead of the previous frame.
+    bool m_transparencyMode{false};       //!< If true, near-black final-output pixels are written with alpha = 0.
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
     std::unique_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories.

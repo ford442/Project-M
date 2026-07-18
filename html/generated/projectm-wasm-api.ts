@@ -268,7 +268,7 @@ export function setPresetLocked(module: ProjectMModule, locked: boolean): void {
     module._set_preset_locked(locked ? 1 : 0);
 }
 
-/** Enable near-black transparency on final output */
+/** Enable glass-layer transparency on near-black pixels */
 export function setTransparencyMode(module: ProjectMModule, enabled: boolean): void {
     module._set_transparency_mode(enabled ? 1 : 0);
 }
@@ -278,12 +278,12 @@ export function getTransparencyMode(module: ProjectMModule): boolean {
     return !!module._get_transparency_mode();
 }
 
-/** RGB threshold below which pixels become transparent */
+/** Set RGB threshold for transparency mode (default 0.01) */
 export function setTransparencyThreshold(module: ProjectMModule, threshold: number): void {
     module._set_transparency_threshold(threshold);
 }
 
-/** Current near-black transparency threshold */
+/** Current transparency threshold */
 export function getTransparencyThreshold(module: ProjectMModule): number {
     return module._get_transparency_threshold();
 }

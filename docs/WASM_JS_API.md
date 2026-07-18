@@ -67,9 +67,9 @@ Intended for third-party embedders. Breaking changes require a major WASM bundle
 | `addPresetFile` | `add_preset_file` | Add to playlist |
 | `switchPreset` | `switch_preset` | Next playlist item |
 | `setPresetLocked` | `set_preset_locked` | `boolean` coerced to 0/1 |
-| `setTransparencyMode` | `set_transparency_mode` | Near-black pixels → transparent final blit |
+| `setTransparencyMode` | `set_transparency_mode` | Glass-layer compositing; near-black → alpha 0 |
 | `getTransparencyMode` | `get_transparency_mode` | |
-| `setTransparencyThreshold` | `set_transparency_threshold` | Default `0.01` |
+| `setTransparencyThreshold` | `set_transparency_threshold` | RGB threshold (default `0.01`) |
 | `getTransparencyThreshold` | `get_transparency_threshold` | |
 | `feedPcmFloat` | (helper) | Wraps `projectm_pcm_add_float_wrapper` |
 | `setTargetFps` | `set_target_fps` | |

@@ -2376,7 +2376,6 @@ float get_transparency_threshold() {
 if (!pm) return 0.01f;
 return projectm_get_transparency_threshold(pm);
 }
-
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
 // enabled, CPU timers (libprojectM's projectm_perf API) and, if available,
 // a WebGL GPU timer query are collected each frame and reported to the host

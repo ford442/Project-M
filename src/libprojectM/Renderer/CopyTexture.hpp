@@ -37,7 +37,8 @@ public:
      */
     void Draw(ShaderCache& shaderCache,
               const std::shared_ptr<Texture>& originalTexture,
-              bool flipVertical = false, bool flipHorizontal = false);
+              bool flipVertical = false, bool flipHorizontal = false,
+              bool transparencyMode = false, float transparencyThreshold = 0.01f);
 
     /**
      * @brief Copies the original texture either into the object's internal framebuffer or a given target texture.
@@ -114,7 +115,8 @@ private:
     void UpdateTextureSize(int width, int height);
 
     void Copy(ShaderCache& shaderCache,
-              bool flipVertical, bool flipHorizontal);
+              bool flipVertical, bool flipHorizontal,
+              bool transparencyMode, float transparencyThreshold);
 
     void Copy(ShaderCache& shaderCache,
               int left, int top, int width, int height);
@@ -124,8 +126,8 @@ private:
     Framebuffer m_framebuffer{1};                    //!< Framebuffer for drawing the flipped texture
     Sampler m_sampler{GL_CLAMP_TO_EDGE, GL_NEAREST}; //!< Texture sampler settings
 
-    int m_width{};  //!< Last known framebuffer/texture width
-    int m_height{}; //!< Last known framebuffer/texture height
+    int m_width{};                        //!< Last known framebuffer/texture width
+    int m_height{};                       //!< Last known framebuffer/texture height
     bool m_transparencyMode{false};       //!< Near-black transparency for final blit.
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold.
     std::shared_ptr<Shader> BindShader(ShaderCache& shaderCache);

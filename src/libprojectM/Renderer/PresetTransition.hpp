@@ -18,11 +18,11 @@ namespace Renderer {
  */
 enum class EasingType : int
 {
-    Linear = 0,   //!< No easing — raw linear progress.
-    Smoothstep,   //!< Smoothstep (3t² - 2t³) — recommended default.
-    EaseIn,       //!< Quadratic ease-in.
-    EaseOut,      //!< Quadratic ease-out.
-    Count         //!< Number of easing types (not a valid selection).
+    Linear = 0, //!< No easing — raw linear progress.
+    Smoothstep, //!< Smoothstep (3t² - 2t³) — recommended default.
+    EaseIn,     //!< Quadratic ease-in.
+    EaseOut,    //!< Quadratic ease-out.
+    Count       //!< Number of easing types (not a valid selection).
 };
 
 /**
@@ -30,12 +30,12 @@ enum class EasingType : int
  */
 enum class TransitionBlendMode : int
 {
-    Alpha = 0,        //!< Default mix (current behavior).
-    Additive,         //!< Old + New * progress.
-    Multiplicative,   //!< Old * (1-progress) + (Old * New) * progress.
-    Screen,           //!< Screen blending.
-    Masked,           //!< Future: use a third mask texture.
-    Count             //!< Number of blend modes (not a valid selection).
+    Alpha = 0,      //!< Default mix (current behavior).
+    Additive,       //!< Old + New * progress.
+    Multiplicative, //!< Old * (1-progress) + (Old * New) * progress.
+    Screen,         //!< Screen blending.
+    Masked,         //!< Future: use a third mask texture.
+    Count           //!< Number of blend modes (not a valid selection).
 };
 
 /**
@@ -144,14 +144,24 @@ public:
     auto GetBlendMode() const -> TransitionBlendMode;
 
     /**
-     * @brief Enables near-black transparency on the final transition output.
-     */
+    * @brief Enables or disables transparency mode for the final transition output.
+    */
     void SetTransparencyMode(bool enabled);
 
     /**
-     * @brief Sets the RGB threshold below which pixels become fully transparent.
+     * @brief Returns whether transparency mode is enabled.
+     */
+    auto TransparencyMode() const -> bool;
+
+    /**
+     * @brief Sets the RGB threshold below which pixels become transparent.
      */
     void SetTransparencyThreshold(float threshold);
+
+    /**
+     * @brief Returns the current transparency threshold.
+     */
+    auto TransparencyThreshold() const -> float;
 
 private:
     std::vector<std::string> m_noiseTextureNames{"noise_lq",
@@ -175,16 +185,16 @@ private:
 
     EasingType m_easingType{EasingType::Smoothstep}; //!< Easing curve applied to linear progress in GLSL.
 
-    int m_passCount{1}; //!< Number of render passes (1 = single-pass, 2 = multi-pass).
+    int m_passCount{1};    //!< Number of render passes (1 = single-pass, 2 = multi-pass).
     int m_currentPass{-1}; //!< Currently active pass index (-1 = none).
 
     TransitionBlendMode m_blendMode{TransitionBlendMode::Alpha}; //!< Blending mode for this transition.
 
-    bool m_transparencyMode{false};       //!< Near-black transparency for final output.
-    float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold.
+    bool m_transparencyMode{false};       //!< If true, near-black final-output pixels are written with alpha = 0.
+    float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
     std::shared_ptr<Framebuffer> m_passFramebuffer; //!< Intermediate FBO for multi-pass transitions (pass 0 output).
-    GLint m_originalDrawFbo{0}; //!< Original draw framebuffer saved before pass 0 binds the intermediate FBO.
+    GLint m_originalDrawFbo{0};                     //!< Original draw framebuffer saved before pass 0 binds the intermediate FBO.
 
     glm::ivec4 m_staticRandomValues{}; //!< Four random integers, remaining static during the whole transition.
 

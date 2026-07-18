@@ -158,9 +158,19 @@ void PresetTransition::SetTransparencyMode(bool enabled)
     m_transparencyMode = enabled;
 }
 
+auto PresetTransition::TransparencyMode() const -> bool
+{
+    return m_transparencyMode;
+}
+
 void PresetTransition::SetTransparencyThreshold(float threshold)
 {
     m_transparencyThreshold = std::max(0.0f, threshold);
+}
+
+auto PresetTransition::TransparencyThreshold() const -> float
+{
+    return m_transparencyThreshold;
 }
 
 /**
@@ -249,14 +259,19 @@ void PresetTransition::Draw(const Preset& oldPreset,
                                                             audioData.trebAtt});
 
     // Aspect ratio correction uniforms for geometry-sensitive transitions.
-    m_transitionShader->SetUniformFloat("iAspectX",    context.aspectX);
-    m_transitionShader->SetUniformFloat("iAspectY",    context.aspectY);
+    m_transitionShader->SetUniformFloat("iAspectX", context.aspectX);
+    m_transitionShader->SetUniformFloat("iAspectY", context.aspectY);
     m_transitionShader->SetUniformFloat("iInvAspectX", context.invAspectX);
     m_transitionShader->SetUniformFloat("iInvAspectY", context.invAspectY);
 
     m_transitionShader->SetUniformInt("iBlendMode", static_cast<int>(m_blendMode));
     m_transitionShader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
     m_transitionShader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
+
+    auto setTransparencyUniforms = [&](bool enabled) {
+        m_transitionShader->SetUniformInt("u_transparencyEnabled", enabled && m_transparencyMode ? 1 : 0);
+        m_transitionShader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
+    };
 
     // Texture samplers
     // Explicitly activate each texture unit before binding to ensure correct
@@ -311,10 +326,12 @@ void PresetTransition::Draw(const Preset& oldPreset,
         // Pass 1 samples the intermediate result via iLastPassTex.
 
         BeginPass(0, context.viewportSizeX, context.viewportSizeY);
+        setTransparencyUniforms(false);
         m_mesh.Draw();
         EndPass();
 
         BeginPass(1, context.viewportSizeX, context.viewportSizeY);
+        setTransparencyUniforms(true);
 
         auto pass0Tex = GetPassTexture(0);
         if (pass0Tex)
@@ -339,6 +356,7 @@ void PresetTransition::Draw(const Preset& oldPreset,
     {
         // Single-pass (default): set iPass to 0 so single-pass shaders work unchanged.
         BeginPass(0, context.viewportSizeX, context.viewportSizeY);
+        setTransparencyUniforms(true);
         m_mesh.Draw();
         EndPass();
     }

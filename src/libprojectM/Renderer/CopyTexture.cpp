@@ -82,7 +82,8 @@ void CopyTexture::SetTransparencyThreshold(float threshold)
 
 void CopyTexture::Draw(ShaderCache& shaderCache,
                        const std::shared_ptr<class Texture>& originalTexture,
-                       bool flipVertical, bool flipHorizontal)
+                       bool flipVertical, bool flipHorizontal,
+                       bool transparencyMode, float transparencyThreshold)
 {
     if (originalTexture == nullptr)
     {
@@ -91,7 +92,7 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
 
     // Just bind the texture and draw it to the currently bound buffer.
     originalTexture->Bind(0);
-    Copy(shaderCache, flipVertical, flipHorizontal);
+    Copy(shaderCache, flipVertical, flipHorizontal, transparencyMode, transparencyThreshold);
 }
 
 void CopyTexture::Draw(ShaderCache& shaderCache,
@@ -134,7 +135,7 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
         m_framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0)->Texture(targetTexture);
     }
 
-    Copy(shaderCache, flipVertical, flipHorizontal);
+    Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
 
     // Rebind our internal texture.
     if (targetTexture)
@@ -170,7 +171,7 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
     // Draw from unflipped texture
     originalTexture->Bind(0);
 
-    Copy(shaderCache, flipVertical, flipHorizontal);
+    Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
 
     // Swap texture attachments
     auto tempAttachment = framebuffer.GetAttachment(framebufferIndex, TextureAttachment::AttachmentType::Color, 0);
@@ -270,7 +271,8 @@ void CopyTexture::UpdateTextureSize(int width, int height)
 }
 
 void CopyTexture::Copy(ShaderCache& shaderCache,
-                       bool flipVertical, bool flipHorizontal)
+                       bool flipVertical, bool flipHorizontal,
+                       bool transparencyMode, float transparencyThreshold)
 {
     glm::mat4x4 flipMatrix(1.0);
 
@@ -280,8 +282,8 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
     std::shared_ptr<Shader> shader = BindShader(shaderCache);
 
     shader->SetUniformInt("texture_sampler", 0);
-    shader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
-    shader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
+    shader->SetUniformInt("u_transparencyEnabled", transparencyMode ? 1 : 0);
+    shader->SetUniformFloat("u_transparencyThreshold", transparencyThreshold);
     shader->SetUniformMat4x4("vertex_transformation", flipMatrix);
 
     m_sampler.Bind(0);
@@ -307,8 +309,8 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
     std::shared_ptr<Shader> shader = BindShader(shaderCache);
 
     shader->SetUniformInt("texture_sampler", 0);
-    shader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
-    shader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
+    shader->SetUniformInt("u_transparencyEnabled", 0);
+    shader->SetUniformFloat("u_transparencyThreshold", 0.01f);
     shader->SetUniformMat4x4("vertex_transformation", translationMatrix);
 
     m_sampler.Bind(0);

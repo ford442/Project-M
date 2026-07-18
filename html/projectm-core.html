@@ -437,14 +437,7 @@ canvas.emscripten {
 <!-- Main Visualization -->
 <div id="wrap">
   <div id="contain1" style="position:absolute;">
-<<<<<<< HEAD
     <img id="bg-media" src="./image/shroud.jpg" alt="" style="display:none;position:absolute;z-index:2999;object-fit:cover;top:0;left:0;width:100%;height:100%;pointer-events:none;" />
-=======
-    <div id="bg-layer" aria-hidden="true">
-      <video id="bg-video" muted loop playsinline></video>
-      <img id="bg-image" alt="" hidden />
-    </div>
->>>>>>> origin/main
     <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;"></canvas>
     <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;left:0;"></canvas>
     <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;left:0;transform:scaleY(-1.0);"></canvas>
@@ -553,10 +546,7 @@ let Module;
 let isBezelMode = true;
 let isPresetLocked = false;
 let isTransparencyMode = false;
-<<<<<<< HEAD
 const TRANSPARENCY_THRESHOLD = 0.01;
-=======
->>>>>>> origin/main
 
 // ====== OFFSCREENCANVAS RENDER WORKER (opt-in, see docs/PERFORMANCE.md) ======
 // Disabled by default; enable with ?renderWorker=1 or localStorage.renderWorker = '1'.
@@ -841,7 +831,6 @@ if (enableLocalPresets) {
 const audioPlayerController = createPopupAudioPlayerController();
 const { cycleAudioPlayer, closeAudioPlayer } = audioPlayerController;
 
-<<<<<<< HEAD
 function applyTransparencyMode(enabled) {
     isTransparencyMode = enabled;
     const scanvas = document.querySelector('#scanvas');
@@ -849,27 +838,29 @@ function applyTransparencyMode(enabled) {
     const btn = document.getElementById('transparencyBtn');
     const led = document.querySelector('.led--glass');
 
-    if (scanvas) scanvas.style.display = enabled ? 'none' : 'block';
-    if (bgMedia) bgMedia.style.display = enabled ? 'block' : 'none';
-    if (btn) btn.classList.toggle('engaged', enabled);
-    if (led) led.classList.toggle('on', enabled);
+    if (scanvas) {
+        scanvas.style.display = enabled ? 'none' : 'block';
+    }
+    if (bgMedia) {
+        bgMedia.style.display = enabled ? 'block' : 'none';
+    }
+    if (btn) {
+        btn.classList.toggle('engaged', enabled);
+    }
+    if (led) {
+        led.classList.toggle('on', enabled);
+    }
     document.body.classList.toggle('has-transparency', enabled);
 
     if (renderWorkerHandle) {
         renderWorkerHandle.ccallVoid('set_transparency_mode', ['number'], [enabled ? 1 : 0]);
         renderWorkerHandle.ccallVoid('set_transparency_threshold', ['number'], [TRANSPARENCY_THRESHOLD]);
-=======
-function applyTransparencyModeToEngine(enabled) {
-    if (renderWorkerHandle) {
-        renderWorkerHandle.ccallVoid('set_transparency_mode', ['number'], [enabled ? 1 : 0]);
->>>>>>> origin/main
     } else if (typeof Module !== 'undefined') {
         if (Module._set_transparency_mode) {
             Module._set_transparency_mode(enabled ? 1 : 0);
         } else if (Module.ccall) {
             Module.ccall('set_transparency_mode', null, ['number'], [enabled ? 1 : 0]);
         }
-<<<<<<< HEAD
         if (Module._set_transparency_threshold) {
             Module._set_transparency_threshold(TRANSPARENCY_THRESHOLD);
         } else if (Module.ccall) {
@@ -887,56 +878,6 @@ function toggleTransparencyMode() {
     applyTransparencyMode(!isTransparencyMode);
 }
 window.toggleTransparencyMode = toggleTransparencyMode;
-=======
-    }
-}
-
-function updateTransparencyUi() {
-    const scanvas = document.querySelector('#scanvas');
-    const bgLayer = document.getElementById('bg-layer');
-    const btn = document.getElementById('transparencyBtn');
-    if (scanvas) {
-        scanvas.style.display = isTransparencyMode ? 'none' : 'block';
-    }
-    if (bgLayer) {
-        bgLayer.classList.toggle('visible', isTransparencyMode);
-    }
-    if (btn) {
-        btn.classList.toggle('active', isTransparencyMode);
-        btn.textContent = isTransparencyMode ? 'Glass Layer: ON' : 'Glass Layer';
-    }
-}
-
-function setupTransparencyBackground() {
-    const bgVideo = document.getElementById('bg-video');
-    const bgImage = document.getElementById('bg-image');
-    const bgVideoUrl = urlParams.get('bgVideo');
-    const bgImageUrl = urlParams.get('bgImage');
-
-    if (bgVideo && bgVideoUrl) {
-        bgVideo.src = bgVideoUrl;
-        bgVideo.hidden = false;
-        if (bgImage) bgImage.hidden = true;
-        bgVideo.play().catch(() => {});
-        return;
-    }
-
-    if (bgImage && bgImageUrl) {
-        bgImage.src = bgImageUrl;
-        bgImage.hidden = false;
-        if (bgVideo) bgVideo.hidden = true;
-    }
-}
-
-function toggleTransparencyMode() {
-    isTransparencyMode = !isTransparencyMode;
-    applyTransparencyModeToEngine(isTransparencyMode);
-    updateTransparencyUi();
-    try {
-        localStorage.setItem('projectm:transparencyMode', isTransparencyMode ? '1' : '0');
-    } catch { /* ignore */ }
-}
->>>>>>> origin/main
 
 function lockPreset() {
     console.log('[ProjectM] Lock Preset');
@@ -1404,25 +1345,19 @@ async function attemptInit() {
         setupExperimentalBridge(Module);
         setupAudioTestPanel(() => Module);
 
-<<<<<<< HEAD
-        if (isTransparencyMode) {
-            applyTransparencyMode(true);
-=======
-        setupTransparencyBackground();
-        const transparencyBtn = document.getElementById('transparencyBtn');
-        if (transparencyBtn) {
-            transparencyBtn.addEventListener('click', toggleTransparencyMode);
-        }
-        const savedTransparency = (() => {
-            try { return localStorage.getItem('projectm:transparencyMode'); } catch { return null; }
-        })();
-        const urlTransparency = urlParams.get('transparent');
-        if (urlTransparency === '1' || savedTransparency === '1') {
-            isTransparencyMode = true;
-            applyTransparencyModeToEngine(true);
-            updateTransparencyUi();
->>>>>>> origin/main
-        }
+const transparencyBtn = document.getElementById('transparencyBtn');
+if (transparencyBtn) {
+    transparencyBtn.addEventListener('click', toggleTransparencyMode);
+}
+
+const savedTransparency = (() => {
+    try { return localStorage.getItem('projectm:transparencyMode'); } catch { return null; }
+})();
+const urlTransparency = urlParams.get('transparent');
+if (urlTransparency === '1' || savedTransparency === '1') {
+    isTransparencyMode = true;
+    applyTransparencyMode(true);
+}
 
         if (!window._pmStartupPresetsLoaded) {
             window._pmStartupPresetsLoaded = true;

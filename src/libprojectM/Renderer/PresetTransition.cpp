@@ -158,7 +158,6 @@ void PresetTransition::SetTransparencyMode(bool enabled)
     m_transparencyMode = enabled;
 }
 
-<<<<<<< HEAD
 auto PresetTransition::TransparencyMode() const -> bool
 {
     return m_transparencyMode;
@@ -166,17 +165,12 @@ auto PresetTransition::TransparencyMode() const -> bool
 
 void PresetTransition::SetTransparencyThreshold(float threshold)
 {
-    m_transparencyThreshold = std::max(threshold, 0.0f);
+    m_transparencyThreshold = std::max(0.0f, threshold);
 }
 
 auto PresetTransition::TransparencyThreshold() const -> float
 {
     return m_transparencyThreshold;
-=======
-void PresetTransition::SetTransparencyThreshold(float threshold)
-{
-    m_transparencyThreshold = std::max(0.0f, threshold);
->>>>>>> origin/main
 }
 
 /**
@@ -265,8 +259,8 @@ void PresetTransition::Draw(const Preset& oldPreset,
                                                             audioData.trebAtt});
 
     // Aspect ratio correction uniforms for geometry-sensitive transitions.
-    m_transitionShader->SetUniformFloat("iAspectX",    context.aspectX);
-    m_transitionShader->SetUniformFloat("iAspectY",    context.aspectY);
+    m_transitionShader->SetUniformFloat("iAspectX", context.aspectX);
+    m_transitionShader->SetUniformFloat("iAspectY", context.aspectY);
     m_transitionShader->SetUniformFloat("iInvAspectX", context.invAspectX);
     m_transitionShader->SetUniformFloat("iInvAspectY", context.invAspectY);
 

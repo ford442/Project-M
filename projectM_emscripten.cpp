@@ -2273,30 +2273,23 @@ return;
 }
 
 EMSCRIPTEN_KEEPALIVE
-<<<<<<< HEAD
-=======
 bool get_transparency_mode() {
 if (!pm) return false;
 return projectm_get_transparency_mode(pm);
 }
 
 EMSCRIPTEN_KEEPALIVE
->>>>>>> origin/main
 void set_transparency_threshold(float threshold) {
 if (!pm) return;
 projectm_set_transparency_threshold(pm, threshold);
 return;
 }
 
-<<<<<<< HEAD
-=======
 EMSCRIPTEN_KEEPALIVE
 float get_transparency_threshold() {
 if (!pm) return 0.01f;
 return projectm_get_transparency_threshold(pm);
 }
-
->>>>>>> origin/main
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
 // enabled, CPU timers (libprojectM's projectm_perf API) and, if available,
 // a WebGL GPU timer query are collected each frame and reported to the host

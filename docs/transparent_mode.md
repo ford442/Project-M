@@ -30,14 +30,15 @@ The browser build renders presets into ping-pong FBOs, then composites to the ca
 
 This avoids flashing opaque black during transitions: both the steady-state blit and the cross-fade use the same near-black → transparent rule.
 
-<<<<<<< HEAD
 ### Design Notes
+
 - **Threshold**: `0.01` handles floating-point noise and dithering while treating true black as transparent. Tune at runtime via `projectm_set_transparency_threshold()` / `set_transparency_threshold()` (WASM).
 - **Premultiplied Alpha**: The WebGL context already uses `premultipliedAlpha = EM_TRUE`. For black pixels, RGB is near-zero, so premultiplication does not alter the color.
 - **Why not `discard`**: Using `discard` in fragment shaders can hurt performance on tile-based GPUs and may leave previous-frame pixels visible if the drawing buffer is not cleared. Explicitly writing `vec4(0,0,0,0)` is safer.
 - **No extra FBO**: This approach avoids an intermediate framebuffer and extra render pass, keeping the change minimal and performant.
 
 ### Dual-FBO transitions
+
 Preset rendering still uses the existing dual ping-pong FBO pair inside each `MilkdropPreset`. Transparency is applied only on the **final** blit to the default framebuffer:
 
 1. **Normal frames** — `CopyTexture::Draw()` writes near-black pixels with `alpha = 0` when transparency mode is on.
@@ -47,12 +48,13 @@ Preset rendering still uses the existing dual ping-pong FBO pair inside each `Mi
 The WASM dual-FBO transition API (`dual_fbo_*`) is unchanged; hosts that composite externally should enable transparency mode on the engine before the final `render_frame` / default-FBO present.
 
 ### Demo (`html/projectm-core.html`)
+
 - Background image `#bg-media` sits at `z-index: 2999` (between `#scanvas` and `#mcanvas`).
 - Panel button **Glass transparency** toggles engine transparency mode and hides the black `#scanvas` underlay.
 - URL: `?transparent=1` enables on load (persisted in `localStorage` as `projectm:transparencyMode`).
 
 ![Transparency mode demo](images/transparent-mode-demo.png)
-=======
+
 ## API
 
 ### C++
@@ -105,7 +107,7 @@ if (u_transparencyEnabled > 0) {
 
 | Element | z-index | Role |
 |---------|---------|------|
-| `#bg-layer` | 2999 | Video / image / gradient behind the visualizer |
+| `#bg-media` | 2999 | Background image behind the visualizer |
 | `#scanvas` | 3000 | Opaque black underlay (hidden in glass mode) |
 | `#mcanvas` | 3001 | WebGL visualizer |
 
@@ -114,4 +116,3 @@ if (u_transparencyEnabled > 0) {
 - No extra framebuffer — transparency is a uniform branch in existing final-output shaders.
 - Tunable threshold does not affect normal mode (`u_transparencyEnabled == 0`).
 - User sprites draw after the final blit; they are not auto-masked by this mode.
->>>>>>> origin/main

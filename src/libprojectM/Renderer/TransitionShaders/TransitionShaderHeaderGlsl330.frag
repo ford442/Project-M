@@ -22,53 +22,49 @@ float _prjm_getEasedProgress(float t, float easingType)
     t = clamp(t, 0.0, 1.0);
     if (easingType < 0.5)
     {
-        return t;                                         // 0 = Linear
+        return t; // 0 = Linear
     }
     else if (easingType < 1.5)
     {
-        return t * t * (3.0 - 2.0 * t);                   // 1 = Smoothstep (default)
+        return t * t * (3.0 - 2.0 * t); // 1 = Smoothstep (default)
     }
     else if (easingType < 2.5)
     {
-        return t * t;                                     // 2 = Ease-in (quadratic)
+        return t * t; // 2 = Ease-in (quadratic)
     }
     else
     {
-        return 1.0 - (1.0 - t) * (1.0 - t);               // 3 = Ease-out (quadratic)
+        return 1.0 - (1.0 - t) * (1.0 - t); // 3 = Ease-out (quadratic)
     }
 }
 
-#define iProgressLinear  durationParams.x
-#define iProgressCosine  durationParams.y
+#define iProgressLinear durationParams.x
+#define iProgressCosine durationParams.y
 #define iProgressBicubic durationParams.z
-#define iEasingType      durationParams.w
-#define iProgressEased   _prjm_getEasedProgress(durationParams.x, durationParams.w)
+#define iEasingType durationParams.w
+#define iProgressEased _prjm_getEasedProgress(durationParams.x, durationParams.w)
 
 #define iTime timeParams.x
 #define iTimeDelta timeParams.y
 
-#define iBass    iBeatValues.x
-#define iMid     iBeatValues.y
-#define iTreb    iBeatValues.z
+#define iBass iBeatValues.x
+#define iMid iBeatValues.y
+#define iTreb iBeatValues.z
 
 #define iBassAtt iBeatAttValues.x
-#define iMidAtt  iBeatAttValues.y
+#define iMidAtt iBeatAttValues.y
 #define iTrebAtt iBeatAttValues.z
 
 // Multi-pass uniforms
 uniform int iPass;              //!< Current render pass (0 = first, 1 = second).
 uniform sampler2D iLastPassTex; //!< Result of the previous pass (valid in pass 1+).
 
-<<<<<<< HEAD
 // Transparency mode for glass-layer compositing over host page content.
-=======
-// Near-black transparency for glass-layer compositing.
->>>>>>> origin/main
 uniform int u_transparencyEnabled;
 uniform float u_transparencyThreshold;
 
 // === Advanced Blending Library (Phase B3) ===
-uniform int iBlendMode;   // 0=Alpha, 1=Additive, 2=Multiplicative, 3=Screen
+uniform int iBlendMode; // 0=Alpha, 1=Additive, 2=Multiplicative, 3=Screen
 
 vec4 blendAlpha(vec4 a, vec4 b, float t)
 {
@@ -97,10 +93,14 @@ vec3 prjmBlendPresets(vec3 oldCol, vec3 newCol, float t)
     vec4 a = vec4(oldCol, 1.0);
     vec4 b = vec4(newCol, 1.0);
     vec4 result;
-    if (iBlendMode == 1)      result = blendAdditive(a, b, t);
-    else if (iBlendMode == 2) result = blendMultiplicative(a, b, t);
-    else if (iBlendMode == 3) result = blendScreen(a, b, t);
-    else                      result = blendAlpha(a, b, t);
+    if (iBlendMode == 1)
+        result = blendAdditive(a, b, t);
+    else if (iBlendMode == 2)
+        result = blendMultiplicative(a, b, t);
+    else if (iBlendMode == 3)
+        result = blendScreen(a, b, t);
+    else
+        result = blendAlpha(a, b, t);
     return result.xyz;
 }
 
@@ -120,16 +120,16 @@ uniform sampler3D sampler_pw_noisevol_lq;
 uniform sampler3D sampler_noisevol_hq;
 uniform sampler3D sampler_pw_noisevol_hq;
 
-#define iNoiseLQ            sampler_noise_lq
-#define iNoiseLQNearest     sampler_pw_noise_lq
-#define iNoiseMQ            sampler_noise_mq
-#define iNoiseMQNearest     sampler_pw_noise_mq
-#define iNoiseHQ            sampler_noise_hq
-#define iNoiseHQNearest     sampler_pw_noise_hq
-#define iNoiseVolLQ         sampler_noisevol_lq
-#define iNoiseVolLQNearest  sampler_pw_noisevol_lq
-#define iNoiseVolHQ         sampler_noisevol_hq
-#define iNoiseVolHQNearest  sampler_pw_noisevol_hq
+#define iNoiseLQ sampler_noise_lq
+#define iNoiseLQNearest sampler_pw_noise_lq
+#define iNoiseMQ sampler_noise_mq
+#define iNoiseMQNearest sampler_pw_noise_mq
+#define iNoiseHQ sampler_noise_hq
+#define iNoiseHQNearest sampler_pw_noise_hq
+#define iNoiseVolLQ sampler_noisevol_lq
+#define iNoiseVolLQNearest sampler_pw_noisevol_lq
+#define iNoiseVolHQ sampler_noisevol_hq
+#define iNoiseVolHQNearest sampler_pw_noisevol_hq
 
 // Shader output
 out vec4 _prjm_transition_out;

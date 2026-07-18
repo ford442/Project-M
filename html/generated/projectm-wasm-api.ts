@@ -34,13 +34,9 @@ export type ProjectMModule = EmscriptenModule & {
     _set_audio_source_to_stream: (isStreaming: number) => void;
     _set_preset_locked: (locked: number) => void;
     _set_transparency_mode: (enabled: number) => void;
-<<<<<<< HEAD
-    _set_transparency_threshold: (threshold: number) => void;
-=======
     _get_transparency_mode: () => boolean;
     _set_transparency_threshold: (threshold: number) => void;
     _get_transparency_threshold: () => number;
->>>>>>> origin/main
     _set_perf_hud: (enabled: number) => void;
     _set_target_fps: (fps: number) => void;
     _set_quality_governor: (enabled: number) => void;
@@ -102,13 +98,9 @@ export const WASM_API_SYMBOLS = {
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
     setTransparencyMode: 'set_transparency_mode',
-<<<<<<< HEAD
-    setTransparencyThreshold: 'set_transparency_threshold',
-=======
     getTransparencyMode: 'get_transparency_mode',
     setTransparencyThreshold: 'set_transparency_threshold',
     getTransparencyThreshold: 'get_transparency_threshold',
->>>>>>> origin/main
     setPerfHud: 'set_perf_hud',
     setTargetFps: 'set_target_fps',
     setQualityGovernor: 'set_quality_governor',
@@ -270,37 +262,26 @@ export function setPresetLocked(module: ProjectMModule, locked: boolean): void {
     module._set_preset_locked(locked ? 1 : 0);
 }
 
-<<<<<<< HEAD
 /** Enable glass-layer transparency on near-black pixels */
-=======
-/** Enable near-black transparency on final output */
->>>>>>> origin/main
 export function setTransparencyMode(module: ProjectMModule, enabled: boolean): void {
     module._set_transparency_mode(enabled ? 1 : 0);
 }
 
-<<<<<<< HEAD
-/** Set RGB threshold for transparency mode (default 0.01) */
-=======
 /** Whether transparency mode is enabled */
 export function getTransparencyMode(module: ProjectMModule): boolean {
     return !!module._get_transparency_mode();
 }
 
-/** RGB threshold below which pixels become transparent */
->>>>>>> origin/main
+/** Set RGB threshold for transparency mode (default 0.01) */
 export function setTransparencyThreshold(module: ProjectMModule, threshold: number): void {
     module._set_transparency_threshold(threshold);
 }
 
-<<<<<<< HEAD
-=======
-/** Current near-black transparency threshold */
+/** Current transparency threshold */
 export function getTransparencyThreshold(module: ProjectMModule): number {
     return module._get_transparency_threshold();
 }
 
->>>>>>> origin/main
 /** Toggle on-canvas performance HUD */
 export function setPerfHud(module: ProjectMModule, enabled: number): void {
     module._set_perf_hud(enabled);
@@ -490,13 +471,9 @@ export const PUBLIC_WASM_API = [
     projectmPcmAddFloatWrapper,
     setPresetLocked,
     setTransparencyMode,
-<<<<<<< HEAD
-    setTransparencyThreshold,
-=======
     getTransparencyMode,
     setTransparencyThreshold,
     getTransparencyThreshold,
->>>>>>> origin/main
     setTargetFps,
     setQualityGovernor,
     getQualityTier,

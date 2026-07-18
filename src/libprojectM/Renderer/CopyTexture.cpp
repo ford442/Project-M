@@ -282,13 +282,8 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
     std::shared_ptr<Shader> shader = BindShader(shaderCache);
 
     shader->SetUniformInt("texture_sampler", 0);
-<<<<<<< HEAD
     shader->SetUniformInt("u_transparencyEnabled", transparencyMode ? 1 : 0);
     shader->SetUniformFloat("u_transparencyThreshold", transparencyThreshold);
-=======
-    shader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
-    shader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
->>>>>>> origin/main
     shader->SetUniformMat4x4("vertex_transformation", flipMatrix);
 
     m_sampler.Bind(0);
@@ -314,13 +309,8 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
     std::shared_ptr<Shader> shader = BindShader(shaderCache);
 
     shader->SetUniformInt("texture_sampler", 0);
-<<<<<<< HEAD
     shader->SetUniformInt("u_transparencyEnabled", 0);
     shader->SetUniformFloat("u_transparencyThreshold", 0.01f);
-=======
-    shader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
-    shader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
->>>>>>> origin/main
     shader->SetUniformMat4x4("vertex_transformation", translationMatrix);
 
     m_sampler.Bind(0);

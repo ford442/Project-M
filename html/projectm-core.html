@@ -437,6 +437,10 @@ canvas.emscripten {
 <!-- Main Visualization -->
 <div id="wrap">
   <div id="contain1" style="position:absolute;">
+    <div id="bg-layer" aria-hidden="true">
+      <video id="bg-video" muted loop playsinline></video>
+      <img id="bg-image" alt="" hidden />
+    </div>
     <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;"></canvas>
     <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;left:0;"></canvas>
     <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;left:0;transform:scaleY(-1.0);"></canvas>
@@ -476,6 +480,7 @@ canvas.emscripten {
 
 <!-- Show Button -->
 <button onclick="showPanel()" id="show-btn" class="hidden">Show Controls</button>
+<button type="button" id="transparencyBtn" title="Toggle glass-layer transparency (near-black pixels become see-through)">Glass Layer</button>
 
 <!-- Preset Display -->
 <div id="audio-player-status" style="position:fixed;bottom:5vh;left:450px;z-index:3299;font-family:'Lucida Console',monospace;font-size:13px;color:rgba(180,220,255,0.85);pointer-events:none;white-space:nowrap;text-shadow:1px 1px 2px rgba(0,0,0,0.85);">Audio Player</div>
@@ -536,10 +541,12 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const enableLocalPresets = new URLSearchParams(window.location.search).get('localPresets') === '1';
+const urlParams = new URLSearchParams(window.location.search);
 
 let Module;
 let isBezelMode = true;
 let isPresetLocked = false;
+let isTransparencyMode = false;
 
 // ====== OFFSCREENCANVAS RENDER WORKER (opt-in, see docs/PERFORMANCE.md) ======
 // Disabled by default; enable with ?renderWorker=1 or localStorage.renderWorker = '1'.
@@ -807,6 +814,64 @@ if (enableLocalPresets) {
 
 const audioPlayerController = createPopupAudioPlayerController();
 const { cycleAudioPlayer, closeAudioPlayer } = audioPlayerController;
+
+function applyTransparencyModeToEngine(enabled) {
+    if (renderWorkerHandle) {
+        renderWorkerHandle.ccallVoid('set_transparency_mode', ['number'], [enabled ? 1 : 0]);
+    } else if (typeof Module !== 'undefined') {
+        if (Module._set_transparency_mode) {
+            Module._set_transparency_mode(enabled ? 1 : 0);
+        } else if (Module.ccall) {
+            Module.ccall('set_transparency_mode', null, ['number'], [enabled ? 1 : 0]);
+        }
+    }
+}
+
+function updateTransparencyUi() {
+    const scanvas = document.querySelector('#scanvas');
+    const bgLayer = document.getElementById('bg-layer');
+    const btn = document.getElementById('transparencyBtn');
+    if (scanvas) {
+        scanvas.style.display = isTransparencyMode ? 'none' : 'block';
+    }
+    if (bgLayer) {
+        bgLayer.classList.toggle('visible', isTransparencyMode);
+    }
+    if (btn) {
+        btn.classList.toggle('active', isTransparencyMode);
+        btn.textContent = isTransparencyMode ? 'Glass Layer: ON' : 'Glass Layer';
+    }
+}
+
+function setupTransparencyBackground() {
+    const bgVideo = document.getElementById('bg-video');
+    const bgImage = document.getElementById('bg-image');
+    const bgVideoUrl = urlParams.get('bgVideo');
+    const bgImageUrl = urlParams.get('bgImage');
+
+    if (bgVideo && bgVideoUrl) {
+        bgVideo.src = bgVideoUrl;
+        bgVideo.hidden = false;
+        if (bgImage) bgImage.hidden = true;
+        bgVideo.play().catch(() => {});
+        return;
+    }
+
+    if (bgImage && bgImageUrl) {
+        bgImage.src = bgImageUrl;
+        bgImage.hidden = false;
+        if (bgVideo) bgVideo.hidden = true;
+    }
+}
+
+function toggleTransparencyMode() {
+    isTransparencyMode = !isTransparencyMode;
+    applyTransparencyModeToEngine(isTransparencyMode);
+    updateTransparencyUi();
+    try {
+        localStorage.setItem('projectm:transparencyMode', isTransparencyMode ? '1' : '0');
+    } catch { /* ignore */ }
+}
 
 function lockPreset() {
     console.log('[ProjectM] Lock Preset');
@@ -1270,6 +1335,21 @@ async function attemptInit() {
         setupPresetDevTools(Module, { startTransitionWhenReady });
         setupExperimentalBridge(Module);
         setupAudioTestPanel(() => Module);
+
+        setupTransparencyBackground();
+        const transparencyBtn = document.getElementById('transparencyBtn');
+        if (transparencyBtn) {
+            transparencyBtn.addEventListener('click', toggleTransparencyMode);
+        }
+        const savedTransparency = (() => {
+            try { return localStorage.getItem('projectm:transparencyMode'); } catch { return null; }
+        })();
+        const urlTransparency = urlParams.get('transparent');
+        if (urlTransparency === '1' || savedTransparency === '1') {
+            isTransparencyMode = true;
+            applyTransparencyModeToEngine(true);
+            updateTransparencyUi();
+        }
 
         if (!window._pmStartupPresetsLoaded) {
             window._pmStartupPresetsLoaded = true;

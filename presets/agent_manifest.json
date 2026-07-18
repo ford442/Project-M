@@ -18,6 +18,10 @@
       "path": "presets/drafts",
       "description": "TOML or WIP .milk drafts before promotion to custom_milk_fixed/."
     },
+    "quarantine": {
+      "path": "custom_milk_quarantine",
+      "description": "Presets removed from the curated corpus; re-promote via scripts/promote_preset.mjs after WASM capture passes."
+    },
     "bulk_corpus": {
       "path": "weeks_presets",
       "description": "Large community preset corpus; validate via PROJECTM_PRESET_COMPAT_DIR before bulk upgrades."
@@ -45,7 +49,8 @@
     },
     "publish": {
       "manifest": "node scripts/generate_custom_preset_manifest.mjs",
-      "screenshots": "scripts/capture_custom_milk_screenshots.mjs"
+      "screenshots": "scripts/capture_custom_milk_screenshots.mjs",
+      "promote": "node scripts/promote_preset.mjs"
     }
   },
   "project_ties": {
@@ -53,25 +58,25 @@
       "prefix": "orbital_rave_",
       "mood": "neon tunnels, rave energy, fast orbit",
       "audio": ["bass_att", "treb_att"],
-      "presets": ["custom_milk_fixed/orbital_rave_zephyr.milk", "custom_milk_fixed/orbital_rave_neon.milk"]
+      "presets": ["custom_milk_fixed/orbital_rave_zephyr.milk", "custom_milk_fixed/orbital_rave_neon.milk", "custom_milk_fixed/orbital_rave_aurora.milk"]
     },
     "watershed": {
       "prefix": "cinematic_pedal_steel_",
       "mood": "warm cinematic, pedal steel, slow pans",
       "audio": ["mid_att", "bass_att"],
-      "presets": ["custom_milk_fixed/cinematic_pedal_steel_watershed.milk", "custom_milk_fixed/cinematic_pedal_steel_horizon.milk"]
+      "presets": ["custom_milk_fixed/cinematic_pedal_steel_watershed.milk", "custom_milk_fixed/cinematic_pedal_steel_horizon.milk", "custom_milk_fixed/cinematic_pedal_steel_rain.milk"]
     },
     "redwood": {
       "prefix": "redwood_dreams_",
       "mood": "forest, mist, nature ambient",
       "audio": ["mid", "vol"],
-      "presets": ["custom_milk_fixed/redwood_dreams_canopy.milk", "custom_milk_fixed/redwood_dreams_fog.milk"]
+      "presets": ["custom_milk_fixed/redwood_dreams_canopy.milk", "custom_milk_fixed/redwood_dreams_fog.milk", "custom_milk_fixed/redwood_dreams_firefly.milk"]
     },
     "candy-world": {
       "prefix": "shader_swarm_",
       "mood": "playful candy colors, particle swarms",
       "audio": ["treb_att", "bass_att"],
-      "presets": ["custom_milk_fixed/shader_swarm_candy.milk", "custom_milk_fixed/shader_swarm_reactive.milk"]
+      "presets": ["custom_milk_fixed/shader_swarm_candy.milk", "custom_milk_fixed/shader_swarm_reactive.milk", "custom_milk_fixed/shader_swarm_galaxy.milk"]
     }
   },
   "signature_series": {
@@ -82,12 +87,16 @@
     "presets": [
       "custom_milk_fixed/orbital_rave_zephyr.milk",
       "custom_milk_fixed/orbital_rave_neon.milk",
+      "custom_milk_fixed/orbital_rave_aurora.milk",
       "custom_milk_fixed/cinematic_pedal_steel_watershed.milk",
       "custom_milk_fixed/cinematic_pedal_steel_horizon.milk",
+      "custom_milk_fixed/cinematic_pedal_steel_rain.milk",
       "custom_milk_fixed/redwood_dreams_canopy.milk",
       "custom_milk_fixed/redwood_dreams_fog.milk",
+      "custom_milk_fixed/redwood_dreams_firefly.milk",
       "custom_milk_fixed/shader_swarm_candy.milk",
-      "custom_milk_fixed/shader_swarm_reactive.milk"
+      "custom_milk_fixed/shader_swarm_reactive.milk",
+      "custom_milk_fixed/shader_swarm_galaxy.milk"
     ]
   },
   "known_good": [
@@ -121,5 +130,11 @@
     "custom_milk_fixed/redwood_dreams_fog.milk",
     "custom_milk_fixed/shader_swarm_candy.milk",
     "custom_milk_fixed/shader_swarm_reactive.milk"
+  ],
+  "new_presets_2026_07b": [
+    "custom_milk_fixed/orbital_rave_aurora.milk",
+    "custom_milk_fixed/cinematic_pedal_steel_rain.milk",
+    "custom_milk_fixed/redwood_dreams_firefly.milk",
+    "custom_milk_fixed/shader_swarm_galaxy.milk"
   ]
 }

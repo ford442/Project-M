@@ -4,12 +4,12 @@
 // - Aspect-corrected hex ice-lattice warp; rainbow-ice composite with bass brighten
 // - Wave samples=128; centered hex shape with bass-reactive radius + slow spin
 // Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk014_creative_brief.md
-[preset00]
-presetname=Ice Lattice
 MILKDROP_PRESET_VERSION=200
 PSVERSION=3
 PSVERSION_WARP=3
 PSVERSION_COMP=3
+[preset00]
+presetname=Ice Lattice
 fRating=3.000000
 fGammaAdj=1.100000
 fDecay=0.960000

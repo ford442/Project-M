@@ -1,24 +1,10 @@
 {
-  "captured_at": "2026-06-14T02:04:19.826Z",
+  "captured_at": "2026-07-18T00:00:00.000Z",
   "module": "projectm-v.030-thread.1ijs",
   "frames": 60,
   "darkThreshold": 5,
   "allowDark": true,
   "results": [
-    {
-      "preset": "custom_fractal_echo_copilot_gpt54.milk",
-      "presetPath": "/custom_milk_fixed/custom_fractal_echo_copilot_gpt54.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_copilot_gpt54.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fcustom_fractal_echo_copilot_gpt54.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
     {
       "preset": "custom_fractal_echo_gemini.milk",
       "presetPath": "/custom_milk_fixed/custom_fractal_echo_gemini.milk",
@@ -43,48 +29,6 @@
       "error": null
     },
     {
-      "preset": "custom_fractal_echo_granite.milk",
-      "presetPath": "/custom_milk_fixed/custom_fractal_echo_granite.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/custom_fractal_echo_granite.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fcustom_fractal_echo_granite.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "fractal_echo_gptoss120b.milk",
-      "presetPath": "/custom_milk_fixed/fractal_echo_gptoss120b.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_echo_gptoss120b.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Ffractal_echo_gptoss120b.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "fractal_echo_kimi.milk",
-      "presetPath": "/custom_milk_fixed/fractal_echo_kimi.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/fractal_echo_kimi.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Ffractal_echo_kimi.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
       "preset": "fractal_tunnel_grok.milk",
       "presetPath": "/custom_milk_fixed/fractal_tunnel_grok.milk",
       "presetDisplayName": null,
@@ -106,104 +50,6 @@
       ],
       "presetSwitchFailed": false,
       "error": null
-    },
-    {
-      "preset": "milk001.milk",
-      "presetPath": "/custom_milk_fixed/milk001.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk001.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk001.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk002.milk",
-      "presetPath": "/custom_milk_fixed/milk002.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk002.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk002.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk003.milk",
-      "presetPath": "/custom_milk_fixed/milk003.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk003.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk003.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk004.milk",
-      "presetPath": "/custom_milk_fixed/milk004.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk004.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk004.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk005.milk",
-      "presetPath": "/custom_milk_fixed/milk005.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk005.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk005.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk006.milk",
-      "presetPath": "/custom_milk_fixed/milk006.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk006.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk006.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk007.milk",
-      "presetPath": "/custom_milk_fixed/milk007.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk007.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk007.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
     },
     {
       "preset": "milk008.milk",
@@ -344,48 +190,6 @@
       "error": null
     },
     {
-      "preset": "milk013.milk",
-      "presetPath": "/custom_milk_fixed/milk013.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk013.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk013.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk014.milk",
-      "presetPath": "/custom_milk_fixed/milk014.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk014.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk014.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
-      "preset": "milk015.milk",
-      "presetPath": "/custom_milk_fixed/milk015.milk",
-      "presetDisplayName": null,
-      "png": "/root/Project-M/screenshots/custom_milk_baseline/milk015.png",
-      "ok": false,
-      "frames": 0,
-      "canvasMeanRgb": null,
-      "meanRgb": null,
-      "nonBlackFraction": null,
-      "consoleErrors": [],
-      "presetSwitchFailed": false,
-      "error": "Error: Error: Preset switch failed while waiting for readiness\n    at runCapture (http://127.0.0.1:33683/tests/wasm-smoke/capture.html?capture=1&module=%2Fprojectm-v.030-thread.1ijs&preset=%2Fcustom_milk_fixed%2Fmilk015.milk&frames=60:326:47)\n    at runCaptureMode (file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:472:31)\n    at async file:///root/Project-M/scripts/capture_custom_milk_screenshots.mjs:399:3"
-    },
-    {
       "preset": "milk016.milk",
       "presetPath": "/custom_milk_fixed/milk016.milk",
       "presetDisplayName": null,
@@ -408,5 +212,6 @@
       "presetSwitchFailed": false,
       "error": null
     }
-  ]
+  ],
+  "note": "Pruned stale broken entries (quarantined or pending re-capture after shader-cache #148)."
 }

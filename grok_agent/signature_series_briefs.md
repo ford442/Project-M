@@ -78,9 +78,54 @@ Seed briefs for AI agents. Copy one brief per generation task into
 
 ---
 
-## Expansion ideas (batch 2+)
+## orbital_rave_aurora (batch 2)
 
-- `orbital_rave_aurora` — slower orbital, northern-lights palette
-- `cinematic_pedal_steel_rain` — Watershed rain-on-window refraction in warp
-- `redwood_dreams_firefly` — treble twinkles as fireflies (shape or composite)
-- `shader_swarm_galaxy` — deeper blues, spiral swarm
+- **Lane:** Zephyr Orbital
+- **Music:** ambient techno, downtempo electronic
+- **Look:** cyan/teal aurora curtains in a slower tunnel; softer than zephyr
+- **Audio:** `mid_att` → palette; `treb_att` → composite shimmer
+
+---
+
+## cinematic_pedal_steel_rain (batch 2)
+
+- **Lane:** Watershed
+- **Music:** rainy ambient, pedal steel ballads
+- **Look:** window-rain UV ripples, sparse drops, warm grade
+- **Audio:** `mid_att` warms composite tint
+
+---
+
+## redwood_dreams_firefly (batch 2)
+
+- **Lane:** Redwood
+- **Music:** summer evening, acoustic
+- **Look:** forest drift + treble twinkles (fireflies in composite)
+- **Audio:** `treb_att` drives spark intensity
+
+---
+
+## shader_swarm_galaxy (batch 2)
+
+- **Lane:** Candy World
+- **Music:** space ambient, downtempo
+- **Look:** deep-blue spiral swarm, galactic core glow
+- **Audio:** `bass_att` + `mid_att` tint the swarm
+
+---
+
+## Expansion ideas (batch 2 — shipped 2026-07)
+
+- `orbital_rave_aurora` — slower orbital, northern-lights palette ✓
+- `cinematic_pedal_steel_rain` — Watershed rain-on-window refraction in warp ✓
+- `redwood_dreams_firefly` — treble twinkles as fireflies (composite) ✓
+- `shader_swarm_galaxy` — deeper blues, spiral swarm ✓
+
+See [`docs/SIGNATURE_SERIES_BATCH2.md`](../docs/SIGNATURE_SERIES_BATCH2.md) for release notes.
+
+## Expansion ideas (batch 3+)
+
+- `orbital_rave_pulsar` — strobe tunnel, festival drops
+- `cinematic_pedal_steel_dusk` — purple-hour grade variant
+- `redwood_dreams_stream` — creek reflection warp
+- `shader_swarm_sugar` — high-saturation candy spin-off

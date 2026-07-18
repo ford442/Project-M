@@ -4,12 +4,12 @@
 // - Aspect-corrected polar warp; hot-core corona composite with treb flash
 // - Wave samples reduced to 128; bass-reactive sun-disc radius
 // Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk013_creative_brief.md
-[preset00]
-presetname=Solar Corona
 MILKDROP_PRESET_VERSION=200
 PSVERSION=3
 PSVERSION_WARP=3
 PSVERSION_COMP=3
+[preset00]
+presetname=Solar Corona
 fRating=3.000000
 fGammaAdj=1.700000
 fDecay=0.960000

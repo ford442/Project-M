@@ -1,0 +1,70 @@
+// Signature Series | orbital_rave | Zephyr Orbital
+// tags: aurora, orbital, northern-lights, medium
+// author: projectM-signature-batch-2026-07b
+// project: zephyr-orbital
+// music: downtempo electronic, ambient techno
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+presetname=Orbital Rave Aurora
+fRating=4.500000
+fGammaAdj=1.600000
+fDecay=0.970000
+fVideoEchoZoom=1.000000
+fVideoEchoAlpha=0.000000
+nWaveMode=0
+bAdditiveWaves=0
+fWaveAlpha=0.001000
+fWarpScale=1.280000
+zoom=1.000000
+rot=0.000000
+warp=0.008000
+cx=0.500000
+cy=0.500000
+mv_a=0.000000
+
+per_frame_1=q1=time*0.35
+per_frame_2=q2=bass_att
+per_frame_3=q3=mid_att
+per_frame_4=q4=treb_att
+per_frame_5=q5=0.5+0.5*sin(time*0.22)
+per_frame_6=q6=5.0+q3*2.0
+per_frame_7=q7=0.08+q2*0.05
+per_frame_8=q8=mid_att
+per_frame_9=q9=0.5+0.5*sin(time*0.55)
+per_frame_10=q10=0.10+q4*0.06
+per_frame_11=q11=1.0+q2*0.15
+per_frame_12=q12=time*0.4
+
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.008;
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 uvc=uv-0.5;
+warp_4=`float r=length(uvc);
+warp_5=`float a=atan2(uvc.y,uvc.x)+q1*q7;
+warp_6=`float seg=6.2831853/q6;
+warp_7=`a=a-floor(a/seg)*seg;
+warp_8=`float tunnelR=pow(r,0.65+q2*0.2);
+warp_9=`float2 baseUV=float2(cos(a)*tunnelR,sin(a)*tunnelR)+0.5;
+warp_10=`float curtain=0.5+0.5*sin(baseUV.y*8.0+q1*1.2+q5*2.0);
+warp_11=`float2 sampleUV=lerp(uv,baseUV,0.35+curtain*0.25);
+warp_12=`float3 col=tex2D(sampler_main,sampleUV).xyz;
+warp_13=`float3 aurora=float3(0.2+q8*0.5,0.6+q3*0.4,0.9+q2*0.3);
+warp_14=`ret=col*aurora*q11;
+warp_15=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col=tex2D(sampler_main,uv).xyz;
+comp_4=`float band=smoothstep(0.2,0.8,uv.y);
+comp_5=`float shimmer=0.5+0.5*sin(uv.x*12.0+q12+q4*3.0);
+comp_6=`col+=float3(0.3,0.8,1.0)*band*shimmer*0.15;
+comp_7=`float2 c=uv-0.5;
+comp_8=`col*=1.0-smoothstep(0.4,0.95,length(c))*0.25;
+comp_9=`ret=saturate(col*q11);
+comp_10=`}

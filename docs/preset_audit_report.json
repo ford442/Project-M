@@ -1,47 +1,91 @@
 {
-  "generatedAt": "2026-07-10T08:13:38.446Z",
+  "generatedAt": "2026-07-18T10:06:27.496Z",
   "root": ".",
   "totals": {
-    "presets": 454,
-    "ok": 454,
+    "presets": 462,
+    "ok": 462,
     "error": 0,
-    "warn": 5,
-    "info": 0
+    "warn": 11,
+    "info": 2
   },
   "corpora": [
     {
       "dir": "custom_milk_fixed",
       "summary": {
-        "total": 28,
-        "ok": 28,
+        "total": 36,
+        "ok": 36,
         "error": 0,
-        "warn": 5,
-        "info": 0,
+        "warn": 7,
+        "info": 2,
         "tiers": {
           "light": 5,
-          "medium": 21,
+          "medium": 29,
           "heavy": 2
         },
-        "reactive": 24
+        "reactive": 32
       },
       "results": [
         {
-          "path": "custom_milk_fixed/custom_fractal_echo_copilot_gpt54.milk",
-          "name": "custom_fractal_echo_copilot_gpt54.milk",
+          "path": "custom_milk_fixed/cinematic_pedal_steel_horizon.milk",
+          "name": "cinematic_pedal_steel_horizon.milk",
           "ok": true,
-          "version": "200",
+          "version": "201",
           "psWarp": "3",
           "psComp": "3",
-          "description": "CHANGELOG 2026-06-19 — WASM upgrade: preset headers, shader_body, simplified comp (no GetBlur)",
-          "author": "copilot-gpt",
+          "description": "Signature Series | cinematic_pedal_steel | Watershed tags: cinematic, horizon, blue-hour, light author: projectM-signature-batch-2026-07 project: watershed",
+          "author": null,
           "reactive": true,
           "tier": "medium",
           "metrics": {
-            "perFrameInit": 5,
-            "perFrame": 34,
-            "perPixel": 0,
-            "shaderLines": 40,
-            "tex2d": 4,
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 22,
+            "tex2d": 2,
+            "cost": 19
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/cinematic_pedal_steel_rain.milk",
+          "name": "cinematic_pedal_steel_rain.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | cinematic_pedal_steel | Watershed tags: cinematic, rain, refraction, light author: projectM-signature-batch-2026-07b project: watershed",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 23,
+            "tex2d": 2,
+            "cost": 19
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/cinematic_pedal_steel_watershed.milk",
+          "name": "cinematic_pedal_steel_watershed.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | cinematic_pedal_steel | Watershed tags: cinematic, warm, ambient, light author: projectM-signature-batch-2026-07 project: watershed",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 21,
+            "tex2d": 2,
             "cost": 19
           },
           "findings": [],
@@ -65,72 +109,6 @@
             "shaderLines": 25,
             "tex2d": 4,
             "cost": 14
-          },
-          "findings": [],
-          "counts": {}
-        },
-        {
-          "path": "custom_milk_fixed/custom_fractal_echo_granite.milk",
-          "name": "custom_fractal_echo_granite.milk",
-          "ok": true,
-          "version": "200",
-          "psWarp": "3",
-          "psComp": "3",
-          "description": "CHANGELOG 2026-06-19 — WASM upgrade - Moved granite texture from per_pixel HLSL → comp_ shader - Added shader_body wrappers and preset headers Author: projectM AI | Fractal Echo Granite",
-          "author": "granite",
-          "reactive": true,
-          "tier": "medium",
-          "metrics": {
-            "perFrameInit": 0,
-            "perFrame": 7,
-            "perPixel": 3,
-            "shaderLines": 37,
-            "tex2d": 2,
-            "cost": 19
-          },
-          "findings": [],
-          "counts": {}
-        },
-        {
-          "path": "custom_milk_fixed/fractal_echo_gptoss120b.milk",
-          "name": "fractal_echo_gptoss120b.milk",
-          "ok": true,
-          "version": "200",
-          "psWarp": "3",
-          "psComp": "3",
-          "description": "CHANGELOG 2026-06-19 — WASM upgrade - Added shader_body wrappers; fixed wave/shape key prefixes - Replaced clamp() and undefined hue_shader reference Author: projectM AI | Fractal Echo GPT",
-          "author": "copilot-gpt",
-          "reactive": true,
-          "tier": "medium",
-          "metrics": {
-            "perFrameInit": 5,
-            "perFrame": 9,
-            "perPixel": 2,
-            "shaderLines": 23,
-            "tex2d": 2,
-            "cost": 15
-          },
-          "findings": [],
-          "counts": {}
-        },
-        {
-          "path": "custom_milk_fixed/fractal_echo_kimi.milk",
-          "name": "fractal_echo_kimi.milk",
-          "ok": true,
-          "version": "200",
-          "psWarp": "3",
-          "psComp": "3",
-          "description": "CHANGELOG 2026-06-19 — WASM upgrade: added [preset00], shader_body wrappers",
-          "author": "kimi",
-          "reactive": true,
-          "tier": "medium",
-          "metrics": {
-            "perFrameInit": 0,
-            "perFrame": 12,
-            "perPixel": 3,
-            "shaderLines": 61,
-            "tex2d": 5,
-            "cost": 29
           },
           "findings": [],
           "counts": {}
@@ -247,10 +225,23 @@
               "severity": "warn",
               "code": "no-shader",
               "message": "no warp_ or comp_ shader block found"
+            },
+            {
+              "severity": "warn",
+              "code": "per-pixel-to-gpu",
+              "message": "heavy per_pixel equations without a custom warp shader_body — move zoom/warp math into warp_*/shader_body for GPU per-fragment evaluation",
+              "line": 61
+            },
+            {
+              "severity": "info",
+              "code": "composite-shader-opportunity",
+              "message": "consider composite shader_body for per-pixel color/feedback effects instead of CPU per_pixel equations",
+              "line": 61
             }
           ],
           "counts": {
-            "warn": 1
+            "warn": 2,
+            "info": 1
           }
         },
         {
@@ -299,10 +290,23 @@
               "severity": "warn",
               "code": "no-shader",
               "message": "no warp_ or comp_ shader block found"
+            },
+            {
+              "severity": "warn",
+              "code": "per-pixel-to-gpu",
+              "message": "heavy per_pixel equations without a custom warp shader_body — move zoom/warp math into warp_*/shader_body for GPU per-fragment evaluation",
+              "line": 66
+            },
+            {
+              "severity": "info",
+              "code": "composite-shader-opportunity",
+              "message": "consider composite shader_body for per-pixel color/feedback effects instead of CPU per_pixel equations",
+              "line": 66
             }
           ],
           "counts": {
-            "warn": 1
+            "warn": 2,
+            "info": 1
           }
         },
         {
@@ -680,6 +684,204 @@
           },
           "findings": [],
           "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/orbital_rave_aurora.milk",
+          "name": "orbital_rave_aurora.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | orbital_rave | Zephyr Orbital tags: aurora, orbital, northern-lights, medium author: projectM-signature-batch-2026-07b project: zephyr-orbital",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 25,
+            "tex2d": 2,
+            "cost": 19
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/orbital_rave_neon.milk",
+          "name": "orbital_rave_neon.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | orbital_rave | Zephyr Orbital tags: rave, neon, synthwave, medium author: projectM-signature-batch-2026-07 project: zephyr-orbital",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 21,
+            "tex2d": 3,
+            "cost": 21
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/orbital_rave_zephyr.milk",
+          "name": "orbital_rave_zephyr.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | orbital_rave | Zephyr Orbital tags: rave, orbital, bass-reactive, medium author: projectM-signature-batch-2026-07 project: zephyr-orbital",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 25,
+            "tex2d": 3,
+            "cost": 21
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/redwood_dreams_canopy.milk",
+          "name": "redwood_dreams_canopy.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | redwood_dreams | Redwood tags: nature, forest, green, light author: projectM-signature-batch-2026-07 project: redwood",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 20,
+            "tex2d": 2,
+            "cost": 18
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/redwood_dreams_firefly.milk",
+          "name": "redwood_dreams_firefly.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | redwood_dreams | Redwood tags: nature, firefly, twinkle, light author: projectM-signature-batch-2026-07b project: redwood",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 22,
+            "tex2d": 2,
+            "cost": 19
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/redwood_dreams_fog.milk",
+          "name": "redwood_dreams_fog.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | redwood_dreams | Redwood tags: nature, fog, mist, light author: projectM-signature-batch-2026-07 project: redwood",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 20,
+            "tex2d": 3,
+            "cost": 20
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/shader_swarm_candy.milk",
+          "name": "shader_swarm_candy.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | shader_swarm | Candy World tags: candy, playful, swarm, medium author: projectM-signature-batch-2026-07 project: candy-world",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 21,
+            "tex2d": 5,
+            "cost": 25
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/shader_swarm_galaxy.milk",
+          "name": "shader_swarm_galaxy.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | shader_swarm | Candy World tags: galaxy, swarm, spiral, medium author: projectM-signature-batch-2026-07b project: candy-world",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 24,
+            "tex2d": 5,
+            "cost": 25
+          },
+          "findings": [],
+          "counts": {}
+        },
+        {
+          "path": "custom_milk_fixed/shader_swarm_reactive.milk",
+          "name": "shader_swarm_reactive.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | shader_swarm | Candy World tags: reactive, swarm, disco, medium author: projectM-signature-batch-2026-07 project: candy-world",
+          "author": null,
+          "reactive": true,
+          "tier": "medium",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 12,
+            "perPixel": 3,
+            "shaderLines": 21,
+            "tex2d": 4,
+            "cost": 23
+          },
+          "findings": [],
+          "counts": {}
         }
       ]
     },
@@ -689,7 +891,7 @@
         "total": 426,
         "ok": 426,
         "error": 0,
-        "warn": 0,
+        "warn": 4,
         "info": 0,
         "tiers": {
           "light": 6,
@@ -1070,8 +1272,17 @@
             "tex2d": 3,
             "cost": 62
           },
-          "findings": [],
-          "counts": {}
+          "findings": [
+            {
+              "severity": "warn",
+              "code": "per-pixel-to-gpu",
+              "message": "heavy per_pixel equations without a custom warp shader_body — move zoom/warp math into warp_*/shader_body for GPU per-fragment evaluation",
+              "line": 394
+            }
+          ],
+          "counts": {
+            "warn": 1
+          }
         },
         {
           "path": "weeks_presets/358.milk",
@@ -7054,8 +7265,17 @@
             "tex2d": 2,
             "cost": 59
           },
-          "findings": [],
-          "counts": {}
+          "findings": [
+            {
+              "severity": "warn",
+              "code": "per-pixel-to-gpu",
+              "message": "heavy per_pixel equations without a custom warp shader_body — move zoom/warp math into warp_*/shader_body for GPU per-fragment evaluation",
+              "line": 412
+            }
+          ],
+          "counts": {
+            "warn": 1
+          }
         },
         {
           "path": "weeks_presets/shifter - plasmic fact - witholding, with-a hold...ing, widdaholting - 3-lay bitchslap.milk",
@@ -8594,8 +8814,17 @@
             "tex2d": 12,
             "cost": 107
           },
-          "findings": [],
-          "counts": {}
+          "findings": [
+            {
+              "severity": "warn",
+              "code": "per-pixel-to-gpu",
+              "message": "heavy per_pixel equations without a custom warp shader_body — move zoom/warp math into warp_*/shader_body for GPU per-fragment evaluation",
+              "line": 358
+            }
+          ],
+          "counts": {
+            "warn": 1
+          }
         },
         {
           "path": "weeks_presets/suksma - log smell via gandalf pipeweed taint - flashies2.milk",
@@ -9144,8 +9373,17 @@
             "tex2d": 1,
             "cost": 14
           },
-          "findings": [],
-          "counts": {}
+          "findings": [
+            {
+              "severity": "warn",
+              "code": "per-pixel-to-gpu",
+              "message": "heavy per_pixel equations without a custom warp shader_body — move zoom/warp math into warp_*/shader_body for GPU per-fragment evaluation",
+              "line": 346
+            }
+          ],
+          "counts": {
+            "warn": 1
+          }
         },
         {
           "path": "weeks_presets/suksma - raron - a grayish blob - mash0000 - pungent gastric automata cloud fumes bennett.milk",

@@ -3,6 +3,7 @@
 import { getFavorites, isFavorite, toggleFavorite, presetId } from './projectm-preset-favorites.js';
 import { getCachedPreset, defaultBasesForBase } from './projectm-preset-cache.js';
 import { updatePresetDisplay } from './projectm-presets.js';
+import { loadPresetFile } from './generated/projectm-wasm-api.js';
 import { setTransitionDuration, startTransitionWhenReady as startTransition } from './projectm-transitions.js';
 
 export const DEFAULT_FEATURED_MANIFEST_URL = './featured_pack_manifest.json';
@@ -89,7 +90,7 @@ export async function loadPresetEntry(entry, {
     fetchImpl = fetch,
     bases,
 } = {}) {
-    if (!module?.FS || !module.ccall || !module._load_preset_file) {
+    if (!module?.FS || !module._load_preset_file) {
         throw new Error('Module not ready');
     }
 
@@ -120,7 +121,7 @@ export async function loadPresetEntry(entry, {
     setTransitionDuration(module, transitionDurationSec);
     const vfsPath = `/presets/${entry.base || 'custom'}_${safePresetName(filename)}`;
     module.FS.writeFile(vfsPath, bytes);
-    module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+    loadPresetFile(module, vfsPath);
     if (startTransitionWhenReady) {
         await startTransitionWhenReady({ module, durationSec: transitionDurationSec });
     }

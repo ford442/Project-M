@@ -1,3 +1,5 @@
+import { loadPresetFile } from './generated/projectm-wasm-api.js';
+
 export const DEFAULT_PRESET_API_BASE = 'https://storage.noahcohn.com';
 export const FALLBACK_PRESET_API_BASES = [
     'https://storage.noahcohn.com',
@@ -191,7 +193,7 @@ export async function loadRandomApiPreset({
     updateDisplay = true,
     logLoaded = false
 }) {
-    if (!module || !module.ccall || !module._load_preset_file) {
+    if (!module || !module.FS || !module._load_preset_file) {
         console.error('Module not ready');
         return null;
     }
@@ -205,7 +207,7 @@ export async function loadRandomApiPreset({
             requireDir,
             vfsPathForPreset
         });
-        module.ccall('load_preset_file', null, ['string'], [result.vfsPath]);
+        loadPresetFile(module, result.vfsPath);
         if (startTransitionWhenReady) {
             startTransitionWhenReady({ module });
         }
@@ -229,7 +231,7 @@ export async function loadLocalPresetFile(file, {
     rememberLast = true,
     documentRef = document
 } = {}) {
-    if (!module || !module.FS || !module.ccall || !module._load_preset_file) {
+    if (!module || !module.FS || !module._load_preset_file) {
         throw new Error('Module not ready');
     }
 
@@ -251,7 +253,7 @@ export async function loadLocalPresetFile(file, {
     }
 
     try {
-        module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+        loadPresetFile(module, vfsPath);
     } catch (error) {
         throw new Error(`Preset parser rejected ${file.name}: ${error instanceof Error ? error.message : error}`);
     }

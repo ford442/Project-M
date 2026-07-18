@@ -2,6 +2,8 @@
 // Enable with ?experimental=1 on projectm-core.html (or full legacy hosts).
 // Does not modify Milkdrop parsing; only injects host-side assets via the WASM VFS.
 
+import { loadPresetFile } from './generated/projectm-wasm-api.js';
+
 const DEFAULT_DEPTH_MODULE_URL = 'https://noahcohn.com/dpt-shader-sml-001.3ijs';
 const DEPTH_TEXTURE_NAME = 'pm_depth_map.png';
 const DEPTH_VFS_PATH = `/textures/${DEPTH_TEXTURE_NAME}`;
@@ -166,8 +168,8 @@ function ensureResultImage() {
 export async function applyDepthTexture(module, depthImageSource, options = {}) {
     const bytes = await imageToPngBytes(depthImageSource);
     injectVfsTexture(module, DEPTH_VFS_PATH, bytes);
-    if (options.reloadPresetPath && module?.ccall) {
-        module.ccall('load_preset_file', null, ['string'], [options.reloadPresetPath]);
+    if (options.reloadPresetPath && module) {
+        loadPresetFile(module, options.reloadPresetPath);
         if (options.displayName && window.updatePresetDisplay) {
             window.updatePresetDisplay(options.displayName);
         }

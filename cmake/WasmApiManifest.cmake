@@ -1,0 +1,75 @@
+# WasmApiManifest.cmake
+#
+# WASM JavaScript API metadata: signatures, bindings, and visibility tiers.
+# Included by cmake/EmscriptenWasmFlags.cmake; drives generation of
+# html/generated/projectm-wasm-api.ts via cmake/GenerateWasmLinkCommon.cmake.
+#
+# Each entry: name|visibility|binding|returns|args|doc
+#   visibility: public | internal | runtime
+#   binding:    direct | ccall
+#   returns:    void | number | boolean | string
+#   args:       comma-separated name:type pairs (types: number, boolean, string, pointer)
+#
+# Names must match PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS (without leading _),
+# except _malloc, _free, _main which are runtime-only.
+
+set(PROJECTM_WASM_API_MANIFEST
+    "malloc|runtime|direct|number|size:number|Allocate bytes on the WASM heap"
+    "free|runtime|direct|void|ptr:number|Free a WASM heap allocation"
+    "add_audio_data|internal|direct|void|data:pointer,len:number|Legacy uint8 PCM feed"
+    "pl|internal|ccall|void|songPath:string|Play audio file from VFS path"
+    "destruct|internal|direct|void||Tear down projectM engine"
+    "get_projectm_handle|internal|direct|number||Opaque projectM handle pointer"
+    "init|public|direct|number||Initialize EGL/WebGL and projectM, returns 0 on success"
+    "load_preset_file|public|ccall|void|vfsPath:string|Load preset from Emscripten VFS path"
+    "switch_preset|public|direct|void||Advance playlist to next preset"
+    "set_aspect_correction|public|direct|void|enabled:boolean|Enable bezel/aspect correction"
+    "render_frame|public|direct|void||Render one visualization frame"
+    "start_render|public|direct|void|width:number,height:number|Create render targets and start loop"
+    "set_window_size|public|direct|void|width:number,height:number|Resize projectM viewport"
+    "set_mesh|public|direct|void|width:number,height:number|Set per-pixel mesh grid size"
+    "add_preset_path|internal|direct|void||Register default /presets/ playlist directory"
+    "add_existing_vfs_presets|internal|direct|void||Bulk-add numbered presets from VFS"
+    "add_preset_file|public|ccall|void|vfsPath:string|Add preset file to playlist"
+    "add_custom_milk_paths|internal|direct|void|count:number|Add custom_milk_fixed presets by count"
+    "projectm_pcm_add_float_wrapper|public|direct|void|pmHandle:number,audioPtr:pointer,samplesPerChannel:number,channels:number|Feed interleaved float PCM (use feedPcmFloat helper)"
+    "create_sprite|internal|direct|void||Create demo user sprite"
+    "stop_worklet_playback|internal|direct|void||Stop audio worklet playback"
+    "set_audio_source_to_stream|internal|direct|void|isStreaming:boolean|Toggle streaming vs capture audio source"
+    "set_preset_locked|public|direct|void|locked:boolean|Lock or unlock automatic preset switching"
+    "set_perf_hud|internal|direct|void|enabled:number|Toggle on-canvas performance HUD"
+    "set_target_fps|public|direct|void|fps:number|Set render target frame rate"
+    "set_quality_governor|public|direct|void|enabled:boolean|Enable adaptive quality governor"
+    "get_quality_tier|public|direct|number||Current quality tier index"
+    "is_preset_ready|internal|direct|number|minFramesSinceReady:number|Whether preset shaders are ready"
+    "get_rendered_frame_count|internal|direct|number||Total frames rendered since init"
+    "preset_switch_failed|internal|direct|number||Whether last preset switch failed (0/1)"
+    "get_omp_enabled|internal|direct|number||Whether OpenMP was compiled in (0/1)"
+    "get_omp_max_threads|internal|direct|number||Configured OpenMP max thread count"
+    "get_omp_thread_count_in_parallel|internal|direct|number||OpenMP threads observed in parallel region"
+    "pm_handle_context_loss|public|direct|void||Tear down GL state after WebGL context loss"
+    "dual_fbo_begin_transition|public|direct|boolean||Allocate preset-B FBO for transition"
+    "dual_fbo_end_transition|internal|direct|void||Finalize dual-FBO transition"
+    "dual_fbo_cancel_transition|internal|direct|void||Cancel in-progress dual-FBO transition"
+    "dual_fbo_swap_preset_a|internal|direct|void||Swap preset A ping-pong buffers"
+    "dual_fbo_swap_preset_b|internal|direct|void||Swap preset B ping-pong buffers"
+    "dual_fbo_get_a_read_fbo|internal|direct|number||Preset A read FBO handle"
+    "dual_fbo_get_a_write_fbo|internal|direct|number||Preset A write FBO handle"
+    "dual_fbo_get_a_read_tex|internal|direct|number||Preset A read texture handle"
+    "dual_fbo_get_a_write_tex|internal|direct|number||Preset A write texture handle"
+    "dual_fbo_get_b_read_fbo|internal|direct|number||Preset B read FBO handle"
+    "dual_fbo_get_b_write_fbo|internal|direct|number||Preset B write FBO handle"
+    "dual_fbo_get_b_read_tex|internal|direct|number||Preset B read texture handle"
+    "dual_fbo_get_b_write_tex|internal|direct|number||Preset B write texture handle"
+    "dual_fbo_is_preset_b_allocated|public|direct|boolean||Whether preset-B FBO is allocated"
+    "dual_fbo_is_preset_b_ready|public|direct|boolean||Whether preset-B shaders are ready"
+    "dual_fbo_get_format|public|direct|number||FBO format index (0=RGBA32F, 1=RGBA16F, 2=RGBA8)"
+    "dual_fbo_render_preset_a|internal|direct|void||Render preset A into dual FBO"
+    "dual_fbo_render_preset_b|internal|direct|void||Render preset B into dual FBO"
+    "transition_start|public|direct|void||Start visual preset transition blend"
+    "transition_cancel|public|direct|void||Cancel active transition"
+    "transition_is_active|public|direct|boolean||Whether a transition is in progress"
+    "transition_get_blend|public|direct|number||Current transition blend factor 0..1"
+    "transition_set_duration|public|direct|void|seconds:number|Set transition duration in seconds"
+    "transition_get_duration|public|direct|number||Configured transition duration in seconds"
+)

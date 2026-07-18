@@ -18,6 +18,12 @@
 // Both can also be set for one page load via `?targetFps=` / `?governor=0|1`
 // query parameters.
 
+import {
+    getQualityTier as wasmGetQualityTier,
+    setQualityGovernor as wasmSetQualityGovernor,
+    setTargetFps as wasmSetTargetFps,
+} from './generated/projectm-wasm-api.js';
+
 const DEFAULT_TARGET_FPS = 60;
 
 function resolveTargetFps(value) {
@@ -36,26 +42,25 @@ function resolveGovernorEnabled(value) {
 }
 
 /**
- * Sets the target FPS by calling `Module._set_target_fps(fps)`.
+ * Sets the target FPS via the typed WASM API.
  * @param {*} Module The Emscripten module instance.
  * @param {number|string} fps The desired target FPS (default 60 if invalid).
  * @returns {number} The FPS value actually applied.
  */
 export function setTargetFps(Module, fps) {
     const resolved = resolveTargetFps(fps);
-    Module._set_target_fps(resolved);
+    wasmSetTargetFps(Module, resolved);
     return resolved;
 }
 
 /**
- * Enables or disables the adaptive quality governor via
- * `Module._set_quality_governor(enabled)`.
+ * Enables or disables the adaptive quality governor.
  * @param {*} Module The Emscripten module instance.
  * @param {boolean} enabled Whether the governor should be active.
  * @returns {boolean} The value actually applied.
  */
 export function setQualityGovernorEnabled(Module, enabled) {
-    Module._set_quality_governor(enabled ? 1 : 0);
+    wasmSetQualityGovernor(Module, enabled);
     return !!enabled;
 }
 
@@ -65,7 +70,7 @@ export function setQualityGovernorEnabled(Module, enabled) {
  * @returns {number} The current quality tier.
  */
 export function getQualityTier(Module) {
-    return Module._get_quality_tier();
+    return wasmGetQualityTier(Module);
 }
 
 /**

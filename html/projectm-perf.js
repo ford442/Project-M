@@ -2,9 +2,16 @@
 //
 // Optional frame-time profiling HUD and headless benchmark harness for the
 // projectM WASM build. See docs/PERFORMANCE.md.
-//
-// - HUD: toggled via `Module._set_perf_hud(1)` / `Module._set_perf_hud(0)`. Shows
-//   FPS, total frame time, and a CPU/GPU timing breakdown as bars.
+
+import {
+    getOmpEnabled,
+    getOmpMaxThreads,
+    getOmpThreadCountInParallel,
+    loadPresetFile,
+    setPerfHud,
+} from './generated/projectm-wasm-api.js';
+
+// - HUD: toggled via setPerfHud(module, 1/0). Shows FPS, total frame time, and bars.
 // - Benchmark mode: append `?benchmark=1&frames=1000&preset=/presets/foo.milk` to
 //   the page URL. Once `frames` samples have been collected, prints a JSON
 //   summary (mean/median/p95) to the console and posts it via
@@ -186,10 +193,10 @@ function collectOpenmpInfo(Module) {
         return { compiled: false, maxThreads: 1, parallelThreadsObserved: 1 };
     }
     return {
-        compiled: Module._get_omp_enabled() !== 0,
-        maxThreads: Module._get_omp_max_threads(),
+        compiled: getOmpEnabled(Module) !== 0,
+        maxThreads: getOmpMaxThreads(Module),
         parallelThreadsObserved: typeof Module._get_omp_thread_count_in_parallel === 'function'
-            ? Module._get_omp_thread_count_in_parallel()
+            ? getOmpThreadCountInParallel(Module)
             : 1,
     };
 }
@@ -264,17 +271,17 @@ export function setupPerfTools(Module) {
         window.postMessage({ type: 'pm-benchmark-result', result: result }, '*');
 
         if (params.get('perfhud') !== '1') {
-            Module._set_perf_hud(0);
+            setPerfHud(Module, 0);
         }
     }
 
     if (showHud || benchmarkRequested) {
-        Module._set_perf_hud(1);
+        setPerfHud(Module, 1);
     }
 
     if (benchmarkRequested) {
         if (presetPath) {
-            Module.ccall('load_preset_file', null, ['string'], [presetPath]);
+            loadPresetFile(Module, presetPath);
         }
         samples = {
             totalMs: [],

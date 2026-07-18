@@ -86,6 +86,8 @@ scripts/sync_wasm_link_common.sh
 
 CI runs `scripts/verify_wasm_link_common.sh` to ensure generated files are committed in sync.
 
+Typed JavaScript wrappers are generated into `html/generated/projectm-wasm-api.{ts,js}` from `cmake/WasmApiManifest.cmake`. See [WASM_JS_API.md](WASM_JS_API.md).
+
 ### Flag matrix (CMake lib link vs. shell wrapper link)
 
 | Setting | CMake lib link | Shell wrapper link | Notes |

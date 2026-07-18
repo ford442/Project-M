@@ -2,6 +2,7 @@
 // See docs/SIGNATURE_SERIES_WORKFLOW.md
 
 import { getLocalPresetVfsPath, updatePresetDisplay } from './projectm-presets.js';
+import { loadPresetFile } from './generated/projectm-wasm-api.js';
 import { setupPresetTweaker } from './projectm-preset-tweaker.js';
 
 const STYLE_ID = 'pm-preset-dev-style';
@@ -81,11 +82,7 @@ async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenRead
         }, '');
     }
     module.FS.writeFile(vfsPath, bytes);
-    if (module.ccall) {
-        module.ccall('load_preset_file', null, ['string'], [vfsPath]);
-    } else if (module._load_preset_file) {
-        module._load_preset_file(vfsPath);
-    }
+    loadPresetFile(module, vfsPath);
     let milkText;
     try {
         milkText = new TextDecoder().decode(bytes);

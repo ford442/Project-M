@@ -7,6 +7,8 @@
 // setupRenderWorker() returns null and the caller should fall back to the
 // existing main-thread render path unchanged.
 
+import { WASM_API_SYMBOLS } from './generated/projectm-wasm-api.js';
+
 const DEFAULT_PCM_RING_CAPACITY_PAIRS = 16384; // ~0.37s of audio at 44.1kHz stereo
 
 export function isRenderWorkerEnabled({ search = location.search, storage = (() => {

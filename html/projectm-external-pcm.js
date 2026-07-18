@@ -1,3 +1,5 @@
+import { feedPcmFloat } from './generated/projectm-wasm-api.js';
+
 const AUDIO_CHANNEL_NAME = 'projectm-audio';
 const DEFAULT_EXTERNAL_PCM_ORIGINS = [
     'https://go.1ink.us',
@@ -165,8 +167,14 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
     }
 
     if (!ptr) {
-        ptr = moduleInstance._malloc(samples.length * 4);
-        if (!ptr) return false;
+        feedPcmFloat(moduleInstance, samples, framesPerChannel, channels);
+        console.debug('[projectM external PCM] fed chunk', {
+            channels,
+            samplesPerChannel: framesPerChannel,
+            totalSamples: samples.length,
+            sampleRate
+        });
+        return true;
     }
 
     try {

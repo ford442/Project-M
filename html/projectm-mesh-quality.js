@@ -14,6 +14,8 @@
 // navigator.hardwareConcurrency). It can also be set for one page load via
 // the `?meshQuality=high|low|auto` query parameter.
 
+import { setMesh as wasmSetMesh } from './generated/projectm-wasm-api.js';
+
 const MESH_SIZES = {
     low: [32, 24],
     high: [48, 36],
@@ -31,7 +33,7 @@ function resolveQuality(quality) {
 }
 
 /**
- * Applies a mesh quality setting by calling `Module._set_mesh(width, height)`.
+ * Applies a mesh quality setting via the typed WASM API.
  * @param {*} Module The Emscripten module instance.
  * @param {string} quality 'high', 'low', or 'auto'.
  * @returns {string} The resolved quality ('high' or 'low').
@@ -39,7 +41,7 @@ function resolveQuality(quality) {
 export function setMeshQuality(Module, quality) {
     const resolved = resolveQuality(quality);
     const [width, height] = MESH_SIZES[resolved];
-    Module._set_mesh(width, height);
+    wasmSetMesh(Module, width, height);
     return resolved;
 }
 

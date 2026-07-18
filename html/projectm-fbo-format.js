@@ -7,9 +7,10 @@
 // can show 8-bit banding in recursive warp/feedback presets (mitigated, but
 // not eliminated, by the ordered-dither + clamp in CompositingBlendShader).
 //
-// `Module._dual_fbo_get_format()` returns 0=RGBA32F, 1=RGBA16F, 2=RGBA8 and is
-// only valid after `Module._start_render()` (DetectFormat() runs during
-// `_init()`, before `_start_render()`).
+// `dualFboGetFormat()` returns 0=RGBA32F, 1=RGBA16F, 2=RGBA8 and is only
+// valid after `startRender()` (DetectFormat() runs during `init()`).
+
+import { dualFboGetFormat } from './generated/projectm-wasm-api.js';
 
 const BANNER_ID = 'pm-degraded-mode-banner';
 
@@ -46,13 +47,13 @@ function ensureBanner() {
  * shows a banner indicating reduced visual quality. Also exposes
  * `window.pmGetFboFormat()` returning one of 'RGBA32F' | 'RGBA16F' | 'RGBA8'.
  *
- * Must be called after `Module._start_render()`.
+ * Must be called after `startRender()`.
  *
  * @param {*} Module The Emscripten module instance.
  * @returns {string} The detected format name.
  */
 export function setupFboFormatIndicator(Module) {
-    const formatIndex = Module._dual_fbo_get_format();
+    const formatIndex = dualFboGetFormat(Module);
     const formatName = FORMAT_NAMES[formatIndex] || 'RGBA8';
 
     window.pmGetFboFormat = () => formatName;

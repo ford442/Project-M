@@ -5,10 +5,13 @@
 #   - scripts/wasm_link_common.inc.sh (final projectM_emscripten.cpp wrapper link)
 #   - cmake/generated/ProjectMWasmBuildConfig.hpp (OpenMP / pthread pool cap)
 #
-# After editing this file, regenerate derived artifacts:
+# After editing this file (or cmake/WasmApiManifest.cmake), regenerate derived artifacts:
 #   scripts/sync_wasm_link_common.sh
 #
-# CI verifies generated files via scripts/verify_wasm_link_common.sh.
+# CI verifies generated files via scripts/verify_wasm_link_common.sh
+# and types via scripts/check_html_types.sh.
+
+include("${CMAKE_CURRENT_LIST_DIR}/WasmApiManifest.cmake")
 
 set(PROJECTM_WASM_PTHREAD_POOL_SIZE "4" CACHE STRING
     "Pre-spawned pthread Workers (PTHREAD_POOL_SIZE). Drives kWasmPthreadPoolSize in cmake/generated/ProjectMWasmBuildConfig.hpp.")

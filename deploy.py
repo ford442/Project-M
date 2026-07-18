@@ -54,6 +54,7 @@ DEPLOY_MIRROR_SUBDIRS: list = ["pm"]
 # Shared browser modules and demo hosts (flattened to the deploy root).
 DEPLOY_HTML_GLOBS: list = [
     "html/projectm-*.js",
+    "html/generated/*.js",
     "html/projectm*.1ink",  # projectm_panel2.1ink, projectm.1ink, etc.
     "html/projectm-core.html",
     "html/projectm-core.css",

@@ -20,6 +20,7 @@
 // See docs/EMSCRIPTEN.md for details and the Chrome DevTools test procedure.
 
 import { checkInit } from './projectm-init-errors.js';
+import { loadPresetFile, pmHandleContextLoss, startRender } from './generated/projectm-wasm-api.js';
 
 const STYLE_ID = 'pm-context-lost-style';
 const OVERLAY_ID = 'pm-context-lost';
@@ -135,11 +136,11 @@ export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' }
             }
 
             const mcanvas = document.querySelector(canvasSelector);
-            Module._start_render(mcanvas.width, mcanvas.height);
+            startRender(Module, mcanvas.width, mcanvas.height);
 
             if (window.currentPresetPath) {
                 try {
-                    Module.ccall('load_preset_file', null, ['string'], [window.currentPresetPath]);
+                    loadPresetFile(Module, window.currentPresetPath);
                 } catch (err) {
                     console.warn('[projectM] Failed to reload preset after context restore:', err);
                 }
@@ -155,7 +156,7 @@ export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' }
         event.preventDefault();
         console.warn('[projectM] WebGL context lost.');
         if (Module && Module._pm_handle_context_loss) {
-            Module._pm_handle_context_loss();
+            pmHandleContextLoss(Module);
         }
         showOverlay();
     }, false);

@@ -1,3 +1,12 @@
+import {
+    dualFboBeginTransition,
+    dualFboIsPresetBAllocated,
+    dualFboIsPresetBReady,
+    transitionIsActive,
+    transitionSetDuration,
+    transitionStart,
+} from './generated/projectm-wasm-api.js';
+
 const DEFAULT_TRANSITION_READY_TIMEOUT_FRAMES = 300;
 export const DEFAULT_TRANSITION_DURATION_SEC = 1.5;
 
@@ -6,11 +15,12 @@ let transitionReadyToken = 0;
 export function setTransitionDuration(module = currentProjectMModule(), seconds = DEFAULT_TRANSITION_DURATION_SEC) {
     if (!module) return false;
     const sec = Number.isFinite(seconds) && seconds >= 0 ? seconds : DEFAULT_TRANSITION_DURATION_SEC;
-    if (module._transition_set_duration) {
-        module._transition_set_duration(sec);
+    try {
+        transitionSetDuration(module, sec);
         return true;
+    } catch {
+        return false;
     }
-    return false;
 }
 
 function currentProjectMModule() {
@@ -52,19 +62,19 @@ export function startTransitionWhenReady({
                 return;
             }
 
-            if (module._transition_is_active && module._transition_is_active()) {
+            if (transitionIsActive(module)) {
                 resolve(true);
                 return;
             }
 
-            if (module._dual_fbo_is_preset_b_ready()) {
-                let allocated = module._dual_fbo_is_preset_b_allocated();
+            if (dualFboIsPresetBReady(module)) {
+                let allocated = dualFboIsPresetBAllocated(module);
                 if (!allocated) {
-                    allocated = !!module._dual_fbo_begin_transition();
+                    allocated = !!dualFboBeginTransition(module);
                 }
 
-                if (allocated && module._dual_fbo_is_preset_b_allocated()) {
-                    module._transition_start();
+                if (allocated && dualFboIsPresetBAllocated(module)) {
+                    transitionStart(module);
                     resolve(true);
                     return;
                 }

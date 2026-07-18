@@ -5,6 +5,8 @@
 //
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
 
+import { init as wasmInit } from './generated/projectm-wasm-api.js';
+
 const ERROR_INFO = {
     2: {
         title: 'WebGL 2 Unavailable',
@@ -252,7 +254,7 @@ export function checkCrossOriginIsolation() {
  * @returns {boolean} true if initialization succeeded (code 0) and rendering can proceed.
  */
 export function checkInit(Module) {
-    const code = Module._init();
+    const code = wasmInit(Module);
     if (code !== 0) {
         if (!overlayEl || !overlayEl.classList.contains('visible')) {
             showInitError(code);

@@ -59,6 +59,7 @@ function drainPcmRing() {
 }
 
 function feedInterleavedPcm(interleaved, samplesPerChannel) {
+    // Mirrors feedPcmFloat() in html/generated/projectm-wasm-api.js (worker cannot import ES modules).
     if (!Module || !Module._malloc || !Module.HEAPF32 || !Module._projectm_pcm_add_float_wrapper) return;
 
     const ptr = Module._malloc(interleaved.length * 4);

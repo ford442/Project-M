@@ -30,6 +30,7 @@ flowchart LR
 | 7. **Capture** | Reference screenshot for picker badges | `node scripts/capture_custom_milk_screenshots.mjs` (optional) |
 | 8. **Manifest** | Picker + agent registry | `node scripts/generate_custom_preset_manifest.mjs` |
 | 9. **Commit** | Metadata header in file + manifest/agent_manifest update | See [Metadata block](#metadata-block) |
+| 10. **Promote** | Draft/quarantine → `custom_milk_fixed/` | `node scripts/promote_preset.mjs <file> --skip-capture-check` |
 
 ## Project lanes (creative direction)
 
@@ -129,6 +130,28 @@ Register the file in `presets/agent_manifest.json` → `signature_series.presets
 | `shader_swarm_reactive.milk` | Candy World | draft |
 
 Target: **5–10** presets in the first batch; expand with `orbital_rave_*` / `shader_swarm_*` variants once the workflow is stable.
+
+## Batch 2 (2026-07)
+
+| File | Lane | Status |
+|------|------|--------|
+| `orbital_rave_aurora.milk` | Zephyr Orbital | curated (capture pending) |
+| `cinematic_pedal_steel_rain.milk` | Watershed | curated (capture pending) |
+| `redwood_dreams_firefly.milk` | Redwood | curated (capture pending) |
+| `shader_swarm_galaxy.milk` | Candy World | curated (capture pending) |
+
+Release notes: [`SIGNATURE_SERIES_BATCH2.md`](SIGNATURE_SERIES_BATCH2.md)
+
+## Promotion criteria (draft → custom_milk_fixed)
+
+`scripts/promote_preset.mjs` enforces:
+
+1. Static audit — zero `error` findings
+2. Transpile — `kimi_validate_preset.sh` passes (when build dir exists)
+3. Tier — `light` or `medium` (unless `--allow-heavy`)
+4. Capture — no `broken` entry in `screenshots/custom_milk_baseline/capture_report.json` (skip with `--skip-capture-check` for new presets)
+
+Quarantined presets live in `custom_milk_quarantine/`; see `custom_milk_quarantine/README.md`.
 
 ## Related docs
 

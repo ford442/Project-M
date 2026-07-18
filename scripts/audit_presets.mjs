@@ -442,4 +442,8 @@ function renderMarkdown(report) {
   return L.join('\n') + '\n';
 }
 
-main();
+export { auditPreset, auditText, parsePreset };
+
+const isMain = process.argv[1]
+    && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+if (isMain) main();

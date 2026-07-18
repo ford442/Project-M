@@ -1,0 +1,68 @@
+// Signature Series | cinematic_pedal_steel | Watershed
+// tags: cinematic, rain, refraction, light
+// author: projectM-signature-batch-2026-07b
+// project: watershed
+// music: rainy ambient, pedal steel, slow ballads
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+presetname=Cinematic Pedal Steel Rain
+fRating=4.000000
+fGammaAdj=1.250000
+fDecay=0.982000
+fVideoEchoZoom=1.000000
+fVideoEchoAlpha=0.000000
+nWaveMode=0
+bAdditiveWaves=0
+fWaveAlpha=0.001000
+fWarpScale=1.120000
+zoom=1.000000
+rot=0.000000
+warp=0.005000
+cx=0.500000
+cy=0.500000
+mv_a=0.000000
+
+per_frame_1=q1=time*0.12
+per_frame_2=q2=bass_att
+per_frame_3=q3=mid_att
+per_frame_4=q4=treb_att
+per_frame_5=q5=0.5+0.5*sin(time*0.18)
+per_frame_6=q6=1.0
+per_frame_7=q7=0.02+q3*0.02
+per_frame_8=q8=mid_att
+per_frame_9=q9=time*0.5
+per_frame_10=q10=0.04
+per_frame_11=q11=1.0
+per_frame_12=q12=time
+
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.005;
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 uvc=uv-0.5;
+warp_4=`float ripple=sin(uv.y*40.0+q9*2.0)*0.003;
+warp_5=`float streak=sin(uv.x*60.0+q9*3.0+q5)*0.002;
+warp_6=`uvc.x+=ripple+streak;
+warp_7=`uvc.y+=q7;
+warp_8=`float2 nuv=uvc*0.99+0.5;
+warp_9=`float3 col=tex2D(sampler_main,nuv).xyz;
+warp_10=`ret=lerp(col,float3(0.45,0.5,0.58),0.08);
+warp_11=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col=tex2D(sampler_main,uv).xyz;
+comp_4=`float drop=frac(sin(dot(uv*float2(120.0,40.0)+q9,float2(12.9898,78.233)))*43758.5453);
+comp_5=`drop=step(0.992,drop);
+comp_6=`col+=float3(0.7,0.75,0.85)*drop*0.25;
+comp_7=`float2 c=uv-0.5;
+comp_8=`float vig=smoothstep(0.85,0.35,length(c));
+comp_9=`col*=0.75+0.25*vig;
+comp_10=`col=lerp(col,float3(0.55,0.48,0.42),q3*0.12);
+comp_11=`ret=saturate(col);
+comp_12=`}

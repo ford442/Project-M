@@ -1,48 +1,38 @@
 #include "HeadlessGlContext.hpp"
-
 #include "Renderer/OpenGL.h"
 #include "Renderer/PresetTransition.hpp"
 #include "Renderer/TransitionShaderManager.hpp"
-
 #include <gtest/gtest.h>
-
 #include <algorithm>
 #include <vector>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 namespace {
-
 using libprojectM::Renderer::PresetTransition;
 using libprojectM::Renderer::TransitionBlendMode;
 using libprojectM::Renderer::TransitionShaderManager;
 using libprojectM::Test::HeadlessGlContext;
 
-class PresetTransitionMultiPassTest : public ::testing::Test
+std::string ReadShaderSource(const std::string& relativePath)
 {
-protected:
-    void SetUp() override
+    const std::string fullPath = std::string(PROJECTM_SOURCE_DIR) + "/" + relativePath;
+    std::ifstream stream(fullPath);
+    if (!stream.good())
     {
-        if (!HeadlessGlContext::IsAvailable())
-        {
-            GTEST_SKIP() << "Headless EGL OpenGL context is unavailable on this platform.";
-        }
-
-        m_glContext = std::make_unique<HeadlessGlContext>();
-        if (!m_glContext->Valid() || !m_glContext->InitializeGlad())
-        {
-            GTEST_SKIP() << "Failed to create headless OpenGL context for multi-pass tests.";
-        }
-
-        m_shaderManager = std::make_unique<TransitionShaderManager>();
-        ASSERT_GT(m_shaderManager->CompiledShaderCount(), 0u);
-
-        while (glGetError() != GL_NO_ERROR)
-        {
-        }
+        return {};
     }
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    return buffer.str();
+}
 
-    std::unique_ptr<HeadlessGlContext> m_glContext;
-    std::unique_ptr<TransitionShaderManager> m_shaderManager;
-};
+bool ShaderUsesMultiPass(const std::string& source)
+{
+    return source.find("iPass") != std::string::npos &&
+           source.find("iLastPassTex") != std::string::npos;
+}
 
 auto FindMultiPassShaderIndex(const TransitionShaderManager& manager) -> std::size_t
 {
@@ -55,16 +45,41 @@ auto FindMultiPassShaderIndex(const TransitionShaderManager& manager) -> std::si
     }
     return manager.CompiledShaderCount();
 }
-
 } // namespace
 
+class PresetTransitionMultiPassTest : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        if (!HeadlessGlContext::IsAvailable())
+        {
+            GTEST_SKIP() << "Headless EGL OpenGL context is unavailable on this platform.";
+        }
+        m_glContext = std::make_unique<HeadlessGlContext>();
+        if (!m_glContext->Valid() || !m_glContext->InitializeGlad())
+        {
+            GTEST_SKIP() << "Failed to create headless OpenGL context for multi-pass tests.";
+        }
+        m_shaderManager = std::make_unique<TransitionShaderManager>();
+        ASSERT_GT(m_shaderManager->CompiledShaderCount(), 0u);
+
+        while (glGetError() != GL_NO_ERROR) {}
+    }
+
+    std::unique_ptr<HeadlessGlContext> m_glContext;
+    std::unique_ptr<TransitionShaderManager> m_shaderManager;
+};
+
+// =============================================================================
+// Core clamping & mode tests
+// =============================================================================
 TEST_F(PresetTransitionMultiPassTest, PassCountClamping)
 {
     const auto shader = m_shaderManager->CompiledShaderAt(0);
     ASSERT_NE(shader, nullptr);
 
     PresetTransition transition(shader, 1.0, 0.0);
-
     transition.SetPassCount(0);
     EXPECT_EQ(transition.PassCount(), 1);
 
@@ -81,12 +96,42 @@ TEST_F(PresetTransitionMultiPassTest, BlendModeRoundTrip)
     ASSERT_NE(shader, nullptr);
 
     PresetTransition transition(shader, 1.0, 0.0);
-
     transition.SetBlendMode(TransitionBlendMode::Screen);
     EXPECT_EQ(transition.GetBlendMode(), TransitionBlendMode::Screen);
 
     transition.SetBlendMode(TransitionBlendMode::Additive);
     EXPECT_EQ(transition.GetBlendMode(), TransitionBlendMode::Additive);
+}
+
+TEST_F(PresetTransitionMultiPassTest, ProgressAndCompletion)
+{
+    PresetTransition transition(nullptr, 2.0, 10.0);
+    EXPECT_DOUBLE_EQ(transition.Progress(10.0), 0.0);
+    EXPECT_FALSE(transition.IsDone(11.0));
+    EXPECT_DOUBLE_EQ(transition.Progress(11.0), 0.5);
+    EXPECT_TRUE(transition.IsDone(12.0));
+    EXPECT_DOUBLE_EQ(transition.Progress(12.0), 1.0);
+}
+
+// =============================================================================
+// Multi-pass shader detection & registration
+// =============================================================================
+TEST(MultiPassShaderSourceTest, KnownTransitionsDeclareMultiPassUniforms)
+{
+    const std::vector<std::pair<std::string, int>> multiPassShaders = {
+        {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInPageCurlGlsl330.frag", 2},
+        {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInHeatWaveGlsl330.frag", 2},
+        {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInGlitchGlsl330.frag", 2},
+        {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInMultiPassTestGlsl330.frag", 2},
+    };
+
+    for (const auto& [path, expectedPasses] : multiPassShaders)
+    {
+        const auto source = ReadShaderSource(path);
+        ASSERT_FALSE(source.empty()) << "Missing shader source: " << path;
+        EXPECT_TRUE(ShaderUsesMultiPass(source)) << path;
+        EXPECT_GE(expectedPasses, 2) << path;
+    }
 }
 
 TEST_F(PresetTransitionMultiPassTest, MultiPassShadersCompileAndRegisterPassCount)
@@ -105,16 +150,16 @@ TEST_F(PresetTransitionMultiPassTest, MultiPassShadersCompileAndRegisterPassCoun
         EXPECT_LE(passCount, 2);
 
         maxPassCount = std::max(maxPassCount, passCount);
-        if (passCount > 1)
-        {
-            ++multiPassCount;
-        }
+        if (passCount > 1) ++multiPassCount;
     }
 
     EXPECT_GE(multiPassCount, 3) << "Expected at least PageCurl, HeatWave, and Glitch to be multi-pass.";
     EXPECT_EQ(maxPassCount, 2);
 }
 
+// =============================================================================
+// Framebuffer reuse & leak prevention (critical for multi-pass)
+// =============================================================================
 TEST_F(PresetTransitionMultiPassTest, IntermediateFramebufferIsReusedAcrossPasses)
 {
     const auto shaderIndex = FindMultiPassShaderIndex(*m_shaderManager);
@@ -142,9 +187,7 @@ TEST_F(PresetTransitionMultiPassTest, IntermediateFramebufferIsReusedAcrossPasse
         transition.EndPass();
     }
 
-    while (glGetError() != GL_NO_ERROR)
-    {
-    }
+    while (glGetError() != GL_NO_ERROR) {}
 }
 
 TEST_F(PresetTransitionMultiPassTest, RapidTransitionInstancesDoNotLeakTextures)
@@ -156,7 +199,6 @@ TEST_F(PresetTransitionMultiPassTest, RapidTransitionInstancesDoNotLeakTextures)
     ASSERT_NE(shader, nullptr);
 
     GLuint maxTextureId = 0;
-
     for (int i = 0; i < 100; ++i)
     {
         PresetTransition transition(shader, 0.5, 0.0);
@@ -170,10 +212,7 @@ TEST_F(PresetTransitionMultiPassTest, RapidTransitionInstancesDoNotLeakTextures)
 
     // One intermediate FBO texture at a time; leaked textures would push IDs much higher.
     EXPECT_LT(maxTextureId, 128u);
-
-    while (glGetError() != GL_NO_ERROR)
-    {
-    }
+    while (glGetError() != GL_NO_ERROR) {}
 }
 
 TEST_F(PresetTransitionMultiPassTest, PassStateIsResetAfterEndPass)

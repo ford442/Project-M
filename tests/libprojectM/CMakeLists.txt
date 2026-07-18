@@ -28,6 +28,7 @@ test_api_headers(TestMainAPIHeaders
 
 add_executable(projectM-unittest
         HeadlessGlContext.cpp
+        GlOffscreenContext.cpp
         HLSLParserTest.cpp
         LoggingTest.cpp
         MilkdropShaderCommentParsingTest.cpp
@@ -51,6 +52,7 @@ add_executable(projectM-unittest
 
 target_compile_definitions(projectM-unittest
         PRIVATE
+        PROJECTM_SOURCE_DIR="${PROJECTM_SOURCE_DIR}"
         PROJECTM_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data"
         PROJECTM_PRESET_TESTS_DIR="${PROJECTM_SOURCE_DIR}/presets/tests"
         PROJECTM_CUSTOM_MILK_FIXED_DIR="${PROJECTM_SOURCE_DIR}/custom_milk_fixed"
@@ -62,12 +64,18 @@ target_include_directories(projectM-unittest
         "${PROJECTM_SOURCE_DIR}/src/libprojectM"
         "${PROJECTM_SOURCE_DIR}"
         "${PROJECTM_SOURCE_DIR}/vendor/hlslparser/src"
+        "${PROJECTM_SOURCE_DIR}/vendor/glad/include"
         )
+
+find_package(OpenGL REQUIRED)
 
 target_link_libraries(projectM-unittest
         PRIVATE
         projectM_main
         projectM::Eval
+        glad
+        OpenGL::GL
+        EGL
         GTest::gtest
         GTest::gtest_main
         )

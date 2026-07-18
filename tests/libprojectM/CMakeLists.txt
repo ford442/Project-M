@@ -27,6 +27,7 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
+        HeadlessGlContext.cpp
         HLSLParserTest.cpp
         LoggingTest.cpp
         MilkdropShaderCommentParsingTest.cpp
@@ -34,6 +35,7 @@ add_executable(projectM-unittest
         PresetPerfBenchTest.cpp
         PresetCompatTest.cpp
         PresetFileParserTest.cpp
+        PresetTransitionMultiPassTest.cpp
         PCMAudioReactivityTest.cpp
         PCMAudioBenchTest.cpp
         WaveformAlignerTest.cpp
@@ -70,7 +72,28 @@ target_link_libraries(projectM-unittest
         GTest::gtest_main
         )
 
-add_test(NAME projectM-unittest COMMAND projectM-unittest)
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    find_package(SDL2 REQUIRED)
+    target_link_libraries(projectM-unittest PRIVATE SDL2::SDL2 glad)
+endif()
+
+find_program(XVFB_RUN_EXECUTABLE NAMES xvfb-run)
+if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+    add_test(NAME projectM-unittest
+            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>)
+else()
+    add_test(NAME projectM-unittest COMMAND projectM-unittest)
+endif()
 
 # Allows running just the preset compatibility harness via "ctest -R PresetCompat".
 add_test(NAME PresetCompat COMMAND projectM-unittest --gtest_filter=*PresetCompat*)
+
+# Multi-pass transition tests (subset of projectM-unittest).
+if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+    add_test(NAME PresetTransitionMultiPass
+            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+            --gtest_filter=*PresetTransitionMultiPass*)
+else()
+    add_test(NAME PresetTransitionMultiPass
+            COMMAND projectM-unittest --gtest_filter=*PresetTransitionMultiPass*)
+endif()

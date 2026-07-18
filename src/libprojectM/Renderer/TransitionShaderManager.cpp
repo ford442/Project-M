@@ -21,7 +21,7 @@ TransitionShaderManager::TransitionShaderManager()
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInCircleGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInCubeRotateGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInDreamyGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInGlitchGlsl330, 1});
+    candidates.emplace_back(Candidate{kTransitionShaderBuiltInGlitchGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInHeatWaveGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInKaleidoscopeGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInMosaicZoomGlsl330, 1});
@@ -60,6 +60,31 @@ auto TransitionShaderManager::RandomTransition() -> std::shared_ptr<Shader>
 
     // All custom shaders failed to compile — use the SimpleBlend fallback.
     return m_fallbackShader;
+}
+
+auto TransitionShaderManager::CompiledShaderCount() const -> std::size_t
+{
+    return m_transitionShaders.size();
+}
+
+auto TransitionShaderManager::CompiledShaderAt(std::size_t index) const -> std::shared_ptr<Shader>
+{
+    if (index >= m_transitionShaders.size())
+    {
+        return nullptr;
+    }
+
+    return m_transitionShaders.at(index).shader;
+}
+
+auto TransitionShaderManager::PassCountAt(std::size_t index) const -> int
+{
+    if (index >= m_transitionShaders.size())
+    {
+        return m_fallbackPassCount;
+    }
+
+    return m_transitionShaders.at(index).passCount;
 }
 
 auto TransitionShaderManager::GetPassCount(const std::shared_ptr<Shader>& shader) const -> int

@@ -83,6 +83,19 @@ vec4 blendScreen(vec4 a, vec4 b, float t)
     return mix(a, screen, t);
 }
 
+// Convenience helper for transitions that sample old/new colors separately.
+vec3 prjmBlendPresets(vec3 oldCol, vec3 newCol, float t)
+{
+    vec4 a = vec4(oldCol, 1.0);
+    vec4 b = vec4(newCol, 1.0);
+    vec4 result;
+    if (iBlendMode == 1)      result = blendAdditive(a, b, t);
+    else if (iBlendMode == 2) result = blendMultiplicative(a, b, t);
+    else if (iBlendMode == 3) result = blendScreen(a, b, t);
+    else                      result = blendAlpha(a, b, t);
+    return result.xyz;
+}
+
 // Samplers
 uniform sampler2D iChannel0;
 uniform sampler2D iChannel1;

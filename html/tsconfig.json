@@ -12,6 +12,8 @@
   },
   "include": [
     "generated/**/*.ts",
-    "projectm-wasm-api-worker.ts"
+    "projectm-wasm-api-worker.ts",
+    "projectm-context.ts",
+    "projectm-element.ts"
   ]
 }

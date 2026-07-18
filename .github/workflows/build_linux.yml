@@ -97,3 +97,18 @@ jobs:
         with:
             name: projectm-linux-${{ matrix.libs }}-${{ matrix.fslib }}-${{ matrix.runs-on }}
             path: install/*
+
+  web-embed:
+    name: Web embed SDK checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify WASM version sync
+        run: bash scripts/verify_wasm_version_sync.sh
+
+      - name: Type-check embed TypeScript
+        run: bash scripts/check_html_types.sh
+
+      - name: Run embed unit tests
+        run: bash scripts/test_web_embed.sh

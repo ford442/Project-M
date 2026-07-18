@@ -16,6 +16,9 @@ Core behavior belongs in shared modules:
 - `projectm-preset-dev.js`: hot-reload dev panel (`?devPreset=1`), URL polling, inline `.milk` editor. See `docs/SIGNATURE_SERIES_WORKFLOW.md`.
 - `projectm-preset-tweaker.js`: header param sliders (decay, zoom, warp, wave RGB) used by the dev panel.
 - `projectm-external-pcm.js`: external MOD/FLAC `postMessage` PCM contract, origin allowlist, queued feeding, and preallocated transfer buffers.
+- `projectm-context.js`: typed **embed context API** (`ProjectMContext`) — WASM bootstrap, resize/DPR, presets, audio modes, transparency.
+- `projectm-element.js`: **`<project-m-visualizer>`** custom element + lifecycle events (`pm-ready`, `pm-preset-changed`, `pm-error`, `pm-fps`).
+- `projectm-wasm-version.js`: canonical WASM bundle version + CDN URL helpers (keep in sync with deploy scripts).
 - `projectm-transitions.js`: readiness polling before starting dual-FBO transitions.
 
 ### Panel Chrome
@@ -39,6 +42,7 @@ Keep remote asset endpoints configurable. Existing pages read `localStorage.apiB
 ## Host Roles
 
 - `projectm-core.html`: reference core shell.
+- `embed-demo.html`: minimal third-party embed demo using `<project-m-visualizer>` (see `packages/web/README.md`).
 - `projectm_panel.1ink`: legacy panel shell.
 - `projectm_panel2.1ink`: panel shell with embedded MOD/FLAC iframe sections and current bezel calibration.
 - `projectm.1ink`: full legacy shell with extended UI experiments.

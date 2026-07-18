@@ -280,3 +280,48 @@ export async function loadLocalPresetFile(file, {
         vfsPath
     };
 }
+
+/**
+ * Fetches a `.milk` preset from an HTTP(S) URL, writes it to the Emscripten VFS,
+ * and loads it into the running engine.
+ *
+ * @param {string} url Absolute or same-origin preset URL.
+ * @param {object} [options]
+ * @returns {Promise<{ url: string, vfsPath: string, filename: string }>}
+ */
+export async function loadPresetFromUrl(url, {
+    module,
+    vfsPath,
+    updateDisplay = true,
+    startTransitionWhenReady,
+    windowRef = window,
+} = {}) {
+    if (!module?.FS) {
+        throw new Error('Module.FS not available');
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch preset (${response.status}): ${url}`);
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const filename = String(url).split('/').pop()?.split('?')[0] || 'preset.milk';
+    const resolvedPath = vfsPath || `/presets/url_${safePresetName(filename)}`;
+
+    module.FS.writeFile(resolvedPath, bytes);
+    loadPresetFile(module, resolvedPath);
+
+    if (startTransitionWhenReady) {
+        startTransitionWhenReady({ module });
+    }
+    if (updateDisplay) {
+        updatePresetDisplay(resolvedPath, { windowRef });
+    }
+
+    return {
+        url,
+        vfsPath: resolvedPath,
+        filename,
+    };
+}

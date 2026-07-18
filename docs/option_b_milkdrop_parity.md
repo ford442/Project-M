@@ -1,6 +1,6 @@
 # Option B: Milkdrop Blending Parity (Long-term Incremental Project)
 
-**Status:** Active — Phase B2 nearly complete, B6 started  
+**Status:** Active — Phase B2 complete, B3 started, B6 in progress  
 **Approach:** Incremental sessions (at least once per week)  
 **Goal:** Make Project-M’s preset transitions feel as smooth, organic, and high-quality as classic Milkdrop.
 
@@ -24,8 +24,8 @@ We want to close the gap while staying Emscripten/WebGL compatible.
 | Phase | Name                              | Focus                                          | Priority | Est. Sessions | Status    |
 |-------|-----------------------------------|------------------------------------------------|----------|---------------|-----------|
 | **B1**    | Gap Analysis & Prioritization     | Identify biggest differences vs Milkdrop       | High     | 1–2           | Done      |
-| **B2**    | Multi-pass Transition Support     | Enable 2-pass and simple multi-pass effects    | High     | 3–4           | **Active** |
-| **B3**    | Advanced Blending & Compositing   | Add more sophisticated blending modes          | Medium   | 3–4           | Planned   |
+| **B2**    | Multi-pass Transition Support     | Enable 2-pass and simple multi-pass effects    | High     | 3–4           | Done      |
+| **B3**    | Advanced Blending & Compositing   | Add more sophisticated blending modes          | Medium   | 3–4           | **Started** |
 | **B4**    | Timing, Synchronization & Polish  | Match Milkdrop’s frame-accurate feel           | High     | 2–3           | Planned   |
 | **B5**    | Exotic Effects & Favorites        | Replicate beloved Milkdrop transitions         | Medium   | Ongoing       | Future    |
 | **B6**    | Performance & Parallelism         | Add OpenMP pragmas + other optimizations       | Medium   | 2–4           | **Started** |
@@ -43,7 +43,7 @@ We want to close the gap while staying Emscripten/WebGL compatible.
 
 ## Completed Work (Latest Session)
 
-### Phase B2: Multi-pass Transition Support
+### Phase B2: Multi-pass Transition Support (Complete)
 
 **Implemented:**
 - `PresetTransition` multi-pass framework:
@@ -56,12 +56,29 @@ We want to close the gap while staying Emscripten/WebGL compatible.
 - Intermediate FBO management in `PresetTransition::Draw()`
 - **PageCurl** ported to 2-pass (geometry + lighting/highlight/glow)
 - **HeatWave** ported to 2-pass (distortion + heat shimmer/haze)
+- **Glitch** ported to 2-pass (displaced crossfade + chromatic split/scanlines)
 - MultiPassTest shader (proof of concept) registered
+- `Framebuffer::LiveInstanceCount()` for FBO lifecycle instrumentation
+- Unit tests in `tests/libprojectM/PresetTransitionMultiPassTest.cpp`:
+  - Shader source validation for all 4 multi-pass transitions
+  - Pass-count API and blend-mode round-trip
+  - 100-iteration multi-pass draw reuses a single intermediate FBO
+  - 100 rapid transition creations do not leak framebuffers
+
+**Production-ready multi-pass transitions (≥3):** PageCurl, HeatWave, Glitch (+ MultiPassTest POC)
+
+### Phase B3: Advanced Blending & Compositing (Started)
+
+**Implemented:**
+- `TransitionBlendMode` enum and `SetBlendMode()` / `GetBlendMode()` on `PresetTransition`
+- GLSL blend library in `TransitionShaderHeaderGlsl330.frag` (`blendAlpha`, `blendAdditive`, `blendMultiplicative`, `blendScreen`)
+- `iBlendMode` uniform wired in `PresetTransition::Draw()`
+- **SimpleBlend** and **Glitch** pass 0 use the blend library
 
 **Remaining:**
-- Port 1–2 more transitions (WaterDrop or Glitch are candidates)
-- Add unit tests for multi-pass flow
-- Stress-test memory after 100+ rapid transitions
+- Demonstrate non-Alpha modes in 2–3 more transitions
+- Optional mask texture support (`TransitionBlendMode::Masked`)
+- Per-shader default blend mode in `TransitionShaderManager`
 
 ### Phase B6: Performance & Parallelism (Started)
 
@@ -77,7 +94,7 @@ All pragmas use the existing `#ifdef PRJM_ENABLE_OPENMP` guard with `schedule(st
 
 ## Next Session
 
-**Recommended focus:** Complete Phase B2 by porting Glitch or WaterDrop to 2-pass, then move to B3 (Advanced Blending) or continue B6 (more OpenMP candidates).
+**Recommended focus:** Continue B3 by wiring Additive/Screen blend modes into WaterDrop and Kaleidoscope, then move to B4 (timing/sync polish) or continue B6 (more OpenMP candidates).
 
 ---
 

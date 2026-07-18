@@ -1,10 +1,15 @@
 #include "Renderer/Framebuffer.hpp"
 
+#include <atomic>
+
 namespace libprojectM {
 namespace Renderer {
 
+std::atomic<int> Framebuffer::s_liveInstanceCount{0};
+
 Framebuffer::Framebuffer()
 {
+    ++s_liveInstanceCount;
     m_framebufferIds.resize(1);
     glGenFramebuffers(1, m_framebufferIds.data());
     m_attachments.emplace(0, AttachmentsPerSlot());
@@ -12,6 +17,7 @@ Framebuffer::Framebuffer()
 
 Framebuffer::Framebuffer(int framebufferCount)
 {
+    ++s_liveInstanceCount;
     m_framebufferIds.resize(framebufferCount);
     glGenFramebuffers(framebufferCount, m_framebufferIds.data());
     for (int index = 0; index < framebufferCount; index++)
@@ -22,6 +28,7 @@ Framebuffer::Framebuffer(int framebufferCount)
 
 Framebuffer::~Framebuffer()
 {
+    --s_liveInstanceCount;
     if (!m_framebufferIds.empty())
     {
         // Delete FBOs first — this also releases driver references to attached textures.
@@ -35,6 +42,11 @@ Framebuffer::~Framebuffer()
 auto Framebuffer::Count() const -> int
 {
     return static_cast<int>(m_framebufferIds.size());
+}
+
+auto Framebuffer::LiveInstanceCount() -> int
+{
+    return s_liveInstanceCount.load();
 }
 
 void Framebuffer::Bind(int framebufferIndex)

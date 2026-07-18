@@ -7,6 +7,7 @@
 #include "Renderer/TextureAttachment.hpp"
 
 #include <map>
+#include <atomic>
 #include <vector>
 
 namespace libprojectM {
@@ -214,7 +215,15 @@ public:
      */
     void MaskDrawBuffer(int bufferIndex, bool masked);
 
+    /**
+     * @brief Returns the number of live Framebuffer instances.
+     *
+     * Intended for unit tests that verify FBO lifecycle during rapid transitions.
+     */
+    static auto LiveInstanceCount() -> int;
+
 private:
+    static std::atomic<int> s_liveInstanceCount;
     /**
      * @brief Updates the draw buffer list for the fragment shader outputs of the given framebuffer.
      * Note that when calling this function, the framebuffer must already be bound.

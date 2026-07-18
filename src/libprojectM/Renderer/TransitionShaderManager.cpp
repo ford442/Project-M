@@ -21,7 +21,7 @@ TransitionShaderManager::TransitionShaderManager()
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInCircleGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInCubeRotateGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInDreamyGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInGlitchGlsl330, 1});
+    candidates.emplace_back(Candidate{kTransitionShaderBuiltInGlitchGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInHeatWaveGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInKaleidoscopeGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInMosaicZoomGlsl330, 1});

@@ -22,7 +22,9 @@ const MESH_SIZES = {
 };
 
 // Below this number of logical CPU cores, 'auto' resolves to 'low'.
-const AUTO_LOW_THRESHOLD_CORES = 4;
+// Raised from 4 to 8 so more laptops/tablets start at 32x24 and only
+// step up to 48x36 when the adaptive governor sees sustained headroom.
+const AUTO_LOW_THRESHOLD_CORES = 8;
 
 function resolveQuality(quality) {
     if (quality === 'low' || quality === 'high') {

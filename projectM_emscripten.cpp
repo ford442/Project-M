@@ -1120,10 +1120,10 @@ static int g_underBudgetFrames = 0;
 static bool g_wasLoading = false;
 static int g_postLoadGraceFrames = 0;
 
-constexpr double kOverBudgetRatio = 1.5;        //!< Step down once frame time exceeds 1.5x budget...
-constexpr int kOverBudgetFrameThreshold = 30;   //!< ...for this many consecutive frames (~0.5s @ 60fps).
+constexpr double kOverBudgetRatio = 1.3;        //!< Step down once frame time exceeds 1.3x budget...
+constexpr int kOverBudgetFrameThreshold = 15;   //!< ...for this many consecutive frames (~0.25s @ 60fps).
 constexpr double kUnderBudgetRatio = 0.8;       //!< Step back up once frame time is under 0.8x budget...
-constexpr int kUnderBudgetFrameThreshold = 120; //!< ...for this many consecutive frames (~2s @ 60fps).
+constexpr int kUnderBudgetFrameThreshold = 90;  //!< ...for this many consecutive frames (~1.5s @ 60fps).
 constexpr int kPostLoadGraceFrames = 10;        //!< Frames to ignore right after a preset finishes loading.
 constexpr int kMaxQualityTier = 1;              //!< Highest (lowest-quality) tier index.
 
@@ -1602,15 +1602,8 @@ reinterpret_cast<uintptr_t>(app_data.projectm_engine),
 
 );
 }
-// Phase 5: Route through render_frame(), the dual-FBO compositor pipeline.
-// Once start_render() has allocated Preset A's FBOs and initialised
-// g_compositorShader, render_frame() renders into the ping-pong FBOs and
-// blits the (possibly cross-faded) result to the default framebuffer (the
-// canvas) via g_compositorShader.Draw(). Before that point (or if the
-// compositor shader failed to initialise), render_frame() transparently
-// falls back to a single-pass projectm_opengl_render_frame() straight to
-// the canvas, wrapped in its own GLStateGuard. Either way it increments
-// g_renderedFrameCount exactly once.
+// Phase 5: Route through render_frame(). Steady-state frames render directly
+// to the canvas; the dual-FBO compositor runs only during preset crossfades.
 if (g_perfHudEnabled) {
     js_perf_gpu_begin_frame();
 }
@@ -2524,32 +2517,39 @@ int is_preset_ready(int min_frames_since_ready) {
     return (g_renderedFrameCount - g_presetReadyFrame) >= requiredFrames ? 1 : 0;
 }
 
+// Returns true when the dual-FBO compositor path is required this frame.
+// Steady-state playback renders directly to the canvas (one pass); the
+// offscreen ping-pong FBO + fullscreen compositor blit is only used while a
+// preset crossfade is active.
+static bool ShouldUseDualFboCompositor()
+{
+    return g_transitionActive &&
+           g_dualFbo.IsPresetAAllocated() &&
+           g_dualFbo.IsPresetBAllocated() &&
+           g_compositorShader.IsInitialized();
+}
+
 EMSCRIPTEN_KEEPALIVE
 void render_frame() {
 if (!pm) return;
 
-// Phase 5: Integrated dual-FBO render pipeline.
+// Phase 5: Integrated dual-FBO render pipeline (transitions only).
 //
-// When the dual FBO system and compositing shader are both ready, the render
-// loop orchestrates the full transition pipeline:
+// When a crossfade is active, the render loop orchestrates:
 //
 //   1. Render Preset A → FBO_A_Write, ping-pong to FBO_A_Read.
-//   2. (if transition active) Render Preset B → FBO_B_Write, ping-pong to FBO_B_Read.
-//   3. Composite to screen:
-//        - No transition: blit FBO_A_Read to canvas (blend = 0.0 → 100 % A).
-//        - Transition:    blend FBO_A_Read + FBO_B_Read using uBlend.
+//   2. Render Preset B → FBO_B_Write, ping-pong to FBO_B_Read.
+//   3. Composite to screen: blend FBO_A_Read + FBO_B_Read using uBlend.
 //   4. Advance blend timer; auto-complete when uBlend >= 1.0.
 //
-// If the dual FBO system is not yet initialised (e.g. start_render() has not
-// been called), we fall back to the legacy single-pass render so that the
-// visualiser still works during start-up.
+// Between transitions (the common case), render straight to the default
+// framebuffer via projectm_opengl_render_frame() — the same path used before
+// the dual-FBO work landed — avoiding an extra FBO resolve + fullscreen blit
+// every frame.
 
-if (!g_dualFbo.IsPresetAAllocated() || !g_compositorShader.IsInitialized())
+if (!ShouldUseDualFboCompositor())
 {
-    // Legacy fallback: render directly to the default framebuffer. Wrapped
-    // in GLStateGuard so any blend/texture/FBO state set by the preset
-    // shader is restored before handing control back to the browser's
-    // WebGL layer (matching the dual-FBO path's per-pass guards below).
+    // Direct-to-canvas path (steady state, startup, or compositor unavailable).
     GLStateGuard guard;
     projectm_opengl_render_frame(pm);
     g_renderedFrameCount++;
@@ -2573,54 +2573,42 @@ const float transparencyThreshold = projectm_get_transparency_threshold(pm);
 }
 g_dualFbo.SwapPresetA();
 
-// --- Step 2: (transition active) Render Preset B into its Write FBO ---
-if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
+// --- Step 2: Render Preset B into its Write FBO ---
+gl_reset_state_between_pipelines();
 {
-    gl_reset_state_between_pipelines();
-    {
-        GLStateGuard guard;
-        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
-    }
-    g_dualFbo.SwapPresetB();
+    GLStateGuard guard;
+    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
 }
+g_dualFbo.SwapPresetB();
 
 // --- Step 3: Composite to the default framebuffer (browser canvas) ---
-if (g_transitionActive && g_dualFbo.IsPresetBAllocated())
+g_compositorShader.Draw(g_dualFbo.GetAReadTex(), g_dualFbo.GetBReadTex(),
+                        g_transitionBlend, w, h, ditherOutput,
+                        transparencyMode, transparencyThreshold);
+
+// --- Step 4: Advance blend timer ---
+float newBlend;
+if (g_transitionDuration <= 0.0f)
 {
-    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), g_dualFbo.GetBReadTex(),
-                            g_transitionBlend, w, h, ditherOutput,
-                            transparencyMode, transparencyThreshold);
-
-    // --- Step 4: Advance blend timer ---
-    float newBlend;
-    if (g_transitionDuration <= 0.0f)
-    {
-        // Hard cut: jump immediately to full B.
-        newBlend = 1.0f;
-    }
-    else
-    {
-        // Time-based blend (emscripten_get_now() returns milliseconds).
-        const double now = emscripten_get_now();
-        newBlend = static_cast<float>((now - g_transitionStartTime) / (static_cast<double>(g_transitionDuration) * 1000.0));
-    }
-    g_transitionBlend = newBlend < 1.0f ? newBlend : 1.0f;
-
-    if (g_transitionBlend >= 1.0f)
-    {
-        // Transition complete: promote B → A, release B's FBOs, reset state.
-        g_dualFbo.PromoteBtoA();
-        g_transitionBlend    = 0.0f;
-        g_transitionActive   = false;
-        g_presetBReady       = false;
-        fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
-    }
+    // Hard cut: jump immediately to full B.
+    newBlend = 1.0f;
 }
 else
 {
-    // No transition: blit Preset A directly to screen (blend = 0.0).
-    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), 0u, 0.0f, w, h, ditherOutput,
-                            transparencyMode, transparencyThreshold);
+    // Time-based blend (emscripten_get_now() returns milliseconds).
+    const double now = emscripten_get_now();
+    newBlend = static_cast<float>((now - g_transitionStartTime) / (static_cast<double>(g_transitionDuration) * 1000.0));
+}
+g_transitionBlend = newBlend < 1.0f ? newBlend : 1.0f;
+
+if (g_transitionBlend >= 1.0f)
+{
+    // Transition complete: promote B → A, release B's FBOs, reset state.
+    g_dualFbo.PromoteBtoA();
+    g_transitionBlend    = 0.0f;
+    g_transitionActive   = false;
+    g_presetBReady       = false;
+    fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
 }
 g_renderedFrameCount++;
 return;

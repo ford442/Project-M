@@ -1760,10 +1760,15 @@ EM_JS(void, js_init_projectm_dom, (), {
 if (window.projectMDOMInitialized) return;
 window.projectMDOMInitialized = true;
 var isCaptureMode = window.__projectMCaptureMode === true;
+var isWeeksOnFire = window.__projectMWeeksOnFire === true;
 try {
     var params = new URLSearchParams(window.location.search || '');
     isCaptureMode = isCaptureMode || params.get('capture') === '1' || params.get('capture') === 'true';
+    isWeeksOnFire = isWeeksOnFire || params.get('mode') === 'weeks_on_fire';
 } catch (e) {}
+if (isWeeksOnFire) {
+    window.__projectMWeeksOnFire = true;
+}
 
 function vfsPathExists(path) {
     try {
@@ -1791,6 +1796,7 @@ var $sngs=[];
 var $shds=[];
 var $texs=[];
 var $customMilk=[];
+var $weeksPresets=[];
 
 function getBasePath(id, fallback) {
     var el = document.querySelector(id);
@@ -1952,14 +1958,105 @@ array.push(fullUrl);
 console.log('Scanned '+array.length+' presets from '+baseUrl);
 }
 
-function scanMilkDir(url,array){
+function scanMilkDir(url,array,callback){
 const nxhttp=new XMLHttpRequest();
 nxhttp.onreadystatechange=function(){
 if(this.readyState==4&&this.status==200){
 parseMilkDir(this,url,array);
+if(callback){ callback(); }
 }};
 nxhttp.open('GET',url,true);
 nxhttp.send();
+}
+
+function scanWeeksPresets(callback){
+if(!isWeeksOnFire){ return; }
+var presetBase=getBasePath('#weeksPresetDir','weeks_presets/');
+if(!presetBase.startsWith('http://')&&!presetBase.startsWith('https://')){
+presetBase=new URL(presetBase,window.location.href).href;
+}
+scanMilkDir(presetBase,$weeksPresets,callback);
+}
+
+function loadRandomWeeksPreset(){
+if($weeksPresets.length===0){
+console.log('No weeks presets available yet.');
+return;
+}
+var url=$weeksPresets[Math.floor(Math.random()*$weeksPresets.length)];
+var presetName=url.split('/').pop();
+const ff=new XMLHttpRequest();
+ff.open('GET',url,true);
+ff.responseType='arraybuffer';
+var statEl=document.querySelector('#stat');
+if(statEl){statEl.innerHTML='Downloading Weeks Preset';statEl.style.backgroundColor='yellow';}
+ff.addEventListener("load",function(){
+var buf=ff.response;
+if(buf){
+var vfsName='/presets/weeks_pick_'+Date.now()+'.milk';
+FS.writeFile(vfsName,new Uint8ClampedArray(buf));
+Module.ccall('load_preset_file',null,['string'],[vfsName]);
+if(window.updatePresetDisplay){window.updatePresetDisplay(presetName);}
+if(statEl){statEl.innerHTML='Loaded: '+presetName;statEl.style.backgroundColor='green';}
+}
+});
+ff.addEventListener("error",function(){
+console.warn('Failed to download weeks preset: '+url);
+});
+ff.send(null);
+}
+window.loadRandomWeeksPreset=loadRandomWeeksPreset;
+
+function seedWeeksPresetPlaylist(count){
+if($weeksPresets.length===0){ return; }
+count=count||5;
+var pool=$weeksPresets.slice();
+var picks=[];
+var want=Math.min(count,pool.length);
+for(var n=0;n<want;n++){
+var idx=Math.floor(Math.random()*pool.length);
+picks.push(pool.splice(idx,1)[0]);
+}
+var completed=0;
+var firstLoaded=false;
+for(var i=0;i<picks.length;i++){
+(function(url,slot){
+const ff=new XMLHttpRequest();
+ff.open('GET',url,true);
+ff.responseType='arraybuffer';
+ff.addEventListener("load",function(){
+var buf=ff.response;
+if(buf){
+var vfsName='/presets/weeks_'+slot+'.milk';
+FS.writeFile(vfsName,new Uint8ClampedArray(buf));
+if(!firstLoaded){
+Module.ccall('load_preset_file',null,['string'],[vfsName]);
+if(window.updatePresetDisplay){window.updatePresetDisplay(url.split('/').pop());}
+firstLoaded=true;
+}else{
+Module.ccall('add_preset_file',null,['string'],[vfsName]);
+}
+}
+completed++;
+if(completed===picks.length){
+console.log('Weeks on fire: seeded '+picks.length+' presets into playlist.');
+if(window.__projectMWeeksOnFireResolve){window.__projectMWeeksOnFireResolve();}
+}
+});
+ff.addEventListener("error",function(){
+console.warn('Failed to download weeks preset: '+url);
+completed++;
+});
+ff.send(null);
+})(picks[i],i);
+}
+}
+
+function autoStartWeeksSong(){
+if(!isWeeksOnFire){ return; }
+console.log('Weeks on fire: opening FLAC decoder and queueing a random song.');
+window.open('./flac');
+setTimeout(function(){ snd(); },1550);
 }
 
 function sngs(xml, songBase){
@@ -2047,14 +2144,19 @@ ff.send(null);
 }
 
 function snd(){
-    if ($sngs.length < 6 || !$sngs[0]) {
+    var songIndices = [];
+    for (var i = 1; i < $sngs.length; i++) {
+        if ($sngs[i]) songIndices.push(i);
+    }
+    if (songIndices.length === 0) {
         console.log('No songs available yet.');
         return;
     }
-    let randSong = Math.floor(($sngs[0] - 5) * Math.random());
-    let songSrc = $sngs[randSong + 5];
+    var pick = songIndices[Math.floor(Math.random() * songIndices.length)];
+    let songSrc = $sngs[pick];
     console.log('Song: ', songSrc);
-    document.querySelector('#track').src = songSrc;
+    var trackEl = document.querySelector('#track');
+    if (trackEl) trackEl.src = songSrc;
     const sng = new BroadcastChannel('sng');
     sng.postMessage({data: songSrc});
 }
@@ -2073,9 +2175,16 @@ if (milkBtnEl) {
     });
 }
 
-document.querySelector('#customMilkBtn').addEventListener('click',function(){
+var customMilkBtnEl=document.querySelector('#customMilkBtn');
+if(customMilkBtnEl&&!customMilkBtnEl.getAttribute('onclick')){
+customMilkBtnEl.addEventListener('click',function(){
+if(isWeeksOnFire){
+loadRandomWeeksPreset();
+}else{
 loadRandomCustomMilk();
+}
 });
+}
 
 var createSpriteBtnEl = document.querySelector('#createSpriteBtn');
 if (createSpriteBtnEl) {
@@ -2090,7 +2199,14 @@ if (isCaptureMode) {
 } else {
     scanTextures();
     scanSongs();
-    scanCustomMilk();
+    if (isWeeksOnFire) {
+        scanWeeksPresets(function(){
+            seedWeeksPresetPlaylist(5);
+            setTimeout(function(){ autoStartWeeksSong(); },2500);
+        });
+    } else {
+        scanCustomMilk();
+    }
 }
 var meshSizeEl = document.querySelector('#meshSize');
 if (meshSizeEl) {

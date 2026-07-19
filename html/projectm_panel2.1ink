@@ -8,7 +8,6 @@
 <link rel='preconnect' href='https://storage.noahcohn.com'>
 <link rel="preload" as="image" href="./image/panel-bg.jpg" fetchpriority="high">
 <link rel="preload" as="image" href="./image/shroud.jpg">
-<link rel="preload" as="script" href="./projectm-v.035-thread.1ijs">
 <title>B3HD • ProjectM</title>
 <title>1ink.us • ProjectM</title>
 
@@ -204,6 +203,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 <div hidden id="textureDir">textures/</div>
 <div hidden id="songDir">songs/</div>
 <div hidden id="weeksPresetDir">weeks_presets/</div>
+<div hidden id="flacDecoderUrl">./flac/</div>
 <div hidden id="presetDir">default</div>
 <div hidden id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
 <div hidden id="birdsongPath">https://projectm.1ink.us/birdsongs/26HouseFinchSong.mp3</div>
@@ -338,7 +338,7 @@ import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
-import { loadProjectMWasmScript } from './projectm-init.js';
+import { loadScript, resolveWasmScriptUrl } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -628,7 +628,8 @@ async function initProjectM() {
     }
 
     if (!Module) {
-      await loadProjectMWasmScript({ defer: true });
+      const wasmScript = await resolveWasmScriptUrl({ baseUrl: import.meta.url });
+      await loadScript(wasmScript, { defer: true });
       Module = await createModule();
       globalThis.Module = Module;
     }

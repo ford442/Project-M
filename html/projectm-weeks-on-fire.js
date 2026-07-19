@@ -9,6 +9,75 @@ export const DEFAULT_WEEKS_PATHS = {
     songs: './weeks_songs/',
 };
 
+/** Same-origin FLAC decode page used by BroadcastChannel('sng'/'file'). */
+export function resolveFlacDecoderUrl(documentRef = document) {
+    const el = documentRef.getElementById('flacDecoderUrl');
+    const fromDom = el?.textContent?.trim();
+    if (fromDom) {
+        try {
+            return new URL(fromDom, globalThis.location?.href || 'https://projectm.1ink.us/').href;
+        } catch {
+            return fromDom;
+        }
+    }
+    const origin = globalThis.location?.origin;
+    if (origin) {
+        return `${origin}/flac/`;
+    }
+    return './flac/';
+}
+
+/**
+ * Hidden same-origin iframe so BroadcastChannel reaches the decode player without
+ * opening flac.1ink.us (cross-origin popups break the sng/file bridge).
+ * @param {Document} [documentRef]
+ */
+export function ensureWeeksFlacDecoderFrame(documentRef = document) {
+    let frame = documentRef.getElementById('weeksFlacDecoderFrame');
+    if (!frame) {
+        frame = documentRef.createElement('iframe');
+        frame.id = 'weeksFlacDecoderFrame';
+        frame.title = 'FLAC decoder';
+        frame.setAttribute(
+            'style',
+            'position:absolute;width:0;height:0;border:0;opacity:0;pointer-events:none'
+        );
+        documentRef.body.appendChild(frame);
+    }
+    const target = resolveFlacDecoderUrl(documentRef);
+    const current = frame.getAttribute('src') || frame.src || '';
+    if (!current || !current.includes('/flac')) {
+        frame.src = target;
+    }
+    return frame;
+}
+
+/**
+ * @param {Document} [documentRef]
+ * @param {{ preferIframe?: boolean }} [options]
+ */
+export function openWeeksFlacDecoder(documentRef = document, { preferIframe = true } = {}) {
+    const url = resolveFlacDecoderUrl(documentRef);
+    if (preferIframe && documentRef?.body) {
+        ensureWeeksFlacDecoderFrame(documentRef);
+        return null;
+    }
+    if (typeof globalThis.open !== 'function') {
+        return null;
+    }
+    return globalThis.open(url, 'flac-decoder', 'width=420,height=320,resizable=yes,scrollbars=no');
+}
+
+/** Expose FLAC helpers for emscripten EM_JS glue. */
+export function wireWeeksOnFireFlacBridge(documentRef = document) {
+    if (typeof globalThis === 'undefined') {
+        return;
+    }
+    globalThis.resolveFlacDecoderUrl = () => resolveFlacDecoderUrl(documentRef);
+    globalThis.ensureWeeksFlacDecoderFrame = () => ensureWeeksFlacDecoderFrame(documentRef);
+    globalThis.openWeeksFlacDecoder = (options) => openWeeksFlacDecoder(documentRef, options);
+}
+
 /** @param {URLSearchParams|string|undefined} search */
 export function isWeeksOnFireMode(search) {
     if (typeof globalThis !== 'undefined' && globalThis.__projectMWeeksOnFire === true) {
@@ -45,6 +114,13 @@ export function applyWeeksOnFireDomConfig(documentRef = document, paths = DEFAUL
     setHidden('songDir', merged.songs);
     setHidden('weeksPresetDir', merged.presets);
     setHidden('presetDir', 'weeks_presets');
+
+    const flacDecoder = merged.flacDecoder
+        || (typeof globalThis.location !== 'undefined' && globalThis.location.origin
+            ? `${globalThis.location.origin}/flac/`
+            : './flac/');
+    setHidden('flacDecoderUrl', flacDecoder);
+    wireWeeksOnFireFlacBridge(doc);
 
     if (typeof globalThis !== 'undefined') {
         globalThis.__projectMWeeksOnFire = true;

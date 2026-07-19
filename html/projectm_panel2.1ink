@@ -178,16 +178,15 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
     <span class="led led--beat" title="Beat"></span>
   </div>
 
-  <!-- Clickable areas -->
-  <!-- Calibrated against panel-bg.jpg (circular ring of 8 buttons around centered knob) -->
-  <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:14%;left:34%;width:32%;height:12%;"></button>
-  <button onclick="hidePanel()" class="clickable-button" style="top:22%;left:14%;width:22%;height:16%;"></button>
-  <button id="audioPlayerBtn" onclick="cycleAudioPlayer()" class="clickable-button" title="Audio Player — click to cycle FLAC, MOD, or hide" style="top:22%;right:14%;width:22%;height:16%;"></button>
-  <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top:38%;left:6%;width:22%;height:18%;"></button>
-  <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top:38%;right:6%;width:22%;height:18%;"></button>
-  <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top:56%;left:14%;width:22%;height:16%;"></button>
-  <button id="customMilkBtn" onclick="randomCustom()" class="clickable-button" style="top:56%;right:14%;width:22%;height:16%;"></button>
-  <button onclick="toggleFullscreen()" class="clickable-button" style="top:64%;left:34%;width:32%;height:13%;"></button>
+  <!-- Clickable areas — aligned to panel-bg.jpg button graphics -->
+  <button id="lockPresetBtn" onclick="lockPreset()" class="clickable-button" style="top:9%;left:34%;width:32%;height:12%;"></button>
+  <button onclick="hidePanel()" class="clickable-button" style="top:16%;left:10%;width:22%;height:16%;"></button>
+  <button id="audioPlayerBtn" onclick="cycleAudioPlayer()" class="clickable-button" title="Audio Player — click to cycle FLAC, MOD, or hide" style="top:16%;right:10%;width:22%;height:16%;"></button>
+  <button id="musicBtn" onclick="startChangeSong()" class="clickable-button" style="top:34%;left:2%;width:22%;height:18%;"></button>
+  <button id="randomPresetBtn" onclick="randomPreset()" class="clickable-button" style="top:34%;right:2%;width:22%;height:18%;"></button>
+  <button id="toggleBezelBtn" onclick="fullWindow()" class="clickable-button" style="top:52%;left:10%;width:22%;height:16%;"></button>
+  <button id="customMilkBtn" onclick="randomCustom()" class="clickable-button" style="top:52%;right:10%;width:22%;height:16%;"></button>
+  <button onclick="toggleFullscreen()" class="clickable-button" style="top:67%;left:34%;width:32%;height:13%;"></button>
 
   <div id="knob" class="knob"></div>
 </div>
@@ -313,6 +312,20 @@ function drawBezel(){
     bctx.globalCompositeOperation = 'source-over';
     bctx.fillStyle = 'rgba(168,168,168,1)';
     shtr(rr);
+
+    // Iris-open on load; keep open across resize/redraw.
+    if (Number(sht) === 2) {
+      if (Number(lns) === 1) {
+        const lnsEl = document.querySelector('#lns');
+        if (lnsEl) lnsEl.innerHTML = '2';
+        for (let sz = 0; sz < rr; sz++) {
+          setTimeout(() => op(sz), 2 * sz);
+        }
+      } else {
+        bctx.globalCompositeOperation = 'destination-out';
+        shtr(rr);
+      }
+    }
   }
 }
 

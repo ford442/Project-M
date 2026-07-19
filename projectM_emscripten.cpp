@@ -1094,7 +1094,7 @@ bool g_is_streaming_audio = false;
 // instead of letting the frame rate drop. This is a minimal v1: it watches
 // the wall-clock time of renderLoop() (always-on, independent of the perf
 // HUD) and steps the per-pixel mesh resolution between two tiers
-// (48x36 "high" / 32x24 "low", matching html/projectm-mesh-quality.js) when
+// (80x60 "high" / 64x48 "regular", matching html/projectm-mesh-quality.js) when
 // the frame time is consistently over or under budget.
 //
 // Tuning (see PR description for rationale):
@@ -1112,7 +1112,7 @@ bool g_is_streaming_audio = false;
 
 static bool g_governorEnabled = true; //!< Whether the adaptive quality governor is active.
 static int g_targetFps = 60;          //!< Frame budget reference, set via set_target_fps().
-static int g_qualityTier = 0;         //!< 0 = high (48x36 mesh), 1 = low (32x24 mesh).
+static int g_qualityTier = 0;         //!< 0 = high (80x60 mesh), 1 = regular (64x48 mesh).
 static bool g_qualityTierInitialized = false;
 
 static int g_overBudgetFrames = 0;
@@ -1134,8 +1134,8 @@ struct QualityTierMeshSize
 };
 
 constexpr QualityTierMeshSize kQualityTierMeshSizes[kMaxQualityTier + 1] = {
-    {48, 36}, // tier 0: high
-    {32, 24}, // tier 1: low
+    {80, 60}, // tier 0: high
+    {64, 48}, // tier 1: regular
 };
 
 // Notifies the host page when the governor changes the quality tier, so the
@@ -2288,7 +2288,7 @@ ResetGovernorCounters();
 return;
 }
 
-// Returns the governor's current quality tier (0 = high/48x36, 1 = low/32x24).
+// Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48).
 EMSCRIPTEN_KEEPALIVE
 int get_quality_tier() {
 return g_qualityTier;

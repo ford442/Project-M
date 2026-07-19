@@ -141,7 +141,7 @@ async function init(msg) {
         Module._set_quality_governor(msg.governor ? 1 : 0);
     }
     if (Module._set_mesh && msg.meshQuality) {
-        const grid = msg.meshQuality === 'low' ? [32, 24] : [48, 36];
+        const grid = msg.meshQuality === 'low' ? [64, 48] : [80, 60];
         Module._set_mesh(grid[0], grid[1]);
     }
 

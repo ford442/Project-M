@@ -317,15 +317,13 @@ private:
 
     auto GetRenderContext() -> Renderer::RenderContext;
 
-    // Default mesh resolution. 48x36 matches the resolution commonly used by
-    // original Milkdrop 2 and reduces straight-line warp/zoom/rotation
-    // artifacts vs. the previous 32x24 default. The per-vertex evaluation
-    // loop (PerPixelMesh::CalculateMesh()) is parallelized via OpenMP when
-    // PRJM_ENABLE_OPENMP is defined, making the extra 768 -> 1813 evaluations
-    // per frame affordable on multi-core hardware. Call SetMeshSize() to use
-    // a lower resolution (e.g. 32x24) on low-thread-count devices.
-    uint32_t m_meshX{48}; //!< Per-point mesh horizontal resolution.
-    uint32_t m_meshY{36}; //!< Per-point mesh vertical resolution.
+    // Default mesh resolution. 80x60 improves warp/zoom/rotation fidelity vs
+    // the previous 48x36 tier. The per-vertex evaluation loop
+    // (PerPixelMesh::CalculateMesh()) is parallelized via OpenMP when
+    // PRJM_ENABLE_OPENMP is defined. Call SetMeshSize() to use a lower
+    // resolution (e.g. 64x48) on lower-end devices.
+    uint32_t m_meshX{80}; //!< Per-point mesh horizontal resolution.
+    uint32_t m_meshY{60}; //!< Per-point mesh vertical resolution.
 
     // Default target FPS. Winamp Milkdrop defaults to 60; this value is also
     // used as the adaptive quality governor's frame budget reference on the

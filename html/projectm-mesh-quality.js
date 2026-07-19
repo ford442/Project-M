@@ -3,27 +3,26 @@
 // Per-pixel mesh resolution ("quality") setting for the projectM WASM build.
 // See docs/PERFORMANCE.md.
 //
-// The libprojectM default is 48x36 (close to original Milkdrop 2), and the
-// per-vertex evaluation loop is parallelized across CPU cores via OpenMP
-// (PRJM_ENABLE_OPENMP). On devices with few logical cores, fall back to the
-// previous 32x24 default to avoid dropping frames on heavy per-pixel-code
-// presets.
+// The libprojectM default is 80x60 (high tier). The per-vertex evaluation
+// loop is parallelized across CPU cores via OpenMP (PRJM_ENABLE_OPENMP). On
+// devices with few logical cores, fall back to the 64x48 regular tier to
+// avoid dropping frames on heavy per-pixel-code presets.
 //
 // The chosen quality is persisted in localStorage under 'meshQuality':
-// 'high' (48x36), 'low' (32x24), or unset/'auto' (derived from
+// 'high' (80x60), 'low' (64x48 regular tier), or unset/'auto' (derived from
 // navigator.hardwareConcurrency). It can also be set for one page load via
 // the `?meshQuality=high|low|auto` query parameter.
 
 import { setMesh as wasmSetMesh } from './generated/projectm-wasm-api.js';
 
 const MESH_SIZES = {
-    low: [32, 24],
-    high: [48, 36],
+    low: [64, 48],
+    high: [80, 60],
 };
 
-// Below this number of logical CPU cores, 'auto' resolves to 'low'.
-// Raised from 4 to 8 so more laptops/tablets start at 32x24 and only
-// step up to 48x36 when the adaptive governor sees sustained headroom.
+// Below this number of logical CPU cores, 'auto' resolves to 'low' (64x48).
+// Devices with fewer cores start on the regular tier and only step up to
+// 80x60 when the adaptive governor sees sustained headroom.
 const AUTO_LOW_THRESHOLD_CORES = 8;
 
 function resolveQuality(quality) {

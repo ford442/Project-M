@@ -2052,10 +2052,22 @@ ff.send(null);
 }
 }
 
+function openFlacDecoder(){
+if(typeof window.openWeeksFlacDecoder==='function'){
+window.openWeeksFlacDecoder();
+return;
+}
+var url=getBasePath('#flacDecoderUrl','./flac/');
+if(!url.startsWith('http://')&&!url.startsWith('https://')){
+try{url=new URL(url,window.location.href).href;}catch(e){}
+}
+window.open(url,'flac-decoder','width=420,height=320,resizable=yes,scrollbars=no');
+}
+
 function autoStartWeeksSong(){
 if(!isWeeksOnFire){ return; }
-console.log('Weeks on fire: opening FLAC decoder and queueing a random song.');
-window.open('./flac');
+console.log('Weeks on fire: opening same-origin FLAC decoder and queueing a random song.');
+openFlacDecoder();
 setTimeout(function(){ snd(); },1550);
 }
 
@@ -2162,7 +2174,7 @@ function snd(){
 }
 
 document.querySelector('#musicBtn').addEventListener('click',function(){
-window.open('./flac');
+openFlacDecoder();
 setTimeout(function(){
 snd();
 },1550);

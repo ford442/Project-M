@@ -6,6 +6,7 @@ import {
     applyWeeksOnFireDomConfig,
     isWeeksOnFireMode,
     parseMilkDirectoryListing,
+    resolveFlacDecoderUrl,
 } from '../../html/projectm-weeks-on-fire.js';
 
 test('isWeeksOnFireMode matches mode query param', () => {
@@ -32,6 +33,57 @@ test('applyWeeksOnFireDomConfig sets weeks folder hidden elements', () => {
     assert.equal(doc.getElementById('textureDir').textContent, './weeks_textures/');
     assert.equal(doc.getElementById('songDir').textContent, './weeks_songs/');
     assert.equal(doc.getElementById('weeksPresetDir').textContent, './weeks_presets/');
+});
+
+test('resolveFlacDecoderUrl prefers same-origin /flac/', () => {
+    const doc = {
+        getElementById(id) {
+            if (id === 'flacDecoderUrl') {
+                return { textContent: '' };
+            }
+            return null;
+        },
+    };
+    const previousLocation = globalThis.location;
+    Object.defineProperty(globalThis, 'location', {
+        configurable: true,
+        value: { origin: 'https://projectm.1ink.us', href: 'https://projectm.1ink.us/projectm_panel2.1ink' },
+    });
+    try {
+        assert.equal(resolveFlacDecoderUrl(doc), 'https://projectm.1ink.us/flac/');
+    } finally {
+        Object.defineProperty(globalThis, 'location', {
+            configurable: true,
+            value: previousLocation,
+        });
+    }
+});
+
+test('applyWeeksOnFireDomConfig sets flacDecoderUrl on same origin', () => {
+    const elements = new Map();
+    const doc = {
+        getElementById(id) {
+            if (!elements.has(id)) {
+                elements.set(id, { id, textContent: '' });
+            }
+            return elements.get(id);
+        },
+        body: { appendChild() {} },
+    };
+    const previousLocation = globalThis.location;
+    Object.defineProperty(globalThis, 'location', {
+        configurable: true,
+        value: { origin: 'https://projectm.1ink.us', href: 'https://projectm.1ink.us/' },
+    });
+    try {
+        applyWeeksOnFireDomConfig(doc);
+        assert.equal(doc.getElementById('flacDecoderUrl').textContent, 'https://projectm.1ink.us/flac/');
+    } finally {
+        Object.defineProperty(globalThis, 'location', {
+            configurable: true,
+            value: previousLocation,
+        });
+    }
 });
 
 test('parseMilkDirectoryListing extracts milk URLs', () => {

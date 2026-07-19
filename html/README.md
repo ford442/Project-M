@@ -45,7 +45,7 @@ Keep remote asset endpoints configurable. Existing pages read `localStorage.apiB
 - `projectm-core.html`: reference core shell.
 - `embed-demo.html`: minimal third-party embed demo using `<project-m-visualizer>` (see `packages/web/README.md`).
 - `projectm_panel.1ink`: legacy panel shell.
-- `projectm_panel2.1ink`: panel shell with embedded MOD/FLAC iframe sections and current bezel calibration.
+- `projectm_panel2.1ink`: panel shell with embedded MOD/FLAC iframe sections and current bezel calibration. Supports `?mode=weeks_on_fire` like `projectm-core.html`.
 - `projectm.1ink`: full legacy shell with extended UI experiments.
 - `projectm_new.1ink`: newer full shell used to trial shared modules.
 - `projectm_test.1ink`: harness/test page.

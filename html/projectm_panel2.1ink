@@ -201,6 +201,9 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 <!-- Hidden data -->
 <div hidden id="shut">2</div>
 <div hidden id="lns">1</div>
+<div hidden id="textureDir">textures/</div>
+<div hidden id="songDir">songs/</div>
+<div hidden id="weeksPresetDir">weeks_presets/</div>
 <div hidden id="presetDir">default</div>
 <div hidden id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
 <div hidden id="birdsongPath">https://projectm.1ink.us/birdsongs/26HouseFinchSong.mp3</div>
@@ -339,8 +342,15 @@ import { loadProjectMWasmScript } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
+import { applyWeeksOnFireDomConfig, isWeeksOnFireMode } from './projectm-weeks-on-fire.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const urlParams = new URLSearchParams(window.location.search);
+const weeksOnFireMode = isWeeksOnFireMode(urlParams);
+if (weeksOnFireMode) {
+  applyWeeksOnFireDomConfig(document);
+  document.title = 'B3HD • Project M — Weeks on Fire';
+}
 let Module;
 let isBezelMode = true;
 let isPresetLocked = false;
@@ -459,8 +469,22 @@ async function loadRandomPresetFromRemote() {
 
 // ===== BUTTON HANDLERS =====
 function startChangeSong() { console.log('[B3HD] Start/Change Song'); ensureAudioRunning(); }
-function randomPreset() { loadRandomPresetFromRemote(); }
-function randomCustom() { loadRandomPresetFromRemote(); }
+function randomPreset() {
+  if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
+    console.log('[B3HD] Random Weeks Preset');
+    window.loadRandomWeeksPreset();
+    return;
+  }
+  loadRandomPresetFromRemote();
+}
+function randomCustom() {
+  if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
+    console.log('[B3HD] Random Weeks Preset (custom slot)');
+    window.loadRandomWeeksPreset();
+    return;
+  }
+  loadRandomPresetFromRemote();
+}
 const { showAudioPlayer, cycleAudioPlayer, closeAudioPlayer } = createSectionAudioPlayerController();
 
 function fullWindow() {
@@ -630,13 +654,17 @@ async function initProjectM() {
     if (!window._pmStartupPresetsLoaded) {
       window._pmStartupPresetsLoaded = true;
 
-      const startup = await loadStartupApiPresets(5);
-      if (startup.length > 0) {
-        Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
-        window.updatePresetDisplay(startup[0].filename);
-        for (let i = 1; i < startup.length; i++) {
-          Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
+      if (!weeksOnFireMode) {
+        const startup = await loadStartupApiPresets(5);
+        if (startup.length > 0) {
+          Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
+          window.updatePresetDisplay(startup[0].filename);
+          for (let i = 1; i < startup.length; i++) {
+            Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
+          }
         }
+      } else {
+        console.log('[B3HD] Weeks on fire: preset playlist seeded by WASM bootstrap');
       }
     }
   } catch (err) {

@@ -109,6 +109,7 @@ export JVM_HEAP_SIZE="$JVM_HEAP_SIZE"
 export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS"
 # shellcheck disable=SC1090
 source "$EMSDK_ENV"
+export EMSDK_ROOT="${EMSDK_ROOT:-${EMSDK:-}}"
 
 if ! command -v emcc >/dev/null 2>&1; then
     echo "Error: emcc not on PATH after sourcing $EMSDK_ENV" >&2

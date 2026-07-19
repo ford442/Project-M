@@ -15,17 +15,22 @@
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-EMSDK_ROOT="${EMSDK_ROOT:-${EMSCRIPTEN:-}}"
+EMSDK_ROOT="${EMSDK_ROOT:-${EMSDK:-${EMSCRIPTEN:-}}}"
 LLVM_OPENMP_SRC="${LLVM_OPENMP_SRC:-}"
 BUILD_DIR="${BUILD_DIR:-$PROJECT_ROOT/cmake-build-libomp}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
+if [[ -z "$EMSDK_ROOT" ]] && command -v emcc >/dev/null 2>&1; then
+    EMSDK_ROOT="$(cd "$(dirname "$(dirname "$(command -v emcc)")")" && pwd)"
+fi
+
 if [[ -z "$EMSDK_ROOT" ]]; then
-    if [[ -f "${HOME}/emsdk/emsdk_env.sh" ]]; then
-        EMSDK_ROOT="${HOME}/emsdk"
-    elif [[ -f "/emsdk/emsdk_env.sh" ]]; then
-        EMSDK_ROOT="/emsdk"
-    fi
+    for candidate in "${HOME}/emsdk" "/emsdk" "/content/build_space/emsdk"; do
+        if [[ -f "$candidate/emsdk_env.sh" ]]; then
+            EMSDK_ROOT="$candidate"
+            break
+        fi
+    done
 fi
 
 if [[ -z "$EMSDK_ROOT" || ! -f "$EMSDK_ROOT/emsdk_env.sh" ]]; then

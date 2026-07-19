@@ -116,8 +116,8 @@ INSTALL_DIR=/usr/local OUT_DIR="$PROJECT_ROOT" PROJECT_ROOT="$PROJECT_ROOT" \
 
 echo "=== Running optimize.sh and creating UTF-16/UTF-32 versions ==="
 bash "$PROJECT_ROOT/optimize.sh" || echo "Warning: optimize.sh returned non-zero"
-iconv -f UTF-8 -t UTF-16 "$PROJECT_ROOT/projectm-v.030-thread.js" -o "$PROJECT_ROOT/projectm-v.040-thread.1ijs"
-iconv -f UTF-8 -t UTF-32 "$PROJECT_ROOT/projectm-v.030-thread.js" -o "$PROJECT_ROOT/projectm-v.040-thread.3ijs"
+iconv -f UTF-8 -t UTF-16 "$PROJECT_ROOT/projectm-v.040-thread.js" -o "$PROJECT_ROOT/projectm-v.040-thread.1ijs"
+iconv -f UTF-8 -t UTF-32 "$PROJECT_ROOT/projectm-v.040-thread.js" -o "$PROJECT_ROOT/projectm-v.040-thread.3ijs"
 
 echo "=== Colab build complete ==="
-echo "Output files: $PROJECT_ROOT/projectm-v.030-thread.js, .1ijs, .3ijs"
+echo "Output files: $PROJECT_ROOT/projectm-v.040-thread.js, .1ijs, .3ijs"

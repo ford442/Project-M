@@ -141,6 +141,7 @@ PROJECT_ROOT="$PROJECT_ROOT" \
 echo "=== Building final WASM/JS wrapper ==="
 PROJECT_ROOT="$PROJECT_ROOT" \
     INSTALL_DIR="$INSTALL_DIR" \
+    CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
     OUT_DIR="$OUT_DIR" \
     ENABLE_WASM_TRANSITIONS="$ENABLE_WASM_TRANSITIONS" \
     bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"

@@ -4,9 +4,45 @@ set -euo pipefail
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 INSTALL_DIR="${INSTALL_DIR:-"$PROJECT_ROOT/install"}"
 OUT_DIR="${OUT_DIR:-"$PROJECT_ROOT/cmake-build/wasm-smoke"}"
+CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-}"
 
 # shellcheck source=wasm_link_common.inc.sh
 source "$PROJECT_ROOT/scripts/wasm_link_common.inc.sh"
+
+projectm_resolve_cmake_build_dir() {
+    local candidate static_shaders_header
+    if [[ -n "$CMAKE_BUILD_DIR" ]]; then
+        static_shaders_header="$CMAKE_BUILD_DIR/src/libprojectM/MilkdropPreset/MilkdropStaticShaders.hpp"
+        if [[ -f "$static_shaders_header" ]]; then
+            echo "$CMAKE_BUILD_DIR"
+            return 0
+        fi
+        echo "ERROR: CMAKE_BUILD_DIR=$CMAKE_BUILD_DIR but generated header not found:" >&2
+        echo "  $static_shaders_header" >&2
+        echo "Run INSTALL_DIR=$INSTALL_DIR CMAKE_BUILD_DIR=$CMAKE_BUILD_DIR scripts/build_wasm_install.sh first." >&2
+        return 1
+    fi
+
+    for candidate in \
+        "$PROJECT_ROOT/cmake-build-wasm" \
+        "$PROJECT_ROOT/cmake-build" \
+        "$PROJECT_ROOT/build"; do
+        static_shaders_header="$candidate/src/libprojectM/MilkdropPreset/MilkdropStaticShaders.hpp"
+        if [[ -f "$static_shaders_header" ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    echo "ERROR: could not find generated MilkdropStaticShaders.hpp under a CMake build dir." >&2
+    echo "Set CMAKE_BUILD_DIR to the Emscripten build directory (e.g. cmake-build-wasm)." >&2
+    echo "Run scripts/build_wasm_install.sh first." >&2
+    return 1
+}
+
+CMAKE_BUILD_DIR="$(projectm_resolve_cmake_build_dir)"
+LIBPROJECTM_GENERATED_INCLUDE="$CMAKE_BUILD_DIR/src/libprojectM"
+LIBPROJECTM_SOURCE_INCLUDE="$PROJECT_ROOT/src/libprojectM"
 
 mkdir -p "$OUT_DIR"
 
@@ -45,6 +81,8 @@ emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
     -I "$PROJECT_ROOT" \
     -I "$PROJECT_ROOT/cmake/generated" \
     -I "$PROJECT_ROOT/omp" \
+    -I "$LIBPROJECTM_SOURCE_INCLUDE" \
+    -I "$LIBPROJECTM_GENERATED_INCLUDE" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \
     -s INVOKE_RUN=0 \

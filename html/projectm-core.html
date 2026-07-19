@@ -505,6 +505,7 @@ canvas.emscripten {
   <div id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
   <div id="textureDir">textures/</div>
   <div id="songDir">songs/</div>
+  <div id="weeksPresetDir">weeks_presets/</div>
   <div id="presetDir">default</div>
   <div id="srsiz">1000</div>
   <div id="wid">1280</div>
@@ -537,10 +538,16 @@ import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as
 import { setupPresetPicker } from './projectm-preset-picker.js';
 import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
+import { applyWeeksOnFireDomConfig, isWeeksOnFireMode } from './projectm-weeks-on-fire.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const enableLocalPresets = new URLSearchParams(window.location.search).get('localPresets') === '1';
 const urlParams = new URLSearchParams(window.location.search);
+const weeksOnFireMode = isWeeksOnFireMode(urlParams);
+if (weeksOnFireMode) {
+    applyWeeksOnFireDomConfig(document);
+    document.title = 'Project M — Weeks on Fire';
+}
 
 let Module;
 let isBezelMode = true;
@@ -767,6 +774,11 @@ function randomPreset() {
         flashLockToast();
         return;
     }
+    if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
+        console.log('[ProjectM] Random Weeks Preset');
+        window.loadRandomWeeksPreset();
+        return;
+    }
     console.log('[ProjectM] Random Preset');
     loadRandomPresetFromRemote();
 }
@@ -776,6 +788,11 @@ function randomPreset() {
 function randomCustom() {
     if (isPresetLocked) {
         flashLockToast();
+        return;
+    }
+    if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
+        console.log('[ProjectM] Random Weeks Preset (custom slot)');
+        window.loadRandomWeeksPreset();
         return;
     }
     console.log('[ProjectM] Random Custom');
@@ -1361,13 +1378,17 @@ if (urlTransparency === '1' || savedTransparency === '1') {
 
         if (!window._pmStartupPresetsLoaded) {
             window._pmStartupPresetsLoaded = true;
-            const startupResults = await loadStartupApiPresets(5);
-            if (startupResults.length > 0) {
-                Module.ccall('load_preset_file', null, ['string'], [startupResults[0].vfsPath]);
-                updatePresetDisplay(startupResults[0].filename);
-                for (let i = 1; i < startupResults.length; i++) {
-                    Module.ccall('add_preset_file', null, ['string'], [startupResults[i].vfsPath]);
+            if (!weeksOnFireMode) {
+                const startupResults = await loadStartupApiPresets(5);
+                if (startupResults.length > 0) {
+                    Module.ccall('load_preset_file', null, ['string'], [startupResults[0].vfsPath]);
+                    updatePresetDisplay(startupResults[0].filename);
+                    for (let i = 1; i < startupResults.length; i++) {
+                        Module.ccall('add_preset_file', null, ['string'], [startupResults[i].vfsPath]);
+                    }
                 }
+            } else {
+                console.log('[ProjectM] Weeks on fire: preset playlist seeded by WASM bootstrap');
             }
         }
     } catch (err) {

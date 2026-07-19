@@ -164,6 +164,7 @@ used to change the mesh resolution at runtime. `html/projectm-mesh-quality.js` w
 - `'high'` → 48×36 (default)
 - `'low'` → 32×24 (previous default, used as the fallback on `navigator.hardwareConcurrency < 4`)
 - `'auto'` (default) picks between the two based on `navigator.hardwareConcurrency`
+  (devices with fewer than 8 logical cores start at `'low'`)
 
 The choice is persisted in `localStorage.meshQuality` and can be overridden per page load with
 `?meshQuality=high|low|auto`, or changed at runtime via `window.pmSetMeshQuality(quality)`.
@@ -225,9 +226,9 @@ per-pixel mesh resolution between two tiers (matching `html/projectm-mesh-qualit
 
 Thresholds, relative to a budget of `1000 / targetFps` ms (≈16.7 ms at the default 60 fps):
 
-- **Step down** a tier after **30 consecutive frames** (~0.5 s @ 60 fps) where the frame time
-  exceeds **1.5×** budget (~25 ms).
-- **Step up** a tier after **120 consecutive frames** (~2 s @ 60 fps) where the frame time is
+- **Step down** a tier after **15 consecutive frames** (~0.25 s @ 60 fps) where the frame time
+  exceeds **1.3×** budget (~21.7 ms).
+- **Step up** a tier after **90 consecutive frames** (~1.5 s @ 60 fps) where the frame time is
   under **0.8×** budget (~13.3 ms).
 - Frames within **10 frames** after a preset finishes loading (`app_data.loading` transitioning
   `true` → `false`) are excluded from both counters, so a single slow ASYNCIFY preset-compile

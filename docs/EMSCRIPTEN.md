@@ -420,12 +420,16 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
 
 `render_frame()` picks one of two paths:
 
-- **Dual-FBO compositor path** (normal case, once `start_render()` has run):
-  if `g_dualFbo.IsPresetAAllocated()` and `g_compositorShader.IsInitialized()`
-  are both true, it renders Preset A (and, during a transition, Preset B) into
-  their ping-pong FBOs and then calls `g_compositorShader.Draw(...)`, which
-  binds the default framebuffer (FBO 0, i.e. `#mcanvas`) and blits the
-  (cross-faded) result to it.
+- **Direct-to-canvas path** (steady state — the common case): when no preset
+  crossfade is active, `render_frame()` calls `projectm_opengl_render_frame(pm)`
+  straight to FBO 0 (the browser canvas), wrapped in a `GLStateGuard`. This is
+  the same single-pass path used before the dual-FBO transition work landed.
+- **Dual-FBO compositor path** (preset crossfades only): when
+  `g_transitionActive` is true and both Preset A/B FBOs plus
+  `g_compositorShader` are ready, it renders Preset A and Preset B into their
+  ping-pong FBOs and then calls `g_compositorShader.Draw(...)`, which binds
+  the default framebuffer (FBO 0, i.e. `#mcanvas`) and blits the cross-faded
+  result to it.
 
   > **Important:** rendering Preset A/B into their Write FBOs **must** use
   > `projectm_opengl_render_frame_fbo(pm, fbo)` (not plain
@@ -439,11 +443,11 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
   > canvas — a 100%-black `#mcanvas` even though projectM itself rendered
   > correctly. `projectm_opengl_render_frame_fbo()` (available since projectM
   > 4.2.0, `render_opengl.h`) passes the target FBO through correctly.
-- **Legacy single-pass fallback** (before `start_render()` has allocated the
-  FBOs, or if `g_compositorShader.Init()` failed): `render_frame()` calls
-  `projectm_opengl_render_frame(pm)` directly, which renders straight to FBO 0,
-  wrapped in a `GLStateGuard` for parity with the dual-FBO path's per-pass
-  guards.
+- **Legacy single-pass fallback** (before `start_render()` has run, or if the
+  compositor shader failed to initialise while a transition is active):
+  `render_frame()` calls `projectm_opengl_render_frame(pm)` directly, which
+  renders straight to FBO 0, wrapped in a `GLStateGuard` for parity with the
+  dual-FBO path's per-pass guards.
 
 Either path leaves the finished frame in FBO 0 and increments
 `g_renderedFrameCount` exactly once. `renderLoop()` then calls

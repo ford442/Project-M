@@ -136,8 +136,6 @@ projectm_wasm_common_link_args() {
         -mtune=wasm32
         -pthread
         -fopenmp=libomp
-        --typed-function-references
-        --enable-reference-types
         -fno-math-errno
         -s SHARED_MEMORY=1
         -s WASM_WORKERS=1

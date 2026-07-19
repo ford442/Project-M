@@ -126,8 +126,6 @@ set(PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS
         -mtune=wasm32
         -pthread
         -fopenmp=libomp
-        --typed-function-references
-        --enable-reference-types
         -fno-math-errno
         )
 

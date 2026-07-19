@@ -9,22 +9,12 @@
 #include <projectM-4/projectM.h>
 #include <projectM-4/projectm_perf.h>
 #include <emscripten/html5_webgl.h>
-#define GL_GLEXT_PROTOTYPES
-#define GL_FRAGMENT_PRECISION_HIGH
-#include <GL/gl.h>
-#include <GL/glext.h>
-#include <GLES3/gl31.h>
-// #include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
-#include <GLES3/gl3.h>
 
-#define GL_CONTEXT_PROFILE_MASK 0x9126
-#define GL_CONTEXT_COMPATIBILITY_PROFILE_BIT 0x00000002
-#define GL_CONTEXT_CORE_PROFILE_BIT 0x00000001
-#define CONTEXT_FLAG_NO_ERROR_BIT_KHR 0x00000008
-#define GL_ANISOTROPIC_FILTER 0x3000
-#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
-#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
+#ifdef __EMSCRIPTEN__
+#ifndef USE_GLES
+#define USE_GLES
+#endif
+#endif
 
 #include <cstdint>
 #include <vector>
@@ -36,6 +26,25 @@
 
 #include <MilkdropPreset/MilkdropStaticShaders.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
+
+#ifndef USE_GLES
+#define GL_GLEXT_PROTOTYPES
+#define GL_FRAGMENT_PRECISION_HIGH
+#include <GL/gl.h>
+#include <GL/glext.h>
+#include <GLES3/gl31.h>
+// #include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include <GLES3/gl3.h>
+#endif
+
+#define GL_CONTEXT_PROFILE_MASK 0x9126
+#define GL_CONTEXT_COMPATIBILITY_PROFILE_BIT 0x00000002
+#define GL_CONTEXT_CORE_PROFILE_BIT 0x00000001
+#define CONTEXT_FLAG_NO_ERROR_BIT_KHR 0x00000008
+#define GL_ANISOTROPIC_FILTER 0x3000
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
 
 using namespace emscripten;
 

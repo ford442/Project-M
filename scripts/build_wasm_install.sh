@@ -50,9 +50,24 @@ fi
 cd "$PROJECT_ROOT"
 git submodule update --init --recursive
 
-if [[ "$ENABLE_OPENMP" == "ON" && ! -f "$PROJECT_ROOT/libomp.a" ]]; then
-    echo "=== Building libomp.a for Emscripten ===" >&2
-    bash "$PROJECT_ROOT/scripts/build_libomp_emscripten.sh"
+ensure_libomp() {
+    if [[ -f "$PROJECT_ROOT/libomp.a" || -f "$PROJECT_ROOT/omp/libomp.a" ]]; then
+        return 0
+    fi
+    if [[ -f "$PROJECT_ROOT/omp/omp.zip" ]]; then
+        echo "=== Unpacking prebuilt libomp from omp/omp.zip ===" >&2
+        unzip -o -q "$PROJECT_ROOT/omp/omp.zip" -d "$PROJECT_ROOT/omp/"
+        return 0
+    fi
+    return 1
+}
+
+if [[ "$ENABLE_OPENMP" == "ON" ]]; then
+    if ! ensure_libomp; then
+        echo "=== Building libomp.a for Emscripten ===" >&2
+        EMSDK_ROOT="${EMSDK_ROOT:-${EMSDK:-}}" \
+            bash "$PROJECT_ROOT/scripts/build_libomp_emscripten.sh"
+    fi
 fi
 
 cmake_args=(

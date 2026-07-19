@@ -44,6 +44,22 @@ CMAKE_BUILD_DIR="$(projectm_resolve_cmake_build_dir)"
 LIBPROJECTM_GENERATED_INCLUDE="$CMAKE_BUILD_DIR/src/libprojectM"
 LIBPROJECTM_SOURCE_INCLUDE="$PROJECT_ROOT/src/libprojectM"
 
+projectm_wasm_wrapper_include_args() {
+    local -n _out=$1
+    _out=(
+        -I "$INSTALL_DIR/include"
+        -I "$PROJECT_ROOT"
+        -I "$PROJECT_ROOT/cmake/generated"
+        -I "$PROJECT_ROOT/omp"
+        -I "$LIBPROJECTM_SOURCE_INCLUDE"
+        -I "$LIBPROJECTM_GENERATED_INCLUDE"
+        -I "$PROJECT_ROOT/vendor/hlslparser/src"
+        -I "$PROJECT_ROOT/vendor/glad/include"
+        -I "$PROJECT_ROOT/vendor"
+        -DUSE_GLES
+    )
+}
+
 mkdir -p "$OUT_DIR"
 
 projectm_lib="$INSTALL_DIR/lib/libprojectM-4.a"
@@ -73,16 +89,14 @@ projectm_wasm_common_link_args common_args
 simd_compile_args=()
 projectm_wasm_simd_compile_args simd_compile_args
 
+wrapper_include_args=()
+projectm_wasm_wrapper_include_args wrapper_include_args
+
 # Note: no -flto here by default. projectM_emscripten.cpp is the only LTO/bitcode TU
 # in this link; libprojectM-4.a is built without LTO. Set PROJECTM_WASM_LTO=1 to try
 # link-time-only LTO (see docs/PERFORMANCE.md).
 emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
-    -I "$INSTALL_DIR/include" \
-    -I "$PROJECT_ROOT" \
-    -I "$PROJECT_ROOT/cmake/generated" \
-    -I "$PROJECT_ROOT/omp" \
-    -I "$LIBPROJECTM_SOURCE_INCLUDE" \
-    -I "$LIBPROJECTM_GENERATED_INCLUDE" \
+    "${wrapper_include_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \
     -s INVOKE_RUN=0 \

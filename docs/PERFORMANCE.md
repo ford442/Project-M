@@ -139,9 +139,9 @@ target next — i.e. how to prioritize #81–#85.
 The per-vertex ("per-pixel") equations (`q1..q32`, `x`/`y`/`rad`/`ang`/`zoom`/`rot`/`warp`/etc.)
 are evaluated once per mesh vertex per frame via `PerPixelMesh::CalculateMesh()` /
 `PerPixelContext`. The default mesh size (`ProjectM::m_meshX` / `m_meshY` in `ProjectM.hpp`) is
-now **48×36** (1813 vertices), up from the previous 32×24 (792 vertices), matching the resolution
-commonly used by MilkDrop 2 presets and removing the straight-line artifacts visible in strong
-warp/zoom/rotation presets at 32×24.
+now **80×60** (4961 vertices), up from the previous 48×36 (1728 vertices), improving
+warp/zoom/rotation fidelity. The adaptive governor's regular tier is **64×48**
+(3073 vertices).
 
 To keep this affordable on the additional ~2.3x vertices, `PerPixelMesh::CalculateMesh()` runs the
 per-pixel evaluation loop with `#pragma omp parallel for` when built with `ENABLE_OPENMP=ON`.
@@ -161,8 +161,8 @@ variables and `q1..q32` are broadcast to the pool contexts once per frame via
 used to change the mesh resolution at runtime. `html/projectm-mesh-quality.js` wires this up in
 `projectm-core.html`:
 
-- `'high'` → 48×36 (default)
-- `'low'` → 32×24 (previous default, used as the fallback on `navigator.hardwareConcurrency < 4`)
+- `'high'` → 80×60 (default)
+- `'low'` → 64×48 (regular tier; used as the fallback on `navigator.hardwareConcurrency < 8`)
 - `'auto'` (default) picks between the two based on `navigator.hardwareConcurrency`
   (devices with fewer than 8 logical cores start at `'low'`)
 
@@ -221,8 +221,8 @@ Implemented in `projectM_emscripten.cpp` as `UpdateQualityGovernor()`, called on
 always-on, independent of `g_perfHudEnabled`). v1 is intentionally minimal — it only steps the
 per-pixel mesh resolution between two tiers (matching `html/projectm-mesh-quality.js`):
 
-- **Tier 0 (high)**: 48×36 mesh (the new default, see above).
-- **Tier 1 (low)**: 32×24 mesh.
+- **Tier 0 (high)**: 80×60 mesh.
+- **Tier 1 (regular)**: 64×48 mesh.
 
 Thresholds, relative to a budget of `1000 / targetFps` ms (≈16.7 ms at the default 60 fps):
 
@@ -251,7 +251,7 @@ New WASM exports (`projectM_emscripten.cpp`, wired up in `CMakeLists.txt` and
   budget reference. Resets the governor's consecutive-frame counters.
 - `Module._set_quality_governor(enabled)` — enables/disables automatic tier changes without
   affecting the current tier.
-- `Module._get_quality_tier()` — returns the current tier (0 = high/48×36, 1 = low/32×24).
+- `Module._get_quality_tier()` — returns the current tier (0 = high/80×60, 1 = regular/64×48).
 
 `html/projectm-fps-governor.js` (`setupFpsGovernor(Module)`, called from `projectm-core.html`)
 applies `?targetFps=`/`?governor=0|1` query params or `localStorage.targetFps` /

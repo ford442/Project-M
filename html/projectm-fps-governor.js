@@ -7,7 +7,7 @@
 // The adaptive quality governor (implemented in projectM_emscripten.cpp,
 // `UpdateQualityGovernor()`) watches the wall-clock render loop time and, if
 // it consistently exceeds the 1/targetFps budget, steps the per-pixel mesh
-// resolution down (48x36 -> 32x24, see projectm-mesh-quality.js) instead of
+// resolution down (80x60 -> 64x48, see projectm-mesh-quality.js) instead of
 // letting the frame rate drop. If frame time recovers, it steps back up.
 //
 // Settings are persisted in localStorage:
@@ -65,7 +65,7 @@ export function setQualityGovernorEnabled(Module, enabled) {
 }
 
 /**
- * Returns the governor's current quality tier (0 = high/48x36, 1 = low/32x24).
+ * Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48).
  * @param {*} Module The Emscripten module instance.
  * @returns {number} The current quality tier.
  */

@@ -212,8 +212,8 @@ PROJECTM_EXPORT double projectm_get_preset_duration(projectm_handle instance);
  * so only multiples of two are used.
  *
  * @param instance The projectM instance handle.
- * @param width The new width of the mesh. Default: 48
- * @param height The new height of the mesh. Default: 36
+ * @param width The new width of the mesh. Default: 80
+ * @param height The new height of the mesh. Default: 60
  * @since 4.0.0
  */
 PROJECTM_EXPORT void projectm_set_mesh_size(projectm_handle instance, size_t width, size_t height);

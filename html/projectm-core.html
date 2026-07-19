@@ -1314,8 +1314,8 @@ async function attemptInit() {
         flushQueuedExternalPCM();
 
         // ====== MESH QUALITY ======
-        // Per-pixel mesh resolution: 'high' (48x36, Milkdrop-parity) or 'low'
-        // (32x24, for low-core-count devices). Auto-selected from
+        // Per-pixel mesh resolution: 'high' (80x60) or 'low' (64x48 regular tier).
+        // Auto-selected from navigator.hardwareConcurrency unless overridden via
         // navigator.hardwareConcurrency unless overridden via
         // ?meshQuality=high|low or localStorage.meshQuality. See
         // docs/PERFORMANCE.md.

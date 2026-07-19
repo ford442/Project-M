@@ -168,11 +168,10 @@ mySelect.value = firstValue;
 
 <option value="192,192">(192,192)</option>
 
-<option value="32,24">(32,24) Default</option>
+<option value="64,48">(64,48) Default</option>
 <option value="40,30">(40,30)</option>
 <option value="48,36">(48,36)</option>
-<option value="64,48">(64,48)</option>
-<option value="80,60">(80,60)</option>
+<option value="80,60">(80,60) High</option>
 <option value="96,72">(96,72)</option>
 <option value="128,96">(128,96)</option>
 <option value="160,120">(160,120)</option>

@@ -23,6 +23,8 @@
 #include <omp.h>
 #endif
 
+#include <exception>
+
 #include <cstring>
 #include <sstream>
 
@@ -87,6 +89,8 @@ projectm_handle projectm_create()
 
 projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const char*, void*), void* user_data)
 {
+    using libprojectM::Logging;
+
     try
     {
         // Init resolver to discover gl function pointers (guarded internally, valid to call multiple times)
@@ -106,8 +110,15 @@ projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const c
         auto* projectMInstance = new libprojectM::projectMWrapper();
         return reinterpret_cast<projectm_handle>(projectMInstance);
     }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("projectm_create_with_opengl_load_proc caught exception:");
+        LOG_ERROR(e.what());
+        return nullptr;
+    }
     catch (...)
     {
+        LOG_ERROR("projectm_create_with_opengl_load_proc caught unknown exception");
         return nullptr;
     }
 }

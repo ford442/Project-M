@@ -42,6 +42,98 @@ static void ConfigureWasmOpenMPThreadCount()
 
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE gl_ctx = 0;
 
+// ---- Canvas CSS selectors (Phase A of #168) ---------------------------------
+// Defaults preserve the historical `#mcanvas` / `#scanvas` contract. Hosts may
+// override via Module.primaryCanvasSelector / Module.secondaryCanvasSelector
+// (read at init), set_canvas_selectors(), init_with_canvases(), or
+// rebind_canvases(). True multi-instance (two engines in one Module) is not
+// supported; see docs/EMSCRIPTEN.md § Configurable canvas selectors.
+static constexpr size_t kCanvasSelectorMax = 256;
+static char g_mainCanvasSelector[kCanvasSelectorMax] = "#mcanvas";
+static char g_secondaryCanvasSelector[kCanvasSelectorMax] = "#scanvas";
+static bool g_canvasSelectorsExplicit = false;
+
+static void CopyCanvasSelector(char* dest, size_t destSize, const char* src, const char* fallback)
+{
+    const char* value = (src != nullptr && src[0] != '\0') ? src : fallback;
+    std::snprintf(dest, destSize, "%s", value);
+}
+
+static void ApplyModuleCanvasSelectorsIfPresent()
+{
+    if (g_canvasSelectorsExplicit)
+    {
+        return;
+    }
+
+    // Pull optional Module factory config into the C selector buffers before
+    // creating the WebGL context. Empty / missing properties keep defaults.
+    EM_ASM({
+        function copySel(key, fallback, ptr, len) {
+            var sel = fallback;
+            try {
+                if (typeof Module !== 'undefined' && Module[key]) {
+                    sel = String(Module[key]);
+                }
+            } catch (e) {}
+            if (!sel) {
+                sel = fallback;
+            }
+            stringToUTF8(sel, ptr, len);
+        }
+        copySel('primaryCanvasSelector', '#mcanvas', $0, $1);
+        copySel('secondaryCanvasSelector', '#scanvas', $2, $3);
+    },
+           g_mainCanvasSelector,
+           static_cast<int>(sizeof(g_mainCanvasSelector)),
+           g_secondaryCanvasSelector,
+           static_cast<int>(sizeof(g_secondaryCanvasSelector)));
+}
+
+static bool CanvasElementExists(const char* selector)
+{
+    if (selector == nullptr || selector[0] == '\0')
+    {
+        return false;
+    }
+    return EM_ASM_INT({
+               try {
+                   return document.querySelector(UTF8ToString($0)) ? 1 : 0;
+               } catch (e) {
+                   return 0;
+               }
+           },
+                      selector) != 0;
+}
+
+static void TearDownEngineForRebind()
+{
+    // Cancel the Emscripten main loop if one is running so rebind can restart it
+    // via start_render() after a fresh init().
+    emscripten_cancel_main_loop();
+
+    if (playlist)
+    {
+        projectm_playlist_destroy(playlist);
+        playlist = nullptr;
+    }
+    if (pm)
+    {
+        projectm_destroy(pm);
+        pm = nullptr;
+    }
+    app_data.projectm_engine = nullptr;
+    app_data.playlist = nullptr;
+    app_data.loading = EM_FALSE;
+
+    g_dualFbo.ReleaseAll();
+    if (gl_ctx)
+    {
+        emscripten_webgl_destroy_context(gl_ctx);
+        gl_ctx = 0;
+    }
+}
+
 /**
  * @brief Minimal WebGL 2 context attributes for projectM.
  *
@@ -288,6 +380,44 @@ return;
 } // extern "C"
 
 extern "C" {
+EMSCRIPTEN_KEEPALIVE int init();
+
+EMSCRIPTEN_KEEPALIVE
+void set_canvas_selectors(const char* primary, const char* secondary)
+{
+    if (primary != nullptr && primary[0] != '\0')
+    {
+        CopyCanvasSelector(g_mainCanvasSelector, sizeof(g_mainCanvasSelector), primary, "#mcanvas");
+        g_canvasSelectorsExplicit = true;
+    }
+    if (secondary != nullptr && secondary[0] != '\0')
+    {
+        CopyCanvasSelector(g_secondaryCanvasSelector, sizeof(g_secondaryCanvasSelector), secondary, "#scanvas");
+        g_canvasSelectorsExplicit = true;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+int init_with_canvases(const char* primary, const char* secondary)
+{
+    set_canvas_selectors(primary, secondary);
+    return init();
+}
+
+EMSCRIPTEN_KEEPALIVE
+int rebind_canvases(const char* primary, const char* secondary)
+{
+    // Single-instance rebind: tear down the active engine/GL context and re-init
+    // against new canvas selectors. Does not support two simultaneous engines in
+    // one Module (INITIAL_MEMORY ≈ 1 GiB per Module instance).
+    set_canvas_selectors(primary, secondary);
+    if (pm || gl_ctx)
+    {
+        TearDownEngineForRebind();
+    }
+    return init();
+}
+
 EMSCRIPTEN_KEEPALIVE
 int init() {
 if (pm) {
@@ -295,6 +425,7 @@ js_report_init_success();
 return 0;
 }
 ConfigureWasmOpenMPThreadCount();
+ApplyModuleCanvasSelectorsIfPresent();
 // Clean up any previously created WebGL resources from a failed prior init attempt
 // so that calling init() again after a partial failure is safe.
 if (gl_ctx) {
@@ -303,9 +434,15 @@ gl_ctx = 0;
 }
 js_init_projectm_dom();
 EmscriptenWebGLContextAttributes webgl_attrs = ProjectMDefaultWebGLAttributes();
-gl_ctx = emscripten_webgl_create_context("#mcanvas", &webgl_attrs);
+if (!CanvasElementExists(g_mainCanvasSelector))
+{
+    fprintf(stderr, "Failed to find primary canvas selector: %s\n", g_mainCanvasSelector);
+    js_report_init_error(2, "Primary canvas selector not found in document");
+    return 2;
+}
+gl_ctx = emscripten_webgl_create_context(g_mainCanvasSelector, &webgl_attrs);
 if (!gl_ctx) {
-fprintf(stderr, "Failed to create WebGL context\n");
+fprintf(stderr, "Failed to create WebGL context on %s\n", g_mainCanvasSelector);
 js_report_init_error(2, "Failed to create WebGL 2 context");
 return 2;
 }
@@ -544,8 +681,11 @@ return;
 EMSCRIPTEN_KEEPALIVE
 void set_window_size(int width, int height) {
 if (!pm) return;
-emscripten_set_canvas_element_size("#mcanvas", width, height);
-emscripten_set_canvas_element_size("#scanvas", width, height);
+emscripten_set_canvas_element_size(g_mainCanvasSelector, width, height);
+if (CanvasElementExists(g_secondaryCanvasSelector))
+{
+    emscripten_set_canvas_element_size(g_secondaryCanvasSelector, width, height);
+}
 glViewport(0,0,width,height);
 glScissor(0,0,width,height);
 projectm_set_window_size(pm, width, height);

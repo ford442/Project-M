@@ -27,6 +27,38 @@ import {
 } from './generated/projectm-wasm-api.js';
 
 const DEFAULT_TARGET_FPS = 60;
+let canvasIdSerial = 0;
+
+/**
+ * Ensure a canvas has a document-unique id for Emscripten CSS selectors.
+ * @param {HTMLCanvasElement} canvas
+ * @param {string} prefix
+ * @returns {string} The resulting element id (without `#`).
+ */
+function ensureCanvasElementId(canvas, prefix) {
+    if (canvas.id) {
+        return canvas.id;
+    }
+    canvasIdSerial += 1;
+    const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().slice(0, 8)
+        : `${canvasIdSerial}-${Math.random().toString(36).slice(2, 8)}`;
+    canvas.id = `${prefix}-${suffix}`;
+    return canvas.id;
+}
+
+/**
+ * @param {HTMLCanvasElement} canvas
+ * @param {string | undefined} explicitSelector
+ * @param {string} idPrefix
+ * @returns {string}
+ */
+function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
+    if (explicitSelector) {
+        return explicitSelector;
+    }
+    return `#${ensureCanvasElementId(canvas, idPrefix)}`;
+}
 
 /**
  * @typedef {import('./projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
@@ -102,7 +134,7 @@ export class ProjectMContext {
     /** @param {ProjectMContextOptions} options */
     constructor(options) {
         if (!options?.canvas) {
-            throw new Error('ProjectMContext requires a canvas element (#mcanvas)');
+            throw new Error('ProjectMContext requires a canvas element');
         }
 
         /** @type {ProjectMResolvedContextOptions} */
@@ -126,6 +158,18 @@ export class ProjectMContext {
         this.canvas = options.canvas;
         this.secondaryCanvas = options.secondaryCanvas ?? null;
         this.container = options.container ?? this.canvas.parentElement ?? this.canvas;
+        this.primaryCanvasSelector = resolveCanvasSelector(
+            this.canvas,
+            options.primaryCanvasSelector,
+            'pm-main-canvas'
+        );
+        this.secondaryCanvasSelector = this.secondaryCanvas
+            ? resolveCanvasSelector(
+                this.secondaryCanvas,
+                options.secondaryCanvasSelector,
+                'pm-secondary-canvas'
+            )
+            : (options.secondaryCanvasSelector || '#scanvas');
         /** @type {ProjectMModule | null} */
         this.module = null;
         this.ready = false;
@@ -204,19 +248,27 @@ export class ProjectMContext {
                     baseUrl: wasmBaseUrl ?? import.meta.url,
                 }),
                 windowRef,
+                noInitialRun: true,
+                primaryCanvasSelector: this.primaryCanvasSelector,
+                secondaryCanvasSelector: this.secondaryCanvasSelector,
             }));
             if (windowRef) {
                 windowRef.Module = this.module;
             }
 
-            if (!checkInit(this.module)) {
+            if (!checkInit(this.module, {
+                primaryCanvasSelector: this.primaryCanvasSelector,
+                secondaryCanvasSelector: this.secondaryCanvasSelector,
+            })) {
                 const error = new Error('projectM init() failed');
                 onError?.({ code: -1, message: error.message, error });
                 throw error;
             }
 
             setupAudioUnlock();
-            setupContextLossRecovery(this.module);
+            setupContextLossRecovery(this.module, {
+                canvasSelector: this.primaryCanvasSelector,
+            });
 
             syncCanvasSize({
                 module: this.module,

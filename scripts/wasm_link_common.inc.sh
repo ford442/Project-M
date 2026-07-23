@@ -16,6 +16,9 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _destruct
     _get_projectm_handle
     _init
+    _set_canvas_selectors
+    _init_with_canvases
+    _rebind_canvases
     _load_preset_file
     _switch_preset
     _set_aspect_correction

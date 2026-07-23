@@ -83,6 +83,9 @@ export const WASM_API_SYMBOLS = {
     destruct: 'destruct',
     getProjectmHandle: 'get_projectm_handle',
     init: 'init',
+    setCanvasSelectors: 'set_canvas_selectors',
+    initWithCanvases: 'init_with_canvases',
+    rebindCanvases: 'rebind_canvases',
     loadPresetFile: 'load_preset_file',
     switchPreset: 'switch_preset',
     setAspectCorrection: 'set_aspect_correction',
@@ -186,6 +189,21 @@ export function getProjectmHandle(module: ProjectMModule): number {
 /** Initialize EGL/WebGL and projectM, returns 0 on success */
 export function init(module: ProjectMModule): number {
     return module._init();
+}
+
+/** Set primary/secondary canvas CSS selectors (default #mcanvas/#scanvas) */
+export function setCanvasSelectors(module: ProjectMModule, primary: string, secondary: string): void {
+    module.ccall('set_canvas_selectors', null, ['string', 'string'], [primary, secondary]);
+}
+
+/** Set canvas selectors then init (returns 0 on success) */
+export function initWithCanvases(module: ProjectMModule, primary: string, secondary: string): number {
+    return module.ccall('init_with_canvases', 'number', ['string', 'string'], [primary, secondary]) as number;
+}
+
+/** Tear down and re-init against new canvas selectors (single-instance) */
+export function rebindCanvases(module: ProjectMModule, primary: string, secondary: string): number {
+    return module.ccall('rebind_canvases', 'number', ['string', 'string'], [primary, secondary]) as number;
 }
 
 /** Load preset from Emscripten VFS path */
@@ -486,6 +504,9 @@ export function transitionGetDuration(module: ProjectMModule): number {
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
     init,
+    setCanvasSelectors,
+    initWithCanvases,
+    rebindCanvases,
     loadPresetFile,
     switchPreset,
     setAspectCorrection,

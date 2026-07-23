@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>projectM multi-embed (iframe recipe)</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0b1220;
+      color: #cbd5e1;
+      font-family: system-ui, sans-serif;
+    }
+    header {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+      font-size: 14px;
+    }
+    header code { color: #93c5fd; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      height: calc(100% - 52px);
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: #000;
+    }
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Multi-embed recipe</strong>
+    — one Module / one visualizer per iframe (≈1 GiB <code>INITIAL_MEMORY</code> each).
+    Each iframe must be served with COOP/COEP. See
+    <code>docs/EMSCRIPTEN.md#configurable-canvas-selectors</code>.
+  </header>
+  <div class="grid">
+    <!-- Point each iframe at a COOP/COEP host of embed-demo.html (or your app). -->
+    <iframe title="visualizer-a" src="./embed-demo.html" allow="autoplay; cross-origin-isolated"></iframe>
+    <iframe title="visualizer-b" src="./embed-demo.html" allow="autoplay; cross-origin-isolated"></iframe>
+  </div>
+</body>
+</html>

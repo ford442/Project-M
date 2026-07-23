@@ -49,6 +49,10 @@
   <!--
     Requires COOP/COEP on the page. WASM glue resolves from ./pm/ (see projectm-init.js).
     For local dev, symlink or copy deploy artifacts and presets next to this file.
+
+    The custom element creates unique canvas ids (not page-global #mcanvas/#scanvas)
+    and passes them to init_with_canvases. One visualizer per Module; multi-embed
+    via iframes — see packages/web/README.md.
   -->
   <project-m-visualizer
     preset-url="./presets/tests/000-empty.milk"

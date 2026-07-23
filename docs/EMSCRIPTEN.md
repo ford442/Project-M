@@ -69,6 +69,40 @@ Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, 
 explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
 presented when the WebGL canvas is composited by the browser.
 
+## Configurable canvas selectors
+
+Historically the WASM host hardcoded `#mcanvas` / `#scanvas`. Those remain the **defaults** for
+backward compatibility. Hosts can override the CSS selectors used for WebGL context creation and
+`set_window_size()`:
+
+| API | Binding | Behavior |
+|-----|---------|----------|
+| `Module.primaryCanvasSelector` / `Module.secondaryCanvasSelector` | `createModule({...})` factory config | Read once at `init()` when selectors were not set via C API |
+| `set_canvas_selectors(primary, secondary)` | `ccall` | Store selectors for subsequent `init` / resize |
+| `init_with_canvases(primary, secondary)` | `ccall` | Set selectors then call `init()` |
+| `rebind_canvases(primary, secondary)` | `ccall` | Tear down engine + GL, then `init()` on new selectors (**single-instance rebind**) |
+
+`ProjectMContext` / `<project-m-visualizer>` assign unique canvas element ids (e.g.
+`pm-main-canvas-…`) and call `init_with_canvases` — they do **not** require page-global
+`#mcanvas` / `#scanvas`.
+
+### Multi-instance story (memory)
+
+True dual-engine multi-instance inside **one** Module is **not** supported yet (`AppData` and
+related host state remain process-global — see #168 Phase B).
+
+| Approach | Supported? | Memory notes |
+|----------|:----------:|--------------|
+| One Module, one visualizer, configurable selectors | **yes** (MVP) | One `INITIAL_MEMORY` reservation (default **1024mb**, growable to 4gb) |
+| One Module, `rebind_canvases()` to switch surfaces | **yes** | Same Module; only one surface active |
+| Two `<project-m-visualizer>` in one document sharing one Module | **no** | Would require Phase B instance handles |
+| Two Module instantiations in one document | **avoid** | ≈1 GiB+ each (`INITIAL_MEMORY`); often OOMs mobile |
+| Multi-embed via **cross-origin-isolated iframes** | **yes** | One Module per iframe; isolate COOP/COEP on the iframe origin |
+
+Recommended multi-embed recipe: host each visualizer in its own iframe served with COOP/COEP
+(see [DEPLOYMENT.md](DEPLOYMENT.md#cross-origin-isolation-coopcoep)). That keeps pthread /
+`SharedArrayBuffer` working and caps memory per frame.
+
 ## Emscripten flag single source of truth
 
 WASM compile/link flags, `EXPORTED_FUNCTIONS`, and the OpenMP/pthread pool cap are defined in
@@ -224,7 +258,7 @@ only a `stderr` message in the console.
 | Code | Stage | Meaning | Common causes |
 |------|-------|---------|----------------|
 | `0` | — | Success. | — |
-| `2` | WebGL | `emscripten_webgl_create_context` failed, or the created context could not be activated. | WebGL 2 unsupported or disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
+| `2` | WebGL | Primary canvas selector not found, `emscripten_webgl_create_context` failed, or the created context could not be activated. | Missing canvas element, WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
 | `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (common on low-RAM mobile with `INITIAL_MEMORY=1024mb`), or an internal projectM error. |
 | `4` | Cross-origin isolation | *(JS-side only, not returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
 

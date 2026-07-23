@@ -29,10 +29,24 @@ export interface ProjectMPresetDetail {
 }
 
 export interface ProjectMContextOptions {
-    /** Primary render canvas. Emscripten expects `#mcanvas` in the document. */
+    /**
+     * Primary render canvas. Prefer passing the element; ProjectMContext assigns a
+     * unique id when missing and passes `#id` to WASM (`init_with_canvases`).
+     * Legacy hosts may still use a page-global `#mcanvas`.
+     */
     canvas: HTMLCanvasElement;
-    /** Secondary display canvas (`#scanvas`). Required by the current WASM build. */
+    /**
+     * Secondary display canvas (black underlay / flipped composite). Optional for
+     * hosts that only need the WebGL surface; when omitted, resize skips it.
+     * Legacy default id is `#scanvas`.
+     */
     secondaryCanvas?: HTMLCanvasElement | null;
+    /**
+     * Explicit CSS selectors for the WASM host. When omitted, derived from
+     * `canvas.id` / `secondaryCanvas.id` (auto-assigned if needed).
+     */
+    primaryCanvasSelector?: string;
+    secondaryCanvasSelector?: string;
     /** Element observed for resize / DPR sync. Defaults to the canvas parent. */
     container?: HTMLElement;
     /** Override resolved WASM glue URL (absolute or site-relative). */

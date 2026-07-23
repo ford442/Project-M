@@ -25,7 +25,7 @@ Import from the generated runtime module (`.js` extension required for browser E
 
 ```javascript
 import {
-    init,
+    initWithCanvases,
     startRender,
     renderFrame,
     loadPresetFile,
@@ -33,7 +33,8 @@ import {
     setPresetLocked,
 } from './generated/projectm-wasm-api.js';
 
-const code = init(Module);
+// Prefer initWithCanvases when not using page-global #mcanvas / #scanvas.
+const code = initWithCanvases(Module, '#my-main-canvas', '#my-secondary-canvas');
 if (code !== 0) { /* handle init error */ }
 
 startRender(Module, canvas.width, canvas.height);
@@ -59,6 +60,9 @@ Intended for third-party embedders. Breaking changes require a major WASM bundle
 | JS helper | C symbol | Notes |
 |-----------|----------|-------|
 | `init` | `init` | Returns `0` on success; see [EMSCRIPTEN.md#init-error-codes](EMSCRIPTEN.md#init-error-codes) |
+| `setCanvasSelectors` | `set_canvas_selectors` | CSS selectors for primary/secondary canvases (default `#mcanvas`/`#scanvas`) |
+| `initWithCanvases` | `init_with_canvases` | Set selectors then `init` |
+| `rebindCanvases` | `rebind_canvases` | Tear down + re-init on new selectors (single-instance) |
 | `startRender` | `start_render` | After successful `init` |
 | `renderFrame` | `render_frame` | One frame per `requestAnimationFrame` (or worker loop) |
 | `setWindowSize` | `set_window_size` | Resize viewport |

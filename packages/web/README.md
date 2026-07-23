@@ -78,6 +78,8 @@ Serve this page **with COOP/COEP** and place WASM artifacts next to your host (o
 ```
 
 See [`html/embed-demo.html`](../../html/embed-demo.html) for a self-contained example in this repo.
+For two visualizers on one page, use the [iframe multi-embed recipe](../../html/embed-multi-iframe.html)
+(one Module instance per iframe — see Limitations below).
 
 ## npm / TypeScript
 
@@ -142,7 +144,7 @@ are still **not** bundled — host them yourself (see [WASM artifacts](#wasm-art
 
 ## Limitations (v0.1)
 
-- **One visualizer per document**: Emscripten hardcodes `#mcanvas` / `#scanvas`.
+- **One visualizer per Module / document**: host state (`AppData`) is still process-global. Canvas CSS selectors are configurable (`init_with_canvases` / unique ids from `<project-m-visualizer>`), and `rebind_canvases()` can switch the active surface, but two simultaneous engines in one Module are not supported. For dashboards / multi-deck embeds, use **one cross-origin-isolated iframe per visualizer** (≈1 GiB `INITIAL_MEMORY` per Module instance — see [docs/EMSCRIPTEN.md](../../docs/EMSCRIPTEN.md#configurable-canvas-selectors)).
 - **No SharedArrayBuffer polyfill**: non-isolated pages cannot run this build.
 - **WASM not bundled**: host or CDN must serve version-pinned artifacts.
 - Full panel chrome, render worker, and experimental hooks remain in first-party hosts only.

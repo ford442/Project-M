@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -12,8 +12,20 @@
   },
   "include": [
     "generated/**/*.ts",
+    "projectm-host-types.ts",
     "projectm-wasm-api-worker.ts",
-    "projectm-context.ts",
-    "projectm-element.ts"
+    "projectm-context-types.ts",
+    "projectm-context.js",
+    "projectm-context-loss.js",
+    "projectm-element.js",
+    "projectm-element-attributes.js",
+    "projectm-init.js",
+    "projectm-init-errors.js",
+    "projectm-external-pcm.js",
+    "projectm-presets.js",
+    "projectm-audio-bootstrap.js",
+    "projectm-fps-governor.js",
+    "projectm-mesh-quality.js",
+    "projectm-wasm-version.js"
   ]
 }

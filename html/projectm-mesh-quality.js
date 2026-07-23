@@ -25,6 +25,10 @@ const MESH_SIZES = {
 // 80x60 when the adaptive governor sees sustained headroom.
 const AUTO_LOW_THRESHOLD_CORES = 8;
 
+/**
+ * @param {string} quality
+ * @returns {'low' | 'high'}
+ */
 function resolveQuality(quality) {
     if (quality === 'low' || quality === 'high') {
         return quality;

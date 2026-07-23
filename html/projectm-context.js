@@ -29,19 +29,34 @@ import {
 const DEFAULT_TARGET_FPS = 60;
 
 /**
- * @typedef {import('./projectm-context.ts').ProjectMContextOptions} ProjectMContextOptions
+ * @typedef {import('./projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
+ * @typedef {import('./projectm-context-types.ts').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
+ * @typedef {import('./projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
+ * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('./projectm-context-types.ts').ProjectMPresetDetail} ProjectMPresetDetail
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
 
+/**
+ * @param {HTMLMediaElement | string | null | undefined} value
+ * @param {Document | undefined} documentRef
+ * @returns {HTMLMediaElement | null}
+ */
 function resolveMediaElement(value, documentRef) {
     if (!value) {
         return null;
     }
     if (typeof value === 'string') {
-        return documentRef.querySelector(value);
+        return /** @type {HTMLMediaElement | null} */ (documentRef?.querySelector(value)) ?? null;
     }
     return value;
 }
 
+/**
+ * @param {{ module: ProjectMModuleLike | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number }} options
+ * @returns {boolean}
+ */
 function syncCanvasSize({
     module,
     container,
@@ -90,6 +105,7 @@ export class ProjectMContext {
             throw new Error('ProjectMContext requires a canvas element (#mcanvas)');
         }
 
+        /** @type {ProjectMResolvedContextOptions} */
         this.options = {
             requireCrossOriginIsolation: true,
             meshQuality: 'auto',
@@ -110,14 +126,18 @@ export class ProjectMContext {
         this.canvas = options.canvas;
         this.secondaryCanvas = options.secondaryCanvas ?? null;
         this.container = options.container ?? this.canvas.parentElement ?? this.canvas;
+        /** @type {ProjectMModule | null} */
         this.module = null;
         this.ready = false;
         this.destroyed = false;
+        /** @type {ResizeObserver | null} */
         this.resizeObserver = null;
         this.fpsTimer = 0;
         this.fpsFrameCount = 0;
         this.fpsLastSample = 0;
+        /** @type {((event: Event) => void) | null} */
         this.presetListener = null;
+        /** @type {HTMLMediaElement | null} */
         this.audioElement = null;
     }
 
@@ -178,14 +198,16 @@ export class ProjectMContext {
                 });
             }
 
-            this.module = await createProjectMModule({
+            this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
                 scriptSrc: wasmScriptUrl || await resolveWasmScriptUrl({
                     documentRef,
                     baseUrl: wasmBaseUrl ?? import.meta.url,
                 }),
                 windowRef,
-            });
-            windowRef.Module = this.module;
+            }));
+            if (windowRef) {
+                windowRef.Module = this.module;
+            }
 
             if (!checkInit(this.module)) {
                 const error = new Error('projectM init() failed');
@@ -245,6 +267,10 @@ export class ProjectMContext {
         }
     }
 
+    /**
+     * @param {string} url
+     * @returns {Promise<{ url: string; vfsPath: string; filename: string }>}
+     */
     async loadPresetUrl(url) {
         if (!this.module) {
             throw new Error('ProjectMContext is not started');
@@ -255,6 +281,10 @@ export class ProjectMContext {
         });
     }
 
+    /**
+     * @param {File} file
+     * @returns {Promise<{ filename: string; vfsPath: string }>}
+     */
     async loadPresetFile(file) {
         if (!this.module) {
             throw new Error('ProjectMContext is not started');
@@ -272,6 +302,7 @@ export class ProjectMContext {
         switchPreset(this.module);
     }
 
+    /** @param {boolean} locked */
     setLocked(locked) {
         if (!this.module) {
             return;
@@ -279,6 +310,7 @@ export class ProjectMContext {
         setPresetLocked(this.module, locked);
     }
 
+    /** @param {boolean} enabled */
     setTransparent(enabled) {
         if (!this.module) {
             return;
@@ -289,6 +321,10 @@ export class ProjectMContext {
         }
     }
 
+    /**
+     * @param {ProjectMMeshQuality} quality
+     * @returns {string | undefined}
+     */
     setMeshQuality(quality) {
         if (!this.module) {
             return;
@@ -296,6 +332,10 @@ export class ProjectMContext {
         return setMeshQuality(this.module, quality);
     }
 
+    /**
+     * @param {number} fps
+     * @returns {number | undefined}
+     */
     setTargetFps(fps) {
         if (!this.module) {
             return;
@@ -335,6 +375,11 @@ export class ProjectMContext {
         this.module = null;
     }
 
+    /**
+     * @param {ProjectMAudioSource} audioSource
+     * @param {HTMLMediaElement | string | undefined} audioElementOption
+     * @param {string[] | undefined} externalPcmOrigins
+     */
     #wireAudio(audioSource, audioElementOption, externalPcmOrigins) {
         if (audioSource === 'external') {
             setupExternalAudioReceiver({
@@ -371,16 +416,18 @@ export class ProjectMContext {
         }
     }
 
+    /** @param {((detail: ProjectMPresetDetail) => void) | undefined} onPresetChanged */
     #wirePresetEvents(onPresetChanged) {
         if (!onPresetChanged) {
             return;
         }
         this.presetListener = (event) => {
-            onPresetChanged(event.detail);
+            onPresetChanged(/** @type {CustomEvent<ProjectMPresetDetail>} */ (event).detail);
         };
         this.options.windowRef?.addEventListener('pm:preset-loaded', this.presetListener);
     }
 
+    /** @param {(fps: number) => void} onFps */
     #startFpsMonitor(onFps) {
         const sample = () => {
             if (this.destroyed || !this.module) {

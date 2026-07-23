@@ -63,6 +63,7 @@ const STYLE_CSS = `
 }
 `;
 
+/** @type {HTMLElement | null} */
 let overlayEl = null;
 
 function injectStyles() {
@@ -75,6 +76,7 @@ function injectStyles() {
     document.head.appendChild(style);
 }
 
+/** @returns {HTMLElement} */
 function ensureOverlay() {
     if (overlayEl) {
         return overlayEl;
@@ -135,7 +137,10 @@ export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' }
                 return;
             }
 
-            const mcanvas = document.querySelector(canvasSelector);
+            const mcanvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector(canvasSelector));
+            if (!mcanvas) {
+                return;
+            }
             startRender(Module, mcanvas.width, mcanvas.height);
 
             if (window.currentPresetPath) {
@@ -166,8 +171,9 @@ export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' }
         restore();
     }, false);
 
-    ensureOverlay().addEventListener('click', () => {
-        if (overlayEl.classList.contains('visible')) {
+    const overlay = ensureOverlay();
+    overlay.addEventListener('click', () => {
+        if (overlay.classList.contains('visible')) {
             restore();
         }
     });

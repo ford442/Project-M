@@ -13,8 +13,37 @@ import {
     PROJECTM_WASM_SCRIPT_ROOT,
 } from './projectm-wasm-version.js';
 
+/**
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ */
+
+/**
+ * @typedef {object} WasmScriptResolveOptions
+ * @property {Document} [documentRef]
+ * @property {typeof fetch} [fetchFn]
+ * @property {string} [baseUrl]
+ * @property {string} [pmScript]
+ * @property {string} [rootScript]
+ * @property {boolean} [forceRefresh]
+ */
+
+/**
+ * @typedef {object} LoadScriptOptions
+ * @property {Document} [documentRef]
+ * @property {boolean} [async]
+ * @property {boolean} [defer]
+ * @property {string} [charset]
+ * @property {string} [type]
+ */
+
+/** @type {string | undefined} */
 let resolvedWasmScript;
 
+/**
+ * @param {Document | undefined} documentRef
+ * @param {string} [baseUrl]
+ * @returns {string | undefined}
+ */
 function resolveBaseUrl(documentRef, baseUrl) {
     if (baseUrl) {
         return baseUrl;
@@ -33,6 +62,10 @@ function resolveBaseUrl(documentRef, baseUrl) {
  *
  * Hosting that 302s missing paths to a soft-404 page (HTTP 200 text/html) will make
  * bare `response.ok` true for missing ./pm/ files — reject those here.
+ *
+ * @param {{ ok?: boolean; redirected?: boolean; url?: string; headers?: any } | null | undefined} response
+ * @param {string} [requestUrl]
+ * @returns {boolean}
  */
 export function isUsableWasmScriptResponse(response, requestUrl) {
     if (!response || !response.ok) {
@@ -68,6 +101,9 @@ export function isUsableWasmScriptResponse(response, requestUrl) {
  * Resolves the threaded WASM glue script URL. Tries ./pm/ first (canonical deploy
  * layout), then falls back to ./ at the site root for legacy uploads that only
  * pushed projectm-v.*-thread.{1ijs,wasm} without the pm/ mirror.
+ *
+ * @param {WasmScriptResolveOptions} [options]
+ * @returns {Promise<string>}
  */
 export async function resolveWasmScriptUrl({
     documentRef = typeof document !== 'undefined' ? document : undefined,
@@ -102,6 +138,11 @@ export async function resolveWasmScriptUrl({
     return rootScript;
 }
 
+/**
+ * @param {string} src
+ * @param {LoadScriptOptions} [options]
+ * @returns {Promise<HTMLScriptElement>}
+ */
 export function loadScript(src, {
     documentRef = typeof document !== 'undefined' ? document : undefined,
     async = true,
@@ -110,6 +151,10 @@ export function loadScript(src, {
     type = 'text/javascript'
 } = {}) {
     return new Promise((resolve, reject) => {
+        if (!documentRef) {
+            reject(new Error('document is not available to load scripts'));
+            return;
+        }
         const script = documentRef.createElement('script');
         script.src = src;
         script.async = async;
@@ -127,6 +172,10 @@ export async function loadProjectMWasmScript(options = {}) {
     return loadScript(scriptSrc, options);
 }
 
+/**
+ * @param {WasmScriptResolveOptions & { scriptSrc?: string; createModuleName?: string; windowRef?: Window }} [options]
+ * @returns {Promise<ProjectMModuleLike>}
+ */
 export async function createProjectMModule({
     scriptSrc,
     createModuleName = 'createModule',
@@ -134,20 +183,31 @@ export async function createProjectMModule({
     ...resolveOptions
 } = {}) {
     const resolvedScript = scriptSrc || await resolveWasmScriptUrl(resolveOptions);
-    if (typeof windowRef[createModuleName] !== 'function') {
+    const factory = /** @type {any} */ (windowRef)[createModuleName];
+    if (typeof factory !== 'function') {
         await loadScript(resolvedScript);
     }
-    if (typeof windowRef[createModuleName] !== 'function') {
+    const readyFactory = /** @type {any} */ (windowRef)[createModuleName];
+    if (typeof readyFactory !== 'function') {
         throw new Error(`${createModuleName} is not available after loading ${resolvedScript}`);
     }
-    return windowRef[createModuleName]();
+    return readyFactory();
 }
 
+/**
+ * @param {object} [options]
+ * @param {ProjectMModuleLike | undefined} [options.module]
+ * @param {Element | null} [options.container]
+ * @param {HTMLCanvasElement | null} [options.mainCanvas]
+ * @param {HTMLCanvasElement | null} [options.secondaryCanvas]
+ * @param {boolean} [options.aspectCorrection]
+ * @returns {boolean}
+ */
 export function syncModuleSize({
     module = globalThis.Module,
     container = document.querySelector('#contain1'),
-    mainCanvas = document.querySelector('#mcanvas'),
-    secondaryCanvas = document.querySelector('#scanvas'),
+    mainCanvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector('#mcanvas')),
+    secondaryCanvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector('#scanvas')),
     aspectCorrection
 } = {}) {
     if (!module || !container || !mainCanvas || !secondaryCanvas) return false;
@@ -169,11 +229,19 @@ export function syncModuleSize({
 
     if (module._set_window_size) module._set_window_size(width, height);
     if (module._set_aspect_correction && aspectCorrection !== undefined) {
-        module._set_aspect_correction(!!aspectCorrection);
+        module._set_aspect_correction(aspectCorrection ? 1 : 0);
     }
     return true;
 }
 
+/**
+ * @param {object} [options]
+ * @param {Element | null} [options.container]
+ * @param {(entries: ResizeObserverEntry[]) => void} [options.beforeSync]
+ * @param {(arg?: any) => any} [options.sync]
+ * @param {(entries: ResizeObserverEntry[]) => void} [options.onResize]
+ * @returns {ResizeObserver | null}
+ */
 export function observeModuleSize({
     container = document.querySelector('#contain1'),
     beforeSync,

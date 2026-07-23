@@ -1,4 +1,16 @@
-import type { ProjectMModule } from './generated/projectm-wasm-api.ts';
+// Shared types for projectm-context.js. This file is types-only — the real
+// ProjectMContext class and createProjectMContext() live in projectm-context.js
+// (a `checkJs`-covered module; see tsconfig.json), which imports these shapes via
+// `@typedef {import('./projectm-context-types.ts').ProjectMContextOptions}`. Do not
+// add a `declare class ProjectMContext` stub here: that duplicates the real
+// implementation and drifts silently (see html/README.md TypeScript migration
+// notes / Epic #163).
+//
+// Deliberately named *-types.ts rather than projectm-context.ts: TypeScript's
+// "bundler" module resolution resolves a `./projectm-context.js` specifier to a
+// same-basename `projectm-context.ts` if one exists, which would silently shadow
+// the real projectm-context.js for every JS importer during typecheck (the exact
+// drift this migration is closing). A distinct basename removes the ambiguity.
 
 export type ProjectMAudioSource = 'element' | 'external' | 'none';
 
@@ -48,62 +60,31 @@ export interface ProjectMContextOptions {
     devicePixelRatio?: number;
     documentRef?: Document;
     windowRef?: Window & typeof globalThis;
-    onReady?: (context: ProjectMContext) => void;
+    onReady?: (context: import('./projectm-context.js').ProjectMContext) => void;
     onError?: (detail: ProjectMErrorDetail) => void;
     onPresetChanged?: (detail: ProjectMPresetDetail) => void;
     onFps?: (fps: number) => void;
 }
 
-export declare class ProjectMContext {
-    readonly options: Required<
-        Pick<
-            ProjectMContextOptions,
-            | 'requireCrossOriginIsolation'
-            | 'meshQuality'
-            | 'targetFps'
-            | 'qualityGovernor'
-            | 'transparent'
-            | 'transparencyThreshold'
-            | 'aspectCorrection'
-            | 'alpha'
-            | 'audioSource'
-            | 'presetLocked'
-            | 'devicePixelRatio'
-            | 'documentRef'
-            | 'windowRef'
-        >
-    > &
-        ProjectMContextOptions;
-
-    readonly canvas: HTMLCanvasElement;
-    readonly secondaryCanvas: HTMLCanvasElement | null;
-    readonly container: HTMLElement;
-    module: ProjectMModule | null;
-    ready: boolean;
-    destroyed: boolean;
-
-    constructor(options: ProjectMContextOptions);
-    start(): Promise<ProjectMContext>;
-    loadPresetUrl(url: string): Promise<{ url: string; vfsPath: string; filename: string }>;
-    loadPresetFile(file: File): Promise<{ filename: string; vfsPath: string }>;
-    nextPreset(): void;
-    setLocked(locked: boolean): void;
-    setTransparent(enabled: boolean): void;
-    setMeshQuality(quality: ProjectMMeshQuality): string;
-    setTargetFps(fps: number): number;
-    resize(): boolean;
-    destroy(): void;
-}
-
-export declare function createProjectMContext(options: ProjectMContextOptions): Promise<ProjectMContext>;
-
-export declare function updatePresetDisplay(
-    name: string,
-    options?: {
-        documentRef?: Document;
-        windowRef?: Window;
-        selector?: string;
-        prefix?: string;
-        text?: string;
-    }
-): void;
+/**
+ * `ProjectMContextOptions` after defaults are applied in the constructor — the
+ * shape of `ProjectMContext#options`. Keep the `Pick` list in sync with the
+ * defaults object in projectm-context.js.
+ */
+export type ProjectMResolvedContextOptions = Required<
+    Pick<
+        ProjectMContextOptions,
+        | 'requireCrossOriginIsolation'
+        | 'meshQuality'
+        | 'targetFps'
+        | 'qualityGovernor'
+        | 'transparent'
+        | 'transparencyThreshold'
+        | 'aspectCorrection'
+        | 'alpha'
+        | 'audioSource'
+        | 'presetLocked'
+        | 'devicePixelRatio'
+    >
+> &
+    ProjectMContextOptions;

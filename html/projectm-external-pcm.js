@@ -1,5 +1,11 @@
 import { feedPcmFloat } from './generated/projectm-wasm-api.js';
 
+/**
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./projectm-host-types.ts').ExternalPcmFeedFn} ExternalPcmFeedFn
+ * @typedef {import('./projectm-host-types.ts').ExternalPcmChunk} ExternalPcmChunk
+ */
+
 const AUDIO_CHANNEL_NAME = 'projectm-audio';
 const DEFAULT_EXTERNAL_PCM_ORIGINS = [
     'https://go.1ink.us',
@@ -20,19 +26,29 @@ const DEFAULT_PCM_TRANSFER_CAP = 2048;
 const PROJECTM_ANALYSIS_WINDOW = 576;
 const GAIN_STORAGE_KEYS = ['externalPcmGain'];
 const DEFAULT_EXTERNAL_PCM_GAIN = 1.0;
+/** @type {string[] | null} */
 let configuredAllowedOrigins = null;
 let configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
 let debugRmsEnabled = false;
+/** @type {BroadcastChannel | null} */
 let externalAudioChannel = null;
 let messageListenerInstalled = false;
+/** @type {ReturnType<typeof setInterval> | 0} */
 let flushInterval = 0;
 let pcmTransferPtr = 0;
+/** @type {ProjectMModuleLike | null} */
 let pcmTransferModule = null;
 let pcmTransferCap = DEFAULT_PCM_TRANSFER_CAP;
+/** @type {ExternalPcmFeedFn | null} */
 let customFeed = null;
 
+/** @type {ExternalPcmChunk[]} */
 const pendingExternalPCM = [];
 
+/**
+ * @param {string[] | Set<string> | string | null | undefined} origins
+ * @returns {string[]}
+ */
 function normalizedOriginList(origins) {
     if (!origins) return DEFAULT_EXTERNAL_PCM_ORIGINS;
     if (origins instanceof Set) return Array.from(origins);
@@ -62,6 +78,10 @@ function allowedOriginSet() {
     return new Set(normalizedOriginList(origins).map((origin) => String(origin).trim()).filter(Boolean));
 }
 
+/**
+ * @param {string} origin
+ * @returns {boolean}
+ */
 function isTrustedExternalPcmOrigin(origin) {
     return allowedOriginSet().has(origin);
 }
@@ -94,6 +114,12 @@ function externalPcmGain() {
 // samples to feed plus the post-trim samplesPerChannel. Returns a Float32Array view
 // (subarray) when no gain scaling is needed (gain === 1 and untrimmed), otherwise a
 // fresh scaled copy — never mutates the caller's buffer (queued chunks are reused).
+/**
+ * @param {Float32Array} buffer
+ * @param {number} channels
+ * @param {number} samplesPerChannel
+ * @returns {{ samples: Float32Array; samplesPerChannel: number }}
+ */
 function preprocessExternalPcm(buffer, channels, samplesPerChannel) {
     const window = Math.min(samplesPerChannel, PROJECTM_ANALYSIS_WINDOW);
     const trimmedLength = window * channels;
@@ -113,6 +139,10 @@ function preprocessExternalPcm(buffer, channels, samplesPerChannel) {
     return { samples: scaled, samplesPerChannel: window };
 }
 
+/**
+ * @param {ProjectMModuleLike | null | undefined} moduleInstance
+ * @returns {moduleInstance is ProjectMModuleLike}
+ */
 function moduleCanAcceptExternalPCM(moduleInstance) {
     return !!(
         moduleInstance &&
@@ -126,6 +156,10 @@ function currentProjectMModule() {
     return globalThis.Module;
 }
 
+/**
+ * @param {ProjectMModuleLike} moduleInstance
+ * @returns {number}
+ */
 function ensurePcmTransferBuffer(moduleInstance) {
     if (pcmTransferModule && pcmTransferModule !== moduleInstance) {
         if (pcmTransferPtr && pcmTransferModule._free) {
@@ -136,12 +170,17 @@ function ensurePcmTransferBuffer(moduleInstance) {
 
     pcmTransferModule = moduleInstance;
     if (pcmTransferPtr) return pcmTransferPtr;
-    if (!moduleCanAcceptExternalPCM(moduleInstance)) return 0;
+    if (!moduleCanAcceptExternalPCM(moduleInstance) || !moduleInstance._malloc) return 0;
 
     pcmTransferPtr = moduleInstance._malloc(pcmTransferCap * 4);
     return pcmTransferPtr;
 }
 
+/**
+ * @param {Float32Array} buffer
+ * @param {number} channels
+ * @param {number | undefined} sampleRate
+ */
 function queueExternalPCM(buffer, channels, sampleRate) {
     if (pendingExternalPCM.length >= MAX_PENDING_EXTERNAL_PCM) {
         console.warn('[projectM external PCM] queue full, dropping oldest chunk');
@@ -150,9 +189,17 @@ function queueExternalPCM(buffer, channels, sampleRate) {
     pendingExternalPCM.push({ buffer, channels, sampleRate });
 }
 
+/**
+ * @param {Float32Array} buffer
+ * @param {number} channels
+ * @param {number | undefined} sampleRate
+ * @param {number} samplesPerChannel
+ * @returns {boolean}
+ */
 export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel) {
     const moduleInstance = currentProjectMModule();
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
+    const m = /** @type {any} */ (moduleInstance);
 
     // Match the internal stream path: 576-sample analysis window + input gain.
     const { samples, samplesPerChannel: framesPerChannel } = preprocessExternalPcm(
@@ -167,7 +214,7 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
     }
 
     if (!ptr) {
-        feedPcmFloat(moduleInstance, samples, framesPerChannel, channels);
+        feedPcmFloat(m, samples, framesPerChannel, channels);
         console.debug('[projectM external PCM] fed chunk', {
             channels,
             samplesPerChannel: framesPerChannel,
@@ -178,8 +225,8 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
     }
 
     try {
-        moduleInstance.HEAPF32.set(samples, ptr >> 2);
-        moduleInstance._projectm_pcm_add_float_wrapper(0, ptr, framesPerChannel, channels);
+        m.HEAPF32.set(samples, ptr >> 2);
+        m._projectm_pcm_add_float_wrapper(0, ptr, framesPerChannel, channels);
         console.debug('[projectM external PCM] fed chunk', {
             channels,
             samplesPerChannel: framesPerChannel,
@@ -188,12 +235,18 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
         });
         return true;
     } finally {
-        if (!usedPrealloc && ptr && moduleInstance._free) {
-            moduleInstance._free(ptr);
+        if (!usedPrealloc && ptr && m._free) {
+            m._free(ptr);
         }
     }
 }
 
+/**
+ * @param {unknown} buffer
+ * @param {number} [channels]
+ * @param {number} [sampleRate]
+ * @returns {{ buffer: Float32Array; channels: number; sampleRate: number | undefined; samplesPerChannel: number } | null}
+ */
 function normalizePcmPayload(buffer, channels, sampleRate) {
     if (!(buffer instanceof Float32Array)) {
         console.debug('[projectM external PCM] ignored non-Float32Array payload');
@@ -221,6 +274,7 @@ function normalizePcmPayload(buffer, channels, sampleRate) {
     };
 }
 
+/** @param {Float32Array} buffer */
 function logExternalPcmRms(buffer) {
     let sumSquares = 0;
     for (let i = 0; i < buffer.length; i++) sumSquares += buffer[i] * buffer[i];
@@ -238,6 +292,12 @@ function logExternalPcmRms(buffer) {
     });
 }
 
+/**
+ * @param {unknown} buffer
+ * @param {number} [channels]
+ * @param {number} [sampleRate]
+ * @returns {boolean}
+ */
 export function feedPCMToModule(buffer, channels = 2, sampleRate) {
     const payload = normalizePcmPayload(buffer, channels, sampleRate);
     if (!payload) return false;
@@ -262,6 +322,7 @@ export function flushQueuedExternalPCM() {
 
     while (pendingExternalPCM.length > 0) {
         const next = pendingExternalPCM.shift();
+        if (!next) break;
         if (!feedPCMToModule(next.buffer, next.channels, next.sampleRate)) {
             break;
         }
@@ -288,15 +349,28 @@ function cleanupExternalPCM() {
     pcmTransferModule = null;
 }
 
+/**
+ * @param {number} gain
+ * @returns {number}
+ */
 export function setExternalPcmGain(gain) {
     configuredGain = Number.isFinite(gain) && gain > 0 ? gain : DEFAULT_EXTERNAL_PCM_GAIN;
     return configuredGain;
 }
 
+/**
+ * @param {object} [options]
+ * @param {ExternalPcmFeedFn} [options.onFeed]
+ * @param {string[] | Set<string> | string} [options.allowedOrigins]
+ * @param {number} [options.preallocSize]
+ * @param {number} [options.gain]
+ * @param {boolean} [options.debugRms]
+ * @returns {{ feedPCMToModule: typeof feedPCMToModule; flushQueuedExternalPCM: typeof flushQueuedExternalPCM; close: () => void }}
+ */
 export function setupExternalAudioReceiver({ onFeed, allowedOrigins, preallocSize, gain, debugRms } = {}) {
     customFeed = typeof onFeed === 'function' ? onFeed : null;
     configuredAllowedOrigins = allowedOrigins ? normalizedOriginList(allowedOrigins) : DEFAULT_EXTERNAL_PCM_ORIGINS;
-    pcmTransferCap = Number.isFinite(preallocSize) && preallocSize > 0
+    pcmTransferCap = preallocSize !== undefined && Number.isFinite(preallocSize) && preallocSize > 0
         ? Math.floor(preallocSize)
         : DEFAULT_PCM_TRANSFER_CAP;
     if (gain !== undefined) setExternalPcmGain(gain);

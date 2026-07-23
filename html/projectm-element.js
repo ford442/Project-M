@@ -4,6 +4,16 @@ import { ELEMENT_TAG, OBSERVED_ATTRIBUTES } from './projectm-element-attributes.
 
 export { ELEMENT_TAG, OBSERVED_ATTRIBUTES };
 
+/**
+ * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('./projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
+ */
+
+/**
+ * @param {string | null | undefined} value
+ * @param {boolean} [fallback]
+ * @returns {boolean}
+ */
 function parseBoolean(value, fallback = false) {
     if (value === null || value === undefined || value === '') {
         return fallback;
@@ -15,11 +25,20 @@ function parseBoolean(value, fallback = false) {
     return true;
 }
 
+/**
+ * @param {string | null | undefined} value
+ * @param {number} fallback
+ * @returns {number}
+ */
 function parseNumber(value, fallback) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * @param {string | null | undefined} value
+ * @returns {string[]}
+ */
 function parseOriginList(value) {
     if (!value) {
         return [];
@@ -35,6 +54,11 @@ function parseOriginList(value) {
     return trimmed.split(',').map((entry) => entry.trim()).filter(Boolean);
 }
 
+/**
+ * @param {EventTarget} target
+ * @param {string} type
+ * @param {unknown} [detail]
+ */
 function dispatchLifecycleEvent(target, type, detail) {
     target.dispatchEvent(new CustomEvent(type, {
         bubbles: true,
@@ -52,7 +76,9 @@ function dispatchLifecycleEvent(target, type, detail) {
 export class ProjectMVisualizerElement extends HTMLElement {
     static observedAttributes = OBSERVED_ATTRIBUTES;
 
+    /** @type {ProjectMContext | null} */
     #context = null;
+    /** @type {Promise<ProjectMContext> | null} */
     #bootPromise = null;
 
     connectedCallback() {
@@ -98,6 +124,11 @@ export class ProjectMVisualizerElement extends HTMLElement {
         this.#bootPromise = null;
     }
 
+    /**
+     * @param {string} name
+     * @param {string | null} oldValue
+     * @param {string | null} newValue
+     */
     attributeChangedCallback(name, oldValue, newValue) {
         if (oldValue === newValue || !this.isConnected || !this.#context?.ready) {
             return;
@@ -111,7 +142,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
             this.#context.setTransparent(parseBoolean(newValue));
             break;
         case 'mesh-quality':
-            this.#context.setMeshQuality(newValue || 'auto');
+            this.#context.setMeshQuality(/** @type {ProjectMMeshQuality} */ (newValue || 'auto'));
             break;
         case 'target-fps':
             this.#context.setTargetFps(parseNumber(newValue, 60));
@@ -132,13 +163,21 @@ export class ProjectMVisualizerElement extends HTMLElement {
         return this.#context;
     }
 
+    /** @returns {Promise<ProjectMContext | null>} */
     async ready() {
         await this.#bootPromise;
         return this.#context;
     }
 
+    /**
+     * @param {string} url
+     * @returns {Promise<{ url: string; vfsPath: string; filename: string }>}
+     */
     async loadPreset(url) {
         const context = await this.ready();
+        if (!context) {
+            throw new Error('project-m-visualizer failed to initialize');
+        }
         const result = await context.loadPresetUrl(url);
         dispatchLifecycleEvent(this, 'pm-preset-changed', {
             name: result.filename,
@@ -148,8 +187,15 @@ export class ProjectMVisualizerElement extends HTMLElement {
         return result;
     }
 
+    /**
+     * @param {File} file
+     * @returns {Promise<{ filename: string; vfsPath: string }>}
+     */
     async loadPresetFile(file) {
         const context = await this.ready();
+        if (!context) {
+            throw new Error('project-m-visualizer failed to initialize');
+        }
         const result = await context.loadPresetFile(file);
         dispatchLifecycleEvent(this, 'pm-preset-changed', {
             name: result.filename,
@@ -162,13 +208,14 @@ export class ProjectMVisualizerElement extends HTMLElement {
         this.#context?.nextPreset();
     }
 
+    /** @returns {Promise<ProjectMContext>} */
     #boot() {
         if (this.#bootPromise) {
             return this.#bootPromise;
         }
 
-        const canvas = this.querySelector('#mcanvas');
-        const secondaryCanvas = this.querySelector('#scanvas');
+        const canvas = /** @type {HTMLCanvasElement | null} */ (this.querySelector('#mcanvas'));
+        const secondaryCanvas = /** @type {HTMLCanvasElement | null} */ (this.querySelector('#scanvas'));
         if (!canvas) {
             const error = new Error('project-m-visualizer is missing #mcanvas');
             this.#emitError(error);
@@ -182,7 +229,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
         const wasmBaseUrl = this.getAttribute('wasm-base-url') || undefined;
         const wasmScriptUrl = this.getAttribute('wasm-script-url') || undefined;
         const presetUrl = this.getAttribute('preset-url') || undefined;
-        const audioSource = this.getAttribute('audio-source') || 'none';
+        const audioSource = /** @type {ProjectMAudioSource} */ (this.getAttribute('audio-source') || 'none');
         const requireCrossOriginIsolation = parseBoolean(
             this.getAttribute('crossorigin-isolated')
                 ?? this.getAttribute('require-cross-origin-isolation'),
@@ -197,7 +244,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 wasmBaseUrl: wasmBaseUrl || import.meta.url,
                 wasmScriptUrl: wasmScriptUrl || undefined,
                 requireCrossOriginIsolation,
-                meshQuality: this.getAttribute('mesh-quality') || 'auto',
+                meshQuality: /** @type {ProjectMMeshQuality} */ (this.getAttribute('mesh-quality') || 'auto'),
                 targetFps: parseNumber(this.getAttribute('target-fps'), 60),
                 qualityGovernor: true,
                 transparent: parseBoolean(this.getAttribute('transparent')),
@@ -231,6 +278,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
         return this.#bootPromise;
     }
 
+    /** @param {unknown} error */
     #emitError(error) {
         dispatchLifecycleEvent(this, 'pm-error', {
             code: -1,
@@ -240,6 +288,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
     }
 }
 
+/** @param {{ tagName?: string }} [options] */
 export function registerProjectMElement(options = {}) {
     const tag = options.tagName || ELEMENT_TAG;
     if (!customElements.get(tag)) {

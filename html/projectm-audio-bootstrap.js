@@ -48,6 +48,7 @@ const STYLE_CSS = `
 }
 `;
 
+/** @type {HTMLElement | null} */
 let overlayEl = null;
 
 function injectStyles() {
@@ -60,6 +61,7 @@ function injectStyles() {
     document.head.appendChild(style);
 }
 
+/** @returns {HTMLElement} */
 function ensureOverlay() {
     if (overlayEl) {
         return overlayEl;

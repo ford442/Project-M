@@ -78,6 +78,8 @@ Serve this page **with COOP/COEP** and place WASM artifacts next to your host (o
 ```
 
 See [`html/embed-demo.html`](../../html/embed-demo.html) for a self-contained example in this repo.
+For two visualizers on one page, use the [iframe multi-embed recipe](../../html/embed-multi-iframe.html)
+(one Module instance per iframe — see Limitations below).
 
 ## npm / TypeScript
 

@@ -41,5 +41,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec4 oldSample = texture(iChannel0, clamp(warpedOld, 0.0, 1.0));
     vec4 newSample = texture(iChannel1, clamp(warpedNew, 0.0, 1.0));
 
-    fragColor = mix(oldSample, newSample, x);
+    // Composite the warped samples via the selected advanced blend mode (Phase B3).
+    vec3 col = prjmBlendPresets(oldSample.xyz, newSample.xyz, x);
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

@@ -144,6 +144,16 @@ public:
     auto GetBlendMode() const -> TransitionBlendMode;
 
     /**
+     * @brief Sets the easing curve applied to linear progress in the shader.
+     */
+    void SetEasingType(EasingType easingType);
+
+    /**
+     * @brief Returns the easing curve selected for this transition.
+     */
+    auto GetEasingType() const -> EasingType;
+
+    /**
     * @brief Enables or disables transparency mode for the final transition output.
     */
     void SetTransparencyMode(bool enabled);

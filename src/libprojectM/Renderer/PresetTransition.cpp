@@ -153,6 +153,16 @@ auto PresetTransition::GetBlendMode() const -> TransitionBlendMode
     return m_blendMode;
 }
 
+void PresetTransition::SetEasingType(EasingType easingType)
+{
+    m_easingType = easingType;
+}
+
+auto PresetTransition::GetEasingType() const -> EasingType
+{
+    return m_easingType;
+}
+
 void PresetTransition::SetTransparencyMode(bool enabled)
 {
     m_transparencyMode = enabled;

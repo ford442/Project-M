@@ -42,8 +42,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         mask = smoothstep(progress, progress + blendWidth, (uv.x / (1.0 + 2.0 * blendWidth)) + blendWidth);
     }
 
-    vec3 col = mix(imgNew, imgOld, mask);
+    // mask=1 keeps the old preset (behind the wipe front); mask=0 reveals the new
+    // preset. Composite via the selected advanced blend mode (Phase B3), keeping
+    // the old preset as the blend base so Additive/Screen brighten the wipe seam.
+    vec3 col = prjmBlendPresets(imgOld, imgNew, 1.0 - mask);
 
     // Output to screen
-    fragColor = vec4(col, 1.0);
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

@@ -18,6 +18,7 @@ TransitionShaderManager::TransitionShaderManager()
     };
 
     std::vector<Candidate> candidates;
+    candidates.emplace_back(Candidate{kTransitionShaderBuiltInBurnGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInCircleGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInCubeRotateGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInDreamyGlsl330, 1});
@@ -30,6 +31,7 @@ TransitionShaderManager::TransitionShaderManager()
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInPageCurlGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInPixelateGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInPlasmaGlsl330, 1});
+    candidates.emplace_back(Candidate{kTransitionShaderBuiltInRadialWipeGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInSliceSwipeGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInSweepGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInTileFlipGlsl330, 1});

@@ -76,6 +76,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
     vec3 newCol = texture(iChannel1, clamp(uv, 0.0, 1.0)).xyz;
 
-    vec3 col = mix(oldCol, newCol, dissolve);
+    // Composite via the selected advanced blend mode (Phase B3).
+    vec3 col = prjmBlendPresets(oldCol, newCol, dissolve);
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

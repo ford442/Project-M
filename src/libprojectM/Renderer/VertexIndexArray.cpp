@@ -1,5 +1,7 @@
 #include "Renderer/VertexIndexArray.hpp"
 
+#include <OpenMpConfig.hpp>
+
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
 #endif
@@ -86,7 +88,7 @@ void VertexIndexArray::Resize(size_t size, uint32_t value)
 void VertexIndexArray::MakeContinuous()
 {
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(m_indices.size() >= static_cast<size_t>(libprojectM::OpenMp::kMinParallelLoopIters))
 #endif
     for (size_t index = 0; index < m_indices.size(); index++)
     {

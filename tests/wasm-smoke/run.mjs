@@ -81,7 +81,11 @@ let browser;
 try {
   browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-dev-shm-usage']
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--use-angle=swiftshader-webgl'
+    ]
   });
   const page = await browser.newPage();
   page.on('console', (message) => {

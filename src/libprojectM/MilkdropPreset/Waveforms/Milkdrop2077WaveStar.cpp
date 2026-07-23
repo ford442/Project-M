@@ -1,11 +1,16 @@
 #include "Waveforms/Milkdrop2077WaveStar.hpp"
 
+#include <OpenMpConfig.hpp>
+
 #include "PerFrameContext.hpp"
+
 
 #include <cmath>
 
+
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
+
 #endif
 
 namespace libprojectM {
@@ -30,7 +35,7 @@ void Milkdrop2077WaveStar::GenerateVertices(const PresetState& presetState,
     float const tenthSamples = static_cast<float>(m_samples) * 0.1f;
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
     for (int sample = 0; sample < m_samples; sample++)
     {

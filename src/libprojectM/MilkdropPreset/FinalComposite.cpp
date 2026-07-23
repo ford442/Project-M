@@ -3,6 +3,7 @@
 #include "PresetState.hpp"
 
 #include <Logging.hpp>
+#include <OpenMpConfig.hpp>
 #include <Renderer/BlendMode.hpp>
 
 #include <cstddef>
@@ -150,7 +151,7 @@ void FinalComposite::InitializeMesh(const PresetState& presetState)
     auto& uvs = m_compositeMesh.UVs();
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if((compositeGridWidth * compositeGridHeight) >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
     for (int gridY = 0; gridY < compositeGridHeight; gridY++)
     {
@@ -355,7 +356,7 @@ void FinalComposite::ApplyHueShaderColors(const PresetState& presetState)
     // reads are from vertices[] (read-only here) and shade[] (read-only), writes only to
     // colors[vertexIndex]. collapse(2) distributes 32×64 = 2048 iterations across threads.
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for collapse(2) schedule(static)
+#pragma omp parallel for collapse(2) schedule(static) if((compositeGridWidth * compositeGridHeight) >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
     for (int gridY = 0; gridY < compositeGridHeight; gridY++)
     {

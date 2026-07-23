@@ -154,7 +154,7 @@ projectm_wasm_common_link_args() {
         -s ALLOW_MEMORY_GROWTH=1
         -s MALLOC=mimalloc
         -s MAXIMUM_MEMORY=4gb
-        -s INITIAL_MEMORY=1024mb
+        -s INITIAL_MEMORY=256mb
         -s FORCE_FILESYSTEM=1
         -s ASYNCIFY=1
         -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"

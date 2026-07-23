@@ -7,6 +7,7 @@
 #include "PresetState.hpp"
 
 #include <Logging.hpp>
+#include <OpenMpConfig.hpp>
 #include <Renderer/BlendMode.hpp>
 #include <Renderer/ShaderCache.hpp>
 
@@ -144,7 +145,7 @@ void PerPixelMesh::InitializeMesh(const PresetState& presetState)
     // Either viewport size or mesh size changed, reinitialize the vertices.
     auto& vertices = m_warpMesh.Vertices();
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for collapse(2) schedule(static)
+#pragma omp parallel for collapse(2) schedule(static) if(((m_gridSizeX + 1) * (m_gridSizeY + 1)) >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
     for (int gridY = 0; gridY <= m_gridSizeY; gridY++)
     {
@@ -177,7 +178,7 @@ void PerPixelMesh::InitializeMesh(const PresetState& presetState)
     const int totalCells = 4 * cellsPerQuadrant;
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(totalCells >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
     for (int cellIndex = 0; cellIndex < totalCells; cellIndex++)
     {
@@ -239,7 +240,7 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
         const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(vertexCount >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
         for (int vertex = 0; vertex < vertexCount; vertex++)
         {
@@ -273,7 +274,7 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
         const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(vertexCount >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
         for (int vertex = 0; vertex < vertexCount; vertex++)
         {

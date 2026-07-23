@@ -148,7 +148,7 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "ALLOW_MEMORY_GROWTH=1"
         "MALLOC=mimalloc"
         "MAXIMUM_MEMORY=4gb"
-        "INITIAL_MEMORY=1024mb"
+        "INITIAL_MEMORY=256mb"
         "FORCE_FILESYSTEM=1"
         "ASYNCIFY=1"
         )

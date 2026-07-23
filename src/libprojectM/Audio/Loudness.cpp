@@ -2,10 +2,6 @@
 
 #include <cmath>
 
-#ifdef PRJM_ENABLE_OPENMP
-#include <omp.h>
-#endif
-
 namespace libprojectM {
 namespace Audio {
 
@@ -36,9 +32,6 @@ void Loudness::SumBand(const std::array<float, SpectrumSamples>& spectrumSamples
     int end = SpectrumSamples * (static_cast<int>(m_band) + 1) / 6;
 
     m_current = 0.0f;
-#ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for reduction(+:m_current) schedule(static)
-#endif
     for (int sample = start; sample < end; sample++)
     {
         m_current += spectrumSamples[sample];

@@ -1,5 +1,7 @@
 #include "Renderer/MilkdropNoise.hpp"
 
+#include <OpenMpConfig.hpp>
+
 #include "Renderer/OpenGL.h"
 #include "Renderer/Texture.hpp"
 
@@ -68,7 +70,7 @@ auto MilkdropNoise::generate2D(int size, int zoomFactor) -> std::vector<uint32_t
     auto RANGE = (zoomFactor > 1) ? 216 : 256;
     auto* dst = textureData.data();
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel
+#pragma omp parallel if(size >= libprojectM::OpenMp::kMinParallelLoopIters)
     {
         // Per-thread RNG: XOR seed with a Knuth hash of the thread index so each
         // thread produces an independent sequence even if random_device repeats.
@@ -126,7 +128,7 @@ auto MilkdropNoise::generate2D(int size, int zoomFactor) -> std::vector<uint32_t
 
         // first go ACROSS, blending cubically on X, but only on the main lines.
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(size >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
         for (auto y = 0; y < size; y += zoomFactor)
         {
@@ -152,7 +154,7 @@ auto MilkdropNoise::generate2D(int size, int zoomFactor) -> std::vector<uint32_t
 
         // next go down, doing cubic interp along Y, on every line.
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(size >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
         for (auto x = 0; x < size; x++)
         {
@@ -192,7 +194,7 @@ auto MilkdropNoise::generate3D(int size, int zoomFactor) -> std::vector<uint32_t
     // write to the bits...
     int RANGE = (zoomFactor > 1) ? 216 : 256;
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel
+#pragma omp parallel if(size >= libprojectM::OpenMp::kMinParallelLoopIters)
     {
         std::default_random_engine threadRng(randomSeed ^ static_cast<uint32_t>(omp_get_thread_num() * 2654435761u));
         std::uniform_int_distribution<int> threadDist(0, INT32_MAX);
@@ -255,7 +257,7 @@ auto MilkdropNoise::generate3D(int size, int zoomFactor) -> std::vector<uint32_t
         // first go ACROSS, blending cubically on X, but only on the main lines.
         auto dst = textureData.data();
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(size >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
         for (auto z = 0; z < size; z += zoomFactor)
         {
@@ -284,7 +286,7 @@ auto MilkdropNoise::generate3D(int size, int zoomFactor) -> std::vector<uint32_t
 
         // next go down, doing cubic interp along Y, on the main slices.
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(size >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
         for (auto z = 0; z < size; z += zoomFactor)
         {
@@ -313,7 +315,7 @@ auto MilkdropNoise::generate3D(int size, int zoomFactor) -> std::vector<uint32_t
 
         // next go through, doing cubic interp along Z, everywhere.
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(size >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
         for (auto x = 0; x < size; x++)
         {

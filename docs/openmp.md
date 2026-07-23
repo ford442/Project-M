@@ -6,6 +6,27 @@ This document lists candidate hotspots for OpenMP parallelization, suggested pra
 
 ---
 
+## OpenMP effectiveness gates (2026-07, epic #163)
+
+Thresholds are centralized in `src/libprojectM/OpenMpConfig.hpp`:
+
+- `kMinParallelLoopIters = 512` — waveform loops, FFT output, small noise rows
+- `kMinPerPixelMeshVerts = 1000` — per-pixel mesh, composite grids, large custom waveforms
+
+Loops below the threshold use OpenMP's `if(...)` clause or run serially. `Loudness::SumBand`
+(~85 samples) and `WaveformAligner` cross-correlation inner loops are **always serial** (fork/join
+cost exceeds gain; the aligner reduction also conflicted with wasm `libomp` link symbols).
+
+Tune thresholds with:
+
+```sh
+scripts/benchmark_openmp_native.sh
+```
+
+Full inventory: `docs/PERFORMANCE.md` → "OpenMP effectiveness gates".
+
+---
+
 ## High-potential targets (priority order) 🔧
 
 1) PerPixel mesh calculation (big win on CPU-bound rendering path)

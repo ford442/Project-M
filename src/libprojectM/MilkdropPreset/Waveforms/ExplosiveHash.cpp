@@ -1,11 +1,16 @@
 #include "Waveforms/ExplosiveHash.hpp"
 
+#include <OpenMpConfig.hpp>
+
 #include "PresetState.hpp"
+
 
 #include <cmath>
 
+
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
+
 #endif
 
 namespace libprojectM {
@@ -22,7 +27,7 @@ void ExplosiveHash::GenerateVertices(const PresetState& presetState, const PerFr
     const float sineRotation = sinf(presetState.renderContext.time * 0.3f);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
     for (int i = 0; i < m_samples; i++)
     {

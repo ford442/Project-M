@@ -81,8 +81,6 @@ See [`html/embed-demo.html`](../../html/embed-demo.html) for a self-contained ex
 
 ## npm / TypeScript
 
-From the monorepo (path exports resolve to shared `html/` sources):
-
 ```javascript
 import { registerProjectMElement } from '@projectm/web';
 import { createProjectMContext } from '@projectm/web/context';
@@ -90,6 +88,23 @@ import { PROJECTM_WASM_BUNDLE, buildProjectMWasmUrls } from '@projectm/web/wasm-
 ```
 
 Type-checking: `bash scripts/check_html_types.sh` (includes context + element typings).
+
+### Packaging / publishing
+
+The published package is **self-contained** — it does not reference monorepo
+(`../../html/...`) paths, so `npm pack` / `npm install @projectm/web` work for
+third parties. The `html/` module graph is vendored into a package-local
+`dist/` by a build step that follows the real import closure from
+`projectm-element.js` (so it can't drift from source):
+
+```bash
+npm run build      # regenerate dist/ from ../../html
+npm pack --dry-run # inspect the tarball contents
+```
+
+`dist/` is git-ignored and regenerated automatically on `prepack`, so
+`npm publish` always ships fresh vendored sources. The `.wasm`/glue artifacts
+are still **not** bundled — host them yourself (see [WASM artifacts](#wasm-artifacts)).
 
 ## Custom element API
 

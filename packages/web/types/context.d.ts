@@ -1,1 +1,1 @@
-export * from '../../../html/projectm-context.ts';
+export * from '../dist/projectm-context.ts';

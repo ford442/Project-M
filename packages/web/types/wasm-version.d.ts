@@ -1,1 +1,1 @@
-export * from '../../../html/projectm-wasm-version.js';
+export * from '../dist/projectm-wasm-version.js';

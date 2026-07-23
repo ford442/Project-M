@@ -1,3 +1,3 @@
-export * from '../../../html/projectm-element.ts';
-export * from '../../../html/projectm-context.ts';
-export * from '../../../html/projectm-wasm-version.js';
+export * from '../dist/projectm-element.ts';
+export * from '../dist/projectm-context.ts';
+export * from '../dist/projectm-wasm-version.js';

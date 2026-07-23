@@ -38,5 +38,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     oldColor /= totalWeight;
     newColor /= totalWeight;
 
-    fragColor = vec4(mix(oldColor, newColor, wipeMask), 1.0);
+    // Composite via the selected advanced blend mode (Phase B3). The wipe mask
+    // drives the blend factor so Additive/Screen brighten the sweeping seam.
+    vec3 col = prjmBlendPresets(oldColor, newColor, wipeMask);
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

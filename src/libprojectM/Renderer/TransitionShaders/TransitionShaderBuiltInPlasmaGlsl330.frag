@@ -58,7 +58,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec2 sUV = clamp(uv, 0.0, 1.0);
     vec3 imgOld = texture(iChannel0, sUV).xyz;
     vec3 imgNew = texture(iChannel1, sUV).xyz;
-    vec3 col = mix(imgOld, imgNew, cutoff);
+    // Composite the dissolve via the selected advanced blend mode (Phase B3),
+    // before the color-cycled molten edge is layered on top.
+    vec3 col = prjmBlendPresets(imgOld, imgNew, cutoff);
 
     // Color-cycling molten edge — hue rotates with time + treble + per-transition seed.
     float hue = fract(iTime * 0.5 + trebFlick * 0.4 + float(iRandStatic.z) * 0.001);

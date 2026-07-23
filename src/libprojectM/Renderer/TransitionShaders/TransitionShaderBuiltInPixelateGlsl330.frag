@@ -22,6 +22,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 oldPixel = texture(iChannel0, pixelUV).xyz;
     vec3 newPixel = texture(iChannel1, uv).xyz;
 
-    // Crossfade between pixelated old and sharp new
-    fragColor = vec4(mix(oldPixel, newPixel, progress), 1.0);
+    // Crossfade between pixelated old and sharp new via the selected advanced
+    // blend mode (Phase B3).
+    vec3 col = prjmBlendPresets(oldPixel, newPixel, progress);
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

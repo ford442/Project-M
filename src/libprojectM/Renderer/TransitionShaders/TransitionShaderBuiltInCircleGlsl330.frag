@@ -50,17 +50,27 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
         vec2 rUV = center + (uv - center) * (rOffset / max(r1, 0.0001));
         vec2 bUV = center + (uv - center) * (bOffset / max(r1, 0.0001));
+        vec2 rUVc = clamp(rUV, 0.0, 1.0);
+        vec2 bUVc = clamp(bUV, 0.0, 1.0);
 
-        float innerR = texture(inOrOut < 1.0 ? iChannel0 : iChannel1, clamp(rUV, 0.0, 1.0)).r;
-        float innerB = texture(inOrOut < 1.0 ? iChannel0 : iChannel1, clamp(bUV, 0.0, 1.0)).b;
-        float innerG = texture(inOrOut < 1.0 ? iChannel0 : iChannel1, uv).g;
+        // Sample the inner/outer chromatic offsets from both channels. GLSL (and
+        // GLSL ES / WebGL2) forbids using a sampler as a ?: operand, so branch on
+        // the direction and pick the channel roles explicitly.
+        vec3 ch0 = vec3(texture(iChannel0, rUVc).r, texture(iChannel0, uv).g, texture(iChannel0, bUVc).b);
+        vec3 ch1 = vec3(texture(iChannel1, rUVc).r, texture(iChannel1, uv).g, texture(iChannel1, bUVc).b);
 
-        float outerR = texture(inOrOut < 1.0 ? iChannel1 : iChannel0, clamp(rUV, 0.0, 1.0)).r;
-        float outerB = texture(inOrOut < 1.0 ? iChannel1 : iChannel0, clamp(bUV, 0.0, 1.0)).b;
-        float outerG = texture(inOrOut < 1.0 ? iChannel1 : iChannel0, uv).g;
-
-        vec3 chromaInner = vec3(innerR, innerG, innerB);
-        vec3 chromaOuter = vec3(outerR, outerG, outerB);
+        vec3 chromaInner;
+        vec3 chromaOuter;
+        if (inOrOut < 1.0)
+        {
+            chromaInner = ch0;
+            chromaOuter = ch1;
+        }
+        else
+        {
+            chromaInner = ch1;
+            chromaOuter = ch0;
+        }
 
         col = v1 * chromaInner + v2 * chromaOuter;
     }

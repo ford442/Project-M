@@ -1,4 +1,5 @@
 set(TRANSITION_SHADER_FILES
+        TransitionShaders/TransitionShaderBuiltInBurnGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInCircleGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInCubeRotateGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInDreamyGlsl330.frag
@@ -11,6 +12,7 @@ set(TRANSITION_SHADER_FILES
         TransitionShaders/TransitionShaderBuiltInPageCurlGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInPixelateGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInPlasmaGlsl330.frag
+        TransitionShaders/TransitionShaderBuiltInRadialWipeGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInSimpleBlendGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInSliceSwipeGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInSweepGlsl330.frag

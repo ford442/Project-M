@@ -37,6 +37,7 @@ add_executable(projectM-unittest
         PresetCompatTest.cpp
         PresetFileParserTest.cpp
         PresetTransitionMultiPassTest.cpp
+        PresetTransitionStressTest.cpp
         PCMAudioReactivityTest.cpp
         PCMAudioBenchTest.cpp
         WaveformAlignerTest.cpp

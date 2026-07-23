@@ -1,6 +1,6 @@
 # Option B: Milkdrop Blending Parity (Long-term Incremental Project)
 
-**Status:** Active — Phase B2 complete, B3 started, B6 in progress  
+**Status:** Active — Phase B2 complete, B3 complete, B4 complete, B5 in progress, B6 in progress  
 **Approach:** Incremental sessions (at least once per week)  
 **Goal:** Make Project-M’s preset transitions feel as smooth, organic, and high-quality as classic Milkdrop.
 
@@ -25,9 +25,9 @@ We want to close the gap while staying Emscripten/WebGL compatible.
 |-------|-----------------------------------|------------------------------------------------|----------|---------------|-----------|
 | **B1**    | Gap Analysis & Prioritization     | Identify biggest differences vs Milkdrop       | High     | 1–2           | Done      |
 | **B2**    | Multi-pass Transition Support     | Enable 2-pass and simple multi-pass effects    | High     | 3–4           | **Done**   |
-| **B3**    | Advanced Blending & Compositing   | Add more sophisticated blending modes          | Medium   | 3–4           | **Started** |
-| **B4**    | Timing, Synchronization & Polish  | Match Milkdrop’s frame-accurate feel           | High     | 2–3           | Planned   |
-| **B5**    | Exotic Effects & Favorites        | Replicate beloved Milkdrop transitions         | Medium   | Ongoing       | Future    |
+| **B3**    | Advanced Blending & Compositing   | Add more sophisticated blending modes          | Medium   | 3–4           | **Done**    |
+| **B4**    | Timing, Synchronization & Polish  | Match Milkdrop’s frame-accurate feel           | High     | 2–3           | **Done**    |
+| **B5**    | Exotic Effects & Favorites        | Replicate beloved Milkdrop transitions         | Medium   | Ongoing       | **Started** |
 | **B6**    | Performance & Parallelism         | Add OpenMP pragmas + other optimizations       | Medium   | 2–4           | **Started** |
 
 ---
@@ -64,14 +64,97 @@ We want to close the gap while staying Emscripten/WebGL compatible.
   - Rapid transition instance lifecycle (100 create/destroy, texture ID bound)
 - Headless EGL test fixture (`HeadlessGlContext`) for CI-friendly GL tests
 
-### Phase B3: Advanced Blending (Started)
+### Phase B3: Advanced Blending (Complete)
 
 **Implemented:**
 - `TransitionBlendMode` enum + `iBlendMode` uniform (Alpha, Additive, Multiplicative, Screen)
 - Reusable GLSL blend library in `TransitionShaderHeaderGlsl330.frag`
 - `prjmBlendPresets()` helper for per-channel preset mixing
-- **SimpleBlend** and **Dreamy** transitions use advanced blending
 - Per-transition random blend mode selection in `PresetTransition` constructor
+- Advanced-blend usage expanded from 3 to 11 built-in transitions (see coverage
+  table below)
+- Fixed the **Circle** shader's `sampler2D` ternary (`iChannel0 : iChannel1`),
+  which is illegal in GLSL ES / WebGL2 and previously dropped Circle from the
+  compiled pool. Now branches on direction explicitly — one more transition
+  available on WebGL2 with no GLES regression.
+
+#### Blend-mode coverage
+
+`iBlendMode` is randomized per transition (Alpha / Additive / Multiplicative /
+Screen; `Masked` is reserved). GLES3/WebGL2 share the same uniform block — the
+blend library uses only `mix`, arithmetic, and `int` comparison, all core GLSL ES
+3.00, so there is no desktop-vs-web divergence.
+
+| Transition   | Advanced blend | Notes |
+|--------------|:--------------:|-------|
+| SimpleBlend  | ✅ | Full `if`-ladder over all 4 modes + vignette/contrast |
+| Dreamy       | ✅ | `prjmBlendPresets` on the radial-blurred pair |
+| Glitch       | ✅ | Multi-pass; blend applied in the crossfade pass |
+| MotionBlur   | ✅ | Blend factor = directional wipe mask |
+| ZoomBlur     | ✅ | Blend on the zoom-blurred old vs. sharp new |
+| Warp         | ✅ | Blend on the twist-warped sample pair |
+| Plasma       | ✅ | Blend on the noise dissolve (before molten edge) |
+| Pixelate     | ✅ | Blend on pixelated-old vs. sharp-new |
+| WaterDrop    | ✅ | Blend factor = ripple mask |
+| Sweep        | ✅ | Old kept as base so Additive/Screen brighten the seam |
+| Kaleidoscope | ✅ | Blend on the radial reveal |
+| Burn (B5)    | ✅ | Blend factor = burn field |
+| RadialWipe (B5) | ✅ | Blend factor = clock-sweep reveal |
+| Circle       | ➖ | Geometric per-pixel select + chromatic aberration; a blend mode would fight the hard circular boundary |
+| CubeRotate   | ➖ | Per-pixel face selection (3D geometry), not a full-frame crossfade |
+| TileFlip     | ➖ | Per-tile card front/back selection |
+| MosaicZoom   | ➖ | Per-tile alpha compositing with drop shadows |
+| SliceSwipe   | ➖ | Per-slice geometric slide |
+| PageCurl     | ➖ | Multi-pass geometry + lighting; own compositing |
+| HeatWave     | ➖ | Multi-pass distortion + shimmer; own compositing |
+
+➖ = intentionally geometric/mask-based; a global blend mode is not meaningful
+because each pixel shows one preset or the other rather than a mixed result.
+
+### Phase B4: Timing, Synchronization & Polish (Complete)
+
+**Implemented:**
+- `PresetTransition::SetEasingType()` / `GetEasingType()` accessors (easing curve
+  was already randomized per transition and applied via `iProgressEased`; it is
+  now inspectable/controllable and unit-tested).
+- Rapid-switch / interrupt stress test suite
+  (`tests/libprojectM/PresetTransitionStressTest.cpp`):
+  - 500 constructions confirm the randomized blend mode and easing curve always
+    stay within their implemented ranges (never `Masked`/`Count`).
+  - 100 rapid single-pass transitions allocate **no** intermediate FBO.
+  - 100 interleaved single/multi-pass transitions do not leak textures
+    (texture-ID bound check).
+  - Pass count toggled mid-flight (simulating a preset arriving before the
+    current transition finishes) resets pass state cleanly and reuses the same
+    intermediate texture — no FBO leak on interrupt.
+  - Progress is monotonic and clamped to `[0, 1]` before start, during, and after
+    completion; zero-duration transitions are instant hard cuts.
+  - All 20 built-in transition shaders compile on the headless test platform.
+- Host readiness polling (`html/projectm-transitions.js`) is **pass-count
+  agnostic** — pass count is resolved entirely inside `ProjectM`/
+  `TransitionShaderManager` on the native side, so adding multi-pass shaders
+  needs no host change. Verified the existing `startTransitionWhenReady` flow
+  still gates only on preset-B allocation/readiness.
+
+### Phase B5: Exotic Effects & Favorites (Started)
+
+**Implemented (2 new high-impact Milkdrop-style looks):**
+- **Burn** — the classic "burn away" dissolve: the old preset erodes along a
+  two-octave value-noise field like burning paper, with a hot ember edge that
+  glows just ahead of the advancing burn line and a charred darkening behind it.
+  Bass pumps ember brightness; treble flickers the flame color.
+- **RadialWipe** — a clock/radar sweep that rotates around a (usually central)
+  pivot, revealing the new preset behind a soft leading edge with a glowing seam.
+  Mid drives a subtle wobble; bass brightens the seam.
+
+Both reuse the Phase B3 blend library and are registered in
+`TransitionShaderManager` + `Renderer/CMakeLists.txt`.
+
+**Intentionally deferred** (documented as different, not ported): true 3D
+depth-buffer transitions (cube/sphere with real occlusion), video-feedback
+"infinite tunnel" transitions, and DirectX-specific texture-addressing tricks —
+these rely on behavior outside the Emscripten/WebGL2 core-profile target and are
+out of scope for the incremental parity effort.
 
 ### Phase B6: Performance & Parallelism (Started)
 
@@ -87,7 +170,11 @@ All pragmas use the existing `#ifdef PRJM_ENABLE_OPENMP` guard with `schedule(st
 
 ## Next Session
 
-**Recommended focus:** Continue B3 by porting more transitions to `prjmBlendPresets()`, add mask-texture blending, or move to B4 (timing/sync polish).
+**Recommended focus:** Continue B5 by porting 1–2 more exotic favorites (e.g. a
+feedback-tunnel or liquid-melt look), or implement the reserved `Masked` blend
+mode (B3 stretch: grayscale mask texture controlling blend strength). Optionally
+capture side-by-side screenshots/GIFs of the new Burn/RadialWipe transitions for
+the PR.
 
 ---
 

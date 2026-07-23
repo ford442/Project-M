@@ -54,7 +54,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
     // Subtle highlight along the reveal seam.
     float seam = smoothstep(0.06, 0.0, abs(radius - revealRadius));
-    vec3 col = mix(oldImg, newImg, radialMask);
+    // Composite the radial reveal via the selected advanced blend mode (Phase B3).
+    vec3 col = prjmBlendPresets(oldImg, newImg, radialMask);
     col += vec3(0.4, 0.6, 1.0) * seam * 0.25 * (0.4 + 0.6 * midPump);
 
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);

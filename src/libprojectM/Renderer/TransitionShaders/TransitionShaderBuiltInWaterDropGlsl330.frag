@@ -36,5 +36,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     // Ripple acts as the transition mask
     float mask = smoothstep(progress - 0.05, progress + 0.05, dist - ripple * 0.1);
 
-    fragColor = vec4(mix(oldImg, newImg, mask), 1.0);
+    // Composite via the selected advanced blend mode (Phase B3).
+    vec3 col = prjmBlendPresets(oldImg, newImg, mask);
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

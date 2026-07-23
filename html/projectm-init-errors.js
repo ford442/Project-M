@@ -7,6 +7,7 @@
 
 import { init as wasmInit } from './generated/projectm-wasm-api.js';
 
+/** @type {Record<number, { title: string; message: string; hints: string[] }>} */
 const ERROR_INFO = {
     2: {
         title: 'WebGL 2 Unavailable',
@@ -120,7 +121,9 @@ const STYLE_CSS = `
 }
 `;
 
+/** @type {HTMLElement | null} */
 let overlayEl = null;
+/** @type {(() => void) | null} */
 let retryCallback = null;
 
 function injectStyles() {
@@ -133,6 +136,7 @@ function injectStyles() {
     document.head.appendChild(style);
 }
 
+/** @returns {HTMLElement} */
 function ensureOverlay() {
     if (overlayEl) {
         return overlayEl;
@@ -158,7 +162,7 @@ function ensureOverlay() {
     `;
     document.body.appendChild(overlayEl);
 
-    overlayEl.querySelector('.pm-init-error-retry').addEventListener('click', () => {
+    overlayEl.querySelector('.pm-init-error-retry')?.addEventListener('click', () => {
         if (retryCallback) {
             retryCallback();
         }
@@ -176,17 +180,22 @@ export function showInitError(code, detail) {
     const el = ensureOverlay();
     const info = ERROR_INFO[code] || GENERIC_ERROR_INFO;
 
-    el.querySelector('.pm-init-error-title').textContent = info.title;
-    el.querySelector('.pm-init-error-message').textContent =
-        detail ? `${info.message} (${detail})` : info.message;
+    const titleEl = el.querySelector('.pm-init-error-title');
+    if (titleEl) titleEl.textContent = info.title;
+    const messageEl = el.querySelector('.pm-init-error-message');
+    if (messageEl) {
+        messageEl.textContent = detail ? `${info.message} (${detail})` : info.message;
+    }
 
     const hintsEl = el.querySelector('.pm-init-error-hints');
-    hintsEl.innerHTML = '';
-    info.hints.forEach((hint) => {
-        const li = document.createElement('li');
-        li.textContent = hint;
-        hintsEl.appendChild(li);
-    });
+    if (hintsEl) {
+        hintsEl.innerHTML = '';
+        info.hints.forEach((hint) => {
+            const li = document.createElement('li');
+            li.textContent = hint;
+            hintsEl.appendChild(li);
+        });
+    }
 
     el.classList.add('visible');
     console.error(`[projectM] init() failed with code ${code}${detail ? ': ' + detail : ''}`);

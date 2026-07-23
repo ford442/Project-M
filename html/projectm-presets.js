@@ -1,5 +1,36 @@
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
 
+/**
+ * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModuleLike
+ */
+
+/**
+ * @typedef {object} PresetApiOptions
+ * @property {ProjectMModuleLike} [module]
+ * @property {string} [apiBase]
+ * @property {string[]} [apiBases]
+ * @property {string} [presetDir]
+ * @property {string[]} [fallbackApiBases]
+ * @property {boolean} [requireDir]
+ * @property {(data: any) => string} [vfsPathForPreset]
+ * @property {boolean} [warnOnFallback]
+ * @property {number} [count]
+ * @property {'all' | 'first' | string} [updateDisplayMode]
+ * @property {boolean} [returnPaths]
+ * @property {boolean} [logLoaded]
+ * @property {(opts: { module?: ProjectMModuleLike }) => void} [startTransitionWhenReady]
+ * @property {boolean} [updateDisplay]
+ */
+
+/**
+ * @typedef {object} PresetDisplayOptions
+ * @property {Document} [documentRef]
+ * @property {Window} [windowRef]
+ * @property {string} [selector]
+ * @property {string} [prefix]
+ * @property {string} [text]
+ */
+
 export const DEFAULT_PRESET_API_BASE = 'https://storage.noahcohn.com';
 export const FALLBACK_PRESET_API_BASES = [
     'https://storage.noahcohn.com',
@@ -8,6 +39,10 @@ export const FALLBACK_PRESET_API_BASES = [
 export const LOCAL_PRESET_MAX_BYTES = 2 * 1024 * 1024;
 export const LOCAL_PRESET_LAST_NAME_KEY = 'projectm:lastLocalPresetName';
 
+/**
+ * @param {string} name
+ * @param {PresetDisplayOptions} [options]
+ */
 export function updatePresetDisplay(name, {
     documentRef = document,
     windowRef = window,
@@ -28,6 +63,7 @@ export function updatePresetDisplay(name, {
     if (el) {
         el.textContent = prefix + basename;
     }
+    /** @type {{ name: string | undefined; path: string; text?: string }} */
     const detail = { name: basename, path: windowRef.currentPresetPath || name };
     if (typeof text === 'string') {
         detail.text = text;
@@ -36,6 +72,10 @@ export function updatePresetDisplay(name, {
     windowRef.dispatchEvent(new CustomEvent('pm:preset-loaded', { detail }));
 }
 
+/**
+ * @param {{ documentRef?: Document; elementId?: string; defaultValue?: string }} [options]
+ * @returns {string}
+ */
 export function getPresetDir({
     documentRef = document,
     elementId = 'presetDir',
@@ -46,25 +86,52 @@ export function getPresetDir({
     return val === 'default' ? defaultValue : val;
 }
 
+/**
+ * @param {{ preferred?: string; includeStorageOverride?: boolean; fallbacks?: string[] }} [options]
+ * @returns {string[]}
+ */
 export function getPresetApiBases({
     preferred,
     includeStorageOverride = true,
     fallbacks = [DEFAULT_PRESET_API_BASE]
 } = {}) {
     const fromStorage = includeStorageOverride ? localStorage.getItem('apiBase') : null;
-    return [...new Set([preferred, fromStorage, ...fallbacks].filter(Boolean))];
+    return [...new Set(
+        /** @type {string[]} */ ([preferred, fromStorage, ...fallbacks].filter(Boolean))
+    )];
 }
 
+/**
+ * Readiness check for the raw `_load_preset_file` Emscripten export. Not part of the
+ * generated {@link ProjectMModuleLike} surface (public preset loads route through
+ * `loadPresetFile()` / ccall — see html/README.md host-layer notes), but Emscripten
+ * still exports every C symbol as `_<name>`, so this checks for it directly rather
+ * than widening the shared type just for a readiness probe.
+ * @param {ProjectMModuleLike} module
+ * @returns {boolean}
+ */
+function isPresetLoadReady(module) {
+    return typeof (/** @type {any} */ (module))._load_preset_file === 'function';
+}
+
+/**
+ * @param {string} filename
+ * @returns {string}
+ */
 function safePresetName(filename) {
     return String(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+/**
+ * @param {string} message
+ * @param {{ documentRef?: Document; selector?: string; isError?: boolean }} [options]
+ */
 function setStatusMessage(message, {
     documentRef = document,
     selector = '#stat',
     isError = false
 } = {}) {
-    const el = documentRef.querySelector(selector);
+    const el = /** @type {HTMLElement | null} */ (documentRef.querySelector(selector));
     if (!el) return;
     el.style.display = 'block';
     el.textContent = message;
@@ -75,6 +142,7 @@ function setStatusMessage(message, {
     el.style.border = isError ? '1px solid rgba(248,113,113,0.5)' : '1px solid rgba(96,165,250,0.35)';
 }
 
+/** @param {File} file */
 function assertLocalPresetFile(file) {
     if (!file) {
         throw new Error('No preset file selected');
@@ -87,11 +155,19 @@ function assertLocalPresetFile(file) {
     }
 }
 
+/**
+ * @param {string} [filename]
+ * @returns {string}
+ */
 export function getLocalPresetVfsPath(filename) {
     const baseName = safePresetName(filename || 'preset.milk');
     return `/presets/local_${baseName}`;
 }
 
+/**
+ * @param {PresetApiOptions} [options]
+ * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string }>}
+ */
 export async function fetchApiPreset({
     module,
     apiBase,
@@ -119,7 +195,7 @@ export async function fetchApiPreset({
             const milkRes = await fetch(data.url);
             if (!milkRes.ok) throw new Error(`Failed to fetch preset milk from ${data.url}`);
 
-            const bytes = new Uint8ClampedArray(await milkRes.arrayBuffer());
+            const bytes = new Uint8Array(await milkRes.arrayBuffer());
             const vfsPath = vfsPathForPreset
                 ? vfsPathForPreset(data)
                 : `/presets/api_${data.dir || dir || 'any'}_${safePresetName(data.filename)}`;
@@ -145,9 +221,13 @@ export async function fetchApiPreset({
     throw lastError || new Error('No preset API base available');
 }
 
+/**
+ * @param {PresetApiOptions} options
+ * @returns {Promise<Array<string | { vfsPath: string; filename: string; dir: string; url: string; apiBase: string }>>}
+ */
 export async function loadStartupApiPresets({
     module,
-    count,
+    count = 0,
     apiBase,
     apiBases,
     fallbackApiBases,
@@ -182,6 +262,10 @@ export async function loadStartupApiPresets({
     return results;
 }
 
+/**
+ * @param {PresetApiOptions} options
+ * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string } | null>}
+ */
 export async function loadRandomApiPreset({
     module,
     apiBase,
@@ -193,7 +277,7 @@ export async function loadRandomApiPreset({
     updateDisplay = true,
     logLoaded = false
 }) {
-    if (!module || !module.FS || !module._load_preset_file) {
+    if (!module || !module.FS || !isPresetLoadReady(module)) {
         console.error('Module not ready');
         return null;
     }
@@ -224,6 +308,11 @@ export async function loadRandomApiPreset({
     }
 }
 
+/**
+ * @param {File} file
+ * @param {{ module?: ProjectMModuleLike; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => void; updateDisplay?: boolean; rememberLast?: boolean; documentRef?: Document }} [options]
+ * @returns {Promise<{ filename: string; vfsPath: string }>}
+ */
 export async function loadLocalPresetFile(file, {
     module,
     startTransitionWhenReady,
@@ -231,7 +320,7 @@ export async function loadLocalPresetFile(file, {
     rememberLast = true,
     documentRef = document
 } = {}) {
-    if (!module || !module.FS || !module._load_preset_file) {
+    if (!module || !module.FS || !isPresetLoadReady(module)) {
         throw new Error('Module not ready');
     }
 
@@ -286,7 +375,7 @@ export async function loadLocalPresetFile(file, {
  * and loads it into the running engine.
  *
  * @param {string} url Absolute or same-origin preset URL.
- * @param {object} [options]
+ * @param {{ module?: ProjectMModuleLike; vfsPath?: string; updateDisplay?: boolean; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => void; windowRef?: Window }} [options]
  * @returns {Promise<{ url: string, vfsPath: string, filename: string }>}
  */
 export async function loadPresetFromUrl(url, {

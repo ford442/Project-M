@@ -9,4 +9,6 @@ node --test \
   tests/web/projectm-wasm-version.test.mjs \
   tests/web/projectm-init.test.mjs \
   tests/web/projectm-context.test.mjs \
-  tests/web/projectm-element.test.mjs
+  tests/web/projectm-element.test.mjs \
+  tests/web/projectm-external-pcm.test.mjs \
+  tests/web/projectm-presets.test.mjs

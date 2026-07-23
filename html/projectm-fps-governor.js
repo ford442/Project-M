@@ -26,11 +26,19 @@ import {
 
 const DEFAULT_TARGET_FPS = 60;
 
+/**
+ * @param {string | number | null | undefined} value
+ * @returns {number}
+ */
 function resolveTargetFps(value) {
-    const fps = parseInt(value, 10);
+    const fps = parseInt(String(value), 10);
     return Number.isFinite(fps) && fps > 0 ? fps : DEFAULT_TARGET_FPS;
 }
 
+/**
+ * @param {string | null | undefined} value
+ * @returns {boolean}
+ */
 function resolveGovernorEnabled(value) {
     if (value === '0' || value === 'false') {
         return false;
@@ -96,7 +104,7 @@ export function setupFpsGovernor(Module) {
     );
 
     window.pmSetTargetFps = (fps) => {
-        localStorage.setItem('targetFps', fps);
+        localStorage.setItem('targetFps', String(fps));
         return setTargetFps(Module, fps);
     };
 

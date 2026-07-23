@@ -88,6 +88,59 @@ Do not delete the `.1ink` hosts in one sweep. First, move shared behavior into m
 
 Tracked `.bak` files should not be reintroduced. Use git history for previous versions.
 
+## TypeScript Migration (Epic #163)
+
+`tsconfig.json` runs with `strict: true` and `checkJs: true`. Modules listed in
+its `include` are typechecked as part of `scripts/check_html_types.sh` (CI:
+`build_linux.yml` / `build_emscripten.yml`) — a type error in any of them fails
+the PR.
+
+Migration strategy: **`allowJs` + `checkJs` with JSDoc annotations**, not a
+`.ts`-with-emit rewrite. Shared option/module shapes live in small types-only
+`.ts` companions (`projectm-host-types.ts`, `projectm-context-types.ts`) that
+the real `.js` implementation imports via
+`@typedef {import('./foo-types.ts').Bar}`. Two rules keep this from drifting
+back into the dual-source problem this migration started from:
+
+1. **A types-only companion must never share a basename with the `.js`
+   module it describes.** TypeScript's `bundler` module resolution resolves
+   a `./foo.js` specifier to a same-basename `./foo.ts` if one exists,
+   silently shadowing the real implementation for every JS importer during
+   typecheck — exactly the kind of drift that left `projectm-context.ts` /
+   `projectm-element.ts` as unmaintained `declare class` stubs before this
+   migration. Name companions `*-types.ts` (see `projectm-context-types.ts`)
+   or fold the types into the JSDoc directly, and never write a
+   `declare class` / `declare function` that duplicates a real `.js` export.
+2. Prefer typing the module's own logic in JSDoc over widening shared
+   ambient types (`ProjectMModuleLike` in `projectm-host-types.ts`) to make
+   an error disappear — a narrow, correct type here is worth more than a
+   passing `tsc` run.
+
+### Converted (checkJs-clean, in `tsconfig.json`)
+
+- `projectm-external-pcm.js`
+- `projectm-init.js`, `projectm-init-errors.js`
+- `projectm-presets.js`
+- `projectm-context.js`, `projectm-element.js` (implementation; shared types
+  in `projectm-context-types.ts`)
+- `projectm-audio-bootstrap.js`, `projectm-context-loss.js`,
+  `projectm-fps-governor.js`, `projectm-mesh-quality.js`,
+  `projectm-element-attributes.js`, `projectm-wasm-version.js`
+
+### Not yet converted
+
+`projectm-perf.js`, `projectm-transitions.js`, `projectm-shader-cache.js`,
+`projectm-preset-cache.js`, `projectm-preset-dev.js`,
+`projectm-preset-favorites.js`, `projectm-preset-library.js`,
+`projectm-preset-picker.js`, `projectm-preset-tweaker.js`,
+`projectm-render-worker.js`, `projectm-render-worker-host.js`,
+`projectm-experimental-bridge.js`, `projectm-fbo-format.js`,
+`projectm-synthetic-audio.js`, `projectm-audio-player.js`,
+`projectm-weeks-on-fire.js`. Convert module-by-module (add JSDoc, add to
+`tsconfig.json`'s `include`, fix errors) rather than adding `checkJs` for all
+of them at once — each one surfaces its own batch of implicit-`any` and
+Emscripten-boundary casts to work through.
+
 ## Review Checklist
 
 Every HTML-facing PR should state which hosts are affected and which shared modules changed. At minimum, check:

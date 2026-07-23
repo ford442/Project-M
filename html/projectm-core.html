@@ -523,13 +523,13 @@ canvas.emscripten {
 </body>
 <script type="module">
 import { createPopupAudioPlayerController } from './projectm-audio-player.js';
-import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
-import { setupContextLossRecovery } from './projectm-context-loss.js';
+import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
+import { ProjectMContext } from './projectm-context.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { setupFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
-import { loadProjectMWasmScript, resolveWasmScriptUrl } from './projectm-init.js';
-import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
+import { resolveWasmScriptUrl } from './projectm-init.js';
+import { checkCrossOriginIsolation, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
 import { setupAudioTestPanel } from './projectm-synthetic-audio.js';
@@ -548,7 +548,6 @@ import {
     setTransparencyMode,
     setTransparencyThreshold,
     setWindowSize,
-    startRender,
 } from './generated/projectm-wasm-api.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -560,11 +559,18 @@ if (weeksOnFireMode) {
     document.title = 'Project M — Weeks on Fire';
 }
 
+/** @type {import('./generated/projectm-wasm-api.ts').ProjectMModule | undefined} */
 let Module;
+/** @type {ProjectMContext | null} */
+let pmContext = null;
 let isBezelMode = true;
 let isPresetLocked = false;
 let isTransparencyMode = false;
 const TRANSPARENCY_THRESHOLD = 0.01;
+
+function getModule() {
+    return pmContext?.module ?? Module;
+}
 
 // ====== OFFSCREENCANVAS RENDER WORKER (opt-in, see docs/PERFORMANCE.md) ======
 // Disabled by default; enable with ?renderWorker=1 or localStorage.renderWorker = '1'.
@@ -677,11 +683,15 @@ function updateLastLocalPresetLabel() {
 async function handleLocalPresetSelection(file) {
     if (!file) return;
     try {
-        await loadLocalPresetFile(file, {
-            module: Module,
-            startTransitionWhenReady,
-            documentRef: document
-        });
+        if (pmContext) {
+            await pmContext.loadPresetFile(file);
+        } else {
+            await loadLocalPresetFile(file, {
+                module: getModule(),
+                startTransitionWhenReady,
+                documentRef: document
+            });
+        }
         updateLastLocalPresetLabel();
     } catch (error) {
         setLocalPresetError(error instanceof Error ? error.message : String(error));
@@ -692,7 +702,7 @@ async function handleLocalPresetSelection(file) {
 // ====== API PRESET HELPERS ======
 async function loadStartupApiPresets(count) {
     return loadStartupPresetsFromApi({
-        module: Module,
+        module: getModule(),
         count,
         apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
         requireDir: true
@@ -701,7 +711,7 @@ async function loadStartupApiPresets(count) {
 
 async function loadRandomPresetFromRemote() {
     return loadRandomPresetFromApi({
-        module: Module,
+        module: getModule(),
         apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
         requireDir: true,
         startTransitionWhenReady
@@ -758,7 +768,7 @@ try {
 } catch { /* ignore */ }
 
 const presetPicker = setupPresetPicker({
-    getModule: () => (typeof Module !== 'undefined' ? Module : null),
+    getModule: () => getModule() ?? null,
     startTransitionWhenReady,
     isLocked: () => isPresetLocked,
     onLockBlocked: flashLockToast,
@@ -774,10 +784,7 @@ if (isPresetLocked) {
 }
 
 if (isTransparencyMode) {
-    const transparencyBtn = document.getElementById('transparencyBtn');
-    if (transparencyBtn) transparencyBtn.classList.add('engaged');
-    const glassLed = document.querySelector('.led--glass');
-    if (glassLed) glassLed.classList.add('on');
+    applyTransparencyDomState(true);
 }
 
 function randomPreset() {
@@ -859,8 +866,7 @@ if (enableLocalPresets) {
 const audioPlayerController = createPopupAudioPlayerController();
 const { cycleAudioPlayer, closeAudioPlayer } = audioPlayerController;
 
-function applyTransparencyMode(enabled) {
-    isTransparencyMode = enabled;
+function applyTransparencyDomState(enabled) {
     const scanvas = document.querySelector('#scanvas');
     const bgMedia = document.querySelector('#bg-media');
     const btn = document.getElementById('transparencyBtn');
@@ -879,13 +885,26 @@ function applyTransparencyMode(enabled) {
         led.classList.toggle('on', enabled);
     }
     document.body.classList.toggle('has-transparency', enabled);
+}
+
+function applyTransparencyMode(enabled) {
+    isTransparencyMode = enabled;
+    applyTransparencyDomState(enabled);
 
     if (renderWorkerHandle) {
         renderWorkerHandle.ccallVoid('set_transparency_mode', ['number'], [enabled ? 1 : 0]);
         renderWorkerHandle.ccallVoid('set_transparency_threshold', ['number'], [TRANSPARENCY_THRESHOLD]);
-    } else if (typeof Module !== 'undefined') {
-        setTransparencyMode(Module, enabled);
-        setTransparencyThreshold(Module, TRANSPARENCY_THRESHOLD);
+    } else if (pmContext) {
+        pmContext.setTransparent(enabled);
+        if (typeof TRANSPARENCY_THRESHOLD === 'number') {
+            setTransparencyThreshold(pmContext.module, TRANSPARENCY_THRESHOLD);
+        }
+    } else {
+        const module = getModule();
+        if (module) {
+            setTransparencyMode(module, enabled);
+            setTransparencyThreshold(module, TRANSPARENCY_THRESHOLD);
+        }
     }
 
     try {
@@ -910,8 +929,13 @@ function lockPreset() {
     } catch { /* ignore */ }
     if (renderWorkerHandle) {
         renderWorkerHandle.ccallVoid('set_preset_locked', ['number'], [isPresetLocked ? 1 : 0]);
-    } else if (typeof Module !== 'undefined') {
-        setPresetLocked(Module, isPresetLocked);
+    } else if (pmContext) {
+        pmContext.setLocked(isPresetLocked);
+    } else {
+        const module = getModule();
+        if (module) {
+            setPresetLocked(module, isPresetLocked);
+        }
     }
 }
 
@@ -1012,6 +1036,30 @@ function syncModuleSize() {
     const mcanvas = document.querySelector('#mcanvas');
     const scanvas = document.querySelector('#scanvas');
     if (!contain1 || !mcanvas || !scanvas) return;
+
+    if (renderWorkerHandle) {
+        const rect = contain1.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.max(1, Math.round(rect.width * dpr));
+        const h = Math.max(1, Math.round(rect.height * dpr));
+        mcanvas.width = w;
+        mcanvas.height = h;
+        scanvas.width = w;
+        scanvas.height = h;
+        mcanvas.style.width = rect.width + 'px';
+        mcanvas.style.height = rect.height + 'px';
+        scanvas.style.width = rect.width + 'px';
+        scanvas.style.height = rect.height + 'px';
+        renderWorkerHandle.postResize(w, h);
+        return;
+    }
+
+    if (pmContext) {
+        pmContext.options.aspectCorrection = isBezelMode;
+        pmContext.resize();
+        return;
+    }
+
     const rect = contain1.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.round(rect.width * dpr));
@@ -1024,47 +1072,14 @@ function syncModuleSize() {
     mcanvas.style.height = rect.height + 'px';
     scanvas.style.width = rect.width + 'px';
     scanvas.style.height = rect.height + 'px';
-    if (renderWorkerHandle) {
-        renderWorkerHandle.postResize(w, h);
-        return;
-    }
-    if (typeof Module === 'undefined') return;
-    setWindowSize(Module, w, h);
-    setAspectCorrection(Module, isBezelMode);
+    const module = getModule();
+    if (!module) return;
+    setWindowSize(module, w, h);
+    setAspectCorrection(module, isBezelMode);
 }
 
-const resizeObserver = new ResizeObserver((entries) => {
-    for (const entry of entries) {
-        const dpr = window.devicePixelRatio || 1;
-        const cssWidth = entry.contentRect.width;
-        const cssHeight = entry.contentRect.height;
-        const w = Math.max(1, Math.round(cssWidth * dpr));
-        const h = Math.max(1, Math.round(cssHeight * dpr));
-
-        const mcanvas = document.querySelector('#mcanvas');
-        const scanvas = document.querySelector('#scanvas');
-        if (!mcanvas || !scanvas) continue;
-
-        mcanvas.width = w;
-        mcanvas.height = h;
-        scanvas.width = w;
-        scanvas.height = h;
-
-        mcanvas.style.width = cssWidth + 'px';
-        mcanvas.style.height = cssHeight + 'px';
-        scanvas.style.width = cssWidth + 'px';
-        scanvas.style.height = cssHeight + 'px';
-
-        if (renderWorkerHandle) {
-            renderWorkerHandle.postResize(w, h);
-            continue;
-        }
-
-        if (typeof Module !== 'undefined') {
-            setWindowSize(Module, w, h);
-            setAspectCorrection(Module, isBezelMode);
-        }
-    }
+const resizeObserver = new ResizeObserver(() => {
+    syncModuleSize();
 });
 
 const contain1El = document.querySelector('#contain1');
@@ -1286,12 +1301,19 @@ async function attemptInit() {
     }
 
     try {
-        if (!checkCrossOriginIsolation()) {
+        if (!pmContext && !renderWorkerHandle && !getModule() && !checkCrossOriginIsolation()) {
             return;
         }
 
-        if (!Module && !renderWorkerHandle) {
-            const mcanvas = document.querySelector('#mcanvas');
+        const mcanvas = document.querySelector('#mcanvas');
+        const scanvas = document.querySelector('#scanvas');
+        const contain1 = document.querySelector('#contain1');
+
+        if (!getModule() && !renderWorkerHandle && !pmContext) {
+            updateLayout();
+            syncModuleSize();
+
+            if (isRenderWorkerEnabled() && isRenderWorkerSupported(mcanvas)) {
             updateLayout();
             syncModuleSize();
 
@@ -1309,83 +1331,56 @@ async function attemptInit() {
             }
         }
 
-        if (!Module) {
-            await loadProjectMWasmScript({ defer: true });
-            Module = await createModule();
+        if (!pmContext && !renderWorkerHandle) {
+            pmContext = new ProjectMContext({
+                canvas: mcanvas,
+                secondaryCanvas: scanvas,
+                primaryCanvasSelector: '#mcanvas',
+                secondaryCanvasSelector: '#scanvas',
+                container: contain1 ?? undefined,
+                aspectCorrection: isBezelMode,
+                transparent: isTransparencyMode,
+                transparencyThreshold: TRANSPARENCY_THRESHOLD,
+                presetLocked: isPresetLocked,
+                audioSource: 'none',
+                onError: (detail) => {
+                    console.error('[ProjectM] context init error:', detail);
+                },
+            });
+
+            await pmContext.start();
+            Module = pmContext.module;
             globalThis.Module = Module;
-        }
 
-        if (!checkInit(Module)) {
-            return;
-        }
-        setupAudioUnlock();
-        setupContextLossRecovery(Module);
+            applyTransparencyDomState(isTransparencyMode);
 
-        updateLayout();
-        syncModuleSize();
-        const mcanvas = document.querySelector('#mcanvas');
-        startRender(Module, mcanvas.width, mcanvas.height);
-        flushQueuedExternalPCM();
+            setupMeshQuality(Module);
+            setupFpsGovernor(Module);
+            setupFboFormatIndicator(Module);
+            setupPerfTools(Module);
+            setupPresetDevTools(Module, { startTransitionWhenReady });
+            setupExperimentalBridge(Module);
+            setupAudioTestPanel(() => getModule());
 
-        // ====== MESH QUALITY ======
-        // Per-pixel mesh resolution: 'high' (80x60) or 'low' (64x48 regular tier).
-        // Auto-selected from navigator.hardwareConcurrency unless overridden via
-        // navigator.hardwareConcurrency unless overridden via
-        // ?meshQuality=high|low or localStorage.meshQuality. See
-        // docs/PERFORMANCE.md.
-        setupMeshQuality(Module);
+            const transparencyBtn = document.getElementById('transparencyBtn');
+            if (transparencyBtn) {
+                transparencyBtn.addEventListener('click', toggleTransparencyMode);
+            }
 
-        // ====== TARGET FPS / ADAPTIVE QUALITY GOVERNOR ======
-        // Target 60 FPS (Milkdrop default). If the measured frame time
-        // consistently exceeds budget, the governor steps the mesh
-        // resolution down (then back up once recovered) instead of letting
-        // FPS drop. Override via ?targetFps=/?governor=0|1 or
-        // localStorage.targetFps/qualityGovernor. See docs/PERFORMANCE.md.
-        setupFpsGovernor(Module);
-
-        // ====== FBO FORMAT / DEGRADED MODE ======
-        // Surfaces the dual ping-pong FBO color format (RGBA32F/RGBA16F vs.
-        // the degraded RGBA8 fallback) chosen in DetectFormat(). Shows a
-        // banner and exposes window.pmGetFboFormat() when running in
-        // degraded (RGBA8) mode. See docs/milkdrop2_vs_projectm_multipass.md.
-        setupFboFormatIndicator(Module);
-
-        // ====== PERF HUD / BENCHMARK ======
-        // Append ?perfhud=1 for an on-screen FPS/timing breakdown, or
-        // ?benchmark=1&frames=500&preset=/presets/foo.milk for a headless JSON
-        // report. See docs/PERFORMANCE.md.
-        setupPerfTools(Module);
-        setupPresetDevTools(Module, { startTransitionWhenReady });
-        setupExperimentalBridge(Module);
-        setupAudioTestPanel(() => Module);
-
-const transparencyBtn = document.getElementById('transparencyBtn');
-if (transparencyBtn) {
-    transparencyBtn.addEventListener('click', toggleTransparencyMode);
-}
-
-const savedTransparency = (() => {
-    try { return localStorage.getItem('projectm:transparencyMode'); } catch { return null; }
-})();
-const urlTransparency = urlParams.get('transparent');
-if (urlTransparency === '1' || savedTransparency === '1') {
-    isTransparencyMode = true;
-    applyTransparencyMode(true);
-}
-
-        if (!window._pmStartupPresetsLoaded) {
-            window._pmStartupPresetsLoaded = true;
-            if (!weeksOnFireMode) {
-                const startupResults = await loadStartupApiPresets(5);
-                if (startupResults.length > 0) {
-                    loadPresetFile(Module, startupResults[0].vfsPath);
-                    updatePresetDisplay(startupResults[0].filename);
-                    for (let i = 1; i < startupResults.length; i++) {
-                        addPresetFile(Module, startupResults[i].vfsPath);
+            if (!window._pmStartupPresetsLoaded) {
+                window._pmStartupPresetsLoaded = true;
+                if (!weeksOnFireMode) {
+                    const startupResults = await loadStartupApiPresets(5);
+                    if (startupResults.length > 0) {
+                        loadPresetFile(Module, startupResults[0].vfsPath);
+                        updatePresetDisplay(startupResults[0].filename);
+                        for (let i = 1; i < startupResults.length; i++) {
+                            addPresetFile(Module, startupResults[i].vfsPath);
+                        }
                     }
+                } else {
+                    console.log('[ProjectM] Weeks on fire: preset playlist seeded by WASM bootstrap');
                 }
-            } else {
-                console.log('[ProjectM] Weeks on fire: preset playlist seeded by WASM bootstrap');
             }
         }
     } catch (err) {

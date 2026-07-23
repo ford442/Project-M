@@ -70,8 +70,10 @@ function dispatchLifecycleEvent(target, type, detail) {
 /**
  * Embeddable custom element wrapping projectM canvas bootstrap + context options.
  *
- * The current WASM build hardcodes `#mcanvas` / `#scanvas` selectors, so only one
- * active visualizer per document is supported.
+ * Uses unique per-element canvas ids (not page-global `#mcanvas` / `#scanvas`) and
+ * passes CSS selectors into WASM via `init_with_canvases`. One Module instance /
+ * one active visualizer per document is supported; multi-embed via iframes — see
+ * packages/web/README.md and docs/EMSCRIPTEN.md.
  */
 export class ProjectMVisualizerElement extends HTMLElement {
     static observedAttributes = OBSERVED_ATTRIBUTES;
@@ -82,7 +84,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
     #bootPromise = null;
 
     connectedCallback() {
-        if (this.querySelector('#mcanvas')) {
+        if (this.querySelector('canvas.pm-main-canvas')) {
             this.#boot();
             return;
         }
@@ -98,13 +100,11 @@ export class ProjectMVisualizerElement extends HTMLElement {
         container.style.cssText = 'position:relative;width:100%;height:100%;overflow:hidden;';
 
         const mcanvas = document.createElement('canvas');
-        mcanvas.id = 'mcanvas';
-        mcanvas.className = 'emscripten';
+        mcanvas.className = 'emscripten pm-main-canvas';
         mcanvas.style.cssText = 'display:block;width:100%;height:100%;touch-action:none;';
 
         const scanvas = document.createElement('canvas');
-        scanvas.id = 'scanvas';
-        scanvas.className = 'emscripten';
+        scanvas.className = 'emscripten pm-secondary-canvas';
         scanvas.style.cssText =
             'pointer-events:auto;display:block;position:absolute;z-index:1;background:rgba(0,0,0,1);top:0;left:0;width:100%;height:100%;transform:scaleY(-1);';
 
@@ -214,16 +214,24 @@ export class ProjectMVisualizerElement extends HTMLElement {
             return this.#bootPromise;
         }
 
-        const canvas = /** @type {HTMLCanvasElement | null} */ (this.querySelector('#mcanvas'));
-        const secondaryCanvas = /** @type {HTMLCanvasElement | null} */ (this.querySelector('#scanvas'));
+        const canvas = /** @type {HTMLCanvasElement | null} */ (
+            this.querySelector('canvas.pm-main-canvas') || this.querySelector('canvas')
+        );
+        const secondaryCanvas = /** @type {HTMLCanvasElement | null} */ (
+            this.querySelector('canvas.pm-secondary-canvas')
+        );
         if (!canvas) {
-            const error = new Error('project-m-visualizer is missing #mcanvas');
+            const error = new Error('project-m-visualizer is missing a primary canvas');
             this.#emitError(error);
             return Promise.reject(error);
         }
 
-        if (document.querySelectorAll('#mcanvas').length > 1) {
-            console.warn('[project-m-visualizer] Multiple #mcanvas elements detected; WASM uses document-level selectors.');
+        if (document.querySelectorAll('project-m-visualizer').length > 1) {
+            console.warn(
+                '[project-m-visualizer] Multiple elements in one document: only one Module ' +
+                'instance / one active visualizer is supported. Use separate iframes for ' +
+                'multi-embed, or rebind_canvases() to switch the active surface.'
+            );
         }
 
         const wasmBaseUrl = this.getAttribute('wasm-base-url') || undefined;

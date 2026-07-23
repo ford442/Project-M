@@ -173,13 +173,25 @@ export async function loadProjectMWasmScript(options = {}) {
 }
 
 /**
- * @param {WasmScriptResolveOptions & { scriptSrc?: string; createModuleName?: string; windowRef?: Window }} [options]
+ * @param {WasmScriptResolveOptions & {
+ *   scriptSrc?: string;
+ *   createModuleName?: string;
+ *   windowRef?: Window;
+ *   noInitialRun?: boolean;
+ *   primaryCanvasSelector?: string;
+ *   secondaryCanvasSelector?: string;
+ *   moduleConfig?: Record<string, unknown>;
+ * }} [options]
  * @returns {Promise<ProjectMModuleLike>}
  */
 export async function createProjectMModule({
     scriptSrc,
     createModuleName = 'createModule',
     windowRef = window,
+    noInitialRun = false,
+    primaryCanvasSelector,
+    secondaryCanvasSelector,
+    moduleConfig = {},
     ...resolveOptions
 } = {}) {
     const resolvedScript = scriptSrc || await resolveWasmScriptUrl(resolveOptions);
@@ -191,7 +203,12 @@ export async function createProjectMModule({
     if (typeof readyFactory !== 'function') {
         throw new Error(`${createModuleName} is not available after loading ${resolvedScript}`);
     }
-    return readyFactory();
+    return readyFactory({
+        ...moduleConfig,
+        ...(noInitialRun ? { noInitialRun: true } : {}),
+        ...(primaryCanvasSelector ? { primaryCanvasSelector } : {}),
+        ...(secondaryCanvasSelector ? { secondaryCanvasSelector } : {}),
+    });
 }
 
 /**

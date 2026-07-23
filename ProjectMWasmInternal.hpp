@@ -79,10 +79,10 @@
 // =============================================================================
 // AppData – ownership record for the process-global projectM engine instance.
 //
-// NOTE: this is still process-global for now (see #163). Extraction into
-// focused TUs is the prerequisite for moving to an explicit per-instance
-// engine handle; until that lands, the globals below are declared here and
-// defined once in ProjectMWasmMain (projectM_emscripten.cpp).
+// NOTE: this is still process-global for now (see #163 / #168). Canvas CSS
+// selectors are configurable (Phase A); true multi-instance host state remains
+// a follow-up. Until then, the globals below are declared here and defined
+// once in ProjectMWasmMain (projectM_emscripten.cpp).
 // =============================================================================
 typedef struct {
     projectm_handle projectm_engine;

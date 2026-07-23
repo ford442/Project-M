@@ -9,8 +9,9 @@
   </style>
 </head>
 <body>
-  <canvas id="mcanvas" width="64" height="64"></canvas>
-  <canvas id="scanvas" width="64" height="64"></canvas>
+  <!-- Non-default ids exercise init_with_canvases / configurable selectors (#168). -->
+  <canvas id="pm-smoke-main" width="64" height="64"></canvas>
+  <canvas id="pm-smoke-secondary" width="64" height="64"></canvas>
   <div id="preset-name"></div>
   <div id="stat"></div>
   <script>
@@ -56,15 +57,20 @@
         throw new Error('createModule export is missing');
       }
 
+      const primarySelector = '#pm-smoke-main';
+      const secondarySelector = '#pm-smoke-secondary';
+
       const Module = await createModule({
         noInitialRun: true,
+        primaryCanvasSelector: primarySelector,
+        secondaryCanvasSelector: secondarySelector,
         locateFile(path, prefix) {
           return prefix + path;
         }
       });
       mark('module created');
 
-      for (const exportName of ['_init', 'ccall', 'FS', '_load_preset_file']) {
+      for (const exportName of ['_init', '_init_with_canvases', '_set_canvas_selectors', 'ccall', 'FS', '_load_preset_file']) {
         if (!Module[exportName]) throw new Error('Missing Module.' + exportName);
       }
 
@@ -82,11 +88,16 @@
         };
       }
 
-      const initResult = Module._init();
+      const initResult = Module.ccall(
+        'init_with_canvases',
+        'number',
+        ['string', 'string'],
+        [primarySelector, secondarySelector]
+      );
       if (initResult !== 0) {
-        throw new Error('Module._init() returned ' + initResult);
+        throw new Error('Module.init_with_canvases() returned ' + initResult);
       }
-      mark('Module._init returned 0');
+      mark('init_with_canvases returned 0 (' + primarySelector + ')');
 
       const presetResponse = await fetch(presetSrc);
       if (!presetResponse.ok) {
@@ -101,7 +112,7 @@
       Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
       mark('load_preset_file completed');
 
-      const gl = document.getElementById('mcanvas').getContext('webgl2');
+      const gl = document.getElementById('pm-smoke-main').getContext('webgl2');
       if (!gl) throw new Error('webgl2 context is unavailable after init');
       const glError = gl.getError();
       if (glError !== gl.NO_ERROR) {

@@ -5,7 +5,7 @@
 //
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
 
-import { init as wasmInit } from './generated/projectm-wasm-api.js';
+import { init as wasmInit, initWithCanvases } from './generated/projectm-wasm-api.js';
 
 /** @type {Record<number, { title: string; message: string; hints: string[] }>} */
 const ERROR_INFO = {
@@ -258,12 +258,19 @@ export function checkCrossOriginIsolation() {
 }
 
 /**
- * Calls `Module._init()` and shows/hides the init-error overlay based on its return code.
+ * Calls `Module._init()` (or `init_with_canvases` when selectors are provided)
+ * and shows/hides the init-error overlay based on its return code.
  * @param {*} Module The Emscripten module instance.
+ * @param {{ primaryCanvasSelector?: string; secondaryCanvasSelector?: string }} [options]
  * @returns {boolean} true if initialization succeeded (code 0) and rendering can proceed.
  */
-export function checkInit(Module) {
-    const code = wasmInit(Module);
+export function checkInit(Module, {
+    primaryCanvasSelector,
+    secondaryCanvasSelector,
+} = {}) {
+    const code = primaryCanvasSelector
+        ? initWithCanvases(Module, primaryCanvasSelector, secondaryCanvasSelector || '#scanvas')
+        : wasmInit(Module);
     if (code !== 0) {
         if (!overlayEl || !overlayEl.classList.contains('visible')) {
             showInitError(code);

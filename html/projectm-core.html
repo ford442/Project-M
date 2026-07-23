@@ -540,6 +540,16 @@ import { setupPresetPicker } from './projectm-preset-picker.js';
 import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 import { applyWeeksOnFireDomConfig, isWeeksOnFireMode } from './projectm-weeks-on-fire.js';
+import {
+    addPresetFile,
+    loadPresetFile,
+    setAspectCorrection,
+    setPresetLocked,
+    setTransparencyMode,
+    setTransparencyThreshold,
+    setWindowSize,
+    startRender,
+} from './generated/projectm-wasm-api.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const enableLocalPresets = new URLSearchParams(window.location.search).get('localPresets') === '1';
@@ -874,16 +884,8 @@ function applyTransparencyMode(enabled) {
         renderWorkerHandle.ccallVoid('set_transparency_mode', ['number'], [enabled ? 1 : 0]);
         renderWorkerHandle.ccallVoid('set_transparency_threshold', ['number'], [TRANSPARENCY_THRESHOLD]);
     } else if (typeof Module !== 'undefined') {
-        if (Module._set_transparency_mode) {
-            Module._set_transparency_mode(enabled ? 1 : 0);
-        } else if (Module.ccall) {
-            Module.ccall('set_transparency_mode', null, ['number'], [enabled ? 1 : 0]);
-        }
-        if (Module._set_transparency_threshold) {
-            Module._set_transparency_threshold(TRANSPARENCY_THRESHOLD);
-        } else if (Module.ccall) {
-            Module.ccall('set_transparency_threshold', null, ['number'], [TRANSPARENCY_THRESHOLD]);
-        }
+        setTransparencyMode(Module, enabled);
+        setTransparencyThreshold(Module, TRANSPARENCY_THRESHOLD);
     }
 
     try {
@@ -908,8 +910,8 @@ function lockPreset() {
     } catch { /* ignore */ }
     if (renderWorkerHandle) {
         renderWorkerHandle.ccallVoid('set_preset_locked', ['number'], [isPresetLocked ? 1 : 0]);
-    } else if (typeof Module !== 'undefined' && Module.ccall) {
-        Module.ccall('set_preset_locked', null, ['number'], [isPresetLocked ? 1 : 0]);
+    } else if (typeof Module !== 'undefined') {
+        setPresetLocked(Module, isPresetLocked);
     }
 }
 
@@ -1027,12 +1029,8 @@ function syncModuleSize() {
         return;
     }
     if (typeof Module === 'undefined') return;
-    if (Module._set_window_size) {
-        Module._set_window_size(w, h);
-    }
-    if (Module._set_aspect_correction) {
-        Module._set_aspect_correction(isBezelMode);
-    }
+    setWindowSize(Module, w, h);
+    setAspectCorrection(Module, isBezelMode);
 }
 
 const resizeObserver = new ResizeObserver((entries) => {
@@ -1062,11 +1060,9 @@ const resizeObserver = new ResizeObserver((entries) => {
             continue;
         }
 
-        if (typeof Module !== 'undefined' && Module._set_window_size) {
-            Module._set_window_size(w, h);
-        }
-        if (typeof Module !== 'undefined' && Module._set_aspect_correction) {
-            Module._set_aspect_correction(isBezelMode);
+        if (typeof Module !== 'undefined') {
+            setWindowSize(Module, w, h);
+            setAspectCorrection(Module, isBezelMode);
         }
     }
 });
@@ -1328,7 +1324,7 @@ async function attemptInit() {
         updateLayout();
         syncModuleSize();
         const mcanvas = document.querySelector('#mcanvas');
-        Module._start_render(mcanvas.width, mcanvas.height);
+        startRender(Module, mcanvas.width, mcanvas.height);
         flushQueuedExternalPCM();
 
         // ====== MESH QUALITY ======
@@ -1382,10 +1378,10 @@ if (urlTransparency === '1' || savedTransparency === '1') {
             if (!weeksOnFireMode) {
                 const startupResults = await loadStartupApiPresets(5);
                 if (startupResults.length > 0) {
-                    Module.ccall('load_preset_file', null, ['string'], [startupResults[0].vfsPath]);
+                    loadPresetFile(Module, startupResults[0].vfsPath);
                     updatePresetDisplay(startupResults[0].filename);
                     for (let i = 1; i < startupResults.length; i++) {
-                        Module.ccall('add_preset_file', null, ['string'], [startupResults[i].vfsPath]);
+                        addPresetFile(Module, startupResults[i].vfsPath);
                     }
                 }
             } else {

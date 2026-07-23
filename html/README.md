@@ -42,13 +42,45 @@ Keep remote asset endpoints configurable. Existing pages read `localStorage.apiB
 
 ## Host Roles
 
-- `projectm-core.html`: reference core shell.
-- `embed-demo.html`: minimal third-party embed demo using `<project-m-visualizer>` (see `packages/web/README.md`).
+Hosts fall into three tiers: the **core shell** and the **embed demo** are the
+canonical, dogfooded surfaces; **panel hosts** layer calibrated chrome on top;
+**legacy full hosts** remain for extended experiments and are on the
+deprecation path below.
+
+### Core / canonical
+
+- `projectm-core.html`: reference core shell. Markup + panel chrome only; all
+  public engine operations (init, `start_render`, resize/`set_window_size`,
+  `set_aspect_correction`, preset load/add, preset lock, transparency) go
+  through the generated WASM API (`generated/projectm-wasm-api.js`) or shared
+  modules — **no raw `Module._<sym>` / `Module.ccall(...)` public-API calls**.
+  Enforced by `scripts/check_core_host_public_api.sh`
+  (CI: `.github/workflows/host_layer_gate.yml`). Render-worker/perf internals
+  that proxy ccalls through the render-worker handle are the only temporarily
+  allowed exception, and they do not touch the `Module` object directly.
+- `embed-demo.html`: minimal third-party embed demo using
+  `<project-m-visualizer>` (see `packages/web/README.md`). The custom element
+  and `ProjectMContext` (`projectm-context.js`) are the intended init path for
+  new hosts.
+
+### Panel hosts
+
 - `projectm_panel.1ink`: legacy panel shell.
-- `projectm_panel2.1ink`: panel shell with embedded MOD/FLAC iframe sections and current bezel calibration. Supports `?mode=weeks_on_fire` like `projectm-core.html`.
+- `projectm_panel2.1ink`: production bezel host with embedded MOD/FLAC iframe
+  sections and current bezel calibration. Supports `?mode=weeks_on_fire` like
+  `projectm-core.html`. **Next to migrate** onto the shared host layer (shared
+  modules / generated API), preserving calibrated bezel artwork and hotspot
+  positions; still owns WASM bootstrap, external PCM, and Weeks-on-Fire mode
+  until then.
+
+### Legacy full hosts
+
 - `projectm.1ink`: full legacy shell with extended UI experiments.
 - `projectm_new.1ink`: newer full shell used to trial shared modules.
 - `projectm_test.1ink`: harness/test page.
+
+Legacy full hosts should converge to thin wrappers or redirect stubs per the
+deprecation path below rather than accreting more inline engine calls.
 
 ## `.1ink` Deprecation Path
 
@@ -66,3 +98,4 @@ Every HTML-facing PR should state which hosts are affected and which shared modu
 - Does external PCM still go through `projectm-external-pcm.js`?
 - Does FLAC/MOD UI still go through `projectm-audio-player.js`?
 - If layout changed, was panel2 bezel calibration preserved or intentionally updated?
+- Does `projectm-core.html` still pass `scripts/check_core_host_public_api.sh` (no new raw `Module._`/`Module.ccall` public-API calls)?

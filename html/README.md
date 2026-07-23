@@ -91,9 +91,11 @@ Tracked `.bak` files should not be reintroduced. Use git history for previous ve
 ## TypeScript Migration (Epic #163)
 
 `tsconfig.json` runs with `strict: true` and `checkJs: true`. Modules listed in
-its `include` are typechecked as part of `scripts/check_html_types.sh` (CI:
+its `include` are typechecked via `npm run typecheck` in this directory (also
+invoked by `scripts/check_html_types.sh` in CI:
 `build_linux.yml` / `build_emscripten.yml`) — a type error in any of them fails
-the PR.
+the PR. TypeScript is pinned in `html/package.json` so local runs and CI use the
+same compiler version.
 
 Migration strategy: **`allowJs` + `checkJs` with JSDoc annotations**, not a
 `.ts`-with-emit rewrite. Shared option/module shapes live in small types-only
@@ -140,6 +142,12 @@ back into the dual-source problem this migration started from:
 `tsconfig.json`'s `include`, fix errors) rather than adding `checkJs` for all
 of them at once — each one surfaces its own batch of implicit-`any` and
 Emscripten-boundary casts to work through.
+
+Unit tests for converted modules live under `tests/web/` and run via
+`scripts/test_web_embed.sh` (CI: `build_linux.yml` → `web-embed` job). Coverage
+includes PCM origin allowlist + channel trim, WASM script soft-404 fallback,
+preset URL fetch/VFS mocks, COI init-error shapes, and context canvas/destroy
+behavior.
 
 ## Review Checklist
 

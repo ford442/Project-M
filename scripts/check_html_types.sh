@@ -5,6 +5,6 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT/html"
 if [[ ! -x node_modules/.bin/tsc ]]; then
-    npm install --no-save --no-package-lock typescript@5.8.3
+    npm install --no-package-lock
 fi
-npx tsc -p tsconfig.json --noEmit
+npm run typecheck

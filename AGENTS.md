@@ -47,6 +47,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 ├── projectM_emscripten.cpp # WASM host wrapper: init orchestration + render loop
 ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
 ├── WasmGraphics.hpp        # Dual-FBO manager, GL state guard, compositing shader
+├── WasmWebGLContext.cpp    # WebGL context create/destroy + canvas selectors
 ├── WasmDualFbo.cpp         # dual_fbo_* / transition_* exports
 ├── WasmAudioBridge.cpp     # Audio worklet + stream analyser + PCM feed
 ├── WasmPerfGovernor.cpp    # Perf HUD + adaptive quality governor + OpenMP info

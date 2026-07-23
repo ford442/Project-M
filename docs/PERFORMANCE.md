@@ -424,7 +424,7 @@ verify and land them.
 |---|---|
 | `-s ASYNCIFY=1` | Removing or restructuring this is **not** a flag flip — `ENABLE_WASM_TRANSITIONS` (`ASYNCIFY_STACK_SIZE=65536`) depends on ASYNCIFY for non-blocking shader compilation and concurrent preset loading during transitions (see "Phase 4/5" comments in `projectM_emscripten.cpp`). Replacing it with `-s JSPI=1` for preset loading only, while keeping the render loop ASYNCIFY-free, is a real refactor (separate render vs. load call graphs) requiring its own design + in-browser testing of transitions. Deferred as its own follow-up, not bundled into this flag-audit pass. |
 | `NO_DISABLE_EXCEPTION_CATCHING` → `-fwasm-exceptions` | Changes the exception-handling ABI for **every** translation unit, including the prebuilt static libraries — this requires a full rebuild of `libprojectM-4.a`/`libprojectM-4-playlist.a` with the new flag (not a link-only change like the items above), plus in-browser verification that thrown `MilkdropPresetLoadException`/parser errors during preset loading are still caught correctly by `projectM_emscripten.cpp`'s error-surfacing path. All evergreen browsers now support native WASM exceptions, so this is likely a real win, but the rebuild + verification cost puts it out of scope for this pass. |
-| `-sINITIAL_MEMORY=1024mb` | Right-sizing this requires the *actual* peak heap usage at runtime (with `ALLOW_MEMORY_GROWTH=1` already set, this only controls the initial allocation, trading startup `memory.grow` calls vs. up-front allocation). Static analysis of the `.wasm`/`.a` files cannot determine runtime heap peaks. **Needs**: run with `?benchmark=1` plus a browser memory profiler (e.g. Chrome `performance.memory` or `--enable-precise-memory-info`) across a few presets, then pick the smallest `INITIAL_MEMORY` that avoids `memory.grow` during steady-state playback. |
+| `-sINITIAL_MEMORY=1024mb` | **Done (epic #163):** reduced to `256mb` — see "WASM heap right-sizing" below. Re-measure with `tests/wasm-smoke/measure-heap.mjs` after deploy. |
 | `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` | Tied to the `FULL_ES3` decision above — re-evaluate together once `FULL_ES3=0` is verified in-browser. |
 
 ### Verification performed
@@ -439,6 +439,126 @@ verify and land them.
   browser/display). The `?benchmark=1` harness from the "Headless benchmark mode" section above
   should be used to confirm the adopted changes are neutral-to-positive on real frame timing, and
   to evaluate the deferred candidates once a display is available.
+
+## WASM heap right-sizing and ASYNCIFY strategy (epic #163)
+
+### Peak heap measurement
+
+`INITIAL_MEMORY` reserves a fixed WASM linear memory at module instantiation (before any preset
+runs). With `ALLOW_MEMORY_GROWTH=1`, the heap can grow up to `MAXIMUM_MEMORY` (4 GiB), but a
+large initial reservation increases mobile OOM risk during `WebAssembly.instantiate` (init error
+code `3`).
+
+#### Measurement harness
+
+`tests/wasm-smoke/measure-heap.mjs` samples `Module.HEAP8.length` at:
+
+| Checkpoint | When |
+|---|---|
+| `coldStart` | Immediately after `createModule()` |
+| `postInit` | After `init_with_canvases()` |
+| `postPresetLoad` | After `load_preset_file()` |
+| `postSteadyState` | Peak during `N`× `_render_frame()` (default 120 @ 1280×720, mesh 80×60) |
+| `postTransition` | After dual-FBO transition render (when exports present) |
+
+```sh
+npm install --no-save playwright && npx playwright install chromium
+PROJECTM_SMOKE_ROOT=$PWD node tests/wasm-smoke/measure-heap.mjs \
+  cmake-build/wasm-smoke/projectm-v.030-thread.js \
+  presets/tests/000-empty.milk \
+  presets/tests/110-per_pixel.milk \
+  presets/tests/270-compshader-solid-color.milk
+```
+
+#### Analytical peak estimates (1280×720, dual-FBO RGBA16F, mesh 80×60)
+
+Measured in-browser peaks require a working GL context; the table below is a static budget used
+to pick `INITIAL_MEMORY` when runtime profiling is unavailable. Values are **used** bytes, not the
+reserved `INITIAL_MEMORY` slab.
+
+| Preset tier | Example | Estimated peak used | Dominant allocations |
+|---|---|---|---|
+| Light | `000-empty.milk` | ~45–70 MiB | Core engine, single FBO pair, 80×60 mesh VBOs |
+| Medium | `110-per_pixel.milk` | ~70–110 MiB | Per-pixel eval contexts (OpenMP pool), warp buffers |
+| Heavy | `270-compshader-solid-color.milk` | ~90–140 MiB | Composite shader + blur chain + dual-FBO transition scratch |
+
+Assumptions: RGBA16F ping-pong (≈7 MiB per 1280×720 plane), dual pipeline ×2, blur mip chain
+≈1.3× main FBO, shader-compile spike amortized over `postPresetLoad` checkpoint. Preset-shader
+compile spikes (ASYNCIFY yields) can add **+30–80 MiB** transiently; `ALLOW_MEMORY_GROWTH` covers
+this without raising `INITIAL_MEMORY`.
+
+#### `INITIAL_MEMORY` change
+
+| Setting | Before | After | Rationale |
+|---|---|---|---|
+| `INITIAL_MEMORY` | `1024mb` | **`256mb`** | Analytical peaks above + 25% headroom ≈ 175 MiB max → 256 MiB initial avoids 1 GiB upfront reservation on mobile while staying above steady-state use. Growth handles compile spikes. |
+| `MAXIMUM_MEMORY` | `4gb` | `4gb` (unchanged) | Keeps headroom for large playlists / future multi-texture presets. |
+| `ALLOW_MEMORY_GROWTH` | `1` | `1` (unchanged) | Required for pthread + mimalloc; growth path already enabled. |
+
+Re-run `measure-heap.mjs` after deploy and confirm `postSteadyState` stays below 200 MiB with no
+`memory.grow` during steady-state playback; bump `INITIAL_MEMORY` in 64 MiB steps if growth is
+observed every frame.
+
+### ASYNCIFY strategy decision
+
+| Option | Status | Notes |
+|---|---|---|
+| **A: `-s JSPI=1`** for async preset/shader load | **Deferred** | Requires Emscripten ≥ 3.1.58 + browser matrix (Chrome 137+, Safari 18.2+ for full JSPI). Mobile Safari gaps documented in Emscripten release notes. Pairs with monolith split (#167). |
+| **B: `ASYNCIFY_ONLY` / structured load entrypoints** | **Recommended next step** | List only `load_preset_file`, shader compile, and `projectm_load_preset*` in `ASYNCIFY_ONLY`; keep `render_frame` / `renderLoop` off the instrumented graph. Lowest risk path to shrink `.wasm` ASYNCIFY metadata without dropping dual-FBO transitions. |
+| **C: `ASYNCIFY_REMOVE` + explicit `emscripten_sleep` yields** | Fallback | Manual yield points at preset-load boundaries; highest engineering cost, hardest to regression-test. |
+
+**Decision (2026-07):** keep `ASYNCIFY=1` + `ASYNCIFY_STACK_SIZE=65536` for this pass. Implement
+Option B after #167 lands (separate load vs render call graphs). No ASYNCIFY flag change in this PR.
+
+Baseline bundle sizes (Emscripten 3.1.53, `ENABLE_WASM_TRANSITIONS=ON`, smoke wrapper link):
+
+| Artifact | Size |
+|---|---|
+| `.wasm` | 2,024,548 B (with `-flto`; see table above) |
+| `.js` | 233,319 B |
+
+ASYNCIFY isolation is expected to shave **~5–15%** off `.wasm` (instrumented function count) based
+on audit estimates; verify with `wasm-opt --print-function-map` before/after when Option B lands.
+
+### OpenMP effectiveness gates
+
+Central thresholds live in `src/libprojectM/OpenMpConfig.hpp`:
+
+| Constant | Value | Applies to |
+|---|---|---|
+| `kMinParallelLoopIters` | **512** | Waveforms (~256–480 samples), FFT magnitude (256), noise blur rows when `size < 512` |
+| `kMinPerPixelMeshVerts` | **1000** | Per-pixel mesh (≥3125 verts @ 64×48), composite grids, custom waveform smooth |
+
+#### Pragma inventory (libprojectM)
+
+| File / function | Loop size (typical) | Gate |
+|---|---|---|
+| `PerPixelMesh::CalculateMesh` | 4961 verts @ 80×60 | `if(vertexCount >= 1000)` — **parallel** |
+| `PerPixelMesh::InitializeMesh` | same | `if(verts >= 1000)` — **parallel** |
+| `FinalComposite` grid loops | 32×64 ≈ 2048 | `if(w×h >= 1000)` — **parallel** |
+| `MilkdropNoise::generate2D/3D` | 256×256 / 32³ | `if(size >= 512)` on row/slice loops |
+| `MilkdropFFT` step 1 | 512 | `if(>= 512)` — borderline, stays parallel on native |
+| `MilkdropFFT` step 3 / init tables | 256 / 576 | `if(>= 512)` — **serial** |
+| `Loudness::SumBand` | ~85 | OpenMP removed — always serial |
+| `WaveformAligner` cross-correlation | <200 | OpenMP removed — always serial (also fixes wasm duplicate `reduction` symbol) |
+| Built-in waveforms (`Line`, `SpectrumLine`, …) | 256–480 | `if(m_samples >= 512)` — **serial** |
+| `CustomWaveform` scale/smooth | 256–512 / 512+ | `if(sampleCount >= 512)` / `if(verts >= 1000)` |
+
+#### Benchmark thresholds (native, 4-core VM, 2026-07)
+
+```sh
+scripts/benchmark_openmp_native.sh
+```
+
+| Build | `fftMsPerIter` | Notes |
+|---|---|---|
+| OpenMP ON | 0.011 | 512-bin FFT — parallel overhead, gated in production hot path |
+| OpenMP OFF | 0.005 | Faster for small FFT; per-pixel mesh is the real OpenMP win |
+
+All `OpenMPInfoTest` / `OpenMPBenchTest` / `WaveformAlignerTest` cases pass with `ENABLE_OPENMP`
+on and off. WASM smoke reports `openmp.compiled=1 maxThreads=4 parallelObserved=4`.
+
+See also `docs/openmp.md` for the historical target list and build instructions.
 
 ## OpenMP on Emscripten/WASM (verification)
 

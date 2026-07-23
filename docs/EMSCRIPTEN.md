@@ -93,10 +93,10 @@ related host state remain process-global — see #168 Phase B).
 
 | Approach | Supported? | Memory notes |
 |----------|:----------:|--------------|
-| One Module, one visualizer, configurable selectors | **yes** (MVP) | One `INITIAL_MEMORY` reservation (default **1024mb**, growable to 4gb) |
+| One Module, one visualizer, configurable selectors | **yes** (MVP) | One `INITIAL_MEMORY` reservation (default **256mb**, growable to 4gb) |
 | One Module, `rebind_canvases()` to switch surfaces | **yes** | Same Module; only one surface active |
 | Two `<project-m-visualizer>` in one document sharing one Module | **no** | Would require Phase B instance handles |
-| Two Module instantiations in one document | **avoid** | ≈1 GiB+ each (`INITIAL_MEMORY`); often OOMs mobile |
+| Two Module instantiations in one document | **avoid** | ≈256 MiB+ each (`INITIAL_MEMORY`); can still OOM low-RAM mobile |
 | Multi-embed via **cross-origin-isolated iframes** | **yes** | One Module per iframe; isolate COOP/COEP on the iframe origin |
 
 Recommended multi-embed recipe: host each visualizer in its own iframe served with COOP/COEP
@@ -177,7 +177,7 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 |---------|:--------------:|:------------------:|-------|
 | `SHARED_MEMORY=1`, `WASM_WORKERS=1`, `-pthread` | yes | yes | Required for pthread pool + SharedArrayBuffer |
 | `PTHREAD_POOL_SIZE` | yes (`4`) | yes (`4`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | Must match `kWasmPthreadPoolSize` / `omp_set_num_threads()` |
-| `MALLOC=mimalloc`, `INITIAL_MEMORY=1024mb`, `MAXIMUM_MEMORY=4gb`, `ALLOW_MEMORY_GROWTH=1` | yes | yes | See `docs/PERFORMANCE.md` for right-sizing |
+| `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `MAXIMUM_MEMORY=4gb`, `ALLOW_MEMORY_GROWTH=1` | yes | yes | See `docs/PERFORMANCE.md` for right-sizing |
 | `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=1` | yes | yes | WebGL 2 / GLES 3 target |
 | `GL_POOL_TEMP_BUFFERS=0`, `GL_MAX_TEMP_BUFFER_SIZE=33177600`, `GL_TRACK_ERRORS=0` | yes | yes | GL emulation tuning |
 | `ASYNCIFY=1`, `ASYNCIFY_STACK_SIZE=65536` | yes / when `ENABLE_WASM_TRANSITIONS=ON` | yes / when `ENABLE_WASM_TRANSITIONS=ON` | Non-blocking shader compile |
@@ -261,7 +261,7 @@ only a `stderr` message in the console.
 |------|-------|---------|----------------|
 | `0` | — | Success. | — |
 | `2` | WebGL | Primary canvas selector not found, `emscripten_webgl_create_context` failed, or the created context could not be activated. | Missing canvas element, WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
-| `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (common on low-RAM mobile with `INITIAL_MEMORY=1024mb`), or an internal projectM error. |
+| `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (still possible on very low-RAM mobile even with `INITIAL_MEMORY=256mb`), or an internal projectM error. |
 | `4` | Cross-origin isolation | *(JS-side only, not returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
 
 ### Main-thread freeze on 033/034 (OpenMP vs. pthread pool)

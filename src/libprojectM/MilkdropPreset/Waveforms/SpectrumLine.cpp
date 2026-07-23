@@ -1,9 +1,13 @@
 #include "Waveforms/SpectrumLine.hpp"
 
+#include <OpenMpConfig.hpp>
+
 #include <cmath>
+
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
+
 #endif
 
 namespace libprojectM {
@@ -23,7 +27,7 @@ void SpectrumLine::GenerateVertices(const PresetState&, const PerFrameContext&)
     ClipWaveformEdges(1.57f * m_mysteryWaveParam);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
     for (size_t i = 0; i < static_cast<size_t>(m_samples); i++)
     {

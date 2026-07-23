@@ -29,6 +29,8 @@ OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Audio/MilkdropFFT.hpp"
 
+#include <OpenMpConfig.hpp>
+
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
 #endif
@@ -68,7 +70,7 @@ void MilkdropFFT::InitEnvelopeTable(float power)
     if (power == 1.0f)
     {
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(static_cast<int>(m_samplesIn) >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
         for (size_t i = 0; i < m_samplesIn; i++)
         {
@@ -78,7 +80,7 @@ void MilkdropFFT::InitEnvelopeTable(float power)
     else
     {
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(static_cast<int>(m_samplesIn) >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
         for (size_t i = 0; i < m_samplesIn; i++)
         {
@@ -101,7 +103,7 @@ void MilkdropFFT::InitEqualizeTable(bool equalize)
     m_equalize.resize(m_numFrequencies / 2);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(static_cast<int>(m_numFrequencies / 2) >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
     for (size_t i = 0; i < m_numFrequencies / 2; i++)
     {
@@ -184,7 +186,7 @@ void MilkdropFFT::TimeToFrequencyDomain(const std::vector<float>& waveformData, 
     std::span<const float> envelopeSpan(m_envelope.data(), m_samplesIn);
 #endif
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(static_cast<int>(m_numFrequencies) >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
     for (size_t i = 0; i < m_numFrequencies; i++)
     {
@@ -233,7 +235,7 @@ void MilkdropFFT::TimeToFrequencyDomain(const std::vector<float>& waveformData, 
     // 3. Take the magnitude & eventually equalize it (on a log10 scale) for output
     spectralData.resize(m_numFrequencies / 2);
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) if(static_cast<int>(m_numFrequencies / 2) >= libprojectM::OpenMp::kMinParallelLoopIters)
 #endif
     for (size_t i = 0; i < m_numFrequencies / 2; i++)
     {

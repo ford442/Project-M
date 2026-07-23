@@ -174,9 +174,6 @@ int WaveformAligner::CalculateOffset(std::vector<WaveformBuffer>& newWaveformMip
 
             // Perform the cross-correlation. Note that we shift the new waveform but not the old
             // one because we're looking for the offset between them that produces the lowest error.
-#ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for reduction(+:errorSum) schedule(static)
-#endif
             for (uint32_t i = m_firstNonzeroWeights[octave]; i <= m_lastNonzeroWeights[octave]; i++)
             {
                 errorSum += std::abs((newWaveformMips[octave][i + sample] - m_oldWaveformMips[octave][i]) * m_aligmentWeights[octave][i]);

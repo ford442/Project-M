@@ -35,7 +35,14 @@ Project-M/
 ├── presets/              # Visualization presets (.milk files)
 ├── custom_milk_fixed/    # Curated AI-authored preset regression set
 ├── html/                 # WASM demo hosts + shared browser modules (see html/README.md)
-├── projectM_emscripten.cpp  # WASM/Emscripten bindings (C API + EM_JS glue)
+├── projectM_emscripten.cpp  # WASM host: init orchestration + render loop (see split below)
+├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
+├── WasmGraphics.hpp         # Dual-FBO manager, GL state guard, compositing shader
+├── WasmDualFbo.cpp          # dual_fbo_* / transition_* exports
+├── WasmAudioBridge.cpp      # Audio worklet + stream analyser + PCM feed
+├── WasmPerfGovernor.cpp     # Perf HUD + adaptive quality governor + OpenMP info
+├── WasmPlaylistBridge.cpp   # Preset callbacks + playlist path helpers
+├── WasmJsBindings.cpp       # EM_JS DOM/VFS bootstrap + host-page notifications
 ├── projectm_audio_processor.js  # Web Audio Worklet for audio processing
 ├── CMakeLists.txt        # Build configuration
 └── docs/
@@ -52,9 +59,19 @@ Project-M/
 - **Code Style**: Follow `.clang-format` and `.clang-tidy` configs (see `AGENTS.md`)
 
 ### WASM/JavaScript Integration
-- **Emscripten exports**: `projectM_emscripten.cpp` exports C functions via
-  `EMSCRIPTEN_KEEPALIVE` + an explicit `-s EXPORTED_FUNCTIONS=...` list in `CMakeLists.txt`
-  (no `EMSCRIPTEN_BINDINGS`/embind block). Grep `EMSCRIPTEN_KEEPALIVE` to find all exports.
+- **Emscripten exports**: the WASM host wrapper exports C functions via
+  `EMSCRIPTEN_KEEPALIVE` + an explicit `EXPORTED_FUNCTIONS` list generated from
+  `cmake/EmscriptenWasmFlags.cmake` (no `EMSCRIPTEN_BINDINGS`/embind block).
+  Grep `EMSCRIPTEN_KEEPALIVE` to find all exports.
+- **Host source layout**: the wrapper is split across focused TUs sharing
+  `ProjectMWasmInternal.hpp` — `projectM_emscripten.cpp` (init + render loop),
+  `WasmGraphics.hpp` / `WasmDualFbo.cpp` (dual-FBO transitions),
+  `WasmAudioBridge.cpp`, `WasmPerfGovernor.cpp`, `WasmPlaylistBridge.cpp`,
+  `WasmJsBindings.cpp`. **Where to add a WASM export:** see
+  [`docs/EMSCRIPTEN.md`](docs/EMSCRIPTEN.md#where-to-add-a-wasm-export). Put the
+  export in the TU that owns the concern, register it in the CMake export list +
+  `cmake/WasmApiManifest.cmake`, add new `.cpp` files to `wrapper_sources` in
+  `scripts/build_wasm_smoke_wrapper.sh`, and rerun `scripts/sync_wasm_link_common.sh`.
 - **Audio Processing**: `projectm_audio_processor.js` (Web Audio Worklet) — receives raw
   per-channel `Float32Array` data via `postMessage` (not an `AudioBuffer`) and batches
   samples before calling into WASM.
@@ -132,7 +149,11 @@ only adds WASM-specific notes:
 ## Common Tasks
 
 ### Adding a New Emscripten Export
-1. Define the function in `projectM_emscripten.cpp` with `EMSCRIPTEN_KEEPALIVE`
+1. Define the function with `EMSCRIPTEN_KEEPALIVE` in the WASM host TU that owns
+   the concern (audio → `WasmAudioBridge.cpp`, dual-FBO/transitions →
+   `WasmDualFbo.cpp`, perf/governor → `WasmPerfGovernor.cpp`, playlist →
+   `WasmPlaylistBridge.cpp`, EM_JS DOM glue → `WasmJsBindings.cpp`, otherwise
+   `projectM_emscripten.cpp`). Cross-TU state goes in `ProjectMWasmInternal.hpp`.
 2. Add its name (prefixed with `_`) to `PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS` in
    `cmake/EmscriptenWasmFlags.cmake`, then run `scripts/sync_wasm_link_common.sh`
    (regenerates `wasm_link_common.inc.sh` and `ProjectMWasmBuildConfig.hpp`)

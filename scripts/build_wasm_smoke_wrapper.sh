@@ -92,10 +92,23 @@ projectm_wasm_simd_compile_args simd_compile_args
 wrapper_include_args=()
 projectm_wasm_wrapper_include_args wrapper_include_args
 
-# Note: no -flto here by default. projectM_emscripten.cpp is the only LTO/bitcode TU
+# WASM host wrapper translation units. projectM_emscripten.cpp was split into
+# focused TUs (see docs/EMSCRIPTEN.md "Where to add a WASM export"); all of them
+# must be passed to the final emcc link. Header-only pieces (WasmGraphics.hpp,
+# ProjectMWasmInternal.hpp) are #included, not listed here.
+wrapper_sources=(
+    "$PROJECT_ROOT/projectM_emscripten.cpp"
+    "$PROJECT_ROOT/WasmDualFbo.cpp"
+    "$PROJECT_ROOT/WasmAudioBridge.cpp"
+    "$PROJECT_ROOT/WasmPerfGovernor.cpp"
+    "$PROJECT_ROOT/WasmPlaylistBridge.cpp"
+    "$PROJECT_ROOT/WasmJsBindings.cpp"
+)
+
+# Note: no -flto here by default. The wrapper TUs are the only LTO/bitcode TUs
 # in this link; libprojectM-4.a is built without LTO. Set PROJECTM_WASM_LTO=1 to try
 # link-time-only LTO (see docs/PERFORMANCE.md).
-emcc "$PROJECT_ROOT/projectM_emscripten.cpp" \
+emcc "${wrapper_sources[@]}" \
     "${wrapper_include_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \

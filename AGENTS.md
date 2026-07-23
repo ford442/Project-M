@@ -44,11 +44,23 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── hlslparser/         # HLSL parser for shaders
 │   ├── projectm-eval/      # Milkdrop expression evaluator (Git submodule)
 │   └── stb_image/          # Image loading
+├── projectM_emscripten.cpp # WASM host wrapper: init orchestration + render loop
+├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
+├── WasmGraphics.hpp        # Dual-FBO manager, GL state guard, compositing shader
+├── WasmDualFbo.cpp         # dual_fbo_* / transition_* exports
+├── WasmAudioBridge.cpp     # Audio worklet + stream analyser + PCM feed
+├── WasmPerfGovernor.cpp    # Perf HUD + adaptive quality governor + OpenMP info
+├── WasmPlaylistBridge.cpp  # Preset callbacks + playlist path helpers
+├── WasmJsBindings.cpp      # EM_JS DOM/VFS bootstrap + host-page notifications
 ├── CMakeLists.txt          # Root build configuration
 ├── vcpkg.json              # vcpkg dependency manifest
 ├── features.cmake          # Compiler flags, filesystem support, config.h generation
 └── config.h.cmake.in       # Template for generated build-config header
 ```
+
+The WASM host wrapper is split into focused translation units sharing
+`ProjectMWasmInternal.hpp`. For where to add a new `EMSCRIPTEN_KEEPALIVE`
+export, see [`docs/EMSCRIPTEN.md`](docs/EMSCRIPTEN.md#where-to-add-a-wasm-export).
 
 ---
 

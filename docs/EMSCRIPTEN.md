@@ -88,6 +88,53 @@ CI runs `scripts/verify_wasm_link_common.sh` to ensure generated files are commi
 
 Typed JavaScript wrappers are generated into `html/generated/projectm-wasm-api.{ts,js}` from `cmake/WasmApiManifest.cmake`. See [WASM_JS_API.md](WASM_JS_API.md).
 
+## WASM host source layout
+
+The Emscripten host wrapper was historically a single ~3100-line
+`projectM_emscripten.cpp`. It is now split into focused translation units, all
+sharing `ProjectMWasmInternal.hpp` for the common Emscripten/projectM/GL
+includes and the small amount of cross-TU state:
+
+| File | Responsibility |
+|------|----------------|
+| `projectM_emscripten.cpp` | Init orchestration, `AppData` ownership, WebGL context + extensions, transpiled-GLSL shader cache, render loop, engine lifecycle + render exports, `main()` |
+| `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
+| `WasmDualFbo.cpp` | `g_dualFbo`/`g_compositorShader` instances, transition state, `dual_fbo_*` and `transition_*` exports |
+| `WasmAudioBridge.cpp` | Audio worklet + stream analyser EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
+| `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
+| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
+| `WasmJsBindings.cpp` | EM_JS clusters: DOM/VFS bootstrap (`js_init_projectm_dom`), preset download helpers, host-page notifications |
+
+`ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` is a
+header of cohesive graphics classes shared by two TUs; it exceeds the ~800-LOC
+guideline for a single unit by design, because splitting the FBO manager,
+state guard, and compositing shader across headers would fragment one tightly
+coupled subsystem.
+
+All non-header TUs are passed to the final `emcc` link in
+`scripts/build_wasm_smoke_wrapper.sh` (`wrapper_sources`). Add new `.cpp` files
+to that array.
+
+### Where to add a WASM export
+
+To add a new `EMSCRIPTEN_KEEPALIVE` C export:
+
+1. **Implement it** in the TU that owns the concern (e.g. a new audio export
+   goes in `WasmAudioBridge.cpp`). Wrap it in `extern "C" { ... }` and mark it
+   `EMSCRIPTEN_KEEPALIVE`. If it needs cross-TU state, add an `extern`
+   declaration to `ProjectMWasmInternal.hpp` rather than duplicating a global.
+2. **Register the symbol** in `cmake/EmscriptenWasmFlags.cmake`
+   (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) so it is added to
+   `EXPORTED_FUNCTIONS`, and add a matching entry to
+   `PROJECTM_WASM_API_MANIFEST` in `cmake/WasmApiManifest.cmake`.
+3. **Regenerate** derived artifacts with `scripts/sync_wasm_link_common.sh` and
+   commit them (CI runs `scripts/verify_wasm_link_common.sh`).
+4. Keep export **names** stable — hosts and `cmake/WasmApiManifest.cmake` depend
+   on them.
+
+If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
+`scripts/build_wasm_smoke_wrapper.sh`.
+
 ### Flag matrix (CMake lib link vs. shell wrapper link)
 
 | Setting | CMake lib link | Shell wrapper link | Notes |

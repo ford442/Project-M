@@ -38,6 +38,7 @@ Project-M/
 ├── projectM_emscripten.cpp  # WASM host: init orchestration + render loop (see split below)
 ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
 ├── WasmGraphics.hpp         # Dual-FBO manager, GL state guard, compositing shader
+├── WasmWebGLContext.cpp     # WebGL context create/destroy + canvas selectors
 ├── WasmDualFbo.cpp          # dual_fbo_* / transition_* exports
 ├── WasmAudioBridge.cpp      # Audio worklet + stream analyser + PCM feed
 ├── WasmPerfGovernor.cpp     # Perf HUD + adaptive quality governor + OpenMP info
@@ -65,6 +66,7 @@ Project-M/
   Grep `EMSCRIPTEN_KEEPALIVE` to find all exports.
 - **Host source layout**: the wrapper is split across focused TUs sharing
   `ProjectMWasmInternal.hpp` — `projectM_emscripten.cpp` (init + render loop),
+  `WasmWebGLContext.cpp` (WebGL context + canvas selectors),
   `WasmGraphics.hpp` / `WasmDualFbo.cpp` (dual-FBO transitions),
   `WasmAudioBridge.cpp`, `WasmPerfGovernor.cpp`, `WasmPlaylistBridge.cpp`,
   `WasmJsBindings.cpp`. **Where to add a WASM export:** see
@@ -150,7 +152,8 @@ only adds WASM-specific notes:
 
 ### Adding a New Emscripten Export
 1. Define the function with `EMSCRIPTEN_KEEPALIVE` in the WASM host TU that owns
-   the concern (audio → `WasmAudioBridge.cpp`, dual-FBO/transitions →
+   the concern (audio → `WasmAudioBridge.cpp`, WebGL/canvas →
+   `WasmWebGLContext.cpp`, dual-FBO/transitions →
    `WasmDualFbo.cpp`, perf/governor → `WasmPerfGovernor.cpp`, playlist →
    `WasmPlaylistBridge.cpp`, EM_JS DOM glue → `WasmJsBindings.cpp`, otherwise
    `projectM_emscripten.cpp`). Cross-TU state goes in `ProjectMWasmInternal.hpp`.

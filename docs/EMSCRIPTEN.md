@@ -131,7 +131,8 @@ includes and the small amount of cross-TU state:
 
 | File | Responsibility |
 |------|----------------|
-| `projectM_emscripten.cpp` | Init orchestration, `AppData` ownership, WebGL context + extensions, transpiled-GLSL shader cache, render loop, engine lifecycle + render exports, `main()` |
+| `projectM_emscripten.cpp` | Init orchestration, `AppData` ownership, transpiled-GLSL shader cache, render loop, engine lifecycle + render exports, `main()` |
+| `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `g_dualFbo`/`g_compositorShader` instances, transition state, `dual_fbo_*` and `transition_*` exports |
 | `WasmAudioBridge.cpp` | Audio worklet + stream analyser EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
@@ -154,7 +155,8 @@ to that array.
 To add a new `EMSCRIPTEN_KEEPALIVE` C export:
 
 1. **Implement it** in the TU that owns the concern (e.g. a new audio export
-   goes in `WasmAudioBridge.cpp`). Wrap it in `extern "C" { ... }` and mark it
+   goes in `WasmAudioBridge.cpp`, WebGL/canvas work in `WasmWebGLContext.cpp`).
+   Wrap it in `extern "C" { ... }` and mark it
    `EMSCRIPTEN_KEEPALIVE`. If it needs cross-TU state, add an `extern`
    declaration to `ProjectMWasmInternal.hpp` rather than duplicating a global.
 2. **Register the symbol** in `cmake/EmscriptenWasmFlags.cmake`

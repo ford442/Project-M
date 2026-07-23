@@ -98,6 +98,7 @@ projectm_wasm_wrapper_include_args wrapper_include_args
 # ProjectMWasmInternal.hpp) are #included, not listed here.
 wrapper_sources=(
     "$PROJECT_ROOT/projectM_emscripten.cpp"
+    "$PROJECT_ROOT/WasmWebGLContext.cpp"
     "$PROJECT_ROOT/WasmDualFbo.cpp"
     "$PROJECT_ROOT/WasmAudioBridge.cpp"
     "$PROJECT_ROOT/WasmPerfGovernor.cpp"

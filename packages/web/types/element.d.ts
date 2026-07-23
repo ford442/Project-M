@@ -1,1 +1,1 @@
-export * from '../../../html/projectm-element.ts';
+export * from '../dist/projectm-element.ts';

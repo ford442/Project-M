@@ -1,0 +1,4 @@
+# Presence of this file makes npm ignore .gitignore, so /dist (a build artifact
+# git-ignored but required in the tarball) is still published via the `files`
+# allowlist in package.json. Keep source-only cruft out of the package.
+scripts/

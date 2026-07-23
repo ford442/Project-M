@@ -5,46 +5,37 @@
   "license": "LGPL-2.1-only",
   "type": "module",
   "sideEffects": [
-    "./projectm-element.js"
+    "./dist/projectm-element.js"
   ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs"
+  },
   "files": [
-    "../../html/projectm-wasm-version.js",
-    "../../html/projectm-init.js",
-    "../../html/projectm-init-errors.js",
-    "../../html/projectm-context.js",
-    "../../html/projectm-context.ts",
-    "../../html/projectm-element.js",
-    "../../html/projectm-element.ts",
-    "../../html/projectm-external-pcm.js",
-    "../../html/projectm-audio-bootstrap.js",
-    "../../html/projectm-context-loss.js",
-    "../../html/projectm-mesh-quality.js",
-    "../../html/projectm-fps-governor.js",
-    "../../html/projectm-presets.js",
-    "../../html/generated/projectm-wasm-api.js",
-    "../../html/generated/projectm-wasm-api.ts",
+    "dist",
+    "types",
     "README.md"
   ],
   "exports": {
     ".": {
       "types": "./types/entry.d.ts",
-      "default": "../../html/projectm-element.js"
+      "default": "./dist/projectm-element.js"
     },
     "./element": {
       "types": "./types/element.d.ts",
-      "default": "../../html/projectm-element.js"
+      "default": "./dist/projectm-element.js"
     },
     "./context": {
       "types": "./types/context.d.ts",
-      "default": "../../html/projectm-context.js"
+      "default": "./dist/projectm-context.js"
     },
     "./wasm-version": {
       "types": "./types/wasm-version.d.ts",
-      "default": "../../html/projectm-wasm-version.js"
+      "default": "./dist/projectm-wasm-version.js"
     },
     "./wasm-api": {
-      "types": "../../html/generated/projectm-wasm-api.ts",
-      "default": "../../html/generated/projectm-wasm-api.js"
+      "types": "./dist/generated/projectm-wasm-api.ts",
+      "default": "./dist/generated/projectm-wasm-api.js"
     }
   },
   "types": "./types/entry.d.ts",

@@ -49,11 +49,12 @@ deprecation path below.
 
 ### Core / canonical
 
-- `projectm-core.html`: reference core shell. Markup + panel chrome only; all
-  public engine operations (init, `start_render`, resize/`set_window_size`,
-  `set_aspect_correction`, preset load/add, preset lock, transparency) go
-  through the generated WASM API (`generated/projectm-wasm-api.js`) or shared
-  modules — **no raw `Module._<sym>` / `Module.ccall(...)` public-API calls**.
+- `projectm-core.html`: reference core shell. Markup + panel chrome only; boots via
+  **`ProjectMContext`** (`projectm-context.js`) for init, resize, preset lock, and
+  transparency on the main-thread path (render-worker mode still uses the worker
+  handle). Public engine operations go through the generated WASM API
+  (`generated/projectm-wasm-api.js`) or context methods — **no raw
+  `Module._<sym>` / `Module.ccall(...)` public-API calls**.
   Enforced by `scripts/check_core_host_public_api.sh`
   (CI: `.github/workflows/host_layer_gate.yml`). Render-worker/perf internals
   that proxy ccalls through the render-worker handle are the only temporarily

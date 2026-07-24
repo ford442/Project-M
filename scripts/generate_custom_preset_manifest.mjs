@@ -49,6 +49,39 @@ function loadCaptureStatus() {
 const status = loadCaptureStatus();
 const auditIndex = loadAuditIndex(auditPath);
 
+// Build an explanatory note for a preset's quality status so the curated manifest
+// never carries an unexplained `unknown`/`broken` entry. Presets awaiting a
+// screenshot baseline still get the static-audit signal we do have on hand.
+function statusNote(captureStatus, audit) {
+    // Captured and rendered fine — nothing to explain.
+    if (captureStatus && captureStatus.ok) return null;
+
+    // Captured but failed to render — surface the concrete capture error.
+    if (captureStatus && !captureStatus.ok) {
+        return captureStatus.error
+            || (captureStatus.presetSwitchFailed ? 'preset switch failed' : 'capture failed');
+    }
+
+    // Not present in the screenshot baseline (status: unknown). Explain why it is
+    // unknown and fold in the GPU-free static audit verdict as partial assurance.
+    const parts = ['not in screenshot baseline; awaiting capture'];
+    if (audit) {
+        const warnCount = Array.isArray(audit.findings)
+            ? audit.findings.filter((f) => f.severity === 'warn').length
+            : 0;
+        if (audit.ok && warnCount === 0) {
+            parts.push('static audit clean');
+        } else if (audit.ok) {
+            parts.push(`static audit clean, ${warnCount} warning${warnCount === 1 ? '' : 's'}`);
+        } else {
+            parts.push('static audit reports errors');
+        }
+    } else {
+        parts.push('no static audit entry');
+    }
+    return parts.join('; ');
+}
+
 const presets = readdirSync(presetDir)
     .filter((f) => f.toLowerCase().endsWith('.milk'))
     .sort()
@@ -80,7 +113,7 @@ const presets = readdirSync(presetDir)
             label: sidecar.label || deriveLabel(source, file),
             status: s ? (s.ok ? 'ok' : 'broken') : 'unknown',
             meanRgb: s ? s.meanRgb : null,
-            note: s && !s.ok ? (s.error || (s.presetSwitchFailed ? 'preset switch failed' : 'capture failed')) : null,
+            note: statusNote(s, audit),
             tags: merged.tags,
             tier,
             reactivity,

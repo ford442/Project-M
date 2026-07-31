@@ -57,6 +57,14 @@ public:
               PerPixelContext& perPixelContext,
               const std::vector<std::unique_ptr<PerPixelContext>>& perPixelContextPool);
 
+    /**
+     * @brief Returns true if a custom HLSL warp shader is loaded for this preset.
+     *
+     * When false, the default warp shader is used and the pre-warp CopyTexture
+     * flip pass can be skipped; the fragment shader handles the UV flip instead.
+     */
+    auto HasCustomWarpShader() const -> bool;
+
 
 private:
     /**

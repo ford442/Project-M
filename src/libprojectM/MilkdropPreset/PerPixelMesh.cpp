@@ -374,6 +374,10 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
         perPixelMeshShader->SetUniformFloat4("warpFactors", warpFactors);
         perPixelMeshShader->SetUniformFloat2("texelOffset", texelOffsets);
         perPixelMeshShader->SetUniformFloat("decay", decay);
+        // The default warp path skips the pre-warp CopyTexture flip, so the
+        // main texture is supplied un-flipped.  Signal the fragment shader to
+        // fold the V-flip into the sample coordinate instead.
+        perPixelMeshShader->SetUniformInt("u_flipMainTex", 1);
     }
     else
     {
@@ -409,6 +413,11 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
     Renderer::Mesh::Unbind();
     Renderer::Sampler::Unbind(0);
     Renderer::Shader::Unbind();
+}
+
+auto PerPixelMesh::HasCustomWarpShader() const -> bool
+{
+    return m_warpShader != nullptr;
 }
 
 auto PerPixelMesh::GetDefaultWarpShader(const PresetState& presetState) -> std::shared_ptr<Renderer::Shader>

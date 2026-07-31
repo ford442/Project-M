@@ -112,9 +112,22 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
         m_motionVectors.Draw(m_perFrameContext, m_motionVectorUVMap->Texture());
     }
 
-    // y-flip the previous frame and assign the flipped texture as "main"
-    m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), nullptr, true, false);
-    m_state.mainTexture = m_flipTexture.Texture();
+    // y-flip the previous frame and assign the flipped texture as "main".
+    // When the preset uses only the default warp shader the fragment shader
+    // can fold the flip into the sample coordinate (u_flipMainTex = 1), so
+    // we skip this fullscreen CopyTexture pass entirely and hand the raw
+    // (un-flipped) texture to the warp draw.  Custom HLSL warp shaders
+    // expect Milkdrop UV convention (v=0 at top) via sampler_main, so the
+    // pre-flip is still needed for those presets.
+    if (m_perPixelMesh.HasCustomWarpShader())
+    {
+        m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), nullptr, true, false);
+        m_state.mainTexture = m_flipTexture.Texture();
+    }
+    else
+    {
+        m_state.mainTexture = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
+    }
 
     // We now draw to the current framebuffer.
     m_framebuffer.Bind(m_currentFrameBuffer);
@@ -207,6 +220,16 @@ void MilkdropPreset::BindFramebuffer()
     {
         m_framebuffer.BindDraw(m_previousFrameBuffer);
     }
+}
+
+void MilkdropPreset::BindOutputForRead()
+{
+    // Bind the framebuffer that holds the most recently composited frame as
+    // the OpenGL read framebuffer.  This lets the caller use glBlitFramebuffer
+    // to copy the output to the target without a shader quad draw.
+    // OutputTexture() returns GetColorAttachmentTexture(m_currentFrameBuffer, 0),
+    // so the matching read bind uses the same index.
+    m_framebuffer.BindRead(m_currentFrameBuffer);
 }
 
 void MilkdropPreset::PerFrameUpdate()

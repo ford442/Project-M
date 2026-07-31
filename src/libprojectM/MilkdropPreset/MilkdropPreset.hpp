@@ -87,6 +87,8 @@ public:
 
     void BindFramebuffer() override;
 
+    void BindOutputForRead() override;
+
 private:
     void PerFrameUpdate();
 

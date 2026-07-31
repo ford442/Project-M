@@ -60,6 +60,16 @@ public:
      */
     virtual void BindFramebuffer() = 0;
 
+    /**
+     * @brief Binds the preset's output framebuffer as the current OpenGL read framebuffer.
+     *
+     * This allows callers to use glBlitFramebuffer for a fast hardware copy of the rendered
+     * output without the overhead of a fullscreen shader quad.  The default no-op is sufficient
+     * for presets that do not own a dedicated FBO.  After the call the read FBO is the preset's
+     * internal output buffer; the draw FBO is unchanged.
+     */
+    virtual void BindOutputForRead() {}
+
     inline void SetFilename(const std::string& filename)
     {
         m_filename = filename;

@@ -81,7 +81,8 @@ The preset work operates over three corpora, described in
 [`presets/agent_manifest.json`](../presets/agent_manifest.json):
 
 - **`custom_milk_fixed/`** — curated AI-authored regression set (`milk0xx` + `fractal_echo_*`
-  series). Opt-in via `PROJECTM_TEST_CUSTOM_MILK_FIXED=1`.
+  series). Opt-in via `PROJECTM_TEST_CUSTOM_MILK_FIXED=1`. Presets that cannot render
+  are parked in `custom_milk_quarantine/` with a stated reason; see its README.
 - **`weeks_presets/`** — large community corpus (~400 `.milk` files); validate via
   `PROJECTM_PRESET_COMPAT_DIR` before bulk upgrades.
 - **`presets/tests/`** — small parser/shader fixtures covered by the default
@@ -92,10 +93,30 @@ Author/validate/upgrade helpers:
 - `scripts/audit_presets.mjs` — **GPU-free static reliability audit** (Node only, no
   build). Complements the compat harness by catching runtime hazards (division by
   zero, unbalanced `()`/`{}`/`[]` across equation and shader groups, literal NaN
-  sources), tiering presets `light`/`medium`/`heavy`, and emitting metadata
+  sources, HLSL filed under `per_pixel_*`, `PSVERSION_*` declared without a matching
+  shader body), tiering presets `light`/`medium`/`heavy`, and emitting metadata
   (description, author, audio-reactivity, PSVERSION). Run `--selftest` to verify the
   checker; gated per push by `.github/workflows/preset_audit.yml`. Latest run:
   [`docs/PRESET_AUDIT.md`](PRESET_AUDIT.md) / [`docs/preset_audit_report.json`](preset_audit_report.json).
+  `--worklist` emits the ranked optimization backlog:
+  [`docs/PRESET_WORKLIST.md`](PRESET_WORKLIST.md).
+
+  **Cost model (2026-07-31).** Tiering is expressed in per-vertex-equation
+  equivalents, weighted by how often each term actually runs: `per_pixel` per mesh
+  vertex per frame, shader body and `tex2D` per fragment, `per_frame` **once** per
+  frame. The previous weights charged `per_frame` at the same order as per-fragment
+  work, which made equation verbosity the dominant term — 103 presets landed in
+  `heavy` with zero `per_pixel` equations, modest shader bodies and few texture
+  fetches. Re-weighting corrected the estimator; no preset changed, and nothing got
+  faster. It did change what downstream tools see: `build_featured_pack.mjs` now has
+  real `light` candidates to choose from (featured pack went from 11 light / 29 medium
+  / 2 heavy to 40 light / 5 medium / 0 heavy). `scripts/preset_metadata.mjs` no longer
+  carries its own drifting copy of the model — it calls the auditor.
+- A preset may waive an *advisory* finding from a leading comment when the finding is
+  correct about the code and wrong about the intent:
+  `// audit-allow: <code> — <why this is intentional>`. The reason is mandatory (a
+  waiver without one is itself reported), `error` findings are never waivable, and
+  waived findings stay in the JSON report.
 - `scripts/kimi_validate_preset.sh` — validate a preset against the current build.
 - `scripts/kimi_upgrade_preset.sh` — AI-assisted upgrade pass.
 - `scripts/test_presets.sh` — batch smoke test.

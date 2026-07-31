@@ -1,6 +1,10 @@
+// CHANGELOG 2026-07-31 — repaired misfiled shader body
+// - The Moon and starfield program was stored under `per_pixel_1` as HLSL. per_pixel equations
+//   are a scalar expression language with no types and no `ret` output, so the body
+//   never executed and the preset rendered blank. Moved verbatim into `comp_1`, the
+//   section the file's PSVERSION_COMP=3 already declared.
 MILKDROP_PRESET_VERSION=201
 PSVERSION=3
-PSVERSION_WARP=3
 PSVERSION_COMP=3
 [preset00]
 fRating=5.000000
@@ -76,7 +80,9 @@ per_frame_1=`
     q3 = time * 5.0;
     q4 = treb_att * 2.0;
 `
-per_pixel_1=`
+per_pixel_1=zoom=1.0;
+
+comp_1=`
     // Basic setup
     float2 center_uv = float2(0.5, 0.5);
     float3 background_color = float3(0.0, 0.0, 0.1); // Dark blue background

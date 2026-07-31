@@ -1,6 +1,12 @@
 import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import {
+    AudioSourceRouter,
+    audioSourceToRouterSource,
+    createAudioSourceRouter,
+} from './projectm-audio-source-router.js';
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import {
+    defaultFeedPCMToModule,
     flushQueuedExternalPCM,
     setupExternalAudioReceiver,
 } from './projectm-external-pcm.js';
@@ -65,6 +71,8 @@ function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
  * @typedef {import('./projectm-context-types.ts').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
  * @typedef {import('./projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
  * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('./projectm-context-types.ts').ProjectMAudioSourceStatus} ProjectMAudioSourceStatus
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./projectm-context-types.ts').ProjectMPresetDetail} ProjectMPresetDetail
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
@@ -183,6 +191,10 @@ export class ProjectMContext {
         this.presetListener = null;
         /** @type {HTMLMediaElement | null} */
         this.audioElement = null;
+        /** @type {AudioSourceRouter | null} */
+        this.audioRouter = null;
+        /** @type {(() => void) | null} */
+        this._externalReceiverClose = null;
     }
 
     /**
@@ -214,11 +226,21 @@ export class ProjectMContext {
             audioSource,
             audioElement,
             externalPcmOrigins,
+            onAudioSourceChange,
+            audioRouter: existingAudioRouter,
             onReady,
             onError,
             onPresetChanged,
             onFps,
         } = this.options;
+
+        if (audioSource === 'element') {
+            const media = resolveMediaElement(audioElement, documentRef);
+            if (media) {
+                this.audioElement = media;
+                media.id = media.id || 'audio-stream-element';
+            }
+        }
 
         if (requireCrossOriginIsolation && !checkCrossOriginIsolation()) {
             const error = new Error('Cross-origin isolation is required for this WASM build');
@@ -265,6 +287,24 @@ export class ProjectMContext {
                 throw error;
             }
 
+            this.audioRouter = existingAudioRouter ?? createAudioSourceRouter({
+                module: this.module,
+                initialSource: audioSourceToRouterSource(audioSource),
+                onStatusChange: (status) => {
+                    onAudioSourceChange?.(status);
+                },
+            });
+            if (existingAudioRouter) {
+                existingAudioRouter.setModule(this.module);
+                if (onAudioSourceChange) {
+                    const prior = existingAudioRouter.onStatusChange;
+                    existingAudioRouter.onStatusChange = (status) => {
+                        prior?.(status);
+                        onAudioSourceChange(status);
+                    };
+                }
+            }
+
             setupAudioUnlock();
             setupContextLossRecovery(this.module, {
                 canvasSelector: this.primaryCanvasSelector,
@@ -298,6 +338,9 @@ export class ProjectMContext {
             }
 
             this.#wireAudio(audioSource, audioElement, externalPcmOrigins);
+            if (!existingAudioRouter) {
+                this.audioRouter.setModule(this.module);
+            }
             this.#observeResize();
             this.#wirePresetEvents(onPresetChanged);
 
@@ -395,6 +438,20 @@ export class ProjectMContext {
         return setTargetFps(this.module, fps);
     }
 
+    /**
+     * @returns {ProjectMAudioSourceStatus | null}
+     */
+    getAudioSourceStatus() {
+        return this.audioRouter?.getStatus() ?? null;
+    }
+
+    /**
+     * @param {import('./projectm-audio-source-router.js').ProjectMAudioSourceActive} source
+     */
+    setAudioSource(source) {
+        this.audioRouter?.setActiveSource(source);
+    }
+
     resize() {
         syncCanvasSize({
             module: this.module,
@@ -421,6 +478,12 @@ export class ProjectMContext {
             this.options.windowRef?.removeEventListener('pm:preset-loaded', this.presetListener);
             this.presetListener = null;
         }
+        if (this._externalReceiverClose) {
+            this._externalReceiverClose();
+            this._externalReceiverClose = null;
+        }
+        this.audioRouter?.destroy();
+        this.audioRouter = null;
         if (this.module?._destruct) {
             this.module._destruct();
         }
@@ -434,10 +497,15 @@ export class ProjectMContext {
      */
     #wireAudio(audioSource, audioElementOption, externalPcmOrigins) {
         if (audioSource === 'external') {
-            setupExternalAudioReceiver({
+            const router = this.audioRouter;
+            const receiver = setupExternalAudioReceiver({
                 allowedOrigins: externalPcmOrigins ?? [],
-                onFeed: () => flushQueuedExternalPCM(),
+                feedGate: () => router?.externalFeedGate() ?? false,
+                onFeed: router
+                    ? router.wrapExternalFeed(defaultFeedPCMToModule)
+                    : defaultFeedPCMToModule,
             });
+            this._externalReceiverClose = receiver.close;
             return;
         }
 
@@ -445,7 +513,7 @@ export class ProjectMContext {
             return;
         }
 
-        const media = resolveMediaElement(audioElementOption, this.options.documentRef);
+        const media = this.audioElement ?? resolveMediaElement(audioElementOption, this.options.documentRef);
         if (!media) {
             console.warn('[ProjectMContext] audioSource=element but no audio element was provided');
             return;

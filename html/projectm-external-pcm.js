@@ -41,6 +41,8 @@ let pcmTransferModule = null;
 let pcmTransferCap = DEFAULT_PCM_TRANSFER_CAP;
 /** @type {ExternalPcmFeedFn | null} */
 let customFeed = null;
+/** @type {(() => boolean) | null} */
+let feedGate = null;
 
 /** @type {ExternalPcmChunk[]} */
 const pendingExternalPCM = [];
@@ -82,8 +84,26 @@ function allowedOriginSet() {
  * @param {string} origin
  * @returns {boolean}
  */
-function isTrustedExternalPcmOrigin(origin) {
+export function isTrustedExternalPcmOrigin(origin) {
     return allowedOriginSet().has(origin);
+}
+
+/** @param {string[] | null} origins */
+export function setConfiguredAllowedOrigins(origins) {
+    configuredAllowedOrigins = origins;
+}
+
+/** Test helper: reset module-level receiver state between unit tests. */
+export function resetExternalPcmStateForTests() {
+    if (flushInterval) {
+        clearInterval(flushInterval);
+        flushInterval = 0;
+    }
+    configuredAllowedOrigins = null;
+    configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
+    feedGate = null;
+    customFeed = null;
+    pendingExternalPCM.length = 0;
 }
 
 // Reads an optional input-gain multiplier for external PCM. External players feed
@@ -302,6 +322,10 @@ export function feedPCMToModule(buffer, channels = 2, sampleRate) {
     const payload = normalizePcmPayload(buffer, channels, sampleRate);
     if (!payload) return false;
 
+    if (feedGate && !feedGate()) {
+        return false;
+    }
+
     if (debugRmsEnabled) logExternalPcmRms(payload.buffer);
 
     const feedResult = customFeed
@@ -341,6 +365,7 @@ function cleanupExternalPCM() {
         clearInterval(flushInterval);
         flushInterval = 0;
     }
+    feedGate = null;
     closeExternalAudioChannel();
     if (pcmTransferPtr && pcmTransferModule && pcmTransferModule._free) {
         pcmTransferModule._free(pcmTransferPtr);
@@ -361,14 +386,24 @@ export function setExternalPcmGain(gain) {
 /**
  * @param {object} [options]
  * @param {ExternalPcmFeedFn} [options.onFeed]
+ * @param {() => boolean} [options.feedGate] When it returns false, PCM is dropped
+ *   (not queued). Used by {@link AudioSourceRouter} for exclusive-source policy.
  * @param {string[] | Set<string> | string} [options.allowedOrigins]
  * @param {number} [options.preallocSize]
  * @param {number} [options.gain]
  * @param {boolean} [options.debugRms]
  * @returns {{ feedPCMToModule: typeof feedPCMToModule; flushQueuedExternalPCM: typeof flushQueuedExternalPCM; close: () => void }}
  */
-export function setupExternalAudioReceiver({ onFeed, allowedOrigins, preallocSize, gain, debugRms } = {}) {
+export function setupExternalAudioReceiver({
+    onFeed,
+    feedGate: feedGateOption,
+    allowedOrigins,
+    preallocSize,
+    gain,
+    debugRms,
+} = {}) {
     customFeed = typeof onFeed === 'function' ? onFeed : null;
+    feedGate = typeof feedGateOption === 'function' ? feedGateOption : null;
     configuredAllowedOrigins = allowedOrigins ? normalizedOriginList(allowedOrigins) : DEFAULT_EXTERNAL_PCM_ORIGINS;
     pcmTransferCap = preallocSize !== undefined && Number.isFinite(preallocSize) && preallocSize > 0
         ? Math.floor(preallocSize)

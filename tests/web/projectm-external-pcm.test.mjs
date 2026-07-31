@@ -7,6 +7,11 @@ import test from 'node:test';
 
 import {
     defaultFeedPCMToModule,
+    feedPCMToModule,
+    flushQueuedExternalPCM,
+    isTrustedExternalPcmOrigin,
+    resetExternalPcmStateForTests,
+    setConfiguredAllowedOrigins,
     setExternalPcmGain,
     setupExternalAudioReceiver,
 } from '../../html/projectm-external-pcm.js';
@@ -43,7 +48,13 @@ function fakeModule({ heapSize = 4096 } = {}) {
         },
         _free: (ptr) => freed.push(ptr),
         _projectm_pcm_add_float_wrapper: (pmHandle, ptr, samplesPerChannel, channels) => {
-            wrapperCalls.push({ pmHandle, ptr, samplesPerChannel, channels });
+            wrapperCalls.push({
+                pmHandle,
+                ptr,
+                samplesPerChannel,
+                channels,
+                firstSample: heap[0],
+            });
         },
         freed,
         wrapperCalls,
@@ -137,5 +148,93 @@ test('setExternalPcmGain clamps invalid values to the default and scales fed sam
     } finally {
         setExternalPcmGain(1);
         delete globalThis.Module;
+    }
+});
+
+test('isTrustedExternalPcmOrigin respects configured allowlist', () => {
+    resetExternalPcmStateForTests();
+    setConfiguredAllowedOrigins(['https://a.example', 'https://b.example']);
+    try {
+        assert.equal(isTrustedExternalPcmOrigin('https://a.example'), true);
+        assert.equal(isTrustedExternalPcmOrigin('https://evil.example'), false);
+    } finally {
+        resetExternalPcmStateForTests();
+    }
+});
+
+test('feedPCMToModule rejects odd-length stereo payloads', () => {
+    resetExternalPcmStateForTests();
+    const module = fakeModule();
+    globalThis.Module = module;
+    try {
+        const oddStereo = new Float32Array([0.1, 0.2, 0.3]);
+        assert.equal(feedPCMToModule(oddStereo, 2, 44100), false);
+        assert.equal(module.wrapperCalls.length, 0);
+    } finally {
+        delete globalThis.Module;
+        resetExternalPcmStateForTests();
+    }
+});
+
+test('feedPCMToModule accepts mono payloads with one sample per channel', () => {
+    resetExternalPcmStateForTests();
+    const module = fakeModule();
+    globalThis.Module = module;
+    try {
+        const mono = new Float32Array([0.5, -0.25, 0.75]);
+        assert.equal(feedPCMToModule(mono, 1, 44100), true);
+        assert.equal(module.wrapperCalls.length, 1);
+        assert.equal(module.wrapperCalls[0].channels, 1);
+        assert.equal(module.wrapperCalls[0].samplesPerChannel, 3);
+    } finally {
+        delete globalThis.Module;
+        resetExternalPcmStateForTests();
+    }
+});
+
+test('feedPCMToModule drops oldest queued chunk when the pending queue is full', () => {
+    resetExternalPcmStateForTests();
+    const first = new Float32Array([1]);
+    const last = new Float32Array([99]);
+    assert.equal(feedPCMToModule(first, 1, 44100), false, 'queues when module is not ready');
+
+    for (let i = 0; i < 24; i += 1) {
+        feedPCMToModule(new Float32Array([i + 2]), 1, 44100);
+    }
+    feedPCMToModule(last, 1, 44100);
+
+    const module = fakeModule();
+    globalThis.Module = module;
+    try {
+        flushQueuedExternalPCM();
+        assert.equal(module.wrapperCalls.length, 24, 'queue capacity is 24 chunks');
+        const fedFirstSamples = module.wrapperCalls.map((call) => call.firstSample);
+        assert.ok(!fedFirstSamples.includes(first[0]), 'oldest chunk should have been dropped');
+        assert.ok(fedFirstSamples.includes(last[0]), 'most recent chunk should be retained');
+    } finally {
+        delete globalThis.Module;
+        resetExternalPcmStateForTests();
+    }
+});
+
+test('feedGate drops external PCM without queueing when policy blocks the path', () => {
+    resetExternalPcmStateForTests();
+    globalThis.window = fakeWindow();
+    const blocked = new Float32Array([0.42]);
+    const receiver = setupExternalAudioReceiver({
+        feedGate: () => false,
+        onFeed: () => true,
+    });
+    try {
+        assert.equal(feedPCMToModule(blocked, 1, 44100), false);
+        const module = fakeModule();
+        globalThis.Module = module;
+        flushQueuedExternalPCM();
+        assert.equal(module.wrapperCalls.length, 0, 'blocked chunks must not flush from the queue');
+        delete globalThis.Module;
+    } finally {
+        receiver.close();
+        delete globalThis.window;
+        resetExternalPcmStateForTests();
     }
 });

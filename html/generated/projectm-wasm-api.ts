@@ -3,6 +3,8 @@
 // Canonical definitions live in cmake/WasmApiManifest.cmake.
 // Regenerate: scripts/sync_wasm_link_common.sh
 
+import type { AudioSourceRouter } from '../projectm-audio-source-router.js';
+
 /** Minimal Emscripten module surface used by projectM hosts. */
 export interface EmscriptenModule {
     ccall: (name: string, returnType: string | null, argTypes: string[], args: unknown[]) => unknown;
@@ -172,7 +174,22 @@ export function addAudioData(module: ProjectMModule, data: number, len: number):
 }
 
 /** Play audio file from VFS path */
+let hostAudioSourceRouter: AudioSourceRouter | null = null;
+
+/** Register the host {@link AudioSourceRouter} so `pl()` respects exclusive-source policy. */
+export function setHostAudioSourceRouter(router: AudioSourceRouter | null): void {
+    hostAudioSourceRouter = router;
+}
+
 export function pl(module: ProjectMModule, songPath: string): void {
+    hostAudioSourceRouter?.notifyWorkletFeed();
+    if (hostAudioSourceRouter && !hostAudioSourceRouter.canFeed('worklet')) {
+        console.debug(
+            '[projectM audio router] blocked pl() — active source is',
+            hostAudioSourceRouter.getActiveSource()
+        );
+        return;
+    }
     module.ccall('pl', null, ['string'], [songPath]);
 }
 

@@ -14,6 +14,18 @@
 
 export type ProjectMAudioSource = 'element' | 'external' | 'none';
 
+export type ProjectMAudioSourceActive = 'none' | 'element' | 'external' | 'worklet';
+
+export type ProjectMAudioRouterMode = 'exclusive' | 'mix';
+
+export interface ProjectMAudioSourceStatus {
+    activeSource: ProjectMAudioSourceActive;
+    mode: ProjectMAudioRouterMode;
+    streamEnabled: boolean;
+    externalEnabled: boolean;
+    workletAllowed: boolean;
+}
+
 export type ProjectMMeshQuality = 'auto' | 'high' | 'low';
 
 export interface ProjectMErrorDetail {
@@ -71,6 +83,10 @@ export interface ProjectMContextOptions {
     audioElement?: HTMLMediaElement | string;
     /** Origin allowlist for external PCM postMessage (opt-in; empty disables by default). */
     externalPcmOrigins?: string[];
+    /** Fired when the exclusive audio-source policy changes (see AudioSourceRouter). */
+    onAudioSourceChange?: (status: ProjectMAudioSourceStatus) => void;
+    /** Reuse an existing {@link AudioSourceRouter} (e.g. legacy `projectm-core.html`). */
+    audioRouter?: import('./projectm-audio-source-router.js').AudioSourceRouter;
     devicePixelRatio?: number;
     documentRef?: Document;
     windowRef?: Window & typeof globalThis;

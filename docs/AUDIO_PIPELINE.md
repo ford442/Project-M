@@ -70,6 +70,37 @@ quieter during silence. Attenuated variants (`bass_att`, …) change more slowly
 
 ## JavaScript ingress paths
 
+### Single-active-source policy (`AudioSourceRouter`)
+
+Multiple ingress paths can coexist in one host page (worklet decode, `#track`
+stream analyser, external `postMessage` PCM, synthetic debug feeds). Without
+coordination they all call `projectm_pcm_add_float` and **double-feed** the
+engine.
+
+`html/projectm-audio-source-router.js` enforces an **exclusive** policy by
+default:
+
+| Active source | Stream (`#audio-stream-element`) | Worklet (`pl()`) | External PCM |
+|---------------|----------------------------------|------------------|--------------|
+| `none` | off | stopped | dropped |
+| `element` | on (`set_audio_source_to_stream(true)`) | stopped | dropped |
+| `external` | off | stopped | accepted |
+| `worklet` | off | playing | dropped |
+
+- **`ProjectMContext`** creates a router from `audioSource` (`element` /
+  `external` / `none`) and wires `projectm-external-pcm.js` through
+  `feedGate` + `wrapExternalFeed`.
+- **`projectm-core.html`** shares one router with `autoSwitchOnFeed: true` so
+  the first FLAC/MOD PCM chunk or `pl()` call promotes that path and mutes the
+  others.
+- Status is exposed as `context.getAudioSourceStatus()` and the custom-element
+  event **`pm-audio-source`** (`detail`: `{ activeSource, mode, streamEnabled,
+  externalEnabled, workletAllowed }`).
+
+**Mix mode** (`mode: 'mix'`) is reserved for a future multi-source blend;
+it is documented but not implemented — behaviour matches exclusive until
+designed.
+
 | Path | File | Feed size | Preprocessing |
 |------|------|-----------|---------------|
 | **Worklet** (local decode) | `projectm_audio_processor.js` → `projectM_emscripten.cpp` | **576** mono batch | Last 576 samples before `_projectm_pcm_add_float_wrapper` |
@@ -99,6 +130,63 @@ See `docs/EMSCRIPTEN.md` § External Audio Sources for manual parity checks agai
 | `window.feedPCMToModuleForDebug(buf, ch)` | always in core | Direct feed from console |
 
 Generators live in `html/projectm-synthetic-audio.js`.
+
+## External PCM sender / receiver contract
+
+### Transport
+
+| Channel | When to use | Origin check |
+|---------|-------------|--------------|
+| `window.postMessage` / `parent.postMessage` / `window.opener.postMessage` | Cross-origin popups and iframes | **Required** — receiver allowlist |
+| `BroadcastChannel('projectm-audio')` | Same-origin embeds only | Not applicable (same page) |
+
+Player-side helper: `html/flac-player/projectm-pcm-bridge.js` (`createPcmSender`,
+`installProjectMPcmBridge`).
+
+### Message shape (sender → host)
+
+```javascript
+{
+  type: 'pcm',              // required discriminator
+  buffer: Float32Array,     // interleaved when channels === 2
+  channels: 1 | 2,          // default stereo if omitted
+  sampleRate: 44100         // optional metadata (not resampled by host)
+}
+```
+
+### Host preprocessing (receiver)
+
+1. **Origin allowlist** — `setupExternalAudioReceiver({ allowedOrigins: [...] })`
+   or `<project-m-visualizer external-pcm-origins='["https://player.example"]'>`.
+   Untrusted `postMessage` origins are ignored (debug log only).
+2. **Router gate** — when another source is active, chunks are **dropped** (not
+   queued). See `AudioSourceRouter.externalFeedGate()`.
+3. **Trim** — keep the most recent **576** samples per channel
+   (`PROJECTM_ANALYSIS_WINDOW`).
+4. **Gain** — multiply by `externalPcmGain` (default `1.0`, overridable via
+   `localStorage.externalPcmGain` or `setExternalPcmGain()`).
+5. **Feed** — `_projectm_pcm_add_float_wrapper` with trimmed/scaled buffer.
+
+### Queue behaviour (module not ready)
+
+If WASM is not initialized yet, up to **24** chunks are retained; additional
+chunks drop the **oldest** entry. A 100 ms flush interval replays the queue once
+`Module` can accept PCM.
+
+### Fixture tests
+
+```bash
+node --test tests/web/projectm-external-pcm.test.mjs tests/web/projectm-audio-source-router.test.mjs
+```
+
+Optional Playwright host-layer smoke (no WASM build required):
+
+```bash
+node scripts/test_external_pcm_router_playwright.mjs
+```
+
+See `tests/wasm-smoke/external_pcm_router.html` — mock `postMessage` producer +
+`AudioSourceRouter` gate against a stub `Module`.
 
 ## WASM initialization
 
@@ -183,6 +271,7 @@ Perf HUD (`?perf=1`) shows **Audio FFT/Loudness** timing via `audio_analysis_ms`
 | `projectm_audio_processor.js` | Web Audio worklet; batches PCM to main thread |
 | `projectM_emscripten.cpp` | Worklet/stream glue, `_projectm_pcm_add_float_wrapper` |
 | `html/projectm-external-pcm.js` | MOD/FLAC postMessage bridge |
+| `html/projectm-audio-source-router.js` | Exclusive single-source policy |
 | `html/projectm-synthetic-audio.js` | Test signal generators |
 | `src/libprojectM/Audio/PCM.cpp` | Ring buffer, FFT, beat detection |
 | `src/libprojectM/Audio/Loudness.cpp` | bass/mid/treb relative values |

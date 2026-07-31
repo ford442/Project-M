@@ -16,6 +16,7 @@ Core behavior belongs in shared modules:
 - `projectm-preset-dev.js`: hot-reload dev panel (`?devPreset=1`), URL polling, inline `.milk` editor. See `docs/SIGNATURE_SERIES_WORKFLOW.md`.
 - `projectm-preset-tweaker.js`: header param sliders (decay, zoom, warp, wave RGB) used by the dev panel.
 - `projectm-external-pcm.js`: external MOD/FLAC `postMessage` PCM contract, origin allowlist, queued feeding, and preallocated transfer buffers.
+- `projectm-audio-source-router.js`: exclusive single-active-source policy (element / external / worklet).
 - `projectm-context.js`: typed **embed context API** (`ProjectMContext`) — WASM bootstrap, resize/DPR, presets, audio modes, transparency.
 - `projectm-element.js`: **`<project-m-visualizer>`** custom element + lifecycle events (`pm-ready`, `pm-preset-changed`, `pm-error`, `pm-fps`).
 - `projectm-wasm-version.js`: canonical WASM bundle version + CDN URL helpers (keep in sync with deploy scripts).

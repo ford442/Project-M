@@ -10,7 +10,8 @@ TransitionShaderManager::TransitionShaderManager()
 {
     // Compile all candidate shaders and keep only those that succeeded.
     // Each entry is {shaderBody, passCount}. Most are single-pass (1).
-    // PageCurl and MultiPassTest use 2 passes for enhanced visual quality.
+    // Glitch, HeatWave, MultiPassTest, PageCurl and Tunnel use 2 passes for
+    // enhanced visual quality.
     struct Candidate
     {
         const std::string& body;
@@ -25,6 +26,7 @@ TransitionShaderManager::TransitionShaderManager()
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInGlitchGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInHeatWaveGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInKaleidoscopeGlsl330, 1});
+    candidates.emplace_back(Candidate{kTransitionShaderBuiltInLiquidMeltGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInMosaicZoomGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInMotionBlurGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInMultiPassTestGlsl330, 2});
@@ -35,6 +37,7 @@ TransitionShaderManager::TransitionShaderManager()
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInSliceSwipeGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInSweepGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInTileFlipGlsl330, 1});
+    candidates.emplace_back(Candidate{kTransitionShaderBuiltInTunnelGlsl330, 2});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInWarpGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInWaterDropGlsl330, 1});
     candidates.emplace_back(Candidate{kTransitionShaderBuiltInZoomBlurGlsl330, 1});

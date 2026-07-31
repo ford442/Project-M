@@ -75,12 +75,15 @@ protected:
 // -----------------------------------------------------------------------------
 // Constructor-selected blend mode and easing curve must always land in the
 // implemented range, no matter how many transitions are spun up. A value of
-// Masked/Count would drive an unimplemented shader branch.
+// Count would drive an unimplemented shader branch.
 // -----------------------------------------------------------------------------
 TEST_F(PresetTransitionStressTest, RandomizedBlendAndEasingStayInValidRange)
 {
     const auto shader = m_shaderManager->CompiledShaderAt(0);
     ASSERT_NE(shader, nullptr);
+
+    std::vector<int> blendModeHits(static_cast<std::size_t>(TransitionBlendMode::Count), 0);
+    std::vector<int> easingHits(static_cast<std::size_t>(EasingType::Count), 0);
 
     for (int i = 0; i < 500; ++i)
     {
@@ -88,12 +91,53 @@ TEST_F(PresetTransitionStressTest, RandomizedBlendAndEasingStayInValidRange)
 
         const auto blend = static_cast<int>(transition.GetBlendMode());
         EXPECT_GE(blend, static_cast<int>(TransitionBlendMode::Alpha));
-        EXPECT_LT(blend, static_cast<int>(TransitionBlendMode::Masked))
-            << "Randomized blend mode must stay within the implemented Alpha..Screen range.";
+        ASSERT_LT(blend, static_cast<int>(TransitionBlendMode::Count))
+            << "Randomized blend mode must stay within the implemented Alpha..Masked range.";
+        blendModeHits[static_cast<std::size_t>(blend)]++;
 
         const auto easing = static_cast<int>(transition.GetEasingType());
         EXPECT_GE(easing, static_cast<int>(EasingType::Linear));
-        EXPECT_LT(easing, static_cast<int>(EasingType::Count));
+        ASSERT_LT(easing, static_cast<int>(EasingType::Count));
+        easingHits[static_cast<std::size_t>(easing)]++;
+    }
+
+    // Every implemented blend mode and easing curve must actually be reachable —
+    // a randomization bound that excludes the last entry (as it did while Masked
+    // was still a placeholder) shows up here as a zero bucket.
+    for (std::size_t mode = 0; mode < blendModeHits.size(); ++mode)
+    {
+        EXPECT_GT(blendModeHits[mode], 0)
+            << "Blend mode " << mode << " was never selected across 500 transitions.";
+    }
+    for (std::size_t easing = 0; easing < easingHits.size(); ++easing)
+    {
+        EXPECT_GT(easingHits[easing], 0)
+            << "Easing curve " << easing << " was never selected across 500 transitions.";
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Explicitly setting a blend mode / easing curve must survive the randomization
+// done in the constructor — the host and unit tests both rely on being able to
+// pin a specific look.
+// -----------------------------------------------------------------------------
+TEST_F(PresetTransitionStressTest, ExplicitBlendModeAndEasingAreHonoured)
+{
+    const auto shader = m_shaderManager->CompiledShaderAt(0);
+    ASSERT_NE(shader, nullptr);
+
+    PresetTransition transition(shader, 1.0, 0.0);
+
+    for (int mode = 0; mode < static_cast<int>(TransitionBlendMode::Count); ++mode)
+    {
+        transition.SetBlendMode(static_cast<TransitionBlendMode>(mode));
+        EXPECT_EQ(static_cast<int>(transition.GetBlendMode()), mode);
+    }
+
+    for (int easing = 0; easing < static_cast<int>(EasingType::Count); ++easing)
+    {
+        transition.SetEasingType(static_cast<EasingType>(easing));
+        EXPECT_EQ(static_cast<int>(transition.GetEasingType()), easing);
     }
 }
 
@@ -266,15 +310,85 @@ TEST_F(PresetTransitionStressTest, ZeroDurationIsInstantHardCut)
 }
 
 // -----------------------------------------------------------------------------
+// Viewport churn: the intermediate FBO is resized on every BeginPass(0), and a
+// resize destroys and recreates the attached texture. Cycling one transition
+// through 200 resizes (what a window drag does while a transition is running)
+// must recycle those GL objects instead of piling up new ones.
+// -----------------------------------------------------------------------------
+TEST_F(PresetTransitionStressTest, ViewportChurnDoesNotLeakIntermediateTargets)
+{
+    const auto multiIndex = FindMultiPassShaderIndex(*m_shaderManager);
+    ASSERT_LT(multiIndex, m_shaderManager->CompiledShaderCount());
+
+    const auto shader = m_shaderManager->CompiledShaderAt(multiIndex);
+    ASSERT_NE(shader, nullptr);
+
+    PresetTransition transition(shader, 1.0, 0.0);
+    transition.SetPassCount(2);
+
+    GLuint maxTextureId = 0;
+    for (int i = 0; i < 200; ++i)
+    {
+        // Every iteration is a different size, including non-square ones, so the
+        // early-out in Framebuffer::SetSize() never hides the reallocation.
+        const int width = 32 + (i % 17) * 8;
+        const int height = 24 + (i % 13) * 8;
+
+        transition.BeginPass(0, width, height);
+        const auto passTex = transition.GetPassTexture(0);
+        ASSERT_NE(passTex, nullptr);
+        maxTextureId = std::max(maxTextureId, passTex->TextureID());
+        transition.EndPass();
+
+        transition.BeginPass(1, width, height);
+        transition.EndPass();
+        EXPECT_EQ(transition.GetCurrentPass(), -1);
+    }
+
+    EXPECT_LT(maxTextureId, 256u)
+        << "Resizing the intermediate render target must free the previous texture; "
+           "leaked textures push freshly-generated IDs upward.";
+
+    while (glGetError() != GL_NO_ERROR) {}
+}
+
+// -----------------------------------------------------------------------------
+// The full multi-pass roster must be registered. PresetTransitionMultiPassTest
+// checks that pass counts are individually well-formed; this pins the exact
+// number so a new multi-pass shader that is added to the shader list but not
+// given its pass count (and would therefore render only its first pass) fails.
+// -----------------------------------------------------------------------------
+TEST_F(PresetTransitionStressTest, MultiPassRosterIsFullyRegistered)
+{
+    std::size_t multiPassCount = 0;
+    for (std::size_t i = 0; i < m_shaderManager->CompiledShaderCount(); ++i)
+    {
+        if (m_shaderManager->PassCountAt(i) > 1)
+        {
+            ++multiPassCount;
+        }
+    }
+
+    // Glitch, HeatWave, MultiPassTest, PageCurl and Tunnel are the registered
+    // multi-pass shaders. Keep in sync with TransitionShaderManager.cpp.
+    EXPECT_EQ(multiPassCount, 5u);
+
+    // An unregistered shader (e.g. the SimpleBlend fallback) is single-pass.
+    EXPECT_EQ(m_shaderManager->GetPassCount(nullptr), 1);
+}
+
+// -----------------------------------------------------------------------------
 // Every registered built-in transition shader must compile on the test platform.
 // This guards against a shader silently dropping out of the pool (as the Circle
 // shader did before its sampler-in-ternary was fixed for GLSL ES / WebGL2), and
-// confirms the Phase B5 additions (Burn, RadialWipe) build cleanly.
+// confirms the Phase B5 additions (Burn, RadialWipe, LiquidMelt, Tunnel) build
+// cleanly. scripts/check_transition_shaders.sh runs the same assembly through
+// glslangValidator for both GLSL 330 and GLSL ES 300 without needing a GL context.
 // -----------------------------------------------------------------------------
 TEST_F(PresetTransitionStressTest, AllBuiltInTransitionShadersCompile)
 {
     // Keep in sync with the candidate list in TransitionShaderManager.cpp.
-    constexpr std::size_t expectedBuiltInCount = 20;
+    constexpr std::size_t expectedBuiltInCount = 22;
     EXPECT_EQ(m_shaderManager->CompiledShaderCount(), expectedBuiltInCount)
         << "A built-in transition shader failed to compile — check for GLSL/GLES "
            "incompatibilities in recently changed shaders.";

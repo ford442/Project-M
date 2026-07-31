@@ -106,3 +106,13 @@ else()
     add_test(NAME PresetTransitionMultiPass
             COMMAND projectM-unittest --gtest_filter=*PresetTransitionMultiPass*)
 endif()
+
+# Rapid-switch / interrupt stress tests (subset of projectM-unittest).
+if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+    add_test(NAME PresetTransitionStress
+            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+            --gtest_filter=*PresetTransitionStress*)
+else()
+    add_test(NAME PresetTransitionStress
+            COMMAND projectM-unittest --gtest_filter=*PresetTransitionStress*)
+endif()

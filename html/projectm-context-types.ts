@@ -14,6 +14,13 @@
 
 export type ProjectMAudioSource = 'element' | 'external' | 'none';
 
+/** Broader set of source names reported by AudioSourceRouter, including internal paths. */
+export type ProjectMAudioSourceName = 'none' | 'worklet' | 'element' | 'external';
+
+export interface ProjectMAudioSourceEvent {
+    source: ProjectMAudioSourceName;
+}
+
 export type ProjectMMeshQuality = 'auto' | 'high' | 'low';
 
 export interface ProjectMErrorDetail {

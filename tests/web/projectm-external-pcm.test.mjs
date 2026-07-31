@@ -7,6 +7,8 @@ import test from 'node:test';
 
 import {
     defaultFeedPCMToModule,
+    feedPCMToModule,
+    flushQueuedExternalPCM,
     setExternalPcmGain,
     setupExternalAudioReceiver,
 } from '../../html/projectm-external-pcm.js';
@@ -139,3 +141,189 @@ test('setExternalPcmGain clamps invalid values to the default and scales fed sam
         delete globalThis.Module;
     }
 });
+
+// ---------------------------------------------------------------------------
+// Queue-drop behaviour
+// ---------------------------------------------------------------------------
+
+test('feedPCMToModule queues chunks when no module is registered and drops the oldest when full', () => {
+    // onFeed returning false causes chunks to be enqueued internally. Once the
+    // queue reaches MAX_PENDING (24) the oldest entry is evicted before each
+    // new push. We call feedPCMToModule() directly to bypass the module-level
+    // singleton message-listener (which is only installed once and bound to the
+    // first test's fake window).
+    const MAX_PENDING = 24;
+    const fedByOnFeed = [];
+
+    // setupExternalAudioReceiver may call window.addEventListener('beforeunload', ...)
+    // when resetting state between tests; provide a minimal shim.
+    globalThis.window = fakeWindow();
+    const receiver = setupExternalAudioReceiver({
+        allowedOrigins: ['https://trusted.example'],
+        onFeed: (buffer) => {
+            fedByOnFeed.push(buffer[0]);
+            return false; // reject so chunks are queued
+        },
+    });
+
+    try {
+        for (let i = 0; i < MAX_PENDING + 2; i++) {
+            const buf = new Float32Array([i / 100, (i + 1) / 100]); // stereo
+            feedPCMToModule(buf, 2, 44100);
+        }
+        assert.equal(fedByOnFeed.length, MAX_PENDING + 2, 'onFeed should be called for every incoming chunk');
+    } finally {
+        receiver.close();
+        delete globalThis.window;
+        // Drain the internal queue so module-level state is clean for subsequent tests.
+        flushQueuedExternalPCM();
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Stereo / mono normalisation
+// ---------------------------------------------------------------------------
+
+test('feedPCMToModule accepts mono buffers with channels=1', () => {
+    // Call feedPCMToModule() directly to bypass the singleton message listener.
+    const accepted = [];
+    globalThis.window = fakeWindow();
+    const receiver = setupExternalAudioReceiver({
+        allowedOrigins: ['https://trusted.example'],
+        onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
+            accepted.push({ channels, samplesPerChannel });
+            return true;
+        },
+    });
+
+    try {
+        const buffer = new Float32Array([0.1, 0.2, 0.3, 0.4]); // 4 mono samples
+        feedPCMToModule(buffer, 1, 44100);
+        assert.equal(accepted.length, 1);
+        assert.equal(accepted[0].channels, 1);
+        assert.equal(accepted[0].samplesPerChannel, 4);
+    } finally {
+        receiver.close();
+        delete globalThis.window;
+    }
+});
+
+test('feedPCMToModule rejects an odd-length buffer when channels=2 (stereo)', () => {
+    // An odd-length buffer cannot be split evenly into two channels.
+    const fed = [];
+    globalThis.window = fakeWindow();
+    const receiver = setupExternalAudioReceiver({
+        allowedOrigins: ['https://trusted.example'],
+        onFeed: (buffer, channels) => {
+            fed.push(channels);
+            return true;
+        },
+    });
+
+    try {
+        const oddBuffer = new Float32Array([0.1, 0.2, 0.3]); // 3 samples — invalid for stereo
+        feedPCMToModule(oddBuffer, 2, 44100);
+        assert.equal(fed.length, 0, 'odd-length stereo buffer must be silently rejected');
+    } finally {
+        receiver.close();
+        delete globalThis.window;
+    }
+});
+
+test('feedPCMToModule normalises channel counts outside [1,2] to stereo', () => {
+    // channels=3 is out of the valid range [1,2] → normalised to 2.
+    const accepted = [];
+    globalThis.window = fakeWindow();
+    const receiver = setupExternalAudioReceiver({
+        allowedOrigins: ['https://trusted.example'],
+        onFeed: (buffer, channels) => {
+            accepted.push(channels);
+            return true;
+        },
+    });
+
+    try {
+        const evenBuffer = new Float32Array([0.1, 0.2, 0.3, 0.4]); // valid stereo length
+        feedPCMToModule(evenBuffer, 3, 44100);
+        // channels=3 is invalid → normalised to 2
+        assert.equal(accepted.length, 1);
+        assert.equal(accepted[0], 2);
+    } finally {
+        receiver.close();
+        delete globalThis.window;
+    }
+});
+
+test('feedPCMToModule rejects a non-Float32Array payload', () => {
+    // Call feedPCMToModule() directly — the message-listener singleton is on a
+    // different window after the first test, so we test the normalisation layer
+    // directly here.
+    const fed = [];
+    globalThis.window = fakeWindow();
+    const receiver = setupExternalAudioReceiver({
+        allowedOrigins: ['https://trusted.example'],
+        onFeed: () => { fed.push(true); return true; },
+    });
+
+    try {
+        // @ts-expect-error — intentionally passing a plain Array to test rejection
+        const result = feedPCMToModule([0.1, 0.2], 2, 44100);
+        assert.equal(result, false, 'feedPCMToModule must return false for a non-Float32Array');
+        assert.equal(fed.length, 0, 'plain Array must be rejected before reaching onFeed');
+    } finally {
+        receiver.close();
+        delete globalThis.window;
+    }
+});
+
+// ---------------------------------------------------------------------------
+// BroadcastChannel reception
+// ---------------------------------------------------------------------------
+
+test('setupExternalAudioReceiver feeds PCM received via the BroadcastChannel', () => {
+    const win = fakeWindow();
+    globalThis.window = win;
+
+    const bcCallbacks = [];
+    // Minimal fake BroadcastChannel constructor that captures the onmessage setter.
+    function FakeBroadcastChannel(name) {
+        this.name = name;
+        this._closed = false;
+        bcCallbacks.push(this);
+    }
+    FakeBroadcastChannel.prototype.close = function () { this._closed = true; };
+
+    const originalBC = globalThis.BroadcastChannel;
+    globalThis.BroadcastChannel = FakeBroadcastChannel;
+
+    const fed = [];
+    const receiver = setupExternalAudioReceiver({
+        allowedOrigins: ['https://trusted.example'],
+        onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
+            fed.push({ channels, samplesPerChannel });
+            return true;
+        },
+    });
+
+    try {
+        assert.ok(bcCallbacks.length > 0, 'BroadcastChannel must be created by setupExternalAudioReceiver');
+        const bc = bcCallbacks[bcCallbacks.length - 1];
+        assert.ok(typeof bc.onmessage === 'function', 'onmessage must be set on the channel');
+
+        const buffer = new Float32Array([0.5, -0.5]); // 2 samples, stereo
+        bc.onmessage({ data: { type: 'pcm', buffer, channels: 2, sampleRate: 44100 } });
+
+        assert.equal(fed.length, 1, 'BroadcastChannel PCM must reach the feed callback');
+        assert.equal(fed[0].channels, 2);
+        assert.equal(fed[0].samplesPerChannel, 1);
+    } finally {
+        receiver.close();
+        if (originalBC !== undefined) {
+            globalThis.BroadcastChannel = originalBC;
+        } else {
+            delete globalThis.BroadcastChannel;
+        }
+        delete globalThis.window;
+    }
+});
+

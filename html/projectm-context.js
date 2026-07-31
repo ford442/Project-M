@@ -1,6 +1,8 @@
 import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { AudioSourceRouter } from './projectm-audio-router.js';
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import {
+    defaultFeedPCMToModule,
     flushQueuedExternalPCM,
     setupExternalAudioReceiver,
 } from './projectm-external-pcm.js';
@@ -183,6 +185,19 @@ export class ProjectMContext {
         this.presetListener = null;
         /** @type {HTMLMediaElement | null} */
         this.audioElement = null;
+        /** Single-active-source router. Fires `pm-audio-source` events on source changes. */
+        this.audioSourceRouter = new AudioSourceRouter({
+            windowRef: this.options.windowRef ?? null,
+        });
+    }
+
+    /**
+     * The currently active audio source as tracked by the AudioSourceRouter.
+     * One of `'none'`, `'worklet'`, `'element'`, or `'external'`.
+     * @returns {import('./projectm-audio-router.js').AudioSourceName}
+     */
+    get activeAudioSource() {
+        return this.audioSourceRouter.activeSource;
     }
 
     /**
@@ -425,6 +440,7 @@ export class ProjectMContext {
             this.module._destruct();
         }
         this.module = null;
+        this.audioSourceRouter.reset();
     }
 
     /**
@@ -433,15 +449,25 @@ export class ProjectMContext {
      * @param {string[] | undefined} externalPcmOrigins
      */
     #wireAudio(audioSource, audioElementOption, externalPcmOrigins) {
+        const router = this.audioSourceRouter;
+
         if (audioSource === 'external') {
+            router.activate('external');
             setupExternalAudioReceiver({
                 allowedOrigins: externalPcmOrigins ?? [],
-                onFeed: () => flushQueuedExternalPCM(),
+                // Gate the external PCM feed through the router so that if the
+                // source changes at runtime (e.g. a host switches to 'element'),
+                // arriving external chunks are dropped rather than double-feeding.
+                onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
+                    if (!router.shouldFeedExternal()) return false;
+                    return defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
+                },
             });
             return;
         }
 
         if (audioSource !== 'element') {
+            router.activate('none');
             return;
         }
 
@@ -451,6 +477,7 @@ export class ProjectMContext {
             return;
         }
 
+        router.activate('element');
         this.audioElement = media;
         media.id = media.id || 'audio-stream-element';
         ensureAudioRunning().catch(() => {

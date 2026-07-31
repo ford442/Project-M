@@ -89,3 +89,59 @@ test('ProjectMContext destroy() clears module state and rejects subsequent start
 
     await assert.rejects(() => context.start(), /destroyed/);
 });
+
+test('ProjectMContext exposes an AudioSourceRouter via audioSourceRouter', () => {
+    const canvas = makeCanvas('router-canvas');
+    const context = new ProjectMContext({ canvas });
+
+    assert.ok(context.audioSourceRouter, 'audioSourceRouter must be set after construction');
+    assert.equal(typeof context.audioSourceRouter.activate, 'function');
+    assert.equal(typeof context.audioSourceRouter.shouldFeedExternal, 'function');
+    assert.equal(typeof context.audioSourceRouter.reset, 'function');
+});
+
+test('ProjectMContext.activeAudioSource delegates to audioSourceRouter.activeSource', () => {
+    const canvas = makeCanvas('active-source-canvas');
+    const context = new ProjectMContext({ canvas });
+
+    assert.equal(context.activeAudioSource, 'none', 'initial activeAudioSource must be "none"');
+
+    context.audioSourceRouter.activate('external');
+    assert.equal(context.activeAudioSource, 'external');
+
+    context.audioSourceRouter.activate('element');
+    assert.equal(context.activeAudioSource, 'element');
+});
+
+test('ProjectMContext destroy() resets audioSourceRouter to "none"', () => {
+    const canvas = makeCanvas('reset-canvas');
+    const context = new ProjectMContext({ canvas });
+
+    context.audioSourceRouter.activate('external');
+    assert.equal(context.activeAudioSource, 'external');
+
+    context.destroy();
+    assert.equal(context.activeAudioSource, 'none', 'destroy() must reset the router');
+});
+
+test('ProjectMContext dispatches pm-audio-source event when the router source changes', () => {
+    const dispatched = [];
+    const fakeWindow = {
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent(event) { dispatched.push({ type: event.type, detail: event.detail }); },
+    };
+
+    const canvas = makeCanvas('event-canvas');
+    const context = new ProjectMContext({ canvas, windowRef: fakeWindow });
+
+    context.audioSourceRouter.activate('external');
+    assert.equal(dispatched.length, 1);
+    assert.equal(dispatched[0].type, 'pm-audio-source');
+    assert.deepEqual(dispatched[0].detail, { source: 'external' });
+
+    context.audioSourceRouter.activate('none');
+    assert.equal(dispatched.length, 2);
+    assert.deepEqual(dispatched[1].detail, { source: 'none' });
+});
+

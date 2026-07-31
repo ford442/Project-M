@@ -5,6 +5,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { auditText } from './audit_presets.mjs';
+
 const AUDIO_VARS = /\b(bass|mid|treb|bass_att|mid_att|treb_att|vol)\b/;
 
 export function parseHeaderMetadata(source) {
@@ -71,15 +73,13 @@ export function loadSidecarMeta(presetDir, file) {
     }
 }
 
+// Fallback tiering for presets that are not in the audit index (e.g. a draft that has
+// not been audited yet). This used to carry its own copy of the cost model, computed
+// from cruder regexes, which silently drifted from the auditor's — a preset could be
+// `medium` in the manifest and `heavy` in the report. Delegate to the auditor instead
+// so there is exactly one cost model in the repo.
 export function estimateTierFromSource(source) {
-    const perPixel = (source.match(/^per_pixel_\d+=/gm) || []).length;
-    const perFrame = (source.match(/^per_frame_\d+=/gm) || []).length;
-    const tex2d = (source.match(/\btex2D\b/g) || []).length;
-    const shaderLines = (source.match(/^(?:warp|comp)_\d+=`/gm) || []).length;
-    const cost = perPixel * 3 + tex2d * 2 + Math.ceil(shaderLines / 10) + Math.ceil(perFrame / 5);
-    if (cost >= 30) return 'heavy';
-    if (cost >= 12) return 'medium';
-    return 'light';
+    return auditText(source, 'inline.milk').tier;
 }
 
 export function estimateReactivity(source, auditReactive) {

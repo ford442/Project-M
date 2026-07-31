@@ -104,6 +104,27 @@ Once `frames` samples have been collected, `projectm-perf.js`:
 > they were not captured from a real run. See "Verification performed" in the PR description for
 > what was actually measured.
 
+## Graphics ablation switches
+
+Per-stage `breakdownMs` buckets are CPU submit time, so they cannot rank GPU stages against
+each other (see [`GRAPHICS_PERF_RECOVERY_PLAN.md`](GRAPHICS_PERF_RECOVERY_PLAN.md)). The way
+to size a graphics change is to A/B it against the old behaviour **on the same build** and
+diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
+
+| Switch | WASM | Native | Effect |
+|--------|------|--------|--------|
+| Blur path | `?blurPath=copy` | `PROJECTM_BLUR_COPY_PATH=1` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
+| Dual-FBO precision | `?fboPrecision=high` | — | Probes RGBA32F first for the WASM compositor instead of the RGBA16F default. |
+| Mesh size | `?meshQuality=low` | — | 64×48 instead of the 80×60 default (a 1.56× vertex-count ratio). |
+
+The blur switch is read once, at engine init, because the blur render path is decided on the
+first blurred frame and then cached — changing it mid-session has no effect.
+
+> When A/B'ing the blur path, expect `blurMs` to move much further than `totalMs` does.
+> `glCopyTexSubImage2D` is one of the few calls in the frame that can force CPU-visible
+> ordering, so it inflates that CPU-side bucket out of proportion to its real frame cost.
+> Judge the change on `gpuMs`/`totalMs`, not on `blurMs`.
+
 ## Native vs. WASM comparison
 
 To answer "are we at desktop parity?", build the native SDL2 test UI from the same source tree and

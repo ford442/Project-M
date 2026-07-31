@@ -49,7 +49,7 @@ public:
     /**
      * Destructor.
      */
-    virtual ~BlurTexture() = default;
+    virtual ~BlurTexture();
 
     /**
      * @brief Initializes the blur texture.
@@ -101,10 +101,37 @@ private:
     static constexpr int NumBlurTextures = 6; //!< Maximum number of blur passes/textures.
 
     /**
+     * How the blur passes get their results into the blur textures.
+     */
+    enum class RenderPath
+    {
+        Undecided, //!< Not probed yet.
+        Direct,    //!< Blur textures are attached to the FBO and rendered into directly.
+        Copy       //!< Legacy path: render into a scratch attachment, then glCopyTexSubImage2D.
+    };
+
+    /**
      * Allocates the blur textures.
      * @param sourceTexture The source texture.
      */
     void AllocateTextures(const Renderer::Texture& sourceTexture);
+
+    /**
+     * @brief Makes sure a usable render target exists and picks the render path.
+     *
+     * On first call, the blur textures are probed as direct color attachments. If the
+     * driver reports an incomplete framebuffer for that format, the legacy scratch
+     * attachment plus copy path is set up instead.
+     *
+     * @return true if a render target is available, false if neither path works.
+     */
+    auto EnsureRenderTarget() -> bool;
+
+    /**
+     * @brief Binds the render target for the given blur pass and sets the viewport.
+     * @param pass The blur pass index.
+     */
+    void BindPassTarget(size_t pass);
 
     Renderer::Mesh m_blurMesh; //!< The blur mesh (a simple quad).
 
@@ -114,7 +141,9 @@ private:
     int m_sourceTextureWidth{};  //!< Width of the source texture used to create the blur textures.
     int m_sourceTextureHeight{}; //!< Height of the source texture used to create the blur textures.
 
-    Renderer::Framebuffer m_blurFramebuffer;                                        //!< The framebuffer used to draw the blur textures.
+    Renderer::Framebuffer m_blurFramebuffer;                                        //!< Scratch framebuffer, only used by the legacy copy path.
+    GLuint m_directFramebufferId{};                                                 //!< FBO used to render blur passes straight into the blur textures.
+    RenderPath m_renderPath{RenderPath::Undecided};                                 //!< How blur results reach the blur textures.
     std::shared_ptr<Renderer::Sampler> m_blurSampler;                               //!< The blur sampler.
     std::array<std::shared_ptr<Renderer::Texture>, NumBlurTextures> m_blurTextures; //!< The blur textures for each pass.
     BlurLevel m_blurLevel{BlurLevel::None};                                         //!< Current blur level.

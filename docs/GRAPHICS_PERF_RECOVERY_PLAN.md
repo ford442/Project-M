@@ -8,7 +8,12 @@ Canonical discussion: GitHub epic
 [#174 — Graphics FPS Recovery](https://github.com/ford442/Project-M/issues/174).
 This file is the in-repo companion so the plan travels with the code.
 
-**Status (2026-07-31):** Plan + five sub-issues filed. #175 implementation has started (format policy + lazy allocation + helper fixups landed in-tree).
+**Status (2026-07-31):** Plan + five sub-issues filed. #175 (format policy + lazy
+allocation + helper fixups), #176 (pre-warp flip removed, `glBlitFramebuffer` for final
+output) and #177 (blur renders straight into its destination textures) have landed
+in-tree. #178 and #179 are still open. **No sub-issue has before/after benchmark JSON
+yet** — that requires a GPU and a browser, and every code-truth finding here was reached
+by reading the tree, not by measuring.
 The "verify first" step is now done against the tree — see
 [Verified against the tree](#verified-against-the-tree-2026-07-31) before picking up
 any sub-issue. Two results change the plan: the largest listed suspect is **already
@@ -84,7 +89,7 @@ Use `html/projectm-core.html?perfhud=1` and `?benchmark=1&frames=500&preset=...`
 | HUD signal | Likely cause | Issue |
 |------------|--------------|-------|
 | High `compositeMs`/`gpuMs`, no transition | Old every-frame Dual blit, or Y-flip chain | #175, #176 |
-| High `blurMs` | Blur passes + `glCopyTexSubImage2D` | #177 |
+| High `blurMs` | Blur passes (the `glCopyTexSubImage2D` copies are gone as of #177) | #177 |
 | High `perPixelEvalMs` | 80×60 mesh / OpenMP pool | #178 (+ existing mesh/OpenMP work) |
 | Spike only during soft-cut | Dual FBO float bandwidth / double render | #175 |
 | Mobile-only `gpuMs` | Canvas MSAA + fill rate | #178 |
@@ -137,7 +142,12 @@ preset-dependent — old-school presets without a composite shader pay 50% more 
 cost than shader presets. Worth splitting the benchmark preset set accordingly, or the
 A/B will be dominated by which presets happened to be sampled.
 
-### 4. Blur chain — confirmed, 1 copy per pass (#177)
+### 4. Blur chain — confirmed, 1 copy per pass — **fixed** (#177)
+
+> **Landed.** `BlurTexture` now renders each pass straight into its destination texture;
+> the per-pass `glCopyTexSubImage2D` is gone. The analysis below is kept as the record of
+> what was wrong and how the hazards were handled. See
+> [#177 implementation notes](#177-implementation-notes-blur-render-to-texture).
 
 `BlurTexture::Update()` runs `passes = blurLevel * 2` iterations
 (`BlurTexture.cpp:160`). Each iteration draws a fullscreen quad into the shared
@@ -165,6 +175,48 @@ Note also that `glCopyTexSubImage2D` is one of the few calls here that can force
 CPU-visible ordering — which is why `blurMs` (a CPU-side bucket) shows blur cost at all
 while the other GPU stages read near zero. Removing the copies will *reduce* `blurMs`
 far more than it reduces frame time. Do not read that drop as the full win.
+
+#### #177 implementation notes (blur render-to-texture)
+
+`BlurTexture` owns a dedicated FBO (`m_directFramebufferId`, raw GL rather than
+`Renderer::Framebuffer`) and re-points `GL_COLOR_ATTACHMENT0` at
+`m_blurTextures[pass]` before each pass. At `Blur3` that removes **6 full-surface
+`glCopyTexSubImage2D` calls per frame** and the shared scratch attachment they copied
+from (one source-resolution color texture that is no longer allocated in the default
+path).
+
+How the three `Framebuffer` hazards above were handled:
+
+- `SetAttachment()` / the `Create*Attachment()` helpers now use `insert_or_assign`, so
+  the tracked attachment map can no longer disagree with GL state after a re-attach.
+  The fix is in `Framebuffer.cpp` for every caller, not just blur.
+- The blur pass target is bound with raw `glFramebufferTexture2D`, sidestepping the
+  `m_width`/`m_height` early-out entirely — each pass sizes its own viewport from the
+  destination texture.
+- The `m_blurFramebuffer.SetSize()` call moved out of `AllocateTextures()`. It now runs
+  only when the copy fallback is actually in use, so `SetSize()` can never reallocate
+  blur textures out from under `AllocateTextures()`.
+
+Two behavioural details worth knowing:
+
+- **Blur textures are now sized formats** (`GL_RGB8`, or `GL_RGBA16F` under
+  `ENABLE_HDR_RENDERING`) instead of unsized `GL_RGB`, because unsized internal formats
+  are not guaranteed to be color-renderable. Channel count and precision are unchanged.
+- **A one-time completeness probe picks the path.** If a driver reports the blur texture
+  as an incomplete color attachment, `BlurTexture` falls back to the old
+  render-to-scratch + copy behaviour rather than losing the blur. The fallback also
+  restores the scratch attachment allocation, so its cost profile is the pre-change one.
+- **On `ENABLE_SRGB_FRAMEBUFFER` builds this is a small visual change.** The scratch
+  attachment was `GL_SRGB8_ALPHA8` while the blur textures were linear, so blur results
+  used to be sRGB-encoded and then byte-copied into a linear texture. Rendering directly
+  into the linear blur textures drops that accidental encode, putting blur values in the
+  same domain as the source. The option defaults to `OFF`, so default builds are
+  unaffected.
+
+**Ablation switch:** `?blurPath=copy` (WASM) or `PROJECTM_BLUR_COPY_PATH=1` (native)
+forces the legacy copy path, so before/after can be benchmarked **on a single build**.
+This is the recommended way to produce #177's before/after `?benchmark=1` JSON —
+and note the `blurMs` caveat above: that bucket will fall further than frame time does.
 
 ### 5. Canvas MSAA — narrower than it looks (#178)
 
@@ -246,7 +298,7 @@ Option 2 is the cheaper first move and is the recommended way to satisfy the epi
 |-------|-------|----------|-------|
 | [#175](https://github.com/ford442/Project-M/issues/175) | Dual-FBO compositor lifecycle & float-format bandwidth | `P0` | Direct-to-canvas verify, RGBA16F default, lazy alloc, shrink 4→2 if safe |
 | [#176](https://github.com/ford442/Project-M/issues/176) | Collapse MilkdropPreset Y-flip / `CopyTexture` passes | `P0` | UV/NDC flip, `glBlitFramebuffer` for non-flip copies |
-| [#177](https://github.com/ford442/Project-M/issues/177) | Blur chain render-to-texture (kill `glCopyTexSubImage2D`) | `P1` | Attach blur targets directly; cut redundant copies |
+| [#177](https://github.com/ford442/Project-M/issues/177) | Blur chain render-to-texture (kill `glCopyTexSubImage2D`) | `P1` | ✅ Code landed; benchmark JSON outstanding |
 | [#178](https://github.com/ford442/Project-M/issues/178) | Governor v2 — FBO scale, blur tier, MSAA policy | `P1` | Hold 60 FPS under fill load, not only mesh |
 | [#179](https://github.com/ford442/Project-M/issues/179) | Advance WebGL2 + WebGPU feasibility spike | `P2` | Near-term WebGL2 wins; go/no-go for WebGPU |
 
@@ -279,7 +331,7 @@ baselines exist (do not block FPS recovery on WebGPU).
 
 9. **Collapse Y-flips** into consumer shaders (warp/composite UV) instead of 2–3 fullscreen `CopyTexture` draws.
 10. Use **`glBlitFramebuffer`** for format-matched, non-flip resolves (WebGL2).
-11. Blur: **render into the destination texture attachment**; remove per-pass `glCopyTexSubImage2D`.
+11. Blur: **render into the destination texture attachment**; remove per-pass `glCopyTexSubImage2D`. ✅ Landed in-tree; `?blurPath=copy` restores the old path for A/B.
 
 ### Adaptive quality / present (#178)
 

@@ -8,7 +8,7 @@ Canonical discussion: GitHub epic
 [#174 — Graphics FPS Recovery](https://github.com/ford442/Project-M/issues/174).
 This file is the in-repo companion so the plan travels with the code.
 
-**Status (2026-07-31):** Plan + five sub-issues filed. Implementation not started.
+**Status (2026-07-31):** Plan + five sub-issues filed. #175 implementation has started (format policy + lazy allocation + helper fixups landed in-tree).
 The "verify first" step is now done against the tree — see
 [Verified against the tree](#verified-against-the-tree-2026-07-31) before picking up
 any sub-issue. Two results change the plan: the largest listed suspect is **already
@@ -56,14 +56,14 @@ Key files: `src/libprojectM/MilkdropPreset/MilkdropPreset.cpp`,
 ### Layer B — WASM DualPingPongFramebuffer compositor (transitions)
 
 `projectM_emscripten.cpp` maintains up to four FBOs (A_Read/A_Write, B_Read/B_Write)
-with float preference **RGBA32F → RGBA16F → RGBA8**, then a fullscreen
+with float preference **RGBA16F → RGBA32F → RGBA8** by default (RGBA32F opt-in via `?fboPrecision=high`), then a fullscreen
 `CompositingBlendShader` blit to the canvas.
 
 | Phase | Behavior | FPS impact |
 |-------|----------|------------|
 | Early Dual-FBO | Compositor ran **every frame** | Steady-state regression (main 60→N drop) |
 | Current (`ShouldUseDualFboCompositor`) | Compositor only while `g_transitionActive` | Steady-state should recover if this build is deployed |
-| Remaining cost | Eager A-pair alloc, RGBA32F bandwidth, 2× render during crossfade | Transition / VRAM / mobile |
+| Remaining cost | 2× render during crossfade, plus RGBA32F bandwidth when high-precision opt-in is used | Transition / VRAM / mobile |
 
 **First verification step:** confirm the deployed bundle includes direct-to-canvas
 steady-state. If an older bundle is live, shipping that fix alone is the largest win.
@@ -113,22 +113,14 @@ blit is gone from the source.
 shipping a current build *is* the fix and no code work is needed. Check the deployed
 `PROJECTM_WASM_BUNDLE` before spending a session on #175's headline item.
 
-### 2. Preset A pair is still eagerly allocated (#175 — real, still open)
+### 2. Preset A pair is now lazily allocated (#175 — landed)
 
-`start_render()` calls `g_dualFbo.AllocatePresetA(width, height)`
-(`projectM_emscripten.cpp:267`) at startup, unconditionally. With the compositor now
-gated to transitions, those two surfaces sit allocated and unused for the entire
-steady-state session. At RGBA32F that is 16 bytes/px × 2 surfaces ≈ **28 MB at
-1280×720, 63 MB at 1920×1080** of VRAM held for nothing.
+`start_render()` now records viewport size but defers Preset A/B texture allocation
+until `dual_fbo_begin_transition()` is called. That removes idle steady-state VRAM
+residency for Preset A in non-transition playback.
 
-This is VRAM and allocation cost, **not** steady-state frame time — no per-frame work
-touches them while `ShouldUseDualFboCompositor()` is false. Weigh it as a memory item
-(and a mobile-OOM item), not an FPS item.
-
-The RGBA16F preference (#175 item 4) is worth doing on the same pass: it halves both
-the resident footprint above and the per-frame bandwidth during a crossfade, and
-half-float's 10-bit mantissa is far beyond what an 8-bit display can show, so the
-"no banding on float-capable GPUs" criterion is unaffected.
+The format policy also now defaults to RGBA16F (with RGBA32F opt-in), cutting both
+transition-time bandwidth and float texture footprint on capable GPUs.
 
 ### 3. Y-flip chain — confirmed 2 passes, sometimes 3 (#176)
 
@@ -277,8 +269,8 @@ baselines exist (do not block FPS recovery on WebGPU).
 
 ### Dual-FBO / WASM compositor (#175)
 
-4. Prefer **RGBA16F** over RGBA32F for Dual FBOs (half bandwidth; keep RGBA32F opt-in).
-5. **Lazy-allocate** Preset A/B pairs; free when idle if needed.
+4. Prefer **RGBA16F** over RGBA32F for Dual FBOs (half bandwidth; keep RGBA32F opt-in). ✅ Landed in-tree.
+5. **Lazy-allocate** Preset A/B pairs; free when idle if needed. ✅ Preset A/B now allocated on first transition request.
 6. Consider **2 textures instead of 4** if ping-pong within a preset is unnecessary for the compositor.
 7. Stop double-calling the same `pm` into A and B during transitions unless two true preset instances exist (or accept cost only for the blend window).
 8. Fix helpers that still render to FBO 0 instead of `_fbo`.

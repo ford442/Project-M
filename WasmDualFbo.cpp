@@ -29,7 +29,7 @@ double g_transitionStartTime = 0.0;   //!< emscripten_get_now() timestamp (ms) a
 // These functions are the public interface for JavaScript / the transition
 // layer to drive the dual FBO system:
 //
-//   dual_fbo_begin_transition()  – allocate Preset B FBOs (lazy, call once)
+//   dual_fbo_begin_transition()  – lazily allocate Preset A/B FBOs (call once)
 //   dual_fbo_end_transition()    – promote Preset B → Preset A (transition done)
 //   dual_fbo_cancel_transition() – release Preset B FBOs without promoting
 //   dual_fbo_swap_preset_a()     – ping-pong Preset A Read/Write each frame
@@ -63,6 +63,11 @@ bool dual_fbo_begin_transition()
     if (w <= 0 || h <= 0)
     {
         fprintf(stderr, "DualFBO: Cannot begin transition – Preset A FBOs not allocated.\n");
+        return false;
+    }
+    if (!g_dualFbo.IsPresetAAllocated() && !g_dualFbo.AllocatePresetA(w, h))
+    {
+        fprintf(stderr, "DualFBO: Failed to lazily allocate Preset A FBOs.\n");
         return false;
     }
     return g_dualFbo.AllocatePresetB(w, h);
@@ -214,8 +219,7 @@ void dual_fbo_render_preset_a()
         return;
     }
     GLStateGuard guard;
-    glBindFramebuffer(GL_FRAMEBUFFER, g_dualFbo.GetAWriteFBO());
-    projectm_opengl_render_frame(pm);
+    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
 }
 
 /**
@@ -241,8 +245,7 @@ void dual_fbo_render_preset_b()
     // Force-reset GL state left by Preset A's draw before entering Preset B's pipeline.
     gl_reset_state_between_pipelines();
     GLStateGuard guard;
-    glBindFramebuffer(GL_FRAMEBUFFER, g_dualFbo.GetBWriteFBO());
-    projectm_opengl_render_frame(pm);
+    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
 }
 
 } // extern "C"

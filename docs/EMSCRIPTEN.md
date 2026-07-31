@@ -480,10 +480,11 @@ Behavior:
   `Module._init()`. Because `pm_handle_context_loss()` reset the module-level `pm` handle to
   `NULL`, `init()` takes its full re-initialization path (new EGL/WebGL context, new projectM and
   playlist instances re-scanning `/presets/` in the in-memory filesystem, which still contains
-  every preset loaded so far). `Module._start_render()` is then called again to re-detect the FBO
-  float format and reallocate the dual ping-pong FBOs at the canvas's current size. Finally, the
-  last-displayed preset is reloaded via `window.currentPresetPath` (set by `updatePresetDisplay()`
-  in `html/projectm-presets.js` on every preset switch).
+  every preset loaded so far). `Module._start_render()` is then called again to apply the current
+  viewport and restart the loop (FBO format probing happens in `init()`, and dual-FBO textures are
+  allocated lazily on first transition). Finally, the last-displayed preset is reloaded via
+  `window.currentPresetPath` (set by `updatePresetDisplay()` in `html/projectm-presets.js` on every
+  preset switch).
 - If `init()` fails during recovery (e.g. the browser hasn't actually restored the context yet),
   `checkInit()` shows the existing `#pm-init-error` overlay with its "Retry" button instead.
 
@@ -533,10 +534,8 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
   dual-FBO path's per-pass guards.
 
 Either path leaves the finished frame in FBO 0 and increments
-`g_renderedFrameCount` exactly once. `renderLoop()` then calls
-`eglSwapBuffers(display, surface)` to present FBO 0 to the browser canvas —
-this is required in both paths, since the compositor blit (like the legacy
-fallback) only writes into FBO 0 and does not itself present it.
+`g_renderedFrameCount` exactly once. Browser presentation is handled by the
+WebGL canvas compositor; wasm does not call `eglSwapBuffers()`.
 
 `renderLoop()` preserves:
 
@@ -698,6 +697,15 @@ directly in a COOP/COEP-isolated browser.
 `Module._set_perf_hud(1)` enables CPU/GPU frame-time instrumentation and an on-screen HUD; a
 `?benchmark=1&frames=N&preset=...` query param runs a headless benchmark and reports JSON
 mean/median/p95 stats. See [docs/PERFORMANCE.md](PERFORMANCE.md) for details.
+
+## Dual-FBO precision policy (WASM)
+
+Dual-FBO format probing defaults to `RGBA16F -> RGBA32F -> RGBA8` to cut transition VRAM/bandwidth
+while keeping float precision by default.
+
+- Default: `RGBA16F` when `EXT_color_buffer_half_float` is available
+- High precision opt-in: add `?fboPrecision=high` to prefer `RGBA32F` first
+- Fallback: `RGBA8` (degraded-mode banner in `html/projectm-fbo-format.js`)
 
 ## Initializing Emscripten's OpenGL Context
 

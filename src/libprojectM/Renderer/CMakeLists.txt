@@ -6,6 +6,7 @@ set(TRANSITION_SHADER_FILES
         TransitionShaders/TransitionShaderBuiltInGlitchGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInHeatWaveGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInKaleidoscopeGlsl330.frag
+        TransitionShaders/TransitionShaderBuiltInLiquidMeltGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInMosaicZoomGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInMotionBlurGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInMultiPassTestGlsl330.frag
@@ -17,6 +18,7 @@ set(TRANSITION_SHADER_FILES
         TransitionShaders/TransitionShaderBuiltInSliceSwipeGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInSweepGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInTileFlipGlsl330.frag
+        TransitionShaders/TransitionShaderBuiltInTunnelGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInWarpGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInWaterDropGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInZoomBlurGlsl330.frag

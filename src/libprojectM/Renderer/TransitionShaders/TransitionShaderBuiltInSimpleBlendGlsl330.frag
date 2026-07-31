@@ -16,6 +16,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     else if (iBlendMode == 1) result = blendAdditive(oldColor, newColor, progress);
     else if (iBlendMode == 2) result = blendMultiplicative(oldColor, newColor, progress);
     else if (iBlendMode == 3) result = blendScreen(oldColor, newColor, progress);
+    else if (iBlendMode == 4) result = blendMasked(oldColor, newColor, progress);
     else                      result = blendAlpha(oldColor, newColor, progress);
 
     vec3 col = result.xyz;

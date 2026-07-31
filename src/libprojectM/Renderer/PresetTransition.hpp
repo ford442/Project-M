@@ -34,7 +34,7 @@ enum class TransitionBlendMode : int
     Additive,       //!< Old + New * progress.
     Multiplicative, //!< Old * (1-progress) + (Old * New) * progress.
     Screen,         //!< Screen blending.
-    Masked,         //!< Future: use a third mask texture.
+    Masked,         //!< Procedural noise mask turns the blend factor into a dissolve threshold.
     Count           //!< Number of blend modes (not a valid selection).
 };
 

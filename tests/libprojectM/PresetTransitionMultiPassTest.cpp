@@ -123,6 +123,7 @@ TEST(MultiPassShaderSourceTest, KnownTransitionsDeclareMultiPassUniforms)
         {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInHeatWaveGlsl330.frag", 2},
         {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInGlitchGlsl330.frag", 2},
         {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInMultiPassTestGlsl330.frag", 2},
+        {"src/libprojectM/Renderer/TransitionShaders/TransitionShaderBuiltInTunnelGlsl330.frag", 2},
     };
 
     for (const auto& [path, expectedPasses] : multiPassShaders)

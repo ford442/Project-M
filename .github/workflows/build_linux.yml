@@ -98,6 +98,20 @@ jobs:
             name: projectm-linux-${{ matrix.libs }}-${{ matrix.fslib }}-${{ matrix.runs-on }}
             path: install/*
 
+  transition-shaders:
+    name: Transition shader GLSL/GLES validation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install glslang
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends glslang-tools
+
+      - name: Validate built-in transition shaders (GLSL 330 + GLSL ES 300)
+        run: bash scripts/check_transition_shaders.sh
+
   web-embed:
     name: Web embed SDK checks
     runs-on: ubuntu-24.04

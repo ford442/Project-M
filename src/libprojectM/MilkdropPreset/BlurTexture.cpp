@@ -10,6 +10,12 @@
 #include <Renderer/ShaderCache.hpp>
 
 #include <array>
+#include <cstdlib>
+
+// Not defined by every GLES2-era header, but valid on every target we render blur on.
+#ifndef GL_RGB8
+#define GL_RGB8 0x8051
+#endif
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -18,6 +24,8 @@ BlurTexture::BlurTexture()
     : m_blurMesh(Renderer::VertexBufferUsage::StaticDraw, false, true)
     , m_blurSampler(std::make_shared<Renderer::Sampler>(GL_CLAMP_TO_EDGE, GL_LINEAR))
 {
+    // Scratch color attachment for the legacy copy path. Zero-sized here, so it costs no
+    // VRAM unless EnsureRenderTarget() actually falls back to it.
 #ifdef PROJECTM_HDR_RENDERING
     m_blurFramebuffer.CreateColorAttachment(0, 0, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT);
 #else
@@ -49,6 +57,15 @@ BlurTexture::BlurTexture()
         }
 
         m_blurTextures[i] = std::make_shared<Renderer::Texture>(textureName, 0, GL_TEXTURE_2D, 0, 0, false);
+    }
+}
+
+BlurTexture::~BlurTexture()
+{
+    if (m_directFramebufferId != 0)
+    {
+        glDeleteFramebuffers(1, &m_directFramebufferId);
+        m_directFramebufferId = 0;
     }
 }
 
@@ -122,6 +139,11 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
 
     AllocateTextures(sourceTexture);
 
+    if (!EnsureRenderTarget())
+    {
+        return;
+    }
+
     unsigned int const passes = static_cast<int>(m_blurLevel) * 2;
     auto const blur1EdgeDarken = static_cast<float>(*perFrameContext.blur1_edge_darken);
 
@@ -153,7 +175,10 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &origReadFramebuffer);
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origDrawFramebuffer);
 
-    m_blurFramebuffer.Bind(0);
+    if (m_renderPath == RenderPath::Copy)
+    {
+        m_blurFramebuffer.Bind(0);
+    }
 
     Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::Zero);
 
@@ -182,7 +207,9 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
         blurShader->Bind();
         blurShader->SetUniformInt("texture_sampler", 0);
 
-        glViewport(0, 0, m_blurTextures[pass]->Width(), m_blurTextures[pass]->Height());
+        // Point the framebuffer at this pass' destination texture (direct path) or at the
+        // shared scratch attachment (copy fallback), and size the viewport to match.
+        BindPassTarget(pass);
 
         // hook up correct source texture - assume there is only one, at stage 0
         if (pass == 0)
@@ -261,10 +288,14 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
         // Draw fullscreen quad
         m_blurMesh.Draw();
 
-        // Save to blur texture
-        m_blurTextures[pass]->Bind(0);
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, m_blurTextures[pass]->Width(), m_blurTextures[pass]->Height());
-        m_blurTextures[pass]->Unbind(0);
+        if (m_renderPath == RenderPath::Copy)
+        {
+            // Legacy fallback: the pass rendered into the scratch attachment, so the result
+            // still has to be copied into the blur texture.
+            m_blurTextures[pass]->Bind(0);
+            glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, m_blurTextures[pass]->Width(), m_blurTextures[pass]->Height());
+            m_blurTextures[pass]->Unbind(0);
+        }
     }
 
     Renderer::Mesh::Unbind();
@@ -276,6 +307,90 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
     glViewport(0, 0, sourceTexture.Width(), sourceTexture.Height());
 
     Renderer::Shader::Unbind();
+}
+
+namespace {
+
+/**
+ * @brief Returns true if the legacy copy path was requested via the environment.
+ *
+ * Ablation switch for benchmarking: setting PROJECTM_BLUR_COPY_PATH=1 restores the
+ * render-to-scratch + glCopyTexSubImage2D behaviour, so the direct path can be A/B'd
+ * against it on a single build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+ */
+auto CopyPathForcedByEnvironment() -> bool
+{
+    const char* const value = std::getenv("PROJECTM_BLUR_COPY_PATH");
+    return value != nullptr && value[0] == '1' && value[1] == '\0';
+}
+
+} // namespace
+
+auto BlurTexture::EnsureRenderTarget() -> bool
+{
+    if (!m_blurTextures[0] || m_blurTextures[0]->TextureID() == 0)
+    {
+        return false;
+    }
+
+    GLint origReadFramebuffer{};
+    GLint origDrawFramebuffer{};
+
+    if (m_renderPath == RenderPath::Undecided && CopyPathForcedByEnvironment())
+    {
+        m_renderPath = RenderPath::Copy;
+    }
+
+    if (m_renderPath == RenderPath::Undecided)
+    {
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &origReadFramebuffer);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origDrawFramebuffer);
+
+        glGenFramebuffers(1, &m_directFramebufferId);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_directFramebufferId);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                               m_blurTextures[0]->TextureID(), 0);
+
+        // Probe once: if the blur texture format isn't color-renderable on this driver,
+        // keep the old render-to-scratch-then-copy behaviour instead of losing the blur.
+        const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, origReadFramebuffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, origDrawFramebuffer);
+
+        if (complete)
+        {
+            m_renderPath = RenderPath::Direct;
+        }
+        else
+        {
+            m_renderPath = RenderPath::Copy;
+            glDeleteFramebuffers(1, &m_directFramebufferId);
+            m_directFramebufferId = 0;
+        }
+    }
+
+    if (m_renderPath == RenderPath::Copy)
+    {
+        // The scratch attachment must be at least as large as the first (largest) blur texture.
+        m_blurFramebuffer.SetSize(m_blurTextures[0]->Width(), m_blurTextures[0]->Height());
+    }
+
+    return true;
+}
+
+void BlurTexture::BindPassTarget(size_t pass)
+{
+    const auto& texture = m_blurTextures[pass];
+
+    if (m_renderPath == RenderPath::Direct)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_directFramebufferId);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                               texture->TextureID(), 0);
+    }
+
+    glViewport(0, 0, texture->Width(), texture->Height());
 }
 
 void BlurTexture::Bind(GLint& unit, Renderer::Shader& shader) const
@@ -361,12 +476,6 @@ void BlurTexture::AllocateTextures(const Renderer::Texture& sourceTexture)
         int width2 = ((width + 3) / 16) * 16;
         int height2 = ((height + 3) / 4) * 4;
 
-        if (i == 0)
-        {
-            // Only use as much space as needed to render the blur textures.
-            m_blurFramebuffer.SetSize(width2, height2);
-        }
-
         std::string textureName;
         if (i % 2 == 1)
         {
@@ -374,10 +483,12 @@ void BlurTexture::AllocateTextures(const Renderer::Texture& sourceTexture)
         }
 
         // This will automatically replace any old texture.
+        // The formats are explicitly sized: the blur textures are used as color attachments,
+        // and unsized internal formats are not guaranteed to be color-renderable.
 #ifdef PROJECTM_HDR_RENDERING
         m_blurTextures[i] = std::make_shared<Renderer::Texture>(textureName, GL_TEXTURE_2D, width2, height2, 0, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, false);
 #else
-        m_blurTextures[i] = std::make_shared<Renderer::Texture>(textureName, width2, height2, false);
+        m_blurTextures[i] = std::make_shared<Renderer::Texture>(textureName, GL_TEXTURE_2D, width2, height2, 0, GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE, false);
 #endif
     }
 

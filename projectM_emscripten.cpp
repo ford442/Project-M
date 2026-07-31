@@ -18,6 +18,8 @@
 #include "WasmGraphics.hpp"
 #include "WasmWebGLContext.hpp"
 
+#include <cstdlib>
+
 using namespace emscripten;
 
 // ---- Core engine state (declared extern in ProjectMWasmInternal.hpp) -------
@@ -95,6 +97,33 @@ EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
         return 0;
     }
 });
+
+EM_JS(int, js_blur_force_copy_path, (), {
+    if (typeof window === 'undefined' || !window.location || !window.location.search)
+    {
+        return 0;
+    }
+    try
+    {
+        const value = new URLSearchParams(window.location.search).get('blurPath');
+        return (value && value.toLowerCase() === 'copy') ? 1 : 0;
+    }
+    catch (e)
+    {
+        return 0;
+    }
+});
+
+// Ablation switch for benchmarking the blur chain: ?blurPath=copy restores the legacy
+// render-to-scratch + glCopyTexSubImage2D behaviour so it can be A/B'd against the
+// default render-to-texture path on one build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+static void ApplyBlurPathOverride()
+{
+    if (js_blur_force_copy_path() != 0)
+    {
+        setenv("PROJECTM_BLUR_COPY_PATH", "1", 1);
+    }
+}
 
 static void InstallShaderTranspileCacheHooks()
 {
@@ -349,6 +378,9 @@ int init()
     // This must be called after the WebGL context is made current so that
     // extension availability can be probed reliably.
     g_dualFbo.DetectFormat(WasmWebGLGetContext(), js_dual_fbo_prefer_high_precision() != 0);
+
+    // Must happen before the first preset renders, since the blur path is decided once.
+    ApplyBlurPathOverride();
 
     pm = projectm_create();
     if (!pm)

@@ -2,7 +2,9 @@
 //
 // Surfaces the dual ping-pong FBO color format (selected once in
 // DualPingPongFramebuffer::DetectFormat(), projectM_emscripten.cpp) to the
-// host page. RGBA32F/RGBA16F are full-quality; RGBA8 is a "degraded mode"
+// host page. Default probe order is RGBA16F -> RGBA32F -> RGBA8
+// (?fboPrecision=high opts into RGBA32F-first probing). RGBA32F/RGBA16F are
+// full-quality; RGBA8 is a "degraded mode"
 // fallback used on GPUs/browsers without EXT_color_buffer_half_float, which
 // can show 8-bit banding in recursive warp/feedback presets (mitigated, but
 // not eliminated, by the ordered-dither + clamp in CompositingBlendShader).

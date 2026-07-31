@@ -19,14 +19,14 @@
  * @brief Available floating-point texture formats for FBO color attachments.
  *
  * Preference order:
- *   RGBA32F – full 32-bit float per channel (requires EXT_color_buffer_float)
  *   RGBA16F – 16-bit half-float per channel (requires EXT_color_buffer_half_float)
+ *   RGBA32F – full 32-bit float per channel (requires EXT_color_buffer_float, optional on wasm)
  *   RGBA8   – 8-bit normalized (always available; shaders must clamp output to [0,1])
  */
 enum class FboFloatFormat
 {
-    RGBA32F, //!< GL_RGBA32F – preferred for recursive warp feedback loops
-    RGBA16F, //!< GL_RGBA16F – mobile-friendly fallback
+    RGBA32F, //!< GL_RGBA32F – optional high-precision mode for recursive warp feedback loops
+    RGBA16F, //!< GL_RGBA16F – default on capable GPUs (better bandwidth/VRAM tradeoff)
     RGBA8    //!< GL_RGBA8   – last resort; negative alpha corruption possible without clamping
 };
 
@@ -66,25 +66,36 @@ public:
      * @brief Detects the best available float texture format by probing WebGL extensions.
      *
      * Call once after the WebGL context has been made current and before any FBO
-     * allocation. Priority: GL_RGBA32F (EXT_color_buffer_float) >
-     * GL_RGBA16F (EXT_color_buffer_half_float) > GL_RGBA8.
+     * allocation. Default priority: GL_RGBA16F (EXT_color_buffer_half_float) >
+     * GL_RGBA32F (EXT_color_buffer_float) > GL_RGBA8. If @p preferHighPrecision
+     * is true, RGBA32F is preferred over RGBA16F.
      *
      * @param ctx The active Emscripten WebGL context handle.
+     * @param preferHighPrecision Whether RGBA32F should be preferred over RGBA16F.
      */
-    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx)
+    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, bool preferHighPrecision = false)
     {
-        if (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE)
+        const bool hasFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE);
+        const bool hasHalfFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE);
+
+        if (preferHighPrecision && hasFloat)
         {
             m_format = FboFloatFormat::RGBA32F;
             // Enable bilinear filtering on float textures when available.
             emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear");
-            printf("DualFBO: Using GL_RGBA32F float textures.\n");
+            printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in).\n");
         }
-        else if (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE)
+        else if (hasHalfFloat)
         {
             m_format = FboFloatFormat::RGBA16F;
             emscripten_webgl_enable_extension(ctx, "OES_texture_half_float_linear");
-            printf("DualFBO: Using GL_RGBA16F half-float textures.\n");
+            printf("DualFBO: Using GL_RGBA16F half-float textures (default).\n");
+        }
+        else if (hasFloat)
+        {
+            m_format = FboFloatFormat::RGBA32F;
+            emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear");
+            printf("DualFBO: Using GL_RGBA32F float textures (RGBA16F unavailable).\n");
         }
         else
         {

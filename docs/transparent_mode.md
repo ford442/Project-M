@@ -26,9 +26,9 @@ Final transparency is applied in the **last blit to the screen** (or legacy fall
 
 ### Dual-FBO transitions (WASM)
 
-The browser build renders presets into ping-pong FBOs, then composites to the canvas with `CompositingBlendShader`. Preset internals stay opaque; transparency runs only in that compositor pass (and in the legacy single-pass fallback via `CopyTexture`).
+Steady-state browser frames render directly to the canvas (no dual-FBO compositor blit). The dual-FBO path is only enabled while a soft-cut transition is active; during that window, presets render into ping-pong FBOs and `CompositingBlendShader` blends to the canvas.
 
-This avoids flashing opaque black during transitions: both the steady-state blit and the cross-fade use the same near-black → transparent rule.
+Preset internals stay opaque in both paths; transparency runs only on the final canvas-facing pass (`CopyTexture` for steady-state / fallback, `CompositingBlendShader` during transitions). This avoids flashing opaque black during transitions while keeping non-transition frames on the cheaper direct path.
 
 ### Design Notes
 

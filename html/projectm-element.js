@@ -273,6 +273,9 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 onFps: (fps) => {
                     dispatchLifecycleEvent(this, 'pm-fps', { fps });
                 },
+                onAudioSourceChange: (status) => {
+                    dispatchLifecycleEvent(this, 'pm-audio-source', status);
+                },
             });
 
             await context.start();

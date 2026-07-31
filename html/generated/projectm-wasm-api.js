@@ -97,7 +97,23 @@ export function addAudioData(module, data, len) {
 }
 
 /** Play audio file from VFS path */
+/** @type {import('../projectm-audio-source-router.js').AudioSourceRouter | null} */
+let hostAudioSourceRouter = null;
+
+/** Register the host {@link AudioSourceRouter} so `pl()` respects exclusive-source policy. */
+export function setHostAudioSourceRouter(router) {
+    hostAudioSourceRouter = router;
+}
+
 export function pl(module, songPath) {
+    hostAudioSourceRouter?.notifyWorkletFeed();
+    if (hostAudioSourceRouter && !hostAudioSourceRouter.canFeed('worklet')) {
+        console.debug(
+            '[projectM audio router] blocked pl() — active source is',
+            hostAudioSourceRouter.getActiveSource()
+        );
+        return;
+    }
     module.ccall('pl', null, ['string'], [songPath]);
 }
 

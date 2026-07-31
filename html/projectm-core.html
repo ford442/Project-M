@@ -524,6 +524,7 @@ canvas.emscripten {
 <script type="module">
 import { createPopupAudioPlayerController } from './projectm-audio-player.js';
 import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
+import { createAudioSourceRouter } from './projectm-audio-source-router.js';
 import { ProjectMContext } from './projectm-context.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { setupFboFormatIndicator } from './projectm-fbo-format.js';
@@ -1005,10 +1006,19 @@ function updateLayout() {
     }
 }
 
+/** Shared exclusive-source router for external PCM + worklet (`pl()`). */
+const audioSourceRouter = createAudioSourceRouter({
+    autoSwitchOnFeed: true,
+    onStatusChange: (status) => {
+        console.debug('[ProjectM] audio source:', status.activeSource);
+    },
+});
+
 // ====== EXTERNAL PLAYER AUDIO SOURCE (mod-player + flac_player) ======
 setupExternalAudioReceiver({
     preallocSize: 2048,
-    onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
+    feedGate: () => audioSourceRouter.externalFeedGate(),
+    onFeed: audioSourceRouter.wrapExternalFeed((buffer, channels, sampleRate, samplesPerChannel) => {
         if (!renderWorkerHandle) {
             return defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
         }
@@ -1018,7 +1028,7 @@ setupExternalAudioReceiver({
             renderWorkerHandle.postPcm(buffer.slice(0), channels);
         }
         return true;
-    }
+    }),
 });
 
 // Safe button wiring (guarded; the core panel uses the flacPlayer() / modPlayer() shims above)
@@ -1343,6 +1353,7 @@ async function attemptInit() {
                 transparencyThreshold: TRANSPARENCY_THRESHOLD,
                 presetLocked: isPresetLocked,
                 audioSource: 'none',
+                audioRouter: audioSourceRouter,
                 onError: (detail) => {
                     console.error('[ProjectM] context init error:', detail);
                 },

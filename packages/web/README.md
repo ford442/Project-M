@@ -72,6 +72,7 @@ Serve this page **with COOP/COEP** and place WASM artifacts next to your host (o
     viz.addEventListener('pm-ready', () => console.log('projectM ready'));
     viz.addEventListener('pm-error', (e) => console.error(e.detail));
     viz.addEventListener('pm-fps', (e) => console.debug('fps', e.detail.fps));
+    viz.addEventListener('pm-audio-source', (e) => console.debug('audio', e.detail));
   </script>
 </body>
 </html>
@@ -134,6 +135,7 @@ are still **not** bundled — host them yourself (see [WASM artifacts](#wasm-art
 | `pm-preset-changed` | `{ name, path?, url? }` |
 | `pm-error` | `{ code, message, error? }` |
 | `pm-fps` | `{ fps }` (once per second) |
+| `pm-audio-source` | `{ activeSource, mode, streamEnabled, externalEnabled, workletAllowed }` |
 
 ### Methods
 

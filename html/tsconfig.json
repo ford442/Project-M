@@ -22,6 +22,7 @@
     "projectm-init.js",
     "projectm-init-errors.js",
     "projectm-external-pcm.js",
+    "projectm-audio-source-router.js",
     "projectm-presets.js",
     "projectm-audio-bootstrap.js",
     "projectm-fps-governor.js",

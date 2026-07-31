@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>External PCM router smoke</title>
+</head>
+<body>
+  <script type="module">
+    import { createAudioSourceRouter } from '../../html/projectm-audio-source-router.js';
+    import {
+      defaultFeedPCMToModule,
+      setupExternalAudioReceiver,
+    } from '../../html/projectm-external-pcm.js';
+
+    const fed = [];
+    const module = {
+      HEAPF32: new Float32Array(2048),
+      _malloc: () => 0,
+      _free: () => {},
+      _projectm_pcm_add_float_wrapper: (_h, _ptr, samplesPerChannel, channels) => {
+        fed.push({ samplesPerChannel, channels });
+      },
+      _stop_worklet_playback: () => {},
+      _set_audio_source_to_stream: () => {},
+    };
+
+    globalThis.Module = module;
+
+    const router = createAudioSourceRouter({
+      module,
+      autoSwitchOnFeed: true,
+    });
+
+    setupExternalAudioReceiver({
+      allowedOrigins: ['http://127.0.0.1'],
+      feedGate: () => router.externalFeedGate(),
+      onFeed: router.wrapExternalFeed((buffer, channels, sampleRate, samplesPerChannel) => {
+        const ok = defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
+        if (ok) fed.push({ via: 'external', samplesPerChannel, channels });
+        return ok;
+      }),
+    });
+
+    window.__projectMExternalPcmRouterSmoke = {
+      getStatus: () => router.getStatus(),
+      getFedCount: () => fed.length,
+      postPcm: () => {
+        window.dispatchEvent(new MessageEvent('message', {
+          origin: 'http://127.0.0.1',
+          data: {
+            type: 'pcm',
+            buffer: new Float32Array([0.5, -0.5]),
+            channels: 2,
+            sampleRate: 44100,
+          },
+        }));
+      },
+      blockExternal: () => router.setActiveSource('element'),
+    };
+  </script>
+</body>
+</html>

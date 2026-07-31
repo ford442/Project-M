@@ -1,5 +1,9 @@
 import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
-import { AudioSourceRouter } from './projectm-audio-router.js';
+import {
+    AudioSourceRouter,
+    audioSourceToRouterSource,
+    createAudioSourceRouter,
+} from './projectm-audio-source-router.js';
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import {
     defaultFeedPCMToModule,
@@ -67,6 +71,8 @@ function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
  * @typedef {import('./projectm-context-types.ts').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
  * @typedef {import('./projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
  * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('./projectm-context-types.ts').ProjectMAudioSourceStatus} ProjectMAudioSourceStatus
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./projectm-context-types.ts').ProjectMPresetDetail} ProjectMPresetDetail
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
@@ -183,22 +189,12 @@ export class ProjectMContext {
         this.fpsLastSample = 0;
         /** @type {((event: Event) => void) | null} */
         this.presetListener = null;
-        /** @type {HTMLMediaElement | null} */
-        this.audioElement = null;
-        /** Single-active-source router. Fires `pm-audio-source` events on source changes. */
-        this.audioSourceRouter = new AudioSourceRouter({
-            windowRef: this.options.windowRef ?? null,
-        });
-    }
-
-    /**
-     * The currently active audio source as tracked by the AudioSourceRouter.
-     * One of `'none'`, `'worklet'`, `'element'`, or `'external'`.
-     * @returns {import('./projectm-audio-router.js').AudioSourceName}
-     */
-    get activeAudioSource() {
-        return this.audioSourceRouter.activeSource;
-    }
+/** @type {HTMLMediaElement | null} */
+this.audioElement = null;
+/** @type {AudioSourceRouter | null} */
+this.audioRouter = options.audioRouter ?? null;
+/** @type {(() => void) | null} */
+this._externalReceiverClose = null;
 
     /**
      * Boots WASM, starts rendering, and resolves when the engine is ready.
@@ -229,11 +225,21 @@ export class ProjectMContext {
             audioSource,
             audioElement,
             externalPcmOrigins,
+            onAudioSourceChange,
+            audioRouter: existingAudioRouter,
             onReady,
             onError,
             onPresetChanged,
             onFps,
         } = this.options;
+
+        if (audioSource === 'element') {
+            const media = resolveMediaElement(audioElement, documentRef);
+            if (media) {
+                this.audioElement = media;
+                media.id = media.id || 'audio-stream-element';
+            }
+        }
 
         if (requireCrossOriginIsolation && !checkCrossOriginIsolation()) {
             const error = new Error('Cross-origin isolation is required for this WASM build');
@@ -280,6 +286,24 @@ export class ProjectMContext {
                 throw error;
             }
 
+            this.audioRouter = existingAudioRouter ?? createAudioSourceRouter({
+                module: this.module,
+                initialSource: audioSourceToRouterSource(audioSource),
+                onStatusChange: (status) => {
+                    onAudioSourceChange?.(status);
+                },
+            });
+            if (existingAudioRouter) {
+                existingAudioRouter.setModule(this.module);
+                if (onAudioSourceChange) {
+                    const prior = existingAudioRouter.onStatusChange;
+                    existingAudioRouter.onStatusChange = (status) => {
+                        prior?.(status);
+                        onAudioSourceChange(status);
+                    };
+                }
+            }
+
             setupAudioUnlock();
             setupContextLossRecovery(this.module, {
                 canvasSelector: this.primaryCanvasSelector,
@@ -313,6 +337,9 @@ export class ProjectMContext {
             }
 
             this.#wireAudio(audioSource, audioElement, externalPcmOrigins);
+            if (!existingAudioRouter) {
+                this.audioRouter.setModule(this.module);
+            }
             this.#observeResize();
             this.#wirePresetEvents(onPresetChanged);
 
@@ -410,6 +437,20 @@ export class ProjectMContext {
         return setTargetFps(this.module, fps);
     }
 
+    /**
+     * @returns {ProjectMAudioSourceStatus | null}
+     */
+    getAudioSourceStatus() {
+        return this.audioRouter?.getStatus() ?? null;
+    }
+
+    /**
+     * @param {import('./projectm-audio-source-router.js').ProjectMAudioSourceActive} source
+     */
+    setAudioSource(source) {
+        this.audioRouter?.setActiveSource(source);
+    }
+
     resize() {
         syncCanvasSize({
             module: this.module,
@@ -436,6 +477,12 @@ export class ProjectMContext {
             this.options.windowRef?.removeEventListener('pm:preset-loaded', this.presetListener);
             this.presetListener = null;
         }
+        if (this._externalReceiverClose) {
+            this._externalReceiverClose();
+            this._externalReceiverClose = null;
+        }
+        this.audioRouter?.destroy();
+        this.audioRouter = null;
         if (this.module?._destruct) {
             this.module._destruct();
         }
@@ -452,32 +499,30 @@ export class ProjectMContext {
         const router = this.audioSourceRouter;
 
         if (audioSource === 'external') {
-            router.activate('external');
-            setupExternalAudioReceiver({
+            const router = this.audioRouter;
+            const receiver = setupExternalAudioReceiver({
                 allowedOrigins: externalPcmOrigins ?? [],
-                // Gate the external PCM feed through the router so that if the
-                // source changes at runtime (e.g. a host switches to 'element'),
-                // arriving external chunks are dropped rather than double-feeding.
-                onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
-                    if (!router.shouldFeedExternal()) return false;
-                    return defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
-                },
+                feedGate: () => router?.externalFeedGate() ?? false,
+                onFeed: router
+                    ? router.wrapExternalFeed(defaultFeedPCMToModule)
+                    : defaultFeedPCMToModule,
             });
+            this._externalReceiverClose = receiver.close;
             return;
         }
 
         if (audioSource !== 'element') {
-            router.activate('none');
+            router?.setActiveSource('none');
             return;
         }
 
-        const media = resolveMediaElement(audioElementOption, this.options.documentRef);
+        const media = this.audioElement ?? resolveMediaElement(audioElementOption, this.options.documentRef);
         if (!media) {
             console.warn('[ProjectMContext] audioSource=element but no audio element was provided');
             return;
         }
 
-        router.activate('element');
+        router?.setActiveSource('element');
         this.audioElement = media;
         media.id = media.id || 'audio-stream-element';
         ensureAudioRunning().catch(() => {

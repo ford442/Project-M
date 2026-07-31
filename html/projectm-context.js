@@ -189,13 +189,12 @@ export class ProjectMContext {
         this.fpsLastSample = 0;
         /** @type {((event: Event) => void) | null} */
         this.presetListener = null;
-        /** @type {HTMLMediaElement | null} */
-        this.audioElement = null;
-        /** @type {AudioSourceRouter | null} */
-        this.audioRouter = null;
-        /** @type {(() => void) | null} */
-        this._externalReceiverClose = null;
-    }
+/** @type {HTMLMediaElement | null} */
+this.audioElement = null;
+/** @type {AudioSourceRouter | null} */
+this.audioRouter = options.audioRouter ?? null;
+/** @type {(() => void) | null} */
+this._externalReceiverClose = null;
 
     /**
      * Boots WASM, starts rendering, and resolves when the engine is ready.
@@ -488,6 +487,7 @@ export class ProjectMContext {
             this.module._destruct();
         }
         this.module = null;
+        this.audioSourceRouter.reset();
     }
 
     /**
@@ -496,6 +496,8 @@ export class ProjectMContext {
      * @param {string[] | undefined} externalPcmOrigins
      */
     #wireAudio(audioSource, audioElementOption, externalPcmOrigins) {
+        const router = this.audioSourceRouter;
+
         if (audioSource === 'external') {
             const router = this.audioRouter;
             const receiver = setupExternalAudioReceiver({
@@ -510,6 +512,7 @@ export class ProjectMContext {
         }
 
         if (audioSource !== 'element') {
+            router?.setActiveSource('none');
             return;
         }
 
@@ -519,6 +522,7 @@ export class ProjectMContext {
             return;
         }
 
+        router?.setActiveSource('element');
         this.audioElement = media;
         media.id = media.id || 'audio-stream-element';
         ensureAudioRunning().catch(() => {

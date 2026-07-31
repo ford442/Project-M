@@ -8,7 +8,13 @@ Canonical discussion: GitHub epic
 [#174 — Graphics FPS Recovery](https://github.com/ford442/Project-M/issues/174).
 This file is the in-repo companion so the plan travels with the code.
 
-**Status (2026-07-21):** Plan + five sub-issues filed. Implementation not started.
+**Status (2026-07-31):** Plan + five sub-issues filed. #175 implementation has started (format policy + lazy allocation + helper fixups landed in-tree).
+The "verify first" step is now done against the tree — see
+[Verified against the tree](#verified-against-the-tree-2026-07-31) before picking up
+any sub-issue. Two results change the plan: the largest listed suspect is **already
+fixed in code** (so #175's headline item is a deploy check, not a code change), and the
+**HUD cannot rank the GPU suspects against each other**, which the diagnosis cheat
+sheet below assumes it can.
 
 Related (do not duplicate): [#173](https://github.com/ford442/Project-M/issues/173)
 (ASYNCIFY / heap / OpenMP gates), [#80](https://github.com/ford442/Project-M/issues/80)
@@ -50,14 +56,14 @@ Key files: `src/libprojectM/MilkdropPreset/MilkdropPreset.cpp`,
 ### Layer B — WASM DualPingPongFramebuffer compositor (transitions)
 
 `projectM_emscripten.cpp` maintains up to four FBOs (A_Read/A_Write, B_Read/B_Write)
-with float preference **RGBA32F → RGBA16F → RGBA8**, then a fullscreen
+with float preference **RGBA16F → RGBA32F → RGBA8** by default (RGBA32F opt-in via `?fboPrecision=high`), then a fullscreen
 `CompositingBlendShader` blit to the canvas.
 
 | Phase | Behavior | FPS impact |
 |-------|----------|------------|
 | Early Dual-FBO | Compositor ran **every frame** | Steady-state regression (main 60→N drop) |
 | Current (`ShouldUseDualFboCompositor`) | Compositor only while `g_transitionActive` | Steady-state should recover if this build is deployed |
-| Remaining cost | Eager A-pair alloc, RGBA32F bandwidth, 2× render during crossfade | Transition / VRAM / mobile |
+| Remaining cost | 2× render during crossfade, plus RGBA32F bandwidth when high-precision opt-in is used | Transition / VRAM / mobile |
 
 **First verification step:** confirm the deployed bundle includes direct-to-canvas
 steady-state. If an older bundle is live, shipping that fix alone is the largest win.
@@ -83,6 +89,155 @@ Use `html/projectm-core.html?perfhud=1` and `?benchmark=1&frames=500&preset=...`
 | Spike only during soft-cut | Dual FBO float bandwidth / double render | #175 |
 | Mobile-only `gpuMs` | Canvas MSAA + fill rate | #178 |
 
+> ⚠️ This mapping assumes the per-stage buckets measure GPU cost. They do not — see
+> [Measurement: what the HUD can and cannot tell you](#measurement-what-the-hud-can-and-cannot-tell-you).
+> `gpuMs` is real but whole-frame, so it answers "GPU-bound or CPU-bound?" and not
+> "which GPU stage?".
+
+---
+
+## Verified against the tree (2026-07-31)
+
+Every suspect below was checked by reading the current `main`. Nothing here was
+measured — this environment has no Emscripten toolchain and no GPU, so these are
+code-truth findings that tell you where to point the profiler, not benchmark results.
+
+### 1. Every-frame compositor blit — **already fixed in code** (#175)
+
+`ShouldUseDualFboCompositor()` (`projectM_emscripten.cpp:475`) returns false unless a
+transition is active, and `render_frame()` takes the direct-to-canvas path in that case
+(`projectM_emscripten.cpp:503-509`). The steady-state extra FBO resolve + fullscreen
+blit is gone from the source.
+
+**So the open question is purely deployment.** If the live bundle predates this,
+shipping a current build *is* the fix and no code work is needed. Check the deployed
+`PROJECTM_WASM_BUNDLE` before spending a session on #175's headline item.
+
+### 2. Preset A pair is now lazily allocated (#175 — landed)
+
+`start_render()` now records viewport size but defers Preset A/B texture allocation
+until `dual_fbo_begin_transition()` is called. That removes idle steady-state VRAM
+residency for Preset A in non-transition playback.
+
+The format policy also now defaults to RGBA16F (with RGBA32F opt-in), cutting both
+transition-time bandwidth and float texture footprint on capable GPUs.
+
+### 3. Y-flip chain — confirmed 2 passes, sometimes 3 (#176)
+
+Per frame, in `MilkdropPreset::RenderFrame()`:
+
+| Line | Pass |
+|------|------|
+| `MilkdropPreset.cpp:116` | flip previous frame → `m_flipTexture`, used as `mainTexture` for warp |
+| `MilkdropPreset.cpp:166` | flip current frame → `m_flipTexture`, used as `mainTexture` for composite |
+| `MilkdropPreset.cpp:178` | **third** flip, only when the preset has no composite shader (`!HasCompositeShader()`) |
+
+So the "2–3 fullscreen passes" in the plan is accurate, and the third is
+preset-dependent — old-school presets without a composite shader pay 50% more flip
+cost than shader presets. Worth splitting the benchmark preset set accordingly, or the
+A/B will be dominated by which presets happened to be sampled.
+
+### 4. Blur chain — confirmed, 1 copy per pass (#177)
+
+`BlurTexture::Update()` runs `passes = blurLevel * 2` iterations
+(`BlurTexture.cpp:160`). Each iteration draws a fullscreen quad into the shared
+`m_blurFramebuffer` and then copies the result out with `glCopyTexSubImage2D`
+(`BlurTexture.cpp:262-267`). At `Blur3` that is **6 draws + 6 full-surface copies**;
+the copies are pure overhead and the sub-issue's plan (attach the destination texture
+directly) is the right fix.
+
+Three hazards in the current `Framebuffer` API will bite whoever implements it:
+
+- **`SetAttachment()` uses `std::map::insert`** (`Framebuffer.cpp`, in
+  `SetAttachment`), which is a **no-op when the key already exists**. It still calls
+  `glFramebufferTexture2D` with the new texture, so after the first re-attach the GL
+  state and the tracked `m_attachments` map disagree, and
+  `GetColorAttachmentTexture()` returns a stale texture. Re-attaching per pass needs
+  `insert_or_assign` (fixing this is a prerequisite, not an optional cleanup).
+- **`SetAttachment()` early-outs of the GL call** unless `m_width > 0 && m_height > 0`,
+  so the blur FBO still needs a size set before any attachment is bound.
+- **`Framebuffer::SetSize()` resizes every tracked attachment.** Once blur textures are
+  attached, any later `SetSize()` on that FBO would reallocate them out from under
+  `AllocateTextures()`. The current `SetSize()` call at `BlurTexture.cpp:367` must move
+  or go away.
+
+Note also that `glCopyTexSubImage2D` is one of the few calls here that can force
+CPU-visible ordering — which is why `blurMs` (a CPU-side bucket) shows blur cost at all
+while the other GPU stages read near zero. Removing the copies will *reduce* `blurMs`
+far more than it reduces frame time. Do not read that drop as the full win.
+
+### 5. Canvas MSAA — narrower than it looks (#178)
+
+`attrs.antialias = EM_TRUE` is set unconditionally (`WasmWebGLContext.cpp:95`).
+
+What actually gets drawn into the canvas (FBO 0) is small: `ProjectM::RenderFrame()`
+binds the target FBO (`ProjectM.cpp:220`) and then draws either the transition's
+fullscreen quad (`ProjectM.cpp:238`) or a single fullscreen `CopyTexture` quad
+(`ProjectM.cpp:242`), followed by user sprites (`ProjectM.cpp:251`). Everything else —
+warp mesh, waveforms, shapes, borders, the composite grid — renders into the preset's
+own FBOs, where MSAA does not apply.
+
+A fullscreen quad has no interior edges, so **multisampling it produces no visible
+difference**. The only real consumer is user sprites, which do draw geometry to the
+canvas (`SpriteManager::Draw` → `MilkdropSprite::Draw`).
+
+That reframes item 13: on a build with no sprites in use, `antialias: false` is close to
+a free win (drops a multisampled color buffer and its per-frame resolve), not a
+quality/perf tradeoff. It should be verified with sprites active before being made the
+default, but it is a much stronger candidate than "mobile-only mitigation".
+
+### 6. Mesh size
+
+`MESH_SIZES` in `html/projectm-mesh-quality.js:19-22` is `low: [64, 48]`,
+`high: [80, 60]`, resolved from `?meshQuality=`, localStorage, or
+`navigator.hardwareConcurrency < 8`. The governor steps between the same two tiers
+(`WasmPerfGovernor.cpp:106`). So the plan's `?meshQuality=low` A/B is a 64×48 vs 80×60
+comparison — a 1.56× vertex-count ratio, not the 80×60 vs 32×24 (6.25×) implied by the
+"raised from 48×36 / 32×24" framing in the context section. Calibrate expectations for
+the A/B accordingly.
+
+---
+
+## Measurement: what the HUD can and cannot tell you
+
+Worth settling before anyone ranks suspects, because the cheat sheet above over-promises.
+
+**`gpuMs` is real.** `EXT_disjoint_timer_query_webgl2` is wired up
+(`WasmPerfGovernor.cpp:21-67`): one `TIME_ELAPSED` query wraps each `render_frame()`,
+results are polled non-blocking, and disjoint frames are discarded. It reports
+**whole-frame** GPU time.
+
+**The per-stage buckets are CPU time.** `PerfTimers.hpp` is a `steady_clock` scoped
+timer (`Field::Blur`, `Field::Composite`, `Field::PerPixelEval`, …), so each bucket
+measures how long it took to *submit* that stage's GL calls, not to execute them. GL is
+asynchronous and there is no `glFinish`/`glFlush` in the frame path, so fill-rate costs
+(MSAA resolve, RGBA32F bandwidth, extra fullscreen flips, blur fill) largely do not
+appear in the stage that caused them.
+
+Practical consequences:
+
+- ✅ `totalMs` vs `gpuMs` reliably answers **CPU-bound or GPU-bound**.
+- ✅ `perPixelEvalMs` and `audioMs` are trustworthy — genuinely CPU work.
+- ❌ `compositeMs` will **not** rise when the Y-flip chain gets expensive; that cost
+  lands in `gpuMs`, undifferentiated.
+- ⚠️ `blurMs` is a **biased** estimator: it is visible only because
+  `glCopyTexSubImage2D` can force ordering. It flags blur because blur is the stage
+  that syncs, not because blur is necessarily the most expensive.
+
+To actually rank #176 vs #177 vs #178 against each other, one of:
+
+1. **Per-stage GPU queries** — nest `TIME_ELAPSED` queries per stage. Cleanest signal.
+   Note that timer queries cannot be nested in a single query object, so this means one
+   query per stage per frame and more polling bookkeeping; the existing
+   `Module.__pmPerfGpu` ring is the place to extend.
+2. **A/B ablation** — a runtime toggle per suspect (skip the third flip, force
+   `BlurLevel::None`, `antialias:false`, force RGBA16F, `?meshQuality=low`), then diff
+   `gpuMs` across otherwise identical `?benchmark=1` runs. Cruder, but needs no new
+   timing infrastructure and directly answers "what would I gain by fixing this?".
+
+Option 2 is the cheaper first move and is the recommended way to satisfy the epic's
+"rank before coding" step.
+
 ---
 
 ## Tracked sub-issues
@@ -105,14 +260,17 @@ baselines exist (do not block FPS recovery on WebGPU).
 ### Already in tree / verify first
 
 1. **Direct-to-canvas when not transitioning** — `ShouldUseDualFboCompositor()` in
-   `projectM_emscripten.cpp`. Confirm deploy.
-2. **Mesh quality A/B** — `?meshQuality=low` (64×48) vs high (80×60).
-3. **Perf HUD ranking** — fix the largest bucket first; avoid speculative refactors.
+   `projectM_emscripten.cpp:475`. ✅ Confirmed present in source; **confirm deploy**.
+2. **Mesh quality A/B** — `?meshQuality=low` (64×48) vs high (80×60); a 1.56× vertex
+   ratio, not the 6.25× the context section's "from 32×24" framing suggests.
+3. **Perf HUD ranking** — ⚠️ only valid for `perPixelEvalMs`/`audioMs` and the
+   `totalMs`-vs-`gpuMs` CPU/GPU split; use ablation to rank GPU stages. See
+   [Measurement](#measurement-what-the-hud-can-and-cannot-tell-you).
 
 ### Dual-FBO / WASM compositor (#175)
 
-4. Prefer **RGBA16F** over RGBA32F for Dual FBOs (half bandwidth; keep RGBA32F opt-in).
-5. **Lazy-allocate** Preset A/B pairs; free when idle if needed.
+4. Prefer **RGBA16F** over RGBA32F for Dual FBOs (half bandwidth; keep RGBA32F opt-in). ✅ Landed in-tree.
+5. **Lazy-allocate** Preset A/B pairs; free when idle if needed. ✅ Preset A/B now allocated on first transition request.
 6. Consider **2 textures instead of 4** if ping-pong within a preset is unnecessary for the compositor.
 7. Stop double-calling the same `pm` into A and B during transitions unless two true preset instances exist (or accept cost only for the blend window).
 8. Fix helpers that still render to FBO 0 instead of `_fbo`.
@@ -166,12 +324,22 @@ There is **no existing WebGPU roadmap** in this repo; #179 creates the decision 
 
 ## Measurement protocol (required per issue)
 
+0. **Before anything else:** confirm the deployed bundle already contains
+   `ShouldUseDualFboCompositor()`. If it does not, deploy a current build and
+   re-baseline — that alone may close the steady-state gap (see
+   [Verified against the tree](#verified-against-the-tree-2026-07-31) §1).
 1. Build/deploy WASM with known `PROJECTM_WASM_BUNDLE`.  
 2. Cold load → `?benchmark=1&frames=500&preset=<path>` at fixed canvas size.  
 3. Capture JSON (`totalMs`, `breakdownMs`, `gpuMs`).  
 4. Repeat after change; paste both into the issue and a short table in
    [`PERFORMANCE.md`](PERFORMANCE.md).  
-5. For transitions: also sample during an active soft-cut (Dual path on).
+5. For transitions: also sample during an active soft-cut (Dual path on).  
+6. Sample **both** a composite-shader preset and an old-school one without a composite
+   shader — the latter pays a third fullscreen Y-flip (§3), so mixing them hides the
+   effect of #176.  
+7. Read `breakdownMs` with the caveats in
+   [Measurement](#measurement-what-the-hud-can-and-cannot-tell-you); rank GPU stages by
+   ablation, not by bucket size.
 
 Native SDL comparison table in PERFORMANCE.md remains optional but useful for parity claims.
 

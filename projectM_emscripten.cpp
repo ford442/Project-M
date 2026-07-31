@@ -80,6 +80,22 @@ EM_JS(void, js_on_transpiled_shader_stored, (const char* key, int kind, const ch
     }
 });
 
+EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
+    if (typeof window === 'undefined' || !window.location || !window.location.search)
+    {
+        return 0;
+    }
+    try
+    {
+        const value = new URLSearchParams(window.location.search).get('fboPrecision');
+        return (value && value.toLowerCase() === 'high') ? 1 : 0;
+    }
+    catch (e)
+    {
+        return 0;
+    }
+});
+
 static void InstallShaderTranspileCacheHooks()
 {
     libprojectM::Renderer::SetTranspiledGlslCacheCallbacks(
@@ -262,11 +278,11 @@ void start_render(int width, int height)
     glCullFace(GL_BACK);
     app_data.loading = EM_FALSE;
     projectm_set_window_size(pm, width, height);
-    // Phase 2: Allocate Preset A ping-pong FBOs now that the viewport
-    // dimensions are known. DetectFormat() was already called in init().
-    g_dualFbo.AllocatePresetA(width, height);
+    // Phase 2: Persist dual-FBO dimensions now that the viewport is known.
+    // Preset A/B textures are lazily allocated on first transition request.
+    g_dualFbo.Resize(width, height);
     // Phase 5: Compile and link the compositing blend shader now that the GL
-    // context is current and Preset A's FBOs are allocated.
+    // context is current.
     if (!g_compositorShader.Init())
     {
         fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
@@ -328,11 +344,11 @@ int init()
     }
 
     // Phase 2: Detect the best available floating-point texture format for the
-    // dual ping-pong FBO system. DetectFormat() checks EXT_color_buffer_float
-    // (RGBA32F), EXT_color_buffer_half_float (RGBA16F), and falls back to RGBA8.
+    // dual ping-pong FBO system. Default is RGBA16F -> RGBA32F -> RGBA8.
+    // Hosts can opt into RGBA32F-first probing with ?fboPrecision=high.
     // This must be called after the WebGL context is made current so that
     // extension availability can be probed reliably.
-    g_dualFbo.DetectFormat(WasmWebGLGetContext());
+    g_dualFbo.DetectFormat(WasmWebGLGetContext(), js_dual_fbo_prefer_high_precision() != 0);
 
     pm = projectm_create();
     if (!pm)

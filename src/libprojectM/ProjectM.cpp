@@ -237,13 +237,26 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
         m_transition->SetTransparencyThreshold(m_transparencyThreshold);
         m_transition->Draw(*m_activePreset, *m_transitioningPreset, renderContext, audioData, m_timeKeeper->GetFrameTime());
     }
+    else if (!m_transparencyMode)
+    {
+        // Fast hardware blit: bind the preset's output FBO as the read framebuffer
+        // and use glBlitFramebuffer instead of a fullscreen shader quad.  This
+        // path is taken in the common (non-transparency) case and avoids shader
+        // program binding and vertex processing overhead entirely.
+        m_activePreset->BindOutputForRead();
+        glBlitFramebuffer(0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY,
+                          0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
     else
     {
+        // Transparency mode requires a shader pass to convert near-black pixels
+        // to fully transparent alpha — glBlitFramebuffer cannot do this.
         m_textureCopier->Draw(*renderContext.shaderCache,
                               m_activePreset->OutputTexture(),
                               false,
                               false,
-                              m_transparencyMode,
+                              true,
                               m_transparencyThreshold);
     }
 

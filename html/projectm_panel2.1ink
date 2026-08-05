@@ -483,17 +483,25 @@ async function loadRandomPresetFromRemote() {
 // ===== BUTTON HANDLERS =====
 function startChangeSong() { console.log('[B3HD] Start/Change Song'); ensureAudioRunning(); }
 function randomPreset() {
-  if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
-    console.log('[B3HD] Random Weeks Preset');
-    window.loadRandomWeeksPreset();
+  if (weeksOnFireMode) {
+    if (typeof window.loadRandomWeeksPreset === 'function') {
+      console.log('[B3HD] Random Weeks Preset');
+      window.loadRandomWeeksPreset();
+    } else {
+      console.warn('[B3HD] Weeks mode: preset scanner not ready yet');
+    }
     return;
   }
   loadRandomPresetFromRemote();
 }
 function randomCustom() {
-  if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
-    console.log('[B3HD] Random Weeks Preset (custom slot)');
-    window.loadRandomWeeksPreset();
+  if (weeksOnFireMode) {
+    if (typeof window.loadRandomWeeksPreset === 'function') {
+      console.log('[B3HD] Random Weeks Preset (custom slot)');
+      window.loadRandomWeeksPreset();
+    } else {
+      console.warn('[B3HD] Weeks mode: preset scanner not ready yet');
+    }
     return;
   }
   loadRandomPresetFromRemote();

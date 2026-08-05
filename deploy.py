@@ -38,6 +38,8 @@ DEPLOY_FILE_PATTERNS: list = [
     "projectm-v.*-thread.1ijs",
     "projectm-v.*-thread.3ijs",
     "projectm-v.*-thread.worker.js",
+    # AudioWorklet loaded by WasmAudioBridge.cpp via addModule('projectm_audio_processor.js')
+    "projectm_audio_processor.js",
 ]
 
 # Optional on-disk pm/ mirror (also auto-generated in the zip from root WASM files).

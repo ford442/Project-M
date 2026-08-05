@@ -42,9 +42,15 @@ return;
 }
 
 void on_preset_switch_requested(bool is_hard_cut, void* user_data) {
-printf("projectM is requesting a preset switch (hard_cut: %s)!\n", is_hard_cut ? "true" : "false");
-uint32_t indx = projectm_playlist_play_next(app_data.playlist, false);
-return;
+    // Ignore timer-driven switches while a manual preset load is compiling.
+    // Without this, clicking "custom preset" can load the pick and then immediately
+    // play_next() from an expired preset timer in the same frame window.
+    if (app_data.loading == EM_TRUE) {
+        return;
+    }
+    printf("projectM is requesting a preset switch (hard_cut: %s)!\n", is_hard_cut ? "true" : "false");
+    projectm_playlist_play_next(app_data.playlist, is_hard_cut);
+    return;
 }
 
 extern "C" {
@@ -104,10 +110,10 @@ return;
 }
 } // extern "C"
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void load_preset_file(const char* filename) {
-    if (!pm) return;
+static void load_preset_file_impl(const char* filename, bool hard_cut) {
+    if (!pm) {
+        return;
+    }
 
     // Phase 4: Reset the "Preset B ready" gate so the transition compositing
     // layer does not start blending before the new preset's shaders are fully
@@ -155,25 +161,32 @@ void load_preset_file(const char* filename) {
             }
         }
         if (foundIdx >= 0) {
-            // Switch via the playlist manager (hard_cut=false → soft transition).
             // load_preset_callback_done is invoked synchronously from within
             // this call; it clears app_data.loading and sets g_presetBReady.
             projectm_playlist_set_position(app_data.playlist,
-                                           static_cast<uint32_t>(foundIdx), false);
+                                           static_cast<uint32_t>(foundIdx), hard_cut);
             return;
         }
         // Fall through to direct load if playlist add failed.
     }
 
     // Fallback: no playlist attached yet – load directly.
-    // Shader compilation happens synchronously inside this call.
-    projectm_load_preset_file(pm, filename, true);
+    projectm_load_preset_file(pm, filename, !hard_cut);
 
-    // Phase 4: Preset shaders compiled; signal ready and clear the loading
-    // guard (the playlist-path callback handles this for the playlist route).
     g_presetBReady = true;
     g_presetReadyFrame = g_renderedFrameCount;
     app_data.loading = EM_FALSE;
+}
+
+extern "C" {
+EMSCRIPTEN_KEEPALIVE
+void load_preset_file(const char* filename) {
+    load_preset_file_impl(filename, false);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void load_preset_file_hard(const char* filename) {
+    load_preset_file_impl(filename, true);
 }
 } // extern "C"
 

@@ -300,11 +300,17 @@ presetBase=new URL(presetBase,window.location.href).href;
 scanMilkDir(presetBase,$weeksPresets,callback);
 }
 
+var weeksPresetPickInFlight=false;
 function loadRandomWeeksPreset(){
+if(weeksPresetPickInFlight){
+console.log('Weeks preset pick already in flight; ignoring duplicate request.');
+return;
+}
 if($weeksPresets.length===0){
 console.log('No weeks presets available yet.');
 return;
 }
+weeksPresetPickInFlight=true;
 var url=$weeksPresets[Math.floor(Math.random()*$weeksPresets.length)];
 var presetName=url.split('/').pop();
 const ff=new XMLHttpRequest();
@@ -314,15 +320,17 @@ var statEl=document.querySelector('#stat');
 if(statEl){statEl.innerHTML='Downloading Weeks Preset';statEl.style.backgroundColor='yellow';}
 ff.addEventListener("load",function(){
 var buf=ff.response;
+weeksPresetPickInFlight=false;
 if(buf){
 var vfsName='/presets/weeks_pick_'+Date.now()+'.milk';
 FS.writeFile(vfsName,new Uint8ClampedArray(buf));
-Module.ccall('load_preset_file',null,['string'],[vfsName]);
+Module.ccall('load_preset_file_hard',null,['string'],[vfsName]);
 if(window.updatePresetDisplay){window.updatePresetDisplay(presetName);}
 if(statEl){statEl.innerHTML='Loaded: '+presetName;statEl.style.backgroundColor='green';}
 }
 });
 ff.addEventListener("error",function(){
+weeksPresetPickInFlight=false;
 console.warn('Failed to download weeks preset: '+url);
 });
 ff.send(null);
@@ -509,16 +517,8 @@ if (milkBtnEl) {
     });
 }
 
-var customMilkBtnEl=document.querySelector('#customMilkBtn');
-if(customMilkBtnEl&&!customMilkBtnEl.getAttribute('onclick')){
-customMilkBtnEl.addEventListener('click',function(){
-if(isWeeksOnFire){
-loadRandomWeeksPreset();
-}else{
-loadRandomCustomMilk();
-}
-});
-}
+// #customMilkBtn is owned by the host page (randomCustom / preset picker).
+// Do not attach a second click handler here — it caused double preset loads.
 
 var createSpriteBtnEl = document.querySelector('#createSpriteBtn');
 if (createSpriteBtnEl) {

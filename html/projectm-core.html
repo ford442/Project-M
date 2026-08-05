@@ -793,9 +793,13 @@ function randomPreset() {
         flashLockToast();
         return;
     }
-    if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
-        console.log('[ProjectM] Random Weeks Preset');
-        window.loadRandomWeeksPreset();
+    if (weeksOnFireMode) {
+        if (typeof window.loadRandomWeeksPreset === 'function') {
+            console.log('[ProjectM] Random Weeks Preset');
+            window.loadRandomWeeksPreset();
+        } else {
+            console.warn('[ProjectM] Weeks mode: preset scanner not ready yet');
+        }
         return;
     }
     console.log('[ProjectM] Random Preset');
@@ -809,9 +813,13 @@ function randomCustom() {
         flashLockToast();
         return;
     }
-    if (weeksOnFireMode && typeof window.loadRandomWeeksPreset === 'function') {
-        console.log('[ProjectM] Random Weeks Preset (custom slot)');
-        window.loadRandomWeeksPreset();
+    if (weeksOnFireMode) {
+        if (typeof window.loadRandomWeeksPreset === 'function') {
+            console.log('[ProjectM] Random Weeks Preset (custom slot)');
+            window.loadRandomWeeksPreset();
+        } else {
+            console.warn('[ProjectM] Weeks mode: preset scanner not ready yet');
+        }
         return;
     }
     console.log('[ProjectM] Random Custom');

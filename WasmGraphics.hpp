@@ -666,6 +666,10 @@ void main() {
         // banding in the final on-screen image without requiring any preset
         // shader changes. clamp() guards against out-of-range values landing
         // on the (always 8-bit) canvas regardless of source format.
+        //
+        // Output is display-referred sRGB-like RGB written to a canvas tagged
+        // drawingBufferColorSpace="srgb" (see ProjectMApplySrgbCanvasColorSpace).
+        // Do not reinterpret these numbers as Display-P3 without a convert.
         static const char* kFragSrc = R"(#version 300 es
 precision highp float;
 uniform sampler2D uTexA;

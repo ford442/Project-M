@@ -127,6 +127,43 @@ static void ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDL
     }
 }
 
+/**
+ * Pin the canvas color spaces to sRGB after the context is current.
+ *
+ * Milkdrop presets are authored in an sRGB / Rec.709-like cube. Explicitly
+ * tagging the drawing buffer and texture unpack path keeps that look stable
+ * on Display-P3 (and future wide-gamut) panels: the browser/OS maps sRGB →
+ * the panel, instead of silently reinterpreting RGB numbers as P3.
+ *
+ * Uses Emscripten's GLctx so this works for both the main-thread canvas and
+ * the OffscreenCanvas render-worker path (no document.querySelector).
+ * Properties are no-ops on browsers that lack WebGL color management.
+ */
+static void ProjectMApplySrgbCanvasColorSpace()
+{
+    EM_ASM({
+        try
+        {
+            var gl = (typeof GLctx !== 'undefined') ? GLctx : null;
+            if (!gl)
+            {
+                return;
+            }
+            if ('drawingBufferColorSpace' in gl)
+            {
+                gl.drawingBufferColorSpace = 'srgb';
+            }
+            if ('unpackColorSpace' in gl)
+            {
+                gl.unpackColorSpace = 'srgb';
+            }
+        }
+        catch (e)
+        {
+        }
+    });
+}
+
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext()
 {
     return g_glCtx;
@@ -164,6 +201,7 @@ bool WasmWebGLCreateAndActivateContext()
     glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT, GL_NICEST);
     glHint(GL_GENERATE_MIPMAP_HINT, GL_NICEST);
     ProjectMEnableRequiredWebGLExtensions(g_glCtx);
+    ProjectMApplySrgbCanvasColorSpace();
     return true;
 }
 

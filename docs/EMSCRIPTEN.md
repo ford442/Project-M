@@ -69,6 +69,22 @@ Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, 
 explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
 presented when the WebGL canvas is composited by the browser.
 
+### Canvas color space (sRGB)
+
+After the context is current, `ProjectMApplySrgbCanvasColorSpace()` sets
+`drawingBufferColorSpace` and `unpackColorSpace` to `"srgb"` when the browser
+exposes those WebGL color-management properties. Milkdrop content is authored
+in an sRGB / Rec.709-like cube; pinning the tag keeps that look stable on
+Display-P3 panels (the compositor maps sRGB → the display) instead of
+reinterpreting the same RGB numbers as P3.
+
+This runs for both the main-thread canvas and the OffscreenCanvas render-worker
+path (via Emscripten's `GLctx`). Dual-FBO `RGBA16F` intermediates remain a
+precision/feedback choice and are **not** Display-P3 or HDR output. Do **not**
+set `drawingBufferColorSpace = "display-p3"` without a final sRGB→P3 convert in
+the compositor — that would change preset appearance. `ENABLE_HDR_RENDERING` /
+`ENABLE_HDR_P3` are separate libprojectM fidelity flags and are off by default.
+
 ## Configurable canvas selectors
 
 Historically the WASM host hardcoded `#mcanvas` / `#scanvas`. Those remain the **defaults** for

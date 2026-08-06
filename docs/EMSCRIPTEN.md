@@ -354,9 +354,14 @@ three audio ingress paths, only one of which is affected by this:
 
 - **AudioWorklet** and **AnalyserNode stream** both read from the single shared
   `window.projectMAudioContext_Global_Cpp`, created synchronously inside
-  `js_initialize_worklet_system_once` (`projectM_emscripten.cpp`), which C++ `init()` calls before
+  `js_initialize_worklet_system_once` (`WasmAudioBridge.cpp`), which C++ `init()` calls before
   reporting success via `js_report_init_success()`. If the browser created this context in the
   `suspended` state, no audio reaches projectM until it is resumed from a user gesture.
+  The worklet *module* is loaded asynchronously (`audioWorklet.addModule`); if that fails or is
+  still pending when `pl()` runs, older builds silently skipped playback. Current builds wait on
+  `window.projectMWorkletReady`, and hosts call `ensureWorkletReady()` /
+  `installWorkletPlaybackSafetyNet()` from `html/projectm-worklet-playback.js` so a failed
+  async setup can be repaired on the music-button gesture.
 - **External PCM** (`html/projectm-external-pcm.js`, used by MOD/FLAC players) never creates an
   `AudioContext` of its own and is unaffected by autoplay restrictions.
 

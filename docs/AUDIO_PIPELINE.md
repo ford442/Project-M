@@ -103,10 +103,16 @@ designed.
 
 | Path | File | Feed size | Preprocessing |
 |------|------|-----------|---------------|
-| **Worklet** (local decode) | `projectm_audio_processor.js` → `projectM_emscripten.cpp` | **576** mono batch | Last 576 samples before `_projectm_pcm_add_float_wrapper` |
+| **Worklet** (local decode) | `projectm_audio_processor.js` → `WasmAudioBridge.cpp` `pl()` | **576** mono batch | Last 576 samples before `_projectm_pcm_add_float_wrapper` |
 | **Stream / `#track`** | `js_feed_stream_data_to_projectm` | **576** mono | Last 576 of AnalyserNode time-domain buffer |
 | **External PCM** | `html/projectm-external-pcm.js` | **576** per channel | `preprocessExternalPcm()` trim + optional `externalPcmGain` |
 | **Legacy uint8** | `add_audio_data()` | variable | Mono 8-bit centered at 128 |
+
+FLAC “Start/Change Song” uses the worklet path: the `./flac/` decoder posts a WAV on
+`BroadcastChannel('file')`, WASM writes it to MEMFS and calls `pl()`. If
+`projectMWorkletNode_Global_Cpp` is missing, playback never starts — hosts must call
+`ensureWorkletReady()` on the music gesture and `installWorkletPlaybackSafetyNet()` after init
+(`html/projectm-worklet-playback.js`).
 
 All float paths should hit `projectm_pcm_add_float` with the same effective analysis
 window so beat detection feels comparable across sources.

@@ -104,7 +104,7 @@ function hideOverlay() {
  * @returns {AudioContext|null}
  */
 export function getAudioContext() {
-    return window.projectMAudioContext_Global_Cpp || null;
+    return globalThis.projectMAudioContext_Global_Cpp || null;
 }
 
 /**

@@ -343,6 +343,7 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 </body>
 <script type="module">
 import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
@@ -458,7 +459,7 @@ async function loadRandomPresetFromRemote() {
 }
 
 // ====== BUTTON HANDLERS ======
-function startChangeSong() { console.log('[ProjectM] Start/Change Song'); ensureAudioRunning(); }
+function startChangeSong() { console.log('[ProjectM] Start/Change Song'); ensureAudioRunning().then(() => ensureWorkletReady()).catch((err) => console.warn('[ProjectM] audio/worklet unlock failed:', err)); }
 function fullWindow() { isBezelMode = true; updateLayout(); syncModuleSize(); }
 function randomPreset() { loadRandomPresetFromRemote(); }
 function randomCustom() { loadRandomPresetFromRemote(); }
@@ -654,6 +655,7 @@ async function attemptInit() {
             return;
         }
         setupAudioUnlock();
+        installWorkletPlaybackSafetyNet();
         setupContextLossRecovery(Module);
 
         updateLayout();

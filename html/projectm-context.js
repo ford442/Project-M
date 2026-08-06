@@ -1,4 +1,5 @@
 import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
 import {
     AudioSourceRouter,
     audioSourceToRouterSource,
@@ -305,6 +306,7 @@ this._externalReceiverClose = null;
             }
 
             setupAudioUnlock();
+            installWorkletPlaybackSafetyNet();
             setupContextLossRecovery(this.module, {
                 canvasSelector: this.primaryCanvasSelector,
             });

@@ -442,6 +442,8 @@ fll.addEventListener('message', ea => {
         console.log(`JS Event: Cleaned up previous song file: ${lastSongFileName}`);
     }
     lastSongFileName = uniqueFileName;
+    // Host safety-net (projectm-worklet-playback.js) reads this for retries.
+    window.projectMLastSongPath = uniqueFileName;
     setTimeout(function() {
         Module.ccall(
             'pl',                   // C function name

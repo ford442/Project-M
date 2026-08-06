@@ -41,7 +41,8 @@ EM_JS(void, js_feed_stream_data_to_projectm, (uintptr_t pm_handle, int buffer_si
 
 EM_JS(void, js_initialize_stream_analyser, (), {
     const audioContext = window.projectMAudioContext_Global_Cpp;
-    const audioElement = document.getElementById('audio-stream-element');
+    const audioElement = document.getElementById('audio-stream-element')
+        || document.getElementById('track');
     if (!audioContext || !audioElement) {
         console.error("JS Stream Init: AudioContext or audio element not found.");
         return;
@@ -95,30 +96,54 @@ EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm),
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         window.projectMAudioContext_Global_Cpp = audioContext;
         console.log("JS Audio Init: Web Audio context created.");
-        (async () => {
-            await audioContext.audioWorklet.addModule('projectm_audio_processor.js');
-            const workletNode = new AudioWorkletNode(audioContext, 'projectm-audio-processor');
-            window.projectMWorkletNode_Global_Cpp = workletNode;
-            workletNode.port.onmessage = (event) => {
-                if (event.data.type === 'pcmData' && _projectm_pcm_add_float_wrapper) {
-                    // Lazy-allocate a permanent 2048-float WASM buffer shared with the stream path.
-                    if (!window.projectMAudioBufferPtr) {
-                        window.projectMAudioBufferPtr = _malloc(2048 * 4);
-                    }
-                    const buf = window.projectMAudioBufferPtr;
-                    const audioData = event.data.audioData;
-                    const projectm_buffer_size = 576;
-                    const src = (audioData.length > projectm_buffer_size)
-                        ? audioData.subarray(audioData.length - projectm_buffer_size)
-                        : audioData;
 
-                    // Write via a fresh Float32Array view of the live SharedArrayBuffer.
-                    new Float32Array(wasmMemory.buffer).set(src, buf >> 2);
-                    _projectm_pcm_add_float_wrapper(pm_handle_for_addpcm, buf, src.length, event.data.channelsForPM);
+        // Shared promise so hosts / pl() can await worklet readiness instead of
+        // silently no-op'ing when addModule is still in flight or previously failed.
+        let resolveReady;
+        let rejectReady;
+        window.projectMWorkletReady = new Promise((resolve, reject) => {
+            resolveReady = resolve;
+            rejectReady = reject;
+        });
+        window.projectMWorkletReadyResolve = resolveReady;
+        window.projectMWorkletReadyReject = rejectReady;
+
+        (async () => {
+            try {
+                await audioContext.audioWorklet.addModule('projectm_audio_processor.js');
+                if (window.projectMWorkletNode_Global_Cpp) {
+                    resolveReady(window.projectMWorkletNode_Global_Cpp);
+                    return;
                 }
-            };
-            workletNode.connect(audioContext.destination);
-            console.log("JS Audio Init: AudioWorkletNode created and connected permanently.");
+                const workletNode = new AudioWorkletNode(audioContext, 'projectm-audio-processor');
+                window.projectMWorkletNode_Global_Cpp = workletNode;
+                workletNode.port.onmessage = (event) => {
+                    if (event.data.type === 'pcmData' && _projectm_pcm_add_float_wrapper) {
+                        if (!window.projectMAudioBufferPtr) {
+                            window.projectMAudioBufferPtr = _malloc(2048 * 4);
+                        }
+                        const buf = window.projectMAudioBufferPtr;
+                        const audioData = event.data.audioData;
+                        const projectm_buffer_size = 576;
+                        const src = (audioData.length > projectm_buffer_size)
+                            ? audioData.subarray(audioData.length - projectm_buffer_size)
+                            : audioData;
+                        new Float32Array(wasmMemory.buffer).set(src, buf >> 2);
+                        _projectm_pcm_add_float_wrapper(pm_handle_for_addpcm, buf, src.length, event.data.channelsForPM);
+                    }
+                };
+                workletNode.connect(audioContext.destination);
+                console.log("JS Audio Init: AudioWorkletNode created and connected permanently.");
+                resolveReady(workletNode);
+            } catch (err) {
+                console.error("JS Audio Init: AudioWorklet setup failed:", err);
+                // Allow a later user-gesture repair (html/projectm-worklet-playback.js)
+                // to recreate the promise / node.
+                window.projectMWorkletNode_Global_Cpp = null;
+                if (typeof rejectReady === 'function') {
+                    rejectReady(err);
+                }
+            }
         })();
     } catch(e) {
         console.error("JS Audio Init: Failed to initialize worklet system:", e);
@@ -128,43 +153,35 @@ EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm),
 
 EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool startPlaying), {
     const filePath = UTF8ToString(path_in_vfs);
-    const audioContext = window.projectMAudioContext_Global_Cpp;
-    const workletNode = window.projectMWorkletNode_Global_Cpp;
-    if (!audioContext || !workletNode) { return; }
-
-    // Prevent concurrent async loads: if a decode is already in flight, skip the new
-    // request.  JavaScript's event loop is single-threaded, so this check-and-set is
-    // atomic with respect to other synchronous callers; only the async callback can
-    // transition the state from 'loading' to 'loaded'/'error'.
-    if (window.projectMSongLoadState === 'loading') {
-        console.warn('JS Load Song: Load already in progress, skipping duplicate request for ' + filePath);
+    // Prefer host override (deployable without rebuilding WASM).
+    if (typeof window.projectMLoadSongIntoWorklet === 'function') {
+        window.projectMLoadSongIntoWorklet(filePath, !!loop, !!startPlaying);
         return;
     }
-    window.projectMSongLoadState = 'loading';
-    
-    async function decodeAndSend() {
+
+    async function decodeAndSend(audioContext, workletNode) {
         try {
             const fileDataUint8Array = FS.readFile(filePath);
             console.log(`JS Load Song: Read ${fileDataUint8Array.length} bytes from ${filePath}.`);
             if (fileDataUint8Array.length === 0) { window.projectMSongLoadState = 'error'; return; }
-            
+
             const audioDataArrayBuffer = fileDataUint8Array.buffer.slice(
                 fileDataUint8Array.byteOffset, fileDataUint8Array.byteOffset + fileDataUint8Array.byteLength
             );
-            
+
             if (audioContext.state === 'suspended') { await audioContext.resume(); }
-            
+
             const decodedBuffer = await audioContext.decodeAudioData(audioDataArrayBuffer);
             console.log(`JS Load Song: Decoded buffer. Duration: ${decodedBuffer.duration.toFixed(2)}s. Sending to worklet.`);
-            
+
             const rawChannelData = Array.from({length: decodedBuffer.numberOfChannels}, (_, i) => decodedBuffer.getChannelData(i));
-            
+
             workletNode.port.postMessage({
                 type: 'loadWavData',
                 channelData: rawChannelData,
                 sampleRate: decodedBuffer.sampleRate,
                 loop: loop,
-                startPlaying: startPlaying // Now consistently using 'startPlaying'
+                startPlaying: startPlaying
             });
             window.projectMSongLoadState = 'loaded';
         } catch(e) {
@@ -172,7 +189,55 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
             window.projectMSongLoadState = 'error';
         }
     }
-    decodeAndSend();
+
+    async function waitForWorkletAndLoad() {
+        let audioContext = window.projectMAudioContext_Global_Cpp;
+        let workletNode = window.projectMWorkletNode_Global_Cpp;
+
+        if (!audioContext) {
+            console.error('JS Load Song: AudioContext missing — init may not have run. Path:', filePath);
+            window.projectMSongLoadState = 'error';
+            return;
+        }
+
+        if (!workletNode) {
+            console.warn('JS Load Song: AudioWorklet not ready yet; waiting before loading', filePath);
+            try {
+                if (window.projectMWorkletReady && typeof window.projectMWorkletReady.then === 'function') {
+                    await Promise.race([
+                        window.projectMWorkletReady,
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('worklet ready timeout')), 12000))
+                    ]);
+                } else {
+                    const deadline = Date.now() + 12000;
+                    while (!window.projectMWorkletNode_Global_Cpp && Date.now() < deadline) {
+                        await new Promise((r) => setTimeout(r, 50));
+                    }
+                }
+            } catch (err) {
+                console.error('JS Load Song: timed out waiting for AudioWorklet:', err);
+                window.projectMSongLoadState = 'error';
+                return;
+            }
+            workletNode = window.projectMWorkletNode_Global_Cpp;
+            audioContext = window.projectMAudioContext_Global_Cpp;
+        }
+
+        if (!audioContext || !workletNode) {
+            console.error('JS Load Song: AudioWorklet still unavailable after wait; song will not play:', filePath);
+            window.projectMSongLoadState = 'error';
+            return;
+        }
+
+        if (window.projectMSongLoadState === 'loading') {
+            console.warn('JS Load Song: Load already in progress, skipping duplicate request for ' + filePath);
+            return;
+        }
+        window.projectMSongLoadState = 'loading';
+        await decodeAndSend(audioContext, workletNode);
+    }
+
+    waitForWorkletAndLoad();
     return;
 });
 

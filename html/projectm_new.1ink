@@ -580,6 +580,7 @@ draw();
 
 <script type="module">
 import { setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
@@ -627,6 +628,7 @@ async function attemptInit() {
             return;
         }
         setupAudioUnlock();
+        installWorkletPlaybackSafetyNet();
         setupContextLossRecovery(Module);
         window._pmLoaded = true;
 

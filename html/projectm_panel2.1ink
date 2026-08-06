@@ -117,6 +117,20 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
   text-shadow: 1px 1px 2px rgba(0,0,0,0.85);
 }
 
+#wasm-bundle-picker {
+  position: fixed; bottom: 8vh; left: 450px; z-index: 3299;
+  font-family: "Lucida Console", "Courier New", monospace; font-size: 12px;
+  color: rgba(200, 200, 200, 0.8); pointer-events: auto; white-space: nowrap;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.85);
+  display: flex; align-items: center; gap: 0.4rem;
+}
+#wasm-bundle-picker select {
+  pointer-events: auto; cursor: pointer;
+  background: rgba(20, 24, 32, 0.92); color: #dbeafe;
+  border: 1px solid #445; border-radius: 4px; padding: 0.15rem 0.35rem;
+  font: inherit;
+}
+
 .ext-player-header {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
   color: #ccc; font-family: 'Lucida Console', monospace; font-size: 12px;
@@ -193,6 +207,10 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 
 <button onclick="showPanel()" id="show-btn" class="hidden">Show Controls</button>
 
+<label id="wasm-bundle-picker" title="Reload with a different projectM WASM build">
+  WASM
+  <select id="wasmVersionSelect" aria-label="WASM module version"></select>
+</label>
 <div id="audio-player-status">Audio Player</div>
 <div id="preset-name">Preset: --</div>
 
@@ -352,7 +370,15 @@ import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
-import { buildProjectMLocateFile, loadScript, resolveWasmScriptUrl } from './projectm-init.js';
+import {
+  PROJECTM_WASM_SELECTABLE_VERSIONS,
+  PROJECTM_WASM_VERSION_STORAGE_KEY,
+  buildProjectMLocateFile,
+  buildWasmBundlePaths,
+  loadScript,
+  resolveSelectedWasmVersion,
+  resolveWasmScriptUrl,
+} from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -361,6 +387,33 @@ import { applyWeeksOnFireDomConfig, isWeeksOnFireMode } from './projectm-weeks-o
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const urlParams = new URLSearchParams(window.location.search);
 const weeksOnFireMode = isWeeksOnFireMode(urlParams);
+const selectedWasmVersion = resolveSelectedWasmVersion({ searchParams: urlParams });
+const selectedWasmPaths = buildWasmBundlePaths(selectedWasmVersion);
+
+(function setupWasmVersionPicker() {
+  const select = document.getElementById('wasmVersionSelect');
+  if (!select) return;
+  for (const version of PROJECTM_WASM_SELECTABLE_VERSIONS) {
+    const option = document.createElement('option');
+    option.value = version;
+    option.textContent = version === selectedWasmPaths.version
+      ? `${version} (active)`
+      : version;
+    select.appendChild(option);
+  }
+  select.value = selectedWasmPaths.version;
+  select.addEventListener('change', () => {
+    const next = select.value;
+    try {
+      localStorage.setItem(PROJECTM_WASM_VERSION_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+    const nextParams = new URLSearchParams(window.location.search);
+    nextParams.set('wasm', next);
+    window.location.search = nextParams.toString();
+  });
+})();
 if (weeksOnFireMode) {
   applyWeeksOnFireDomConfig(document);
   document.title = 'B3HD • Project M — Weeks on Fire';
@@ -417,6 +470,8 @@ function hidePanel() {
     document.getElementById('logo-right').style.opacity='0';
     document.getElementById('preset-name').style.opacity='0';
     document.getElementById('audio-player-status').style.opacity='0';
+    const wasmPicker = document.getElementById('wasm-bundle-picker');
+    if (wasmPicker) wasmPicker.style.opacity = '0';
   }, 280);
 }
 function showPanel() {
@@ -429,6 +484,8 @@ function showPanel() {
     document.getElementById('logo-right').style.opacity='1';
     document.getElementById('preset-name').style.opacity='1';
     document.getElementById('audio-player-status').style.opacity='1';
+    const wasmPicker = document.getElementById('wasm-bundle-picker');
+    if (wasmPicker) wasmPicker.style.opacity = '1';
   }, 10);
   document.getElementById('show-btn').classList.add('hidden');
 }
@@ -655,9 +712,16 @@ async function initProjectM() {
     }
 
     if (!Module) {
-      const wasmScript = await resolveWasmScriptUrl({ baseUrl: import.meta.url });
+      const wasmScript = await resolveWasmScriptUrl({
+        baseUrl: import.meta.url,
+        pmScript: selectedWasmPaths.pmScript,
+        rootScript: selectedWasmPaths.rootScript,
+        forceRefresh: true,
+      });
       await loadScript(wasmScript, { defer: true });
-      Module = await createModule({ locateFile: buildProjectMLocateFile() });
+      Module = await createModule({
+        locateFile: buildProjectMLocateFile({ targetBundle: selectedWasmPaths.bundle }),
+      });
       globalThis.Module = Module;
     }
 

@@ -1,24 +1,40 @@
 # Deployment
 
 `deploy.py` uploads the compiled WASM/JS bundle and shared HTML host modules to
-`storage.noahcohn.com`, which pushes them to `projectm.1ink.us/` via a persistent
-SFTP connection on the VPS side. No SFTP credentials are stored in this repo
-for this path.
+`storage.noahcohn.com`, which SFTPs them onto DreamHost using credentials that
+live only on the Contabo storage VPS. No SFTP passwords are stored in this repo.
+
+## Staging vs production
+
+| `target_site` | Contabo env | Remote path | Public URL |
+|---------------|-------------|-------------|------------|
+| `test` (default) | `DEPLOY_BASE_DIR` | `{base}/projectm.1ink.us/` | `https://test.1ink.us/projectm.1ink.us/` |
+| `go` | `DEPLOY_BASE_DIR_GO` | `{base}/projectm.1ink.us/` | `https://go.1ink.us/projectm.1ink.us/` |
+| `prod` | `DEPLOY_BASE_DIR_PROD` | `{base}/projectm.1ink.us/` | `https://projectm.1ink.us/` |
+
+Production requires `DEPLOY_BASE_DIR_PROD=/home/ford442` on the **storage**
+VPS (`storage.noahcohn.com`, currently `173.249.14.134` — not every Contabo box).
+Until that env var is set and the deploy service restarted, `python deploy.py
+--target prod` cannot update DreamHost production.
+
+`1ink.1ink` is packaged as a UTF-16 copy of `projectm_panel2.1ink` at zip time —
+do not hand-edit production `1ink.1ink`.
 
 ## What gets deployed
 
 WASM artifacts at the **repo root** (after `scripts/prepare_deploy_bundle.sh`):
 
 - `projectm-v.<ver>-thread.wasm`
+- `projectm-v.<ver>-thread.js` (UTF-8 glue; preferred by hosts)
 - `projectm-v.<ver>-thread.1ijs` (UTF-16 wrapper around the `.js` glue)
 - `projectm-v.<ver>-thread.3ijs`
 - `projectm-v.<ver>-thread.worker.js` (when Emscripten emits a separate worker)
 
 Each WASM artifact is uploaded **twice**: once at the site root and again under
-`pm/`. Host pages load the module from `./pm/projectm-v.<ver>-thread.1ijs`; the
-`.wasm` sibling is resolved relative to that script URL. Deploying only to the
-site root (without the `pm/` mirror) produces HTTP 404 HTML responses and the
-browser error **Unexpected token '<'** when parsing the missing script.
+`pm/`. Hosts prefer `./pm/projectm-v.<ver>-thread.js`; the `.wasm` sibling is
+resolved relative to that script URL. Deploying only to the site root (without
+the `pm/` mirror) produces HTTP 404 HTML responses and the browser error
+**Unexpected token '<'** when parsing the missing script.
 
 `scripts/build_wasm_smoke_wrapper.sh` always emits `projectm-v.030-thread.*`
 (CI smoke tag). `prepare_deploy_bundle.sh` renames those files to the deploy
@@ -30,17 +46,21 @@ HTML (WASM magic `3c 00 21 00`) and aborts instantiation.
 Shared browser modules and demo hosts from `html/` (flattened to the deploy
 root, because hosts `import './projectm-*.js'`):
 
-- `projectm-*.js`, `projectm-*.1ink`, `projectm-core.html`, `projectm-core.css`
+- `projectm-*.js`, `projectm-*.1ink` (iconv'd to UTF-16 LE at zip time),
+  `1ink.1ink` (alias of `projectm_panel2.1ink`), `projectm-core.html`,
+  `projectm-core.css`
 
 The active bundle version is defined once in `html/projectm-wasm-version.js`
 (`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.035-thread`).
 Keep it aligned with `scripts/prepare_deploy_bundle.sh` and
 `scripts/verify_deploy_urls.sh` (checked by `scripts/verify_wasm_version_sync.sh`).
 
+First-party hosts also expose a WASM version picker (`?wasm=030|030b|032|033|034|035`).
+
 ## Usage
 
 ```bash
-# 0. Activate Emscripten (once per shell). SDK 3.1.53 recommended.
+# 0. Activate Emscripten (once per shell). SDK 3.1.74 recommended.
 source /path/to/emsdk/emsdk_env.sh
 
 # 1. Build + install libprojectM static libs for wasm (required before staging)
@@ -53,11 +73,15 @@ PROJECTM_WASM_VERSION=035 \
 
 # 3. Upload (ships root WASM, pm/ mirror, and html/projectm-*.js hosts)
 export DEPLOY_TOKEN="your_long_token_from_vps_env"
-python deploy.py --dry-run   # optional: preview bundle contents
-python deploy.py
+python deploy.py --dry-run              # optional: preview bundle contents
+python deploy.py                        # staging: test.1ink.us/projectm.1ink.us/
+python deploy.py --target go            # staging: go.1ink.us/projectm.1ink.us/
+python deploy.py --target prod          # production: projectm.1ink.us/ (needs DEPLOY_BASE_DIR_PROD)
+python deploy.py --target test,go,prod  # all configured targets
 
 # 4. Verify (no HTML 404s under pm/)
-scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.034-thread
+scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ projectm-v.035-thread
+scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.035-thread
 scripts/check_coop_coep.sh https://projectm.1ink.us/
 ```
 

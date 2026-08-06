@@ -3,11 +3,15 @@ export {
     PROJECTM_WASM_VERSION,
     PROJECTM_WASM_BUNDLE,
     PROJECTM_WASM_SMOKE_BUNDLE,
+    PROJECTM_WASM_SELECTABLE_VERSIONS,
+    PROJECTM_WASM_VERSION_STORAGE_KEY,
     PROJECTM_WASM_SCRIPT,
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
     PROJECTM_WASM_DEFAULT_CDN_BASE,
     buildProjectMWasmUrls,
+    buildWasmBundlePaths,
+    normalizeWasmVersion,
     remapSmokeWasmArtifactName,
 } from './projectm-wasm-version.js';
 import {
@@ -15,6 +19,10 @@ import {
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
     PROJECTM_WASM_SMOKE_BUNDLE,
+    PROJECTM_WASM_VERSION,
+    PROJECTM_WASM_VERSION_STORAGE_KEY,
+    buildWasmBundlePaths,
+    normalizeWasmVersion,
     remapSmokeWasmArtifactName,
 } from './projectm-wasm-version.js';
 
@@ -207,17 +215,37 @@ export async function loadProjectMWasmScript(options = {}) {
 }
 
 /**
- * @param {WasmScriptResolveOptions & {
- *   scriptSrc?: string;
- *   createModuleName?: string;
- *   windowRef?: Window;
- *   noInitialRun?: boolean;
- *   primaryCanvasSelector?: string;
- *   secondaryCanvasSelector?: string;
- *   moduleConfig?: Record<string, unknown>;
- * }} [options]
- * @returns {Promise<ProjectMModuleLike>}
+ * Pick a selectable WASM version from URL (`?wasm=`), localStorage, or default.
+ *
+ * @param {object} [options]
+ * @param {URLSearchParams | string | null} [options.searchParams]
+ * @param {Storage | null} [options.storage]
+ * @param {string} [options.fallback=PROJECTM_WASM_VERSION]
+ * @returns {string}
  */
+export function resolveSelectedWasmVersion({
+    searchParams = typeof location !== 'undefined' ? location.search : null,
+    storage = typeof localStorage !== 'undefined' ? localStorage : null,
+    fallback = PROJECTM_WASM_VERSION,
+} = {}) {
+    const params = typeof searchParams === 'string'
+        ? new URLSearchParams(searchParams.startsWith('?') ? searchParams.slice(1) : searchParams)
+        : (searchParams || new URLSearchParams());
+    const fromUrl = normalizeWasmVersion(params.get('wasm'));
+    if (fromUrl) {
+        return fromUrl;
+    }
+    try {
+        const fromStorage = normalizeWasmVersion(storage?.getItem?.(PROJECTM_WASM_VERSION_STORAGE_KEY));
+        if (fromStorage) {
+            return fromStorage;
+        }
+    } catch {
+        // Ignore quota / private-mode storage failures.
+    }
+    return normalizeWasmVersion(fallback) || PROJECTM_WASM_VERSION;
+}
+
 export async function createProjectMModule({
     scriptSrc,
     createModuleName = 'createModule',
@@ -226,9 +254,15 @@ export async function createProjectMModule({
     primaryCanvasSelector,
     secondaryCanvasSelector,
     moduleConfig = {},
+    targetBundle = PROJECTM_WASM_BUNDLE,
+    wasmVersion,
     ...resolveOptions
 } = {}) {
-    const resolvedScript = scriptSrc || await resolveWasmScriptUrl(resolveOptions);
+    const paths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
+    const resolvedScript = scriptSrc || await resolveWasmScriptUrl({
+        ...resolveOptions,
+        ...(paths ? { pmScript: paths.pmScript, rootScript: paths.rootScript } : {}),
+    });
     const factory = /** @type {any} */ (windowRef)[createModuleName];
     if (typeof factory !== 'function') {
         await loadScript(resolvedScript);
@@ -238,9 +272,13 @@ export async function createProjectMModule({
         throw new Error(`${createModuleName} is not available after loading ${resolvedScript}`);
     }
     const { locateFile: userLocateFile, ...restModuleConfig } = moduleConfig;
+    const locateTarget = paths?.bundle || targetBundle || PROJECTM_WASM_BUNDLE;
     return readyFactory({
         ...restModuleConfig,
-        locateFile: buildProjectMLocateFile({ locateFile: /** @type {any} */ (userLocateFile) }),
+        locateFile: buildProjectMLocateFile({
+            targetBundle: locateTarget,
+            locateFile: /** @type {any} */ (userLocateFile),
+        }),
         ...(noInitialRun ? { noInitialRun: true } : {}),
         ...(primaryCanvasSelector ? { primaryCanvasSelector } : {}),
         ...(secondaryCanvasSelector ? { secondaryCanvasSelector } : {}),

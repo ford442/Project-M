@@ -18,6 +18,23 @@ export const PROJECTM_WASM_BUNDLE = `projectm-v.${PROJECTM_WASM_VERSION}-thread`
  */
 export const PROJECTM_WASM_SMOKE_BUNDLE = 'projectm-v.030-thread';
 
+/**
+ * Historical + current threaded bundles selectable from first-party hosts
+ * (`?wasm=033` or the panel picker). Older tags usually only exist as UTF-16
+ * `.1ijs` at the site root; `035` prefers UTF-8 `.js` under `pm/`.
+ */
+export const PROJECTM_WASM_SELECTABLE_VERSIONS = Object.freeze([
+    '030',
+    '030b',
+    '032',
+    '033',
+    '034',
+    '035',
+]);
+
+/** localStorage key for the last selected WASM version (URL `?wasm=` wins). */
+export const PROJECTM_WASM_VERSION_STORAGE_KEY = 'projectm-wasm-version';
+
 // Prefer UTF-8 `.js` glue. DreamHost Apache gzips the legacy UTF-16 `.1ijs`
 // variant; Chrome then fails with net::ERR_CONTENT_DECODING_FAILED (pthread
 // workers re-fetch the same URL), which surfaces as RuntimeError: null function
@@ -30,6 +47,49 @@ export const PROJECTM_WASM_SCRIPT = PROJECTM_WASM_SCRIPT_PM;
 
 /** Default CDN base used by first-party demos (override per host). */
 export const PROJECTM_WASM_DEFAULT_CDN_BASE = 'https://projectm.1ink.us';
+
+/**
+ * Normalize a user/URL version token to a selectable tag (e.g. `035`), or null.
+ *
+ * @param {unknown} raw
+ * @returns {string | null}
+ */
+export function normalizeWasmVersion(raw) {
+    if (raw == null) {
+        return null;
+    }
+    let text = String(raw).trim().toLowerCase();
+    if (!text) {
+        return null;
+    }
+    const bundleMatch = text.match(/projectm-v\.([0-9]{3}[a-z]?)-thread/);
+    if (bundleMatch) {
+        text = bundleMatch[1];
+    } else {
+        text = text.replace(/^v\.?/, '');
+    }
+    return PROJECTM_WASM_SELECTABLE_VERSIONS.includes(text) ? text : null;
+}
+
+/**
+ * Resolve which glue paths to probe for a selectable WASM version.
+ *
+ * @param {string} [version=PROJECTM_WASM_VERSION]
+ * @returns {{ version: string, bundle: string, glueExt: string, pmScript: string, rootScript: string }}
+ */
+export function buildWasmBundlePaths(version = PROJECTM_WASM_VERSION) {
+    const normalized = normalizeWasmVersion(version) || PROJECTM_WASM_VERSION;
+    const bundle = `projectm-v.${normalized}-thread`;
+    // Canonical deploy ships UTF-8 `.js`; older CDN tags are UTF-16 `.1ijs` only.
+    const glueExt = normalized === PROJECTM_WASM_VERSION ? 'js' : '1ijs';
+    return {
+        version: normalized,
+        bundle,
+        glueExt,
+        pmScript: `./pm/${bundle}.${glueExt}`,
+        rootScript: `./${bundle}.${glueExt}`,
+    };
+}
 
 /**
  * Rewrites smoke-build artifact names (v.030) to the canonical deploy bundle name.
@@ -58,14 +118,21 @@ export function remapSmokeWasmArtifactName(
  * Builds absolute URLs for the threaded WASM glue + binary artifacts.
  *
  * @param {string} [baseUrl=PROJECTM_WASM_DEFAULT_CDN_BASE] Site root that hosts pm/
- * @returns {{ scriptPm: string, scriptRoot: string, wasm: string, worker: string }}
+ * @param {string} [version=PROJECTM_WASM_VERSION]
+ * @returns {{ scriptPm: string, scriptRoot: string, wasm: string, worker: string, version: string, bundle: string }}
  */
-export function buildProjectMWasmUrls(baseUrl = PROJECTM_WASM_DEFAULT_CDN_BASE) {
+export function buildProjectMWasmUrls(
+    baseUrl = PROJECTM_WASM_DEFAULT_CDN_BASE,
+    version = PROJECTM_WASM_VERSION
+) {
     const root = baseUrl.replace(/\/$/, '');
+    const paths = buildWasmBundlePaths(version);
     return {
-        scriptPm: `${root}/${PROJECTM_WASM_SCRIPT_PM.replace(/^\.\//, '')}`,
-        scriptRoot: `${root}/${PROJECTM_WASM_SCRIPT_ROOT.replace(/^\.\//, '')}`,
-        wasm: `${root}/pm/${PROJECTM_WASM_BUNDLE}.wasm`,
-        worker: `${root}/pm/${PROJECTM_WASM_BUNDLE}.worker.js`,
+        version: paths.version,
+        bundle: paths.bundle,
+        scriptPm: `${root}/${paths.pmScript.replace(/^\.\//, '')}`,
+        scriptRoot: `${root}/${paths.rootScript.replace(/^\.\//, '')}`,
+        wasm: `${root}/pm/${paths.bundle}.wasm`,
+        worker: `${root}/pm/${paths.bundle}.worker.js`,
     };
 }

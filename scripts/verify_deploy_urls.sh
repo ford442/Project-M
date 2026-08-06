@@ -57,6 +57,35 @@ check_one() {
     # Soft-404 HTML is OK only for real host pages.
     if grep -qi 'text/html' <<<"$ctype"; then
         if [[ "$rel" == *.1ink || "$rel" == *.html ]]; then
+            local bom coop coep
+            bom="$(python3 -c "from pathlib import Path; print(Path(r'''$BODY''').read_bytes()[:2].hex())")"
+            # Deployed .1ink hosts are UTF-16 LE; charset must match or the page won't parse.
+            if [[ "$rel" == *.1ink ]]; then
+                if [[ "$bom" != "fffe" && "$bom" != "feff" ]]; then
+                    echo "  ✗ $rel -> expected UTF-16 BOM fffe, got $bom"
+                    return 1
+                fi
+                if grep -qi 'charset=utf-8' <<<"$ctype"; then
+                    echo "  ✗ $rel -> UTF-16 body but Content-Type is $ctype (browser will mojibake)"
+                    return 1
+                fi
+            elif grep -qi 'charset=utf-16' <<<"$ctype"; then
+                if [[ "$bom" != "fffe" && "$bom" != "feff" ]]; then
+                    echo "  ✗ $rel -> Content-Type claims utf-16 ($ctype) but body BOM is $bom (expected fffe)"
+                    return 1
+                fi
+            fi
+            headers="$(curl -sS -D - -o /dev/null "$url" | tr -d '\r')"
+            coop="$(grep -i '^cross-origin-opener-policy:' <<<"$headers" || true)"
+            coep="$(grep -i '^cross-origin-embedder-policy:' <<<"$headers" || true)"
+            if ! grep -qi 'same-origin' <<<"$coop"; then
+                echo "  ✗ $rel -> missing Cross-Origin-Opener-Policy: same-origin (pthread WASM requires COOP/COEP)"
+                return 1
+            fi
+            if ! grep -qiE 'require-corp|credentialless' <<<"$coep"; then
+                echo "  ✗ $rel -> missing Cross-Origin-Embedder-Policy (pthread WASM requires COOP/COEP)"
+                return 1
+            fi
             echo "  ✓ $rel -> HTTP $status ($ctype)"
             return 0
         fi
@@ -128,6 +157,7 @@ required_paths=(
     "pm/${BUNDLE}.3ijs"
     "projectm-init.js"
     "projectm_panel2.1ink"
+    "1ink.1ink"
     "projectm-audio-bootstrap.js"
     "projectm-external-pcm.js"
     "projectm-presets.js"

@@ -2,15 +2,20 @@
 export {
     PROJECTM_WASM_VERSION,
     PROJECTM_WASM_BUNDLE,
+    PROJECTM_WASM_SMOKE_BUNDLE,
     PROJECTM_WASM_SCRIPT,
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
     PROJECTM_WASM_DEFAULT_CDN_BASE,
     buildProjectMWasmUrls,
+    remapSmokeWasmArtifactName,
 } from './projectm-wasm-version.js';
 import {
+    PROJECTM_WASM_BUNDLE,
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
+    PROJECTM_WASM_SMOKE_BUNDLE,
+    remapSmokeWasmArtifactName,
 } from './projectm-wasm-version.js';
 
 /**
@@ -139,6 +144,34 @@ export async function resolveWasmScriptUrl({
 }
 
 /**
+ * Emscripten `locateFile` that remaps smoke-build (v.030) artifact names to the
+ * canonical deploy bundle. Pass the result to `createModule({ locateFile })`.
+ *
+ * Without this (or a matching rewrite in `prepare_deploy_bundle.sh`), loading
+ * `./pm/projectm-v.035-thread.1ijs` still fetches `./pm/projectm-v.030-thread.wasm`,
+ * which soft-404s as UTF-16 HTML (`3c 00 21 00`) and aborts WASM compile.
+ *
+ * @param {object} [options]
+ * @param {string} [options.targetBundle]
+ * @param {string} [options.smokeBundle]
+ * @param {(path: string, prefix?: string) => string} [options.locateFile] Optional inner locateFile to wrap
+ * @returns {(path: string, prefix?: string) => string}
+ */
+export function buildProjectMLocateFile({
+    targetBundle = PROJECTM_WASM_BUNDLE,
+    smokeBundle = PROJECTM_WASM_SMOKE_BUNDLE,
+    locateFile,
+} = {}) {
+    return (path, prefix = '') => {
+        const remapped = remapSmokeWasmArtifactName(path, targetBundle, smokeBundle);
+        if (typeof locateFile === 'function') {
+            return locateFile(remapped, prefix);
+        }
+        return `${prefix || ''}${remapped}`;
+    };
+}
+
+/**
  * @param {string} src
  * @param {LoadScriptOptions} [options]
  * @returns {Promise<HTMLScriptElement>}
@@ -147,7 +180,7 @@ export function loadScript(src, {
     documentRef = typeof document !== 'undefined' ? document : undefined,
     async = true,
     defer = false,
-    charset = 'utf-8',
+    charset,
     type = 'text/javascript'
 } = {}) {
     return new Promise((resolve, reject) => {
@@ -159,7 +192,8 @@ export function loadScript(src, {
         script.src = src;
         script.async = async;
         script.defer = defer;
-        script.charset = charset;
+        // Deployed .1ijs glue is UTF-16 (iconv); default classic scripts to utf-8.
+        script.charset = charset || (/\.1ijs(\?|#|$)/i.test(src) ? 'utf-16' : 'utf-8');
         script.type = type;
         script.onload = () => resolve(script);
         script.onerror = () => reject(new Error(`Failed to load ${src}`));
@@ -203,8 +237,10 @@ export async function createProjectMModule({
     if (typeof readyFactory !== 'function') {
         throw new Error(`${createModuleName} is not available after loading ${resolvedScript}`);
     }
+    const { locateFile: userLocateFile, ...restModuleConfig } = moduleConfig;
     return readyFactory({
-        ...moduleConfig,
+        ...restModuleConfig,
+        locateFile: buildProjectMLocateFile({ locateFile: /** @type {any} */ (userLocateFile) }),
         ...(noInitialRun ? { noInitialRun: true } : {}),
         ...(primaryCanvasSelector ? { primaryCanvasSelector } : {}),
         ...(secondaryCanvasSelector ? { secondaryCanvasSelector } : {}),

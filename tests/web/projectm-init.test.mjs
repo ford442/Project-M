@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
+    buildProjectMLocateFile,
     isUsableWasmScriptResponse,
     resolveWasmScriptUrl
 } from '../../html/projectm-init.js';
@@ -78,5 +79,27 @@ test('isUsableWasmScriptResponse rejects HTML content types', () => {
             headers: { get: () => 'text/html' }
         }, 'https://example/x'),
         false
+    );
+});
+
+test('buildProjectMLocateFile remaps smoke wasm next to pm/ script', () => {
+    const locateFile = buildProjectMLocateFile();
+    assert.equal(
+        locateFile('projectm-v.030-thread.wasm', 'https://projectm.1ink.us/pm/'),
+        'https://projectm.1ink.us/pm/projectm-v.035-thread.wasm'
+    );
+    assert.equal(
+        locateFile('projectm-v.035-thread.wasm', './'),
+        './projectm-v.035-thread.wasm'
+    );
+});
+
+test('buildProjectMLocateFile wraps a custom locateFile', () => {
+    const locateFile = buildProjectMLocateFile({
+        locateFile: (path, prefix) => `${prefix}cdn/${path}`
+    });
+    assert.equal(
+        locateFile('projectm-v.030-thread.wasm', 'https://x/'),
+        'https://x/cdn/projectm-v.035-thread.wasm'
     );
 });

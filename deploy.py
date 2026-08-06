@@ -35,6 +35,7 @@ CONTABO_BASE_URL: str = "https://storage.noahcohn.com"
 # WASM artifacts at the repo root (built + iconv'd before deploy).
 DEPLOY_FILE_PATTERNS: list = [
     "projectm-v.*-thread.wasm",
+    "projectm-v.*-thread.js",  # UTF-8 glue (rewrite target for smoke→deploy rename)
     "projectm-v.*-thread.1ijs",
     "projectm-v.*-thread.3ijs",
     "projectm-v.*-thread.worker.js",
@@ -45,6 +46,7 @@ DEPLOY_FILE_PATTERNS: list = [
 # Optional on-disk pm/ mirror (also auto-generated in the zip from root WASM files).
 DEPLOY_PM_GLOBS: list = [
     "pm/projectm-v.*-thread.wasm",
+    "pm/projectm-v.*-thread.js",
     "pm/projectm-v.*-thread.1ijs",
     "pm/projectm-v.*-thread.3ijs",
     "pm/projectm-v.*-thread.worker.js",

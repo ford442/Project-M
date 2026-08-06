@@ -124,7 +124,22 @@ async function init(msg) {
     }
 
     try {
-        Module = await createModule({ canvas: msg.canvas });
+        Module = await createModule({
+            canvas: msg.canvas,
+            // Smoke wrapper embeds projectm-v.030-thread.wasm; deploy renames to
+            // projectm-v.<ver>-thread.*. Remap from the loaded script URL so pm/
+            // does not 404 to the UTF-16 HTML ErrorDocument.
+            locateFile(path, prefix = '') {
+                const smoke = 'projectm-v.030-thread';
+                const match = /projectm-v\.\d+-thread/.exec(msg.scriptSrc || '');
+                const target = match ? match[0] : null;
+                let remapped = path;
+                if (target && target !== smoke && typeof path === 'string' && path.includes(smoke)) {
+                    remapped = path.split(smoke).join(target);
+                }
+                return `${prefix || ''}${remapped}`;
+            },
+        });
     } catch (error) {
         self.postMessage({ type: 'error', message: `module init failed: ${error}` });
         return;

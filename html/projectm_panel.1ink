@@ -346,7 +346,7 @@ import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
-import { loadProjectMWasmScript } from './projectm-init.js';
+import { buildProjectMLocateFile, loadProjectMWasmScript } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -646,7 +646,7 @@ async function attemptInit() {
 
         if (!Module) {
             await loadProjectMWasmScript({ defer: true });
-            Module = await createModule();
+            Module = await createModule({ locateFile: buildProjectMLocateFile() });
             globalThis.Module = Module;
         }
 

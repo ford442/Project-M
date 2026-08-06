@@ -20,6 +20,13 @@ Each WASM artifact is uploaded **twice**: once at the site root and again under
 site root (without the `pm/` mirror) produces HTTP 404 HTML responses and the
 browser error **Unexpected token '<'** when parsing the missing script.
 
+`scripts/build_wasm_smoke_wrapper.sh` always emits `projectm-v.030-thread.*`
+(CI smoke tag). `prepare_deploy_bundle.sh` renames those files to the deploy
+version **and rewrites** the Emscripten `locateFile("projectm-v.030-thread.wasm")`
+string inside the glue JS before running `iconv`. Renaming alone leaves the
+browser fetching `./pm/projectm-v.030-thread.wasm`, which soft-404s as UTF-16
+HTML (WASM magic `3c 00 21 00`) and aborts instantiation.
+
 Shared browser modules and demo hosts from `html/` (flattened to the deploy
 root, because hosts `import './projectm-*.js'`):
 
@@ -186,9 +193,11 @@ console on the deployed page: `crossOriginIsolated` should be `true`.
 | Symptom | Typical cause | Fix |
 |---------|---------------|-----|
 | `Unexpected token '<'` loading `projectm-v.*.1ijs` | `./pm/…` path 404 (Apache returns HTML) | Re-run `python deploy.py` after `prepare_deploy_bundle.sh` so `pm/` mirrors exist; or copy all four artifacts into your site's `pm/` folder. Hosts also fall back to `./projectm-v.*-thread.1ijs` at the site root when `pm/` is missing (`resolveWasmScriptUrl()` in `projectm-init.js`). |
+| Module loads but WASM fails with magic `3c 00 21 00` / wrong MIME `text/html` | Glue still embeds `projectm-v.030-thread.wasm` after a version rename; `locateFile` requests `./pm/projectm-v.030-thread.wasm`, which soft-404s as the UTF-16 HTML ErrorDocument | `prepare_deploy_bundle.sh` must rewrite smoke-tag strings inside the `.js` before `iconv` (not only `mv` the files). Hosts also pass `buildProjectMLocateFile()` as a runtime safety net. Redeploy after rebuilding the bundle. |
 | Module loads but WASM fails | `.wasm` missing next to the `.1ijs` under the same directory | Deploy/copy `pm/projectm-v.<ver>-thread.wasm` alongside the `.1ijs` |
 | Root WASM 200 but `pm/` + `projectm-*.js` 302 | Legacy SFTP uploaded only `.wasm`/`.1ijs` to site root | Run `python deploy.py` (not a legacy direct-SFTP script). It zips root WASM, auto-mirrors under `pm/`, and flattens `html/projectm-*.js` + `projectm_panel2.1ink` to the deploy root. Preview with `python deploy.py --dry-run`. |
 | Duplicate script tags (root + `pm/`) | Custom host loads `./projectm-v.*.1ijs` and `./pm/…` | Load **only** from `./pm/` via `PROJECTM_WASM_SCRIPT` in `projectm-init.js` |
+| `verify_deploy_urls.sh` green but browser still fails | Old verifier only checked HTTP 200 | Current script rejects `text/html` soft-404s, checks WASM magic `00 61 73 6d`, and ensures the glue references `${BUNDLE}.wasm` rather than a stale `projectm-v.030-thread.wasm` |
 
 Custom hosts on other domains must mirror the full `pm/` directory locally (or
 symlink to `https://projectm.1ink.us/pm/…` with CORP headers). Loading from

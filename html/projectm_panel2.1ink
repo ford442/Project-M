@@ -351,7 +351,7 @@ import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
-import { loadScript, resolveWasmScriptUrl } from './projectm-init.js';
+import { buildProjectMLocateFile, loadScript, resolveWasmScriptUrl } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -651,7 +651,7 @@ async function initProjectM() {
     if (!Module) {
       const wasmScript = await resolveWasmScriptUrl({ baseUrl: import.meta.url });
       await loadScript(wasmScript, { defer: true });
-      Module = await createModule();
+      Module = await createModule({ locateFile: buildProjectMLocateFile() });
       globalThis.Module = Module;
     }
 

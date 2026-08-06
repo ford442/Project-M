@@ -13,7 +13,7 @@ test('PROJECTM_WASM_BUNDLE matches version constant', () => {
 
 test('buildProjectMWasmUrls pins bundle paths under pm/', () => {
     const urls = buildProjectMWasmUrls('https://cdn.example');
-    assert.equal(urls.scriptPm, 'https://cdn.example/pm/projectm-v.035-thread.1ijs');
+    assert.equal(urls.scriptPm, 'https://cdn.example/pm/projectm-v.035-thread.js');
     assert.equal(urls.wasm, 'https://cdn.example/pm/projectm-v.035-thread.wasm');
 });
 

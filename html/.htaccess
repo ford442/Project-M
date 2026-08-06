@@ -1,0 +1,20 @@
+# projectM CDN (projectm.1ink.us) Apache helpers.
+#
+# Legacy `.1ijs` / `.3ijs` glue is UTF-16/UTF-32 (iconv). When mod_deflate gzip-
+# compresses those binaries, Chrome often reports net::ERR_CONTENT_DECODING_FAILED
+# on the script (and on pthread workers that re-fetch the same URL), which then
+# surfaces as RuntimeError: null function from `_init`. Prefer the UTF-8 `.js`
+# glue (hosts default there now); also disable compression for the multi-byte
+# legacy extensions.
+
+<IfModule mod_deflate.c>
+    SetEnvIfNoCase Request_URI "\.(1ijs|3ijs)$" no-gzip dont-vary
+</IfModule>
+
+# Explicit charset for multi-byte glue when clients still load them.
+<IfModule mod_mime.c>
+    AddType "application/javascript; charset=utf-16" .1ijs
+    AddType "application/javascript; charset=utf-32" .3ijs
+    AddType "application/javascript; charset=utf-8" .js
+    AddType application/wasm .wasm
+</IfModule>

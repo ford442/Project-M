@@ -18,8 +18,12 @@ export const PROJECTM_WASM_BUNDLE = `projectm-v.${PROJECTM_WASM_VERSION}-thread`
  */
 export const PROJECTM_WASM_SMOKE_BUNDLE = 'projectm-v.030-thread';
 
-export const PROJECTM_WASM_SCRIPT_PM = `./pm/${PROJECTM_WASM_BUNDLE}.1ijs`;
-export const PROJECTM_WASM_SCRIPT_ROOT = `./${PROJECTM_WASM_BUNDLE}.1ijs`;
+// Prefer UTF-8 `.js` glue. DreamHost Apache gzips the legacy UTF-16 `.1ijs`
+// variant; Chrome then fails with net::ERR_CONTENT_DECODING_FAILED (pthread
+// workers re-fetch the same URL), which surfaces as RuntimeError: null function
+// when calling `_init`. Keep `.1ijs` on the CDN for older embeds that hardcode it.
+export const PROJECTM_WASM_SCRIPT_PM = `./pm/${PROJECTM_WASM_BUNDLE}.js`;
+export const PROJECTM_WASM_SCRIPT_ROOT = `./${PROJECTM_WASM_BUNDLE}.js`;
 
 /** Preferred deploy layout (pm/ mirror). */
 export const PROJECTM_WASM_SCRIPT = PROJECTM_WASM_SCRIPT_PM;

@@ -63,6 +63,7 @@ DEPLOY_HTML_GLOBS: list = [
     "html/projectm-core.html",
     "html/projectm-core.css",
     "html/embed-demo.html",
+    "html/.htaccess",  # no-gzip for legacy UTF-16 .1ijs (Chrome ERR_CONTENT_DECODING_FAILED)
 ]
 
 # Deploy under this remote folder (empty = use PROJECT_NAME).

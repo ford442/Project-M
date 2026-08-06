@@ -93,7 +93,8 @@ rewrite_smoke_bundle_refs() {
     fi
     if ! grep -q "$SMOKE_BUNDLE" "$file"; then
         # Already rewritten, or a hand-built artifact that used the deploy name.
-        if ! grep -q "${bundle}.wasm" "$file" && [[ "$file" == *.js ]]; then
+        # worker.js / ww.js often only reference the main glue URL, not the .wasm name.
+        if ! grep -q "${bundle}.wasm" "$file" && [[ "$file" == *.js ]] && [[ "$file" != *worker.js ]] && [[ "$file" != *.ww.js ]]; then
             echo "ERROR: $file has neither $SMOKE_BUNDLE nor ${bundle}.wasm refs" >&2
             exit 1
         fi
@@ -133,6 +134,11 @@ if [[ -s "$dest_worker" ]]; then
 fi
 
 echo "Prepared deploy artifacts for ${bundle}:"
-ls -lh "$dest_wasm" "$dest_1ijs" "$dest_3ijs" ${dest_worker:+"$dest_worker"}
+ls -lh "$dest_js" "$dest_wasm" "$dest_1ijs" "$dest_3ijs"
+if [[ -s "$dest_worker" ]]; then
+    ls -lh "$dest_worker"
+else
+    echo "(no separate ${bundle}.worker.js — pthread reuses main glue)"
+fi
 echo "pm/ mirror:"
 ls -lh "$dest_pm/${bundle}."*

@@ -105,7 +105,7 @@ export function isUsableWasmScriptResponse(response, requestUrl) {
 /**
  * Resolves the threaded WASM glue script URL. Tries ./pm/ first (canonical deploy
  * layout), then falls back to ./ at the site root for legacy uploads that only
- * pushed projectm-v.*-thread.{1ijs,wasm} without the pm/ mirror.
+ * pushed projectm-v.*-thread.{js,1ijs,wasm} without the pm/ mirror.
  *
  * @param {WasmScriptResolveOptions} [options]
  * @returns {Promise<string>}
@@ -148,8 +148,8 @@ export async function resolveWasmScriptUrl({
  * canonical deploy bundle. Pass the result to `createModule({ locateFile })`.
  *
  * Without this (or a matching rewrite in `prepare_deploy_bundle.sh`), loading
- * `./pm/projectm-v.035-thread.1ijs` still fetches `./pm/projectm-v.030-thread.wasm`,
- * which soft-404s as UTF-16 HTML (`3c 00 21 00`) and aborts WASM compile.
+ * `./pm/projectm-v.035-thread.js` still fetches `./pm/projectm-v.030-thread.wasm`,
+ * which soft-404s as HTML and aborts WASM compile.
  *
  * @param {object} [options]
  * @param {string} [options.targetBundle]
@@ -192,7 +192,7 @@ export function loadScript(src, {
         script.src = src;
         script.async = async;
         script.defer = defer;
-        // Deployed .1ijs glue is UTF-16 (iconv); default classic scripts to utf-8.
+        // Legacy .1ijs glue is UTF-16 (iconv). Preferred .js glue is UTF-8.
         script.charset = charset || (/\.1ijs(\?|#|$)/i.test(src) ? 'utf-16' : 'utf-8');
         script.type = type;
         script.onload = () => resolve(script);

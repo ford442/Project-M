@@ -11,12 +11,12 @@ import {
 test('resolveWasmScriptUrl prefers pm/ when available', async () => {
     const fetchFn = async (url, options) => {
         assert.equal(options.method, 'HEAD');
-        if (url.endsWith('/pm/projectm-v.035-thread.1ijs')) {
+        if (url.endsWith('/pm/projectm-v.035-thread.js')) {
             return {
                 ok: true,
                 redirected: false,
                 url,
-                headers: { get: () => 'application/x-javascript; charset=utf-16' }
+                headers: { get: () => 'application/x-javascript; charset=utf-8' }
             };
         }
         return { ok: false };
@@ -57,7 +57,7 @@ test('resolveWasmScriptUrl ignores soft-404 HTML redirects for missing pm/', asy
             ok: true,
             redirected: false,
             url,
-            headers: { get: () => 'application/x-javascript; charset=utf-16' }
+            headers: { get: () => 'application/x-javascript; charset=utf-8' }
         };
     };
 

@@ -351,8 +351,10 @@ import { buildProjectMLocateFile, loadProjectMWasmScript } from './projectm-init
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
+import { wireFlacDecoderBridge } from './projectm-weeks-on-fire.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+wireFlacDecoderBridge(document);
 
 let Module;
 let isBezelMode = true;

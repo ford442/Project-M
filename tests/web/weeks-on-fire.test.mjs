@@ -7,6 +7,7 @@ import {
     isWeeksOnFireMode,
     parseMilkDirectoryListing,
     resolveFlacDecoderUrl,
+    wireFlacDecoderBridge,
 } from '../../html/projectm-weeks-on-fire.js';
 
 test('isWeeksOnFireMode matches mode query param', () => {
@@ -52,6 +53,9 @@ test('resolveFlacDecoderUrl prefers same-origin /flac/', () => {
     try {
         assert.equal(resolveFlacDecoderUrl(doc), 'https://projectm.1ink.us/flac/');
     } finally {
+        delete globalThis.openWeeksFlacDecoder;
+        delete globalThis.ensureWeeksFlacDecoderFrame;
+        delete globalThis.resolveFlacDecoderUrl;
         Object.defineProperty(globalThis, 'location', {
             configurable: true,
             value: previousLocation,
@@ -79,6 +83,55 @@ test('applyWeeksOnFireDomConfig sets flacDecoderUrl on same origin', () => {
         applyWeeksOnFireDomConfig(doc);
         assert.equal(doc.getElementById('flacDecoderUrl').textContent, 'https://projectm.1ink.us/flac/');
     } finally {
+        delete globalThis.openWeeksFlacDecoder;
+        delete globalThis.ensureWeeksFlacDecoderFrame;
+        delete globalThis.resolveFlacDecoderUrl;
+        Object.defineProperty(globalThis, 'location', {
+            configurable: true,
+            value: previousLocation,
+        });
+    }
+});
+
+test('wireFlacDecoderBridge exposes openWeeksFlacDecoder without weeks mode', () => {
+    const frames = [];
+    const doc = {
+        getElementById(id) {
+            if (id === 'flacDecoderUrl') {
+                return { id, textContent: './flac/' };
+            }
+            if (id === 'weeksFlacDecoderFrame') {
+                return null;
+            }
+            return null;
+        },
+        createElement() {
+            return {
+                id: '',
+                hidden: false,
+                src: '',
+                setAttribute() {},
+                getAttribute() { return ''; },
+            };
+        },
+        body: {
+            appendChild(node) {
+                frames.push(node);
+            },
+        },
+    };
+    const previousLocation = globalThis.location;
+    Object.defineProperty(globalThis, 'location', {
+        configurable: true,
+        value: { origin: 'https://projectm.1ink.us', href: 'https://projectm.1ink.us/1ink.1ink' },
+    });
+    try {
+        wireFlacDecoderBridge(doc);
+        assert.equal(typeof globalThis.openWeeksFlacDecoder, 'function');
+        assert.equal(frames.length, 1);
+        assert.match(frames[0].src, /\/flac\/$/);
+    } finally {
+        delete globalThis.openWeeksFlacDecoder;
         Object.defineProperty(globalThis, 'location', {
             configurable: true,
             value: previousLocation,

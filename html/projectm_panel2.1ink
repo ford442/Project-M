@@ -382,7 +382,11 @@ import {
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
-import { applyWeeksOnFireDomConfig, isWeeksOnFireMode } from './projectm-weeks-on-fire.js';
+import {
+  applyWeeksOnFireDomConfig,
+  isWeeksOnFireMode,
+  wireFlacDecoderBridge,
+} from './projectm-weeks-on-fire.js';
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const urlParams = new URLSearchParams(window.location.search);
@@ -414,6 +418,9 @@ const selectedWasmPaths = buildWasmBundlePaths(selectedWasmVersion);
     window.location.search = nextParams.toString();
   });
 })();
+// Same-origin hidden /flac/ iframe so musicBtn picks a random #songDir track
+// via BroadcastChannel instead of opening a file-chooser popup.
+wireFlacDecoderBridge(document);
 if (weeksOnFireMode) {
   applyWeeksOnFireDomConfig(document);
   document.title = 'B3HD • Project M — Weeks on Fire';

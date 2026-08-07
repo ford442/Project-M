@@ -541,7 +541,11 @@ import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as
 import { setupPresetPicker } from './projectm-preset-picker.js';
 import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
-import { applyWeeksOnFireDomConfig, isWeeksOnFireMode } from './projectm-weeks-on-fire.js';
+import {
+    applyWeeksOnFireDomConfig,
+    isWeeksOnFireMode,
+    wireFlacDecoderBridge,
+} from './projectm-weeks-on-fire.js';
 import {
     addPresetFile,
     loadPresetFile,
@@ -556,6 +560,7 @@ const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)
 const enableLocalPresets = new URLSearchParams(window.location.search).get('localPresets') === '1';
 const urlParams = new URLSearchParams(window.location.search);
 const weeksOnFireMode = isWeeksOnFireMode(urlParams);
+wireFlacDecoderBridge(document);
 if (weeksOnFireMode) {
     applyWeeksOnFireDomConfig(document);
     document.title = 'Project M — Weeks on Fire';

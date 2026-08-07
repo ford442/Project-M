@@ -78,6 +78,24 @@ export function wireWeeksOnFireFlacBridge(documentRef = document) {
     globalThis.openWeeksFlacDecoder = (options) => openWeeksFlacDecoder(documentRef, options);
 }
 
+/**
+ * Wire same-origin FLAC decode (hidden iframe + BroadcastChannel) for every host.
+ * Without this, WASM glue falls back to window.open('./flac/') which shows a file
+ * chooser instead of auto-playing a random track from #songDir.
+ */
+export function wireFlacDecoderBridge(documentRef = document) {
+    let el = documentRef.getElementById('flacDecoderUrl');
+    if (!el) {
+        el = documentRef.createElement('div');
+        el.id = 'flacDecoderUrl';
+        el.hidden = true;
+        documentRef.body?.appendChild(el);
+    }
+    el.textContent = resolveFlacDecoderUrl(documentRef);
+    wireWeeksOnFireFlacBridge(documentRef);
+    ensureWeeksFlacDecoderFrame(documentRef);
+}
+
 /** @param {URLSearchParams|string|undefined} search */
 export function isWeeksOnFireMode(search) {
     if (typeof globalThis !== 'undefined' && globalThis.__projectMWeeksOnFire === true) {

@@ -43,25 +43,17 @@ if [[ ! -s "$projectm_lib" || ! -s "$playlist_lib" ]]; then
 fi
 
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
-src_js="$OUT_DIR/${bundle}.js"
-src_wasm="$OUT_DIR/${bundle}.wasm"
-src_worker="$OUT_DIR/${bundle}.worker.js"
+# Always stage from the smoke-tag outputs produced by build_wasm_smoke_wrapper.sh.
+# Preferring a previously-renamed ${bundle}.* in OUT_DIR silently redeploys a stale
+# binary after a fresh 030 rebuild (missed breadcrumbs / fixes during diagnosis).
+src_js="$OUT_DIR/${SMOKE_BUNDLE}.js"
+src_wasm="$OUT_DIR/${SMOKE_BUNDLE}.wasm"
+src_worker="$OUT_DIR/${SMOKE_BUNDLE}.worker.js"
 
 if [[ ! -s "$src_js" || ! -s "$src_wasm" ]]; then
     echo "Missing smoke build outputs in $OUT_DIR — running build_wasm_smoke_wrapper.sh" >&2
     INSTALL_DIR="$INSTALL_DIR" OUT_DIR="$OUT_DIR" \
         bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
-    # build script still emits projectm-v.030-thread.* — rename if version differs.
-    if [[ "$bundle" != "$SMOKE_BUNDLE" && -s "$OUT_DIR/${SMOKE_BUNDLE}.js" ]]; then
-        for ext in js wasm worker.js; do
-            if [[ -f "$OUT_DIR/${SMOKE_BUNDLE}.$ext" ]]; then
-                mv -f "$OUT_DIR/${SMOKE_BUNDLE}.$ext" "$OUT_DIR/${bundle}.$ext"
-            fi
-        done
-        src_js="$OUT_DIR/${bundle}.js"
-        src_wasm="$OUT_DIR/${bundle}.wasm"
-        src_worker="$OUT_DIR/${bundle}.worker.js"
-    fi
 fi
 
 if [[ ! -s "$src_js" || ! -s "$src_wasm" ]]; then

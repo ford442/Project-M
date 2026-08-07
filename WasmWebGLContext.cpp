@@ -198,8 +198,10 @@ bool WasmWebGLCreateAndActivateContext()
         return false;
     }
 
-    glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT, GL_NICEST);
-    glHint(GL_GENERATE_MIPMAP_HINT, GL_NICEST);
+    // Do NOT call gl* here. With USE_GLES, Renderer/OpenGL.h maps gl* → glad_gl*
+    // function pointers that remain NULL until GladLoader::Initialize() runs inside
+    // projectm_create(). Calling glHint here raises RuntimeError: null function
+    // (projectm-v.035-thread regression). Hints are set in start_render() after GLAD loads.
     ProjectMEnableRequiredWebGLExtensions(g_glCtx);
     ProjectMApplySrgbCanvasColorSpace();
     return true;

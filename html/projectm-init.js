@@ -215,6 +215,38 @@ export async function loadProjectMWasmScript(options = {}) {
 }
 
 /**
+ * Redirect to add `?wasm=` when the URL omits it so the canonical default bundle loads
+ * and stale localStorage picks do not override a bumped `PROJECTM_WASM_VERSION`.
+ *
+ * @param {object} [options]
+ * @param {string} [options.defaultVersion=PROJECTM_WASM_VERSION]
+ * @param {Location} [options.locationRef]
+ * @returns {boolean} True when a redirect was started.
+ */
+export function ensureDefaultWasmQueryParam({
+    defaultVersion = PROJECTM_WASM_VERSION,
+    locationRef = typeof location !== 'undefined' ? location : undefined,
+} = {}) {
+    if (!locationRef) {
+        return false;
+    }
+    try {
+        const params = new URLSearchParams(locationRef.search);
+        if (params.has('wasm')) {
+            return false;
+        }
+        const version = normalizeWasmVersion(defaultVersion) || PROJECTM_WASM_VERSION;
+        params.set('wasm', version);
+        const query = params.toString();
+        const next = `${locationRef.pathname}${query ? `?${query}` : ''}${locationRef.hash}`;
+        locationRef.replace(next);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Pick a selectable WASM version from URL (`?wasm=`), localStorage, or default.
  *
  * @param {object} [options]

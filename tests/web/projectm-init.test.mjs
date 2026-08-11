@@ -3,10 +3,39 @@ import test from 'node:test';
 import {
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
+    PROJECTM_WASM_VERSION,
     buildProjectMLocateFile,
+    ensureDefaultWasmQueryParam,
     isUsableWasmScriptResponse,
     resolveWasmScriptUrl
 } from '../../html/projectm-init.js';
+
+test('ensureDefaultWasmQueryParam adds wasm when missing', () => {
+    const calls = [];
+    const locationRef = {
+        pathname: '/1ink.1ink',
+        search: '?mode=weeks_on_fire',
+        hash: '#panel',
+        replace: (url) => calls.push(url),
+    };
+    assert.equal(
+        ensureDefaultWasmQueryParam({ locationRef }),
+        true
+    );
+    assert.deepEqual(calls, ['/1ink.1ink?mode=weeks_on_fire&wasm=035#panel']);
+});
+
+test('ensureDefaultWasmQueryParam is a no-op when wasm is present', () => {
+    const calls = [];
+    const locationRef = {
+        pathname: '/1ink.1ink',
+        search: '?wasm=034',
+        hash: '',
+        replace: (url) => calls.push(url),
+    };
+    assert.equal(ensureDefaultWasmQueryParam({ locationRef }), false);
+    assert.deepEqual(calls, []);
+});
 
 test('resolveWasmScriptUrl prefers pm/ when available', async () => {
     const fetchFn = async (url, options) => {

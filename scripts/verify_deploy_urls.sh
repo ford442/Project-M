@@ -156,6 +156,7 @@ required_paths=(
     "pm/${BUNDLE}.1ijs"
     "pm/${BUNDLE}.3ijs"
     "projectm-init.js"
+    "projectm-wasm-default-redirect.js"
     "projectm_panel2.1ink"
     "1ink.1ink"
     "projectm-audio-bootstrap.js"

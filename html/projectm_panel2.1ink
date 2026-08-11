@@ -8,6 +8,7 @@
 <link rel='preconnect' href='https://storage.noahcohn.com'>
 <link rel="preload" as="image" href="./image/panel-bg.jpg" fetchpriority="high">
 <link rel="preload" as="image" href="./image/shroud.jpg">
+<script src="./projectm-wasm-default-redirect.js"></script>
 <title>B3HD • ProjectM</title>
 <title>1ink.us • ProjectM</title>
 

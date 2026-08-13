@@ -83,6 +83,40 @@ bool WasmWebGLCanvasElementExists(const char* selector)
                } }, selector) != 0;
 }
 
+// Governor v2 canvas MSAA policy (see docs/PERFORMANCE.md, issue #178).
+//
+// What actually draws into the canvas (FBO 0) is a fullscreen quad (the transition
+// blend or the final CopyTexture present) plus, if used, user sprites — everything
+// else (warp mesh, waveforms, shapes, composite grid) renders into the preset's own
+// FBOs, where MSAA never applied in the first place. A fullscreen quad has no
+// interior edges, so multisampling it is invisible; only sprite geometry benefits.
+// Default OFF (skips a multisampled color buffer + its per-frame resolve); opt in
+// with `?aa=1` or `localStorage.canvasAA = '1'` for desktop builds that draw sprites.
+static bool ProjectMCanvasAntialiasRequested()
+{
+    return EM_ASM_INT({
+               try
+               {
+                   var params = new URLSearchParams(window.location.search || '');
+                   var q = params.get('aa');
+                   if (q === '1' || q === 'true')
+                   {
+                       return 1;
+                   }
+                   if (q === '0' || q === 'false')
+                   {
+                       return 0;
+                   }
+                   var stored = window.localStorage ? window.localStorage.getItem('canvasAA') : null;
+                   return (stored === '1' || stored === 'true') ? 1 : 0;
+               }
+               catch (e)
+               {
+                   return 0;
+               }
+           }) != 0;
+}
+
 static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
 {
     EmscriptenWebGLContextAttributes attrs;
@@ -92,7 +126,7 @@ static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
     attrs.alpha = EM_TRUE;
     attrs.depth = EM_TRUE;
     attrs.stencil = EM_TRUE;
-    attrs.antialias = EM_TRUE;
+    attrs.antialias = ProjectMCanvasAntialiasRequested() ? EM_TRUE : EM_FALSE;
     attrs.premultipliedAlpha = EM_TRUE;
     attrs.preserveDrawingBuffer = EM_ASM_INT({
         try

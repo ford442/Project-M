@@ -11,7 +11,7 @@ import {
     flushQueuedExternalPCM,
     setupExternalAudioReceiver,
 } from './projectm-external-pcm.js';
-import { setQualityGovernorEnabled, setTargetFps } from './projectm-fps-governor.js';
+import { getGovernorRenderScale, setQualityGovernorEnabled, setTargetFps } from './projectm-fps-governor.js';
 import {
     createProjectMModule,
     loadProjectMWasmScript,
@@ -95,7 +95,7 @@ function resolveMediaElement(value, documentRef) {
 }
 
 /**
- * @param {{ module: ProjectMModuleLike | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number }} options
+ * @param {{ module: ProjectMModuleLike | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number; renderScale?: number }} options
  * @returns {boolean}
  */
 function syncCanvasSize({
@@ -105,14 +105,25 @@ function syncCanvasSize({
     secondaryCanvas,
     aspectCorrection,
     devicePixelRatio = globalThis.devicePixelRatio || 1,
+    renderScale = 1,
 }) {
     if (!module || !container || !mainCanvas) {
         return false;
     }
 
     const rect = container.getBoundingClientRect();
-    const width = Math.max(1, Math.round(rect.width * devicePixelRatio));
-    const height = Math.max(1, Math.round(rect.height * devicePixelRatio));
+    // The canvas backing store (width/height attributes) is rendered at
+    // renderScale * devicePixelRatio, while its CSS box size (style.width/height)
+    // always stays at the full, unscaled container size. When renderScale < 1
+    // (governor v2 stepped down internal render scale, see
+    // html/projectm-fps-governor.js), the browser's own canvas-bitmap-to-CSS-box
+    // scaling stretches the smaller backing store to fill the unchanged layout box
+    // — this is the "present upscale" for internal FBO render scale; no separate
+    // offscreen blit is needed because everything (including the dual-FBO
+    // compositor) renders at the backing-store resolution already.
+    const scale = renderScale > 0 ? renderScale : 1;
+    const width = Math.max(1, Math.round(rect.width * devicePixelRatio * scale));
+    const height = Math.max(1, Math.round(rect.height * devicePixelRatio * scale));
 
     mainCanvas.width = width;
     mainCanvas.height = height;
@@ -188,6 +199,8 @@ export class ProjectMContext {
         this.fpsTimer = 0;
         this.fpsFrameCount = 0;
         this.fpsLastSample = 0;
+        /** Internal render scale (1.0/0.75/0.5) applied by governor v2; see resize(). */
+        this.renderScale = 1;
         /** @type {((event: Event) => void) | null} */
         this.presetListener = null;
 /** @type {HTMLMediaElement | null} */
@@ -196,6 +209,7 @@ this.audioElement = null;
 this.audioRouter = options.audioRouter ?? null;
 /** @type {(() => void) | null} */
 this._externalReceiverClose = null;
+    }
 
     /**
      * Boots WASM, starts rendering, and resolves when the engine is ready.
@@ -318,6 +332,7 @@ this._externalReceiverClose = null;
                 secondaryCanvas: this.secondaryCanvas,
                 aspectCorrection,
                 devicePixelRatio: this.options.devicePixelRatio,
+                renderScale: this.renderScale,
             });
 
             startRender(this.module, this.canvas.width, this.canvas.height);
@@ -327,6 +342,17 @@ this._externalReceiverClose = null;
             setTargetFps(this.module, targetFps);
             setQualityGovernorEnabled(this.module, qualityGovernor);
             setPresetLocked(this.module, presetLocked);
+
+            // Governor v2 (docs/PERFORMANCE.md): sync the starting render scale, then
+            // resize on every tier change (WasmPerfGovernor.cpp pushes here via
+            // js_governor_report_render_scale()). Shrinking the canvas backing store
+            // while keeping its CSS size fixed is what actually applies the "internal
+            // FBO render scale" tier — see the comment in syncCanvasSize() above.
+            this.renderScale = getGovernorRenderScale(this.module) || 1;
+            window.pmOnGovernorRenderScaleChange = (scale) => {
+                this.renderScale = scale;
+                this.resize();
+            };
 
             if (transparent) {
                 setTransparencyMode(this.module, true);
@@ -461,6 +487,7 @@ this._externalReceiverClose = null;
             secondaryCanvas: this.secondaryCanvas,
             aspectCorrection: this.options.aspectCorrection,
             devicePixelRatio: this.options.devicePixelRatio,
+            renderScale: this.renderScale,
         });
     }
 
@@ -482,6 +509,9 @@ this._externalReceiverClose = null;
         if (this._externalReceiverClose) {
             this._externalReceiverClose();
             this._externalReceiverClose = null;
+        }
+        if (window.pmOnGovernorRenderScaleChange) {
+            window.pmOnGovernorRenderScaleChange = null;
         }
         this.audioRouter?.destroy();
         this.audioRouter = null;

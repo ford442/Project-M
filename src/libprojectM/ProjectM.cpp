@@ -611,6 +611,16 @@ void ProjectM::SetMeshSize(uint32_t meshResolutionX, uint32_t meshResolutionY)
     m_meshY = std::max(8u, std::min(300u, m_meshY));
 }
 
+auto ProjectM::MaxBlurLevel() const -> int32_t
+{
+    return m_maxBlurLevel;
+}
+
+void ProjectM::SetMaxBlurLevel(int32_t maxLevel)
+{
+    m_maxBlurLevel = (maxLevel < 0) ? -1 : std::min(maxLevel, 3);
+}
+
 void ProjectM::TexelOffsets(float& texelOffsetX, float& texelOffsetY) const
 {
     texelOffsetX = m_texelOffsetX;
@@ -664,6 +674,7 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
 
     ctx.perPixelMeshX = static_cast<int>(m_meshX);
     ctx.perPixelMeshY = static_cast<int>(m_meshY);
+    ctx.maxBlurLevel = m_maxBlurLevel;
 
     ctx.texelOffsetX = m_texelOffsetX;
     ctx.texelOffsetY = m_texelOffsetY;

@@ -3,8 +3,6 @@
 // Canonical definitions live in cmake/WasmApiManifest.cmake.
 // Regenerate: scripts/sync_wasm_link_common.sh
 
-import type { AudioSourceRouter } from '../projectm-audio-source-router.js';
-
 /** Minimal Emscripten module surface used by projectM hosts. */
 export interface EmscriptenModule {
     ccall: (name: string, returnType: string | null, argTypes: string[], args: unknown[]) => unknown;
@@ -43,6 +41,8 @@ export type ProjectMModule = EmscriptenModule & {
     _set_target_fps: (fps: number) => void;
     _set_quality_governor: (enabled: number) => void;
     _get_quality_tier: () => number;
+    _get_governor_render_scale: () => number;
+    _get_governor_blur_cap: () => number;
     _is_preset_ready: (minFramesSinceReady: number) => number;
     _get_rendered_frame_count: () => number;
     _preset_switch_failed: () => number;
@@ -112,6 +112,8 @@ export const WASM_API_SYMBOLS = {
     setTargetFps: 'set_target_fps',
     setQualityGovernor: 'set_quality_governor',
     getQualityTier: 'get_quality_tier',
+    getGovernorRenderScale: 'get_governor_render_scale',
+    getGovernorBlurCap: 'get_governor_blur_cap',
     isPresetReady: 'is_preset_ready',
     getRenderedFrameCount: 'get_rendered_frame_count',
     presetSwitchFailed: 'preset_switch_failed',
@@ -174,22 +176,7 @@ export function addAudioData(module: ProjectMModule, data: number, len: number):
 }
 
 /** Play audio file from VFS path */
-let hostAudioSourceRouter: AudioSourceRouter | null = null;
-
-/** Register the host {@link AudioSourceRouter} so `pl()` respects exclusive-source policy. */
-export function setHostAudioSourceRouter(router: AudioSourceRouter | null): void {
-    hostAudioSourceRouter = router;
-}
-
 export function pl(module: ProjectMModule, songPath: string): void {
-    hostAudioSourceRouter?.notifyWorkletFeed();
-    if (hostAudioSourceRouter && !hostAudioSourceRouter.canFeed('worklet')) {
-        console.debug(
-            '[projectM audio router] blocked pl() — active source is',
-            hostAudioSourceRouter.getActiveSource()
-        );
-        return;
-    }
     module.ccall('pl', null, ['string'], [songPath]);
 }
 
@@ -338,9 +325,19 @@ export function setQualityGovernor(module: ProjectMModule, enabled: boolean): vo
     module._set_quality_governor(enabled ? 1 : 0);
 }
 
-/** Current quality tier index */
+/** Current quality tier index (0=high, 1=regular, 2=low) */
 export function getQualityTier(module: ProjectMModule): number {
     return module._get_quality_tier();
+}
+
+/** Current governor internal render-scale factor (1.0/0.75/0.5) */
+export function getGovernorRenderScale(module: ProjectMModule): number {
+    return module._get_governor_render_scale();
+}
+
+/** Current governor blur-level cap (-1 = unlimited, else 0-3) */
+export function getGovernorBlurCap(module: ProjectMModule): number {
+    return module._get_governor_blur_cap();
 }
 
 /** Whether preset shaders are ready */
@@ -541,6 +538,8 @@ export const PUBLIC_WASM_API = [
     setTargetFps,
     setQualityGovernor,
     getQualityTier,
+    getGovernorRenderScale,
+    getGovernorBlurCap,
     getGlslGeneratorVersion,
     pmHandleContextLoss,
     dualFboBeginTransition,

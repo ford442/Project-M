@@ -55,6 +55,13 @@ declare global {
         pmSetTargetFps?: (fps: number) => number;
         pmSetQualityGovernorEnabled?: (enabled: boolean) => boolean;
         pmGetQualityTier?: () => number;
+        /** Governor v2 (docs/PERFORMANCE.md): tier-change push notifications from WasmPerfGovernor.cpp. */
+        pmOnGovernorTierChange?: (tier: number) => void;
+        pmOnGovernorRenderScaleChange?: ((scale: number) => void) | null;
+        pmOnGovernorBlurCapChange?: (cap: number) => void;
+        /** Governor v2 pull getters registered by projectm-fps-governor.js. */
+        pmGetGovernorRenderScale?: () => number;
+        pmGetGovernorBlurCap?: () => number;
         /** Mesh-quality hook registered by projectm-mesh-quality.js. */
         pmSetMeshQuality?: (quality: string) => string;
     }

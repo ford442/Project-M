@@ -101,9 +101,24 @@ void BlurTexture::SetRequiredBlurLevel(BlurTexture::BlurLevel level)
     m_blurLevel = std::max(level, m_blurLevel);
 }
 
+void BlurTexture::SetLevelCap(int cap)
+{
+    m_levelCap = cap;
+}
+
+auto BlurTexture::EffectiveLevel(BlurTexture::BlurLevel requested) const -> BlurTexture::BlurLevel
+{
+    if (m_levelCap < 0)
+    {
+        return requested;
+    }
+    return std::min(requested, static_cast<BlurLevel>(m_levelCap));
+}
+
 auto BlurTexture::GetDescriptorsForBlurLevel(BlurTexture::BlurLevel blurLevel) const -> std::vector<Renderer::TextureSamplerDescriptor>
 {
     std::vector<Renderer::TextureSamplerDescriptor> descriptors;
+    blurLevel = EffectiveLevel(blurLevel);
 
     if (blurLevel == BlurLevel::Blur3)
     {
@@ -144,7 +159,7 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
         return;
     }
 
-    unsigned int const passes = static_cast<int>(m_blurLevel) * 2;
+    unsigned int const passes = static_cast<int>(EffectiveLevel(m_blurLevel)) * 2;
     auto const blur1EdgeDarken = static_cast<float>(*perFrameContext.blur1_edge_darken);
 
     const std::array<float, 8> weights = {4.0f, 3.8f, 3.5f, 2.9f, 1.9f, 1.2f, 0.7f, 0.3f}; //<- user can specify these
@@ -395,7 +410,7 @@ void BlurTexture::BindPassTarget(size_t pass)
 
 void BlurTexture::Bind(GLint& unit, Renderer::Shader& shader) const
 {
-    for (size_t i = 0; i < static_cast<size_t>(m_blurLevel) * 2; i++)
+    for (size_t i = 0; i < static_cast<size_t>(EffectiveLevel(m_blurLevel)) * 2; i++)
     {
         if (i % 2 == 1)
         {

@@ -8,12 +8,17 @@ Canonical discussion: GitHub epic
 [#174 — Graphics FPS Recovery](https://github.com/ford442/Project-M/issues/174).
 This file is the in-repo companion so the plan travels with the code.
 
-**Status (2026-07-31):** Plan + five sub-issues filed. #175 (format policy + lazy
+**Status (2026-08-13):** Plan + five sub-issues filed. #175 (format policy + lazy
 allocation + helper fixups), #176 (pre-warp flip removed, `glBlitFramebuffer` for final
 output) and #177 (blur renders straight into its destination textures) have landed
-in-tree. #178 and #179 are still open. **No sub-issue has before/after benchmark JSON
-yet** — that requires a GPU and a browser, and every code-truth finding here was reached
-by reading the tree, not by measuring.
+in-tree — #177's code has been in the tree since before this update (commit
+`2ba6a84`), the GitHub issue just hadn't been closed/linked to a PR; the code-truth
+findings in this document already reflected the landed state. **#178 (Governor v2) has
+now landed in-tree** — see [§178 implementation notes](#178-implementation-notes-governor-v2)
+and `docs/PERFORMANCE.md`'s "Adaptive quality governor (WASM, v2)" section. #179 is still
+open. **No sub-issue has before/after benchmark JSON yet** — that requires a GPU and a
+browser, and every code-truth finding here (including #178's) was reached by reading/
+writing the tree, not by measuring.
 The "verify first" step is now done against the tree — see
 [Verified against the tree](#verified-against-the-tree-2026-07-31) before picking up
 any sub-issue. Two results change the plan: the largest listed suspect is **already
@@ -242,11 +247,54 @@ default, but it is a much stronger candidate than "mobile-only mitigation".
 
 `MESH_SIZES` in `html/projectm-mesh-quality.js:19-22` is `low: [64, 48]`,
 `high: [80, 60]`, resolved from `?meshQuality=`, localStorage, or
-`navigator.hardwareConcurrency < 8`. The governor steps between the same two tiers
-(`WasmPerfGovernor.cpp:106`). So the plan's `?meshQuality=low` A/B is a 64×48 vs 80×60
-comparison — a 1.56× vertex-count ratio, not the 80×60 vs 32×24 (6.25×) implied by the
-"raised from 48×36 / 32×24" framing in the context section. Calibrate expectations for
-the A/B accordingly.
+`navigator.hardwareConcurrency < 8`. `?meshQuality=low` only ever compares against the
+`high` default, a 1.56× vertex-count ratio, not the 80×60 vs 32×24 (6.25×) implied by
+the "raised from 48×36 / 32×24" framing in the context section — calibrate expectations
+for that specific A/B accordingly. The **governor** (as of #178, see below) now steps
+through a third, lower tier (48×36) that `projectm-mesh-quality.js` itself doesn't
+expose as a `?meshQuality=` option.
+
+---
+
+## #178 implementation notes (governor v2)
+
+Landed: three tiers (mesh × blur cap × internal render scale) stepped together instead
+of mesh alone, plus a default-off canvas MSAA policy. Full description in
+`docs/PERFORMANCE.md` ("Adaptive quality governor (WASM, v2)"); summary here for the
+epic-level record:
+
+- **Mesh** and **blur cap** are applied entirely inside the WASM module
+  (`WasmPerfGovernor.cpp`'s `ApplyQualityTier()` calls `projectm_set_mesh_size()` and
+  the new `projectm_set_max_blur_level()`). Blur capping flows through a new
+  `Renderer::RenderContext::maxBlurLevel` field (same per-frame-context mechanism mesh
+  size already used) into `BlurTexture::SetLevelCap()`/`EffectiveLevel()`, which clamp
+  pass count and the descriptor/bind lists consumers see — a preset that requested more
+  blur than the cap allows just doesn't get those higher levels updated or sampled that
+  frame, no stale-texture risk.
+- **Internal render scale** reuses the fact that every WASM FBO already derives its size
+  from the canvas backing-store resolution (`set_window_size()` → `ProjectM::m_windowWidth/Height`).
+  Shrinking the backing store (`canvas.width`/`height`) while leaving the CSS box
+  (`canvas.style.width`/`height`) fixed scales every FBO in the pipeline for free,
+  including dual-FBO transition bandwidth, and the browser's native canvas-to-CSS-box
+  scaling does the "present upscale" — no new offscreen FBO or blit shader was needed.
+  This makes render-scale a **host-side** responsibility, unlike mesh/blur: two new
+  push callbacks (`window.pmOnGovernorRenderScaleChange`/`...BlurCapChange`) plus pull
+  getters (`get_governor_render_scale`/`get_governor_blur_cap`) are documented in
+  `docs/WASM_JS_API.md`. `html/projectm-context.js` and `html/projectm-core.html` apply
+  it; `?renderWorker=1` (OffscreenCanvas) does not yet.
+- **Canvas MSAA** default flipped to `false` (`WasmWebGLContext.cpp`), opt-in via
+  `?aa=1`/`localStorage.canvasAA`, per this document's own §5 finding that a fullscreen
+  quad has no interior edges for MSAA to smooth — only sprite geometry benefits.
+- New public C API: `projectm_set_max_blur_level()`/`projectm_get_max_blur_level()`
+  (mirrors `projectm_set_mesh_size()`).
+
+**Not measured in this environment** (no browser/GPU, consistent with every other entry
+in this document): whether render-scale stepping recovers FPS faster than mesh-only on
+a fill-bound preset (the epic's own acceptance criterion for #178), whether the blur cap
+produces a visible "frozen" higher blur level on `sampler_blur3`-heavy presets, and
+whether `antialias:false` is visually acceptable with sprites active. All three need
+`?benchmark=1`/`?perfhud=1` verification on real hardware before #178 can be considered
+fully done per its acceptance criteria — code landing is necessary but not sufficient.
 
 ---
 
@@ -299,7 +347,7 @@ Option 2 is the cheaper first move and is the recommended way to satisfy the epi
 | [#175](https://github.com/ford442/Project-M/issues/175) | Dual-FBO compositor lifecycle & float-format bandwidth | `P0` | Direct-to-canvas verify, RGBA16F default, lazy alloc, shrink 4→2 if safe |
 | [#176](https://github.com/ford442/Project-M/issues/176) | Collapse MilkdropPreset Y-flip / `CopyTexture` passes | `P0` | UV/NDC flip, `glBlitFramebuffer` for non-flip copies |
 | [#177](https://github.com/ford442/Project-M/issues/177) | Blur chain render-to-texture (kill `glCopyTexSubImage2D`) | `P1` | ✅ Code landed; benchmark JSON outstanding |
-| [#178](https://github.com/ford442/Project-M/issues/178) | Governor v2 — FBO scale, blur tier, MSAA policy | `P1` | Hold 60 FPS under fill load, not only mesh |
+| [#178](https://github.com/ford442/Project-M/issues/178) | Governor v2 — FBO scale, blur tier, MSAA policy | `P1` | ✅ Code landed; benchmark JSON outstanding |
 | [#179](https://github.com/ford442/Project-M/issues/179) | Advance WebGL2 + WebGPU feasibility spike | `P2` | Near-term WebGL2 wins; go/no-go for WebGPU |
 
 Suggested order: **#175 → #176 → #177 → #178**, with **#179** spiked in parallel once
@@ -335,9 +383,9 @@ baselines exist (do not block FPS recovery on WebGPU).
 
 ### Adaptive quality / present (#178)
 
-12. Governor **v2**: step **internal FBO scale** (1.0 / 0.75 / 0.5) and **blur tier**, not only mesh.
-13. Canvas **`antialias: false`** by default on mobile / when over budget; opt-in AA on desktop.
-14. Keep post-load grace so ASYNCIFY compile spikes do not permanently downgrade quality.
+12. Governor **v2**: step **internal FBO scale** (1.0 / 0.75 / 0.5) and **blur tier**, not only mesh. ✅ Landed in-tree (#178); benchmark JSON outstanding.
+13. Canvas **`antialias: false`** by default; opt-in via `?aa=1`. ✅ Landed in-tree (#178) — default for all devices, not mobile-only, per this doc's own §5 finding that MSAA on a fullscreen-quad canvas target is largely invisible regardless of device class.
+14. Keep post-load grace so ASYNCIFY compile spikes do not permanently downgrade quality. ✅ Unchanged from v1, still honored by v2's tier stepping.
 
 ### WebGL2 advances & WebGPU (#179)
 

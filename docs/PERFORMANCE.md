@@ -116,6 +116,7 @@ diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
 | Blur path | `?blurPath=copy` | `PROJECTM_BLUR_COPY_PATH=1` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
 | Dual-FBO precision | `?fboPrecision=high` | — | Probes RGBA32F first for the WASM compositor instead of the RGBA16F default. |
 | Mesh size | `?meshQuality=low` | — | 64×48 instead of the 80×60 default (a 1.56× vertex-count ratio). |
+| Canvas MSAA | `?aa=1` (or `localStorage.canvasAA='1'`) | — | Opts into `antialias:true`; default (unset) is now `false` (governor v2, issue #178). |
 
 The blur switch is read once, at engine init, because the blur render path is decided on the
 first blurred frame and then cached — changing it mid-session has no effect.
@@ -262,6 +263,73 @@ don't fight each other.
 
 Full multi-subsystem governance (blur passes, FBO resolution, etc.) is out of scope for v1 — see
 `html/projectm-fps-governor.js` and `UpdateQualityGovernor()` for where to extend it.
+
+### Adaptive quality governor (WASM, v2)
+
+v2 (issue #178, see [`GRAPHICS_PERF_RECOVERY_PLAN.md`](GRAPHICS_PERF_RECOVERY_PLAN.md)) replaces
+the mesh-only stepping above with **three tiers that step three fill/eval-cost axes together**,
+because mesh-only stepping does not recover FPS on fill-bound (fullscreen-pass-heavy) devices —
+per-pixel mesh is CPU eval cost, but the dual-FBO compositor, blur chain, and MSAA resolve are GPU
+fill-rate cost, and `perPixelEvalMs` is the only trustworthy per-stage bucket (see
+[Measurement](#measurement-what-the-hud-can-and-cannot-tell-you) in the recovery plan). The
+hysteresis (over/under-budget frame thresholds, post-load grace) is unchanged from v1 — only what
+a "step down" / "step up" applies has changed.
+
+| Tier | Mesh | Blur cap | Internal render scale |
+|------|------|----------|------------------------|
+| 0 (high) | 80×60 | uncapped | 1.0 |
+| 1 (regular) | 64×48 | Blur2 | 0.75 |
+| 2 (low) | 48×36 | Blur1 | 0.5 |
+
+**Blur cap** (`kQualityTiers[].maxBlurLevel` in `WasmPerfGovernor.cpp`) flows through
+`ProjectM::SetMaxBlurLevel()` → `Renderer::RenderContext::maxBlurLevel` →
+`BlurTexture::SetLevelCap()`, set once per frame in `MilkdropPreset::RenderFrame()` before
+`blurTexture.Update()`. `BlurTexture::EffectiveLevel()` clamps the pass count in `Update()` and the
+descriptor/bind lists in `GetDescriptorsForBlurLevel()`/`Bind()`, so a preset requesting Blur3 under
+a Blur1 cap simply doesn't render or sample its Blur2/Blur3 textures that frame — no stale-texture
+sampling, no crash, just fewer blur passes. Public C API: `projectm_set_max_blur_level()` /
+`projectm_get_max_blur_level()` (`-1` = uncapped, else 0-3).
+
+**Internal render scale** (`kQualityTiers[].renderScale`) is **not** a separate offscreen FBO + blit.
+Every WASM FBO (`MilkdropPreset`'s ping-pong pair, the dual-FBO compositor, blur textures) is already
+sized from the canvas backing-store resolution (`ProjectM::m_windowWidth/m_windowHeight`, driven by
+`set_window_size()`), and the canvas's CSS box size is tracked independently
+(`canvas.style.width`/`height`). So shrinking the **backing store**
+(`canvas.width`/`canvas.height`) while leaving the CSS box unchanged makes every FBO in the pipeline
+render at the reduced resolution "for free" — including halving dual-FBO transition bandwidth at
+tier 2 — and the browser's own canvas-bitmap-to-CSS-box scaling does the "present upscale", the same
+technique many canvas-based games use for dynamic resolution scaling. This is why the render-scale
+tier is a **host** responsibility (see `docs/WASM_JS_API.md#governor-v2-host-callbacks-push-vs-getters`):
+`html/projectm-fps-governor.js`'s `setupFpsGovernor(Module, { onRenderScaleChange })` wires
+`window.pmOnGovernorRenderScaleChange`, and `html/projectm-context.js`'s `syncCanvasSize()` /
+`html/projectm-core.html`'s `syncModuleSize()` (via `pmContext`) apply it. Not yet wired for
+`?renderWorker=1` (OffscreenCanvas) — see the caveat in `WASM_JS_API.md`.
+
+New exports (`WasmPerfGovernor.cpp`, `cmake/WasmApiManifest.cmake`):
+
+- `Module._get_governor_render_scale()` — current tier's render scale (pull; `js_governor_report_render_scale()` is the push counterpart, firing `window.pmOnGovernorRenderScaleChange(scale)`).
+- `Module._get_governor_blur_cap()` — current tier's blur cap (pull; push counterpart fires `window.pmOnGovernorBlurCapChange(cap)`).
+- `Module._get_quality_tier()` unchanged in signature, now returns 0-2 instead of 0-1.
+
+**Canvas MSAA policy**: `attrs.antialias` now defaults to `false` (see `docs/EMSCRIPTEN.md` §WebGL
+context attributes) — opt in with `?aa=1` / `localStorage.canvasAA='1'`. Independent of the tier
+governor (a build-time-adjacent context attribute, not something that can be changed after context
+creation), but grouped into v2 because it targets the same GPU fill-rate budget.
+
+**Ablation for A/B**: force a tier for benchmarking by disabling the governor
+(`?governor=0`) and driving the pieces manually — `?meshQuality=low` (mesh),
+`Module._set_mesh(48, 36)` (lowest mesh tier, no `?meshQuality` equivalent yet), and comparing
+`?aa=1` vs. default for MSAA. There is no manual render-scale override independent of the governor
+tiers today (render scale isn't a standalone preset-visible concept the way mesh/blur are) — to A/B
+it, compare `gpuMs`/`totalMs` with the governor forced into tier 2 (sustained artificial load) against
+tier 0.
+
+**Not measured in this environment** (no browser/GPU): whether the render-scale tier actually
+recovers FPS faster than mesh-only stepping on a fill-bound preset, whether the blur-cap tier
+produces a visible "frozen" higher-level blur on presets that lean on `sampler_blur3`, and whether
+`antialias:false` is visually acceptable on the sprite-drawing paths. All three should be verified
+with `?benchmark=1` and `?perfhud=1` on real hardware per the recovery plan's measurement protocol
+before this is called done for issue #178's acceptance criteria.
 
 ### Exported controls
 

@@ -59,7 +59,7 @@ no parallel EGL config path. `ProjectMDefaultWebGLAttributes()` sets a minimal, 
 | `majorVersion` / `minorVersion` | 2 / 0 | WebGL 2 required for GLES 3 emulation |
 | `alpha` | `true` | Enables future transparency overlays (`#135`) |
 | `depth` / `stencil` | `true` | Preset shaders may use depth/stencil |
-| `antialias` | `true` | MSAA on the canvas (disable only if mobile profiling shows a measurable win) |
+| `antialias` | `false` by default; opt in with `?aa=1` or `localStorage.canvasAA='1'` | Everything that hits the canvas (FBO 0) is a fullscreen quad — the transition blend or final `CopyTexture` present — plus optional user sprites. A fullscreen quad has no interior edges, so MSAA is invisible on it; only sprite geometry benefits. Default off skips a multisampled color buffer + its per-frame resolve (see `docs/GRAPHICS_PERF_RECOVERY_PLAN.md` §5, issue #178). |
 | `premultipliedAlpha` | `true` | Matches browser compositing defaults |
 | `preserveDrawingBuffer` | `true` only when `?capture=1` or `window.__projectMCaptureMode` | Screenshot/capture harnesses need a stable back-buffer |
 | `enableExtensionsByDefault` | `true` | Lets projectM probe float/half-float FBO formats |

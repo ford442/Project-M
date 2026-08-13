@@ -78,7 +78,9 @@ Intended for third-party embedders. Breaking changes require a major WASM bundle
 | `feedPcmFloat` | (helper) | Wraps `projectm_pcm_add_float_wrapper` |
 | `setTargetFps` | `set_target_fps` | |
 | `setQualityGovernor` | `set_quality_governor` | |
-| `getQualityTier` | `get_quality_tier` | |
+| `getQualityTier` | `get_quality_tier` | 0=high, 1=regular, 2=low (governor v2, see [PERFORMANCE.md](PERFORMANCE.md#adaptive-quality-governor-wasm-v2)) |
+| `getGovernorRenderScale` | `get_governor_render_scale` | Current tier's internal render-scale factor (1.0/0.75/0.5) |
+| `getGovernorBlurCap` | `get_governor_blur_cap` | Current tier's blur-level cap (-1 = unlimited, else 0-3) |
 | `setMesh` | `set_mesh` | Per-pixel grid |
 | `pmHandleContextLoss` | `pm_handle_context_loss` | WebGL context loss |
 | `dualFboBeginTransition` | `dual_fbo_begin_transition` | |
@@ -104,9 +106,49 @@ Examples: `setPerfHud`, `getOmpEnabled`, `dual_fbo_get_*` GL handles, `add_custo
 
 `malloc` / `free` — exported for linking but not wrapped in the public API table. Hosts should use `feedPcmFloat` instead of manual `_malloc` for PCM.
 
+## Governor v2 host callbacks (push) vs. getters (pull)
+
+`WasmPerfGovernor.cpp` fires two `window.pmOn*` callbacks on every tier change, in
+addition to the pre-existing `window.pmOnGovernorTierChange(tier)`:
+
+| Callback | Fired with | Purpose |
+|----------|-----------|---------|
+| `window.pmOnGovernorTierChange(tier)` | `number` (0/1/2) | Pre-existing; UI "reduced quality" indicator |
+| `window.pmOnGovernorRenderScaleChange(scale)` | `number` (1.0/0.75/0.5) | **Must be handled for the render-scale tier to have any effect** — see below |
+| `window.pmOnGovernorBlurCapChange(cap)` | `number` (-1/1/2) | Informational/telemetry only; the blur cap is applied purely in C++ |
+
+`html/projectm-fps-governor.js`'s `setupFpsGovernor(Module, { onRenderScaleChange })`
+wires all three plus `window.pmGetGovernorRenderScale()` / `window.pmGetGovernorBlurCap()`
+pull-getters (for hosts that bind late). **The mesh and blur-cap tiers are applied
+entirely inside the WASM module** (`projectm_set_mesh_size` / `projectm_set_max_blur_level`
+in `ApplyQualityTier()`) — no host action needed for those two. The render-scale tier is
+different: it requires the **host** to shrink the `<canvas>` backing store
+(`canvas.width`/`canvas.height`) while leaving its CSS box size
+(`canvas.style.width`/`height`) unchanged, so the browser's own bitmap-to-CSS-box
+scaling does the "present upscale". `html/projectm-context.js`'s `syncCanvasSize()` /
+`ProjectMContext` and `html/projectm-core.html`'s `syncModuleSize()` (via `pmContext`)
+already do this; a host that bypasses both and drives `set_window_size` directly must
+implement `onRenderScaleChange` itself or the render-scale tier will silently no-op
+(mesh and blur still step down, so FPS still recovers, just less than governor v2
+expects on fill-bound devices).
+
+Query params / localStorage, mirroring the existing `?targetFps=`/`?governor=` pattern:
+
+| Knob | Values | Effect |
+|------|--------|--------|
+| `?aa=1` / `?aa=0`, `localStorage.canvasAA` | `'1'`/`'0'` | Canvas MSAA opt-in (default off, see [EMSCRIPTEN.md](EMSCRIPTEN.md)) |
+
 ## Render worker bridge
 
 [`html/projectm-wasm-api-worker.ts`](../html/projectm-wasm-api-worker.ts) re-exports `WASM_API_SYMBOLS` (camelCase key → C symbol string) for the OffscreenCanvas worker `ccall` proxy. The worker script itself (`projectm-render-worker.js`) cannot import ES modules; it mirrors `feedPcmFloat` inline.
+
+**Governor v2 render-scale is not yet wired in `?renderWorker=1` mode.** The mesh and
+blur-cap tiers still apply (they're internal to the WASM module), but nothing in
+`projectm-render-worker.js`/`projectm-render-worker-host.js` resizes the
+`OffscreenCanvas` backing store on `pmOnGovernorRenderScaleChange` today — consistent
+with that path's other known gaps (perf HUD, FBO-format banner; see PERFORMANCE.md
+§"OffscreenCanvas render worker"). Follow-up for whoever verifies the render-worker
+path in a real browser.
 
 ## Raw `Module._foo` / `ccall`
 

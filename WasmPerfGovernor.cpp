@@ -97,14 +97,22 @@ EM_JS(void, js_perf_report_frame, (
 });
 
 // =============================================================================
-// Adaptive quality governor (see docs/PERFORMANCE.md)
+// Adaptive quality governor v2 (see docs/PERFORMANCE.md, issue #178)
 //
 // Original Milkdrop holds 60 FPS and lets quality settings absorb load
-// instead of letting the frame rate drop. This is a minimal v1: it watches
-// the wall-clock time of renderLoop() (always-on, independent of the perf
-// HUD) and steps the per-pixel mesh resolution between two tiers
-// (80x60 "high" / 64x48 "regular", matching html/projectm-mesh-quality.js) when
-// the frame time is consistently over or under budget.
+// instead of letting the frame rate drop. v1 only stepped per-pixel mesh
+// resolution between two tiers. v2 steps three fill-cost axes together, in
+// lockstep, per tier, because mesh-only stepping does not recover FPS on
+// fill-bound (fullscreen-pass-heavy) devices:
+//
+//   - Per-pixel mesh resolution (perPixelEvalMs cost)
+//   - Blur level cap (blurMs / fullscreen blur pass cost, see BlurTexture)
+//   - Internal render scale (gpuMs fill-rate cost: canvas backing-store
+//     resolution vs. its unchanged CSS display size — see
+//     html/projectm-fps-governor.js / syncModuleSize() for how the JS host
+//     applies this by shrinking canvas.width/height while leaving
+//     canvas.style.width/height alone, letting the browser's own
+//     bitmap-to-CSS-box scaling do the "present upscale" for free)
 //
 // Tuning (see PR description for rationale):
 //   - Budget = 1000 / targetFps ms (default targetFps = 60 -> ~16.7ms).
@@ -121,7 +129,7 @@ EM_JS(void, js_perf_report_frame, (
 
 static bool g_governorEnabled = true; //!< Whether the adaptive quality governor is active.
 static int g_targetFps = 60;          //!< Frame budget reference, set via set_target_fps().
-static int g_qualityTier = 0;         //!< 0 = high (80x60 mesh), 1 = regular (64x48 mesh).
+static int g_qualityTier = 0;         //!< 0 = high, 1 = regular, 2 = low. See kQualityTiers.
 static bool g_qualityTierInitialized = false;
 
 static int g_overBudgetFrames = 0;
@@ -133,17 +141,24 @@ constexpr double kOverBudgetRatio = 1.3;        //!< Step down once frame time e
 constexpr int kOverBudgetFrameThreshold = 15;   //!< ...for this many consecutive frames (~0.25s @ 60fps).
 constexpr double kUnderBudgetRatio = 0.8;       //!< Step back up once frame time is under 0.8x budget...
 constexpr int kUnderBudgetFrameThreshold = 90;  //!< ...for this many consecutive frames (~1.5s @ 60fps).
-constexpr int kMaxQualityTier = 1;              //!< Highest (lowest-quality) tier index.
+constexpr int kMaxQualityTier = 2;              //!< Highest (lowest-quality) tier index.
 
-struct QualityTierMeshSize
+struct QualityTierSettings
 {
-    size_t width;
-    size_t height;
+    size_t meshWidth;
+    size_t meshHeight;
+    int32_t maxBlurLevel; //!< -1 = uncapped, else BlurTexture::BlurLevel (0-3). See ProjectM::SetMaxBlurLevel().
+    double renderScale;   //!< Internal render scale applied by the JS host (1.0 = full resolution).
 };
 
-constexpr QualityTierMeshSize kQualityTierMeshSizes[kMaxQualityTier + 1] = {
-    {80, 60}, // tier 0: high
-    {64, 48}, // tier 1: regular
+// Ordered high -> low quality. Mesh, blur cap, and render scale step together per
+// tier so a single "reduce quality" decision cuts cost on all three fill/eval axes
+// at once, matching how the governor's hysteresis (see UpdateQualityGovernor())
+// already treats tier transitions as a single atomic step.
+constexpr QualityTierSettings kQualityTiers[kMaxQualityTier + 1] = {
+    {80, 60, -1, 1.00}, // tier 0: high    - uncapped blur, full resolution
+    {64, 48,  2, 0.75}, // tier 1: regular - cap at Blur2, 0.75x internal render scale
+    {48, 36,  1, 0.50}, // tier 2: low     - cap at Blur1, 0.5x internal render scale
 };
 
 // Notifies the host page when the governor changes the quality tier, so the
@@ -154,12 +169,36 @@ EM_JS(void, js_governor_report_tier, (int tier), {
     }
 });
 
+// Notifies the host page of the tier's internal render scale (1.0/0.75/0.5), so
+// it can shrink the canvas backing store while keeping its CSS display size fixed
+// (see html/projectm-fps-governor.js and syncModuleSize() in projectm-core.html).
+// This is a *push* notification; get_governor_render_scale() below is the pull
+// counterpart for late-binding hosts.
+EM_JS(void, js_governor_report_render_scale, (double scale), {
+    if (typeof window.pmOnGovernorRenderScaleChange === 'function') {
+        window.pmOnGovernorRenderScaleChange(scale);
+    }
+});
+
+// Notifies the host page of the tier's blur-level cap, mainly for HUD/telemetry.
+// The actual clamping is applied purely in C++ via ProjectM::SetMaxBlurLevel(); no
+// JS action is required for the cap to take effect.
+EM_JS(void, js_governor_report_blur_cap, (int cap), {
+    if (typeof window.pmOnGovernorBlurCapChange === 'function') {
+        window.pmOnGovernorBlurCapChange(cap);
+    }
+});
+
 static void ApplyQualityTier(int tier)
 {
     tier = std::max(0, std::min(kMaxQualityTier, tier));
     g_qualityTier = tier;
-    projectm_set_mesh_size(pm, kQualityTierMeshSizes[tier].width, kQualityTierMeshSizes[tier].height);
+    const QualityTierSettings& settings = kQualityTiers[tier];
+    projectm_set_mesh_size(pm, settings.meshWidth, settings.meshHeight);
+    projectm_set_max_blur_level(pm, settings.maxBlurLevel);
     js_governor_report_tier(tier);
+    js_governor_report_render_scale(settings.renderScale);
+    js_governor_report_blur_cap(settings.maxBlurLevel);
 }
 
 // Resets the consecutive over/under-budget frame counters. Called whenever
@@ -181,7 +220,18 @@ void UpdateQualityGovernor(double frameMs)
         size_t width = 0;
         size_t height = 0;
         projectm_get_mesh_size(pm, &width, &height);
-        g_qualityTier = (width <= kQualityTierMeshSizes[kMaxQualityTier].width) ? kMaxQualityTier : 0;
+        // Find the lowest tier whose mesh width is still >= the current mesh width,
+        // so startup syncs to whatever html/projectm-mesh-quality.js already applied
+        // (tiers are ordered high -> low, so this picks the first tier at or below it).
+        g_qualityTier = 0;
+        for (int tier = kMaxQualityTier; tier >= 0; tier--)
+        {
+            if (width <= kQualityTiers[tier].meshWidth)
+            {
+                g_qualityTier = tier;
+                break;
+            }
+        }
         g_qualityTierInitialized = true;
     }
 
@@ -253,10 +303,27 @@ ResetGovernorCounters();
 return;
 }
 
-// Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48).
+// Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48,
+// 2 = low/48x36). See kQualityTiers.
 EMSCRIPTEN_KEEPALIVE
 int get_quality_tier() {
 return g_qualityTier;
+}
+
+// Returns the current tier's internal render scale (1.0/0.75/0.5). Pull
+// counterpart to the js_governor_report_render_scale() push notification, for
+// hosts that bind pmOnGovernorRenderScaleChange after the governor already
+// initialized its starting tier.
+EMSCRIPTEN_KEEPALIVE
+double get_governor_render_scale() {
+return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].renderScale;
+}
+
+// Returns the current tier's blur-level cap (-1 = uncapped, else 0-3). See
+// ProjectM::MaxBlurLevel().
+EMSCRIPTEN_KEEPALIVE
+int get_governor_blur_cap() {
+return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].maxBlurLevel;
 }
 
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When

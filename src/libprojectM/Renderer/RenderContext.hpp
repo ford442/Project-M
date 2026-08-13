@@ -33,6 +33,10 @@ public:
     int perPixelMeshX{64}; //!< Per-pixel/per-vertex mesh X resolution.
     int perPixelMeshY{48}; //!< Per-pixel/per-vertex mesh Y resolution.
 
+    //! Governor cap on blur passes: -1 = uncapped, else max BlurTexture::BlurLevel
+    //! value (0 = None, 1 = Blur1, 2 = Blur2, 3 = Blur3) presets may render this frame.
+    int maxBlurLevel{-1};
+
     float texelOffsetX{0.0f}; //!< Horizontal texel offset in the warp shader.
     float texelOffsetY{0.0f}; //!< Vertical texel offset in the warp shader.
 

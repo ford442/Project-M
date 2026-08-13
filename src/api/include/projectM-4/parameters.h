@@ -228,6 +228,29 @@ PROJECTM_EXPORT void projectm_set_mesh_size(projectm_handle instance, size_t wid
 PROJECTM_EXPORT void projectm_get_mesh_size(projectm_handle instance, size_t* width, size_t* height);
 
 /**
+ * @brief Caps the blur level presets are allowed to render this frame.
+ *
+ * Used by adaptive quality governors (e.g. the WASM build's v2 governor) to cut blur
+ * pass count under sustained frame-budget pressure without touching preset content.
+ * Presets that request a higher blur level than the cap simply don't have their
+ * higher-numbered blur textures updated or sampled that frame; nothing crashes.
+ *
+ * @param instance The projectM instance handle.
+ * @param max_level -1 for uncapped (default), otherwise the maximum blur level
+ *                   (0 = none, 1 = Blur1, 2 = Blur2, 3 = Blur3).
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_max_blur_level(projectm_handle instance, int32_t max_level);
+
+/**
+ * @brief Returns the current governor blur-level cap.
+ * @param instance The projectM instance handle.
+ * @return -1 if uncapped, otherwise the maximum blur level (0-3, see projectm_set_max_blur_level()).
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT int32_t projectm_get_max_blur_level(projectm_handle instance);
+
+/**
  * @brief Applies a sub-texel offset for main texture lookups in the warp shader.
  *
  * Original Milkdrop uses 0.5 here, but it doesn't seem to be required in OpenGL as this value

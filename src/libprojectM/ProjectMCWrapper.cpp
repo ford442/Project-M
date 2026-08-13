@@ -404,6 +404,18 @@ void projectm_set_mesh_size(projectm_handle instance, size_t width, size_t heigh
     projectMInstance->SetMeshSize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
 }
 
+void projectm_set_max_blur_level(projectm_handle instance, int32_t max_level)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetMaxBlurLevel(max_level);
+}
+
+int32_t projectm_get_max_blur_level(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->MaxBlurLevel();
+}
+
 int32_t projectm_get_fps(projectm_handle instance)
 {
     auto projectMInstance = handle_to_instance(instance);

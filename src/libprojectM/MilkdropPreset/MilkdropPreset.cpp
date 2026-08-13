@@ -149,6 +149,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
         PROJECTM_PERF_SCOPE(Blur);
         const auto warpedImage = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
         assert(warpedImage.get());
+        m_state.blurTexture.SetLevelCap(renderContext.maxBlurLevel);
         m_state.blurTexture.Update(*warpedImage, m_perFrameContext);
     }
 

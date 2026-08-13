@@ -190,6 +190,22 @@ public:
 
     void SetMeshSize(uint32_t meshResolutionX, uint32_t meshResolutionY);
 
+    /**
+     * @brief Returns the current governor blur-level cap.
+     * @return -1 if uncapped, otherwise the maximum BlurTexture::BlurLevel value
+     *         (0 = None, 1 = Blur1, 2 = Blur2, 3 = Blur3) presets may use this frame.
+     */
+    auto MaxBlurLevel() const -> int32_t;
+
+    /**
+     * @brief Caps the blur level presets are allowed to render this frame.
+     *
+     * Used by the WASM adaptive quality governor (v2) to cut blur pass count under
+     * sustained frame-budget pressure. -1 (default) leaves presets uncapped.
+     * @param maxLevel -1 for uncapped, else 0-3 (see MaxBlurLevel()).
+     */
+    void SetMaxBlurLevel(int32_t maxLevel);
+
     void TexelOffsets(float& texelOffsetX, float& texelOffsetY) const;
 
     void SetTexelOffsets(float texelOffsetX, float texelOffsetY);
@@ -324,6 +340,9 @@ private:
     // resolution (e.g. 64x48) on lower-end devices.
     uint32_t m_meshX{80}; //!< Per-point mesh horizontal resolution.
     uint32_t m_meshY{60}; //!< Per-point mesh vertical resolution.
+
+    // Governor blur-level cap (see SetMaxBlurLevel()). -1 = uncapped.
+    int32_t m_maxBlurLevel{-1};
 
     // Default target FPS. Winamp Milkdrop defaults to 60; this value is also
     // used as the adaptive quality governor's frame budget reference on the

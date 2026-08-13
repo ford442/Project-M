@@ -54,6 +54,8 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _set_target_fps
         _set_quality_governor
         _get_quality_tier
+        _get_governor_render_scale
+        _get_governor_blur_cap
         _is_preset_ready
         _get_rendered_frame_count
         _preset_switch_failed

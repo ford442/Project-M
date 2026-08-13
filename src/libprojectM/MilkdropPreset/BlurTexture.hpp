@@ -65,6 +65,17 @@ public:
     void SetRequiredBlurLevel(BlurLevel level);
 
     /**
+     * @brief Caps the blur level actually rendered/sampled this frame.
+     *
+     * Used by the adaptive quality governor to cut blur pass count under sustained
+     * frame-budget pressure without changing what the preset itself requested
+     * (SetRequiredBlurLevel()). Levels above the cap are simply not rendered this
+     * frame and not exposed via GetDescriptorsForBlurLevel()/Bind().
+     * @param cap -1 for uncapped (default), otherwise a BlurLevel value (0-3).
+     */
+    void SetLevelCap(int cap);
+
+    /**
      * @brief Returns a list of descriptors for the given blur level.
      * The blur textures don't need to be present and can be empty placeholders.
      * @param blurLevel The blur level.
@@ -133,6 +144,13 @@ private:
      */
     void BindPassTarget(size_t pass);
 
+    /**
+     * @brief Clamps a requested blur level against the governor cap, if any.
+     * @param requested The level the preset/shader wants.
+     * @return requested, or m_levelCap if lower and the cap is active.
+     */
+    auto EffectiveLevel(BlurLevel requested) const -> BlurLevel;
+
     Renderer::Mesh m_blurMesh; //!< The blur mesh (a simple quad).
 
     std::weak_ptr<Renderer::Shader> m_blur1Shader; //!< The shader used on the first blur pass.
@@ -147,6 +165,7 @@ private:
     std::shared_ptr<Renderer::Sampler> m_blurSampler;                               //!< The blur sampler.
     std::array<std::shared_ptr<Renderer::Texture>, NumBlurTextures> m_blurTextures; //!< The blur textures for each pass.
     BlurLevel m_blurLevel{BlurLevel::None};                                         //!< Current blur level.
+    int m_levelCap{-1};                                                             //!< Governor cap on blur level, -1 = uncapped.
 };
 
 } // namespace MilkdropPreset

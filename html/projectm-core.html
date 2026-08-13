@@ -1382,7 +1382,19 @@ async function attemptInit() {
             applyTransparencyDomState(isTransparencyMode);
 
             setupMeshQuality(Module);
-            setupFpsGovernor(Module);
+            setupFpsGovernor(Module, {
+                onRenderScaleChange: (scale) => {
+                    // Governor v2: shrink the canvas backing store while pmContext
+                    // keeps its CSS display size fixed (see syncCanvasSize() in
+                    // projectm-context.js). Supersedes the identical wiring
+                    // pmContext.start() already did internally, same as the
+                    // setupMeshQuality()/setTargetFps() calls around this one.
+                    if (pmContext) {
+                        pmContext.renderScale = scale;
+                        pmContext.resize();
+                    }
+                },
+            });
             setupFboFormatIndicator(Module);
             setupPerfTools(Module);
             setupPresetDevTools(Module, { startTransitionWhenReady });

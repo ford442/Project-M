@@ -4,11 +4,16 @@
 // build. See docs/PERFORMANCE.md.
 //
 // The libprojectM/WASM default target is 60 FPS (matching Winamp Milkdrop).
-// The adaptive quality governor (implemented in projectM_emscripten.cpp,
+// The adaptive quality governor (implemented in WasmPerfGovernor.cpp,
 // `UpdateQualityGovernor()`) watches the wall-clock render loop time and, if
-// it consistently exceeds the 1/targetFps budget, steps the per-pixel mesh
-// resolution down (80x60 -> 64x48, see projectm-mesh-quality.js) instead of
-// letting the frame rate drop. If frame time recovers, it steps back up.
+// it consistently exceeds the 1/targetFps budget, steps three tiers together
+// (v2, see docs/PERFORMANCE.md "Governor v2"):
+// - Per-pixel mesh resolution (80x60 -> 64x48 -> 48x36, projectm-mesh-quality.js)
+// - Blur level cap (uncapped -> Blur2 -> Blur1, see BlurTexture.cpp)
+// - Internal render scale (1.0 -> 0.75 -> 0.5, applied by this module's
+//   `onRenderScaleChange` hook by shrinking the canvas backing store while
+//   leaving its CSS display size unchanged)
+// If frame time recovers, it steps back up.
 //
 // Settings are persisted in localStorage:
 // - 'targetFps': desired target FPS (default 60).
@@ -19,6 +24,8 @@
 // query parameters.
 
 import {
+    getGovernorBlurCap as wasmGetGovernorBlurCap,
+    getGovernorRenderScale as wasmGetGovernorRenderScale,
     getQualityTier as wasmGetQualityTier,
     setQualityGovernor as wasmSetQualityGovernor,
     setTargetFps as wasmSetTargetFps,
@@ -73,7 +80,8 @@ export function setQualityGovernorEnabled(Module, enabled) {
 }
 
 /**
- * Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48).
+ * Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48,
+ * 2 = low/48x36).
  * @param {*} Module The Emscripten module instance.
  * @returns {number} The current quality tier.
  */
@@ -82,15 +90,44 @@ export function getQualityTier(Module) {
 }
 
 /**
+ * Returns the current tier's internal render scale (1.0/0.75/0.5).
+ * @param {*} Module The Emscripten module instance.
+ * @returns {number} The current render scale.
+ */
+export function getGovernorRenderScale(Module) {
+    return wasmGetGovernorRenderScale(Module);
+}
+
+/**
+ * Returns the current tier's blur-level cap (-1 = uncapped, else 0-3).
+ * @param {*} Module The Emscripten module instance.
+ * @returns {number} The current blur-level cap.
+ */
+export function getGovernorBlurCap(Module) {
+    return wasmGetGovernorBlurCap(Module);
+}
+
+/**
  * Applies the target FPS and governor-enabled settings from `?targetFps=` /
  * `?governor=`, falling back to localStorage, and exposes
  * `window.pmSetTargetFps(fps)` / `window.pmSetQualityGovernorEnabled(enabled)`
  * for host UIs to change and persist them.
  *
+ * Also wires `window.pmOnGovernorRenderScaleChange` / `window.pmOnGovernorBlurCapChange`
+ * — the push notifications WasmPerfGovernor.cpp fires on every tier change — and
+ * exposes `window.pmGetGovernorRenderScale()` / `window.pmGetGovernorBlurCap()` for
+ * polling. If `onRenderScaleChange` is provided, it's called with the new scale
+ * (1.0/0.75/0.5) whenever the governor steps tiers, so the host can resize the
+ * canvas backing store (see syncModuleSize() in projectm-core.html / syncCanvasSize()
+ * in projectm-context.js) — this is what actually applies the "internal FBO render
+ * scale" tier; nothing here touches the canvas directly.
+ *
  * @param {*} Module The Emscripten module instance (must already be initialized).
+ * @param {{ onRenderScaleChange?: (scale: number) => void }} [options]
  * @returns {{ targetFps: number, governorEnabled: boolean }} The settings applied.
  */
-export function setupFpsGovernor(Module) {
+export function setupFpsGovernor(Module, options = {}) {
+    const { onRenderScaleChange } = options;
     const params = new URLSearchParams(location.search);
 
     const targetFps = setTargetFps(
@@ -114,6 +151,21 @@ export function setupFpsGovernor(Module) {
     };
 
     window.pmGetQualityTier = () => getQualityTier(Module);
+
+    let currentRenderScale = getGovernorRenderScale(Module);
+    let currentBlurCap = getGovernorBlurCap(Module);
+
+    window.pmOnGovernorRenderScaleChange = (scale) => {
+        currentRenderScale = scale;
+        if (typeof onRenderScaleChange === 'function') {
+            onRenderScaleChange(scale);
+        }
+    };
+    window.pmOnGovernorBlurCapChange = (cap) => {
+        currentBlurCap = cap;
+    };
+    window.pmGetGovernorRenderScale = () => currentRenderScale;
+    window.pmGetGovernorBlurCap = () => currentBlurCap;
 
     return { targetFps, governorEnabled };
 }

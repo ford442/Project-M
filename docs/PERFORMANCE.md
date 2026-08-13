@@ -114,12 +114,19 @@ diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
 | Switch | WASM | Native | Effect |
 |--------|------|--------|--------|
 | Blur path | `?blurPath=copy` | `PROJECTM_BLUR_COPY_PATH=1` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
+| Texture copy path | `?copyPath=shader` | `PROJECTM_COPY_SHADER_PATH=1` | Restores the pre-#179 copy path: every `CopyTexture` resolve is a fullscreen textured quad. Default (unset) resolves the plain and Y-flipped copies with `glBlitFramebuffer` where the blit is equivalent (no blending, viewport covers the target, source format is color-renderable) and falls back to the quad otherwise. |
 | Dual-FBO precision | `?fboPrecision=high` | — | Probes RGBA32F first for the WASM compositor instead of the RGBA16F default. |
 | Mesh size | `?meshQuality=low` | — | 64×48 instead of the 80×60 default (a 1.56× vertex-count ratio). |
 | Canvas MSAA | `?aa=1` (or `localStorage.canvasAA='1'`) | — | Opts into `antialias:true`; default (unset) is now `false` (governor v2, issue #178). |
 
-The blur switch is read once, at engine init, because the blur render path is decided on the
-first blurred frame and then cached — changing it mid-session has no effect.
+The blur and copy switches are read once, at engine init: the blur render path is decided on
+the first blurred frame and then cached, and the copy path is latched the first time a copy
+runs. Changing either mid-session has no effect.
+
+> The copy switch only moves presets that still pay a fullscreen flip. Presets using the
+> default warp shader already skip the pre-warp copy entirely (#176), and presets **with** a
+> composite shader skip the third flip — so the largest A/B delta is expected on an
+> old-school preset with a custom warp shader and no composite shader, which pays all three.
 
 > When A/B'ing the blur path, expect `blurMs` to move much further than `totalMs` does.
 > `glCopyTexSubImage2D` is one of the few calls in the frame that can force CPU-visible

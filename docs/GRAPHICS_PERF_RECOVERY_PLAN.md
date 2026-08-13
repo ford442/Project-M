@@ -15,8 +15,10 @@ in-tree — #177's code has been in the tree since before this update (commit
 `2ba6a84`), the GitHub issue just hadn't been closed/linked to a PR; the code-truth
 findings in this document already reflected the landed state. **#178 (Governor v2) has
 now landed in-tree** — see [§178 implementation notes](#178-implementation-notes-governor-v2)
-and `docs/PERFORMANCE.md`'s "Adaptive quality governor (WASM, v2)" section. #179 is still
-open. **No sub-issue has before/after benchmark JSON yet** — that requires a GPU and a
+and `docs/PERFORMANCE.md`'s "Adaptive quality governor (WASM, v2)" section. **#179's spike has
+now landed in-tree** — see [§179 implementation notes](#179-implementation-notes-webgl2-advances-and-webgpu-spike-report)
+for the WebGL2 outcomes and the **defer** decision on WebGPU.
+**No sub-issue has before/after benchmark JSON yet** — that requires a GPU and a
 browser, and every code-truth finding here (including #178's) was reached by reading/
 writing the tree, not by measuring.
 The "verify first" step is now done against the tree — see
@@ -310,6 +312,218 @@ fully done per its acceptance criteria — code landing is necessary but not suf
 
 ---
 
+## #179 implementation notes (WebGL2 advances) and WebGPU spike report
+
+This section is the decision record the epic asked for. Everything below was reached by
+reading and writing the tree; **no measurement was possible in the authoring environment**
+(no browser, no GPU, no Emscripten toolchain — same caveat as #175–#178), so each item
+records either what landed or what must be measured before it can land.
+
+### A. WebGL2 items
+
+| # | Item | Outcome |
+|---|------|---------|
+| A1 | `glBlitFramebuffer` for resolves | ✅ **Landed** — see below |
+| A2 | Attach textures directly / MRT | ✅ **Already done**, no further cheap win — see below |
+| A3 | `WEBGL_get_program_binary` cache | ❌ **No-go**, not a deferral — see below |
+| A4 | Default `?renderWorker=1` | ⏸ **Deferred**, needs in-browser verification — see below |
+| A5 | `FULL_ES3=0`, Closure | ⏸ **Deferred**, needs in-browser verification — see below |
+| A6 | JSPI / ASYNCIFY isolation | ➡ Owned by [#173](https://github.com/ford442/Project-M/issues/173), not touched here |
+
+#### A1 — `glBlitFramebuffer` resolves (landed)
+
+Before this issue, the only hardware blit in the tree was the final preset→target copy added
+by #176 (`ProjectM.cpp:247`, fed by `MilkdropPreset::BindOutputForRead()`). Every other copy
+still went through `Renderer::CopyTexture`, i.e. a fullscreen textured quad. After #176 folded
+the default-warp flip into the warp shader, the surviving quads in the Milkdrop frame are:
+
+| Site | When it runs |
+|------|--------------|
+| `MilkdropPreset.cpp:124` — pre-warp flip of the previous frame | Only when the preset has a **custom warp shader** |
+| `MilkdropPreset.cpp:181` — flip before `FinalComposite` | Every frame |
+| `MilkdropPreset.cpp:193` — third flip for old-school effects | Only when the preset has **no composite shader** |
+
+All three are plain (optionally Y-flipped) resolves between same-size color attachments, which
+is exactly what `glBlitFramebuffer` does in hardware — including the flip, which the blit
+expresses by inverting the destination rectangle. `CopyTexture::TryBlit()` now takes that path:
+it attaches the source texture to a lazily created read FBO, blits into the instance's own
+framebuffer with `GL_NEAREST` (matching the existing `m_sampler`), and detaches again so the
+source is not kept alive across frames.
+
+It deliberately falls back to the quad whenever the blit would **not** be equivalent:
+
+- blending is enabled (`glBlitFramebuffer` ignores blend state and the fragment shader);
+- the viewport does not cover the destination (the quad is viewport-clipped, the blit is not);
+- the read framebuffer is incomplete for the source texture (not every format a preset texture
+  can carry is color-renderable, and only color-renderable formats can be blitted from);
+- the caller wants near-black transparency keying, which is real fragment work — the
+  `SetTransparencyMode()` overload that draws into the *currently bound* framebuffer is
+  untouched;
+- the caller passes an explicit `targetTexture`, because that path swaps the attachment's
+  `shared_ptr` without re-issuing `glFramebufferTexture2D` and so is not a straightforward
+  render-to-target (pre-existing behaviour; not changed here).
+
+**Ablation switch:** `?copyPath=shader` (WASM) or `PROJECTM_COPY_SHADER_PATH=1` (native)
+restores the all-quad behaviour on the same build, mirroring `?blurPath=copy` from #177.
+
+**Not measured.** The A/B that sizes this must use an old-school preset with a **custom warp
+shader and no composite shader** — that is the only preset shape that pays all three quads.
+A default-warp preset with a composite shader pays one, and will show close to nothing.
+
+#### A2 — Direct texture attachment / MRT (already done)
+
+The motion-vector UV map is already a second color attachment on the current framebuffer for
+the warp draw (`MilkdropPreset.cpp:139` `SetAttachment(..., 1, m_motionVectorUVMap)`, removed
+again right after), so the MRT opportunity named in the issue is spent. The blur chain stopped
+round-tripping through a scratch attachment in #177. What remains is the feedback ping-pong
+itself, which is required by Milkdrop semantics, not a copy that can be attached away. **No
+further cheap win here** — the remaining copies were A1's, and they are now blits.
+
+#### A3 — `WEBGL_get_program_binary` (no-go, close it)
+
+This is not a deferral: **no shipping browser exposes program binaries to WebGL2.** The
+extension exists as an ANGLE/native-GLES facility, not as a WebGL extension a page can request,
+and Emscripten has no binding for it. The item as written in `PERFORMANCE.md` cannot be
+implemented at any cost, and the line should be read as closed rather than pending.
+
+What actually covers the warm-preset-switch case:
+
+1. The browser's own internal program cache (Chrome/ANGLE persist compiled programs across
+   loads keyed on source; nothing to do from our side).
+2. The GLSL transpile cache we already ship — `Renderer::ShaderTranspileCache` plus the
+   IndexedDB hooks installed in `projectM_emscripten.cpp` — which skips the HLSL parse and
+   `M4::GLSLGenerator` run on repeat visits. That is the expensive half on preset switch;
+   `glCompileShader`/`glLinkProgram` after it are the browser's to cache.
+
+If warm preset switches are still slow after that, the next lever is reducing the *number* of
+distinct programs (shader dedup across presets), not binary caching.
+
+#### A4 — Default the OffscreenCanvas render worker (deferred)
+
+`?renderWorker=1` is implemented and opt-in (`html/projectm-render-worker-host.js`,
+`html/projectm-render-worker.js`; rationale and manual test matrix in `PERFORMANCE.md`
+"OffscreenCanvas render worker"). Flipping the default is a *product* change with real
+fallout — input/resize/preset control all move to `postMessage`, and every host embedding
+`projectm-element.js` inherits it — so it must not be defaulted on unverified code.
+
+**Blocked on:** running that document's existing five-step manual matrix (desktop Chrome,
+Firefox, an OffscreenCanvas-less browser, the default path bit-for-bit, and audio latency),
+plus `?benchmark=1` frame-p95 with and without the worker on one machine. Until someone has
+a browser in front of them, the honest state is opt-in. Cross-reference: issue
+[#81](https://github.com/ford442/Project-M/issues/81).
+
+#### A5 — `FULL_ES3=0` and Closure (deferred)
+
+`cmake/EmscriptenWasmFlags.cmake` still sets `FULL_ES3=1` alongside
+`MIN_WEBGL_VERSION=2`/`MAX_WEBGL_VERSION=2`. `PERFORMANCE.md`'s deferred-flags table already
+measured the build side: `FULL_ES3=0` links cleanly and saves ~10 KB of JS (-4.4%), with
+`GL_MAX_TEMP_BUFFER_SIZE` / `GL_POOL_TEMP_BUFFERS=0` to be re-evaluated together with it.
+
+The reason it has not landed is unchanged and is *not* laziness about size: nothing has
+rendered a frame with it. The risk is a GL call that silently depends on ES3-emulation-on-top-
+of-WebGL2 rather than failing to link. A1 makes this slightly more pressing, not less —
+`glBlitFramebuffer` with an inverted destination rectangle is precisely the kind of call where
+an emulation layer and native WebGL2 could differ. **Verify A1 and `FULL_ES3=0` in the same
+browser session**, in that order.
+
+Closure is the same shape of bet (JS-side size, needs a smoke test with the full host stack
+including the worker path) and should ride along with the same verification session.
+
+### B. WebGPU spike — **DEFER** (not no-go, not now)
+
+**Decision: defer.** WebGPU is a plausible eventual backend, but it is gated on a shader
+problem this repo does not currently have any part of, and it would buy nothing that
+#175–#179 have not already bought more cheaply. Revisit when the WebGL2 items above are
+measured and exhausted, or when a WGSL-capable HLSL path becomes available for free.
+
+#### B1 — Frame graph mapping (the easy half)
+
+The Milkdrop frame maps onto WebGPU cleanly, and this is not where the difficulty is:
+
+| Milkdrop stage | WebGPU shape |
+|----------------|--------------|
+| Feedback ping-pong (2 color targets, swapped) | Two textures, alternating render pass attachments — same as today |
+| Motion-vector UV MRT | Second color attachment in one render pass |
+| Warp mesh (80×60 grid, CPU-evaluated per-pixel code) | Vertex buffer written per frame; the per-pixel eval stays on the CPU |
+| Blur chain (separable, downscaled tiers) | Render passes, or compute passes with workgroup-shared taps |
+| Final composite / video echo | Render pass to the swapchain texture |
+| Dual-preset blend (WASM compositor) | Render pass sampling two preset outputs |
+| Y-flip resolves | `copyTextureToTexture` cannot flip; would fold into UVs, as #176 already did |
+
+The one genuinely *new* capability is compute for the blur chain and possibly for per-pixel
+mesh evaluation. That is the only outcome that would beat a fully-tuned WebGL2 path, and it
+is also the largest piece of new work.
+
+#### B2 — Blockers (the hard half)
+
+1. **HLSL→WGSL does not exist in this tree, and cannot be added cheaply.** Preset warp and
+   composite shaders are authored in Milkdrop's HLSL dialect and transpiled **at preset load,
+   at runtime, in the WASM module** by the vendored `hlslparser`
+   (`src/libprojectM/MilkdropPreset/ShaderTranspiler.cpp` → `M4::GLSLGenerator`). That
+   generator emits GLSL only: its `Version` enum (`vendor/hlslparser/src/GLSLGenerator.h:29`)
+   is `110/120/140/150/330/100_ES/300_ES` — there is no WGSL target and no SPIR-V target.
+   A WebGPU backend therefore needs one of:
+   - a new `WGSLGenerator` backend in the vendored `hlslparser` (largest correctness risk:
+     every preset in the wild is a test case, and the parser is already the source of
+     long-tail preset bugs), or
+   - a runtime GLSL→SPIR-V→WGSL chain (glslang + tint/naga) shipped **inside the WASM
+     bundle**, because translation happens per preset load, not at build time. That is
+     megabytes of added payload on a bundle whose deferred-flag work is currently fighting
+     over 10 KB, and it puts a second compiler on the preset-switch hot path that A3 above
+     is trying to keep short.
+2. **Every built-in shader is GLSL source.** 38 `*Glsl330.frag/.vert/.inc` files across
+   `MilkdropPreset/Shaders/` and `Renderer/TransitionShaders/`, plus inline `#version 300 es`
+   / `#version 330` strings in `CopyTexture.cpp`, `TransitionShaderManager.cpp`,
+   `MilkdropSprite.cpp` and others. All would need WGSL twins, and the transition shaders are
+   an actively growing set (see `docs/transition_shaders.md`) — a second backend means every
+   new transition is written twice or the backends diverge.
+3. **The renderer is GL-shaped end to end, not abstracted.** `Renderer::Framebuffer`,
+   `Texture`, `Shader`, `Sampler`, `Mesh` are thin wrappers over GL objects and are used
+   directly by preset code (`glBlitFramebuffer`, `glFramebufferTexture2D` and raw enums appear
+   in preset-level files, including in A1 above). There is no device abstraction to implement
+   a second backend behind; introducing one is the actual XL, independent of WGSL.
+4. **Emscripten integration is a separate world.** The build is `USE_WEBGL2=1` +
+   `MIN/MAX_WEBGL_VERSION=2` with glad-style GL entry points. WebGPU means emdawnwebgpu /
+   `navigator.gpu` and a different (asynchronous) device/adapter acquisition path — which
+   collides with the ASYNCIFY/JSPI work in [#173](https://github.com/ford442/Project-M/issues/173)
+   and with the OffscreenCanvas worker path in A4, since a `GPUCanvasContext` has its own
+   transfer rules. There is currently **no WebGPU reference anywhere in the source tree**.
+5. **Float feedback formats.** The Dual-FBO chain probes RGBA16F→RGBA32F→RGBA8 at runtime
+   (#175). WebGPU's `rgba32float` is not blendable and `rgba16float` filtering/blending
+   depends on features being requested at device creation — so the format-probing logic is
+   not a port, it is a rewrite with different fallbacks.
+
+#### B3 — Why not prototype one pass now
+
+The issue offers "prototype one pass **or** conclude no-go with rationale". A single-pass
+prototype (say, the final composite) would need its own `GPUDevice`, swapchain and canvas
+context alongside the live WebGL2 context. **A canvas can hold only one context type**, so
+the prototype cannot composite the existing WebGL2 output — it would have to render to an
+offscreen canvas and prove nothing about interop, or the whole chain moves at once. A prototype
+that shares no state with the real renderer measures WebGPU's triangle throughput, not this
+application's, so it would not inform the go/no-go it is meant to inform. The blockers in B2
+are structural and already answer the question.
+
+#### B4 — Conditions to revisit
+
+Revisit WebGPU when **any two** of these hold:
+
+- WebGL2 is measured and exhausted: A1/A4/A5 landed and benchmarked, and `gpuMs` is still the
+  budget after governor v2 has stepped down.
+- A maintained HLSL→WGSL (or GLSL→WGSL) path exists that we can adopt rather than write,
+  small enough to ship in the bundle or usable ahead of time.
+- The renderer gains a device abstraction for another reason (e.g. a native Vulkan/Metal
+  backend upstream), making the second backend incremental instead of foundational.
+- A concrete workload appears that compute wins decisively and WebGL2 cannot express — the
+  realistic candidate is per-pixel mesh evaluation moving to the GPU, which today is CPU
+  + OpenMP and is the largest `perPixelEvalMs` bucket.
+
+**Estimated invasiveness if pursued anyway:** XL. Device abstraction (L) + WGSL shader corpus
+(L) + HLSL→WGSL runtime path (XL, highest risk) + Emscripten/canvas/worker integration (M),
+with a long tail of per-preset visual regressions that only a large preset sweep would catch.
+
+---
+
 ## Measurement: what the HUD can and cannot tell you
 
 Worth settling before anyone ranks suspects, because the cheat sheet above over-promises.
@@ -360,7 +574,7 @@ Option 2 is the cheaper first move and is the recommended way to satisfy the epi
 | [#176](https://github.com/ford442/Project-M/issues/176) | Collapse MilkdropPreset Y-flip / `CopyTexture` passes | `P0` | UV/NDC flip, `glBlitFramebuffer` for non-flip copies |
 | [#177](https://github.com/ford442/Project-M/issues/177) | Blur chain render-to-texture (kill `glCopyTexSubImage2D`) | `P1` | ✅ Code landed; benchmark JSON outstanding |
 | [#178](https://github.com/ford442/Project-M/issues/178) | Governor v2 — FBO scale, blur tier, MSAA policy | `P1` | ✅ Code landed; benchmark JSON outstanding |
-| [#179](https://github.com/ford442/Project-M/issues/179) | Advance WebGL2 + WebGPU feasibility spike | `P2` | Near-term WebGL2 wins; go/no-go for WebGPU |
+| [#179](https://github.com/ford442/Project-M/issues/179) | Advance WebGL2 + WebGPU feasibility spike | `P2` | ✅ Blit resolves landed + WebGPU deferred; A4/A5 need browser verify |
 
 Suggested order: **#175 → #176 → #177 → #178**, with **#179** spiked in parallel once
 baselines exist (do not block FPS recovery on WebGPU).
@@ -390,7 +604,7 @@ baselines exist (do not block FPS recovery on WebGPU).
 ### Core Milkdrop copies (#176, #177)
 
 9. **Collapse Y-flips** into consumer shaders (warp/composite UV) instead of 2–3 fullscreen `CopyTexture` draws.
-10. Use **`glBlitFramebuffer`** for format-matched, non-flip resolves (WebGL2).
+10. Use **`glBlitFramebuffer`** for format-matched resolves (WebGL2) — including flips, via an inverted destination rectangle. ✅ Landed in-tree (#179); `?copyPath=shader` restores the quad path for A/B.
 11. Blur: **render into the destination texture attachment**; remove per-pass `glCopyTexSubImage2D`. ✅ Landed in-tree; `?blurPath=copy` restores the old path for A/B.
 
 ### Adaptive quality / present (#178)
@@ -401,12 +615,12 @@ baselines exist (do not block FPS recovery on WebGPU).
 
 ### WebGL2 advances & WebGPU (#179)
 
-15. Land deferred link flags after browser verify (`FULL_ES3=0`, Closure) — size/startup; coordinate with #173 for ASYNCIFY→JSPI.
-16. **`WEBGL_get_program_binary`** warm cache (beyond GLSL IDB transpile cache).
-17. Verify and consider defaulting **OffscreenCanvas render worker** (`?renderWorker=1`).
-18. **WebGPU spike**: map frame graph → WGSL; identify HLSL→WGSL / Emscripten blockers; prototype one pass **or** write no-go. Full backend is XL and should not gate #175–#178.
+15. Land deferred link flags after browser verify (`FULL_ES3=0`, Closure) — size/startup; coordinate with #173 for ASYNCIFY→JSPI. ⏸ Still deferred (#179 A5) — verify in the same browser session as item 10.
+16. **`WEBGL_get_program_binary`** warm cache — ❌ no-go (#179 A3): no shipping browser exposes program binaries to WebGL2. The GLSL IDB transpile cache plus the browser's own program cache is the whole story.
+17. Verify and consider defaulting **OffscreenCanvas render worker** (`?renderWorker=1`). ⏸ Still opt-in (#179 A4) — blocked on `PERFORMANCE.md`'s manual browser matrix.
+18. **WebGPU spike** — ⏸ **defer** (#179 B): frame graph maps cleanly, but there is no WGSL target in the vendored `hlslparser` and preset shaders are transpiled at runtime, so a backend is XL with no win WebGL2 cannot deliver first. Revisit conditions in §179 B4.
 
-There is **no existing WebGPU roadmap** in this repo; #179 creates the decision record.
+There was **no existing WebGPU roadmap** in this repo; [§179](#179-implementation-notes-webgl2-advances-and-webgpu-spike-report) is now the decision record.
 
 ---
 
@@ -428,7 +642,7 @@ There is **no existing WebGPU roadmap** in this repo; #179 creates the decision 
 
 ### M3 — Platform next (`P2`)
 
-- #179 WebGL2 leftovers + WebGPU go/no-go  
+- #179 WebGL2 leftovers + WebGPU go/no-go — ✅ decision recorded; blit resolves merged, A4/A5 deferred with a named verification step
 
 **Exit:** Plan section filled with decision; any cheap WebGL2 items merged or explicitly deferred.
 

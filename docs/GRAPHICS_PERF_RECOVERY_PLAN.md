@@ -223,6 +223,14 @@ forces the legacy copy path, so before/after can be benchmarked **on a single bu
 This is the recommended way to produce #177's before/after `?benchmark=1` JSON —
 and note the `blurMs` caveat above: that bucket will fall further than frame time does.
 
+**Item 3 (optional, "coordinate with #178") — landed.** Governor v2's tiers now include
+`blurResolutionScale` (1.0 → 0.6 → 0.4, more aggressive than the general internal render
+scale) alongside the mesh/blur-level-cap tiers, flowing through
+`ProjectM::SetBlurResolutionScale()` → `BlurTexture::SetResolutionScale()`, applied in
+`AllocateTextures()` before the existing per-level progressive halving. See
+`docs/PERFORMANCE.md`'s governor v2 tier table for the full breakdown. Purely internal to
+the WASM module — no host wiring needed, unlike the render-scale tier.
+
 ### 5. Canvas MSAA — narrower than it looks (#178)
 
 `attrs.antialias = EM_TRUE` is set unconditionally (`WasmWebGLContext.cpp:95`).
@@ -270,7 +278,10 @@ epic-level record:
   size already used) into `BlurTexture::SetLevelCap()`/`EffectiveLevel()`, which clamp
   pass count and the descriptor/bind lists consumers see — a preset that requested more
   blur than the cap allows just doesn't get those higher levels updated or sampled that
-  frame, no stale-texture risk.
+  frame, no stale-texture risk. A third, independent axis — **blur-texture resolution
+  scale** (1.0 → 0.6 → 0.4, more aggressive than the general render scale) — closes out
+  #177 item 3 ("optionally downscale early blur levels more aggressively"); see
+  [#177 implementation notes](#177-implementation-notes-blur-render-to-texture) above.
 - **Internal render scale** reuses the fact that every WASM FBO already derives its size
   from the canvas backing-store resolution (`set_window_size()` → `ProjectM::m_windowWidth/Height`).
   Shrinking the backing store (`canvas.width`/`height`) while leaving the CSS box
@@ -285,8 +296,9 @@ epic-level record:
 - **Canvas MSAA** default flipped to `false` (`WasmWebGLContext.cpp`), opt-in via
   `?aa=1`/`localStorage.canvasAA`, per this document's own §5 finding that a fullscreen
   quad has no interior edges for MSAA to smooth — only sprite geometry benefits.
-- New public C API: `projectm_set_max_blur_level()`/`projectm_get_max_blur_level()`
-  (mirrors `projectm_set_mesh_size()`).
+- New public C API: `projectm_set_max_blur_level()`/`projectm_get_max_blur_level()` and
+  `projectm_set_blur_resolution_scale()`/`projectm_get_blur_resolution_scale()` (both
+  mirror `projectm_set_mesh_size()`).
 
 **Not measured in this environment** (no browser/GPU, consistent with every other entry
 in this document): whether render-scale stepping recovers FPS faster than mesh-only on

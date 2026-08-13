@@ -147,18 +147,24 @@ struct QualityTierSettings
 {
     size_t meshWidth;
     size_t meshHeight;
-    int32_t maxBlurLevel; //!< -1 = uncapped, else BlurTexture::BlurLevel (0-3). See ProjectM::SetMaxBlurLevel().
-    double renderScale;   //!< Internal render scale applied by the JS host (1.0 = full resolution).
+    int32_t maxBlurLevel;     //!< -1 = uncapped, else BlurTexture::BlurLevel (0-3). See ProjectM::SetMaxBlurLevel().
+    double renderScale;       //!< Internal render scale applied by the JS host (1.0 = full resolution).
+    double blurResolutionScale; //!< Extra blur-texture downscale (issue #177 item 3), see ProjectM::SetBlurResolutionScale().
 };
 
-// Ordered high -> low quality. Mesh, blur cap, and render scale step together per
-// tier so a single "reduce quality" decision cuts cost on all three fill/eval axes
-// at once, matching how the governor's hysteresis (see UpdateQualityGovernor())
+// Ordered high -> low quality. Mesh, blur cap, render scale, and blur resolution scale
+// step together per tier so a single "reduce quality" decision cuts cost on all fill/
+// eval axes at once, matching how the governor's hysteresis (see UpdateQualityGovernor())
 // already treats tier transitions as a single atomic step.
+//
+// blurResolutionScale is intentionally more aggressive than renderScale at the same
+// tier: blur is a low-frequency effect, so it tolerates more downscaling than the main
+// scene without a visible quality loss (issue #177's "downscale early blur levels more
+// aggressively" coordination point with this governor).
 constexpr QualityTierSettings kQualityTiers[kMaxQualityTier + 1] = {
-    {80, 60, -1, 1.00}, // tier 0: high    - uncapped blur, full resolution
-    {64, 48,  2, 0.75}, // tier 1: regular - cap at Blur2, 0.75x internal render scale
-    {48, 36,  1, 0.50}, // tier 2: low     - cap at Blur1, 0.5x internal render scale
+    {80, 60, -1, 1.00, 1.00}, // tier 0: high    - uncapped blur, full resolution
+    {64, 48,  2, 0.75, 0.60}, // tier 1: regular - cap at Blur2, 0.75x render / 0.6x blur-texture scale
+    {48, 36,  1, 0.50, 0.40}, // tier 2: low     - cap at Blur1, 0.5x render / 0.4x blur-texture scale
 };
 
 // Notifies the host page when the governor changes the quality tier, so the
@@ -196,6 +202,7 @@ static void ApplyQualityTier(int tier)
     const QualityTierSettings& settings = kQualityTiers[tier];
     projectm_set_mesh_size(pm, settings.meshWidth, settings.meshHeight);
     projectm_set_max_blur_level(pm, settings.maxBlurLevel);
+    projectm_set_blur_resolution_scale(pm, static_cast<float>(settings.blurResolutionScale));
     js_governor_report_tier(tier);
     js_governor_report_render_scale(settings.renderScale);
     js_governor_report_blur_cap(settings.maxBlurLevel);

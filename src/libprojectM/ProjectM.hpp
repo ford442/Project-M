@@ -206,6 +206,23 @@ public:
      */
     void SetMaxBlurLevel(int32_t maxLevel);
 
+    /**
+     * @brief Returns the current governor blur-texture resolution scale.
+     * @return (0, 1.0]. 1.0 = no extra downscale (default).
+     */
+    auto BlurResolutionScale() const -> float;
+
+    /**
+     * @brief Scales the resolution blur textures are allocated at, independent of any
+     * other render-resolution setting.
+     *
+     * Used by the WASM adaptive quality governor (v2) to shrink the blur chain more
+     * aggressively than the rest of the scene under sustained frame-budget pressure -
+     * blur is a low-frequency effect and tolerates it without a visible quality loss.
+     * @param scale (0, 1.0]. Out-of-range values reset to 1.0 (no extra downscale).
+     */
+    void SetBlurResolutionScale(float scale);
+
     void TexelOffsets(float& texelOffsetX, float& texelOffsetY) const;
 
     void SetTexelOffsets(float texelOffsetX, float texelOffsetY);
@@ -343,6 +360,9 @@ private:
 
     // Governor blur-level cap (see SetMaxBlurLevel()). -1 = uncapped.
     int32_t m_maxBlurLevel{-1};
+
+    // Governor blur-texture resolution scale (see SetBlurResolutionScale()). 1.0 = uncapped.
+    float m_blurResolutionScale{1.0f};
 
     // Default target FPS. Winamp Milkdrop defaults to 60; this value is also
     // used as the adaptive quality governor's frame budget reference on the

@@ -621,6 +621,16 @@ void ProjectM::SetMaxBlurLevel(int32_t maxLevel)
     m_maxBlurLevel = (maxLevel < 0) ? -1 : std::min(maxLevel, 3);
 }
 
+auto ProjectM::BlurResolutionScale() const -> float
+{
+    return m_blurResolutionScale;
+}
+
+void ProjectM::SetBlurResolutionScale(float scale)
+{
+    m_blurResolutionScale = (scale > 0.0f && scale <= 1.0f) ? scale : 1.0f;
+}
+
 void ProjectM::TexelOffsets(float& texelOffsetX, float& texelOffsetY) const
 {
     texelOffsetX = m_texelOffsetX;
@@ -675,6 +685,7 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
     ctx.perPixelMeshX = static_cast<int>(m_meshX);
     ctx.perPixelMeshY = static_cast<int>(m_meshY);
     ctx.maxBlurLevel = m_maxBlurLevel;
+    ctx.blurResolutionScale = m_blurResolutionScale;
 
     ctx.texelOffsetX = m_texelOffsetX;
     ctx.texelOffsetY = m_texelOffsetY;

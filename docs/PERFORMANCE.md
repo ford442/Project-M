@@ -275,11 +275,22 @@ fill-rate cost, and `perPixelEvalMs` is the only trustworthy per-stage bucket (s
 hysteresis (over/under-budget frame thresholds, post-load grace) is unchanged from v1 — only what
 a "step down" / "step up" applies has changed.
 
-| Tier | Mesh | Blur cap | Internal render scale |
-|------|------|----------|------------------------|
-| 0 (high) | 80×60 | uncapped | 1.0 |
-| 1 (regular) | 64×48 | Blur2 | 0.75 |
-| 2 (low) | 48×36 | Blur1 | 0.5 |
+| Tier | Mesh | Blur cap | Internal render scale | Blur-texture resolution scale |
+|------|------|----------|------------------------|--------------------------------|
+| 0 (high) | 80×60 | uncapped | 1.0 | 1.0 |
+| 1 (regular) | 64×48 | Blur2 | 0.75 | 0.6 |
+| 2 (low) | 48×36 | Blur1 | 0.5 | 0.4 |
+
+**Blur-texture resolution scale** (`kQualityTiers[].blurResolutionScale`) is issue #177's
+"optionally downscale early blur levels more aggressively when governor v2 requests a blur
+tier" item, coordinated here. It's a second, independent knob from the internal render
+scale column: blur is a low-frequency effect and tolerates more aggressive downscaling
+than the main scene without a visible quality loss, so each tier's blur-texture scale is
+set lower than its render scale. Flows through `ProjectM::SetBlurResolutionScale()` →
+`RenderContext::blurResolutionScale` → `BlurTexture::SetResolutionScale()`, applied as an
+extra multiplier on the source size `AllocateTextures()` progressively halves per level —
+purely internal to the WASM module, no host wiring needed (unlike the render-scale tier).
+Public C API: `projectm_set_blur_resolution_scale()`/`projectm_get_blur_resolution_scale()`.
 
 **Blur cap** (`kQualityTiers[].maxBlurLevel` in `WasmPerfGovernor.cpp`) flows through
 `ProjectM::SetMaxBlurLevel()` → `Renderer::RenderContext::maxBlurLevel` →

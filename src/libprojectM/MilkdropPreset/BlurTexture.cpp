@@ -106,6 +106,11 @@ void BlurTexture::SetLevelCap(int cap)
     m_levelCap = cap;
 }
 
+void BlurTexture::SetResolutionScale(float scale)
+{
+    m_resolutionScale = (scale > 0.0f && scale <= 1.0f) ? scale : 1.0f;
+}
+
 auto BlurTexture::EffectiveLevel(BlurTexture::BlurLevel requested) const -> BlurTexture::BlurLevel
 {
     if (m_levelCap < 0)
@@ -468,11 +473,19 @@ void BlurTexture::AllocateTextures(const Renderer::Texture& sourceTexture)
         width > 0 &&
         height > 0 &&
         width == m_sourceTextureWidth &&
-        height == m_sourceTextureHeight)
+        height == m_sourceTextureHeight &&
+        m_resolutionScale == m_appliedResolutionScale)
     {
-        // Size unchanged, return.
+        // Size and governor resolution scale unchanged, return.
         return;
     }
+
+    m_appliedResolutionScale = m_resolutionScale;
+
+    // Extra governor downscale (see SetResolutionScale()), applied before the per-level
+    // progressive halving below so it compounds across the whole blur chain uniformly.
+    width = std::max(16, static_cast<int>(static_cast<float>(width) * m_resolutionScale));
+    height = std::max(16, static_cast<int>(static_cast<float>(height) * m_resolutionScale));
 
     for (size_t i = 0; i < m_blurTextures.size(); i++)
     {

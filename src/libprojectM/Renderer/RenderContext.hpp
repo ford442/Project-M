@@ -37,6 +37,10 @@ public:
     //! value (0 = None, 1 = Blur1, 2 = Blur2, 3 = Blur3) presets may render this frame.
     int maxBlurLevel{-1};
 
+    //! Governor's extra downscale for blur texture allocation, independent of the
+    //! overall internal render scale. (0, 1.0]; 1.0 = no extra downscale.
+    float blurResolutionScale{1.0f};
+
     float texelOffsetX{0.0f}; //!< Horizontal texel offset in the warp shader.
     float texelOffsetY{0.0f}; //!< Vertical texel offset in the warp shader.
 

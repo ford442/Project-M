@@ -416,6 +416,18 @@ int32_t projectm_get_max_blur_level(projectm_handle instance)
     return projectMInstance->MaxBlurLevel();
 }
 
+void projectm_set_blur_resolution_scale(projectm_handle instance, float scale)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetBlurResolutionScale(scale);
+}
+
+float projectm_get_blur_resolution_scale(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->BlurResolutionScale();
+}
+
 int32_t projectm_get_fps(projectm_handle instance)
 {
     auto projectMInstance = handle_to_instance(instance);

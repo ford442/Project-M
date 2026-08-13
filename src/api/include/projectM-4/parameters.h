@@ -251,6 +251,28 @@ PROJECTM_EXPORT void projectm_set_max_blur_level(projectm_handle instance, int32
 PROJECTM_EXPORT int32_t projectm_get_max_blur_level(projectm_handle instance);
 
 /**
+ * @brief Scales the resolution blur textures are allocated at, independent of any
+ * other render-resolution setting.
+ *
+ * Used by adaptive quality governors to shrink the blur chain more aggressively than
+ * the rest of the scene under sustained frame-budget pressure - blur is a
+ * low-frequency effect and tolerates it without a visible quality loss.
+ *
+ * @param instance The projectM instance handle.
+ * @param scale (0, 1.0]. Out-of-range values reset to 1.0 (default, no extra downscale).
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_blur_resolution_scale(projectm_handle instance, float scale);
+
+/**
+ * @brief Returns the current governor blur-texture resolution scale.
+ * @param instance The projectM instance handle.
+ * @return (0, 1.0]. 1.0 = no extra downscale (default).
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT float projectm_get_blur_resolution_scale(projectm_handle instance);
+
+/**
  * @brief Applies a sub-texel offset for main texture lookups in the warp shader.
  *
  * Original Milkdrop uses 0.5 here, but it doesn't seem to be required in OpenGL as this value

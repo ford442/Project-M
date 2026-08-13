@@ -76,6 +76,19 @@ public:
     void SetLevelCap(int cap);
 
     /**
+     * @brief Scales the resolution blur textures are allocated at, independent of the
+     * governor's overall internal render scale (see docs/PERFORMANCE.md "Governor v2").
+     *
+     * Blur is a low-frequency effect and tolerates more aggressive downscaling than the
+     * main scene without a visible quality loss, so this lets the governor shrink the
+     * (already-progressively-halved) blur chain further under sustained frame-budget
+     * pressure. Applied to every blur level uniformly; takes effect on the next
+     * AllocateTextures() call (i.e. the next size change or forced reallocation).
+     * @param scale (0, 1.0]. 1.0 (default) applies no extra downscale.
+     */
+    void SetResolutionScale(float scale);
+
+    /**
      * @brief Returns a list of descriptors for the given blur level.
      * The blur textures don't need to be present and can be empty placeholders.
      * @param blurLevel The blur level.
@@ -158,6 +171,9 @@ private:
 
     int m_sourceTextureWidth{};  //!< Width of the source texture used to create the blur textures.
     int m_sourceTextureHeight{}; //!< Height of the source texture used to create the blur textures.
+
+    float m_resolutionScale{1.0f};         //!< Governor-requested extra downscale, see SetResolutionScale().
+    float m_appliedResolutionScale{1.0f};  //!< Scale actually baked into the currently allocated textures.
 
     Renderer::Framebuffer m_blurFramebuffer;                                        //!< Scratch framebuffer, only used by the legacy copy path.
     GLuint m_directFramebufferId{};                                                 //!< FBO used to render blur passes straight into the blur textures.

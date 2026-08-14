@@ -69,7 +69,10 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _dual_fbo_get_b_write_fbo
     _dual_fbo_get_b_read_tex
     _dual_fbo_get_b_write_tex
+    _dual_fbo_is_preset_a_allocated
     _dual_fbo_is_preset_b_allocated
+    _dual_fbo_set_idle_release_seconds
+    _dual_fbo_get_idle_release_seconds
     _dual_fbo_is_preset_b_ready
     _dual_fbo_get_format
     _dual_fbo_render_preset_a

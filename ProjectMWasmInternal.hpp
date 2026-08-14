@@ -107,6 +107,10 @@ extern bool   g_transitionActive;
 extern float  g_transitionBlend;
 extern double g_transitionStartTime;
 
+// ---- Preset A idle-release policy (defined in WasmDualFbo.cpp) -------------
+extern float  g_dualFboIdleReleaseSec;
+extern double g_transitionEndTime;
+
 // ---- Audio bridge state (defined in WasmAudioBridge.cpp) -------------------
 extern bool g_is_streaming_audio;
 

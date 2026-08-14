@@ -44,8 +44,11 @@ enum class FboFloatFormat
  * Each frame the Read/Write roles within each preset are swapped (ping-pong),
  * giving each preset its own isolated feedback loop.
  *
- * Preset B FBOs are only allocated when a transition is actively initiated and
- * are released (or promoted to Preset A) when the transition completes.
+ * Both preset pairs are transition-only scratch: steady-state playback renders
+ * straight to the default framebuffer, so neither pair is allocated until
+ * dual_fbo_begin_transition() asks for one, and both are reclaimed once the
+ * crossfade finishes (Preset B immediately via PromoteBtoA(), Preset A after
+ * the idle grace period enforced in render_frame()).
  */
 class DualPingPongFramebuffer
 {
@@ -109,9 +112,11 @@ public:
     /**
      * @brief Allocates the Preset A ping-pong FBO pair.
      *
-     * Must be called once after the WebGL context is ready and DetectFormat()
-     * has been invoked. Safe to call again after a Resize() – dimensions are
-     * updated but no re-allocation occurs.
+     * Called on demand from dual_fbo_begin_transition(), never eagerly from
+     * start_render() – see the lazy-allocation rationale in docs/PERFORMANCE.md.
+     * Requires that the WebGL context is ready and DetectFormat() has been
+     * invoked. Safe to call again after a Resize() – dimensions are updated but
+     * no re-allocation occurs.
      *
      * @param width  Framebuffer width in pixels.
      * @param height Framebuffer height in pixels.
@@ -190,18 +195,33 @@ public:
     }
 
     /**
+     * @brief Releases the Preset A FBOs without affecting Preset B.
+     *
+     * Preset A is pure crossfade scratch: steady-state playback renders straight
+     * to the default framebuffer (see ShouldUseDualFboCompositor()), so between
+     * transitions nothing samples these surfaces and they can be reclaimed.
+     * Width()/Height() are deliberately preserved so a later
+     * dual_fbo_begin_transition() can re-allocate at the right size.
+     */
+    void ReleasePresetA()
+    {
+        if (!m_presetAAllocated)
+        {
+            return;
+        }
+        ReleaseFBO(kARead);
+        ReleaseFBO(kAWrite);
+        m_presetAAllocated = false;
+        printf("DualFBO: Preset A FBOs released.\n");
+    }
+
+    /**
      * @brief Releases all allocated FBOs. Called automatically by the destructor.
      */
     void ReleaseAll()
     {
         ReleasePresetB();
-        if (m_presetAAllocated)
-        {
-            ReleaseFBO(kARead);
-            ReleaseFBO(kAWrite);
-            m_presetAAllocated = false;
-            printf("DualFBO: Preset A FBOs released.\n");
-        }
+        ReleasePresetA();
     }
 
     /**

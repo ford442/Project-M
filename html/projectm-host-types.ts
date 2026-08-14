@@ -67,16 +67,19 @@ declare global {
         /** Dual-FBO color format, registered by projectm-fbo-format.js. */
         pmGetFboFormat?: () => 'RGBA32F' | 'RGBA16F' | 'RGBA8';
         /**
-         * Perf HUD hooks registered by projectm-perf.js. `pmOnPerfFrame` is
-         * called once per frame from `js_perf_report_frame()`
-         * (WasmPerfGovernor.cpp) — the stats shape is defined there.
-         */
-        /**
          * Transpiled-GLSL cache hook, registered by projectm-shader-cache.js and
          * called from `js_on_transpiled_shader_stored()` (projectM_emscripten.cpp).
          * `kind` is 0=warp, 1=composite.
          */
         pmOnTranspiledShaderStored?: (cacheKey: string, kind: 0 | 1, glsl: string) => void;
+        /** Hot-reload hooks registered by projectm-preset-dev.js (`?devPreset=1`). */
+        pmReloadPresetText?: (text: string, label?: string) => Promise<void>;
+        pmPresetDevEnabled?: boolean;
+        /**
+         * Perf HUD hooks registered by projectm-perf.js. `pmOnPerfFrame` is
+         * called once per frame from `js_perf_report_frame()`
+         * (WasmPerfGovernor.cpp) — the stats shape is defined there.
+         */
         pmSetPerfHudEnabled?: (enabled: boolean) => void;
         pmOnPerfFrame?: (stats: {
             totalMs: number;

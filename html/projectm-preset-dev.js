@@ -5,6 +5,22 @@ import { getLocalPresetVfsPath, updatePresetDisplay } from './projectm-presets.j
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
 import { setupPresetTweaker } from './projectm-preset-tweaker.js';
 
+/**
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ */
+
+/**
+ * The Emscripten FS surface this module needs. The generated
+ * `EmscriptenModule['FS']` type only declares `writeFile` (that is all the
+ * generated wrappers use), but the dev panel also has to create the `/presets`
+ * directory chain, so it describes the wider shape locally rather than widening
+ * the shared generated type.
+ *
+ * @typedef {object} DevPresetFS
+ * @property {(path: string, data: Uint8Array | string) => void} writeFile
+ * @property {(path: string) => void} mkdir Throws if the directory already exists.
+ */
+
 const STYLE_ID = 'pm-preset-dev-style';
 const PANEL_ID = 'pm-preset-dev-panel';
 
@@ -63,6 +79,23 @@ const STYLE_CSS = `
 }
 `;
 
+/**
+ * Queries an element this module itself just rendered. A miss means the panel
+ * markup above and this lookup have drifted apart, which is a programming
+ * error rather than a runtime condition to handle.
+ *
+ * @param {ParentNode} root
+ * @param {string} selector
+ * @returns {Element}
+ */
+function requireEl(root, selector) {
+    const el = root.querySelector(selector);
+    if (!el) {
+        throw new Error(`projectm-preset-dev: panel is missing ${selector}`);
+    }
+    return el;
+}
+
 function injectStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
@@ -71,18 +104,29 @@ function injectStyles() {
     document.head.appendChild(style);
 }
 
+/**
+ * @param {ProjectMModuleLike | null | undefined} module
+ * @param {string} vfsPath
+ * @param {Uint8Array} bytes
+ * @param {object} options
+ * @param {((opts?: { module?: ProjectMModuleLike | null, durationSec?: number }) => Promise<boolean>) | undefined} [options.startTransitionWhenReady]
+ * @param {string} [options.displayName]
+ */
 async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenReady, displayName }) {
-    if (!module || !module.FS) throw new Error('Module not ready');
+    if (!module?.FS || !module.ccall) throw new Error('Module not ready');
+    const fs = /** @type {DevPresetFS} */ (/** @type {unknown} */ (module.FS));
     const dir = vfsPath.slice(0, vfsPath.lastIndexOf('/'));
     if (dir) {
         dir.split('/').filter(Boolean).reduce((acc, part) => {
             const next = acc + '/' + part;
-            try { module.FS.mkdir(next); } catch (_) {}
+            try { fs.mkdir(next); } catch { /* already exists */ }
             return next;
         }, '');
     }
-    module.FS.writeFile(vfsPath, bytes);
-    loadPresetFile(module, vfsPath);
+    fs.writeFile(vfsPath, bytes);
+    // `load_preset_file` is a ccall manifest entry, so the readiness check above
+    // probes `ccall` rather than a `_`-prefixed member that the type never has.
+    loadPresetFile(/** @type {import('./generated/projectm-wasm-api.ts').ProjectMModule} */ (module), vfsPath);
     let milkText;
     try {
         milkText = new TextDecoder().decode(bytes);
@@ -96,8 +140,13 @@ async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenRead
 }
 
 /**
- * @param {*} Module Emscripten module
- * @param {{ startTransitionWhenReady?: Function, params?: URLSearchParams }} options
+ * Installs the `?devPreset=1` hot-reload panel (URL polling + inline editor).
+ *
+ * @param {ProjectMModuleLike} Module
+ * @param {object} [options]
+ * @param {(opts?: { module?: ProjectMModuleLike | null, durationSec?: number }) => Promise<boolean>} [options.startTransitionWhenReady]
+ * @param {URLSearchParams} [options.params]
+ * @returns {{ enabled: boolean } & Record<string, unknown>}
  */
 export function setupPresetDevTools(Module, options = {}) {
     const params = options.params || new URLSearchParams(location.search);
@@ -127,23 +176,32 @@ export function setupPresetDevTools(Module, options = {}) {
         document.body.appendChild(panel);
     }
 
-    const statusEl = panel.querySelector('#pm-dev-status');
-    const editor = panel.querySelector('#pm-dev-editor');
-    const urlInput = panel.querySelector('#pm-dev-url');
-    const pollBtn = panel.querySelector('#pm-dev-poll-toggle');
+    const statusEl = requireEl(panel, '#pm-dev-status');
+    const editor = /** @type {HTMLTextAreaElement} */ (requireEl(panel, '#pm-dev-editor'));
+    const urlInput = /** @type {HTMLInputElement} */ (requireEl(panel, '#pm-dev-url'));
+    const pollBtn = /** @type {HTMLButtonElement} */ (requireEl(panel, '#pm-dev-poll-toggle'));
 
     const devUrl = params.get('devPresetUrl') || '';
-    const pollMs = Math.max(500, parseInt(params.get('devPollMs'), 10) || 2000);
+    const pollMs = Math.max(500, parseInt(params.get('devPollMs') ?? '', 10) || 2000);
     if (devUrl) urlInput.value = devUrl;
 
+    /** @type {ReturnType<typeof setInterval> | null} */
     let pollTimer = null;
     let lastFingerprint = '';
 
+    /**
+     * @param {string} msg
+     * @param {boolean} [isError]
+     */
     function setStatus(msg, isError = false) {
         statusEl.textContent = msg;
         statusEl.classList.toggle('err', isError);
     }
 
+    /**
+     * @param {string} text
+     * @param {string} [label]
+     */
     async function reloadFromText(text, label = 'dev_edit.milk') {
         const encoder = new TextEncoder();
         const bytes = encoder.encode(text);
@@ -155,6 +213,10 @@ export function setupPresetDevTools(Module, options = {}) {
         setStatus(`Reloaded ${label} @ ${new Date().toLocaleTimeString()}`);
     }
 
+    /**
+     * @param {string} url
+     * @returns {Promise<string>}
+     */
     async function fetchUrl(url) {
         const response = await fetch(url, { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -166,11 +228,11 @@ export function setupPresetDevTools(Module, options = {}) {
         return text;
     }
 
-    panel.querySelector('#pm-dev-apply').addEventListener('click', () => {
+    requireEl(panel, '#pm-dev-apply').addEventListener('click', () => {
         void reloadFromText(editor.value).catch((e) => setStatus(String(e), true));
     });
 
-    panel.querySelector('#pm-dev-fetch').addEventListener('click', () => {
+    requireEl(panel, '#pm-dev-fetch').addEventListener('click', () => {
         const url = urlInput.value.trim();
         if (!url) return setStatus('Enter a URL', true);
         void fetchUrl(url).catch((e) => setStatus(String(e), true));
@@ -212,7 +274,8 @@ export function setupPresetDevTools(Module, options = {}) {
     });
 
     const tweaker = setupPresetTweaker({
-        module: Module,
+        // No `module` here: setupPresetTweaker never reads one — it works purely
+        // on the .milk text and hands the patched result back through onApply.
         onApply: async (patchedText) => {
             editor.value = patchedText;
             await reloadFromText(patchedText, 'tweaked.milk');

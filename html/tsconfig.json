@@ -38,6 +38,9 @@
     "projectm-perf.js",
     "projectm-shader-cache.js",
     "projectm-preset-cache.js",
-    "projectm-preset-library.js"
+    "projectm-preset-library.js",
+    "projectm-preset-picker.js",
+    "projectm-preset-dev.js",
+    "projectm-preset-tweaker.js"
   ]
 }

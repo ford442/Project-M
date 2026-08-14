@@ -2,6 +2,19 @@
 
 const TWEAKER_ID = 'pm-preset-tweaker';
 
+/**
+ * One tunable `.milk` header parameter.
+ *
+ * @typedef {object} TweakerParam
+ * @property {string} key Header key as it appears in the `.milk` file.
+ * @property {string} label Slider label.
+ * @property {number} min
+ * @property {number} max
+ * @property {number} step
+ * @property {number} def Default slider position.
+ */
+
+/** @type {readonly TweakerParam[]} */
 const PARAMS = [
     { key: 'fDecay', label: 'Decay', min: 0.85, max: 0.995, step: 0.001, def: 0.96 },
     { key: 'zoom', label: 'Zoom', min: 0.9, max: 1.1, step: 0.001, def: 1.0 },
@@ -12,12 +25,25 @@ const PARAMS = [
     { key: 'wave_b', label: 'Wave B', min: 0, max: 1, step: 0.01, def: 0.65 },
 ];
 
+/**
+ * @param {string} milkText
+ * @param {string} key
+ * @returns {number | null} null when the header key is absent.
+ */
 function parseHeaderValue(milkText, key) {
     const re = new RegExp(`^${key}=([-\\d.]+)`, 'm');
     const m = milkText.match(re);
     return m ? parseFloat(m[1]) : null;
 }
 
+/**
+ * Rewrites (or inserts) a `key=value` header line.
+ *
+ * @param {string} milkText
+ * @param {string} key
+ * @param {number} value
+ * @returns {string}
+ */
 function patchHeaderValue(milkText, key, value) {
     const re = new RegExp(`^${key}=[-\\d.]+`, 'm');
     const line = `${key}=${value.toFixed(6).replace(/\\.?0+$/, '')}`;
@@ -33,11 +59,18 @@ function patchHeaderValue(milkText, key, value) {
 }
 
 /**
- * @param {{ module?: *, onApply: (patchedMilk: string) => Promise<void>|void, getSource?: () => string }} options
+ * Installs the header-param slider strip inside the dev panel.
+ *
+ * @param {object} options
+ * @param {(patchedMilk: string) => Promise<void> | void} options.onApply
+ * @param {() => string} [options.getSource] Defaults to the dev-panel editor's contents.
+ * @returns {{ syncFromMilk: (milkText: string) => void, patchHeaderValue: typeof patchHeaderValue }}
  */
 export function setupPresetTweaker(options) {
     const getSource = options.getSource || (() => {
-        const ed = document.getElementById('pm-dev-editor');
+        const ed = /** @type {HTMLTextAreaElement | null} */ (
+            document.getElementById('pm-dev-editor')
+        );
         return ed ? ed.value : '';
     });
 
@@ -51,6 +84,7 @@ export function setupPresetTweaker(options) {
         if (devPanel) devPanel.appendChild(root);
     }
 
+    /** @type {Record<string, { input: HTMLInputElement, p: TweakerParam }>} */
     const sliders = {};
     PARAMS.forEach((p) => {
         const row = document.createElement('div');

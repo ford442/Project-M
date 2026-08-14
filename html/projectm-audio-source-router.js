@@ -1,13 +1,83 @@
 import {
+    pl,
     setAudioSourceToStream,
-    setHostAudioSourceRouter,
     stopWorkletPlayback,
 } from './generated/projectm-wasm-api.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
+
+// Host-side registry for the active router.
+//
+// This deliberately lives here and NOT in `generated/projectm-wasm-api.js`:
+// that file is regenerated from `cmake/WasmApiManifest.cmake` by
+// `scripts/sync_wasm_link_common.sh`, and an earlier hand-edit that added
+// `setHostAudioSourceRouter()` there was silently wiped by the next
+// regeneration — leaving this module importing an export that no longer
+// existed, which throws at ESM link time and took `projectm-context.js` down
+// with it. Exclusive-source policy is host policy, not a WASM symbol, so it
+// belongs in a hand-written module.
+
+/**
+ * Readiness check narrowing the defensively-optional {@link ProjectMModuleLike}
+ * to the full module type the generated wrappers require. The WASM build's
+ * exported set varies by link flags, so both symbols are feature-detected
+ * rather than assumed.
+ *
+ * @param {ProjectMModuleLike | null} moduleInstance
+ * @returns {moduleInstance is ProjectMModule}
+ */
+function canRouteAudio(moduleInstance) {
+    return !!(
+        moduleInstance &&
+        moduleInstance._stop_worklet_playback &&
+        moduleInstance._set_audio_source_to_stream
+    );
+}
+
+/** @type {AudioSourceRouter | null} */
+let hostAudioSourceRouter = null;
+
+/**
+ * Registers the host {@link AudioSourceRouter} consulted by {@link playSong}.
+ *
+ * @param {AudioSourceRouter | null} router
+ */
+export function setHostAudioSourceRouter(router) {
+    hostAudioSourceRouter = router;
+}
+
+/** @returns {AudioSourceRouter | null} The currently registered router, if any. */
+export function getHostAudioSourceRouter() {
+    return hostAudioSourceRouter;
+}
+
+/**
+ * Plays a VFS song through the worklet, respecting exclusive-source policy.
+ *
+ * Use this instead of the raw generated `pl()` wrapper from host code: when a
+ * router is registered and another source (element/stream or external PCM) owns
+ * the ingress path, the call is dropped instead of double-feeding libprojectM.
+ *
+ * @param {ProjectMModule} module
+ * @param {string} songPath VFS path of the song to play.
+ * @returns {boolean} true if the call was forwarded to the engine.
+ */
+export function playSong(module, songPath) {
+    hostAudioSourceRouter?.notifyWorkletFeed();
+    if (hostAudioSourceRouter && !hostAudioSourceRouter.canFeed('worklet')) {
+        console.debug(
+            '[projectM audio router] blocked pl() — active source is',
+            hostAudioSourceRouter.getActiveSource(),
+        );
+        return false;
+    }
+    pl(module, songPath);
+    return true;
+}
 
 /** @typedef {'none' | 'element' | 'external' | 'worklet'} ProjectMAudioSourceActive */
 /** @typedef {'exclusive' | 'mix'} ProjectMAudioRouterMode */
@@ -55,7 +125,9 @@ export class AudioSourceRouter {
         this.autoSwitchOnFeed = autoSwitchOnFeed;
         /** @type {ProjectMAudioSourceActive} */
         this.activeSource = initialSource;
-        /** @type {(status: ProjectMAudioSourceStatus) => void | undefined} */
+        // Parenthesised: `(...) => void | undefined` would bind the union to the
+        // *return* type, making the property non-optional.
+        /** @type {((status: ProjectMAudioSourceStatus) => void) | undefined} */
         this.onStatusChange = onStatusChange;
         this._applyExclusivePolicy(this.activeSource);
         setHostAudioSourceRouter(this);
@@ -177,7 +249,7 @@ export class AudioSourceRouter {
     /** @param {ProjectMAudioSourceActive} source */
     _applyExclusivePolicy(source) {
         const module = this.module;
-        if (!module) {
+        if (!canRouteAudio(module)) {
             return;
         }
 

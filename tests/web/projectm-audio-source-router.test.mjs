@@ -4,8 +4,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createAudioSourceRouter } from '../../html/projectm-audio-source-router.js';
-import { pl, setHostAudioSourceRouter } from '../../html/generated/projectm-wasm-api.js';
+// `setHostAudioSourceRouter` / `playSong` live here, not in the generated WASM
+// API: exclusive-source policy is host policy. An earlier revision hand-edited
+// them into `generated/projectm-wasm-api.js`, which is regenerated from
+// `cmake/WasmApiManifest.cmake` and silently dropped them again.
+import {
+    createAudioSourceRouter,
+    playSong,
+    setHostAudioSourceRouter,
+} from '../../html/projectm-audio-source-router.js';
 
 function fakeModule() {
     return {
@@ -66,7 +73,7 @@ test('switching from external to element stops worklet and enables stream', () =
     assert.ok(statusLog.includes('element'));
 });
 
-test('autoSwitchOnFeed promotes worklet on pl() and blocks external afterward', () => {
+test('autoSwitchOnFeed promotes worklet on playSong() and blocks external afterward', () => {
     const module = fakeModule();
     let plCalled = false;
     module.ccall = (name) => {
@@ -79,10 +86,27 @@ test('autoSwitchOnFeed promotes worklet on pl() and blocks external afterward', 
     });
     setHostAudioSourceRouter(router);
 
-    pl(module, '/music/test.wav');
+    assert.equal(playSong(module, '/music/test.wav'), true);
     assert.equal(plCalled, true);
     assert.equal(router.getActiveSource(), 'worklet');
     assert.equal(router.externalFeedGate(), false);
+});
+
+test('playSong is dropped when another source owns the ingress path', () => {
+    const module = fakeModule();
+    let plCalled = false;
+    module.ccall = (name) => {
+        if (name === 'pl') plCalled = true;
+    };
+
+    const router = createAudioSourceRouter({ module, initialSource: 'external' });
+    setHostAudioSourceRouter(router);
+
+    // Regression guard for the gate that was lost when the generated WASM API
+    // was regenerated: without it, pl() double-feeds alongside external PCM.
+    assert.equal(playSong(module, '/music/test.wav'), false);
+    assert.equal(plCalled, false);
+    assert.equal(router.getActiveSource(), 'external');
 });
 
 test('setActiveSource emits pm-audio-source-shaped status', () => {

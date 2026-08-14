@@ -278,6 +278,27 @@ export function resolveSelectedWasmVersion({
     return normalizeWasmVersion(fallback) || PROJECTM_WASM_VERSION;
 }
 
+/**
+ * Loads the WASM glue script (if needed) and instantiates the Emscripten module.
+ *
+ * Extra properties beyond those listed are forwarded to
+ * {@link resolveWasmScriptUrl} as {@link WasmScriptResolveOptions}.
+ *
+ * @param {WasmScriptResolveOptions & {
+ *   scriptSrc?: string,
+ *   createModuleName?: string,
+ *   windowRef?: Window & typeof globalThis,
+ *   noInitialRun?: boolean,
+ *   primaryCanvasSelector?: string,
+ *   secondaryCanvasSelector?: string,
+ *   moduleConfig?: Record<string, unknown> & {
+ *     locateFile?: (path: string, prefix?: string) => string,
+ *   },
+ *   targetBundle?: string,
+ *   wasmVersion?: string,
+ * }} [options]
+ * @returns {Promise<ProjectMModuleLike>}
+ */
 export async function createProjectMModule({
     scriptSrc,
     createModuleName = 'createModule',

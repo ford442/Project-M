@@ -66,8 +66,59 @@ declare global {
         pmSetMeshQuality?: (quality: string) => string;
     }
 
+    /**
+     * Globals the WASM glue and `WasmAudioBridge.cpp`'s EM_JS blocks publish on
+     * `window`, redeclared as `var` so the host modules can also reach them
+     * through `globalThis` (the `Window` augmentation above does not apply to
+     * `typeof globalThis`, which is what `globalThis.foo` resolves against).
+     *
+     * Keep in sync with `WasmAudioBridge.cpp` — these are the JS half of the
+     * worklet playback contract, not host-owned state.
+     */
+
     // eslint-disable-next-line no-var
     var Module: ProjectMModuleLike | undefined;
+
+    /** Shared AudioContext created by `js_initialize_worklet_system_once`. */
+    // eslint-disable-next-line no-var
+    var projectMAudioContext_Global_Cpp: AudioContext | undefined;
+    /** Worklet node wired to the projectM PCM path (null while torn down). */
+    // eslint-disable-next-line no-var
+    var projectMWorkletNode_Global_Cpp: AudioWorkletNode | null | undefined;
+    /** Heap pointer for the 2048-float PCM transfer buffer (`_malloc`'d once). */
+    // eslint-disable-next-line no-var
+    var projectMAudioBufferPtr: number | undefined;
+    /** Host-side song loader installed by projectm-worklet-playback.js. */
+    // eslint-disable-next-line no-var
+    var projectMLoadSongIntoWorklet:
+        | ((path: string, loop?: boolean, startPlaying?: boolean) => void)
+        | undefined;
+    /** Progress of the in-flight worklet song load. */
+    // eslint-disable-next-line no-var
+    var projectMSongLoadState: 'loading' | 'loaded' | 'error' | undefined;
+    /** VFS path of the most recent song handed to the worklet. */
+    // eslint-disable-next-line no-var
+    var projectMLastSongPath: string | undefined;
+    /** Guards double-installation of the worklet safety net. */
+    // eslint-disable-next-line no-var
+    var __projectMWorkletSafetyNetInstalled: boolean | undefined;
+    /** Supersession token so a stale BroadcastChannel load can be discarded. */
+    // eslint-disable-next-line no-var
+    var __projectMSongLoadToken: string | undefined;
+
+    /** Emscripten runtime globals exported onto the global scope by the glue. */
+    // eslint-disable-next-line no-var
+    var wasmMemory: WebAssembly.Memory | undefined;
+    // eslint-disable-next-line no-var
+    var HEAPF32: Float32Array | undefined;
+    // eslint-disable-next-line no-var
+    var _malloc: ((size: number) => number) | undefined;
+    // eslint-disable-next-line no-var
+    var _projectm_pcm_add_float_wrapper:
+        | ((pmHandle: number, audioPtr: number, samplesPerChannel: number, channels: number) => void)
+        | undefined;
+    // eslint-disable-next-line no-var
+    var FS: { readFile: (path: string) => Uint8Array } | undefined;
 }
 
 export {};

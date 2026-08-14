@@ -624,6 +624,37 @@ Re-run `measure-heap.mjs` after deploy and confirm `postSteadyState` stays below
 `memory.grow` during steady-state playback; bump `INITIAL_MEMORY` in 64 MiB steps if growth is
 observed every frame.
 
+### Dual-FBO Preset A/B lazy allocation (#175 item 5)
+
+Before this change, `start_render()` called `g_dualFbo.AllocatePresetA(width, height)`
+unconditionally at startup. Since `ShouldUseDualFboCompositor()` already gates the compositor to
+`g_transitionActive`, Preset A's two FBOs sat allocated and untouched for the entire steady-state
+session on every page load — including embeds that never trigger a crossfade.
+
+`start_render()` now only records the viewport via `g_dualFbo.Resize()`; Preset A and Preset B
+textures are both allocated lazily on the first `dual_fbo_begin_transition()` call
+(`WasmDualFbo.cpp`), which fires from `html/projectm-transitions.js`'s `startTransitionWhenReady()`
+poll loop once Preset B's shaders are ready — not before a transition is actually requested.
+
+VRAM this removes from every session that never crossfades (the common case for many embeds):
+
+| Resolution | RGBA32F (2 surfaces) | RGBA16F (2 surfaces, current default per #198) |
+|---|---|---|
+| 1280×720 | ~28 MB | ~14 MB |
+| 1920×1080 | ~63 MB | ~31 MB |
+
+This is resident-VRAM / init-cost savings, not a steady-state frame-time change — nothing
+per-frame touched these surfaces even before this fix, since the compositor was already
+transition-gated. The benefit is reduced `WebAssembly.instantiate` / first-frame VRAM pressure on
+memory-constrained mobile GPUs (init error code `3`), pairing with the `INITIAL_MEMORY`
+right-sizing above (#163).
+
+**No silent hard-cut regression:** `dual_fbo_begin_transition()` lazily allocates Preset A too if
+it isn't already allocated, and the host readiness poll only calls `transition_start()` after
+`dual_fbo_begin_transition()` succeeds — see `tests/web/projectm-transitions.test.mjs` ("waits for
+preset B, allocates it, then starts once" and "keeps polling when allocation fails"). The first
+transition after a cold start still soft-cuts; it does not silently degrade to a hard cut.
+
 ### ASYNCIFY strategy decision
 
 | Option | Status | Notes |

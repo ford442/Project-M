@@ -1,10 +1,18 @@
 // IndexedDB cache for preset bytes (featured pack, favorites) and transpiled GLSL.
 
+/**
+ * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
+ * @typedef {import('./projectm-preset-types.ts').CachedPresetRecord} CachedPresetRecord
+ * @typedef {import('./projectm-preset-types.ts').ShaderCacheRecord} ShaderCacheRecord
+ * @typedef {import('./projectm-preset-types.ts').PreloadProgressFn} PreloadProgressFn
+ */
+
 const DB_NAME = 'projectm-preset-cache';
 const DB_VERSION = 2;
 export const PRESET_STORE = 'presets';
 export const SHADER_STORE = 'shaders';
 
+/** @returns {Promise<IDBDatabase>} */
 export function openPresetCacheDb() {
     return new Promise((resolve, reject) => {
         if (!globalThis.indexedDB) {
@@ -14,8 +22,8 @@ export function openPresetCacheDb() {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onerror = () => reject(req.error);
         req.onsuccess = () => resolve(req.result);
-        req.onupgradeneeded = (event) => {
-            const db = event.target.result;
+        req.onupgradeneeded = () => {
+            const db = req.result;
             if (!db.objectStoreNames.contains(PRESET_STORE)) {
                 db.createObjectStore(PRESET_STORE, { keyPath: 'id' });
             }
@@ -31,6 +39,12 @@ function openDb() {
     return openPresetCacheDb();
 }
 
+/**
+ * @param {string} id `<base>::<file>`
+ * @param {Uint8Array} bytes
+ * @param {Record<string, unknown>} [meta]
+ * @returns {Promise<boolean>}
+ */
 export async function cachePreset(id, bytes, meta = {}) {
     const db = await openPresetCacheDb();
     return new Promise((resolve, reject) => {
@@ -47,6 +61,10 @@ export async function cachePreset(id, bytes, meta = {}) {
     });
 }
 
+/**
+ * @param {string} id
+ * @returns {Promise<CachedPresetRecord | null>}
+ */
 export async function getCachedPreset(id) {
     const db = await openPresetCacheDb();
     return new Promise((resolve, reject) => {
@@ -68,9 +86,15 @@ export async function getCachedPreset(id) {
     });
 }
 
+/**
+ * Refreshes a shader entry's LRU timestamp.
+ *
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
 export async function touchShaderCacheEntry(id) {
     const db = await openPresetCacheDb();
-    return new Promise((resolve, reject) => {
+    return /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
         const tx = db.transaction(SHADER_STORE, 'readwrite');
         const store = tx.objectStore(SHADER_STORE);
         const req = store.get(id);
@@ -83,9 +107,16 @@ export async function touchShaderCacheEntry(id) {
         };
         tx.oncomplete = () => { db.close(); resolve(); };
         tx.onerror = () => { db.close(); reject(tx.error); };
-    });
+    }));
 }
 
+/**
+ * @param {PresetEntry} entry
+ * @param {object} [options]
+ * @param {typeof fetch} [options.fetchImpl]
+ * @param {(base: string | undefined) => string[]} [options.basesForBase]
+ * @returns {Promise<Uint8Array | null>} null if every base failed.
+ */
 async function fetchPresetBytes(entry, { fetchImpl = fetch, basesForBase = defaultBasesForBase } = {}) {
     const bases = basesForBase(entry.base);
     for (const base of bases) {
@@ -102,6 +133,15 @@ async function fetchPresetBytes(entry, { fetchImpl = fetch, basesForBase = defau
     return null;
 }
 
+/**
+ * @param {PresetEntry[]} presets
+ * @param {object} [options]
+ * @param {typeof fetch} [options.fetchImpl]
+ * @param {(base: string | undefined) => string[]} [options.basesForBase]
+ * @param {PreloadProgressFn} [options.onProgress]
+ * @param {string} [options.label]
+ * @returns {Promise<number>} Number of entries processed.
+ */
 async function preloadPresetEntries(presets, {
     fetchImpl = fetch,
     basesForBase = defaultBasesForBase,
@@ -132,6 +172,11 @@ async function preloadPresetEntries(presets, {
     return done;
 }
 
+/**
+ * @param {{ presets?: PresetEntry[] } | null | undefined} manifest
+ * @param {Parameters<typeof preloadPresetEntries>[1]} [opts]
+ * @returns {Promise<number>}
+ */
 export async function preloadFeaturedPack(manifest, opts = {}) {
     const presets = manifest?.presets || [];
     return preloadPresetEntries(presets, { ...opts, label: 'featured' });
@@ -139,8 +184,11 @@ export async function preloadFeaturedPack(manifest, opts = {}) {
 
 /**
  * Preload .milk bytes for favorite / Signature Series entries into IndexedDB.
- * @param {Array} allPresets Full manifest preset list
- * @param {Set<string>|string[]} favoriteIds presetId() strings
+ *
+ * @param {PresetEntry[]} allPresets Full manifest preset list.
+ * @param {Set<string> | string[]} favoriteIds presetId() strings.
+ * @param {Parameters<typeof preloadPresetEntries>[1]} [opts]
+ * @returns {Promise<number>}
  */
 export async function preloadFavoritePresets(allPresets, favoriteIds, opts = {}) {
     const favSet = favoriteIds instanceof Set ? favoriteIds : new Set(favoriteIds || []);
@@ -152,6 +200,10 @@ export async function preloadFavoritePresets(allPresets, favoriteIds, opts = {})
     return preloadPresetEntries(presets, { ...opts, label: 'favorites' });
 }
 
+/**
+ * @param {string} [base]
+ * @returns {string[]} Candidate URL bases, tried in order.
+ */
 export function defaultBasesForBase(base) {
     if (base === 'weeks_presets') {
         return ['../weeks_presets/', './weeks_presets/', 'https://glsl.1ink.us/weeks_presets/'];

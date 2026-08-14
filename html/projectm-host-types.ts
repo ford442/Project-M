@@ -64,6 +64,31 @@ declare global {
         pmGetGovernorBlurCap?: () => number;
         /** Mesh-quality hook registered by projectm-mesh-quality.js. */
         pmSetMeshQuality?: (quality: string) => string;
+        /** Dual-FBO color format, registered by projectm-fbo-format.js. */
+        pmGetFboFormat?: () => 'RGBA32F' | 'RGBA16F' | 'RGBA8';
+        /**
+         * Perf HUD hooks registered by projectm-perf.js. `pmOnPerfFrame` is
+         * called once per frame from `js_perf_report_frame()`
+         * (WasmPerfGovernor.cpp) — the stats shape is defined there.
+         */
+        /**
+         * Transpiled-GLSL cache hook, registered by projectm-shader-cache.js and
+         * called from `js_on_transpiled_shader_stored()` (projectM_emscripten.cpp).
+         * `kind` is 0=warp, 1=composite.
+         */
+        pmOnTranspiledShaderStored?: (cacheKey: string, kind: 0 | 1, glsl: string) => void;
+        pmSetPerfHudEnabled?: (enabled: boolean) => void;
+        pmOnPerfFrame?: (stats: {
+            totalMs: number;
+            audioMs: number;
+            perFrameEvalMs: number;
+            perPixelEvalMs: number;
+            blurMs: number;
+            waveformsShapesMs: number;
+            compositeMs: number;
+            gpuMs: number;
+            fps: number;
+        }) => void;
     }
 
     /**

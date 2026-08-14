@@ -27,9 +27,42 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
 //   RGBA32F color-format comparison) — a steady-state run never composites the
 //   Preset B surfaces at all and will show no difference.
 
+/**
+ * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ */
+
+/**
+ * Per-frame stats pushed from `js_perf_report_frame()` (WasmPerfGovernor.cpp).
+ * Keep the keys in sync with that EM_JS block.
+ *
+ * @typedef {object} PerfFrameStats
+ * @property {number} totalMs
+ * @property {number} audioMs
+ * @property {number} perFrameEvalMs
+ * @property {number} perPixelEvalMs
+ * @property {number} blurMs
+ * @property {number} waveformsShapesMs
+ * @property {number} compositeMs
+ * @property {number} gpuMs Negative when EXT_disjoint_timer_query is unavailable.
+ * @property {number} fps
+ */
+
+/** The {@link PerfFrameStats} keys the HUD renders as bars. */
+/** @typedef {'audioMs' | 'perFrameEvalMs' | 'perPixelEvalMs' | 'blurMs' | 'waveformsShapesMs' | 'compositeMs' | 'gpuMs'} PerfBarKey */
+
+/**
+ * @typedef {object} PerfSummary
+ * @property {number} mean
+ * @property {number} median
+ * @property {number} p95
+ * @property {number} min
+ * @property {number} max
+ */
+
 const STYLE_ID = 'pm-perf-hud-style';
 const HUD_ID = 'pm-perf-hud';
 
+/** @type {ReadonlyArray<{ key: PerfBarKey, label: string, color: string }>} */
 const BARS = [
     { key: 'audioMs', label: 'Audio FFT/Loudness', color: '#60a5fa' },
     { key: 'perFrameEvalMs', label: 'Per-frame eval', color: '#34d399' },
@@ -101,6 +134,7 @@ const STYLE_CSS = `
 }
 `;
 
+/** @type {HTMLDivElement | null} */
 let hudEl = null;
 let hudVisible = false;
 let lastDomUpdate = 0;
@@ -123,7 +157,7 @@ function ensureHud() {
 
     injectStyles();
 
-    hudEl = document.getElementById(HUD_ID);
+    hudEl = /** @type {HTMLDivElement | null} */ (document.getElementById(HUD_ID));
     if (hudEl) {
         return hudEl;
     }
@@ -162,6 +196,7 @@ export function setHudVisible(enabled) {
     }
 }
 
+/** @param {PerfFrameStats} stats */
 function updateHud(stats) {
     if (!hudVisible) {
         return;
@@ -173,8 +208,10 @@ function updateHud(stats) {
     lastDomUpdate = now;
 
     const el = ensureHud();
-    el.querySelector('[data-key="fps"]').textContent = stats.fps.toFixed(0);
-    el.querySelector('[data-key="totalMs"]').textContent = stats.totalMs.toFixed(2);
+    const fpsEl = el.querySelector('[data-key="fps"]');
+    const totalEl = el.querySelector('[data-key="totalMs"]');
+    if (fpsEl) fpsEl.textContent = stats.fps.toFixed(0);
+    if (totalEl) totalEl.textContent = stats.totalMs.toFixed(2);
 
     BARS.forEach((bar) => {
         const row = el.querySelector(`.pm-perf-hud-row[data-key="${bar.key}"]`);
@@ -185,11 +222,18 @@ function updateHud(stats) {
         const valid = typeof value === 'number' && value >= 0;
         const ms = valid ? value : 0;
         const pct = stats.totalMs > 0 ? Math.min(100, (ms / stats.totalMs) * 100) : 0;
-        row.querySelector('.pm-perf-hud-bar-fill').style.width = pct + '%';
-        row.querySelector('.pm-perf-hud-value').textContent = valid ? ms.toFixed(2) + 'ms' : 'n/a';
+        const fill = /** @type {HTMLElement | null} */ (row.querySelector('.pm-perf-hud-bar-fill'));
+        const valueEl = row.querySelector('.pm-perf-hud-value');
+        if (fill) fill.style.width = pct + '%';
+        if (valueEl) valueEl.textContent = valid ? ms.toFixed(2) + 'ms' : 'n/a';
     });
 }
 
+/**
+ * @param {number[]} sortedValues Ascending.
+ * @param {number} p Fraction in [0, 1].
+ * @returns {number}
+ */
 function percentile(sortedValues, p) {
     if (sortedValues.length === 0) {
         return 0;
@@ -198,6 +242,10 @@ function percentile(sortedValues, p) {
     return sortedValues[idx];
 }
 
+/**
+ * @param {ProjectMModule | null | undefined} Module
+ * @returns {{ compiled: boolean, maxThreads: number, parallelThreadsObserved: number }}
+ */
 function collectOpenmpInfo(Module) {
     if (!Module || typeof Module._get_omp_enabled !== 'function') {
         return { compiled: false, maxThreads: 1, parallelThreadsObserved: 1 };
@@ -211,6 +259,10 @@ function collectOpenmpInfo(Module) {
     };
 }
 
+/**
+ * @param {number[]} values
+ * @returns {PerfSummary}
+ */
 function summarize(values) {
     const sorted = values.slice().sort((a, b) => a - b);
     const sum = sorted.reduce((a, b) => a + b, 0);
@@ -228,18 +280,25 @@ function summarize(values) {
  * runs a headless benchmark for `?frames=N` frames (default 500) on an optional
  * `?preset=<path>` and reports JSON results.
  *
- * @param {*} Module The Emscripten module instance (must already be initialized).
- * @returns {{ benchmarkRequested: boolean }}
+ * @param {ProjectMModule} Module The Emscripten module instance (must already be initialized).
+ * @returns {{ benchmarkRequested: boolean, crossfadeBench: boolean, presetSwitchBench: boolean }}
  */
 export function setupPerfTools(Module) {
     const params = new URLSearchParams(location.search);
     const benchmarkRequested = params.get('benchmark') === '1';
     const showHud = params.get('perfhud') === '1' || benchmarkRequested;
-    const frameTarget = Math.max(1, parseInt(params.get('frames'), 10) || 500);
+    const frameTarget = Math.max(1, parseInt(params.get('frames') ?? '', 10) || 500);
     const presetPath = params.get('preset');
     const crossfadeBench = benchmarkRequested && params.get('crossfade') === '1';
-    const crossfadeSec = Math.max(0.5, parseFloat(params.get('crossfadeSec')) || 20);
+    const crossfadeSec = Math.max(0.5, parseFloat(params.get('crossfadeSec') ?? '') || 20);
 
+    /**
+     * @type {{
+     *   totalMs: number[],
+     *   fps: number[],
+     *   breakdown: Record<PerfBarKey, number[]>,
+     * } | null}
+     */
     let samples = null;
     let benchmarkDone = false;
 
@@ -259,24 +318,28 @@ export function setupPerfTools(Module) {
         updateHud(stats);
 
         if (samples && !benchmarkDone && (!crossfadeBench || crossfadeActive())) {
-            samples.totalMs.push(stats.totalMs);
-            samples.fps.push(stats.fps);
+            // Bound locally so the narrowing survives into the closure below.
+            const collected = samples;
+            collected.totalMs.push(stats.totalMs);
+            collected.fps.push(stats.fps);
             BARS.forEach((bar) => {
                 const value = stats[bar.key];
                 if (typeof value === 'number' && value >= 0) {
-                    samples.breakdown[bar.key].push(value);
+                    collected.breakdown[bar.key].push(value);
                 }
             });
 
-            if (samples.totalMs.length >= frameTarget) {
+            if (collected.totalMs.length >= frameTarget) {
                 benchmarkDone = true;
-                finishBenchmark();
+                finishBenchmark(collected);
             }
         }
     };
 
-    function finishBenchmark() {
-        const breakdownMs = {};
+    /** @param {NonNullable<typeof samples>} samples */
+    function finishBenchmark(samples) {
+        /** @type {Record<PerfBarKey, PerfSummary>} */
+        const breakdownMs = /** @type {any} */ ({});
         BARS.forEach((bar) => {
             breakdownMs[bar.key] = summarize(samples.breakdown[bar.key]);
         });
@@ -316,7 +379,7 @@ export function setupPerfTools(Module) {
             breakdown: BARS.reduce((acc, bar) => {
                 acc[bar.key] = [];
                 return acc;
-            }, {}),
+            }, /** @type {Record<PerfBarKey, number[]>} */ ({})),
         };
 
         if (crossfadeBench) {

@@ -14,6 +14,15 @@ import {
     shaderCacheImportGlsl,
 } from './generated/projectm-wasm-api.js';
 
+/**
+ * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
+ * @typedef {import('./projectm-preset-types.ts').ShaderCacheRecord} ShaderCacheRecord
+ * @typedef {import('./projectm-preset-types.ts').ShaderKind} ShaderKind
+ * @typedef {import('./projectm-preset-types.ts').PresetSwitchTiming} PresetSwitchTiming
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ */
+
 const ENGINE_VERSION_KEY = 'projectm:shaderCacheEngineVersion';
 const MAX_SHADER_CACHE_ENTRIES = 96;
 const MAX_SHADER_CACHE_BYTES = 48 * 1024 * 1024;
@@ -23,6 +32,10 @@ const pendingShaderWrites = new Map();
 
 let hooksInstalled = false;
 
+/**
+ * @param {...(string | undefined)} parts
+ * @returns {number} Combined UTF-8 byte length.
+ */
 function bytesForStrings(...parts) {
     let total = 0;
     for (const part of parts) {
@@ -48,6 +61,12 @@ export async function hashPresetBytes(bytes) {
 
 /**
  * Cache key: wasm bundle version + GLSL generator version + preset content hash.
+ *
+ * @param {string} contentHash
+ * @param {object} [options]
+ * @param {string} [options.wasmVersion]
+ * @param {string} [options.glslVersion]
+ * @returns {string}
  */
 export function buildShaderCacheKey(contentHash, {
     wasmVersion = PROJECTM_WASM_VERSION,
@@ -57,9 +76,14 @@ export function buildShaderCacheKey(contentHash, {
     return `shader::${wasmVersion}::${glsl}::${contentHash}`;
 }
 
+/**
+ * @param {Uint8Array} bytes
+ * @param {ProjectMModule | null | undefined} module
+ * @returns {Promise<string>}
+ */
 export async function getShaderCacheKeyForBytes(bytes, module) {
     const contentHash = await hashPresetBytes(bytes);
-    const glslVersion = module ? getGlslGeneratorVersion(module) : '?';
+    const glslVersion = module ? String(getGlslGeneratorVersion(module)) : '?';
     return buildShaderCacheKey(contentHash, { glslVersion });
 }
 
@@ -68,18 +92,23 @@ export async function ensureShaderCacheEngineVersion(wasmVersion = PROJECTM_WASM
         const stored = localStorage.getItem(ENGINE_VERSION_KEY);
         if (stored === wasmVersion) return;
         const db = await openPresetCacheDb();
-        await new Promise((resolve, reject) => {
+        await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
             const tx = db.transaction(SHADER_STORE, 'readwrite');
             tx.oncomplete = () => { db.close(); resolve(); };
             tx.onerror = () => { db.close(); reject(tx.error); };
             tx.objectStore(SHADER_STORE).clear();
-        });
+        }));
         localStorage.setItem(ENGINE_VERSION_KEY, wasmVersion);
     } catch {
         // IndexedDB or localStorage unavailable — cache stays in-memory only.
     }
 }
 
+/**
+ * @param {string} cacheKey
+ * @returns {Promise<{ warp: string, composite: string } | null>} null when the
+ *   entry is missing or only half-written.
+ */
 export async function getCachedTranspiledShaders(cacheKey) {
     const db = await openPresetCacheDb();
     return new Promise((resolve, reject) => {
@@ -102,9 +131,18 @@ export async function getCachedTranspiledShaders(cacheKey) {
     });
 }
 
+/**
+ * Trims the shader store to the entry/byte caps, evicting least-recently-used first.
+ *
+ * @param {IDBDatabase} db
+ * @param {number} [incomingBytes] Size of the write about to be made.
+ * @returns {Promise<void>}
+ */
 async function evictShaderCacheIfNeeded(db, incomingBytes = 0) {
     const tx = db.transaction(SHADER_STORE, 'readonly');
+    /** @type {ShaderCacheRecord[]} */
     const rows = await new Promise((resolve, reject) => {
+        /** @type {ShaderCacheRecord[]} */
         const out = [];
         const req = tx.objectStore(SHADER_STORE).openCursor();
         req.onsuccess = () => {
@@ -121,6 +159,7 @@ async function evictShaderCacheIfNeeded(db, incomingBytes = 0) {
     let totalBytes = rows.reduce((sum, row) => sum + (row.sizeBytes || 0), 0);
     rows.sort((a, b) => (a.lastUsedAt || a.cachedAt || 0) - (b.lastUsedAt || b.cachedAt || 0));
 
+    /** @type {string[]} */
     const victims = [];
     while (rows.length - victims.length > 0
         && (rows.length - victims.length >= MAX_SHADER_CACHE_ENTRIES
@@ -132,15 +171,21 @@ async function evictShaderCacheIfNeeded(db, incomingBytes = 0) {
 
     if (!victims.length) return;
 
-    await new Promise((resolve, reject) => {
+    await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
         const evictTx = db.transaction(SHADER_STORE, 'readwrite');
         evictTx.oncomplete = () => resolve();
         evictTx.onerror = () => reject(evictTx.error);
         const evictStore = evictTx.objectStore(SHADER_STORE);
         for (const id of victims) evictStore.delete(id);
-    });
+    }));
 }
 
+/**
+ * @param {string} cacheKey
+ * @param {{ warp?: string, composite?: string }} shaders
+ * @param {Record<string, unknown>} [meta]
+ * @returns {Promise<boolean>}
+ */
 export async function putCachedTranspiledShaders(cacheKey, { warp, composite }, meta = {}) {
     if (!warp || !composite) return false;
     const sizeBytes = bytesForStrings(warp, composite);
@@ -162,6 +207,11 @@ export async function putCachedTranspiledShaders(cacheKey, { warp, composite }, 
     });
 }
 
+/**
+ * @param {string} cacheKey
+ * @param {ShaderKind} kind
+ * @param {string} glsl
+ */
 function queueShaderWrite(cacheKey, kind, glsl) {
     if (!cacheKey || !glsl) return;
     const bucket = pendingShaderWrites.get(cacheKey) || {};
@@ -192,8 +242,29 @@ export function setupShaderTranspileCacheHooks() {
  * Prepare WASM to use cached transpiled GLSL for the next preset load.
  * @returns {Promise<string|null>} active cache key
  */
+/**
+ * Probe for the transpiled-GLSL cache API.
+ *
+ * `shader_cache_begin_load` / `shader_cache_import_glsl` are `ccall` entries in
+ * cmake/WasmApiManifest.cmake, so the generated `ProjectMModule` type declares
+ * no `_`-prefixed member for them even though they are in EXPORTED_FUNCTIONS.
+ * `_shader_cache_end_load` is the `direct` entry of the same manifest block and
+ * ships or is absent with the other two, so it stands in for the whole set.
+ *
+ * @param {ProjectMModuleLike | null | undefined} moduleInstance
+ * @returns {moduleInstance is ProjectMModule}
+ */
+function hasShaderCacheApi(moduleInstance) {
+    return !!(moduleInstance?._shader_cache_end_load && moduleInstance.ccall);
+}
+
+/**
+ * @param {ProjectMModuleLike} module
+ * @param {Uint8Array} bytes
+ * @returns {Promise<string | null>} The cache key, or null if unsupported.
+ */
 export async function prepareShaderCacheForLoad(module, bytes) {
-    if (!module?._shader_cache_begin_load) return null;
+    if (!hasShaderCacheApi(module)) return null;
     setupShaderTranspileCacheHooks();
     const cacheKey = await getShaderCacheKeyForBytes(bytes, module);
     shaderCacheBeginLoad(module, cacheKey);
@@ -205,16 +276,23 @@ export async function prepareShaderCacheForLoad(module, bytes) {
     return cacheKey;
 }
 
+/** @param {ProjectMModuleLike} module */
 export function finalizeShaderCacheForLoad(module) {
-    if (module?._shader_cache_end_load) {
+    if (hasShaderCacheApi(module)) {
         shaderCacheEndLoad(module);
     }
 }
 
 /**
  * Measure cold vs warm preset-switch time for heavy presets.
- * @param {*} module Emscripten module
- * @param {Array<{file:string,base?:string,label?:string}>} entries
+ *
+ * @param {ProjectMModule} module
+ * @param {PresetEntry[]} entries
+ * @param {object} [options]
+ * @param {(entry: PresetEntry, opts: Record<string, unknown>) => Promise<unknown>} [options.loadEntry]
+ *   Injected loader (html/projectm-preset-library.js `loadPresetEntry`).
+ * @param {boolean} [options.clearShaderCache] Wipe the store before each cold load.
+ * @returns {Promise<{ presets: PresetSwitchTiming[], timestamp: string }>}
  */
 export async function measurePresetSwitchTimings(module, entries, {
     loadEntry,
@@ -223,16 +301,17 @@ export async function measurePresetSwitchTimings(module, entries, {
     if (!loadEntry) {
         throw new Error('measurePresetSwitchTimings requires loadEntry');
     }
+    /** @type {PresetSwitchTiming[]} */
     const results = [];
     for (const entry of entries) {
         if (clearShaderCache) {
             const db = await openPresetCacheDb().catch(() => null);
             if (db) {
-                await new Promise((resolve) => {
+                await /** @type {Promise<void>} */ (new Promise((resolve) => {
                     const tx = db.transaction(SHADER_STORE, 'readwrite');
                     tx.oncomplete = () => { db.close(); resolve(); };
                     tx.objectStore(SHADER_STORE).clear();
-                });
+                }));
             }
         }
         const coldStart = performance.now();

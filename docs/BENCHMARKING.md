@@ -178,6 +178,7 @@ Compare output highlights:
 |------|------|
 | `optimize.sh` | wasm-opt + `--bench` orchestration |
 | `scripts/benchmark_presets_wasm.mjs` | Playwright WASM runner |
+| `scripts/capture_fbo_precision_benchmark.mjs` | Crossfade-gated RGBA16F vs. RGBA32F A/B capture |
 | `scripts/benchmark_native.sh` | Native gtest JSON report |
 | `scripts/benchmark_openmp_native.sh` | OpenMP A/B FFT |
 | `tests/wasm-smoke/benchmark.html` | In-browser benchmark page |

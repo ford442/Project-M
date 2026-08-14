@@ -736,6 +736,8 @@ this is not the `RGBA8` degraded path and carries no banding risk on float-capab
 Because the saving is on the transition path only, measure it with the crossfade-gated benchmark
 (`?benchmark=1&crossfade=1`, see [docs/PERFORMANCE.md](PERFORMANCE.md)) — a steady-state
 `?benchmark=1` run never composites the Preset B surfaces and will show no difference.
+`scripts/capture_fbo_precision_benchmark.mjs` drives both variants against one build and writes
+the before/after JSON pair to `benchmark-results/`.
 
 ## Initializing Emscripten's OpenGL Context
 

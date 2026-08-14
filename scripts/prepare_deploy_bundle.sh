@@ -52,6 +52,14 @@ src_worker="$OUT_DIR/${SMOKE_BUNDLE}.worker.js"
 
 if [[ ! -s "$src_js" || ! -s "$src_wasm" ]]; then
     echo "Missing smoke build outputs in $OUT_DIR — running build_wasm_smoke_wrapper.sh" >&2
+    if ! command -v em++ >/dev/null 2>&1 && ! command -v emcc >/dev/null 2>&1; then
+        echo "ERROR: em++/emcc not on PATH; cannot rebuild the smoke wrapper." >&2
+        echo "Activate emsdk first, then re-run, e.g.:" >&2
+        echo "  source /path/to/emsdk/emsdk_env.sh" >&2
+        echo "  INSTALL_DIR=$INSTALL_DIR OUT_DIR=$OUT_DIR scripts/build_wasm_smoke_wrapper.sh" >&2
+        echo "  PROJECTM_WASM_VERSION=$PROJECTM_WASM_VERSION scripts/prepare_deploy_bundle.sh" >&2
+        exit 1
+    fi
     INSTALL_DIR="$INSTALL_DIR" OUT_DIR="$OUT_DIR" \
         bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
 fi

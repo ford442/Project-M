@@ -163,10 +163,12 @@ set(PROJECTM_WASM_LIB_ONLY_S_LINK_SETTINGS
         )
 
 # -s settings applied only on the final projectM_emscripten.cpp wrapper link (shell).
+# DEFAULT_TO_CXX=1 keeps libc++ linked even if the driver is plain emcc (not em++).
 set(PROJECTM_WASM_WRAPPER_ONLY_S_LINK_SETTINGS
         "ENVIRONMENT=web,worker"
         "EXPORT_NAME=createModule"
         "MODULARIZE=1"
+        "DEFAULT_TO_CXX=1"
         )
 
 function(_projectm_wasm_expand_s_link_settings settings_list out_var)

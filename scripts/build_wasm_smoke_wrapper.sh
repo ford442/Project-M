@@ -94,7 +94,7 @@ projectm_wasm_wrapper_include_args wrapper_include_args
 
 # WASM host wrapper translation units. projectM_emscripten.cpp was split into
 # focused TUs (see docs/EMSCRIPTEN.md "Where to add a WASM export"); all of them
-# must be passed to the final emcc link. Header-only pieces (WasmGraphics.hpp,
+# must be passed to the final em++ link. Header-only pieces (WasmGraphics.hpp,
 # ProjectMWasmInternal.hpp) are #included, not listed here.
 wrapper_sources=(
     "$PROJECT_ROOT/projectM_emscripten.cpp"
@@ -106,10 +106,27 @@ wrapper_sources=(
     "$PROJECT_ROOT/WasmJsBindings.cpp"
 )
 
+# Prefer em++ so the final link always pulls in libc++ / libc++abi. Linking the
+# C++ wrapper + libprojectM with plain emcc can omit the C++ runtime (undefined
+# __cxa_*, std::string, etc.) when DEFAULT_TO_CXX is off (e.g. STRICT, or
+# Emscripten versions that do not default it on for emcc).
+emxx_cmd=()
+if command -v em++ >/dev/null 2>&1; then
+    emxx_cmd=(em++)
+elif command -v emcc >/dev/null 2>&1; then
+    echo "Warning: em++ not found; falling back to emcc -sDEFAULT_TO_CXX=1" >&2
+    emxx_cmd=(emcc -s DEFAULT_TO_CXX=1)
+else
+    echo "ERROR: neither em++ nor emcc found on PATH." >&2
+    echo "Activate the Emscripten SDK first, e.g.:" >&2
+    echo "  source /path/to/emsdk/emsdk_env.sh" >&2
+    exit 1
+fi
+
 # Note: no -flto here by default. The wrapper TUs are the only LTO/bitcode TUs
 # in this link; libprojectM-4.a is built without LTO. Set PROJECTM_WASM_LTO=1 to try
 # link-time-only LTO (see docs/PERFORMANCE.md).
-emcc "${wrapper_sources[@]}" \
+"${emxx_cmd[@]}" "${wrapper_sources[@]}" \
     "${wrapper_include_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \

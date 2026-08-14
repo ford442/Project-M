@@ -163,6 +163,7 @@ projectm_wasm_common_link_args() {
         -s ENVIRONMENT=web,worker
         -s EXPORT_NAME=createModule
         -s MODULARIZE=1
+        -s DEFAULT_TO_CXX=1
         -l embind
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"

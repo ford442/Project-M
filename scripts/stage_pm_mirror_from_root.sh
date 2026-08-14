@@ -6,13 +6,13 @@
 # keeps a local pm/ tree for inspection or manual SFTP uploads.
 #
 # Usage:
-#   PROJECTM_WASM_VERSION=035 scripts/stage_pm_mirror_from_root.sh
+#   PROJECTM_WASM_VERSION=036 scripts/stage_pm_mirror_from_root.sh
 #   python deploy.py
 
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-035}"
+PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-036}"
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
 dest_pm="$PROJECT_ROOT/pm"
 

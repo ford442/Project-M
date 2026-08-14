@@ -33,10 +33,10 @@ JS modules do **not** include the `.wasm` blob. Host one of:
 
 | Layout | Glue script | Binary |
 |--------|-------------|--------|
-| Canonical (recommended) | `./pm/projectm-v.035-thread.1ijs` | `./pm/projectm-v.035-thread.wasm` |
-| Legacy root mirror | `./projectm-v.035-thread.1ijs` | `./projectm-v.035-thread.wasm` |
+| Canonical (recommended) | `./pm/projectm-v.036-thread.js` | `./pm/projectm-v.036-thread.wasm` |
+| Legacy root mirror | `./projectm-v.036-thread.js` | `./projectm-v.036-thread.wasm` |
 
-Pin the bundle version with `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-version.js` (currently **`035`**). Override per element with `wasm-base-url` or `wasm-script-url`.
+Pin the bundle version with `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-version.js` (currently **`036`**). Override per element with `wasm-base-url` or `wasm-script-url`.
 
 First-party CDN default: `https://projectm.1ink.us` (see `buildProjectMWasmUrls()`).
 

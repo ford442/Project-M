@@ -1,6 +1,6 @@
 // Keep DEFAULT_WASM_VERSION in sync with PROJECTM_WASM_VERSION in projectm-wasm-version.js
 // (checked by scripts/verify_wasm_version_sync.sh).
-var DEFAULT_WASM_VERSION = '035';
+var DEFAULT_WASM_VERSION = '036';
 (function () {
     try {
         var params = new URLSearchParams(window.location.search);

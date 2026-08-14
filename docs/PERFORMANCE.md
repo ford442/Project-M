@@ -72,6 +72,10 @@ Append the following query parameters to `projectm-core.html`:
 - `frames` — number of frames to sample (default 500).
 - `preset` — optional VFS path to a preset to load before sampling (via
   `Module.ccall('load_preset_file', ...)`). If omitted, the currently active/idle preset is used.
+- `crossfade=1` — sample **only frames rendered during an active soft-cut crossfade** (see below).
+- `crossfadeSec` — crossfade duration in seconds when `crossfade=1` (default 20).
+- `crossfadePresets` — comma-separated preset paths to cycle through in crossfade mode. Defaults
+  to `?preset=` if given, otherwise the first two featured-pack presets.
 
 Once `frames` samples have been collected, `projectm-perf.js`:
 
@@ -79,6 +83,27 @@ Once `frames` samples have been collected, `projectm-perf.js`:
 2. Posts the same object via `window.postMessage({ type: 'pm-benchmark-result', result }, '*')`,
    so an automated test harness (e.g. Puppeteer/Playwright) can capture it without scraping the
    console.
+
+### Benchmarking the transition path (`crossfade=1`)
+
+A default `?benchmark=1` run samples steady-state frames, which never touch the Preset B
+FBOs. Anything that only affects preset transitions — dual-FBO color format, compositor
+bandwidth, crossfade blend cost — is invisible in such a run and must not be measured with one.
+
+`&crossfade=1` keeps a soft cut running for the whole sampling window: `projectm-perf.js` loads
+the next preset whenever the previous blend finishes, and discards every frame where
+`transition_is_active()` is false. `frames` therefore counts in-crossfade frames only, so a run
+takes longer in wall-clock time than the equivalent steady-state run.
+
+To A/B the dual-FBO color format on the same build (RGBA16F default vs. `?fboPrecision=high`):
+
+```
+?benchmark=1&crossfade=1&frames=300&crossfadeSec=20
+?benchmark=1&crossfade=1&frames=300&crossfadeSec=20&fboPrecision=high
+```
+
+The result JSON records `fboFormat` (`"RGBA16F"` / `"RGBA32F"` / `"RGBA8"`) and a `crossfade`
+object, so the two captures are self-identifying. Compare `gpuMs` and `compositeMs`.
 
 ### Sample output
 

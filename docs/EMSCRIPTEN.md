@@ -728,6 +728,15 @@ while keeping float precision by default.
 - High precision opt-in: add `?fboPrecision=high` to prefer `RGBA32F` first
 - Fallback: `RGBA8` (degraded-mode banner in `html/projectm-fbo-format.js`)
 
+`RGBA32F` is 16 bytes/px against 8 for `RGBA16F`, across four surfaces (A_Read/A_Write,
+B_Read/B_Write) — so the default halves both transition VRAM and compositor bandwidth during a
+crossfade. Half-float's 10-bit mantissa is still well beyond what an 8-bit display resolves, so
+this is not the `RGBA8` degraded path and carries no banding risk on float-capable GPUs.
+
+Because the saving is on the transition path only, measure it with the crossfade-gated benchmark
+(`?benchmark=1&crossfade=1`, see [docs/PERFORMANCE.md](PERFORMANCE.md)) — a steady-state
+`?benchmark=1` run never composites the Preset B surfaces and will show no difference.
+
 ## Initializing Emscripten's OpenGL Context
 
 In addition to the above linker flags, some additional initialization steps must be performed to set up the OpenGL

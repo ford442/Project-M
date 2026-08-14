@@ -9,15 +9,23 @@ import {
     getOmpThreadCountInParallel,
     loadPresetFile,
     setPerfHud,
+    transitionIsActive,
 } from './generated/projectm-wasm-api.js';
 import { measurePresetSwitchTimings } from './projectm-shader-cache.js';
 import { fetchFeaturedManifest, loadPresetEntry } from './projectm-preset-library.js';
+import { startTransitionWhenReady } from './projectm-transitions.js';
 
 // - HUD: toggled via setPerfHud(module, 1/0). Shows FPS, total frame time, and bars.
 // - Benchmark mode: append `?benchmark=1&frames=1000&preset=/presets/foo.milk` to
 //   the page URL. Once `frames` samples have been collected, prints a JSON
 //   summary (mean/median/p95) to the console and posts it via
 //   `window.postMessage({ type: 'pm-benchmark-result', result }, '*')`.
+// - Crossfade benchmark mode: add `&crossfade=1` to `?benchmark=1` to keep a
+//   soft-cut transition running for the whole sampling window and only count
+//   frames where `transition_is_active()` is true. This is the mode to use when
+//   measuring anything on the dual-FBO transition path (e.g. the RGBA16F vs.
+//   RGBA32F color-format comparison) — a steady-state run never composites the
+//   Preset B surfaces at all and will show no difference.
 
 const STYLE_ID = 'pm-perf-hud-style';
 const HUD_ID = 'pm-perf-hud';
@@ -229,15 +237,28 @@ export function setupPerfTools(Module) {
     const showHud = params.get('perfhud') === '1' || benchmarkRequested;
     const frameTarget = Math.max(1, parseInt(params.get('frames'), 10) || 500);
     const presetPath = params.get('preset');
+    const crossfadeBench = benchmarkRequested && params.get('crossfade') === '1';
+    const crossfadeSec = Math.max(0.5, parseFloat(params.get('crossfadeSec')) || 20);
 
     let samples = null;
     let benchmarkDone = false;
+
+    // In crossfade mode only frames rendered while a blend is actually in
+    // progress are representative — everything else is a steady-state frame
+    // that never touches the Preset B FBOs.
+    function crossfadeActive() {
+        try {
+            return transitionIsActive(Module);
+        } catch {
+            return false;
+        }
+    }
 
     window.pmSetPerfHudEnabled = setHudVisible;
     window.pmOnPerfFrame = (stats) => {
         updateHud(stats);
 
-        if (samples && !benchmarkDone) {
+        if (samples && !benchmarkDone && (!crossfadeBench || crossfadeActive())) {
             samples.totalMs.push(stats.totalMs);
             samples.fps.push(stats.fps);
             BARS.forEach((bar) => {
@@ -263,6 +284,10 @@ export function setupPerfTools(Module) {
         const result = {
             frames: samples.totalMs.length,
             preset: presetPath || null,
+            // Recorded so before/after runs can be told apart: the dual-FBO
+            // color format is what `?fboPrecision=high` switches.
+            fboFormat: (typeof window.pmGetFboFormat === 'function') ? window.pmGetFboFormat() : null,
+            crossfade: crossfadeBench ? { active: true, durationSec: crossfadeSec } : null,
             openmp: collectOpenmpInfo(Module),
             totalMs: summarize(samples.totalMs),
             fps: summarize(samples.fps),
@@ -293,6 +318,67 @@ export function setupPerfTools(Module) {
                 return acc;
             }, {}),
         };
+
+        if (crossfadeBench) {
+            pumpCrossfade();
+        }
+    }
+
+    /**
+     * Keeps a soft-cut transition running until the benchmark has collected
+     * `frames` in-crossfade samples. Each time the blend finishes, the next
+     * preset is loaded to start a new one.
+     */
+    async function pumpCrossfade() {
+        const playlist = await resolveCrossfadePresets();
+        if (!playlist.length) {
+            console.warn('[projectM benchmark] crossfade mode: no presets available to transition between');
+            return;
+        }
+
+        let index = 0;
+        while (!benchmarkDone) {
+            if (!crossfadeActive()) {
+                const entry = playlist[index % playlist.length];
+                index += 1;
+                try {
+                    if (typeof entry === 'string') {
+                        loadPresetFile(Module, entry);
+                    } else {
+                        await loadPresetEntry(entry, {});
+                    }
+                    await startTransitionWhenReady({ module: Module, durationSec: crossfadeSec });
+                } catch (err) {
+                    console.warn('[projectM benchmark] crossfade step failed:', err);
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+    }
+
+    /**
+     * Presets to cycle through in crossfade mode: an explicit
+     * `?crossfadePresets=a.milk,b.milk` list, else the `?preset=` file, else the
+     * first two featured-pack presets.
+     */
+    async function resolveCrossfadePresets() {
+        const explicit = (params.get('crossfadePresets') || '')
+            .split(',')
+            .map((p) => p.trim())
+            .filter(Boolean);
+        if (explicit.length) {
+            return explicit;
+        }
+        if (presetPath) {
+            return [presetPath];
+        }
+        try {
+            const manifest = await fetchFeaturedManifest();
+            return (manifest.presets || []).slice(0, 2);
+        } catch (err) {
+            console.warn('[projectM benchmark] crossfade mode: featured manifest unavailable:', err);
+            return [];
+        }
     }
 
     const presetSwitchBench = params.get('presetSwitchBench') === '1';
@@ -313,5 +399,5 @@ export function setupPerfTools(Module) {
             });
     }
 
-    return { benchmarkRequested, presetSwitchBench };
+    return { benchmarkRequested, crossfadeBench, presetSwitchBench };
 }

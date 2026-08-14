@@ -368,6 +368,14 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
     # Wrapper function (TypeScript + browser JS runtime).
     set(_fn_body_js "")
     set(_fn_body_ts "")
+
+    # Host-side hook: pl() hands playback to the worklet decode path, so a
+    # registered audio-source router has to promote 'worklet' before ingest
+    # (see html/projectm-audio-source-router.js).
+    set(_fn_prologue "")
+    if(_name STREQUAL "pl")
+        set(_fn_prologue "    hostAudioSourceRouter?.notifyWorkletFeed();\n")
+    endif()
     if(_binding STREQUAL "ccall")
         _projectm_wasm_ccall_return("${_returns}" _ccall_ret)
         if(_returns STREQUAL "void")
@@ -406,7 +414,7 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
         string(APPEND _ts_wrappers ", ${_ts_params}")
     endif()
     string(APPEND _ts_wrappers "): ${_ts_return} {\n")
-    string(APPEND _ts_wrappers "${_fn_body_ts}}\n")
+    string(APPEND _ts_wrappers "${_fn_prologue}${_fn_body_ts}}\n")
 
     string(APPEND _js_wrappers "\n/** ${_doc} */\n")
     string(APPEND _js_wrappers "export function ${_js_name}(module")
@@ -414,7 +422,7 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
         string(APPEND _js_wrappers ", ${_js_params}")
     endif()
     string(APPEND _js_wrappers ") {\n")
-    string(APPEND _js_wrappers "${_fn_body_js}}\n")
+    string(APPEND _js_wrappers "${_fn_prologue}${_fn_body_js}}\n")
 
     if(_visibility STREQUAL "public")
         if(_ts_symbol_exports STREQUAL "")
@@ -461,6 +469,31 @@ export function feedPcmFloat(
         module._free(ptr);
     }
 }
+
+/**
+ * Host-layer audio source router surface consulted by this module.
+ * Implemented by AudioSourceRouter in html/projectm-audio-source-router.js.
+ */
+export interface HostAudioSourceRouter {
+    notifyWorkletFeed(): void;
+}
+
+let hostAudioSourceRouter: HostAudioSourceRouter | null = null;
+
+/**
+ * Registers (or clears, with null) the host audio-source router that wrapper
+ * functions notify before handing a source to libprojectM. Kept here rather
+ * than in the router module so both directions of the dependency stay
+ * one-way: the router imports the API, the API only holds a registration.
+ */
+export function setHostAudioSourceRouter(router: HostAudioSourceRouter | null): void {
+    hostAudioSourceRouter = router;
+}
+
+/** The currently registered host audio-source router, if any. */
+export function getHostAudioSourceRouter(): HostAudioSourceRouter | null {
+    return hostAudioSourceRouter;
+}
 ")
 
 string(APPEND _ts_body "${_ts_wrappers}")
@@ -495,6 +528,36 @@ export function feedPcmFloat(module, data, samplesPerChannel, channels = 2) {
     } finally {
         module._free(ptr);
     }
+}
+
+/**
+ * Host-layer audio source router surface consulted by this module.
+ * Implemented by AudioSourceRouter in html/projectm-audio-source-router.js.
+ *
+ * @typedef {{ notifyWorkletFeed: () => void }} HostAudioSourceRouter
+ */
+
+/** @type {HostAudioSourceRouter | null} */
+let hostAudioSourceRouter = null;
+
+/**
+ * Registers (or clears, with null) the host audio-source router that wrapper
+ * functions notify before handing a source to libprojectM. Kept here rather
+ * than in the router module so both directions of the dependency stay
+ * one-way: the router imports the API, the API only holds a registration.
+ *
+ * @param {HostAudioSourceRouter | null} router
+ */
+export function setHostAudioSourceRouter(router) {
+    hostAudioSourceRouter = router;
+}
+
+/**
+ * The currently registered host audio-source router, if any.
+ * @returns {HostAudioSourceRouter | null}
+ */
+export function getHostAudioSourceRouter() {
+    return hostAudioSourceRouter;
 }
 ${_js_wrappers}
 /** Stable public embed API (see docs/WASM_JS_API.md). */

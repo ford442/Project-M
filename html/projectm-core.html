@@ -1340,10 +1340,6 @@ async function attemptInit() {
             syncModuleSize();
 
             if (isRenderWorkerEnabled() && isRenderWorkerSupported(mcanvas)) {
-            updateLayout();
-            syncModuleSize();
-
-            if (isRenderWorkerEnabled() && isRenderWorkerSupported(mcanvas)) {
                 const rw = await tryStartRenderWorker(mcanvas);
                 if (rw) {
                     renderWorkerHandle = rw;

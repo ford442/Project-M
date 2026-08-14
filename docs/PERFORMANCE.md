@@ -105,6 +105,22 @@ To A/B the dual-FBO color format on the same build (RGBA16F default vs. `?fboPre
 The result JSON records `fboFormat` (`"RGBA16F"` / `"RGBA32F"` / `"RGBA8"`) and a `crossfade`
 object, so the two captures are self-identifying. Compare `gpuMs` and `compositeMs`.
 
+To run both captures unattended against a local build, use the Playwright wrapper — it serves the
+repo, points `projectm-core.html` at the bundle you pass it, runs both variants, and writes
+`benchmark-results/fbo-precision-{rgba16f-default,rgba32f-high}.json` plus a median-delta
+`fbo-precision-comparison.json`:
+
+```sh
+npm install --no-save playwright   # once
+npx playwright install chromium    # once
+node scripts/capture_fbo_precision_benchmark.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js
+```
+
+The script fails the run if a capture comes back without the `crossfade` marker, and warns when a
+variant did not get the format it asked for (an `RGBA8` result means the GPU/browser reports no
+float color-buffer support at all, which makes the A/B meaningless). Run it on real GPU hardware:
+under SwiftShader the frame is CPU-bound and the bandwidth difference will not appear in `gpuMs`.
+
 ### Sample output
 
 ```json

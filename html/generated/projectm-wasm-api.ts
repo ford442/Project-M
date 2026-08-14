@@ -170,6 +170,31 @@ export function feedPcmFloat(
     }
 }
 
+/**
+ * Host-layer audio source router surface consulted by this module.
+ * Implemented by AudioSourceRouter in html/projectm-audio-source-router.js.
+ */
+export interface HostAudioSourceRouter {
+    notifyWorkletFeed(): void;
+}
+
+let hostAudioSourceRouter: HostAudioSourceRouter | null = null;
+
+/**
+ * Registers (or clears, with null) the host audio-source router that wrapper
+ * functions notify before handing a source to libprojectM. Kept here rather
+ * than in the router module so both directions of the dependency stay
+ * one-way: the router imports the API, the API only holds a registration.
+ */
+export function setHostAudioSourceRouter(router: HostAudioSourceRouter | null): void {
+    hostAudioSourceRouter = router;
+}
+
+/** The currently registered host audio-source router, if any. */
+export function getHostAudioSourceRouter(): HostAudioSourceRouter | null {
+    return hostAudioSourceRouter;
+}
+
 /** Legacy uint8 PCM feed */
 export function addAudioData(module: ProjectMModule, data: number, len: number): void {
     module._add_audio_data(data, len);
@@ -177,6 +202,7 @@ export function addAudioData(module: ProjectMModule, data: number, len: number):
 
 /** Play audio file from VFS path */
 export function pl(module: ProjectMModule, songPath: string): void {
+    hostAudioSourceRouter?.notifyWorkletFeed();
     module.ccall('pl', null, ['string'], [songPath]);
 }
 

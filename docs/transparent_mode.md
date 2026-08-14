@@ -22,7 +22,7 @@ Final transparency is applied in the **last blit to the screen** (or legacy fall
 |------|------|--------|
 | **CopyTexture** | Desktop / legacy WASM fallback (`projectm_opengl_render_frame`) | `copy_texture` fragment shader |
 | **PresetTransition** | Native soft-cut transitions | `TransitionShaderMainGlsl330.frag` |
-| **CompositingBlendShader** | WASM dual-FBO pipeline (normal + transition frames) | Inline shader in `projectM_emscripten.cpp` |
+| **CompositingBlendShader** | WASM dual-FBO pipeline, **soft-cut transitions only** — steady-state frames use `CopyTexture` directly (see below) | Inline shader in `projectM_emscripten.cpp` |
 
 ### Dual-FBO transitions (WASM)
 
@@ -37,9 +37,12 @@ Preset internals stay opaque in both paths; transparency runs only on the final 
 - **Why not `discard`**: Using `discard` in fragment shaders can hurt performance on tile-based GPUs and may leave previous-frame pixels visible if the drawing buffer is not cleared. Explicitly writing `vec4(0,0,0,0)` is safer.
 - **No extra FBO**: This approach avoids an intermediate framebuffer and extra render pass, keeping the change minimal and performant.
 
-### Dual-FBO transitions
+### Preset-internal dual-FBO (native, all platforms)
 
-Preset rendering still uses the existing dual ping-pong FBO pair inside each `MilkdropPreset`. Transparency is applied only on the **final** blit to the default framebuffer:
+Not to be confused with the WASM browser-level dual-FBO pipeline above — this is the ping-pong FBO
+pair each `MilkdropPreset` already used internally, on native and WASM alike, before any of the
+Phase 2/5 browser-compositor work. Transparency is applied only on the **final** blit to the
+default framebuffer:
 
 1. **Normal frames** — `CopyTexture::Draw()` writes near-black pixels with `alpha = 0` when transparency mode is on.
 2. **Soft transitions** — `PresetTransition` applies the same rule in `TransitionShaderMainGlsl330.frag`. For **multi-pass** transition shaders, pass 0 (intermediate FBO) keeps opaque alpha so pass 1 can sample a full RGB buffer; transparency is enabled only on the final pass draw.

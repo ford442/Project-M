@@ -1,0 +1,29 @@
+{
+  "//": [
+    "Separate program for the OffscreenCanvas render worker.",
+    "",
+    "projectm-render-worker.js runs in a Worker global scope, so it needs the",
+    "WebWorker lib (self.postMessage, importScripts, onmessage) instead of DOM.",
+    "The two libs declare conflicting globals and cannot share one program, so",
+    "the worker is checked here rather than in tsconfig.json. Both programs are",
+    "run by `npm run typecheck` (and therefore by scripts/check_html_types.sh).",
+    "",
+    "The wire format between the two is defined once in",
+    "projectm-render-worker-types.ts, which both programs include."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "WebWorker"]
+  },
+  "include": [
+    "projectm-render-worker-types.ts",
+    "projectm-render-worker.js"
+  ]
+}

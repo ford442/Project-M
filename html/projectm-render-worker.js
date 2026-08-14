@@ -19,12 +19,61 @@
 //   { type: 'stats', fps, fboFormat, qualityTier }
 //   { type: 'ccall-result', requestId, result }
 
+/**
+ * @typedef {import('./projectm-render-worker-types.ts').PcmRingInit} PcmRingInit
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerHostMessage} RenderWorkerHostMessage
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerInitMessage} RenderWorkerInitMessage
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerCcallMessage} RenderWorkerCcallMessage
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
+ * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ */
+
+/**
+ * Reader half of the SharedArrayBuffer PCM ring. The host owns the write index
+ * (published through `header[0]` with Atomics); this side keeps its own cursor.
+ *
+ * @typedef {object} PcmRingReader
+ * @property {Int32Array} header Single-element view holding the write index.
+ * @property {Float32Array} data Interleaved stereo sample storage.
+ * @property {number} capacityPairs
+ * @property {number} readIndex
+ */
+
+/**
+ * The Emscripten factory `importScripts(scriptSrc)` defines on the worker
+ * global. Declared here because the glue is loaded at runtime, not imported.
+ *
+ * @type {((config: Record<string, unknown>) => Promise<ProjectMModule>) | undefined}
+ */
+// eslint-disable-next-line no-var
+var createModule;
+
+/**
+ * Posts a reply to the host.
+ *
+ * Wrapping `self.postMessage` is what makes the worker->host half of the
+ * protocol checkable: the raw signature takes `any`, so a renamed or mistyped
+ * field would post happily and fail only at runtime on the other side. Going
+ * through {@link RenderWorkerMessage} turns that into a build error.
+ *
+ * @param {RenderWorkerMessage} message
+ */
+function postToHost(message) {
+    self.postMessage(message);
+}
+
+/** @type {ProjectMModule | null} */
 let Module = null;
-let pcmRing = null; // { sab, header, data, capacityPairs, readIndex }
+/** @type {PcmRingReader | null} */
+let pcmRing = null;
 let statsInterval = 0;
 let lastFrameTime = 0;
 let lastFps = 0;
 
+/**
+ * @param {PcmRingInit | null | undefined} pcm
+ * @returns {PcmRingReader | null}
+ */
 function setupPcmRing(pcm) {
     if (!pcm || !pcm.sab) return null;
     const header = new Int32Array(pcm.sab, 0, 1);
@@ -58,6 +107,10 @@ function drainPcmRing() {
     feedInterleavedPcm(interleaved, available);
 }
 
+/**
+ * @param {Float32Array} interleaved
+ * @param {number} samplesPerChannel
+ */
 function feedInterleavedPcm(interleaved, samplesPerChannel) {
     // Mirrors feedPcmFloat() in html/generated/projectm-wasm-api.js (worker cannot import ES modules).
     if (!Module || !Module._malloc || !Module.HEAPF32 || !Module._projectm_pcm_add_float_wrapper) return;
@@ -84,7 +137,7 @@ function postStats() {
     }
     lastFrameTime = now;
 
-    self.postMessage({
+    postToHost({
         type: 'stats',
         fps: lastFps,
         fboFormat: Module._dual_fbo_get_format ? Module._dual_fbo_get_format() : -1,
@@ -92,34 +145,39 @@ function postStats() {
     });
 }
 
-function handleCcall(msg) {
+/**
+ * @param {ProjectMModule} module Passed in so the caller's readiness check narrows here too.
+ * @param {RenderWorkerCcallMessage} msg
+ */
+function handleCcall(module, msg) {
     let result;
     try {
-        result = Module.ccall(msg.name, msg.returnType || null, msg.argTypes || [], msg.args || []);
+        result = module.ccall(msg.name, msg.returnType || null, msg.argTypes || [], msg.args || []);
     } catch (error) {
-        self.postMessage({ type: 'error', message: `ccall ${msg.name} failed: ${error}` });
+        postToHost({ type: 'error', message: `ccall ${msg.name} failed: ${error}` });
         return;
     }
     if (msg.requestId !== undefined) {
-        self.postMessage({ type: 'ccall-result', requestId: msg.requestId, result });
+        postToHost({ type: 'ccall-result', requestId: msg.requestId, result });
     }
 }
 
+/** @param {RenderWorkerInitMessage} msg */
 async function init(msg) {
     if (typeof OffscreenCanvas === 'undefined' || typeof importScripts !== 'function') {
-        self.postMessage({ type: 'unsupported', reason: 'OffscreenCanvas or importScripts unavailable in worker' });
+        postToHost({ type: 'unsupported', reason: 'OffscreenCanvas or importScripts unavailable in worker' });
         return;
     }
 
     try {
         importScripts(msg.scriptSrc);
     } catch (error) {
-        self.postMessage({ type: 'unsupported', reason: `failed to load ${msg.scriptSrc}: ${error}` });
+        postToHost({ type: 'unsupported', reason: `failed to load ${msg.scriptSrc}: ${error}` });
         return;
     }
 
     if (typeof createModule !== 'function') {
-        self.postMessage({ type: 'unsupported', reason: 'createModule not defined after importScripts' });
+        postToHost({ type: 'unsupported', reason: 'createModule not defined after importScripts' });
         return;
     }
 
@@ -129,6 +187,10 @@ async function init(msg) {
             // Smoke wrapper embeds projectm-v.030-thread.wasm; deploy renames to
             // projectm-v.<ver>-thread.*. Remap from the loaded script URL so pm/
             // does not 404 to the UTF-16 HTML ErrorDocument.
+            /**
+             * @param {string} path
+             * @param {string} [prefix]
+             */
             locateFile(path, prefix = '') {
                 const smoke = 'projectm-v.030-thread';
                 const match = /projectm-v\.\d+-thread/.exec(msg.scriptSrc || '');
@@ -141,7 +203,7 @@ async function init(msg) {
             },
         });
     } catch (error) {
-        self.postMessage({ type: 'error', message: `module init failed: ${error}` });
+        postToHost({ type: 'error', message: `module init failed: ${error}` });
         return;
     }
 
@@ -168,11 +230,11 @@ async function init(msg) {
 
     statsInterval = setInterval(postStats, 500);
 
-    self.postMessage({ type: 'ready' });
+    postToHost({ type: 'ready' });
 }
 
 self.onmessage = (event) => {
-    const msg = event.data;
+    const msg = /** @type {RenderWorkerHostMessage} */ (event.data);
     switch (msg.type) {
         case 'init':
             init(msg);
@@ -203,7 +265,7 @@ self.onmessage = (event) => {
             break;
         case 'ccall':
             if (Module) {
-                handleCcall(msg);
+                handleCcall(Module, msg);
             }
             break;
         default:

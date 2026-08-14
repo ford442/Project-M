@@ -41,6 +41,7 @@
     "projectm-preset-library.js",
     "projectm-preset-picker.js",
     "projectm-preset-dev.js",
-    "projectm-preset-tweaker.js"
+    "projectm-preset-tweaker.js",
+    "projectm-render-worker-host.js"
   ]
 }

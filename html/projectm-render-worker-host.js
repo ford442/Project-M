@@ -9,8 +9,21 @@
 
 import { WASM_API_SYMBOLS } from './generated/projectm-wasm-api.js';
 
+/**
+ * @typedef {import('./projectm-render-worker-types.ts').PcmRing} PcmRing
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerHandle} RenderWorkerHandle
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerStatsMessage} RenderWorkerStatsMessage
+ */
+
 const DEFAULT_PCM_RING_CAPACITY_PAIRS = 16384; // ~0.37s of audio at 44.1kHz stereo
 
+/**
+ * @param {object} [options]
+ * @param {string} [options.search]
+ * @param {Storage | null} [options.storage]
+ * @returns {boolean}
+ */
 export function isRenderWorkerEnabled({ search = location.search, storage = (() => {
     try { return window.localStorage; } catch (_) { return null; }
 })() } = {}) {
@@ -21,6 +34,13 @@ export function isRenderWorkerEnabled({ search = location.search, storage = (() 
     return !!storage && storage.getItem('renderWorker') === '1';
 }
 
+/**
+ * Doubles as the narrowing guard for {@link setupRenderWorker}: past this
+ * check, `canvas` is present and can be transferred offscreen.
+ *
+ * @param {HTMLCanvasElement | null | undefined} canvas
+ * @returns {canvas is HTMLCanvasElement}
+ */
 export function isRenderWorkerSupported(canvas) {
     return !!(
         canvas &&
@@ -33,6 +53,10 @@ export function isRenderWorkerSupported(canvas) {
 // Creates a SharedArrayBuffer-backed ring buffer for PCM data, if available.
 // Requires cross-origin isolation (COOP/COEP) for SharedArrayBuffer; falls
 // back to null (caller should use postMessage 'pcm' messages instead).
+/**
+ * @param {number} [capacityPairs]
+ * @returns {PcmRing | null} null without cross-origin isolation (no SharedArrayBuffer).
+ */
 export function createPcmRing(capacityPairs = DEFAULT_PCM_RING_CAPACITY_PAIRS) {
     if (typeof SharedArrayBuffer === 'undefined' || !globalThis.crossOriginIsolated) {
         return null;
@@ -46,6 +70,10 @@ export function createPcmRing(capacityPairs = DEFAULT_PCM_RING_CAPACITY_PAIRS) {
     return {
         sab,
         capacityPairs,
+        /**
+         * @param {Float32Array} buffer
+         * @param {number} channels
+         */
         write(buffer, channels) {
             let interleaved = buffer;
             let pairs;
@@ -77,6 +105,24 @@ export function createPcmRing(capacityPairs = DEFAULT_PCM_RING_CAPACITY_PAIRS) {
 // there. Returns null if unsupported (caller should fall back to the
 // main-thread path). Otherwise returns a handle for the host to drive the
 // worker (resize, PCM, generic ccall) and react to stats/errors.
+/**
+ * Transfers `canvas` to a new render worker and starts the WASM module there.
+ *
+ * @param {object} [options]
+ * @param {HTMLCanvasElement} [options.canvas]
+ * @param {string} [options.scriptSrc]
+ * @param {number} [options.width]
+ * @param {number} [options.height]
+ * @param {number} [options.targetFps]
+ * @param {boolean} [options.governor]
+ * @param {string} [options.meshQuality]
+ * @param {() => void} [options.onReady]
+ * @param {(reason: string) => void} [options.onUnsupported]
+ * @param {(message: string) => void} [options.onError]
+ * @param {(stats: RenderWorkerStatsMessage) => void} [options.onStats]
+ * @returns {RenderWorkerHandle | null} null when unsupported — the caller must
+ *   fall back to the main-thread render path.
+ */
 export function setupRenderWorker({
     canvas,
     scriptSrc,
@@ -107,10 +153,11 @@ export function setupRenderWorker({
     const worker = new Worker(new URL('./projectm-render-worker.js', import.meta.url));
 
     let nextRequestId = 1;
+    /** @type {Map<number, (result: unknown) => void>} */
     const pendingCcalls = new Map();
 
     worker.onmessage = (event) => {
-        const msg = event.data;
+        const msg = /** @type {RenderWorkerMessage} */ (event.data);
         switch (msg.type) {
             case 'ready':
                 if (onReady) onReady();
@@ -157,15 +204,31 @@ export function setupRenderWorker({
         worker,
         pcmRing,
 
+        /**
+         * @param {number} w
+         * @param {number} h
+         */
         postResize(w, h) {
             worker.postMessage({ type: 'resize', width: w, height: h });
         },
 
-        // Used only when pcmRing is unavailable (no cross-origin isolation).
+        /**
+         * Used only when pcmRing is unavailable (no cross-origin isolation).
+         *
+         * @param {Float32Array} buffer
+         * @param {number} channels
+         */
         postPcm(buffer, channels) {
             worker.postMessage({ type: 'pcm', buffer, channels }, [buffer.buffer]);
         },
 
+        /**
+         * @param {string} name
+         * @param {string | null} returnType
+         * @param {string[]} argTypes
+         * @param {unknown[]} args
+         * @returns {Promise<unknown>}
+         */
         ccall(name, returnType, argTypes, args) {
             return new Promise((resolve) => {
                 const requestId = nextRequestId++;
@@ -174,6 +237,11 @@ export function setupRenderWorker({
             });
         },
 
+        /**
+         * @param {string} name
+         * @param {string[]} argTypes
+         * @param {unknown[]} args
+         */
         ccallVoid(name, argTypes, args) {
             worker.postMessage({ type: 'ccall', name, returnType: null, argTypes, args });
         }

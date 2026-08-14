@@ -7,10 +7,19 @@ import { feedPcmFloat } from './generated/projectm-wasm-api.js';
  */
 
 const AUDIO_CHANNEL_NAME = 'projectm-audio';
-const DEFAULT_EXTERNAL_PCM_ORIGINS = [
+/**
+ * First-party players / hosts that postMessage PCM into the visualizer.
+ * Keep in sync with html/projectm-audio-player.js (go.1ink.us shells) and
+ * panel embeds that still open flac.1ink.us / mod.1ink.us.
+ * The page's own origin is always trusted at runtime (see allowedOriginSet).
+ */
+export const DEFAULT_EXTERNAL_PCM_ORIGINS = Object.freeze([
     'https://go.1ink.us',
-    'https://test.1ink.us'
-];
+    'https://test.1ink.us',
+    'https://projectm.1ink.us',
+    'https://flac.1ink.us',
+    'https://mod.1ink.us',
+]);
 const LOCAL_STORAGE_ORIGIN_KEYS = [
     'externalPcmOrigins',
     'externalPcmAllowedOrigins'
@@ -49,13 +58,19 @@ const pendingExternalPCM = [];
 
 /**
  * @param {string[] | Set<string> | string | null | undefined} origins
- * @returns {string[]}
+ * @returns {string[] | null} Normalized list, or null when the caller omitted origins
+ *   so the default allowlist should apply. An explicit empty list stays empty
+ *   (embedder opt-out).
  */
 function normalizedOriginList(origins) {
-    if (!origins) return DEFAULT_EXTERNAL_PCM_ORIGINS;
-    if (origins instanceof Set) return Array.from(origins);
-    if (Array.isArray(origins)) return origins;
-    return String(origins).split(',');
+    if (origins == null) return null;
+    if (origins instanceof Set) {
+        return Array.from(origins).map((origin) => String(origin).trim()).filter(Boolean);
+    }
+    if (Array.isArray(origins)) {
+        return origins.map((origin) => String(origin).trim()).filter(Boolean);
+    }
+    return String(origins).split(',').map((origin) => origin.trim()).filter(Boolean);
 }
 
 function readAllowedOriginsFromStorage() {
@@ -66,8 +81,8 @@ function readAllowedOriginsFromStorage() {
             const values = raw.trim().startsWith('[')
                 ? JSON.parse(raw)
                 : raw.split(',');
-            const origins = normalizedOriginList(values).map((origin) => String(origin).trim()).filter(Boolean);
-            if (origins.length > 0) return origins;
+            const origins = normalizedOriginList(values);
+            if (origins && origins.length > 0) return origins;
         }
     } catch (_) {
         console.debug('[projectM external PCM] localStorage unavailable; using configured origin allowlist');
@@ -75,9 +90,33 @@ function readAllowedOriginsFromStorage() {
     return null;
 }
 
+/**
+ * Active allowlist for postMessage PCM. Prefer localStorage override, then the
+ * value passed to setupExternalAudioReceiver / setConfiguredAllowedOrigins, then
+ * {@link DEFAULT_EXTERNAL_PCM_ORIGINS}. Always includes the page's own origin so
+ * same-origin iframes (e.g. /flac/ on projectm.1ink.us) are not dropped.
+ *
+ * @returns {Set<string>}
+ */
 function allowedOriginSet() {
-    const origins = readAllowedOriginsFromStorage() || configuredAllowedOrigins || DEFAULT_EXTERNAL_PCM_ORIGINS;
-    return new Set(normalizedOriginList(origins).map((origin) => String(origin).trim()).filter(Boolean));
+    const fromStorage = readAllowedOriginsFromStorage();
+    let origins;
+    if (fromStorage) {
+        origins = fromStorage;
+    } else if (configuredAllowedOrigins != null) {
+        origins = configuredAllowedOrigins;
+    } else {
+        origins = [...DEFAULT_EXTERNAL_PCM_ORIGINS];
+    }
+    const set = new Set(origins.map((origin) => String(origin).trim()).filter(Boolean));
+    try {
+        if (typeof location !== 'undefined' && location.origin && location.origin !== 'null') {
+            set.add(location.origin);
+        }
+    } catch (_) {
+        // Non-browser / opaque origin environments.
+    }
+    return set;
 }
 
 /**
@@ -88,9 +127,9 @@ export function isTrustedExternalPcmOrigin(origin) {
     return allowedOriginSet().has(origin);
 }
 
-/** @param {string[] | null} origins */
+/** @param {string[] | Set<string> | string | null | undefined} origins */
 export function setConfiguredAllowedOrigins(origins) {
-    configuredAllowedOrigins = origins;
+    configuredAllowedOrigins = origins == null ? null : (normalizedOriginList(origins) ?? []);
 }
 
 /** Test helper: reset module-level receiver state between unit tests. */
@@ -404,7 +443,10 @@ export function setupExternalAudioReceiver({
 } = {}) {
     customFeed = typeof onFeed === 'function' ? onFeed : null;
     feedGate = typeof feedGateOption === 'function' ? feedGateOption : null;
-    configuredAllowedOrigins = allowedOrigins ? normalizedOriginList(allowedOrigins) : DEFAULT_EXTERNAL_PCM_ORIGINS;
+    // null/undefined → defaults; explicit [] disables all remote origins (same-origin still allowed).
+    configuredAllowedOrigins = allowedOrigins === undefined
+        ? null
+        : (normalizedOriginList(allowedOrigins) ?? []);
     pcmTransferCap = preallocSize !== undefined && Number.isFinite(preallocSize) && preallocSize > 0
         ? Math.floor(preallocSize)
         : DEFAULT_PCM_TRANSFER_CAP;

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+     DEFAULT_EXTERNAL_PCM_ORIGINS,
      defaultFeedPCMToModule,
      feedPCMToModule,
      flushQueuedExternalPCM,
@@ -159,6 +160,57 @@ test('isTrustedExternalPcmOrigin respects configured allowlist', () => {
         assert.equal(isTrustedExternalPcmOrigin('https://evil.example'), false);
     } finally {
         resetExternalPcmStateForTests();
+    }
+});
+
+test('default allowlist includes first-party FLAC/MOD/projectM origins', () => {
+    resetExternalPcmStateForTests();
+    try {
+        for (const origin of [
+            'https://flac.1ink.us',
+            'https://mod.1ink.us',
+            'https://projectm.1ink.us',
+            'https://go.1ink.us',
+            'https://test.1ink.us',
+        ]) {
+            assert.equal(
+                isTrustedExternalPcmOrigin(origin),
+                true,
+                `${origin} must be trusted by default`
+            );
+            assert.ok(
+                DEFAULT_EXTERNAL_PCM_ORIGINS.includes(origin),
+                `${origin} must appear in DEFAULT_EXTERNAL_PCM_ORIGINS`
+            );
+        }
+        assert.equal(isTrustedExternalPcmOrigin('https://evil.example'), false);
+    } finally {
+        resetExternalPcmStateForTests();
+    }
+});
+
+test('page origin is always trusted even with an empty remote allowlist', () => {
+    resetExternalPcmStateForTests();
+    const previousLocation = globalThis.location;
+    // jsdom-less node tests: stub location.origin.
+    Object.defineProperty(globalThis, 'location', {
+        configurable: true,
+        value: { origin: 'https://projectm.1ink.us' },
+    });
+    setConfiguredAllowedOrigins([]);
+    try {
+        assert.equal(isTrustedExternalPcmOrigin('https://projectm.1ink.us'), true);
+        assert.equal(isTrustedExternalPcmOrigin('https://flac.1ink.us'), false);
+    } finally {
+        resetExternalPcmStateForTests();
+        if (previousLocation === undefined) {
+            delete globalThis.location;
+        } else {
+            Object.defineProperty(globalThis, 'location', {
+                configurable: true,
+                value: previousLocation,
+            });
+        }
     }
 });
  

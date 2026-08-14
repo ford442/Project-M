@@ -19,7 +19,8 @@ dest_pm="$PROJECT_ROOT/pm"
 mkdir -p "$dest_pm"
 
 copied=0
-for ext in wasm 1ijs 3ijs worker.js; do
+# UTF-8 .js is the preferred glue for current deploy tags; .1ijs remains for older hosts.
+for ext in js wasm 1ijs 3ijs worker.js ww.js; do
     src="$PROJECT_ROOT/${bundle}.${ext}"
     if [[ -s "$src" ]]; then
         cp -f "$src" "$dest_pm/"

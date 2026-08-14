@@ -408,14 +408,14 @@ Recommended: buffer.length ≥ 576 * channels (= 576 mono, 1152 stereo)
 ### Origin allowlist
 
 The receiver enforces an origin allowlist.  External players must originate from an
-allowed domain:
+allowed domain (the visualizer page's own origin is always trusted):
 
 | Configuration | Default |
 |---------------|---------|
-| `setupExternalAudioReceiver({ allowedOrigins: [...] })` | `['https://go.1ink.us', 'https://test.1ink.us']` |
+| `setupExternalAudioReceiver({ allowedOrigins: [...] })` | `go.1ink.us`, `test.1ink.us`, `projectm.1ink.us`, `flac.1ink.us`, `mod.1ink.us` |
 | `localStorage.externalPcmOrigins` | overrides the configured list |
 
-Origins not in the allowlist are silently dropped.
+Origins not in the allowlist are silently dropped (debug log only).
 
 ### Gain
 

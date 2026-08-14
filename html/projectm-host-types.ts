@@ -62,6 +62,25 @@ declare global {
         /** Governor v2 pull getters registered by projectm-fps-governor.js. */
         pmGetGovernorRenderScale?: () => number;
         pmGetGovernorBlurCap?: () => number;
+        /**
+         * External audio-player controls exposed by projectm-audio-player.js
+         * for inline `onclick=` handlers in the legacy panel hosts.
+         */
+        cycleAudioPlayer?: () => void;
+        closeAudioPlayer?: () => void;
+        flacPlayer?: () => void;
+        modPlayer?: () => void;
+        openFlacPlayer?: () => void;
+        openModPlayer?: () => void;
+        /**
+         * Experimental depth/glTF bridge (`?experimental=1`,
+         * projectm-experimental-bridge.js) and the legacy depth-module loader
+         * guard it shares with the B3HD hosts.
+         */
+        pmExperimental?: Record<string, unknown>;
+        __pmDepthModuleLoading?: Promise<boolean>;
+        /** Legacy global preset-label updater used by the full `.1ink` hosts. */
+        updatePresetDisplay?: (name: string, options?: { text?: string }) => void;
         /** Mesh-quality hook registered by projectm-mesh-quality.js. */
         pmSetMeshQuality?: (quality: string) => string;
         /** Dual-FBO color format, registered by projectm-fbo-format.js. */
@@ -133,6 +152,24 @@ declare global {
     /** Supersession token so a stale BroadcastChannel load can be discarded. */
     // eslint-disable-next-line no-var
     var __projectMSongLoadToken: string | undefined;
+
+    /**
+     * Weeks-on-Fire demo-mode globals (projectm-weeks-on-fire.js). The FLAC
+     * helpers are called from the WASM EM_JS glue, which can only reach the
+     * global scope.
+     */
+    // eslint-disable-next-line no-var
+    var __projectMWeeksOnFire: boolean | undefined;
+    // eslint-disable-next-line no-var
+    var __projectMWeeksPaths: Record<string, string> | undefined;
+    // eslint-disable-next-line no-var
+    var resolveFlacDecoderUrl: (() => string) | undefined;
+    // eslint-disable-next-line no-var
+    var ensureWeeksFlacDecoderFrame: (() => HTMLIFrameElement) | undefined;
+    // eslint-disable-next-line no-var
+    var openWeeksFlacDecoder:
+        | ((options?: { preferIframe?: boolean }) => unknown)
+        | undefined;
 
     /** Emscripten runtime globals exported onto the global scope by the glue. */
     // eslint-disable-next-line no-var

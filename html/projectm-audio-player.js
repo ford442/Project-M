@@ -1,6 +1,29 @@
 export const FLAC_PLAYER_BASE_URL = 'https://go.1ink.us/flac-player/';
 export const MOD_PLAYER_BASE_URL = 'https://go.1ink.us/xm-player/';
 
+/**
+ * One selectable external audio player.
+ *
+ * @typedef {object} AudioPlayerSource
+ * @property {string} id
+ * @property {string} label
+ * @property {string} [sectionId] Element id of the inline section (section controller).
+ * @property {string} [storageKey] localStorage key holding a custom URL (popup controller).
+ * @property {string} [elementId] Element whose text holds a custom URL (popup controller).
+ * @property {string} [defaultUrl]
+ * @property {string} [target] window.open target name.
+ */
+
+/**
+ * @typedef {object} AudioPlayerController
+ * @property {(sourceId: string) => void} showAudioPlayer
+ * @property {() => void} cycleAudioPlayer
+ * @property {() => void} closeAudioPlayer
+ * @property {() => void} [openFlacPlayer]
+ * @property {() => void} [openModPlayer]
+ */
+
+/** @type {AudioPlayerSource[]} */
 const DEFAULT_AUDIO_SOURCES = [
     { id: 'none', label: 'Audio Player' },
     { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' },
@@ -14,6 +37,11 @@ const DEFAULT_AUDIO_SOURCES = [
 // expected to detect `?projectm=1` (the host can't disable the remote player's
 // canvas itself). Preserves any existing query string and returns the input
 // unchanged if it can't be parsed as a URL.
+/**
+ * @param {string | null | undefined} url
+ * @returns {string | null | undefined} `url` with `?projectm=1`, or unchanged
+ *   if it is falsy or not parseable.
+ */
 export function withProjectMAudioFlag(url) {
     if (!url) return url;
     try {
@@ -25,6 +53,13 @@ export function withProjectMAudioFlag(url) {
     }
 }
 
+/**
+ * @param {AudioPlayerSource} source
+ * @param {object} [ids]
+ * @param {string} [ids.statusId]
+ * @param {string} [ids.buttonId]
+ * @param {string} [ids.labelId]
+ */
 function defaultUpdateUi(source, {
     statusId = 'audio-player-status',
     buttonId = 'audioPlayerBtn',
@@ -32,7 +67,7 @@ function defaultUpdateUi(source, {
 } = {}) {
     const status = document.getElementById(statusId);
     const label = document.getElementById(labelId);
-    const btn = document.getElementById(buttonId);
+    const btn = /** @type {HTMLElement | null} */ (document.getElementById(buttonId));
     const text = source.id === 'none' ? 'Audio Player' : `Audio: ${source.label}`;
 
     if (status) status.textContent = text;
@@ -46,6 +81,7 @@ function defaultUpdateUi(source, {
     }
 }
 
+/** @param {AudioPlayerController} controller */
 function exposeController(controller) {
     window.cycleAudioPlayer = controller.cycleAudioPlayer;
     window.closeAudioPlayer = controller.closeAudioPlayer;
@@ -53,6 +89,17 @@ function exposeController(controller) {
     window.modPlayer = () => controller.showAudioPlayer('mod');
 }
 
+/**
+ * Controller for hosts that embed the players as inline `.ext-player-section`
+ * elements (panel2).
+ *
+ * @param {object} [options]
+ * @param {AudioPlayerSource[]} [options.sources]
+ * @param {string} [options.menuId] Menu element toggled alongside the sections.
+ * @param {(source: AudioPlayerSource) => void} [options.updateUi]
+ * @param {boolean} [options.exposeGlobals]
+ * @returns {AudioPlayerController}
+ */
 export function createSectionAudioPlayerController({
     sources = DEFAULT_AUDIO_SOURCES,
     menuId,
@@ -62,11 +109,15 @@ export function createSectionAudioPlayerController({
     let activeAudioSourceIndex = 0;
 
     function hideAllAudioPlayers() {
-        document.querySelectorAll('.ext-player-section').forEach((section) => {
+        const sections = /** @type {NodeListOf<HTMLElement>} */ (
+            document.querySelectorAll('.ext-player-section')
+        );
+        sections.forEach((section) => {
             section.style.display = 'none';
         });
     }
 
+    /** @param {string} sourceId */
     function showAudioPlayer(sourceId) {
         const source = sources.find((entry) => entry.id === sourceId) || sources[0];
         activeAudioSourceIndex = sources.findIndex((entry) => entry.id === source.id);
@@ -105,12 +156,24 @@ export function createSectionAudioPlayerController({
     return controller;
 }
 
+/**
+ * Controller for hosts that open the players in popup windows which feed PCM
+ * back through `postMessage`.
+ *
+ * @param {object} [options]
+ * @param {AudioPlayerSource[]} [options.sources]
+ * @param {(source: AudioPlayerSource) => void} [options.updateUi]
+ * @param {boolean} [options.exposeGlobals]
+ * @returns {AudioPlayerController}
+ */
 export function createPopupAudioPlayerController({
     sources,
     updateUi = defaultUpdateUi,
     exposeGlobals = true
 } = {}) {
+    /** @type {Map<string, Window>} */
     const popups = new Map();
+    /** @type {AudioPlayerSource[]} */
     const popupSources = sources || [
         { id: 'none', label: 'Audio Player' },
         {
@@ -132,14 +195,19 @@ export function createPopupAudioPlayerController({
     ];
     let activeAudioSourceIndex = 0;
 
+    /**
+     * @param {AudioPlayerSource} source
+     * @returns {string | null | undefined}
+     */
     function sourceUrl(source) {
-        return localStorage.getItem(source.storageKey) ||
-            document.getElementById(source.elementId)?.textContent?.trim() ||
+        return (source.storageKey ? localStorage.getItem(source.storageKey) : null) ||
+            (source.elementId ? document.getElementById(source.elementId)?.textContent?.trim() : null) ||
             source.defaultUrl;
     }
 
+    /** @param {AudioPlayerSource} source */
     function openPopup(source) {
-        const popup = window.open(withProjectMAudioFlag(sourceUrl(source)), source.target || `${source.id}-player`,
+        const popup = window.open(withProjectMAudioFlag(sourceUrl(source)) ?? undefined, source.target || `${source.id}-player`,
             'width=500,height=650,resizable=yes,scrollbars=no');
         if (popup) {
             popups.set(source.id, popup);
@@ -155,6 +223,7 @@ export function createPopupAudioPlayerController({
         popups.clear();
     }
 
+    /** @param {string} sourceId */
     function showAudioPlayer(sourceId) {
         const source = popupSources.find((entry) => entry.id === sourceId) || popupSources[0];
         activeAudioSourceIndex = popupSources.findIndex((entry) => entry.id === source.id);

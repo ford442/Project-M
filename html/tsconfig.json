@@ -42,6 +42,12 @@
     "projectm-preset-picker.js",
     "projectm-preset-dev.js",
     "projectm-preset-tweaker.js",
-    "projectm-render-worker-host.js"
+    "projectm-render-worker-host.js",
+    "projectm-audio-player.js",
+    "projectm-audio-router.js",
+    "projectm-experimental-bridge.js",
+    "projectm-wasm-default-redirect.js",
+    "projectm-weeks-on-fire.js",
+    "projectm-worklet-playback.js"
   ]
 }

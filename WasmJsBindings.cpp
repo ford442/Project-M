@@ -404,18 +404,26 @@ setTimeout(function(){ snd(); },1550);
 function sngs(xml, songBase){
     const nparser = new DOMParser();
     const htmlDocs = nparser.parseFromString(xml.responseText, 'text/html');
-    const preList = htmlDocs.getElementsByTagName('pre')[0].getElementsByTagName('a');
-    $sngs[0] = preList.length;
-    console.log('scanned: ' + $sngs[0] + ' songs from ' + songBase);
-    for (var i = 1; i < preList.length; i++) {
-        var fname = preList[i].getAttribute('href');
-        var fullUrl = new URL(fname, songBase).href;
-        $sngs[i] = fullUrl;
+    const pre = htmlDocs.getElementsByTagName('pre')[0];
+    if (!pre) {
+        console.warn('No directory listing <pre> in', songBase);
+        return;
     }
+    const preList = pre.getElementsByTagName('a');
+    var added = 0;
+    for (var i = 0; i < preList.length; i++) {
+        var fname = preList[i].getAttribute('href');
+        if (!fname || fname === '../' || fname === '/' || fname.startsWith('?')) continue;
+        var fullUrl = new URL(fname, songBase).href;
+        $sngs.push(fullUrl);
+        added++;
+    }
+    console.log('scanned: ' + added + ' songs from ' + songBase + ' (catalog size ' + $sngs.length + ')');
 }
 
-function scanSongs(){
-    var songBase = getBasePath('#songDir', 'songs/');
+function scanSongDirectory(elementId, fallback){
+    var songBase = getBasePath(elementId, fallback);
+    if (!songBase) return;
     if (!songBase.startsWith('http://') && !songBase.startsWith('https://')) {
         songBase = new URL(songBase, window.location.href).href;
     }
@@ -423,10 +431,19 @@ function scanSongs(){
     nxhttp.onreadystatechange = function(){
         if (this.readyState == 4 && this.status == 200) {
             sngs(this, songBase);
+        } else if (this.readyState == 4 && this.status !== 200) {
+            console.warn('Song scan failed for', songBase, 'status', this.status);
         }
     };
     nxhttp.open('GET', songBase, true);
     nxhttp.send();
+}
+
+function scanSongs(){
+    $sngs = [];
+    scanSongDirectory('#songDir', 'songs/');
+    scanSongDirectory('#mp3SongDir', 'mp3_songs/');
+    scanSongDirectory('#modSongDir', 'mod_songs/');
 }
 
 var lastSongFileName = '';
@@ -488,15 +505,11 @@ ff.send(null);
 }
 
 function snd(){
-    var songIndices = [];
-    for (var i = 1; i < $sngs.length; i++) {
-        if ($sngs[i]) songIndices.push(i);
-    }
-    if (songIndices.length === 0) {
+    if ($sngs.length === 0) {
         console.log('No songs available yet.');
         return;
     }
-    var pick = songIndices[Math.floor(Math.random() * songIndices.length)];
+    var pick = Math.floor(Math.random() * $sngs.length);
     let songSrc = $sngs[pick];
     console.log('Song: ', songSrc);
     var trackEl = document.querySelector('#track');

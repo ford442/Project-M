@@ -309,6 +309,8 @@ Lock Preset
 <div hidden id=milkPath2>https://glsl.1ink.us/custom_milk/milk010.milk</div>
 <div hidden id=textureDir>textures/</div>
 <div hidden id=songDir>songs/</div>
+<div hidden id=mp3SongDir>mp3_songs/</div>
+<div hidden id=modSongDir>mod_songs/</div>
 <div hidden id=presetDir>default</div>
 
 <div id=srsiz hidden>1000</div>
@@ -397,7 +399,7 @@ Click to upload image
 <section id="flacPlayerSection" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div style="text-align:center;color:#ccc;font-family:'Lucida Console',monospace;font-size:12px;padding:0.5rem;background:#111;">FLAC Player</div>
   <iframe id="flacFrame"
-    src="https://go.1ink.us/flac-player/?projectm=1"
+    src="./flac-player/?projectm=1"
     style="width:100%;height:calc(100% - 24px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
@@ -405,7 +407,7 @@ Click to upload image
 <section id="modPlayerSection" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div style="text-align:center;color:#ccc;font-family:'Lucida Console',monospace;font-size:12px;padding:0.5rem;background:#111;">MOD Player</div>
   <iframe id="modFrame"
-    src="https://go.1ink.us/xm-player/?projectm=1"
+    src="https://test.1ink.us/xm-player/?projectm=1"
     style="width:100%;height:calc(100% - 24px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>

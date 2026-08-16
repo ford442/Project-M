@@ -310,6 +310,8 @@ Lock Preset
 <div hidden id=milkPath2>https://glsl.1ink.us/custom_milk/milk010.milk</div>
 <div hidden id=textureDir>textures/</div>
 <div hidden id=songDir>songs/</div>
+<div hidden id=mp3SongDir>mp3_songs/</div>
+<div hidden id=modSongDir>mod_songs/</div>
 <div hidden id=presetDir>default</div>
 
 <div id=srsiz hidden>1000</div>
@@ -401,7 +403,7 @@ Click to upload image
     <button type="button" onclick="closeAudioPlayer()" style="cursor:pointer;border:1px solid #555;border-radius:4px;background:#222;color:#ddd;font-family:inherit;font-size:11px;padding:0.2rem 0.55rem;">Hide</button>
   </div>
   <iframe id="flacFrame"
-    src="https://go.1ink.us/flac-player/?projectm=1"
+    src="./flac-player/?projectm=1"
     style="width:100%;height:calc(100% - 32px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
@@ -412,13 +414,13 @@ Click to upload image
     <button type="button" onclick="closeAudioPlayer()" style="cursor:pointer;border:1px solid #555;border-radius:4px;background:#222;color:#ddd;font-family:inherit;font-size:11px;padding:0.2rem 0.55rem;">Hide</button>
   </div>
   <iframe id="modFrame"
-    src="https://go.1ink.us/xm-player/?projectm=1"
+    src="https://test.1ink.us/xm-player/?projectm=1"
     style="width:100%;height:calc(100% - 32px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
 </section>
-<div hidden id="flacPlayerUrl">https://go.1ink.us/flac-player/</div>
-<div hidden id="modPlayerUrl">https://go.1ink.us/xm-player/</div>
+<div hidden id="flacPlayerUrl">./flac-player/</div>
+<div hidden id="modPlayerUrl">https://test.1ink.us/xm-player/</div>
 </body>
 <script>
 

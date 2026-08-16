@@ -73,6 +73,13 @@ DEPLOY_HTML_GLOBS: list = [
     "html/projectm-core.css",
     "html/embed-demo.html",
     "html/.htaccess",  # no-gzip for legacy UTF-16 .1ijs (Chrome ERR_CONTENT_DECODING_FAILED)
+    # External PCM feeders co-deployed with the host (same-origin ./flac-player/).
+    "html/flac-player/**",
+    "html/xm-player/**",
+    # Song library folders (Apache-style directory listings).
+    "mp3_songs/**",
+    "mod_songs/**",
+    "songs/**",
 ]
 
 # Deploy under this remote folder (empty = use PROJECT_NAME).

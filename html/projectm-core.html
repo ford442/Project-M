@@ -505,6 +505,8 @@ canvas.emscripten {
   <div id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
   <div id="textureDir">textures/</div>
   <div id="songDir">songs/</div>
+  <div id="mp3SongDir">mp3_songs/</div>
+  <div id="modSongDir">mod_songs/</div>
   <div id="weeksPresetDir">weeks_presets/</div>
   <div id="flacDecoderUrl">./flac/</div>
   <div id="presetDir">default</div>
@@ -513,8 +515,8 @@ canvas.emscripten {
   <div id="hig">720</div>
   <div id="tim">8500</div>
   <div id="vsiz">0</div>
-  <div id="flacPlayerUrl">https://go.1ink.us/flac-player/</div>
-  <div id="modPlayerUrl">https://go.1ink.us/xm-player/</div>
+  <div id="flacPlayerUrl">./flac-player/</div>
+  <div id="modPlayerUrl">https://test.1ink.us/xm-player/</div>
 </div>
 
 <!-- Audio -->
@@ -541,11 +543,15 @@ import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as
 import { setupPresetPicker } from './projectm-preset-picker.js';
 import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
+import { installSongLoaderInterceptor } from './projectm-song-loader.js';
 import {
     applyWeeksOnFireDomConfig,
     isWeeksOnFireMode,
     wireFlacDecoderBridge,
 } from './projectm-weeks-on-fire.js';
+
+// Route MP3/WAV/MOD before WASM posts to the FLAC decoder (must be early).
+installSongLoaderInterceptor();
 import {
     addPresetFile,
     loadPresetFile,

@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#06b6d4" />
   <title>MOD Player Pro</title>
-  <link rel="manifest" href="./manifest.json">
   <script type="importmap">
     {
       "imports": {
@@ -16,37 +15,84 @@
     }
   </script>
   <script>
-    // projectM audio-only / embed mode — see html/flac-player/index.html.
     (function () {
       var params = new URLSearchParams(window.location.search);
       var audioOnly = params.get('projectm') === '1' || window.name === 'mod-player';
       window.__projectMAudioOnly = audioOnly;
       window.__projectMEmbed = audioOnly;
       if (audioOnly) document.documentElement.setAttribute('data-projectm-audio-only', '1');
+
+      var trackUrl = params.get('url');
+      if (trackUrl) {
+        window.__projectMModUrl = trackUrl;
+      }
     })();
   </script>
   <script type="module">
-    import { installProjectMPcmBridge } from '../flac-player/projectm-pcm-bridge.js';
+    const ASSET_BASES = [
+      './assets/',
+      'https://test.1ink.us/xm-player/assets/',
+    ];
 
-    // Tap the Web Audio graph before the app bundle connects to destination.
+    async function loadStylesheet(href) {
+      return new Promise((resolve, reject) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.crossOrigin = 'anonymous';
+        link.href = href;
+        link.onload = () => resolve(href);
+        link.onerror = () => reject(new Error(`stylesheet ${href}`));
+        document.head.appendChild(link);
+      });
+    }
+
+    async function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.crossOrigin = 'anonymous';
+        script.src = src;
+        script.onload = () => resolve(src);
+        script.onerror = () => reject(new Error(`script ${src}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function loadFirstAvailable(basename, loader) {
+      let lastError;
+      for (const base of ASSET_BASES) {
+        try {
+          return await loader(base + basename);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error(`failed to load ${basename}`);
+    }
+
     try {
-      window.__projectMPcmBridge = installProjectMPcmBridge();
+      const bridgeMod = await import('../flac-player/projectm-pcm-bridge.js');
+      window.__projectMPcmBridge = bridgeMod.installProjectMPcmBridge();
     } catch (error) {
       console.debug('[projectM MOD bridge] install failed (non-fatal):', error);
     }
+
+    try {
+      await loadFirstAvailable('index-CRjC7esB.css', loadStylesheet);
+      await loadFirstAvailable('index-CHqFyfX2.js', loadScript);
+    } catch (error) {
+      console.error('[projectM MOD player] failed to load app bundle:', error);
+      const el = document.createElement('div');
+      el.style.cssText = 'margin:1rem;padding:1rem;background:#450a0a;color:#fecaca;border-radius:8px;font:14px system-ui,sans-serif';
+      el.textContent = 'MOD player failed to load. Ensure xm-player assets are deployed or test.1ink.us is reachable.';
+      document.body.prepend(el);
+    }
   </script>
-  <script type="module" crossorigin src="./assets/index-CHqFyfX2.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-CRjC7esB.css">
 </head>
 
 <body class="bg-gray-900 text-gray-200">
   <div id="root"></div>
 
-  <!--
-    Note: Define the libopenmpt configuration object BEFORE the script loads.
-    This prevents the script from overwriting our onRuntimeInitialized callback.
-    A promise is used to signal readiness to the React application.
-  -->
   <script>
     window.libopenmptReady = new Promise((resolve, reject) => {
       window.libopenmpt = {

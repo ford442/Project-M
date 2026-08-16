@@ -1,11 +1,48 @@
-export const FLAC_PLAYER_BASE_URL = 'https://go.1ink.us/flac-player/';
-export const MOD_PLAYER_BASE_URL = 'https://go.1ink.us/xm-player/';
+// Prefer same-origin players when co-deployed with projectM; libopenmpt MOD shell
+// remains on test.1ink.us until xm-player assets are vendored in-repo.
+export const FLAC_PLAYER_BASE_URL = './flac-player/';
+export const MOD_PLAYER_BASE_URL = 'https://test.1ink.us/xm-player/';
 
 const DEFAULT_AUDIO_SOURCES = [
     { id: 'none', label: 'Audio Player' },
     { id: 'flac', label: 'FLAC Player', sectionId: 'flacPlayerSection' },
     { id: 'mod', label: 'MOD Player', sectionId: 'modPlayerSection' }
 ];
+
+/**
+ * Resolve a player shell URL from DOM hidden element, localStorage, or default.
+ * @param {string} elementId
+ * @param {string} storageKey
+ * @param {string} defaultUrl
+ */
+export function resolvePlayerUrl(elementId, storageKey, defaultUrl, documentRef) {
+    const doc = documentRef ?? (typeof document !== 'undefined' ? document : null);
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+        return stored;
+    }
+    const fromDom = doc?.getElementById(elementId)?.textContent?.trim();
+    if (fromDom) {
+        try {
+            return new URL(fromDom, window.location.href).href;
+        } catch {
+            return fromDom;
+        }
+    }
+    try {
+        return new URL(defaultUrl, window.location.href).href;
+    } catch {
+        return defaultUrl;
+    }
+}
+
+export function resolveFlacPlayerUrl() {
+    return resolvePlayerUrl('flacPlayerUrl', 'flacPlayerUrl', FLAC_PLAYER_BASE_URL);
+}
+
+export function resolveModPlayerUrl() {
+    return resolvePlayerUrl('modPlayerUrl', 'modPlayerUrl', MOD_PLAYER_BASE_URL);
+}
 
 // Signals an external audio player (MOD/FLAC) that it is being opened purely as
 // a PCM feeder for projectM, so it can run in compact "audio-only" mode and skip
@@ -14,11 +51,17 @@ const DEFAULT_AUDIO_SOURCES = [
 // expected to detect `?projectm=1` (the host can't disable the remote player's
 // canvas itself). Preserves any existing query string and returns the input
 // unchanged if it can't be parsed as a URL.
-export function withProjectMAudioFlag(url) {
+export function withProjectMAudioFlag(url, { trackUrl } = {}) {
     if (!url) return url;
     try {
-        const parsed = new URL(url, window.location.href);
+        const base = typeof window !== 'undefined' && window.location?.href
+            ? window.location.href
+            : 'https://localhost/';
+        const parsed = new URL(url, base);
         parsed.searchParams.set('projectm', '1');
+        if (trackUrl) {
+            parsed.searchParams.set('url', trackUrl);
+        }
         return parsed.toString();
     } catch (_) {
         return url;
@@ -119,7 +162,8 @@ export function createPopupAudioPlayerController({
             storageKey: 'flacPlayerUrl',
             elementId: 'flacPlayerUrl',
             defaultUrl: FLAC_PLAYER_BASE_URL,
-            target: 'flac-player'
+            target: 'flac-player',
+            resolveUrl: resolveFlacPlayerUrl,
         },
         {
             id: 'mod',
@@ -127,25 +171,33 @@ export function createPopupAudioPlayerController({
             storageKey: 'modPlayerUrl',
             elementId: 'modPlayerUrl',
             defaultUrl: MOD_PLAYER_BASE_URL,
-            target: 'mod-player'
+            target: 'mod-player',
+            resolveUrl: resolveModPlayerUrl,
         }
     ];
     let activeAudioSourceIndex = 0;
 
     function sourceUrl(source) {
+        if (typeof source.resolveUrl === 'function') {
+            return source.resolveUrl();
+        }
         return localStorage.getItem(source.storageKey) ||
             document.getElementById(source.elementId)?.textContent?.trim() ||
             source.defaultUrl;
     }
 
-    function openPopup(source) {
-        const popup = window.open(withProjectMAudioFlag(sourceUrl(source)), source.target || `${source.id}-player`,
-            'width=500,height=650,resizable=yes,scrollbars=no');
+    function openPopup(source, { trackUrl } = {}) {
+        const popup = window.open(
+            withProjectMAudioFlag(sourceUrl(source), { trackUrl }),
+            source.target || `${source.id}-player`,
+            'width=500,height=650,resizable=yes,scrollbars=no'
+        );
         if (popup) {
             popups.set(source.id, popup);
         } else {
             console.warn(`${source.label} popup was blocked. Please allow popups for this site. The player page must use postMessage to send PCM: window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")`);
         }
+        return popup;
     }
 
     function closeAllAudioPlayers() {
@@ -155,11 +207,11 @@ export function createPopupAudioPlayerController({
         popups.clear();
     }
 
-    function showAudioPlayer(sourceId) {
+    function showAudioPlayer(sourceId, options = {}) {
         const source = popupSources.find((entry) => entry.id === sourceId) || popupSources[0];
         activeAudioSourceIndex = popupSources.findIndex((entry) => entry.id === source.id);
         closeAllAudioPlayers();
-        if (source.id !== 'none') openPopup(source);
+        if (source.id !== 'none') openPopup(source, options);
         updateUi(source);
     }
 
@@ -177,8 +229,8 @@ export function createPopupAudioPlayerController({
         showAudioPlayer,
         cycleAudioPlayer,
         closeAudioPlayer,
-        openFlacPlayer: () => showAudioPlayer('flac'),
-        openModPlayer: () => showAudioPlayer('mod')
+        openFlacPlayer: (trackUrl) => showAudioPlayer('flac', { trackUrl }),
+        openModPlayer: (trackUrl) => showAudioPlayer('mod', { trackUrl }),
     };
 
     if (exposeGlobals) {

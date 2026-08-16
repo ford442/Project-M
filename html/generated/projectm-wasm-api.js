@@ -469,19 +469,6 @@ export function transitionGetDuration(module) {
     return module._transition_get_duration();
 }
 
-/** @type {object | null} Host AudioSourceRouter instance (JS-only glue). */
-let hostAudioSourceRouter = null;
-
-/** Register the host AudioSourceRouter for WASM-side hooks (optional). */
-export function setHostAudioSourceRouter(router) {
-    hostAudioSourceRouter = router;
-}
-
-/** @returns {object | null} */
-export function getHostAudioSourceRouter() {
-    return hostAudioSourceRouter;
-}
-
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
     init,

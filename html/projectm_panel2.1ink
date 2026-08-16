@@ -393,14 +393,19 @@ import {
 import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
-import { installSongLoaderInterceptor } from './projectm-song-loader.js';
 import {
   applyWeeksOnFireDomConfig,
   isWeeksOnFireMode,
   wireFlacDecoderBridge,
 } from './projectm-weeks-on-fire.js';
 
-installSongLoaderInterceptor();
+// Optional: a missing ./projectm-song-loader.js must not kill this module
+// (soft-404 HTML is served as text/html and fails MIME checks).
+void import('./projectm-song-loader.js').then((mod) => {
+  mod.installSongLoaderInterceptor();
+}).catch((error) => {
+  console.warn('[B3HD] song loader unavailable; Start/Change Song uses /flac/', error);
+});
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const urlParams = new URLSearchParams(window.location.search);

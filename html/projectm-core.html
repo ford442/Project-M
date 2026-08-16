@@ -549,15 +549,19 @@ import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as
 import { setupPresetPicker } from './projectm-preset-picker.js';
 import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
-import { installSongLoaderInterceptor } from './projectm-song-loader.js';
 import {
     applyWeeksOnFireDomConfig,
     isWeeksOnFireMode,
     wireFlacDecoderBridge,
 } from './projectm-weeks-on-fire.js';
 
-// Route MP3/WAV/MOD before WASM posts to the FLAC decoder (must be early).
-installSongLoaderInterceptor();
+// Optional: missing/soft-404 song-loader.js must not abort this module
+// (DreamHost serves www.noahcohn.com/404.1ink as text/html).
+void import('./projectm-song-loader.js').then((mod) => {
+    mod.installSongLoaderInterceptor();
+}).catch((error) => {
+    console.warn('[projectM] song loader unavailable; Start/Change Song uses /flac/', error);
+});
 import {
     addPresetFile,
     loadPresetFile,

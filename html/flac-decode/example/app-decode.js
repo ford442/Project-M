@@ -75,16 +75,11 @@ ff.addEventListener("load",function(){
         if(!format){
             fileInfo.push('</br><span style="color: red;">','Could not determine FLAC stream format (sampleRate/channels/bitsPerSample)','</span>');
         }else{
+            // exportWavFile() posts the WAV on BroadcastChannel('file') for the
+            // projectM host. Do not reference a leftover `blob` — that throws
+            // after a successful decode and the live /flac/ page has
+            // #check_download checked, so the old branch always ran.
             exportWavFile(decData,format.sampleRate,format.channels,format.bitsPerSample);
-            var fileName=getFileName('theFile.flac','wav');
-            if(isDownload()){
-                forceDownload(blob,fileName);
-            }else{
-                // var anchor=getDownloadLink(blob,fileName);
-    // var br=window.document.createElement('br');
-    // fileInfoEl.appendChild(br);
-    // fileInfoEl.appendChild(anchor);
-            }
         }
     };
     function getMetadataName(val){

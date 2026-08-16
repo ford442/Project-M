@@ -74,12 +74,16 @@ DEPLOY_HTML_GLOBS: list = [
     "html/embed-demo.html",
     "html/.htaccess",  # no-gzip for legacy UTF-16 .1ijs (Chrome ERR_CONTENT_DECODING_FAILED)
     # External PCM feeders co-deployed with the host (same-origin ./flac-player/).
-    "html/flac-player/**",
-    "html/xm-player/**",
+    # Use **/* — a trailing ** matches only directories on Python 3.12+
+    # (IsADirectoryError when zip tries Path.read_bytes() on the folder).
+    "html/flac-player/**/*",
+    "html/xm-player/**/*",
     # Song library folders (Apache-style directory listings).
-    "mp3_songs/**",
-    "mod_songs/**",
-    "songs/**",
+    "mp3_songs/**/*",
+    "mod_songs/**/*",
+    "songs/**/*",
+    # Legacy /flac/ decoder (BroadcastChannel sng/file).
+    "html/flac-decode/example/**/*",
 ]
 
 # Deploy under this remote folder (empty = use PROJECT_NAME).
@@ -117,7 +121,10 @@ def collect_deploy_files() -> list[Path]:
     for pattern in DEPLOY_HTML_GLOBS:
         matched.extend(HERE.glob(pattern))
 
-    return _unique_paths(matched)
+    # `**` globs include directories (html/flac-player, html/flac-player/vendor,
+    # empty song folders). Zip only files — Path.read_bytes() on a dir is
+    # IsADirectoryError (seen on Colab).
+    return _unique_paths([path for path in matched if path.is_file()])
 
 
 def zip_entry_name(file: Path) -> str:
@@ -127,6 +134,9 @@ def zip_entry_name(file: Path) -> str:
     except ValueError:
         return file.name
 
+    if relative.parts[:2] == ("html", "flac-decode"):
+        # Live decoder is projectm.1ink.us/flac/example/...
+        return str(Path("flac", *relative.parts[2:]))
     if relative.parts and relative.parts[0] == "html":
         return str(Path(*relative.parts[1:]))
     return str(relative)
@@ -174,6 +184,8 @@ def build_zip() -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for file in matched:
+            if not file.is_file():
+                continue
             archive_name = zip_entry_name(file)
             data = file.read_bytes()
             if archive_name.endswith(".1ink"):

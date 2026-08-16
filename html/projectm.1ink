@@ -337,9 +337,9 @@ Lock Preset
 
 <div id="lns">1</div>
 <div id=wrap>
-<canvas id="circle" style='position:absolute;zIndex:3300;top:0px;'></canvas>
+<canvas id="circle" style='position:absolute;z-index:3300;top:0;left:0;'></canvas>
 
-<div id=contain1 style='position:absolute;'>
+<div id=contain1 style='position:absolute;top:0;left:calc(50vw - 50vh);width:100vh;height:100vh;'>
 
 <canvas class=emscripten id=mcanvas style='pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;height:100vh;width:100vh;image-rendering:auto;transform:scaleY(1.0);'></canvas>
 <canvas class=emscripten id=scanvas style='pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;height:100vh;width:100vh;image-rendering:auto;transform:scaleY(-1.0);'></canvas>
@@ -399,7 +399,6 @@ Click to upload image
 <section id="flacPlayerSection" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div style="text-align:center;color:#ccc;font-family:'Lucida Console',monospace;font-size:12px;padding:0.5rem;background:#111;">FLAC Player</div>
   <iframe id="flacFrame"
-    src="./flac-player/?projectm=1"
     style="width:100%;height:calc(100% - 24px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
@@ -407,7 +406,6 @@ Click to upload image
 <section id="modPlayerSection" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div style="text-align:center;color:#ccc;font-family:'Lucida Console',monospace;font-size:12px;padding:0.5rem;background:#111;">MOD Player</div>
   <iframe id="modFrame"
-    src="https://test.1ink.us/xm-player/?projectm=1"
     style="width:100%;height:calc(100% - 24px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>

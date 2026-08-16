@@ -29,7 +29,9 @@ export function resolveFlacDecoderUrl(documentRef = document) {
 
 /**
  * Hidden same-origin iframe so BroadcastChannel reaches the decode player without
- * opening flac.1ink.us (cross-origin popups break the sng/file bridge).
+ * opening a popup. Only works when `/flac/` is served with CORP (same-origin
+ * COEP pages). The live `/flac/` tree does not send those headers, so COEP
+ * `require-corp` on 033+ hosts blocks this embed — prefer the popup path.
  * @param {Document} [documentRef]
  */
 export function ensureWeeksFlacDecoderFrame(documentRef = document) {
@@ -53,19 +55,28 @@ export function ensureWeeksFlacDecoderFrame(documentRef = document) {
 }
 
 /**
+ * Open the legacy `/flac/` decoder (BroadcastChannel sng/file).
+ *
+ * Default is a same-origin popup — the path wasm=032 still uses, and the only
+ * one that works when the host has COEP: require-corp and `/flac/` has no CORP.
+ * Pass `{ preferIframe: true }` only on hosts that know `/flac/` is embeddable.
+ *
  * @param {Document} [documentRef]
  * @param {{ preferIframe?: boolean }} [options]
  */
-export function openWeeksFlacDecoder(documentRef = document, { preferIframe = true } = {}) {
+export function openWeeksFlacDecoder(documentRef = document, { preferIframe = false } = {}) {
     const url = resolveFlacDecoderUrl(documentRef);
     if (preferIframe && documentRef?.body) {
         ensureWeeksFlacDecoderFrame(documentRef);
         return null;
     }
-    if (typeof globalThis.open !== 'function') {
-        return null;
+    if (typeof globalThis.open === 'function') {
+        return globalThis.open(url, 'flac-decoder', 'width=520,height=420,resizable=yes,scrollbars=no');
     }
-    return globalThis.open(url, 'flac-decoder', 'width=420,height=320,resizable=yes,scrollbars=no');
+    if (documentRef?.body) {
+        ensureWeeksFlacDecoderFrame(documentRef);
+    }
+    return null;
 }
 
 /** Expose FLAC helpers for emscripten EM_JS glue. */
@@ -79,9 +90,9 @@ export function wireWeeksOnFireFlacBridge(documentRef = document) {
 }
 
 /**
- * Wire same-origin FLAC decode (hidden iframe + BroadcastChannel) for every host.
- * Without this, WASM glue falls back to window.open('./flac/') which shows a file
- * chooser instead of auto-playing a random track from #songDir.
+ * Wire same-origin FLAC decode helpers for every host.
+ * Exposes `openWeeksFlacDecoder` (popup) for WASM glue and the song loader.
+ * Does not auto-embed `/flac/` — that iframe is blocked on COEP hosts.
  */
 export function wireFlacDecoderBridge(documentRef = document) {
     let el = documentRef.getElementById('flacDecoderUrl');
@@ -93,7 +104,6 @@ export function wireFlacDecoderBridge(documentRef = document) {
     }
     el.textContent = resolveFlacDecoderUrl(documentRef);
     wireWeeksOnFireFlacBridge(documentRef);
-    ensureWeeksFlacDecoderFrame(documentRef);
 }
 
 /** @param {URLSearchParams|string|undefined} search */

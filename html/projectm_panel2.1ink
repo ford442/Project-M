@@ -18,10 +18,18 @@ body { background-color: black; overflow: hidden; font-family: 'Inter', system-u
 html, body { width: 100%; height: 100%; }
 
 #wrap { position: absolute; top: 0; left: 0; height: 100vh; width: 100vw; padding: 0; pointer-events: none; }
-#contain1 { position: absolute; padding: 0; background-color: rgba(255,255,255,0.0); }
-canvas.emscripten { display: block; margin: 0; padding: 0; image-rendering: crisp-edges; }
+#contain1 {
+  position: absolute;
+  top: 0;
+  left: calc(50vw - 50vh);
+  width: 100vh;
+  height: 100vh;
+  padding: 0;
+  background-color: rgba(255,255,255,0.0);
+}
+canvas.emscripten { display: block; margin: 0; padding: 0; image-rendering: crisp-edges; width: 100%; height: 100%; }
 
-#circle { pointer-events: none; border: 0; position: absolute; overflow: hidden; z-index: 3200; background: transparent; }
+#circle { pointer-events: none; border: 0; position: absolute; top: 0; left: 0; overflow: hidden; z-index: 3200; background: transparent; }
 
 /* Logos */
 .logo { pointer-events: none; position: absolute; z-index: 3300; }
@@ -169,10 +177,10 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 
 <!-- Visualization -->
 <div id="wrap">
-  <div id="contain1" style="position:absolute;">
-    <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;"></canvas>
-    <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background:rgba(0,0,0,0);top:0;left:0;"></canvas>
-    <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background:rgba(0,0,0,1);top:0;left:0;transform:scaleY(-1);"></canvas>
+  <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;top:0;left:0;"></canvas>
+  <div id="contain1">
+    <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background:rgba(0,0,0,0);top:0;left:0;width:100%;height:100%;"></canvas>
+    <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background:rgba(0,0,0,1);top:0;left:0;width:100%;height:100%;transform:scaleY(-1);"></canvas>
   </div>
 </div>
 
@@ -236,14 +244,14 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
     <span>FLAC Player</span>
     <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
   </div>
-  <iframe id="flacFrame" src="./flac-player/?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+  <iframe id="flacFrame" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
 <section id="modPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div class="ext-player-header">
     <span>MOD Player</span>
     <button type="button" class="ext-player-hide" onclick="closeAudioPlayer()">Hide</button>
   </div>
-  <iframe id="modFrame" src="https://test.1ink.us/xm-player/?projectm=1" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
+  <iframe id="modFrame" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
 <div hidden id="flacPlayerUrl">./flac-player/</div>
 <div hidden id="modPlayerUrl">https://test.1ink.us/xm-player/</div>
@@ -424,8 +432,9 @@ const selectedWasmPaths = buildWasmBundlePaths(selectedWasmVersion);
     window.location.search = nextParams.toString();
   });
 })();
-// Same-origin hidden /flac/ iframe so musicBtn picks a random #songDir track
-// via BroadcastChannel instead of opening a file-chooser popup.
+// Expose openWeeksFlacDecoder (same-origin /flac/ popup). Hidden iframe is
+// blocked by COEP on 033+ hosts; wasm=032 still works because its glue uses
+// window.open, which is the path we use here too.
 wireFlacDecoderBridge(document);
 if (weeksOnFireMode) {
   applyWeeksOnFireDomConfig(document);

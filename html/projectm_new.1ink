@@ -338,9 +338,9 @@ Lock Preset
 
 <div id="lns">1</div>
 <div id=wrap>
-<canvas id="circle" style='position:absolute;zIndex:3300;top:0px;'></canvas>
+<canvas id="circle" style='position:absolute;z-index:3300;top:0;left:0;'></canvas>
 
-<div id=contain1 style='position:absolute;'>
+<div id=contain1 style='position:absolute;top:0;left:calc(50vw - 50vh);width:100vh;height:100vh;'>
 
 <canvas class=emscripten id=mcanvas style='pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;height:100vh;width:100vh;image-rendering:auto;transform:scaleY(1.0);'></canvas>
 <canvas class=emscripten id=scanvas style='pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;height:100vh;width:100vh;image-rendering:auto;transform:scaleY(-1.0);'></canvas>
@@ -403,7 +403,6 @@ Click to upload image
     <button type="button" onclick="closeAudioPlayer()" style="cursor:pointer;border:1px solid #555;border-radius:4px;background:#222;color:#ddd;font-family:inherit;font-size:11px;padding:0.2rem 0.55rem;">Hide</button>
   </div>
   <iframe id="flacFrame"
-    src="./flac-player/?projectm=1"
     style="width:100%;height:calc(100% - 32px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>
@@ -414,7 +413,6 @@ Click to upload image
     <button type="button" onclick="closeAudioPlayer()" style="cursor:pointer;border:1px solid #555;border-radius:4px;background:#222;color:#ddd;font-family:inherit;font-size:11px;padding:0.2rem 0.55rem;">Hide</button>
   </div>
   <iframe id="modFrame"
-    src="https://test.1ink.us/xm-player/?projectm=1"
     style="width:100%;height:calc(100% - 32px);border:none;background:#000;"
     allow="autoplay; fullscreen">
   </iframe>

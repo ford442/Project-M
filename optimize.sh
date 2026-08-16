@@ -164,15 +164,29 @@ echo "JS:   $PROJECTM_WASM_JS"
 
 if [[ "$SKIP_OPT" -eq 0 && -f "$PROJECTM_WASM_WASM" ]]; then
     WASM_BEFORE=$(stat -c%s "$PROJECTM_WASM_WASM")
-    if [[ "${PROJECTM_SKIP_WASM_OPT:-0}" != "1" ]] && command -v wasm-opt >/dev/null 2>&1; then
+    WASM_OPT=""
+    if [[ -n "${EMSDK:-}" && -x "${EMSDK}/upstream/bin/wasm-opt" ]]; then
+        WASM_OPT="${EMSDK}/upstream/bin/wasm-opt"
+    elif [[ -n "${EMSDK_ROOT:-}" && -x "${EMSDK_ROOT}/upstream/bin/wasm-opt" ]]; then
+        WASM_OPT="${EMSDK_ROOT}/upstream/bin/wasm-opt"
+    elif command -v wasm-opt >/dev/null 2>&1; then
+        WASM_OPT="$(command -v wasm-opt)"
+    fi
+    # --all-features is required: emcc builds with -mrelaxed-simd (opcode 261 =
+    # f32x4.relaxed_madd) plus sign-ext / atomics / bulk-memory. Classic
+    # --enable-simd alone cannot parse that binary.
+    if [[ "${PROJECTM_SKIP_WASM_OPT:-0}" != "1" && -n "$WASM_OPT" ]]; then
         TMP_WASM="${PROJECTM_WASM_WASM}.opt.tmp"
-        echo "Running wasm-opt -O3 --enable-simd ..."
-        wasm-opt -O3 --enable-simd --enable-threads --enable-bulk-memory \
-            --enable-mutable-globals --enable-nontrapping-float-to-int \
-            "$PROJECTM_WASM_WASM" -o "$TMP_WASM"
-        mv "$TMP_WASM" "$PROJECTM_WASM_WASM"
-        WASM_AFTER=$(stat -c%s "$PROJECTM_WASM_WASM")
-        echo "wasm-opt: ${WASM_BEFORE} -> ${WASM_AFTER} bytes ($(( WASM_BEFORE - WASM_AFTER )) saved)"
+        echo "Running $WASM_OPT -O3 --all-features ..."
+        if ! "$WASM_OPT" -O3 --all-features \
+            "$PROJECTM_WASM_WASM" -o "$TMP_WASM"; then
+            echo "wasm-opt failed (need Binaryen that supports --all-features / relaxed SIMD). Leaving original binary." >&2
+            rm -f "$TMP_WASM"
+        else
+            mv "$TMP_WASM" "$PROJECTM_WASM_WASM"
+            WASM_AFTER=$(stat -c%s "$PROJECTM_WASM_WASM")
+            echo "wasm-opt: ${WASM_BEFORE} -> ${WASM_AFTER} bytes ($(( WASM_BEFORE - WASM_AFTER )) saved)"
+        fi
     else
         echo "wasm-opt skipped (not installed or PROJECTM_SKIP_WASM_OPT=1)"
     fi

@@ -391,7 +391,8 @@ var url=getBasePath('#flacDecoderUrl','./flac/');
 if(!url.startsWith('http://')&&!url.startsWith('https://')){
 try{url=new URL(url,window.location.href).href;}catch(e){}
 }
-window.open(url,'flac-decoder','width=420,height=320,resizable=yes,scrollbars=no');
+// New tab (no window features). Sized popups fail under COEP on several hosts.
+window.open(url,'flac-decoder');
 }
 
 function autoStartWeeksSong(){

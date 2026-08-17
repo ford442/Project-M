@@ -57,8 +57,8 @@ export function ensureWeeksFlacDecoderFrame(documentRef = document) {
 /**
  * Open the legacy `/flac/` decoder (BroadcastChannel sng/file).
  *
- * Default is a same-origin popup — the path wasm=032 still uses, and the only
- * one that works when the host has COEP: require-corp and `/flac/` has no CORP.
+ * Default is a same-origin **new tab** (no window features). Sized popups break
+ * on several hosts/browsers with COEP; a tab keeps BroadcastChannel working.
  * Pass `{ preferIframe: true }` only on hosts that know `/flac/` is embeddable.
  *
  * @param {Document} [documentRef]
@@ -71,7 +71,8 @@ export function openWeeksFlacDecoder(documentRef = document, { preferIframe = fa
         return null;
     }
     if (typeof globalThis.open === 'function') {
-        return globalThis.open(url, 'flac-decoder', 'width=520,height=420,resizable=yes,scrollbars=no');
+        // Omit features so the browser opens a tab, not a constrained popup.
+        return globalThis.open(url, 'flac-decoder');
     }
     if (documentRef?.body) {
         ensureWeeksFlacDecoderFrame(documentRef);
@@ -91,7 +92,7 @@ export function wireWeeksOnFireFlacBridge(documentRef = document) {
 
 /**
  * Wire same-origin FLAC decode helpers for every host.
- * Exposes `openWeeksFlacDecoder` (popup) for WASM glue and the song loader.
+ * Exposes `openWeeksFlacDecoder` (new tab) for WASM glue and the song loader.
  * Does not auto-embed `/flac/` — that iframe is blocked on COEP hosts.
  */
 export function wireFlacDecoderBridge(documentRef = document) {

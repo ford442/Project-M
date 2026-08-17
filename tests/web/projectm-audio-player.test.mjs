@@ -6,6 +6,7 @@ import {
     MOD_PLAYER_BASE_URL,
     createSectionAudioPlayerController,
     isSameOriginUrl,
+    openPlayerForPcmFeed,
     resolveFlacPlayerUrl,
     resolveModPlayerUrl,
     resolvePlayerUrl,
@@ -75,6 +76,55 @@ test('isSameOriginUrl distinguishes host-local players from CDN popups', () => {
     assert.equal(isSameOriginUrl('./flac-player/', loc), true);
     assert.equal(isSameOriginUrl('https://go.1ink.us/flac-player/', loc), false);
     assert.equal(isSameOriginUrl('https://test.1ink.us/xm-player/', loc), false);
+});
+
+test('openPlayerForPcmFeed embeds same-origin players in an iframe (COOP-safe)', () => {
+    const frames = [];
+    const opened = [];
+    const previousLocation = globalThis.location;
+    const previousOpen = globalThis.open;
+    const previousDocument = globalThis.document;
+
+    globalThis.location = { href: 'https://projectm.1ink.us/', origin: 'https://projectm.1ink.us' };
+    globalThis.open = (url, name) => {
+        opened.push({ url, name });
+        return { name };
+    };
+    globalThis.document = {
+        getElementById() { return null; },
+        createElement() {
+            return {
+                id: '',
+                src: '',
+                style: { display: '' },
+                setAttribute() {},
+                getAttribute() { return ''; },
+            };
+        },
+        body: {
+            appendChild(node) { frames.push(node); },
+        },
+    };
+
+    try {
+        const frame = openPlayerForPcmFeed(
+            'https://projectm.1ink.us/flac-player/?projectm=1',
+            'flac-player',
+            globalThis.document
+        );
+        assert.ok(frame);
+        assert.equal(frames.length, 1);
+        assert.equal(opened.length, 0, 'same-origin must not window.open');
+        assert.match(frame.id, /flac-player/);
+
+        openPlayerForPcmFeed('https://go.1ink.us/flac-player/?projectm=1', 'flac-player');
+        assert.equal(opened.length, 1, 'cross-origin opens a tab');
+        assert.equal(opened[0].name, 'flac-player');
+    } finally {
+        globalThis.location = previousLocation;
+        globalThis.open = previousOpen;
+        globalThis.document = previousDocument;
+    }
 });
 
 test('section controller iframes same-origin FLAC and popups cross-origin MOD', () => {

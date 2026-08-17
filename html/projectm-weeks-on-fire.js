@@ -28,10 +28,11 @@ export function resolveFlacDecoderUrl(documentRef = document) {
 }
 
 /**
- * Hidden same-origin iframe so BroadcastChannel reaches the decode player without
- * opening a popup. Only works when `/flac/` is served with CORP (same-origin
- * COEP pages). The live `/flac/` tree does not send those headers, so COEP
- * `require-corp` on 033+ hosts blocks this embed — prefer the popup path.
+ * Hidden same-origin iframe so BroadcastChannel('sng'/'file') stays in the host
+ * agent cluster. Under COOP:same-origin, a separate tab/popup of `./flac/` that
+ * does not itself send COOP is a different agent cluster — BroadcastChannel and
+ * often window.opener both fail, so decoded WAV never reaches the visualizer.
+ * Same-origin iframes share the host cluster and work with COEP:require-corp.
  * @param {Document} [documentRef]
  */
 export function ensureWeeksFlacDecoderFrame(documentRef = document) {
@@ -57,16 +58,15 @@ export function ensureWeeksFlacDecoderFrame(documentRef = document) {
 /**
  * Open the legacy `/flac/` decoder (BroadcastChannel sng/file).
  *
- * Default is a same-origin **new tab** (no window features). Sized popups break
- * on several hosts/browsers with COEP; a tab keeps BroadcastChannel working.
- * Pass `{ preferIframe: true }` only on hosts that know `/flac/` is embeddable.
+ * Default is a same-origin hidden **iframe** so `sng`/`file` channels reach the
+ * visualizer under COOP/COEP. Pass `{ preferIframe: false }` to force a tab.
  *
  * @param {Document} [documentRef]
  * @param {{ preferIframe?: boolean }} [options]
  */
-export function openWeeksFlacDecoder(documentRef = document, { preferIframe = false } = {}) {
+export function openWeeksFlacDecoder(documentRef = document, { preferIframe = true } = {}) {
     const url = resolveFlacDecoderUrl(documentRef);
-    if (preferIframe && documentRef?.body) {
+    if (preferIframe !== false && documentRef?.body) {
         ensureWeeksFlacDecoderFrame(documentRef);
         return null;
     }
@@ -92,8 +92,8 @@ export function wireWeeksOnFireFlacBridge(documentRef = document) {
 
 /**
  * Wire same-origin FLAC decode helpers for every host.
- * Exposes `openWeeksFlacDecoder` (new tab) for WASM glue and the song loader.
- * Does not auto-embed `/flac/` — that iframe is blocked on COEP hosts.
+ * Exposes `openWeeksFlacDecoder` (hidden iframe by default) for WASM glue and
+ * the song loader so BroadcastChannel PCM/WAV stays in the COOP agent cluster.
  */
 export function wireFlacDecoderBridge(documentRef = document) {
     let el = documentRef.getElementById('flacDecoderUrl');

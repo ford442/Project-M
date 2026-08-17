@@ -385,12 +385,12 @@ export function installSongLoaderInterceptor() {
                 return;
             }
 
-            void routeSongUrl(url).then((result) => {
-                if (result === 'flac') {
-                    originalPostMessage(data);
-                }
-            }).catch((error) => {
-                console.error('[projectM song loader] route failed:', error);
+            // Host routes FLAC/MP3 through the worklet (or openLegacyFlacDecoder).
+            // Never forward to the legacy ./flac/ 'sng' listener unless routing fails
+            // completely — openLegacyFlacDecoder posts with bypassSngIntercept.
+            void routeSongUrl(url).catch((error) => {
+                console.error('[projectM song loader] route failed, forwarding to ./flac/:', error);
+                originalPostMessage(data);
             });
         };
         return channel;

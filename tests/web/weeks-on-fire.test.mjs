@@ -134,12 +134,20 @@ test('wireFlacDecoderBridge exposes openWeeksFlacDecoder without weeks mode', ()
     try {
         wireFlacDecoderBridge(doc);
         assert.equal(typeof globalThis.openWeeksFlacDecoder, 'function');
-        assert.equal(frames.length, 0, 'must not auto-embed /flac/ (COEP blocks it)');
-        const popup = globalThis.openWeeksFlacDecoder();
+        assert.equal(frames.length, 0, 'must not auto-embed until openWeeksFlacDecoder()');
+        // Default is a same-origin hidden iframe so COOP agent-cluster BroadcastChannel works.
+        const result = globalThis.openWeeksFlacDecoder();
+        assert.equal(result, null, 'iframe path returns null');
+        assert.equal(opened.length, 0, 'must not window.open by default');
+        assert.equal(frames.length, 1, 'embeds weeksFlacDecoderFrame');
+        assert.equal(frames[0].id, 'weeksFlacDecoderFrame');
+
+        // Opt-out still opens a tab (no window features).
+        const tab = globalThis.openWeeksFlacDecoder({ preferIframe: false });
         assert.equal(opened.length, 1);
         assert.match(opened[0].url, /\/flac\/$/);
         assert.equal(opened[0].name, 'flac-decoder');
-        assert.ok(popup);
+        assert.ok(tab);
     } finally {
         delete globalThis.openWeeksFlacDecoder;
         globalThis.open = previousOpen;

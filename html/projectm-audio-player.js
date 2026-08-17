@@ -78,7 +78,61 @@ export function isSameOriginUrl(url, locationRef) {
     }
 }
 
-const PLAYER_POPUP_FEATURES = 'width=500,height=650,resizable=yes,scrollbars=no';
+/**
+ * Same-origin iframe for FLAC/MOD shells so postMessage + BroadcastChannel
+ * stay in the host COOP agent cluster. A separate tab of a path without matching
+ * COOP headers cannot deliver PCM to the visualizer.
+ * @param {string} frameId
+ * @param {string} url
+ * @param {Document} [documentRef]
+ * @returns {HTMLIFrameElement | null}
+ */
+export function ensureSameOriginPlayerFrame(frameId, url, documentRef) {
+    const doc = documentRef ?? (typeof document !== 'undefined' ? document : null);
+    if (!doc?.body || !url) {
+        return null;
+    }
+    let frame = doc.getElementById(frameId);
+    if (!frame) {
+        frame = doc.createElement('iframe');
+        frame.id = frameId;
+        frame.title = 'projectM audio player';
+        frame.setAttribute(
+            'style',
+            'position:fixed;right:8px;bottom:8px;width:360px;height:220px;border:1px solid #334;border-radius:8px;z-index:99990;background:#0b0f14;box-shadow:0 8px 24px rgba(0,0,0,0.45)'
+        );
+        frame.setAttribute('allow', 'autoplay');
+        doc.body.appendChild(frame);
+    }
+    if (frame.getAttribute('src') !== url && frame.src !== url) {
+        frame.src = url;
+    }
+    frame.style.display = 'block';
+    return frame;
+}
+
+/**
+ * Open a player URL for PCM feeding. Same-origin → iframe (COOP-safe);
+ * cross-origin → new tab (no window features) so opener + postMessage work.
+ * @param {string} url
+ * @param {string} [target]
+ * @param {Document} [documentRef]
+ * @returns {Window | HTMLIFrameElement | null}
+ */
+export function openPlayerForPcmFeed(url, target = 'projectm-player', documentRef) {
+    if (!url) {
+        return null;
+    }
+    if (isSameOriginUrl(url)) {
+        const frameId = `pm-player-frame-${String(target).replace(/[^\w-]+/g, '-')}`;
+        return ensureSameOriginPlayerFrame(frameId, url, documentRef);
+    }
+    if (typeof globalThis.open === 'function') {
+        // No features string → tab. Sized popups often break under COEP hosts.
+        return globalThis.open(url, target);
+    }
+    return null;
+}
 
 // Signals an external audio player (MOD/FLAC) that it is being opened purely as
 // a PCM feeder for projectM, so it can run in compact "audio-only" mode and skip
@@ -137,7 +191,7 @@ export function createSectionAudioPlayerController({
     menuId,
     updateUi = defaultUpdateUi,
     exposeGlobals = true,
-    openPopup = (url, target) => globalThis.open(url, target, PLAYER_POPUP_FEATURES),
+    openPopup = (url, target) => openPlayerForPcmFeed(url, target),
 } = {}) {
     let activeAudioSourceIndex = 0;
 
@@ -246,23 +300,34 @@ export function createPopupAudioPlayerController({
             source.defaultUrl;
     }
 
-    function openPopup(source, { trackUrl } = {}) {
-        const popup = window.open(
-            withProjectMAudioFlag(sourceUrl(source), { trackUrl }),
-            source.target || `${source.id}-player`,
-            'width=500,height=650,resizable=yes,scrollbars=no'
-        );
-        if (popup) {
-            popups.set(source.id, popup);
+    function openPlayer(source, { trackUrl } = {}) {
+        const url = withProjectMAudioFlag(sourceUrl(source), { trackUrl });
+        const target = source.target || `${source.id}-player`;
+        const handle = openPlayerForPcmFeed(url, target);
+        if (handle) {
+            popups.set(source.id, handle);
         } else {
-            console.warn(`${source.label} popup was blocked. Please allow popups for this site. The player page must use postMessage to send PCM: window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")`);
+            console.warn(
+                `${source.label} could not open. Allow popups for cross-origin players. `
+                + 'The player must postMessage PCM: '
+                + 'window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")'
+            );
         }
-        return popup;
+        return handle;
     }
 
     function closeAllAudioPlayers() {
-        for (const popup of popups.values()) {
-            if (popup && !popup.closed) popup.close();
+        for (const handle of popups.values()) {
+            if (!handle) continue;
+            // Window popup/tab
+            if (typeof handle.close === 'function' && 'closed' in handle) {
+                if (!handle.closed) handle.close();
+                continue;
+            }
+            // Same-origin iframe feeder — hide, keep loaded for quick re-open
+            if (handle.style) {
+                handle.style.display = 'none';
+            }
         }
         popups.clear();
     }
@@ -271,7 +336,7 @@ export function createPopupAudioPlayerController({
         const source = popupSources.find((entry) => entry.id === sourceId) || popupSources[0];
         activeAudioSourceIndex = popupSources.findIndex((entry) => entry.id === source.id);
         closeAllAudioPlayers();
-        if (source.id !== 'none') openPopup(source, options);
+        if (source.id !== 'none') openPlayer(source, options);
         updateUi(source);
     }
 

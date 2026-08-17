@@ -519,7 +519,6 @@ this._externalReceiverClose = null;
             this.module._destruct();
         }
         this.module = null;
-        this.audioSourceRouter.reset();
     }
 
     /**
@@ -528,10 +527,9 @@ this._externalReceiverClose = null;
      * @param {string[] | undefined} externalPcmOrigins
      */
     #wireAudio(audioSource, audioElementOption, externalPcmOrigins) {
-        const router = this.audioSourceRouter;
+        const router = this.audioRouter;
 
         if (audioSource === 'external') {
-            const router = this.audioRouter;
             const receiver = setupExternalAudioReceiver({
                 allowedOrigins: externalPcmOrigins ?? [],
                 feedGate: () => router?.externalFeedGate() ?? false,
@@ -544,7 +542,11 @@ this._externalReceiverClose = null;
         }
 
         if (audioSource !== 'element') {
-            router?.setActiveSource('none');
+            // Keep shared host routers (e.g. core.html autoSwitchOnFeed) at 'none'
+            // so the first external/worklet feed can promote the active source.
+            if (!this.options.audioRouter) {
+                router?.setActiveSource('none');
+            }
             return;
         }
 

@@ -73,6 +73,13 @@ try {
   globalThis.Buffer = Buffer;
   window.Buffer = Buffer;
 
+  try {
+    const guardMod = await import('./decode-guard.js');
+    window.__projectMFlacDecodeGuard = guardMod.installFlacPlayerDecodeGuard(window);
+  } catch (guardError) {
+    console.warn('[projectM FLAC player] decode guard unavailable:', guardError);
+  }
+
   const bridgeMod = await loadPcmBridge();
   if (bridgeMod?.installProjectMPcmBridge) {
     window.__projectMPcmBridge = bridgeMod.installProjectMPcmBridge();

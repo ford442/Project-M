@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Post-build WASM optimization + preset performance benchmarking.
 #
-# Default: wasm-opt on the built .wasm bundle.
+# Default: wasm-opt + optional wasmedge AOT + terser JS minify on the built bundle.
 #
 # Benchmark modes (repeatable, preset-focused):
 #   wasm    — browser Playwright harness (per-frame breakdown, preset switch time)
@@ -25,6 +25,9 @@
 #   PROJECT_ROOT              repo root
 #   PROJECTM_WASM_JS / WASM     wrapper paths
 #   PROJECTM_SKIP_WASM_OPT=1    skip wasm-opt
+#   PROJECTM_SKIP_WASMEDGE=1    skip wasmedgec / wasmedge compile
+#   PROJECTM_SKIP_TERSER=1      skip JS minification
+#   PROJECTM_INSTALL_WASMEDGE=0 do not auto-install wasmedge if missing
 #   PROJECTM_BENCH_MANIFEST     override presets/benchmark_curated.json
 #
 # See docs/BENCHMARKING.md for full workflow and before/after comparisons.
@@ -65,7 +68,7 @@ while [[ $# -gt 0 ]]; do
         --skip-opt) SKIP_OPT=1; shift ;;
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,32p' "$0"
+            sed -n '2,36p' "$0"
             exit 0
             ;;
         *)
@@ -158,6 +161,71 @@ run_openmp_bench() {
         | tee "$RESULTS_DIR/openmp-compare.json"
 }
 
+ensure_wasmedge() {
+    if command -v wasmedge >/dev/null 2>&1 || command -v wasmedgec >/dev/null 2>&1; then
+        return 0
+    fi
+    if [[ -f "${HOME}/.wasmedge/env" ]]; then
+        # shellcheck disable=SC1091
+        source "${HOME}/.wasmedge/env"
+    fi
+    if command -v wasmedge >/dev/null 2>&1 || command -v wasmedgec >/dev/null 2>&1; then
+        return 0
+    fi
+    if [[ "${PROJECTM_INSTALL_WASMEDGE:-1}" != "1" ]]; then
+        return 1
+    fi
+    echo "wasmedge not found; installing via official install.sh ..."
+    if curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash; then
+        if [[ -f "${HOME}/.wasmedge/env" ]]; then
+            # shellcheck disable=SC1091
+            source "${HOME}/.wasmedge/env"
+        fi
+    fi
+    if command -v wasmedge >/dev/null 2>&1 || command -v wasmedgec >/dev/null 2>&1; then
+        echo "wasmedge found"
+        return 0
+    fi
+    echo "wasmedge still not found; skipping AOT optimize" >&2
+    return 1
+}
+
+run_wasmedge_opt() {
+    local wasm="$1"
+    local tmp="${wasm}.wasmedge.tmp"
+    rm -f "$tmp"
+    echo "Optimizing WASM (wasmedge)..."
+    if command -v wasmedgec >/dev/null 2>&1; then
+        wasmedgec --optimize=3 --enable-all "$wasm" "$tmp" || true
+    elif command -v wasmedge >/dev/null 2>&1; then
+        wasmedge compile --optimize 3 "$wasm" "$tmp" || true
+    fi
+    if [[ -f "$tmp" && -s "$tmp" ]]; then
+        mv "$tmp" "$wasm"
+        echo "wasmedge: wrote $wasm"
+    else
+        rm -f "$tmp"
+        echo "wasmedge optimize failed; leaving original binary." >&2
+    fi
+}
+
+minify_js() {
+    local src="$1"
+    [[ -f "$src" ]] || return 0
+    local tmp="${src}.terser.tmp"
+    echo "Minifying JS: $src"
+    if terser "$src" -o "$tmp" \
+        --compress defaults=false,dead_code=true,unused=true,loops=true,conditionals=true \
+        --mangle reserved=['Module','FS','GL'] \
+        --comments false; then
+        mv "$tmp" "$src"
+        echo "terser: wrote $src"
+    else
+        rm -f "$tmp"
+        echo "terser failed for $src; leaving original." >&2
+    fi
+}
+
 echo "=== projectM optimize / benchmark ==="
 echo "WASM: $PROJECTM_WASM_WASM"
 echo "JS:   $PROJECTM_WASM_JS"
@@ -190,8 +258,30 @@ if [[ "$SKIP_OPT" -eq 0 && -f "$PROJECTM_WASM_WASM" ]]; then
     else
         echo "wasm-opt skipped (not installed or PROJECTM_SKIP_WASM_OPT=1)"
     fi
+
+    if [[ "${PROJECTM_SKIP_WASMEDGE:-0}" != "1" ]]; then
+        if ensure_wasmedge; then
+            run_wasmedge_opt "$PROJECTM_WASM_WASM"
+        fi
+    else
+        echo "wasmedge skipped (PROJECTM_SKIP_WASMEDGE=1)"
+    fi
 elif [[ ! -f "$PROJECTM_WASM_WASM" ]]; then
-    echo "Note: WASM binary not found; skipping wasm-opt"
+    echo "Note: WASM binary not found; skipping wasm-opt / wasmedge"
+fi
+
+if [[ "$SKIP_OPT" -eq 0 ]]; then
+    if [[ "${PROJECTM_SKIP_TERSER:-0}" != "1" ]]; then
+        if command -v terser >/dev/null 2>&1; then
+            echo "terser found"
+            minify_js "$PROJECTM_WASM_JS"
+            minify_js "${PROJECTM_WASM_JS%.js}.worker.js"
+        else
+            echo "terser not found - skipping JS minification"
+        fi
+    else
+        echo "terser skipped (PROJECTM_SKIP_TERSER=1)"
+    fi
 fi
 
 if [[ "$RUN_BENCH" -eq 1 ]]; then

@@ -1,16 +1,14 @@
 // Host-side song routing for Start/Change Song (musicBtn).
 //
-// WASM glue (WasmJsBindings.cpp) picks a random URL from #songDir and posts it on
-// BroadcastChannel('sng'). The same-origin ./flac/ decoder iframe converts FLAC →
-// WAV and posts back on BroadcastChannel('file') → worklet via pl().
+// WASM glue (WasmJsBindings.cpp) always opens ./flac/ and posts a random catalog
+// URL on BroadcastChannel('sng'). That popup is a drop-zone unless /flac/ is
+// already listening, and the merged catalog can also launch the MOD player.
 //
-// That FLAC path only works when /flac/ is deployed on the *same origin* as the
-// host (BroadcastChannel is not cross-origin). Staging hosts (go/test.1ink.us) and
-// local dev often lack ./flac/, so FLAC fails silently.
-//
-// This module intercepts outgoing 'sng' messages and handles browser-decodable
-// formats (MP3, WAV, OGG, M4A) directly via fetch + decodeAudioData → worklet,
-// without the FLAC iframe. MOD tracker files are routed to the MOD player shell.
+// This module owns the music button: it plays FLAC/MP3/WAV/OGG in-page via
+// fetch + decodeAudioData → the shared worklet (no player popup). MOD files stay
+// on the Audio Player button, not Start/Change Song. If native FLAC decode
+// fails, we fall back to the legacy ./flac/ BroadcastChannel path with a delayed
+// 'sng' post so the decoder page has time to subscribe.
 
 import { ensureWorkletReady, loadWavBytesIntoWorklet } from './projectm-worklet-playback.js';
 
@@ -110,15 +108,26 @@ export function ensureSongCatalog(documentRef) {
 }
 
 /**
- * Pick and route a random track from the host-side catalog (mp3/mod/flac folders).
+ * Start/Change Song should play through the worklet, not open MOD/FLAC player UIs.
+ * @param {string} url
+ */
+export function isWorkletCatalogSong(url) {
+    const kind = classifySongUrl(url);
+    return kind === 'browser' || kind === 'flac';
+}
+
+/**
+ * Pick and route a random worklet-playable track (songs/ + mp3_songs/, not mods).
  * @returns {Promise<boolean>}
  */
 export async function playRandomCatalogSong() {
     const catalog = await ensureSongCatalog();
-    if (!catalog.length) {
+    const playable = catalog.filter(isWorkletCatalogSong);
+    if (!playable.length) {
+        console.warn('[projectM song loader] no FLAC/MP3/WAV tracks in catalog');
         return false;
     }
-    const url = catalog[Math.floor(Math.random() * catalog.length)];
+    const url = playable[Math.floor(Math.random() * playable.length)];
     console.log('[projectM song loader] random track:', url);
     await routeSongUrl(url);
     return true;
@@ -139,13 +148,13 @@ export function installMusicButtonHandler(documentRef) {
     }
     btn.dataset.projectmSongLoaderWired = '1';
 
+    // Capture + sync stop so WASM glue cannot also open ./flac/ or the MOD player.
     btn.addEventListener('click', (event) => {
-        void (async () => {
-            const played = await playRandomCatalogSong();
-            if (played) {
-                event.stopImmediatePropagation();
-            }
-        })();
+        event.stopImmediatePropagation();
+        event.preventDefault();
+        void playRandomCatalogSong().catch((error) => {
+            console.error('[projectM song loader] random track failed:', error);
+        });
     }, true);
 
     void ensureSongCatalog(doc);
@@ -279,6 +288,31 @@ export function openModSong(trackUrl) {
 }
 
 /**
+ * Legacy ./flac/ path: open the decoder and post the URL after it can subscribe.
+ * @param {string} url
+ */
+export async function openLegacyFlacDecoder(url) {
+    if (typeof globalThis.openWeeksFlacDecoder === 'function') {
+        globalThis.openWeeksFlacDecoder();
+    }
+    if (!nativeBroadcastChannel) {
+        return;
+    }
+    const postUrl = () => {
+        bypassSngIntercept = true;
+        try {
+            const sng = new nativeBroadcastChannel('sng');
+            sng.postMessage({ data: url });
+        } finally {
+            bypassSngIntercept = false;
+        }
+    };
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    postUrl();
+    setTimeout(postUrl, 1500);
+}
+
+/**
  * Route a song URL from the WASM song picker.
  * @param {string} url
  * @returns {Promise<'flac' | 'handled' | 'unknown'>}
@@ -293,18 +327,16 @@ export async function routeSongUrl(url) {
         openModSong(url);
         return 'handled';
     case 'flac':
-        if (typeof globalThis.openWeeksFlacDecoder === 'function') {
-            globalThis.openWeeksFlacDecoder();
-        }
-        if (nativeBroadcastChannel) {
-            bypassSngIntercept = true;
-            try {
-                const sng = new nativeBroadcastChannel('sng');
-                sng.postMessage({ data: url });
-            } finally {
-                bypassSngIntercept = false;
+        try {
+            const ok = await loadBrowserDecodableSong(url);
+            if (ok) {
+                return 'handled';
             }
+            console.warn('[projectM song loader] native FLAC decode returned false, falling back to ./flac/');
+        } catch (error) {
+            console.warn('[projectM song loader] native FLAC decode failed, falling back to ./flac/:', error);
         }
+        await openLegacyFlacDecoder(url);
         return 'handled';
     default:
         console.warn('[projectM song loader] unknown song format, trying browser decode:', url);

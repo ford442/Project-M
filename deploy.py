@@ -152,12 +152,43 @@ def _to_utf16_le_bom(data: bytes) -> bytes:
     return text.encode("utf-16")
 
 
-def _zip_write(zf: zipfile.ZipFile, archive_name: str, data: bytes) -> None:
+def fetch_remote_sizes(target_folder: str, target_site: str) -> dict[str, int]:
+    """Ask the VPS for {rel_path: bytes} already on the deploy target."""
+    url = f"{CONTABO_BASE_URL.rstrip('/')}/api/deploy/{PROJECT_NAME}/sizes"
+    headers = {}
+    if DEPLOY_TOKEN:
+        headers["X-Deploy-Token"] = DEPLOY_TOKEN
+    try:
+        response = requests.get(
+            url,
+            params={"target_site": target_site, "target_folder": target_folder},
+            headers=headers,
+            timeout=60,
+        )
+        if response.status_code == 200:
+            files = response.json().get("files") or {}
+            print(f"Remote size map ({target_site}): {len(files)} file(s)")
+            return {str(k).replace("\\", "/"): int(v) for k, v in files.items()}
+        print(f"  ! sizes HTTP {response.status_code}; uploading all files")
+    except Exception as exc:
+        print(f"  ! Could not fetch remote sizes ({exc}); uploading all files")
+    return {}
+
+
+def _zip_write(
+    zf: zipfile.ZipFile,
+    archive_name: str,
+    data: bytes,
+    skip_sizes: dict[str, int] | None = None,
+) -> None:
+    if skip_sizes and skip_sizes.get(archive_name) == len(data):
+        print(f"  = {archive_name} ({len(data)} bytes, unchanged)")
+        return
     zf.writestr(archive_name, data)
     print(f"  + {archive_name}")
 
 
-def build_zip() -> bytes:
+def build_zip(skip_sizes: dict[str, int] | None = None) -> bytes:
     """Zip WASM artifacts (plus pm/ mirrors) and shared html host files."""
     matched = collect_deploy_files()
 
@@ -192,19 +223,19 @@ def build_zip() -> bytes:
                 data = _to_utf16_le_bom(data)
                 if archive_name == PANEL2_HOST:
                     panel2_utf16 = data
-            _zip_write(zf, archive_name, data)
+            _zip_write(zf, archive_name, data, skip_sizes)
 
             if file in wasm_files:
                 for subdir in DEPLOY_MIRROR_SUBDIRS:
                     if file.name in mirrored_names:
                         continue
                     mirrored = f"{subdir}/{file.name}"
-                    _zip_write(zf, mirrored, file.read_bytes())
+                    _zip_write(zf, mirrored, file.read_bytes(), skip_sizes)
                     mirrored_names.add(file.name)
 
         # Keep production URL /1ink.1ink identical to panel2 (stop hand-editing drift).
         if panel2_utf16 is not None:
-            _zip_write(zf, PRODUCTION_HOST_ALIAS, panel2_utf16)
+            _zip_write(zf, PRODUCTION_HOST_ALIAS, panel2_utf16, skip_sizes)
         else:
             print(f"  ! warning: {PANEL2_HOST} missing; skipped {PRODUCTION_HOST_ALIAS} alias")
 
@@ -283,7 +314,11 @@ def main():
     print(f"\n=== Deploying '{PROJECT_NAME}' via Contabo -> {', '.join(targets)} ===\n")
 
     print("Building zip archive...")
-    zip_bytes = build_zip()
+    # Per-target size maps can differ; first target is used for the shared zip
+    # (server-side skip still applies on later targets).
+    first_target = targets[0]
+    skip_sizes = fetch_remote_sizes(DEPLOY_FOLDER or PROJECT_NAME, first_target)
+    zip_bytes = build_zip(skip_sizes)
     print(f"Archive size: {len(zip_bytes) / 1024:.1f} KB\n")
 
     if args.dry_run:

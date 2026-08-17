@@ -6,6 +6,7 @@ import {
     MOD_EXTENSIONS,
     classifySongUrl,
     installSongLoaderInterceptor,
+    isWorkletCatalogSong,
     parseSongDirectoryListing,
     routeSongUrl,
     songExtension,
@@ -87,12 +88,13 @@ test('installSongLoaderInterceptor routes browser formats away from sng channel'
     assert.equal(fetchCalled, true);
     assert.equal(decodeCalls.length, 1);
 
+    fetchCalled = false;
     const sngFlac = new globalThis.BroadcastChannel('sng');
     sngFlac.postMessage({ data: 'https://example.com/demo.flac' });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(posts.length, 1);
-    assert.equal(posts[0].channel, 'sng');
-    assert.equal(posts[0].data.data, 'https://example.com/demo.flac');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(posts.length, 0, 'flac should play via worklet, not ./flac/ sng');
+    assert.equal(fetchCalled, true);
+    assert.equal(decodeCalls.length, 2);
 
     globalThis.BroadcastChannel = previousBC;
     globalThis.fetch = previousFetch;
@@ -105,7 +107,7 @@ test('installSongLoaderInterceptor routes browser formats away from sng channel'
     delete globalThis.projectMAudioContext_Global_Cpp;
 });
 
-test('routeSongUrl handles flac via sng passthrough without fetch', async () => {
+test('routeSongUrl decodes flac via worklet fetch path', async () => {
     const previousFetch = globalThis.fetch;
     const posts = [];
     class FakeBroadcastChannel {
@@ -118,26 +120,52 @@ test('routeSongUrl handles flac via sng passthrough without fetch', async () => 
         addEventListener() {}
         close() {}
     }
-    globalThis.openWeeksFlacDecoder = () => {};
+    globalThis.openWeeksFlacDecoder = () => {
+        throw new Error('should not open ./flac/ when native decode works');
+    };
     globalThis.BroadcastChannel = FakeBroadcastChannel;
+    globalThis.projectMAudioContext_Global_Cpp = {
+        state: 'running',
+        decodeAudioData() {
+            return Promise.resolve({
+                duration: 1,
+                sampleRate: 44100,
+                numberOfChannels: 2,
+                getChannelData() {
+                    return new Float32Array(1024);
+                },
+            });
+        },
+    };
+    globalThis.projectMWorkletNode_Global_Cpp = {
+        port: { postMessage() {} },
+    };
     delete globalThis.__projectMSongLoaderInstalled;
+    delete globalThis.projectMSongLoadState;
     installSongLoaderInterceptor();
 
     let fetchCalled = false;
-    globalThis.fetch = () => {
+    globalThis.fetch = async () => {
         fetchCalled = true;
-        throw new Error('should not fetch flac');
+        return {
+            ok: true,
+            async arrayBuffer() {
+                return new ArrayBuffer(64);
+            },
+        };
     };
     try {
         const result = await routeSongUrl('https://example.com/x.flac');
         assert.equal(result, 'handled');
-        assert.equal(fetchCalled, false);
-        assert.equal(posts.length, 1);
-        assert.equal(posts[0].data, 'https://example.com/x.flac');
+        assert.equal(fetchCalled, true);
+        assert.equal(posts.length, 0);
     } finally {
         globalThis.fetch = previousFetch;
         delete globalThis.openWeeksFlacDecoder;
         delete globalThis.__projectMSongLoaderInstalled;
+        delete globalThis.projectMAudioContext_Global_Cpp;
+        delete globalThis.projectMWorkletNode_Global_Cpp;
+        delete globalThis.projectMSongLoadState;
     }
 });
 
@@ -157,4 +185,11 @@ test('parseSongDirectoryListing extracts file links', () => {
 test('extension sets include mp3 and mod', () => {
     assert.ok(BROWSER_DECODE_EXTENSIONS.has('.mp3'));
     assert.ok(MOD_EXTENSIONS.has('.xm'));
+});
+
+test('Start/Change Song catalog excludes tracker modules', () => {
+    assert.equal(isWorkletCatalogSong('https://x/a.flac'), true);
+    assert.equal(isWorkletCatalogSong('https://x/a.mp3'), true);
+    assert.equal(isWorkletCatalogSong('https://x/a.xm'), false);
+    assert.equal(isWorkletCatalogSong('https://x/a.mod'), false);
 });

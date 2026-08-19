@@ -180,8 +180,9 @@ def _zip_write(
     archive_name: str,
     data: bytes,
     skip_sizes: dict[str, int] | None = None,
+    allow_size_skip: bool = True,
 ) -> None:
-    if skip_sizes and skip_sizes.get(archive_name) == len(data):
+    if allow_size_skip and skip_sizes and skip_sizes.get(archive_name) == len(data):
         print(f"  = {archive_name} ({len(data)} bytes, unchanged)")
         return
     zf.writestr(archive_name, data)
@@ -223,14 +224,24 @@ def build_zip(skip_sizes: dict[str, int] | None = None) -> bytes:
                 data = _to_utf16_le_bom(data)
                 if archive_name == PANEL2_HOST:
                     panel2_utf16 = data
-            _zip_write(zf, archive_name, data, skip_sizes)
+            # WASM bundle artifacts (.wasm/.js/.1ijs/.3ijs/.worker.js) are a tightly
+            # coupled set: the .wasm's compiled-in ASM_CONSTS call-site indices must
+            # match the ASM_CONSTS array baked into its paired .js glue from the same
+            # build. A same-name file that coincidentally has the same byte length as
+            # what's already deployed (e.g. a trivial code change that doesn't shift
+            # binary size) is not necessarily byte-identical, so skip-by-size must
+            # never apply here — a false "unchanged" skip would leave a stale sibling
+            # on the server and desync ASM_CONSTS between glue and binary, producing
+            # "ASM_CONSTS[code] is not a function" at runtime. Always re-upload these.
+            is_wasm_bundle_file = file in wasm_files
+            _zip_write(zf, archive_name, data, skip_sizes, allow_size_skip=not is_wasm_bundle_file)
 
-            if file in wasm_files:
+            if is_wasm_bundle_file:
                 for subdir in DEPLOY_MIRROR_SUBDIRS:
                     if file.name in mirrored_names:
                         continue
                     mirrored = f"{subdir}/{file.name}"
-                    _zip_write(zf, mirrored, file.read_bytes(), skip_sizes)
+                    _zip_write(zf, mirrored, file.read_bytes(), skip_sizes, allow_size_skip=False)
                     mirrored_names.add(file.name)
 
         # Keep production URL /1ink.1ink identical to panel2 (stop hand-editing drift).

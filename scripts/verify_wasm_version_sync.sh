@@ -9,8 +9,18 @@ version_js="$(
         "$PROJECT_ROOT/html/projectm-wasm-version.js" | head -n1
 )"
 
+host_default_js="$(
+    sed -n "s/^export const PROJECTM_WASM_DEFAULT_VERSION = '\([0-9][0-9][0-9][a-z]\?\)';/\1/p" \
+        "$PROJECT_ROOT/html/projectm-wasm-version.js" | head -n1
+)"
+
 if [[ -z "$version_js" ]]; then
     echo "Could not read PROJECTM_WASM_VERSION from html/projectm-wasm-version.js" >&2
+    exit 1
+fi
+
+if [[ -z "$host_default_js" ]]; then
+    echo "Could not read PROJECTM_WASM_DEFAULT_VERSION from html/projectm-wasm-version.js" >&2
     exit 1
 fi
 
@@ -43,8 +53,8 @@ fi
 if [[ -z "$redirect_default" ]]; then
     echo "Could not read DEFAULT_WASM_VERSION from html/projectm-wasm-default-redirect.js" >&2
     errors=1
-elif [[ "$version_js" != "$redirect_default" ]]; then
-    echo "Mismatch: html/projectm-wasm-version.js=$version_js vs projectm-wasm-default-redirect.js=$redirect_default" >&2
+elif [[ "$host_default_js" != "$redirect_default" ]]; then
+    echo "Mismatch: PROJECTM_WASM_DEFAULT_VERSION=$host_default_js vs projectm-wasm-default-redirect.js=$redirect_default" >&2
     errors=1
 fi
 
@@ -52,4 +62,4 @@ if [[ "$errors" -ne 0 ]]; then
     exit 1
 fi
 
-echo "WASM version sync OK: $version_js"
+echo "WASM version sync OK: bundle=$version_js host-default=$host_default_js"

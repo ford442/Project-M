@@ -22,7 +22,7 @@ test('ensureDefaultWasmQueryParam adds wasm when missing', () => {
         ensureDefaultWasmQueryParam({ locationRef }),
         true
     );
-    assert.deepEqual(calls, ['/1ink.1ink?mode=weeks_on_fire&wasm=035#panel']);
+    assert.deepEqual(calls, ['/1ink.1ink?mode=weeks_on_fire&wasm=032#panel']);
 });
 
 test('ensureDefaultWasmQueryParam is a no-op when wasm is present', () => {
@@ -40,7 +40,7 @@ test('ensureDefaultWasmQueryParam is a no-op when wasm is present', () => {
 test('resolveWasmScriptUrl prefers pm/ when available', async () => {
     const fetchFn = async (url, options) => {
         assert.equal(options.method, 'HEAD');
-        if (url.endsWith('/pm/projectm-v.035-thread.js')) {
+        if (url.endsWith(`/pm/projectm-v.${PROJECTM_WASM_VERSION}-thread.js`)) {
             return {
                 ok: true,
                 redirected: false,
@@ -115,11 +115,11 @@ test('buildProjectMLocateFile remaps smoke wasm next to pm/ script', () => {
     const locateFile = buildProjectMLocateFile();
     assert.equal(
         locateFile('projectm-v.030-thread.wasm', 'https://projectm.1ink.us/pm/'),
-        'https://projectm.1ink.us/pm/projectm-v.035-thread.wasm'
+        `https://projectm.1ink.us/pm/projectm-v.${PROJECTM_WASM_VERSION}-thread.wasm`
     );
     assert.equal(
-        locateFile('projectm-v.035-thread.wasm', './'),
-        './projectm-v.035-thread.wasm'
+        locateFile(`projectm-v.${PROJECTM_WASM_VERSION}-thread.wasm`, './'),
+        `./projectm-v.${PROJECTM_WASM_VERSION}-thread.wasm`
     );
 });
 
@@ -129,6 +129,6 @@ test('buildProjectMLocateFile wraps a custom locateFile', () => {
     });
     assert.equal(
         locateFile('projectm-v.030-thread.wasm', 'https://x/'),
-        'https://x/cdn/projectm-v.035-thread.wasm'
+        `https://x/cdn/projectm-v.${PROJECTM_WASM_VERSION}-thread.wasm`
     );
 });

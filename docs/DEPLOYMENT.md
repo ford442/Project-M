@@ -57,7 +57,9 @@ Keep it aligned with `scripts/prepare_deploy_bundle.sh` and
 
 First-party hosts also expose a WASM version picker (`?wasm=030|030b|032|033|034|035|036`).
 Each version is a distinct filename (`projectm-v.<ver>-thread.*`), so deploying a new
-tag does not overwrite older CDN artifacts.
+tag does not overwrite older CDN artifacts. The host default (`?wasm=` when omitted)
+is `PROJECTM_WASM_DEFAULT_VERSION` in `html/projectm-wasm-version.js` (currently `032`)
+and may temporarily lag the latest bundle when that tag has known regressions.
 
 ## Usage
 

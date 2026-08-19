@@ -8,6 +8,14 @@
  */
 export const PROJECTM_WASM_VERSION = '036';
 
+/**
+ * First-party host default for `?wasm=` (redirect + picker fallback).
+ * May temporarily lag `PROJECTM_WASM_VERSION` when the latest bundle has
+ * known regressions. 032 is the current default while 036 audio/framerate
+ * issues are investigated.
+ */
+export const PROJECTM_WASM_DEFAULT_VERSION = '032';
+
 /** Threaded pthread build suffix used by deploy and hosts. */
 export const PROJECTM_WASM_BUNDLE = `projectm-v.${PROJECTM_WASM_VERSION}-thread`;
 

@@ -1,6 +1,7 @@
 // Version constants live in projectm-wasm-version.js (single source of truth).
 export {
     PROJECTM_WASM_VERSION,
+    PROJECTM_WASM_DEFAULT_VERSION,
     PROJECTM_WASM_BUNDLE,
     PROJECTM_WASM_SMOKE_BUNDLE,
     PROJECTM_WASM_SELECTABLE_VERSIONS,
@@ -16,6 +17,7 @@ export {
 } from './projectm-wasm-version.js';
 import {
     PROJECTM_WASM_BUNDLE,
+    PROJECTM_WASM_DEFAULT_VERSION,
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
     PROJECTM_WASM_SMOKE_BUNDLE,
@@ -215,16 +217,16 @@ export async function loadProjectMWasmScript(options = {}) {
 }
 
 /**
- * Redirect to add `?wasm=` when the URL omits it so the canonical default bundle loads
- * and stale localStorage picks do not override a bumped `PROJECTM_WASM_VERSION`.
+ * Redirect to add `?wasm=` when the URL omits it so the host default bundle loads
+ * and stale localStorage picks do not override `PROJECTM_WASM_DEFAULT_VERSION`.
  *
  * @param {object} [options]
- * @param {string} [options.defaultVersion=PROJECTM_WASM_VERSION]
+ * @param {string} [options.defaultVersion=PROJECTM_WASM_DEFAULT_VERSION]
  * @param {Location} [options.locationRef]
  * @returns {boolean} True when a redirect was started.
  */
 export function ensureDefaultWasmQueryParam({
-    defaultVersion = PROJECTM_WASM_VERSION,
+    defaultVersion = PROJECTM_WASM_DEFAULT_VERSION,
     locationRef = typeof location !== 'undefined' ? location : undefined,
 } = {}) {
     if (!locationRef) {
@@ -235,7 +237,7 @@ export function ensureDefaultWasmQueryParam({
         if (params.has('wasm')) {
             return false;
         }
-        const version = normalizeWasmVersion(defaultVersion) || PROJECTM_WASM_VERSION;
+        const version = normalizeWasmVersion(defaultVersion) || PROJECTM_WASM_DEFAULT_VERSION;
         params.set('wasm', version);
         const query = params.toString();
         const next = `${locationRef.pathname}${query ? `?${query}` : ''}${locationRef.hash}`;
@@ -252,13 +254,13 @@ export function ensureDefaultWasmQueryParam({
  * @param {object} [options]
  * @param {URLSearchParams | string | null} [options.searchParams]
  * @param {Storage | null} [options.storage]
- * @param {string} [options.fallback=PROJECTM_WASM_VERSION]
+ * @param {string} [options.fallback=PROJECTM_WASM_DEFAULT_VERSION]
  * @returns {string}
  */
 export function resolveSelectedWasmVersion({
     searchParams = typeof location !== 'undefined' ? location.search : null,
     storage = typeof localStorage !== 'undefined' ? localStorage : null,
-    fallback = PROJECTM_WASM_VERSION,
+    fallback = PROJECTM_WASM_DEFAULT_VERSION,
 } = {}) {
     const params = typeof searchParams === 'string'
         ? new URLSearchParams(searchParams.startsWith('?') ? searchParams.slice(1) : searchParams)
@@ -275,7 +277,7 @@ export function resolveSelectedWasmVersion({
     } catch {
         // Ignore quota / private-mode storage failures.
     }
-    return normalizeWasmVersion(fallback) || PROJECTM_WASM_VERSION;
+    return normalizeWasmVersion(fallback) || PROJECTM_WASM_DEFAULT_VERSION;
 }
 
 export async function createProjectMModule({

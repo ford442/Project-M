@@ -127,11 +127,27 @@
       if (typeof Module._get_omp_thread_count_in_parallel === 'function') {
         ompParallel = Module._get_omp_thread_count_in_parallel();
       }
-      mark('openmp compiled=' + ompCompiled + ' maxThreads=' + ompMax + ' parallelObserved=' + ompParallel);
+      // libomp's default 200ms spin-wait keeps helper threads on-core between
+      // frames, starving the page's AudioWorklet and slowing the render loop
+      // (docs/PERFORMANCE.md -> "OpenMP blocktime"). 0 = fixed, -1 = no libomp.
+      let ompBlocktime = -1;
+      if (typeof Module._get_omp_blocktime === 'function') {
+        ompBlocktime = Module._get_omp_blocktime();
+      }
+      mark('openmp compiled=' + ompCompiled + ' maxThreads=' + ompMax
+        + ' parallelObserved=' + ompParallel + ' blocktimeMs=' + ompBlocktime);
+      if (ompCompiled !== 0 && ompBlocktime > 0) {
+        throw new Error(
+          'OpenMP blocktime is ' + ompBlocktime + 'ms; expected 0 so libomp helper '
+          + 'threads sleep between frames instead of spinning on-core. See '
+          + 'ConfigureWasmOpenMPThreadCount() in projectM_emscripten.cpp.'
+        );
+      }
       result.openmp = {
         compiled: ompCompiled !== 0,
         maxThreads: ompMax,
-        parallelThreadsObserved: ompParallel
+        parallelThreadsObserved: ompParallel,
+        blocktimeMs: ompBlocktime
       };
     }
 

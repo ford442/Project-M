@@ -207,6 +207,7 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
 | `-l embind` | no | yes | Wrapper TU uses embind |
 | OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(kWasmPthreadPoolSize)` from generated header |
+| OpenMP blocktime in `projectM_emscripten.cpp` | — | — | `kmp_set_blocktime(0)` — see "OpenMP blocktime" below |
 
 **OpenMP / pthread pool:** libomp's default `omp_get_max_threads()` on wasm follows
 `navigator.hardwareConcurrency`, but only `PTHREAD_POOL_SIZE` Workers are pre-spawned.
@@ -214,6 +215,32 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 so OpenMP never requests more threads than Workers exist (fixes 033/034 main-thread freeze).
 Change the pool size only in `PROJECTM_WASM_PTHREAD_POOL_SIZE` inside `EmscriptenWasmFlags.cmake`, then
 regenerate with `scripts/sync_wasm_link_common.sh`.
+
+**OpenMP blocktime (audio + framerate):** capping the thread count is only half of
+what wasm needs from libomp. After each parallel region libomp leaves the helper
+threads in a **spin** wait and only lets them sleep once `KMP_BLOCKTIME` has
+elapsed — default **200 ms**. `PerPixelMesh::CalculateMesh` opens a region every
+rendered frame (the default 80x60 / 64x48 meshes are 4941 / 3185 verts, both over
+`OpenMp::kMinPerPixelMeshVerts`), so at 60 fps the next region arrives ~17 ms in
+and the helpers never reach the sleep path: they hold their cores for the entire
+session rather than only while projectM computes.
+
+That starves the page's `AudioWorklet`, which must fill a 128-sample quantum
+every ~2.7 ms at 48 kHz, and it slows the render loop that is competing for the
+same cores — one cause behind both the degraded audio and the lower framerate
+reported against bundle 036 versus 032. (032's `.wasm` links no libomp at all;
+`strings` finds no `kmp_`/`GOMP_`/`libomp` in it, and both bundles ship the same
+`pthreadPoolSize=4`.) `ConfigureWasmOpenMPThreadCount()` therefore also calls
+`kmp_set_blocktime(0)`. The env-var route does not work here: libomp reads
+`KMP_BLOCKTIME` through `getenv()` during its own init and a wasm module has no
+environment to inherit one from.
+
+Verify it in any deployed bundle with the `get_omp_blocktime` export — `0` means
+the fix is present, `200` means it is not, `-1` means the bundle has no libomp:
+
+```js
+Module._get_omp_blocktime()   // or getOmpBlocktime(Module) from the generated API
+```
 
 ### Future phases
 

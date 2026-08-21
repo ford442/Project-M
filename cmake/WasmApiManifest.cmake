@@ -56,6 +56,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "get_omp_enabled|internal|direct|number||Whether OpenMP was compiled in (0/1)"
     "get_omp_max_threads|internal|direct|number||Configured OpenMP max thread count"
     "get_omp_thread_count_in_parallel|internal|direct|number||OpenMP threads observed in parallel region"
+    "get_omp_blocktime|internal|direct|number||libomp spin-wait blocktime in ms (0 = sleep immediately, -1 = no libomp)"
     "shader_cache_begin_load|internal|ccall|void|cacheKey:string|Begin preset load with optional transpiled GLSL cache key"
     "shader_cache_import_glsl|internal|ccall|void|shaderType:number,glsl:string|Inject cached transpiled GLSL (0=warp, 1=composite)"
     "shader_cache_end_load|internal|direct|void||Clear transpiled GLSL cache key after preset load"

@@ -7,6 +7,7 @@ import {
     getOmpEnabled,
     getOmpMaxThreads,
     getOmpThreadCountInParallel,
+    getOmpBlocktime,
     loadPresetFile,
     setPerfHud,
     transitionIsActive,
@@ -244,11 +245,17 @@ function percentile(sortedValues, p) {
 
 /**
  * @param {ProjectMModule | null | undefined} Module
- * @returns {{ compiled: boolean, maxThreads: number, parallelThreadsObserved: number }}
+ * `blocktimeMs` is the libomp spin-wait window: 0 means helper threads sleep
+ * as soon as a parallel region ends, 200 (libomp's default) means they spin
+ * through every frame gap and starve the page's AudioWorklet. -1 means the
+ * bundle has no libomp, and older bundles without the export report null.
+ *
+ * @param {ProjectMModule | null | undefined} Module
+ * @returns {{ compiled: boolean, maxThreads: number, parallelThreadsObserved: number, blocktimeMs: number | null }}
  */
 function collectOpenmpInfo(Module) {
     if (!Module || typeof Module._get_omp_enabled !== 'function') {
-        return { compiled: false, maxThreads: 1, parallelThreadsObserved: 1 };
+        return { compiled: false, maxThreads: 1, parallelThreadsObserved: 1, blocktimeMs: null };
     }
     return {
         compiled: getOmpEnabled(Module) !== 0,
@@ -256,6 +263,9 @@ function collectOpenmpInfo(Module) {
         parallelThreadsObserved: typeof Module._get_omp_thread_count_in_parallel === 'function'
             ? getOmpThreadCountInParallel(Module)
             : 1,
+        blocktimeMs: typeof Module._get_omp_blocktime === 'function'
+            ? getOmpBlocktime(Module)
+            : null,
     };
 }
 

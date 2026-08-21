@@ -45,6 +45,7 @@ export const WASM_API_SYMBOLS = {
     getOmpEnabled: 'get_omp_enabled',
     getOmpMaxThreads: 'get_omp_max_threads',
     getOmpThreadCountInParallel: 'get_omp_thread_count_in_parallel',
+    getOmpBlocktime: 'get_omp_blocktime',
     shaderCacheBeginLoad: 'shader_cache_begin_load',
     shaderCacheImportGlsl: 'shader_cache_import_glsl',
     shaderCacheEndLoad: 'shader_cache_end_load',
@@ -325,6 +326,11 @@ export function getOmpMaxThreads(module) {
 /** OpenMP threads observed in parallel region */
 export function getOmpThreadCountInParallel(module) {
     return module._get_omp_thread_count_in_parallel();
+}
+
+/** libomp spin-wait blocktime in ms (0 = sleep immediately, -1 = no libomp) */
+export function getOmpBlocktime(module) {
+    return module._get_omp_blocktime();
 }
 
 /** Begin preset load with optional transpiled GLSL cache key */

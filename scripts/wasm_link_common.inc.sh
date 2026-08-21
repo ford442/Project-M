@@ -51,6 +51,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _get_omp_enabled
     _get_omp_max_threads
     _get_omp_thread_count_in_parallel
+    _get_omp_blocktime
     _shader_cache_begin_load
     _shader_cache_import_glsl
     _shader_cache_end_load

@@ -362,6 +362,26 @@ int get_omp_max_threads() {
     return info.max_threads;
 }
 
+// Current libomp blocktime in ms: how long a helper thread spin-waits after a
+// parallel region before it is allowed to sleep.
+//
+// This is the audio-regression probe. libomp defaults to 200 ms, which is
+// ~12 frame periods at 60 fps, so the helpers never sleep and permanently
+// occupy their cores — starving the page's AudioWorklet (see the rationale on
+// ConfigureWasmOpenMPThreadCount() in projectM_emscripten.cpp). A deployed
+// bundle carrying that fix reports 0 here; one without it reports 200.
+//
+// Returns -1 when built without OpenMP, or with a runtime that has no
+// kmp_get_blocktime() — both mean "no libomp spin-wait to worry about".
+EMSCRIPTEN_KEEPALIVE
+int get_omp_blocktime() {
+#if defined(_OPENMP) && defined(__KAI_KMPC_CONVENTION)
+    return kmp_get_blocktime();
+#else
+    return -1;
+#endif
+}
+
 // Returns omp_get_num_threads() from inside a short parallel region so
 // benchmarks can confirm worker threads are actually spawned (not just compiled).
 EMSCRIPTEN_KEEPALIVE

@@ -83,8 +83,11 @@ Intended for third-party embedders. Breaking changes require a major WASM bundle
 | `getGovernorBlurCap` | `get_governor_blur_cap` | Current tier's blur-level cap (-1 = unlimited, else 0-3) |
 | `setMesh` | `set_mesh` | Per-pixel grid |
 | `pmHandleContextLoss` | `pm_handle_context_loss` | WebGL context loss |
-| `dualFboBeginTransition` | `dual_fbo_begin_transition` | |
+| `dualFboBeginTransition` | `dual_fbo_begin_transition` | Allocates both FBO pairs on demand; `false` means "retry next frame", not "hard cut" |
+| `dualFboIsPresetAAllocated` | `dual_fbo_is_preset_a_allocated` | False at startup and after the idle release; check with the B query before `transitionStart` |
 | `dualFboIsPresetBAllocated` | `dual_fbo_is_preset_b_allocated` | |
+| `dualFboSetIdleReleaseSeconds` | `dual_fbo_set_idle_release_seconds` | Idle seconds before the preset-A pair is reclaimed (0 = immediate, &lt;0 = never). Default 5 |
+| `dualFboGetIdleReleaseSeconds` | `dual_fbo_get_idle_release_seconds` | |
 | `dualFboIsPresetBReady` | `dual_fbo_is_preset_b_ready` | |
 | `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA32F, 1=RGBA16F, 2=RGBA8 |
 | `transitionStart` | `transition_start` | |

@@ -24,6 +24,25 @@ float  g_transitionBlend     = 0.0f;  //!< Current blend value in [0.0, 1.0].
 double g_transitionStartTime = 0.0;   //!< emscripten_get_now() timestamp (ms) at blend start.
 
 // =============================================================================
+// Idle release policy for the Preset A pair
+//
+// Preset A is crossfade scratch only: between transitions render_frame() takes
+// the direct-to-canvas path and never samples it. Holding the pair resident for
+// a whole session costs ~14 MB at 1280x720 RGBA16F (~31 MB at 1920x1080) of VRAM
+// that nothing reads. render_frame() reclaims it once this many seconds have
+// passed since the last transition ended.
+//
+//   > 0  release after that many idle seconds (default)
+//   == 0 release on the first idle frame after a transition
+//   <  0 never release; keep the pair resident once allocated
+//
+// The grace period exists so back-to-back preset switches reuse the live pair
+// instead of thrashing glTexImage2D on every switch.
+// =============================================================================
+float  g_dualFboIdleReleaseSec = 5.0f; //!< Idle seconds before Preset A is reclaimed.
+double g_transitionEndTime     = 0.0;  //!< emscripten_get_now() timestamp (ms) at last blend end.
+
+// =============================================================================
 // Phase 2 + Phase 3: Dual ping-pong FBO lifecycle C API (EMSCRIPTEN_KEEPALIVE exports)
 //
 // These functions are the public interface for JavaScript / the transition
@@ -48,12 +67,20 @@ double g_transitionStartTime = 0.0;   //!< emscripten_get_now() timestamp (ms) a
 extern "C" {
 
 /**
- * @brief Lazily allocates Preset B ping-pong FBOs to start a transition.
+ * @brief Lazily allocates both ping-pong FBO pairs to start a transition.
  *
- * Uses the current Preset A dimensions.  Safe to call when a transition is
- * already active (no-op in that case).
+ * Neither pair is allocated at startup, so on a cold start this call brings up
+ * Preset A *and* Preset B. Dimensions come from the viewport recorded by
+ * start_render() via DualPingPongFramebuffer::Resize(), which is why that call
+ * must have run first — hence the w/h guard below.
  *
- * @return true on success.
+ * The host must treat a @c false return as "not ready yet" and retry on a later
+ * frame rather than starting the blend: transition_start() without both pairs
+ * live degrades the crossfade into a hard cut.
+ *
+ * Safe to call when a transition is already active (no-op in that case).
+ *
+ * @return true when both Preset A and Preset B pairs are allocated.
  */
 EMSCRIPTEN_KEEPALIVE
 bool dual_fbo_begin_transition()
@@ -62,15 +89,29 @@ bool dual_fbo_begin_transition()
     int h = g_dualFbo.Height();
     if (w <= 0 || h <= 0)
     {
-        fprintf(stderr, "DualFBO: Cannot begin transition – Preset A FBOs not allocated.\n");
+        fprintf(stderr, "DualFBO: Cannot begin transition – viewport size unknown (start_render() has not run).\n");
         return false;
     }
-    if (!g_dualFbo.IsPresetAAllocated() && !g_dualFbo.AllocatePresetA(w, h))
+
+    // Remember whether this call is what brought Preset A up, so a Preset B
+    // failure below can unwind it instead of leaving a resident pair that
+    // nothing will ever sample.
+    const bool allocatedAHere = !g_dualFbo.IsPresetAAllocated();
+    if (allocatedAHere && !g_dualFbo.AllocatePresetA(w, h))
     {
         fprintf(stderr, "DualFBO: Failed to lazily allocate Preset A FBOs.\n");
         return false;
     }
-    return g_dualFbo.AllocatePresetB(w, h);
+
+    if (!g_dualFbo.AllocatePresetB(w, h))
+    {
+        if (allocatedAHere)
+        {
+            g_dualFbo.ReleasePresetA();
+        }
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -83,15 +124,24 @@ EMSCRIPTEN_KEEPALIVE
 void dual_fbo_end_transition()
 {
     g_dualFbo.PromoteBtoA();
+    // Preset A is idle again from here; render_frame() reclaims it once the
+    // grace period set by dual_fbo_set_idle_release_seconds() elapses.
+    g_transitionEndTime = emscripten_get_now();
 }
 
 /**
  * @brief Cancels an in-progress transition and releases Preset B FBOs.
+ *
+ * Also the abandon path for a transition that was allocated but never armed
+ * (host gave up waiting for the incoming preset's shaders). Starts the Preset A
+ * idle clock so the pair this transition brought up does not stay resident for
+ * the rest of the session.
  */
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_cancel_transition()
 {
     g_dualFbo.ReleasePresetB();
+    g_transitionEndTime = emscripten_get_now();
 }
 
 /**
@@ -157,6 +207,43 @@ EMSCRIPTEN_KEEPALIVE
 bool dual_fbo_is_preset_b_allocated()
 {
     return g_dualFbo.IsPresetBAllocated();
+}
+
+/**
+ * @brief Returns true if the Preset A FBOs are currently allocated.
+ *
+ * False at startup and again after the idle grace period following a
+ * transition — the pair is crossfade scratch, not a steady-state render target.
+ * The host must confirm this (alongside dual_fbo_is_preset_b_allocated()) before
+ * calling transition_start(), or the blend silently degrades to a hard cut.
+ */
+EMSCRIPTEN_KEEPALIVE
+bool dual_fbo_is_preset_a_allocated()
+{
+    return g_dualFbo.IsPresetAAllocated();
+}
+
+/**
+ * @brief Sets how long the Preset A pair may sit idle before being reclaimed.
+ *
+ * @param seconds  > 0 release after that many idle seconds; 0 release on the
+ *                 first idle frame; < 0 keep the pair resident once allocated.
+ */
+EMSCRIPTEN_KEEPALIVE
+void dual_fbo_set_idle_release_seconds(float seconds)
+{
+    g_dualFboIdleReleaseSec = seconds;
+    fprintf(stderr, "DualFBO: Preset A idle release set to %.2f s.\n",
+            static_cast<double>(seconds));
+}
+
+/**
+ * @brief Returns the configured Preset A idle-release threshold in seconds.
+ */
+EMSCRIPTEN_KEEPALIVE
+float dual_fbo_get_idle_release_seconds()
+{
+    return g_dualFboIdleReleaseSec;
 }
 
 /**
@@ -279,9 +366,26 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void transition_start()
 {
-    if (!g_dualFbo.IsPresetBAllocated())
+    if (!g_dualFbo.IsPresetAAllocated() || !g_dualFbo.IsPresetBAllocated())
     {
-        fprintf(stderr, "transition_start: Preset B FBOs not allocated – call dual_fbo_begin_transition() first.\n");
+        fprintf(stderr, "transition_start: dual FBOs not allocated (A=%d, B=%d) – call dual_fbo_begin_transition() first.\n",
+                static_cast<int>(g_dualFbo.IsPresetAAllocated()),
+                static_cast<int>(g_dualFbo.IsPresetBAllocated()));
+        return;
+    }
+    if (!g_compositorShader.IsInitialized())
+    {
+        // ShouldUseDualFboCompositor() would reject every frame, so arming the
+        // blend here would wedge g_transitionActive at true forever: the blend
+        // timer only advances inside the compositor branch of render_frame(),
+        // so B would never be promoted and both pairs would stay resident for
+        // the rest of the session. Fall back to an explicit hard cut instead.
+        fprintf(stderr, "transition_start: compositor unavailable – hard-cutting to Preset B.\n");
+        g_dualFbo.PromoteBtoA();
+        g_transitionBlend  = 0.0f;
+        g_transitionActive = false;
+        g_presetBReady     = false;
+        g_transitionEndTime = emscripten_get_now();
         return;
     }
     g_transitionBlend     = 0.0f;
@@ -304,10 +408,13 @@ void transition_cancel()
     {
         return;
     }
-    g_transitionActive = false;
-    g_transitionBlend  = 0.0f;
-    g_presetBReady     = false;
+    g_transitionActive  = false;
+    g_transitionBlend   = 0.0f;
+    g_presetBReady      = false;
     g_dualFbo.ReleasePresetB();
+    // Start the Preset A idle clock here too – a cancelled transition leaves the
+    // A pair allocated with nothing left to sample it.
+    g_transitionEndTime = emscripten_get_now();
     fprintf(stderr, "Phase5: Transition cancelled.\n");
 }
 

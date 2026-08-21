@@ -125,11 +125,24 @@ blit is gone from the source.
 shipping a current build *is* the fix and no code work is needed. Check the deployed
 `PROJECTM_WASM_BUNDLE` before spending a session on #175's headline item.
 
-### 2. Preset A pair is now lazily allocated (#175 — landed)
+### 2. Preset A pair is now lazily allocated (#175 → #199 — landed)
 
-`start_render()` now records viewport size but defers Preset A/B texture allocation
+`start_render()` records viewport size but defers Preset A/B texture allocation
 until `dual_fbo_begin_transition()` is called. That removes idle steady-state VRAM
 residency for Preset A in non-transition playback.
+
+**#199 follow-up.** Cold-start laziness alone only bought the window before the first
+preset switch: `PromoteBtoA()` left the pair resident for the rest of the session
+afterwards, even though the compositor gate is false between transitions. The pair is
+now reclaimed by `ReleaseDualFboIfIdle()` after a grace period
+(`dual_fbo_set_idle_release_seconds()`, default 5 s), so steady-state residency is 0 B
+at every point, not just before the first transition. Three wedge/leak paths were
+closed alongside it: `transition_start()` no longer arms a blend the compositor cannot
+run (which pinned `g_transitionActive` at true and both pairs resident forever),
+`dual_fbo_begin_transition()` unwinds a lazily-allocated Preset A when Preset B fails,
+and a timed-out host readiness poll hands its pairs back. Figures and the unmeasured
+caveats are in
+[PERFORMANCE.md](PERFORMANCE.md#dual-fbo-vram-residency-and-lazy-preset-a-allocation-issue-199).
 
 The format policy also now defaults to RGBA16F (with RGBA32F opt-in), cutting both
 transition-time bandwidth and float texture footprint on capable GPUs.

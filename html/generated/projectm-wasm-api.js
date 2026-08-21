@@ -63,7 +63,10 @@ export const WASM_API_SYMBOLS = {
     dualFboGetBWriteFbo: 'dual_fbo_get_b_write_fbo',
     dualFboGetBReadTex: 'dual_fbo_get_b_read_tex',
     dualFboGetBWriteTex: 'dual_fbo_get_b_write_tex',
+    dualFboIsPresetAAllocated: 'dual_fbo_is_preset_a_allocated',
     dualFboIsPresetBAllocated: 'dual_fbo_is_preset_b_allocated',
+    dualFboSetIdleReleaseSeconds: 'dual_fbo_set_idle_release_seconds',
+    dualFboGetIdleReleaseSeconds: 'dual_fbo_get_idle_release_seconds',
     dualFboIsPresetBReady: 'dual_fbo_is_preset_b_ready',
     dualFboGetFormat: 'dual_fbo_get_format',
     dualFboRenderPresetA: 'dual_fbo_render_preset_a',
@@ -414,9 +417,24 @@ export function dualFboGetBWriteTex(module) {
     return module._dual_fbo_get_b_write_tex();
 }
 
+/** Whether preset-A FBO is allocated (lazily allocated per transition) */
+export function dualFboIsPresetAAllocated(module) {
+    return !!module._dual_fbo_is_preset_a_allocated();
+}
+
 /** Whether preset-B FBO is allocated */
 export function dualFboIsPresetBAllocated(module) {
     return !!module._dual_fbo_is_preset_b_allocated();
+}
+
+/** Idle seconds before the preset-A FBO pair is reclaimed (0=immediate, <0=never) */
+export function dualFboSetIdleReleaseSeconds(module, seconds) {
+    module._dual_fbo_set_idle_release_seconds(seconds);
+}
+
+/** Configured preset-A idle release threshold in seconds */
+export function dualFboGetIdleReleaseSeconds(module) {
+    return module._dual_fbo_get_idle_release_seconds();
 }
 
 /** Whether preset-B shaders are ready */
@@ -497,7 +515,10 @@ export const PUBLIC_WASM_API = [
     getGlslGeneratorVersion,
     pmHandleContextLoss,
     dualFboBeginTransition,
+    dualFboIsPresetAAllocated,
     dualFboIsPresetBAllocated,
+    dualFboSetIdleReleaseSeconds,
+    dualFboGetIdleReleaseSeconds,
     dualFboIsPresetBReady,
     dualFboGetFormat,
     transitionStart,

@@ -44,11 +44,17 @@ function installRequestAnimationFrame() {
 /**
  * Minimal fake of the Emscripten module surface projectm-transitions.js uses.
  * `state` controls what the engine reports back to the poll loop.
+ *
+ * Neither FBO pair is resident at startup and the preset-A pair is reclaimed
+ * again after an idle period, so `allocatedA` defaults to false to model a cold
+ * start. `_dual_fbo_begin_transition` mirrors the C side: it brings up whichever
+ * pairs are missing, and on failure leaves allocation state untouched.
  */
 function fakeModule(state = {}) {
     const calls = {
         setDuration: [],
         beginTransition: 0,
+        cancelTransition: 0,
         transitionStart: 0,
     };
 
@@ -57,8 +63,13 @@ function fakeModule(state = {}) {
         state: {
             ready: false,
             allocated: false,
+            allocatedA: false,
             active: false,
             beginTransitionSucceeds: true,
+            // Models dual_fbo_begin_transition()'s rollback: when preset B fails
+            // after preset A came up in the same call, A is released again so no
+            // pair is left resident with nothing to sample it.
+            presetAAllocationSucceeds: true,
             ...state,
         },
         _transition_set_duration(seconds) {
@@ -70,18 +81,36 @@ function fakeModule(state = {}) {
         _dual_fbo_is_preset_b_ready() {
             return module.state.ready ? 1 : 0;
         },
+        _dual_fbo_is_preset_a_allocated() {
+            return module.state.allocatedA ? 1 : 0;
+        },
         _dual_fbo_is_preset_b_allocated() {
             return module.state.allocated ? 1 : 0;
         },
         _dual_fbo_begin_transition() {
             calls.beginTransition += 1;
-            if (module.state.beginTransitionSucceeds) {
-                module.state.allocated = true;
-                return 1;
+            if (!module.state.presetAAllocationSucceeds) {
+                return 0;
             }
-            return 0;
+            if (!module.state.beginTransitionSucceeds) {
+                // Preset B failed: preset A is rolled back rather than left resident.
+                return 0;
+            }
+            module.state.allocatedA = true;
+            module.state.allocated = true;
+            return 1;
+        },
+        _dual_fbo_cancel_transition() {
+            calls.cancelTransition += 1;
+            // Mirrors the C side: preset B is handed back, and preset A follows
+            // once render_frame() sees it idle past the release threshold.
+            module.state.allocated = false;
         },
         _transition_start() {
+            // Mirrors the C guard: without both pairs this is a hard cut, not a blend.
+            if (!module.state.allocatedA || !module.state.allocated) {
+                throw new Error('transition_start called without both FBO pairs allocated');
+            }
             calls.transitionStart += 1;
             module.state.active = true;
         },
@@ -138,6 +167,70 @@ test('startTransitionWhenReady waits for preset B, allocates it, then starts onc
     }
 });
 
+// --- Lazy preset-A allocation ordering (issue #199) --------------------------
+//
+// Neither FBO pair is allocated at startup, and the preset-A pair is reclaimed
+// again after it has been idle past dual_fbo_set_idle_release_seconds(). The
+// readiness gate therefore has to drive the on-demand allocation to completion
+// *before* arming the blend — transition_start() with a pair missing bails out
+// in C and the crossfade silently becomes a hard cut.
+
+test('cold start allocates both FBO pairs before arming the blend', async () => {
+    const raf = installRequestAnimationFrame();
+    // Cold start: preset A has never been allocated either.
+    const module = fakeModule({ ready: true });
+    try {
+        assert.equal(module.state.allocatedA, false, 'preset A must not be resident at startup');
+
+        const started = startTransitionWhenReady({ module });
+        await raf.advance(1);
+
+        assert.equal(await started, true);
+        assert.equal(module.calls.beginTransition, 1);
+        assert.equal(module.state.allocatedA, true, 'preset A must be allocated on demand');
+        assert.equal(module.calls.transitionStart, 1, 'the first transition after a cold start must still soft-cut');
+    } finally {
+        raf.restore();
+    }
+});
+
+test('a reclaimed preset-A pair is re-allocated before the next transition', async () => {
+    const raf = installRequestAnimationFrame();
+    // Preset B is somehow live but preset A was reclaimed after the idle grace
+    // period. Starting the blend here would hard-cut, so the gate must notice
+    // the missing pair and re-run the on-demand allocation.
+    const module = fakeModule({ ready: true, allocated: true, allocatedA: false });
+    try {
+        const started = startTransitionWhenReady({ module });
+        await raf.advance(1);
+
+        assert.equal(await started, true);
+        assert.equal(module.calls.beginTransition, 1, 'a missing preset-A pair must re-trigger allocation');
+        assert.equal(module.state.allocatedA, true);
+        assert.equal(module.calls.transitionStart, 1);
+    } finally {
+        raf.restore();
+    }
+});
+
+test('a failed preset-A allocation never arms a hard-cut transition', async () => {
+    const raf = installRequestAnimationFrame();
+    const module = fakeModule({ ready: true, presetAAllocationSucceeds: false });
+    try {
+        const started = startTransitionWhenReady({ module, timeoutFrames: 3 });
+
+        await raf.advance(10);
+
+        // Better to time out and keep the current preset than to start a blend
+        // the engine cannot composite.
+        assert.equal(await started, false);
+        assert.equal(module.calls.transitionStart, 0);
+        assert.equal(module.state.allocatedA, false);
+    } finally {
+        raf.restore();
+    }
+});
+
 test('startTransitionWhenReady keeps polling when allocation fails', async () => {
     const raf = installRequestAnimationFrame();
     const module = fakeModule({ ready: true, beginTransitionSucceeds: false });
@@ -160,7 +253,7 @@ test('startTransitionWhenReady keeps polling when allocation fails', async () =>
 
 test('startTransitionWhenReady resolves true without restarting an active transition', async () => {
     const raf = installRequestAnimationFrame();
-    const module = fakeModule({ active: true, ready: true, allocated: true });
+    const module = fakeModule({ active: true, ready: true, allocated: true, allocatedA: true });
     try {
         const started = startTransitionWhenReady({ module });
         await raf.advance(1);
@@ -187,6 +280,7 @@ test('startTransitionWhenReady times out instead of polling forever', async () =
         assert.equal(module.calls.transitionStart, 0);
         assert.equal(raf.pending(), 0, 'polling must stop after the timeout');
         assert.equal(warnings.length, 1);
+        assert.equal(module.calls.cancelTransition, 1, 'a timed-out poll must hand back any FBOs it allocated');
     } finally {
         console.warn = originalWarn;
         raf.restore();

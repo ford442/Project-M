@@ -114,6 +114,33 @@ EM_JS(int, js_blur_force_copy_path, (), {
     }
 });
 
+EM_JS(int, js_copy_force_shader_path, (), {
+    if (typeof window === 'undefined' || !window.location || !window.location.search)
+    {
+        return 0;
+    }
+    try
+    {
+        const value = new URLSearchParams(window.location.search).get('copyPath');
+        return (value && value.toLowerCase() === 'shader') ? 1 : 0;
+    }
+    catch (e)
+    {
+        return 0;
+    }
+});
+
+// Ablation switch for benchmarking the texture-copy path: ?copyPath=shader restores the
+// pre-#179 fullscreen-quad copy so it can be A/B'd against the default glBlitFramebuffer
+// resolve on one build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+static void ApplyCopyPathOverride()
+{
+    if (js_copy_force_shader_path() != 0)
+    {
+        setenv("PROJECTM_COPY_SHADER_PATH", "1", 1);
+    }
+}
+
 // Ablation switch for benchmarking the blur chain: ?blurPath=copy restores the legacy
 // render-to-scratch + glCopyTexSubImage2D behaviour so it can be A/B'd against the
 // default render-to-texture path on one build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
@@ -379,8 +406,9 @@ int init()
     // extension availability can be probed reliably.
     g_dualFbo.DetectFormat(WasmWebGLGetContext(), js_dual_fbo_prefer_high_precision() != 0);
 
-    // Must happen before the first preset renders, since the blur path is decided once.
+    // Must happen before the first preset renders, since both paths are decided once.
     ApplyBlurPathOverride();
+    ApplyCopyPathOverride();
 
     pm = projectm_create();
     if (!pm)

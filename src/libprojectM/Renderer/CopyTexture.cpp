@@ -1,9 +1,30 @@
 #include "Renderer/CopyTexture.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace libprojectM {
 namespace Renderer {
+
+namespace {
+
+/**
+ * Ablation switch for benchmarking: setting PROJECTM_COPY_SHADER_PATH=1 restores the
+ * pre-#179 behaviour where every texture copy is a fullscreen textured quad, so the
+ * glBlitFramebuffer path can be A/B'd against it on a single build.
+ * See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+ */
+auto BlitPathEnabled() -> bool
+{
+    static const bool enabled = []() {
+        const char* const value = std::getenv("PROJECTM_COPY_SHADER_PATH");
+        return !(value != nullptr && value[0] == '1');
+    }();
+
+    return enabled;
+}
+
+} // anonymous namespace
 
 #ifdef USE_GLES
 static constexpr char ShaderVersion[] = "#version 300 es\n\nprecision highp float;\nprecision highp int;\n";
@@ -70,6 +91,15 @@ CopyTexture::CopyTexture()
     m_mesh.Update();
 }
 
+CopyTexture::~CopyTexture()
+{
+    if (m_blitReadFramebuffer != 0)
+    {
+        glDeleteFramebuffers(1, &m_blitReadFramebuffer);
+        m_blitReadFramebuffer = 0;
+    }
+}
+
 void CopyTexture::SetTransparencyMode(bool enabled)
 {
     m_transparencyMode = enabled;
@@ -122,9 +152,17 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
         return;
     }
 
-    std::shared_ptr<class Texture> internalTexture;
-
     m_framebuffer.Bind(0);
+
+    // Plain copy into our own attachment: a hardware blit does the same work (including the
+    // flip) without a shader quad. Only valid while the internal texture is the bound target.
+    if (targetTexture == nullptr && TryBlit(originalTexture, flipVertical, flipHorizontal))
+    {
+        Framebuffer::Unbind();
+        return;
+    }
+
+    std::shared_ptr<class Texture> internalTexture;
 
     // Draw from unflipped texture
     originalTexture->Bind(0);
@@ -168,10 +206,13 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
 
     m_framebuffer.Bind(0);
 
-    // Draw from unflipped texture
-    originalTexture->Bind(0);
+    if (!TryBlit(originalTexture, flipVertical, flipHorizontal))
+    {
+        // Draw from unflipped texture
+        originalTexture->Bind(0);
 
-    Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
+        Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
+    }
 
     // Swap texture attachments
     auto tempAttachment = framebuffer.GetAttachment(framebufferIndex, TextureAttachment::AttachmentType::Color, 0);
@@ -268,6 +309,78 @@ void CopyTexture::UpdateTextureSize(int width, int height)
     m_height = height;
 
     m_framebuffer.SetSize(m_width, m_height);
+}
+
+auto CopyTexture::TryBlit(const std::shared_ptr<class Texture>& originalTexture,
+                          bool flipVertical, bool flipHorizontal) -> bool
+{
+    if (!BlitPathEnabled() || originalTexture == nullptr || originalTexture->Empty())
+    {
+        return false;
+    }
+
+    // glBlitFramebuffer ignores blending (and the fragment shader entirely), so it is only
+    // equivalent to the quad draw while blending is off.
+    if (glIsEnabled(GL_BLEND) == GL_TRUE)
+    {
+        return false;
+    }
+
+    // The quad path is clipped by the viewport, the blit path is not. Only take the blit when
+    // the viewport covers the whole destination, so both produce the same pixels.
+    GLint viewport[4]{};
+    glGetIntegerv(GL_VIEWPORT, viewport);
+
+    if (viewport[0] > 0 || viewport[1] > 0 || viewport[2] < m_width || viewport[3] < m_height)
+    {
+        return false;
+    }
+
+    if (m_blitReadFramebuffer == 0)
+    {
+        glGenFramebuffers(1, &m_blitReadFramebuffer);
+
+        if (m_blitReadFramebuffer == 0)
+        {
+            return false;
+        }
+    }
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_blitReadFramebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           originalTexture->TextureID(), 0);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+    // Not every color format a preset texture can carry is color-renderable, and only
+    // color-renderable formats can be blitted from. Fall back if the driver disagrees.
+    if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    {
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        // Restore the read binding the caller had (Bind() sets read and draw to the same FBO).
+        m_framebuffer.Bind(0);
+        return false;
+    }
+
+    const auto sourceWidth = static_cast<GLint>(originalTexture->Width());
+    const auto sourceHeight = static_cast<GLint>(originalTexture->Height());
+
+    // A flip is expressed by inverting the destination rectangle, which glBlitFramebuffer
+    // supports natively — no extra pass and no shader involved.
+    const GLint destinationLeft = flipHorizontal ? m_width : 0;
+    const GLint destinationRight = flipHorizontal ? 0 : m_width;
+    const GLint destinationBottom = flipVertical ? m_height : 0;
+    const GLint destinationTop = flipVertical ? 0 : m_height;
+
+    glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
+                      destinationLeft, destinationBottom, destinationRight, destinationTop,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    // Don't keep the source texture attached; it is owned by another framebuffer and may be
+    // resized or deleted while this instance is idle.
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    m_framebuffer.Bind(0);
+
+    return true;
 }
 
 void CopyTexture::Copy(ShaderCache& shaderCache,

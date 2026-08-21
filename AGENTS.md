@@ -3,7 +3,7 @@
 This document provides essential context for AI coding agents working on the projectM codebase. projectM is an open-source C++20 library that reimplements the Winamp Milkdrop music visualizer as a modern, cross-platform, reusable library.
 
 **License:** GNU Lesser General Public License 2.1 (LGPL-2.1-only)
-**Version:** 4.1.0 (as of `CMakeLists.txt`)
+**Version:** 4.2.0 (as of `CMakeLists.txt`)
 **Repository:** https://github.com/projectM-visualizer/projectm
 
 ---

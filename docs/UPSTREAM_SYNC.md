@@ -120,23 +120,26 @@ fork-specific surrounding code.
 | 2026-07-18 | `149bfc439` CI actions v4→v7 | **Deferred** | Low library impact; cherry-pick when touching workflows |
 | 2026-07-18 | GLAD + `projectm_create_with_opengl_load_proc` | **Rejected** | Desktop-only; fork already ships GLAD + resolver; no WASM value |
 | 2026-07-18 | `2f2441413` libprojectM 4.2.0 version bump | **Deferred** | Metadata-only upstream commit; no functional delta since merge-base |
+| 2026-08-01 | `2f2441413` libprojectM 4.2.0 version bump | **Already present** | `CMakeLists.txt` is `VERSION 4.2.0`; no functional library delta |
+| 2026-08-01 | `149bfc439` CI actions v4→v7 | **Deferred** | Native/upstream-shaped jobs already `@v7`; fork-only workflows still mixed v4/v7; no library impact |
+| 2026-08-01 | `76c8ff7e8` / `83292ed44` / `98101f56f` / `7778852ff` | **Backported** | Unchanged since [#142](https://github.com/ford442/Project-M/pull/142) (HLSLParser stack, sampler-in-comments, FBO detach, projectm-eval 1.0.6) |
+| 2026-08-01 | GLAD + `projectm_create_with_opengl_load_proc` | **Rejected** | Unchanged: desktop-only; fork already ships GLAD + resolver |
 
 *Update this table after each sync review.*
 
-### Latest sync snapshot (2026-07-18)
+### Latest sync snapshot (2026-08-01)
 
 ```
 Merge-base: 4d2849333 (2026-05-08)
 Upstream since merge-base: 2 commits (4.2.0 version bump, CI actions v4→v7)
-Fork-only since merge-base: 3727 commits
-Upstream release: v4.1.7 (2026-07-14)
+Fork-only since merge-base: 3823 commits
+Upstream release: unknown (gh release/issue/PR queries failed in the monthly report; do not assume a v4.2.0 tag)
 ```
 
-Verification on this review (Debug build, GCC 13):
+Verification on this review (docs only; no `src/libprojectM/` delta):
 
-- `ctest -R PresetCompat` — pass (`presets/tests/`)
-- `projectM-unittest` — pass (incl. `HLSLParser` + `SamplerParsing` suites, 30 tests)
-- No Renderer/Emscripten code changes required; WASM smoke not re-run (no delta)
+- No cherry-picks. `ctest -R PresetCompat` and WASM smoke were not re-run.
+- Version string in `CMakeLists.txt` already matches upstream `4.2.0`.
 
 ## GitHub Action
 

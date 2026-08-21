@@ -21,6 +21,12 @@ Core behavior belongs in shared modules:
 - `projectm-element.js`: **`<project-m-visualizer>`** custom element + lifecycle events (`pm-ready`, `pm-preset-changed`, `pm-error`, `pm-fps`).
 - `projectm-wasm-version.js`: canonical WASM bundle version + CDN URL helpers (keep in sync with deploy scripts).
 - `projectm-transitions.js`: readiness polling before starting dual-FBO transitions.
+- `projectm-song-loader.js`: host-side Start/Change Song routing — merges the
+  `songs/`, `mp3_songs/`, and `mod_songs/` listings into one catalog and plays
+  FLAC/MP3/WAV/OGG in-page through the shared worklet. Patches
+  `BroadcastChannel` so the WASM glue's `'sng'` posts are intercepted before
+  the legacy `./flac/` popup sees them, falling back to that popup only when
+  in-page routing fails. MOD files stay on the Audio Player button.
 - `projectm-weeks-on-fire.js`: **Weeks on Fire** demo mode (`?mode=weeks_on_fire`) — points texture/song/preset scanners at `./weeks_textures/`, `./weeks_songs/`, and `./weeks_presets/` on the host (e.g. `projectm.1ink.us`). WASM bootstrap seeds a random playlist and auto-starts the FLAC decoder.
 
 ### Panel Chrome
@@ -136,12 +142,16 @@ back into the dual-source problem this migration started from:
 
 ### Coverage
 
-**All 32 `html/projectm-*.js` modules are checkJs-clean and in the `include` of
+**All 33 `html/projectm-*.js` modules are checkJs-clean and in the `include` of
 one of the two tsconfigs** — there is no unconverted backlog. Add new modules to
 `tsconfig.json` in the same commit that creates them; a module left out is not
-checked, and (as `projectm-worklet-playback.js` showed) being *reachable* from a
-checked module is not the same as being listed, since it stops being checked the
-moment that import goes away.
+checked, and (as `projectm-worklet-playback.js` and then
+`projectm-song-loader.js` both showed) being *reachable* from a checked module
+is not the same as being listed: `projectm-song-loader.js` shipped fully
+JSDoc-annotated but unlisted, and picked up eleven errors the moment it was
+added. Verify with `ls html/projectm-*.js | wc -l` against the two `include`
+lists rather than trusting a green `npm run typecheck`, which only proves the
+listed set is clean.
 
 Two programs, because the libs are mutually exclusive:
 

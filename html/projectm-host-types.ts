@@ -175,6 +175,18 @@ declare global {
         | ((options?: { preferIframe?: boolean }) => unknown)
         | undefined;
 
+    /**
+     * Host-side song routing globals (projectm-song-loader.js). The module
+     * reaches these through `globalThis`, so the `Window` members above are
+     * not enough on their own.
+     */
+    // eslint-disable-next-line no-var
+    var __projectMSongCatalog: string[] | undefined;
+    // eslint-disable-next-line no-var
+    var __projectMSongLoaderInstalled: boolean | undefined;
+    // eslint-disable-next-line no-var
+    var openModPlayer: ((trackUrl?: string) => void) | undefined;
+
     /** Emscripten runtime globals exported onto the global scope by the glue. */
     // eslint-disable-next-line no-var
     var wasmMemory: WebAssembly.Memory | undefined;

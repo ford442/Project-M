@@ -48,6 +48,7 @@
     "projectm-experimental-bridge.js",
     "projectm-wasm-default-redirect.js",
     "projectm-weeks-on-fire.js",
-    "projectm-worklet-playback.js"
+    "projectm-worklet-playback.js",
+    "projectm-song-loader.js"
   ]
 }

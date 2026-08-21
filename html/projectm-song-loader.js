@@ -24,7 +24,7 @@ let catalogScanPromise = null;
 /**
  * @param {string} elementId
  * @param {string} fallback
- * @param {Document} [documentRef]
+ * @param {Document | null} [documentRef]
  */
 export function resolveSongDirectory(elementId, fallback, documentRef) {
     const doc = documentRef ?? (typeof document !== 'undefined' ? document : null);
@@ -63,7 +63,7 @@ export function parseSongDirectoryListing(html, baseUrl) {
 
 /**
  * Scan songs/, mp3_songs/, and mod_songs/ into a merged host-side catalog.
- * @param {Document} [documentRef]
+ * @param {Document | null} [documentRef]
  * @param {typeof fetch} [fetchImpl]
  */
 export async function scanSongCatalog(documentRef, fetchImpl = fetch) {
@@ -95,7 +95,10 @@ export async function scanSongCatalog(documentRef, fetchImpl = fetch) {
     return merged;
 }
 
-/** @returns {Promise<string[]>} */
+/**
+ * @param {Document | null} [documentRef]
+ * @returns {Promise<string[]>}
+ */
 export function ensureSongCatalog(documentRef) {
     const doc = documentRef ?? (typeof document !== 'undefined' ? document : null);
     if (!catalogScanPromise) {
@@ -295,13 +298,14 @@ export async function openLegacyFlacDecoder(url) {
     if (typeof globalThis.openWeeksFlacDecoder === 'function') {
         globalThis.openWeeksFlacDecoder();
     }
-    if (!nativeBroadcastChannel) {
+    const BroadcastChannelCtor = nativeBroadcastChannel;
+    if (!BroadcastChannelCtor) {
         return;
     }
     const postUrl = () => {
         bypassSngIntercept = true;
         try {
-            const sng = new nativeBroadcastChannel('sng');
+            const sng = new BroadcastChannelCtor('sng');
             sng.postMessage({ data: url });
         } finally {
             bypassSngIntercept = false;
@@ -367,6 +371,10 @@ export function installSongLoaderInterceptor() {
     }
 
     nativeBroadcastChannel = OriginalBroadcastChannel;
+    /**
+     * @param {string} name
+     * @returns {BroadcastChannel}
+     */
     function PatchedBroadcastChannel(name) {
         const channel = new OriginalBroadcastChannel(name);
         if (name !== 'sng') {
@@ -397,7 +405,11 @@ export function installSongLoaderInterceptor() {
     }
 
     PatchedBroadcastChannel.prototype = OriginalBroadcastChannel.prototype;
-    globalThis.BroadcastChannel = PatchedBroadcastChannel;
+    // Callable-as-constructor shim: the function returns the wrapped channel, so
+    // `new PatchedBroadcastChannel(...)` yields it in place of the implicit this.
+    globalThis.BroadcastChannel = /** @type {typeof BroadcastChannel} */ (
+        /** @type {unknown} */ (PatchedBroadcastChannel)
+    );
 
     installMusicButtonHandler();
 }

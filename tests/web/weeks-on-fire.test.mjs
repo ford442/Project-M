@@ -95,6 +95,7 @@ test('applyWeeksOnFireDomConfig sets flacDecoderUrl on same origin', () => {
 
 test('wireFlacDecoderBridge exposes openWeeksFlacDecoder without weeks mode', () => {
     const frames = [];
+    const opened = [];
     const doc = {
         getElementById(id) {
             if (id === 'flacDecoderUrl') {
@@ -121,17 +122,35 @@ test('wireFlacDecoderBridge exposes openWeeksFlacDecoder without weeks mode', ()
         },
     };
     const previousLocation = globalThis.location;
+    const previousOpen = globalThis.open;
     Object.defineProperty(globalThis, 'location', {
         configurable: true,
         value: { origin: 'https://projectm.1ink.us', href: 'https://projectm.1ink.us/1ink.1ink' },
     });
+    globalThis.open = (url, name) => {
+        opened.push({ url, name });
+        return { name };
+    };
     try {
         wireFlacDecoderBridge(doc);
         assert.equal(typeof globalThis.openWeeksFlacDecoder, 'function');
-        assert.equal(frames.length, 1);
-        assert.match(frames[0].src, /\/flac\/$/);
+        assert.equal(frames.length, 0, 'must not auto-embed until openWeeksFlacDecoder()');
+        // Default is a same-origin hidden iframe so COOP agent-cluster BroadcastChannel works.
+        const result = globalThis.openWeeksFlacDecoder();
+        assert.equal(result, null, 'iframe path returns null');
+        assert.equal(opened.length, 0, 'must not window.open by default');
+        assert.equal(frames.length, 1, 'embeds weeksFlacDecoderFrame');
+        assert.equal(frames[0].id, 'weeksFlacDecoderFrame');
+
+        // Opt-out still opens a tab (no window features).
+        const tab = globalThis.openWeeksFlacDecoder({ preferIframe: false });
+        assert.equal(opened.length, 1);
+        assert.match(opened[0].url, /\/flac\/$/);
+        assert.equal(opened[0].name, 'flac-decoder');
+        assert.ok(tab);
     } finally {
         delete globalThis.openWeeksFlacDecoder;
+        globalThis.open = previousOpen;
         Object.defineProperty(globalThis, 'location', {
             configurable: true,
             value: previousLocation,

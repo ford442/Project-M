@@ -18,6 +18,8 @@ class CopyTexture
 public:
     CopyTexture();
 
+    ~CopyTexture();
+
     /**
      * @brief Configures near-black transparency for subsequent Draw() calls.
      */
@@ -121,11 +123,31 @@ private:
     void Copy(ShaderCache& shaderCache,
               int left, int top, int width, int height);
 
+    /**
+     * @brief Attempts to resolve the copy with glBlitFramebuffer instead of a fullscreen quad.
+     *
+     * Only used for plain (optionally flipped) copies into the internal framebuffer, where the
+     * blit is equivalent to the shader draw: the sampler is GL_NEAREST, no transparency keying is
+     * applied and blending is off. Falls back to the shader path whenever any of that does not
+     * hold, or when the temporary read framebuffer is incomplete for the source texture.
+     *
+     * Requires GL ES 3.0 / OpenGL 3.0 (WebGL2), which is already the minimum for this renderer.
+     *
+     * @param originalTexture The source texture. Must not be the internal target texture.
+     * @param flipVertical Flip the image on the y-axis while blitting.
+     * @param flipHorizontal Flip the image on the x-axis while blitting.
+     * @return true if the copy was performed via glBlitFramebuffer, false if the caller must
+     *         fall back to the shader path. On false, no GL state has been changed.
+     */
+    auto TryBlit(const std::shared_ptr<class Texture>& originalTexture,
+                 bool flipVertical, bool flipHorizontal) -> bool;
+
     Mesh m_mesh;
     std::weak_ptr<Shader> m_shader;                  //!< Simple textured shader
     Framebuffer m_framebuffer{1};                    //!< Framebuffer for drawing the flipped texture
     Sampler m_sampler{GL_CLAMP_TO_EDGE, GL_NEAREST}; //!< Texture sampler settings
 
+    GLuint m_blitReadFramebuffer{0};      //!< Lazily created read FBO used by TryBlit().
     int m_width{};                        //!< Last known framebuffer/texture width
     int m_height{};                       //!< Last known framebuffer/texture height
     bool m_transparencyMode{false};       //!< Near-black transparency for final blit.

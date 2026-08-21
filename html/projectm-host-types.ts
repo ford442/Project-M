@@ -19,7 +19,11 @@ import type { ProjectMModule } from './generated/projectm-wasm-api.ts';
  * (explicit, readiness-checked) cast back to `ProjectMModule` stays a valid
  * narrowing instead of an unrelated-type error.
  */
-export type ProjectMModuleLike = Partial<ProjectMModule>;
+export type ProjectMModuleLike = Partial<ProjectMModule> & {
+    /** Present on the glue instance for modularized builds. */
+    wasmMemory?: WebAssembly.Memory;
+    HEAPF32?: Float32Array;
+};
 
 /** Custom feed hook signature for {@link setupExternalAudioReceiver}. */
 export type ExternalPcmFeedFn = (
@@ -70,8 +74,8 @@ declare global {
         closeAudioPlayer?: () => void;
         flacPlayer?: () => void;
         modPlayer?: () => void;
-        openFlacPlayer?: () => void;
-        openModPlayer?: () => void;
+        openFlacPlayer?: (trackUrl?: string) => void;
+        openModPlayer?: (trackUrl?: string) => void;
         /**
          * Experimental depth/glTF bridge (`?experimental=1`,
          * projectm-experimental-bridge.js) and the legacy depth-module loader

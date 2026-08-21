@@ -28,5 +28,6 @@ window.opener.postMessage({ type: 'pcm', buffer: Float32Array, channels: 1|2, sa
 ```
 
 Use `window.parent.postMessage(...)` instead when the player is embedded as an iframe. The host accepts messages from
-`https://mod.1ink.us`, `https://flac.1ink.us`, and `https://test.1ink.us` by default. Override the allowlist with a
+`https://go.1ink.us`, `https://test.1ink.us`, `https://projectm.1ink.us`, `https://flac.1ink.us`, and
+`https://mod.1ink.us` by default (plus the visualizer page's own origin). Override the allowlist with a
 comma-separated `localStorage.externalPcmOrigins` value on the host page when testing other origins.

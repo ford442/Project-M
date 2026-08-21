@@ -6,7 +6,15 @@
  * - scripts/verify_deploy_urls.sh (default bundle name)
  * - scripts/verify_wasm_version_sync.sh (CI check)
  */
-export const PROJECTM_WASM_VERSION = '035';
+export const PROJECTM_WASM_VERSION = '036';
+
+/**
+ * First-party host default for `?wasm=` (redirect + picker fallback).
+ * May temporarily lag `PROJECTM_WASM_VERSION` when the latest bundle has
+ * known regressions. 032 is the current default while 036 audio/framerate
+ * issues are investigated.
+ */
+export const PROJECTM_WASM_DEFAULT_VERSION = '032';
 
 /** Threaded pthread build suffix used by deploy and hosts. */
 export const PROJECTM_WASM_BUNDLE = `projectm-v.${PROJECTM_WASM_VERSION}-thread`;
@@ -21,7 +29,7 @@ export const PROJECTM_WASM_SMOKE_BUNDLE = 'projectm-v.030-thread';
 /**
  * Historical + current threaded bundles selectable from first-party hosts
  * (`?wasm=033` or the panel picker). Older tags usually only exist as UTF-16
- * `.1ijs` at the site root; `035` prefers UTF-8 `.js` under `pm/`.
+ * `.1ijs` at the site root; current (`036`) prefers UTF-8 `.js` under `pm/`.
  */
 export const PROJECTM_WASM_SELECTABLE_VERSIONS = Object.freeze([
     '030',
@@ -30,6 +38,7 @@ export const PROJECTM_WASM_SELECTABLE_VERSIONS = Object.freeze([
     '033',
     '034',
     '035',
+    '036',
 ]);
 
 /** localStorage key for the last selected WASM version (URL `?wasm=` wins). */

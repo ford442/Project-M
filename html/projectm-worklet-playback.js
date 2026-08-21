@@ -11,6 +11,7 @@
 // WASM rebuild.
 
 import { ensureAudioRunning, getAudioContext } from './projectm-audio-bootstrap.js';
+import { getHostAudioSourceRouter } from './generated/projectm-wasm-api.js';
 
 const PROCESSOR_URL = 'projectm_audio_processor.js';
 const PROCESSOR_NAME = 'projectm-audio-processor';
@@ -27,6 +28,25 @@ function sleep(ms) {
 }
 
 /**
+ * Resolve the WASM PCM feed export (modularized builds only put it on Module).
+ * @returns {{ addPcm: Function, malloc: Function, heap: ArrayBuffer } | null}
+ */
+function resolvePcmFeedRuntime() {
+    const mod = globalThis.Module;
+    const addPcm = globalThis._projectm_pcm_add_float_wrapper
+        || mod?._projectm_pcm_add_float_wrapper;
+    const malloc = globalThis._malloc || mod?._malloc;
+    const heap = globalThis.wasmMemory?.buffer
+        || globalThis.HEAPF32?.buffer
+        || mod?.wasmMemory?.buffer
+        || mod?.HEAPF32?.buffer;
+    if (typeof addPcm !== 'function' || typeof malloc !== 'function' || !heap) {
+        return null;
+    }
+    return { addPcm, malloc, heap };
+}
+
+/**
  * Wire the worklet → projectM PCM path the same way WasmAudioBridge EM_JS does.
  * @param {AudioWorkletNode} workletNode
  * @param {number} [pmHandle]
@@ -36,30 +56,37 @@ function attachPcmHandler(workletNode, pmHandle) {
         if (event.data?.type !== 'pcmData') {
             return;
         }
-        const addPcm = globalThis._projectm_pcm_add_float_wrapper;
-        if (typeof addPcm !== 'function') {
+        const runtime = resolvePcmFeedRuntime();
+        if (!runtime) {
             return;
         }
         if (!globalThis.projectMAudioBufferPtr) {
-            if (typeof globalThis._malloc !== 'function') {
-                return;
-            }
-            globalThis.projectMAudioBufferPtr = globalThis._malloc(2048 * 4);
+            globalThis.projectMAudioBufferPtr = runtime.malloc(2048 * 4);
         }
         const buf = globalThis.projectMAudioBufferPtr;
+        if (buf == null) {
+            return;
+        }
         const audioData = event.data.audioData;
         const projectmBufferSize = 576;
         const src = audioData.length > projectmBufferSize
             ? audioData.subarray(audioData.length - projectmBufferSize)
             : audioData;
-        const heap = globalThis.wasmMemory?.buffer || globalThis.HEAPF32?.buffer;
-        if (!heap) {
-            return;
-        }
-        new Float32Array(heap).set(src, buf >> 2);
+        // SharedArrayBuffer can grow; always re-read the live heap buffer.
+        const liveHeap = resolvePcmFeedRuntime()?.heap || runtime.heap;
+        new Float32Array(liveHeap).set(src, buf >> 2);
         const handle = pmHandle || 0;
-        addPcm(handle, buf, src.length, event.data.channelsForPM || 1);
+        runtime.addPcm(handle, buf, src.length, event.data.channelsForPM || 1);
     };
+}
+
+/** Notify exclusive AudioSourceRouter that the worklet path is feeding. */
+function notifyWorkletSourceActive() {
+    try {
+        getHostAudioSourceRouter()?.notifyWorkletFeed?.();
+    } catch {
+        // Router is optional; worklet PCM still feeds without it.
+    }
 }
 
 /**
@@ -176,6 +203,7 @@ export async function loadSongIntoWorklet(filePath, loop = true, startPlaying = 
         return false;
     }
     globalThis.projectMSongLoadState = 'loading';
+    notifyWorkletSourceActive();
 
     try {
         const FS = globalThis.FS;
@@ -245,6 +273,7 @@ export async function loadWavBytesIntoWorklet(wavBytes, loop = true, startPlayin
         return false;
     }
     globalThis.projectMSongLoadState = 'loading';
+    notifyWorkletSourceActive();
 
     try {
         const view = ArrayBuffer.isView(wavBytes)

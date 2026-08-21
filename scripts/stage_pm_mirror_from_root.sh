@@ -6,20 +6,21 @@
 # keeps a local pm/ tree for inspection or manual SFTP uploads.
 #
 # Usage:
-#   PROJECTM_WASM_VERSION=035 scripts/stage_pm_mirror_from_root.sh
+#   PROJECTM_WASM_VERSION=036 scripts/stage_pm_mirror_from_root.sh
 #   python deploy.py
 
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-035}"
+PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-036}"
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
 dest_pm="$PROJECT_ROOT/pm"
 
 mkdir -p "$dest_pm"
 
 copied=0
-for ext in wasm 1ijs 3ijs worker.js; do
+# UTF-8 .js is the preferred glue for current deploy tags; .1ijs remains for older hosts.
+for ext in js wasm 1ijs 3ijs worker.js ww.js; do
     src="$PROJECT_ROOT/${bundle}.${ext}"
     if [[ -s "$src" ]]; then
         cp -f "$src" "$dest_pm/"

@@ -65,7 +65,10 @@ export type ProjectMModule = EmscriptenModule & {
     _dual_fbo_get_b_write_fbo: () => number;
     _dual_fbo_get_b_read_tex: () => number;
     _dual_fbo_get_b_write_tex: () => number;
+    _dual_fbo_is_preset_a_allocated: () => boolean;
     _dual_fbo_is_preset_b_allocated: () => boolean;
+    _dual_fbo_set_idle_release_seconds: (seconds: number) => void;
+    _dual_fbo_get_idle_release_seconds: () => number;
     _dual_fbo_is_preset_b_ready: () => boolean;
     _dual_fbo_get_format: () => number;
     _dual_fbo_render_preset_a: () => void;
@@ -138,7 +141,10 @@ export const WASM_API_SYMBOLS = {
     dualFboGetBWriteFbo: 'dual_fbo_get_b_write_fbo',
     dualFboGetBReadTex: 'dual_fbo_get_b_read_tex',
     dualFboGetBWriteTex: 'dual_fbo_get_b_write_tex',
+    dualFboIsPresetAAllocated: 'dual_fbo_is_preset_a_allocated',
     dualFboIsPresetBAllocated: 'dual_fbo_is_preset_b_allocated',
+    dualFboSetIdleReleaseSeconds: 'dual_fbo_set_idle_release_seconds',
+    dualFboGetIdleReleaseSeconds: 'dual_fbo_get_idle_release_seconds',
     dualFboIsPresetBReady: 'dual_fbo_is_preset_b_ready',
     dualFboGetFormat: 'dual_fbo_get_format',
     dualFboRenderPresetA: 'dual_fbo_render_preset_a',
@@ -170,6 +176,31 @@ export function feedPcmFloat(
     }
 }
 
+/**
+ * Host-layer audio source router surface consulted by this module.
+ * Implemented by AudioSourceRouter in html/projectm-audio-source-router.js.
+ */
+export interface HostAudioSourceRouter {
+    notifyWorkletFeed(): void;
+}
+
+let hostAudioSourceRouter: HostAudioSourceRouter | null = null;
+
+/**
+ * Registers (or clears, with null) the host audio-source router that wrapper
+ * functions notify before handing a source to libprojectM. Kept here rather
+ * than in the router module so both directions of the dependency stay
+ * one-way: the router imports the API, the API only holds a registration.
+ */
+export function setHostAudioSourceRouter(router: HostAudioSourceRouter | null): void {
+    hostAudioSourceRouter = router;
+}
+
+/** The currently registered host audio-source router, if any. */
+export function getHostAudioSourceRouter(): HostAudioSourceRouter | null {
+    return hostAudioSourceRouter;
+}
+
 /** Legacy uint8 PCM feed */
 export function addAudioData(module: ProjectMModule, data: number, len: number): void {
     module._add_audio_data(data, len);
@@ -177,6 +208,7 @@ export function addAudioData(module: ProjectMModule, data: number, len: number):
 
 /** Play audio file from VFS path */
 export function pl(module: ProjectMModule, songPath: string): void {
+    hostAudioSourceRouter?.notifyWorkletFeed();
     module.ccall('pl', null, ['string'], [songPath]);
 }
 
@@ -460,9 +492,24 @@ export function dualFboGetBWriteTex(module: ProjectMModule): number {
     return module._dual_fbo_get_b_write_tex();
 }
 
+/** Whether preset-A FBO is allocated (lazily allocated per transition) */
+export function dualFboIsPresetAAllocated(module: ProjectMModule): boolean {
+    return !!module._dual_fbo_is_preset_a_allocated();
+}
+
 /** Whether preset-B FBO is allocated */
 export function dualFboIsPresetBAllocated(module: ProjectMModule): boolean {
     return !!module._dual_fbo_is_preset_b_allocated();
+}
+
+/** Idle seconds before the preset-A FBO pair is reclaimed (0=immediate, <0=never) */
+export function dualFboSetIdleReleaseSeconds(module: ProjectMModule, seconds: number): void {
+    module._dual_fbo_set_idle_release_seconds(seconds);
+}
+
+/** Configured preset-A idle release threshold in seconds */
+export function dualFboGetIdleReleaseSeconds(module: ProjectMModule): number {
+    return module._dual_fbo_get_idle_release_seconds();
 }
 
 /** Whether preset-B shaders are ready */
@@ -543,7 +590,10 @@ export const PUBLIC_WASM_API = [
     getGlslGeneratorVersion,
     pmHandleContextLoss,
     dualFboBeginTransition,
+    dualFboIsPresetAAllocated,
     dualFboIsPresetBAllocated,
+    dualFboSetIdleReleaseSeconds,
+    dualFboGetIdleReleaseSeconds,
     dualFboIsPresetBReady,
     dualFboGetFormat,
     transitionStart,

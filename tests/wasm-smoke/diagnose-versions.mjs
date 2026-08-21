@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 
-const versions = ['030', '030b', '033', '034', '035'];
+const versions = ['030', '030b', '033', '034', '035', '036'];
 const base = 'https://projectm.1ink.us/1ink.1ink';
 
 const browser = await chromium.launch({
@@ -14,7 +14,7 @@ for (const wasm of versions) {
     page.on('pageerror', (e) => events.push(`[pageerror] ${e.message}`));
     page.on('requestfailed', (r) => events.push(`[reqfail] ${r.url()} ${r.failure()?.errorText}`));
 
-    const url = wasm === '035' ? base : `${base}?wasm=${wasm}`;
+    const url = wasm === '036' ? base : `${base}?wasm=${wasm}`;
     try {
         await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
         await page.waitForTimeout(12000);

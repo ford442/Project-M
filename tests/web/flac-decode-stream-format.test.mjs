@@ -57,3 +57,13 @@ test('decode-func captures streamInfo from write callback', () => {
     assert.ok(decodeFunc.includes('streamInfo='), 'write callback should record streamInfo');
     assert.ok(decodeFunc.includes('streamInfo:streamInfo'), 'decode result should expose streamInfo');
 });
+
+test('app-decode posts WAV without referencing an undefined blob', () => {
+    const appDecode = readFileSync(join(root, 'html/flac-decode/example/app-decode.js'), 'utf8');
+    assert.ok(appDecode.includes('exportWavFile('));
+    assert.equal(
+        /forceDownload\(\s*blob\s*,/.test(appDecode),
+        false,
+        'checked #check_download must not throw ReferenceError: blob is not defined'
+    );
+});

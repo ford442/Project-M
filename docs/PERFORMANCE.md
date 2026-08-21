@@ -105,6 +105,22 @@ To A/B the dual-FBO color format on the same build (RGBA16F default vs. `?fboPre
 The result JSON records `fboFormat` (`"RGBA16F"` / `"RGBA32F"` / `"RGBA8"`) and a `crossfade`
 object, so the two captures are self-identifying. Compare `gpuMs` and `compositeMs`.
 
+To run both captures unattended against a local build, use the Playwright wrapper — it serves the
+repo, points `projectm-core.html` at the bundle you pass it, runs both variants, and writes
+`benchmark-results/fbo-precision-{rgba16f-default,rgba32f-high}.json` plus a median-delta
+`fbo-precision-comparison.json`:
+
+```sh
+npm install --no-save playwright   # once
+npx playwright install chromium    # once
+node scripts/capture_fbo_precision_benchmark.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js
+```
+
+The script fails the run if a capture comes back without the `crossfade` marker, and warns when a
+variant did not get the format it asked for (an `RGBA8` result means the GPU/browser reports no
+float color-buffer support at all, which makes the A/B meaningless). Run it on real GPU hardware:
+under SwiftShader the frame is CPU-bound and the bandwidth difference will not appear in `gpuMs`.
+
 ### Sample output
 
 ```json
@@ -139,12 +155,19 @@ diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
 | Switch | WASM | Native | Effect |
 |--------|------|--------|--------|
 | Blur path | `?blurPath=copy` | `PROJECTM_BLUR_COPY_PATH=1` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
+| Texture copy path | `?copyPath=shader` | `PROJECTM_COPY_SHADER_PATH=1` | Restores the pre-#179 copy path: every `CopyTexture` resolve is a fullscreen textured quad. Default (unset) resolves the plain and Y-flipped copies with `glBlitFramebuffer` where the blit is equivalent (no blending, viewport covers the target, source format is color-renderable) and falls back to the quad otherwise. |
 | Dual-FBO precision | `?fboPrecision=high` | — | Probes RGBA32F first for the WASM compositor instead of the RGBA16F default. |
 | Mesh size | `?meshQuality=low` | — | 64×48 instead of the 80×60 default (a 1.56× vertex-count ratio). |
 | Canvas MSAA | `?aa=1` (or `localStorage.canvasAA='1'`) | — | Opts into `antialias:true`; default (unset) is now `false` (governor v2, issue #178). |
 
-The blur switch is read once, at engine init, because the blur render path is decided on the
-first blurred frame and then cached — changing it mid-session has no effect.
+The blur and copy switches are read once, at engine init: the blur render path is decided on
+the first blurred frame and then cached, and the copy path is latched the first time a copy
+runs. Changing either mid-session has no effect.
+
+> The copy switch only moves presets that still pay a fullscreen flip. Presets using the
+> default warp shader already skip the pre-warp copy entirely (#176), and presets **with** a
+> composite shader skip the third flip — so the largest A/B delta is expected on an
+> old-school preset with a custom warp shader and no composite shader, which pays all three.
 
 > When A/B'ing the blur path, expect `blurMs` to move much further than `totalMs` does.
 > `glCopyTexSubImage2D` is one of the few calls in the frame that can force CPU-visible
@@ -564,6 +587,84 @@ verify and land them.
   browser/display). The `?benchmark=1` harness from the "Headless benchmark mode" section above
   should be used to confirm the adopted changes are neutral-to-positive on real frame timing, and
   to evaluate the deferred candidates once a display is available.
+
+## Dual-FBO VRAM residency and lazy preset-A allocation (issue #199)
+
+### What the dual-FBO pairs are for
+
+`ShouldUseDualFboCompositor()` (`projectM_emscripten.cpp`) only returns true while a preset
+crossfade is running. Steady-state playback takes the direct-to-canvas branch of `render_frame()`
+and never binds or samples either ping-pong pair. Both pairs are therefore **crossfade scratch**,
+not steady-state render targets — anything they cost between transitions is pure residency.
+
+### Allocation policy
+
+| Event | Preset A pair | Preset B pair |
+|---|---|---|
+| `start_render()` | not allocated — records viewport size only (`DualPingPongFramebuffer::Resize()`) | not allocated |
+| `dual_fbo_begin_transition()` | allocated on demand (both pairs on a cold start) | allocated on demand |
+| Blend reaches 1.0 | receives B's surfaces via `PromoteBtoA()` | released |
+| `transition_cancel()` / abandoned poll | idle clock starts | released |
+| Idle ≥ `dual_fbo_set_idle_release_seconds()` | released by `ReleaseDualFboIfIdle()` | — |
+
+The idle grace period defaults to **5 s**. It exists so back-to-back preset switches reuse the live
+pair instead of thrashing `glTexImage2D`; a session that settles on one preset drops the pair.
+Hosts can call `dual_fbo_set_idle_release_seconds(0)` to reclaim on the first idle frame, or pass a
+negative value to keep the pair resident once allocated (the pre-#199 behavior).
+
+`ReleaseDualFboIfIdle()` deliberately refuses to fire while the preset B pair is allocated: B live
+without an active blend means a transition is mid-setup, and pulling A out from under it would make
+`transition_start()` bail and degrade the crossfade into a hard cut.
+
+### VRAM delta
+
+Surface cost is `width x height x 4 channels x bytes-per-channel`, two planes per pair. These are
+**analytical** figures computed from the allocation sizes in `DualPingPongFramebuffer::CreateFBO()`,
+not GPU-side measurements — this repo's CI has no GPU, and WebGL exposes no VRAM query, so the
+in-browser number can only be confirmed with a vendor tool (`chrome://gpu`, Xcode GPU report).
+
+| Resolution | Format | Per plane | Preset A pair (2 planes) |
+|---|---|---|---|
+| 1280x720 | RGBA16F (default) | 7.0 MiB | **14.1 MiB** |
+| 1280x720 | RGBA32F (`?fboPrecision=high`) | 14.1 MiB | **28.1 MiB** |
+| 1920x1080 | RGBA16F (default) | 15.8 MiB | **31.6 MiB** |
+| 1920x1080 | RGBA32F (`?fboPrecision=high`) | 31.6 MiB | **63.3 MiB** |
+
+Steady-state residency for the preset A pair goes from that figure to **0 B**, at both cold start
+and between transitions. Peak during a crossfade is unchanged: both pairs are live then either way.
+Combined with the RGBA16F default (#198), a 1080p session drops from 63.3 MiB resident to 0 B.
+
+**This is a VRAM and startup-cost item, not an FPS item.** Nothing per-frame touches these surfaces
+while the compositor gate is false, so no steady-state framerate change is expected. The win is
+mobile headroom and `WebAssembly.instantiate` init failures (error code `3`), pairing with the
+`INITIAL_MEMORY` reduction below.
+
+### Peak-heap delta
+
+These are GPU-side textures, so they do not land in `Module.HEAP8` and `measure-heap.mjs` will not
+show a `postSteadyState` change. What it *can* show is the `postTransition` checkpoint: since
+`measure-heap.mjs` calls `_dual_fbo_begin_transition()` directly, that checkpoint now covers the
+cold-start allocate-both-pairs path rather than allocate-B-only. Re-run it after a deploy:
+
+```sh
+PROJECTM_SMOKE_ROOT=$PWD node tests/wasm-smoke/measure-heap.mjs \
+  cmake-build/wasm-smoke/projectm-v.030-thread.js \
+  presets/tests/000-empty.milk
+```
+
+### Verification performed
+
+- `node --test tests/web/projectm-transitions.test.mjs` — 10 pass, covering the cold-start
+  allocate-both-pairs ordering, re-allocation after an idle release, refusal to arm a blend when
+  allocation fails, and FBO hand-back on a timed-out readiness poll.
+- `scripts/verify_wasm_link_common.sh` — generated API artifacts in sync with the manifest.
+- `scripts/check_html_types.sh` — no new type errors (50 pre-existing errors in
+  `projectm-worklet-playback.js`, unchanged).
+- **Not measured:** in-browser VRAM, the `glTexImage2D` cost of re-allocating the pair at the start
+  of a transition, and any hitch that cost might produce. This environment has no Emscripten
+  toolchain and no GPU. The 5 s grace-period default is a judgement call, not a measured optimum;
+  if a re-allocation hitch shows up at crossfade start on real hardware, raise it or set a negative
+  value to restore always-resident behavior.
 
 ## WASM heap right-sizing and ASYNCIFY strategy (epic #163)
 

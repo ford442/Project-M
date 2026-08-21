@@ -51,11 +51,15 @@ root, because hosts `import './projectm-*.js'`):
   `projectm-core.css`
 
 The active bundle version is defined once in `html/projectm-wasm-version.js`
-(`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.035-thread`).
+(`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.036-thread`).
 Keep it aligned with `scripts/prepare_deploy_bundle.sh` and
 `scripts/verify_deploy_urls.sh` (checked by `scripts/verify_wasm_version_sync.sh`).
 
-First-party hosts also expose a WASM version picker (`?wasm=030|030b|032|033|034|035`).
+First-party hosts also expose a WASM version picker (`?wasm=030|030b|032|033|034|035|036`).
+Each version is a distinct filename (`projectm-v.<ver>-thread.*`), so deploying a new
+tag does not overwrite older CDN artifacts. The host default (`?wasm=` when omitted)
+is `PROJECTM_WASM_DEFAULT_VERSION` in `html/projectm-wasm-version.js` (currently `032`)
+and may temporarily lag the latest bundle when that tag has known regressions.
 
 ## Usage
 
@@ -67,7 +71,7 @@ source /path/to/emsdk/emsdk_env.sh
 INSTALL_DIR=install scripts/build_wasm_install.sh
 
 # 2. Build wrapper + stage artifacts at repo root and pm/
-PROJECTM_WASM_VERSION=035 \
+PROJECTM_WASM_VERSION=036 \
   INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
   scripts/prepare_deploy_bundle.sh
 
@@ -80,8 +84,8 @@ python deploy.py --target prod          # production: projectm.1ink.us/ (needs D
 python deploy.py --target test,go,prod  # all configured targets
 
 # 4. Verify (no HTML 404s under pm/)
-scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ projectm-v.035-thread
-scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.035-thread
+scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ projectm-v.036-thread
+scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.036-thread
 scripts/check_coop_coep.sh https://projectm.1ink.us/
 ```
 
@@ -222,6 +226,7 @@ console on the deployed page: `crossOriginIsolated` should be `true`.
 | Root WASM 200 but `pm/` + `projectm-*.js` 302 | Legacy SFTP uploaded only `.wasm`/`.1ijs` to site root | Run `python deploy.py` (not a legacy direct-SFTP script). It zips root WASM, auto-mirrors under `pm/`, and flattens `html/projectm-*.js` + `projectm_panel2.1ink` to the deploy root. Preview with `python deploy.py --dry-run`. |
 | Duplicate script tags (root + `pm/`) | Custom host loads `./projectm-v.*.1ijs` and `./pm/…` | Load **only** from `./pm/` via `PROJECTM_WASM_SCRIPT` in `projectm-init.js` |
 | `verify_deploy_urls.sh` green but browser still fails | Old verifier only checked HTTP 200 | Current script rejects `text/html` soft-404s, checks WASM magic `00 61 73 6d`, and ensures the glue references `${BUNDLE}.wasm` rather than a stale `projectm-v.030-thread.wasm` |
+| `init()` throws `TypeError: ASM_CONSTS[code] is not a function` | A stale `.wasm` (or `.js`) sibling was left on the server from a previous deploy of the same version tag, so the `.wasm`'s compiled-in `ASM_CONSTS` call-site indices no longer match the `ASM_CONSTS` array baked into the currently-served `.js` glue — Emscripten does not guarantee stable `ASM_CONSTS` ordering across builds, even for small unrelated code changes | Redeploy: re-run `prepare_deploy_bundle.sh` (same or bumped version) then `python deploy.py`. `deploy.py`'s bandwidth-saving skip-by-size optimization (see `fetch_remote_sizes`) never applies to `projectm-v.*-thread.{wasm,js,1ijs,3ijs,worker.js}` — a same-size-but-different-content rebuild would otherwise silently leave one half of the pair stale. If you still see this after redeploying, hard-refresh (bypass any CDN/browser cache) so the browser doesn't mix a cached `.js` with a freshly fetched `.wasm` or vice versa. |
 
 Custom hosts on other domains must mirror the full `pm/` directory locally (or
 symlink to `https://projectm.1ink.us/pm/…` with CORP headers). Loading from

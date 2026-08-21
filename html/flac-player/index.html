@@ -13,20 +13,20 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+#pm-flac-boot-error {
+  display: none;
+  margin: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #450a0a;
+  color: #fecaca;
+  font-size: 14px;
+}
 </style>
 <script>
-// Node-style globals expected by the webpack bundle (music-metadata / ID3 parsing).
 window.global = window;
 window.process = window.process || { env: {}, browser: true };
 
-// projectM audio-only / embed mode. When this page is opened by the projectM host
-// purely as an external decoder (popup target `flac-player`, or iframe with
-// `?projectm=1`), projectM renders the visuals — so the standalone WebGPU
-// spectrum/pattern view is redundant and just wastes GPU budget. We surface the
-// flag as globals *before* the bundle loads so the bundle can skip WebGPU init
-// and render its compact audio-only transport UI. When the flag is absent the
-// bundle keeps its full standalone UI (no regression). The bundle is external,
-// so it must read these globals (or re-parse `?projectm=1`) to act on them.
 (function () {
   var params = new URLSearchParams(window.location.search);
   var audioOnly = params.get('projectm') === '1' || window.name === 'flac-player';
@@ -36,29 +36,71 @@ window.process = window.process || { env: {}, browser: true };
 })();
 </script>
 <script type="module">
-import { Buffer } from './vendor/buffer.bundle.mjs';
-import { installProjectMPcmBridge } from './projectm-pcm-bridge.js';
-
-globalThis.Buffer = Buffer;
-window.Buffer = Buffer;
-
-// Stream decoded audio to the projectM host via postMessage (cross-origin safe).
-// Must run BEFORE the player bundle builds its Web Audio graph so the bridge can
-// tap nodes as they connect to the destination. See projectm-pcm-bridge.js and
-// DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md. No-ops when opened standalone.
-try {
-  window.__projectMPcmBridge = installProjectMPcmBridge();
-} catch (error) {
-  console.debug('[projectM FLAC bridge] install failed (non-fatal):', error);
+function showBootError(message) {
+  const el = document.getElementById('pm-flac-boot-error');
+  if (el) {
+    el.textContent = message;
+    el.style.display = 'block';
+  }
+  console.error('[projectM FLAC player]', message);
 }
 
-const bundle = document.createElement('script');
-bundle.defer = true;
-bundle.src = 'bundle.1be0dff2a33a879aefd0.js';
-document.head.appendChild(bundle);
+async function loadBufferCtor() {
+  try {
+    const mod = await import('./vendor/buffer.bundle.mjs');
+    return mod.Buffer || mod.default?.Buffer;
+  } catch (localError) {
+    console.warn('[projectM FLAC player] local buffer bundle missing, using CDN fallback:', localError);
+    const mod = await import('https://esm.sh/buffer@6.0.3');
+    return mod.Buffer || mod.default;
+  }
+}
+
+async function loadPcmBridge() {
+  try {
+    return await import('./projectm-pcm-bridge.js');
+  } catch (localError) {
+    console.warn('[projectM FLAC player] local PCM bridge missing:', localError);
+    return null;
+  }
+}
+
+try {
+  const Buffer = await loadBufferCtor();
+  if (!Buffer) {
+    throw new Error('Buffer polyfill failed to load');
+  }
+  globalThis.Buffer = Buffer;
+  window.Buffer = Buffer;
+
+  try {
+    const guardMod = await import('./decode-guard.js');
+    window.__projectMFlacDecodeGuard = guardMod.installFlacPlayerDecodeGuard(window);
+  } catch (guardError) {
+    console.warn('[projectM FLAC player] decode guard unavailable:', guardError);
+  }
+
+  const bridgeMod = await loadPcmBridge();
+  if (bridgeMod?.installProjectMPcmBridge) {
+    window.__projectMPcmBridge = bridgeMod.installProjectMPcmBridge();
+  } else if (window.opener || (window.parent && window.parent !== window)) {
+    console.warn('[projectM FLAC player] PCM bridge unavailable — audio may not reach projectM host');
+  }
+
+  const bundle = document.createElement('script');
+  bundle.defer = true;
+  bundle.src = 'bundle.1be0dff2a33a879aefd0.js';
+  bundle.onerror = () => {
+    showBootError('Failed to load FLAC player bundle (bundle.1be0dff2a33a879aefd0.js).');
+  };
+  document.head.appendChild(bundle);
+} catch (error) {
+  showBootError(`FLAC player failed to start: ${error?.message || error}`);
+}
 </script>
 </head>
 <body>
+<div id="pm-flac-boot-error" role="alert"></div>
 <div id="root"></div>
 </body>
 </html>

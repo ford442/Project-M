@@ -502,8 +502,8 @@ Behavior:
   `NULL`, `init()` takes its full re-initialization path (new EGL/WebGL context, new projectM and
   playlist instances re-scanning `/presets/` in the in-memory filesystem, which still contains
   every preset loaded so far). `Module._start_render()` is then called again to apply the current
-  viewport and restart the loop (FBO format probing happens in `init()`, and dual-FBO textures are
-  allocated lazily on first transition). Finally, the last-displayed preset is reloaded via
+  viewport and restart the loop (FBO format probing happens in `init()`, and both dual-FBO pairs
+  are allocated lazily on the next transition). Finally, the last-displayed preset is reloaded via
   `window.currentPresetPath` (set by `updatePresetDisplay()` in `html/projectm-presets.js` on every
   preset switch).
 - If `init()` fails during recovery (e.g. the browser hasn't actually restored the context yet),
@@ -557,6 +557,28 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
 Either path leaves the finished frame in FBO 0 and increments
 `g_renderedFrameCount` exactly once. Browser presentation is handled by the
 WebGL canvas compositor; wasm does not call `eglSwapBuffers()`.
+
+### Dual-FBO allocation lifetime
+
+Because only the compositor path touches them, **neither ping-pong pair is
+allocated at startup**. `start_render()` records the viewport size via
+`DualPingPongFramebuffer::Resize()` and stops there; `dual_fbo_begin_transition()`
+brings up whichever pairs are missing, which on a cold start is both of them.
+After a crossfade finishes, `PromoteBtoA()` releases Preset B immediately and
+`ReleaseDualFboIfIdle()` reclaims Preset A once it has been idle for
+`dual_fbo_set_idle_release_seconds()` (default 5 s, `< 0` to keep it resident).
+See [PERFORMANCE.md](PERFORMANCE.md#dual-fbo-vram-residency-and-lazy-preset-a-allocation-issue-199)
+for the VRAM figures and the rationale for the grace period.
+
+The consequence for host pages: **check both
+`dual_fbo_is_preset_a_allocated()` and `dual_fbo_is_preset_b_allocated()` before
+calling `transition_start()`.** `transition_start()` refuses to arm the blend
+without both pairs, so a host that skips the check gets a silent hard cut
+instead of a crossfade. `html/projectm-transitions.js` does this in its
+readiness poll; `tests/web/projectm-transitions.test.mjs` covers the ordering.
+A `false` return from `dual_fbo_begin_transition()` means "retry on a later
+frame", not "give up" — and a host that gives up should call
+`dual_fbo_cancel_transition()` so any pairs it allocated are handed back.
 
 `renderLoop()` preserves:
 
@@ -736,6 +758,8 @@ this is not the `RGBA8` degraded path and carries no banding risk on float-capab
 Because the saving is on the transition path only, measure it with the crossfade-gated benchmark
 (`?benchmark=1&crossfade=1`, see [docs/PERFORMANCE.md](PERFORMANCE.md)) — a steady-state
 `?benchmark=1` run never composites the Preset B surfaces and will show no difference.
+`scripts/capture_fbo_precision_benchmark.mjs` drives both variants against one build and writes
+the before/after JSON pair to `benchmark-results/`.
 
 ## Initializing Emscripten's OpenGL Context
 

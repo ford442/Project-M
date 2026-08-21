@@ -13,6 +13,11 @@ set -euo pipefail
 #
 # Optional env:
 #   PROJECT_ROOT, PROJECTM_WASM_VERSION, HOST, USERNAME, PASSWORD, SFTP_PASS, PORT
+#   DEPLOY_TARGET_SITE or --target  (test|go|prod; Colab default is prod)
+#
+# Unlike a bare `python deploy.py` (defaults to test staging), this wrapper
+# defaults to --target prod so Colab matches the old SFTP destination
+# https://projectm.1ink.us/. Pass --target test to stage instead.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -43,16 +48,17 @@ if [ -z "$PROJECTM_WASM_VERSION" ]; then
 fi
 
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
-ARTIFACT_EXTS=(wasm 1ijs 3ijs worker.js)
+# UTF-8 .js is the current glue; keep .1ijs/.3ijs for older bundles.
+ARTIFACT_EXTS=(wasm js 1ijs 3ijs worker.js)
 
 ensure_artifacts() {
     local missing=0
-    for ext in wasm 1ijs 3ijs; do
-        if [ ! -s "$PROJECT_ROOT/${bundle}.${ext}" ]; then
-            missing=1
-            break
-        fi
-    done
+    if [ ! -s "$PROJECT_ROOT/${bundle}.wasm" ]; then
+        missing=1
+    fi
+    if [ ! -s "$PROJECT_ROOT/${bundle}.js" ] && [ ! -s "$PROJECT_ROOT/${bundle}.1ijs" ]; then
+        missing=1
+    fi
 
     if [ "$missing" -eq 1 ]; then
         echo "=== Staging missing deploy artifacts via prepare_deploy_bundle.sh ==="
@@ -61,14 +67,38 @@ ensure_artifacts() {
             bash "$PROJECT_ROOT/scripts/prepare_deploy_bundle.sh"
     fi
 
-    if [ ! -s "$PROJECT_ROOT/${bundle}.wasm" ] || [ ! -s "$PROJECT_ROOT/${bundle}.1ijs" ]; then
-        echo "ERROR: expected ${bundle}.{wasm,1ijs} under $PROJECT_ROOT" >&2
+    if [ ! -s "$PROJECT_ROOT/${bundle}.wasm" ]; then
+        echo "ERROR: expected ${bundle}.wasm under $PROJECT_ROOT" >&2
+        echo "Run scripts/colab_build.sh first." >&2
+        exit 1
+    fi
+    if [ ! -s "$PROJECT_ROOT/${bundle}.js" ] && [ ! -s "$PROJECT_ROOT/${bundle}.1ijs" ]; then
+        echo "ERROR: expected ${bundle}.js or ${bundle}.1ijs under $PROJECT_ROOT" >&2
         echo "Run scripts/colab_build.sh first." >&2
         exit 1
     fi
 
     PROJECTM_WASM_VERSION="$PROJECTM_WASM_VERSION" \
         bash "$PROJECT_ROOT/scripts/stage_pm_mirror_from_root.sh"
+}
+
+has_explicit_target() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --target|--target=*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+deploy_destination_url() {
+    case "${1:-prod}" in
+        test) echo "https://test.1ink.us/projectm.1ink.us/" ;;
+        go) echo "https://go.1ink.us/projectm.1ink.us/" ;;
+        prod) echo "https://projectm.1ink.us/" ;;
+        *) echo "https://projectm.1ink.us/" ;;
+    esac
 }
 
 deploy_via_contabo() {
@@ -78,7 +108,14 @@ deploy_via_contabo() {
         echo "See docs/DEPLOYMENT.md for obtaining a deploy token." >&2
         exit 1
     fi
-    python3 "$PROJECT_ROOT/deploy.py" "$@"
+
+    local extra=()
+    if ! has_explicit_target "$@" && [ -z "${DEPLOY_TARGET_SITE:-}" ]; then
+        extra+=(--target prod)
+        echo "No --target given; Colab default is prod -> $(deploy_destination_url prod)"
+        echo "Pass --target test to stage on $(deploy_destination_url test) instead."
+    fi
+    python3 "$PROJECT_ROOT/deploy.py" "${extra[@]}" "$@"
 }
 
 upload_file_sftp() {
@@ -139,5 +176,6 @@ else
 fi
 
 echo "=== Deploy complete (${bundle}) ==="
-echo "Verify:"
-echo "  scripts/verify_deploy_urls.sh https://projectm.1ink.us/ ${bundle}"
+echo "Verify (use the URL for the target you just uploaded):"
+echo "  scripts/verify_deploy_urls.sh https://projectm.1ink.us/ ${bundle}     # --target prod"
+echo "  scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ ${bundle}  # --target test"

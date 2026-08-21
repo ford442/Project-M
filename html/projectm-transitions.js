@@ -1,5 +1,7 @@
 import {
     dualFboBeginTransition,
+    dualFboCancelTransition,
+    dualFboIsPresetAAllocated,
     dualFboIsPresetBAllocated,
     dualFboIsPresetBReady,
     transitionIsActive,
@@ -69,6 +71,30 @@ function hasTransitionApi(moduleInstance) {
 }
 
 /**
+ * Whether both ping-pong FBO pairs are live, i.e. `transition_start()` will
+ * actually blend rather than bail out into a hard cut.
+ *
+ * Neither pair is resident at startup, and the preset-A pair is reclaimed again
+ * once it has been idle past `dual_fbo_set_idle_release_seconds()`, so a cold
+ * start and a long-idle session both need `dual_fbo_begin_transition()` to bring
+ * A *and* B up before the blend is armed. `_dual_fbo_is_preset_a_allocated` is
+ * absent on bundles built before that export existed; there the B check alone is
+ * the best signal available.
+ *
+ * @param {ProjectMModule} moduleInstance The Emscripten module instance.
+ * @returns {boolean} True when the blend can safely be started.
+ */
+function presetPairsAllocated(moduleInstance) {
+    if (!dualFboIsPresetBAllocated(moduleInstance)) {
+        return false;
+    }
+    if (!moduleInstance._dual_fbo_is_preset_a_allocated) {
+        return true;
+    }
+    return dualFboIsPresetAAllocated(moduleInstance);
+}
+
+/**
  * Polls until Preset B's shaders are ready, then allocates its FBOs and starts
  * the crossfade. Resolves false if the API is unavailable, the poll times out,
  * or a later call superseded this one.
@@ -110,12 +136,16 @@ export function startTransitionWhenReady({
             }
 
             if (dualFboIsPresetBReady(module)) {
-                let allocated = dualFboIsPresetBAllocated(module);
+                // Allocate on demand whenever either pair is missing — on a cold
+                // start that is both of them. Re-verify afterwards so a partial
+                // or failed allocation keeps polling instead of arming a blend
+                // that would silently degrade into a hard cut.
+                let allocated = presetPairsAllocated(module);
                 if (!allocated) {
                     allocated = !!dualFboBeginTransition(module);
                 }
 
-                if (allocated && dualFboIsPresetBAllocated(module)) {
+                if (allocated && presetPairsAllocated(module)) {
                     transitionStart(module);
                     resolve(true);
                     return;
@@ -125,6 +155,13 @@ export function startTransitionWhenReady({
             frames += 1;
             if (frames >= maxFrames) {
                 console.warn('[projectM transitions] timed out waiting for preset readiness');
+                // The poll may have already allocated the FBO pairs for a
+                // transition that will now never start. Hand them back, or they
+                // stay resident until some later transition happens to reuse
+                // them (the engine only reclaims preset A once preset B is gone).
+                if (typeof module._dual_fbo_cancel_transition === 'function') {
+                    dualFboCancelTransition(module);
+                }
                 resolve(false);
                 return;
             }

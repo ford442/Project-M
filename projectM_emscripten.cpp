@@ -43,6 +43,21 @@ static void ConfigureWasmOpenMPThreadCount()
 #endif
 }
 
+// Clears the transition controller back to its cold-start state.
+//
+// Must accompany every g_dualFbo.ReleaseAll() teardown: ReleaseAll() clears the
+// allocation flags but not the blend timeline, and a g_transitionActive left set
+// across teardown both blocks ReleaseDualFboIfIdle() and makes the next
+// allocation resume a blend against a stale g_transitionStartTime.
+static void ResetTransitionState()
+{
+    g_transitionActive  = false;
+    g_transitionBlend   = 0.0f;
+    g_transitionStartTime = 0.0;
+    g_transitionEndTime = 0.0;
+    g_presetBReady      = false;
+}
+
 static void TearDownEngineForRebind()
 {
     // Cancel the Emscripten main loop if one is running so rebind can restart it
@@ -64,6 +79,7 @@ static void TearDownEngineForRebind()
     app_data.loading = EM_FALSE;
 
     g_dualFbo.ReleaseAll();
+    ResetTransitionState();
     WasmWebGLDestroyContext();
 }
 
@@ -113,6 +129,33 @@ EM_JS(int, js_blur_force_copy_path, (), {
         return 0;
     }
 });
+
+EM_JS(int, js_copy_force_shader_path, (), {
+    if (typeof window === 'undefined' || !window.location || !window.location.search)
+    {
+        return 0;
+    }
+    try
+    {
+        const value = new URLSearchParams(window.location.search).get('copyPath');
+        return (value && value.toLowerCase() === 'shader') ? 1 : 0;
+    }
+    catch (e)
+    {
+        return 0;
+    }
+});
+
+// Ablation switch for benchmarking the texture-copy path: ?copyPath=shader restores the
+// pre-#179 fullscreen-quad copy so it can be A/B'd against the default glBlitFramebuffer
+// resolve on one build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+static void ApplyCopyPathOverride()
+{
+    if (js_copy_force_shader_path() != 0)
+    {
+        setenv("PROJECTM_COPY_SHADER_PATH", "1", 1);
+    }
+}
 
 // Ablation switch for benchmarking the blur chain: ?blurPath=copy restores the legacy
 // render-to-scratch + glCopyTexSubImage2D behaviour so it can be A/B'd against the
@@ -379,8 +422,9 @@ int init()
     // extension availability can be probed reliably.
     g_dualFbo.DetectFormat(WasmWebGLGetContext(), js_dual_fbo_prefer_high_precision() != 0);
 
-    // Must happen before the first preset renders, since the blur path is decided once.
+    // Must happen before the first preset renders, since both paths are decided once.
     ApplyBlurPathOverride();
+    ApplyCopyPathOverride();
 
     pm = projectm_create();
     if (!pm)
@@ -435,6 +479,7 @@ void destruct()
     // Phase 2: Release dual FBO resources before destroying the WebGL context
     // to avoid calling OpenGL functions with an invalid context.
     g_dualFbo.ReleaseAll();
+    ResetTransitionState();
     WasmWebGLDestroyContext();
     return;
 }
@@ -459,6 +504,7 @@ void pm_handle_context_loss()
     playlist = NULL;
     app_data.playlist = NULL;
     g_dualFbo.ReleaseAll();
+    ResetTransitionState();
     WasmWebGLDestroyContext();
     return;
 }
@@ -528,6 +574,41 @@ static bool ShouldUseDualFboCompositor()
            g_compositorShader.IsInitialized();
 }
 
+// Reclaims the Preset A ping-pong pair once it has been idle long enough.
+//
+// Preset A only ever feeds the crossfade compositor. Between transitions
+// render_frame() renders straight to the default framebuffer and never samples
+// it, so a resident pair is ~14 MB of VRAM (1280x720 RGBA16F; ~31 MB at
+// 1920x1080) that nothing reads for the rest of the session. The grace period
+// keeps back-to-back preset switches from thrashing glTexImage2D; hosts can tune
+// or disable it via dual_fbo_set_idle_release_seconds().
+static void ReleaseDualFboIfIdle()
+{
+    if (g_dualFboIdleReleaseSec < 0.0f || g_transitionActive || !g_dualFbo.IsPresetAAllocated())
+    {
+        return;
+    }
+    // Preset B live without an active blend means a transition is mid-setup:
+    // dual_fbo_begin_transition() has run and the host is still polling before
+    // transition_start(). Pulling A out from under it would make that
+    // transition_start() bail and degrade the crossfade into a hard cut.
+    if (g_dualFbo.IsPresetBAllocated())
+    {
+        return;
+    }
+    // No transition has ever ended, so nothing has established an idle baseline.
+    if (g_transitionEndTime <= 0.0)
+    {
+        return;
+    }
+    const double idleMs = emscripten_get_now() - g_transitionEndTime;
+    if (idleMs < static_cast<double>(g_dualFboIdleReleaseSec) * 1000.0)
+    {
+        return;
+    }
+    g_dualFbo.ReleasePresetA();
+}
+
 EMSCRIPTEN_KEEPALIVE
 void render_frame()
 {
@@ -551,6 +632,7 @@ void render_frame()
     if (!ShouldUseDualFboCompositor())
     {
         // Direct-to-canvas path (steady state, startup, or compositor unavailable).
+        ReleaseDualFboIfIdle();
         GLStateGuard guard;
         projectm_opengl_render_frame(pm);
         g_renderedFrameCount++;
@@ -609,6 +691,9 @@ void render_frame()
         g_transitionBlend = 0.0f;
         g_transitionActive = false;
         g_presetBReady = false;
+        // Start the Preset A idle clock: from here nothing samples the pair
+        // until the next transition, so ReleaseDualFboIfIdle() can reclaim it.
+        g_transitionEndTime = emscripten_get_now();
         fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
     }
     g_renderedFrameCount++;

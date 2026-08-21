@@ -380,6 +380,10 @@ body.has-lock .led--lock {
 
 #contain1 {
   position: absolute;
+  top: 0;
+  left: calc(50vw - 50vh);
+  width: 100vh;
+  height: 100vh;
   padding: 0;
   background-color: rgba(255, 255, 255, 0.0);
 }
@@ -396,6 +400,8 @@ canvas.emscripten {
   pointer-events: none;
   border: 0;
   position: absolute;
+  top: 0;
+  left: 0;
   overflow: hidden;
   z-index: 3200;
   display: block;
@@ -436,11 +442,11 @@ canvas.emscripten {
 
 <!-- Main Visualization -->
 <div id="wrap">
-  <div id="contain1" style="position:absolute;">
+  <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;top:0;left:0;"></canvas>
+  <div id="contain1">
     <img id="bg-media" src="./image/shroud.jpg" alt="" style="display:none;position:absolute;z-index:2999;object-fit:cover;top:0;left:0;width:100%;height:100%;pointer-events:none;" />
-    <canvas id="circle" style="position:absolute;z-index:3200;pointer-events:none;"></canvas>
-    <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;left:0;"></canvas>
-    <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;left:0;transform:scaleY(-1.0);"></canvas>
+    <canvas class="emscripten" id="mcanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3001;background-color:rgba(0,0,0,0.0);top:0;left:0;width:100%;height:100%;"></canvas>
+    <canvas class="emscripten" id="scanvas" style="pointer-events:auto;display:block;position:absolute;z-index:3000;background-color:rgba(0,0,0,1.0);top:0;left:0;width:100%;height:100%;transform:scaleY(-1.0);"></canvas>
   </div>
 </div>
 
@@ -505,6 +511,8 @@ canvas.emscripten {
   <div id="milkPath">https://glsl.1ink.us/milk/flexi.milk</div>
   <div id="textureDir">textures/</div>
   <div id="songDir">songs/</div>
+  <div id="mp3SongDir">mp3_songs/</div>
+  <div id="modSongDir">mod_songs/</div>
   <div id="weeksPresetDir">weeks_presets/</div>
   <div id="flacDecoderUrl">./flac/</div>
   <div id="presetDir">default</div>
@@ -513,8 +521,8 @@ canvas.emscripten {
   <div id="hig">720</div>
   <div id="tim">8500</div>
   <div id="vsiz">0</div>
-  <div id="flacPlayerUrl">https://go.1ink.us/flac-player/</div>
-  <div id="modPlayerUrl">https://go.1ink.us/xm-player/</div>
+  <div id="flacPlayerUrl">./flac-player/</div>
+  <div id="modPlayerUrl">https://test.1ink.us/xm-player/</div>
 </div>
 
 <!-- Audio -->
@@ -546,6 +554,14 @@ import {
     isWeeksOnFireMode,
     wireFlacDecoderBridge,
 } from './projectm-weeks-on-fire.js';
+
+// Optional: missing/soft-404 song-loader.js must not abort this module
+// (DreamHost serves www.noahcohn.com/404.1ink as text/html).
+void import('./projectm-song-loader.js').then((mod) => {
+    mod.installSongLoaderInterceptor();
+}).catch((error) => {
+    console.warn('[projectM] song loader unavailable; Start/Change Song uses /flac/', error);
+});
 import {
     addPresetFile,
     loadPresetFile,
@@ -1336,10 +1352,6 @@ async function attemptInit() {
         const contain1 = document.querySelector('#contain1');
 
         if (!getModule() && !renderWorkerHandle && !pmContext) {
-            updateLayout();
-            syncModuleSize();
-
-            if (isRenderWorkerEnabled() && isRenderWorkerSupported(mcanvas)) {
             updateLayout();
             syncModuleSize();
 

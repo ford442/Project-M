@@ -8,7 +8,10 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "lib": ["ES2022", "DOM"]
+    "lib": [
+      "ES2022",
+      "DOM"
+    ]
   },
   "include": [
     "generated/**/*.ts",
@@ -27,6 +30,24 @@
     "projectm-audio-bootstrap.js",
     "projectm-fps-governor.js",
     "projectm-mesh-quality.js",
-    "projectm-wasm-version.js"
+    "projectm-wasm-version.js",
+    "projectm-fbo-format.js",
+    "projectm-synthetic-audio.js",
+    "projectm-preset-favorites.js",
+    "projectm-transitions.js",
+    "projectm-perf.js",
+    "projectm-shader-cache.js",
+    "projectm-preset-cache.js",
+    "projectm-preset-library.js",
+    "projectm-preset-picker.js",
+    "projectm-preset-dev.js",
+    "projectm-preset-tweaker.js",
+    "projectm-render-worker-host.js",
+    "projectm-audio-player.js",
+    "projectm-audio-router.js",
+    "projectm-experimental-bridge.js",
+    "projectm-wasm-default-redirect.js",
+    "projectm-weeks-on-fire.js",
+    "projectm-worklet-playback.js"
   ]
 }

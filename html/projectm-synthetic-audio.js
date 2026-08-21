@@ -6,10 +6,30 @@
 export const PROJECTM_ANALYSIS_WINDOW = 576;
 export const DEFAULT_SAMPLE_RATE = 44100;
 
+/**
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ */
+
+/** @typedef {'silence' | 'bass' | 'mid' | 'treble' | 'beat' | 'sweep'} SyntheticFeedMode */
+
+/**
+ * @param {number} sampleCount
+ * @returns {Float32Array}
+ */
 export function generateSilence(sampleCount) {
     return new Float32Array(sampleCount);
 }
 
+/**
+ * @param {number} sampleCount
+ * @param {object} [options]
+ * @param {number} [options.frequencyHz]
+ * @param {number} [options.sampleRate]
+ * @param {number} [options.amplitude]
+ * @param {number} [options.phase]
+ * @returns {Float32Array}
+ */
 export function generateSine(sampleCount, {
     frequencyHz = 440,
     sampleRate = DEFAULT_SAMPLE_RATE,
@@ -24,7 +44,17 @@ export function generateSine(sampleCount, {
     return out;
 }
 
-/** Stepped frequency sweep for manual/visual verification. */
+/**
+ * Stepped frequency sweep for manual/visual verification.
+ *
+ * @param {number} sampleCount
+ * @param {object} [options]
+ * @param {number} [options.startHz]
+ * @param {number} [options.endHz]
+ * @param {number} [options.sampleRate]
+ * @param {number} [options.amplitude]
+ * @returns {Float32Array}
+ */
 export function generateFrequencySweep(sampleCount, {
     startHz = 80,
     endHz = 8000,
@@ -41,7 +71,16 @@ export function generateFrequencySweep(sampleCount, {
     return out;
 }
 
-/** Impulse train at BPM for beat-detection checks. */
+/**
+ * Impulse train at BPM for beat-detection checks.
+ *
+ * @param {number} sampleCount
+ * @param {object} [options]
+ * @param {number} [options.bpm]
+ * @param {number} [options.sampleRate]
+ * @param {number} [options.amplitude]
+ * @returns {Float32Array}
+ */
 export function generateBeatPulse(sampleCount, {
     bpm = 120,
     sampleRate = DEFAULT_SAMPLE_RATE,
@@ -59,6 +98,14 @@ export function generateBeatPulse(sampleCount, {
     return out;
 }
 
+/**
+ * Trims interleaved PCM to the trailing `window` frames projectM analyses.
+ *
+ * @param {Float32Array} buffer Interleaved PCM.
+ * @param {number} samplesPerChannel Frames present in `buffer`.
+ * @param {number} [window] Frames to keep.
+ * @returns {{ buffer: Float32Array, samplesPerChannel: number }}
+ */
 export function trimToAnalysisWindow(buffer, samplesPerChannel, window = PROJECTM_ANALYSIS_WINDOW) {
     const frames = Math.min(samplesPerChannel, window);
     const trimmedLength = frames * (buffer.length / samplesPerChannel);
@@ -69,8 +116,20 @@ export function trimToAnalysisWindow(buffer, samplesPerChannel, window = PROJECT
     };
 }
 
+/**
+ * @param {ProjectMModuleLike | null | undefined} module
+ * @param {Float32Array} buffer Interleaved PCM.
+ * @param {number} [channels]
+ * @param {number} [samplesPerChannel]
+ * @returns {boolean} true if the chunk was handed to the engine.
+ */
 export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel) {
-    if (!module?._projectm_pcm_add_float_wrapper || !module._malloc) return false;
+    // Feature-detect every symbol used below: the WASM build's exported set
+    // varies by link flags, and HEAPF32/_free were previously assumed present.
+    if (!module?._projectm_pcm_add_float_wrapper || !module._malloc
+        || !module._free || !module.HEAPF32) {
+        return false;
+    }
     const frames = samplesPerChannel ?? (channels === 1 ? buffer.length : buffer.length / 2);
     const { buffer: trimmed, samplesPerChannel: windowFrames } = trimToAnalysisWindow(buffer, frames);
     const ptr = module._malloc(trimmed.length * 4);
@@ -85,8 +144,14 @@ export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel)
 }
 
 /**
- * Continuous synthetic feed loop. Returns stop().
- * Modes: 'silence' | 'bass' | 'mid' | 'treble' | 'beat' | 'sweep'
+ * Continuous synthetic feed loop driven by requestAnimationFrame.
+ *
+ * @param {ProjectMModuleLike | null | undefined} module
+ * @param {SyntheticFeedMode} [mode]
+ * @param {object} [options]
+ * @param {number} [options.channels]
+ * @param {(frame: number, mode: SyntheticFeedMode) => void} [options.onFrame]
+ * @returns {() => void} Stops the feed.
  */
 export function startSyntheticFeed(module, mode = 'bass', {
     channels = 1,
@@ -95,6 +160,7 @@ export function startSyntheticFeed(module, mode = 'bass', {
     let frame = 0;
     let running = true;
 
+    /** @type {Record<SyntheticFeedMode, () => Float32Array>} */
     const generators = {
         silence: () => generateSilence(PROJECTM_ANALYSIS_WINDOW),
         bass: () => generateSine(PROJECTM_ANALYSIS_WINDOW, { frequencyHz: 80, amplitude: 0.85 }),
@@ -127,6 +193,15 @@ export function startSyntheticFeed(module, mode = 'bass', {
     return () => { running = false; };
 }
 
+/**
+ * Installs the `?audioTest=1` debug panel.
+ *
+ * @param {ProjectMModuleLike | (() => ProjectMModuleLike | null | undefined) | null} moduleRef
+ *   The module, or a getter re-read on each click (it may not exist yet at setup).
+ * @param {object} [options]
+ * @param {Document} [options.documentRef]
+ * @returns {HTMLDivElement | null} The panel, or null when not enabled.
+ */
 export function setupAudioTestPanel(moduleRef, { documentRef = document } = {}) {
     const params = new URLSearchParams(globalThis.location?.search || '');
     if (params.get('audioTest') !== '1') return null;
@@ -144,10 +219,17 @@ export function setupAudioTestPanel(moduleRef, { documentRef = document } = {}) 
     `;
     documentRef.body.appendChild(panel);
 
+    /** @type {(() => void) | null} */
     let stopFeed = null;
     const status = panel.querySelector('#pm-audio-test-status');
+    if (!status) {
+        return panel;
+    }
 
-    panel.querySelectorAll('button[data-mode]').forEach((btn) => {
+    const buttons = /** @type {NodeListOf<HTMLButtonElement>} */ (
+        panel.querySelectorAll('button[data-mode]')
+    );
+    buttons.forEach((btn) => {
         btn.addEventListener('click', () => {
             const module = typeof moduleRef === 'function' ? moduleRef() : moduleRef;
             if (!module) {
@@ -155,7 +237,7 @@ export function setupAudioTestPanel(moduleRef, { documentRef = document } = {}) 
                 return;
             }
             if (stopFeed) stopFeed();
-            const mode = btn.dataset.mode;
+            const mode = /** @type {SyntheticFeedMode} */ (btn.dataset.mode);
             status.textContent = `feeding: ${mode}`;
             stopFeed = startSyntheticFeed(module, mode, {
                 onFrame: (f) => { status.textContent = `feeding: ${mode} (frame ${f})`; },

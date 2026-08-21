@@ -126,7 +126,7 @@ As of this writing, the Emscripten target uses:
 - `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -s USE_WEBGL2=1`
 - `-s FULL_ES2=0 -s FULL_ES3=1` (ES2 emulation is **off**; do not document `FULL_ES2=1`)
 - `-s SHARED_MEMORY=1 -s WASM_WORKERS=1 -pthread`
-- `-s ALLOW_MEMORY_GROWTH=1 -sMALLOC='mimalloc' -sMAXIMUM_MEMORY=4gb -sINITIAL_MEMORY=1024mb`
+- `-s ALLOW_MEMORY_GROWTH=1 -sMALLOC='mimalloc' -sMAXIMUM_MEMORY=4gb -sINITIAL_MEMORY=256mb`
 - `-s NO_DISABLE_EXCEPTION_CATCHING`
 - `-s FORCE_FILESYSTEM=1 -s ASYNCIFY=1` (plus `-s ASYNCIFY_STACK_SIZE=65536` when
   `ENABLE_WASM_TRANSITIONS=ON`, the default)

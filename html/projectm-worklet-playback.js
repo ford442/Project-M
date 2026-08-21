@@ -28,11 +28,6 @@ function sleep(ms) {
 }
 
 /**
- * Wire the worklet → projectM PCM path the same way WasmAudioBridge EM_JS does.
- * @param {AudioWorkletNode} workletNode
- * @param {number} [pmHandle]
- */
-/**
  * Resolve the WASM PCM feed export (modularized builds only put it on Module).
  * @returns {{ addPcm: Function, malloc: Function, heap: ArrayBuffer } | null}
  */
@@ -51,6 +46,11 @@ function resolvePcmFeedRuntime() {
     return { addPcm, malloc, heap };
 }
 
+/**
+ * Wire the worklet → projectM PCM path the same way WasmAudioBridge EM_JS does.
+ * @param {AudioWorkletNode} workletNode
+ * @param {number} [pmHandle]
+ */
 function attachPcmHandler(workletNode, pmHandle) {
     workletNode.port.onmessage = (event) => {
         if (event.data?.type !== 'pcmData') {
@@ -64,6 +64,9 @@ function attachPcmHandler(workletNode, pmHandle) {
             globalThis.projectMAudioBufferPtr = runtime.malloc(2048 * 4);
         }
         const buf = globalThis.projectMAudioBufferPtr;
+        if (buf == null) {
+            return;
+        }
         const audioData = event.data.audioData;
         const projectmBufferSize = 576;
         const src = audioData.length > projectmBufferSize

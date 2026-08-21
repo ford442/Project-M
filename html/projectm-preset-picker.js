@@ -19,6 +19,20 @@ import {
 import { preloadFeaturedPack, preloadFavoritePresets } from './projectm-preset-cache.js';
 import { getFavorites } from './projectm-preset-favorites.js';
 
+/**
+ * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
+ * @typedef {import('./projectm-preset-types.ts').PresetFilters} PresetFilters
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ */
+
+/**
+ * @typedef {(opts?: {
+ *   module?: ProjectMModuleLike | null,
+ *   timeoutFrames?: number,
+ *   durationSec?: number,
+ * }) => Promise<boolean>} StartTransitionFn
+ */
+
 export const DEFAULT_MANIFEST_URL = './custom_presets_manifest.json';
 
 export const DEFAULT_CUSTOM_PRESET_BASES = [
@@ -27,20 +41,39 @@ export const DEFAULT_CUSTOM_PRESET_BASES = [
     './custom_milk_fixed/',
 ];
 
+/**
+ * @param {string} filename
+ * @returns {string}
+ */
 function safePresetName(filename) {
     return String(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+/**
+ * @param {object} [options]
+ * @param {string} [options.preferred] Base tried before everything else.
+ * @param {string[]} [options.fallbacks]
+ * @returns {string[]} De-duplicated base URLs, in try order.
+ */
 export function getCustomPresetBases({ preferred, fallbacks = DEFAULT_CUSTOM_PRESET_BASES } = {}) {
+    /** @type {string | null} */
     let fromStorage = null;
     try {
         fromStorage = localStorage.getItem('customPresetBase');
     } catch {
         // localStorage may be unavailable
     }
-    return [...new Set([preferred, fromStorage, ...fallbacks].filter(Boolean))];
+    return [...new Set(
+        /** @type {string[]} */ ([preferred, fromStorage, ...fallbacks].filter(Boolean)),
+    )];
 }
 
+/**
+ * @param {object} [options]
+ * @param {string} [options.url]
+ * @param {typeof fetch} [options.fetchImpl]
+ * @returns {Promise<{ presets: PresetEntry[] } & Record<string, unknown>>}
+ */
 export async function fetchCustomPresetManifest({
     url = DEFAULT_MANIFEST_URL,
     fetchImpl = fetch,
@@ -54,7 +87,18 @@ export async function fetchCustomPresetManifest({
     return data;
 }
 
-/** @deprecated use loadPresetEntry from projectm-preset-library.js */
+/**
+ * @deprecated use loadPresetEntry from projectm-preset-library.js
+ *
+ * @param {string} file
+ * @param {object} [options]
+ * @param {ProjectMModuleLike} [options.module]
+ * @param {StartTransitionFn | null} [options.startTransitionWhenReady]
+ * @param {string[]} [options.bases]
+ * @param {boolean} [options.updateDisplay]
+ * @param {string} [options.label]
+ * @param {typeof fetch} [options.fetchImpl]
+ */
 export async function loadCustomPresetFile(file, {
     module,
     startTransitionWhenReady,
@@ -69,6 +113,13 @@ export async function loadCustomPresetFile(file, {
     );
 }
 
+/**
+ * @param {PresetEntry[]} presets
+ * @param {object} [options]
+ * @param {boolean} [options.onlyOk]
+ * @param {boolean} [options.weighted]
+ * @returns {PresetEntry | null}
+ */
 export function pickRandomFromList(presets, { onlyOk = false, weighted = true } = {}) {
     if (weighted && presets.some((p) => typeof p.weight === 'number')) {
         return pickWeightedRandom(presets, { onlyOk, excludeBroken: !onlyOk });
@@ -145,6 +196,22 @@ const PICKER_CSS = `
 .pm-pp-launch:hover { background: rgba(8,145,178,0.4); }
 `;
 
+/**
+ * Queries an element this module just rendered; a miss is a programming error.
+ *
+ * @param {ParentNode} root
+ * @param {string} selector
+ * @returns {Element}
+ */
+function requireEl(root, selector) {
+    const el = root.querySelector(selector);
+    if (!el) {
+        throw new Error(`projectm-preset-picker: panel is missing ${selector}`);
+    }
+    return el;
+}
+
+/** @param {Document} documentRef */
 function injectStyle(documentRef) {
     if (documentRef.getElementById(PICKER_STYLE_ID)) return;
     const style = documentRef.createElement('style');
@@ -153,6 +220,21 @@ function injectStyle(documentRef) {
     documentRef.head.appendChild(style);
 }
 
+/**
+ * Builds the searchable preset browser panel and its optional launcher button.
+ *
+ * @param {object} [options]
+ * @param {() => ProjectMModuleLike | null | undefined} [options.getModule]
+ * @param {StartTransitionFn} [options.startTransitionWhenReady]
+ * @param {string} [options.manifestUrl]
+ * @param {string} [options.featuredManifestUrl]
+ * @param {Document} [options.documentRef]
+ * @param {boolean} [options.showLauncher]
+ * @param {() => boolean} [options.isLocked]
+ * @param {() => void} [options.onLockBlocked] Called when a load is refused by the lock.
+ * @param {number} [options.transitionDurationSec]
+ * @param {boolean} [options.preloadFeatured]
+ */
 export function setupPresetPicker({
     getModule,
     startTransitionWhenReady,
@@ -210,14 +292,17 @@ export function setupPresetPicker({
     `;
     documentRef.body.appendChild(panel);
 
-    const listEl = panel.querySelector('.pm-pp-list');
-    const searchEl = panel.querySelector('.pm-pp-search');
-    const statusEl = panel.querySelector('.pm-pp-status');
-    const tierEl = panel.querySelector('.pm-pp-tier');
-    const reactEl = panel.querySelector('.pm-pp-reactivity');
-    const tagEl = panel.querySelector('.pm-pp-tag');
-    const tabEls = panel.querySelectorAll('.pm-pp-tab');
+    const listEl = requireEl(panel, '.pm-pp-list');
+    const searchEl = /** @type {HTMLInputElement} */ (requireEl(panel, '.pm-pp-search'));
+    const statusEl = /** @type {HTMLElement} */ (requireEl(panel, '.pm-pp-status'));
+    const tierEl = /** @type {HTMLSelectElement} */ (requireEl(panel, '.pm-pp-tier'));
+    const reactEl = /** @type {HTMLSelectElement} */ (requireEl(panel, '.pm-pp-reactivity'));
+    const tagEl = /** @type {HTMLSelectElement} */ (requireEl(panel, '.pm-pp-tag'));
+    const tabEls = /** @type {NodeListOf<HTMLButtonElement>} */ (
+        panel.querySelectorAll('.pm-pp-tab')
+    );
 
+    /** @type {HTMLButtonElement | null} */
     let launcher = null;
     if (showLauncher) {
         launcher = documentRef.createElement('button');
@@ -228,10 +313,14 @@ export function setupPresetPicker({
         launcher.addEventListener('click', () => toggle());
     }
 
+    /** @type {PresetEntry[]} */
     let allPresets = [];
+    /** @type {PresetEntry[]} */
     let featuredPresets = [];
     let activeTab = 'all';
+    /** @type {PresetEntry[]} */
     let filtered = [];
+    /** @type {string | null} */
     let currentId = null;
 
     function activePool() {
@@ -242,6 +331,7 @@ export function setupPresetPicker({
         return allPresets;
     }
 
+    /** @returns {PresetFilters} */
     function currentFilters() {
         return {
             query: searchEl.value,
@@ -252,6 +342,10 @@ export function setupPresetPicker({
         };
     }
 
+    /**
+     * @param {string} msg
+     * @param {boolean} [isError]
+     */
     function setStatus(msg, isError = false) {
         statusEl.textContent = msg || '';
         statusEl.style.color = isError ? '#fecaca' : 'rgba(191,219,254,0.75)';
@@ -294,12 +388,12 @@ export function setupPresetPicker({
 
             const label = documentRef.createElement('span');
             label.className = 'pm-pp-label';
-            label.title = p.label;
-            label.textContent = p.label;
+            label.title = p.label ?? p.file;
+            label.textContent = p.label ?? p.file;
 
             const meta = documentRef.createElement('span');
             meta.className = 'pm-pp-meta';
-            meta.textContent = p.tier ? p.tier.slice(0, 1) : '';
+            meta.textContent = typeof p.tier === 'string' ? p.tier.slice(0, 1) : '';
 
             li.appendChild(favBtn);
             li.appendChild(badge);
@@ -310,6 +404,7 @@ export function setupPresetPicker({
         }
     }
 
+    /** @param {PresetEntry | null | undefined} preset */
     async function loadByEntry(preset) {
         if (!preset) return;
         currentId = presetId(preset);
@@ -332,6 +427,7 @@ export function setupPresetPicker({
         }
     }
 
+    /** @param {string} file */
     async function loadByFile(file) {
         const preset = allPresets.find((p) => p.file === file)
             || featuredPresets.find((p) => p.file === file);
@@ -347,6 +443,7 @@ export function setupPresetPicker({
         return false;
     }
 
+    /** @param {number} delta +1 for next, -1 for previous. */
     function step(delta) {
         if (guardLocked()) return;
         const pool = filtered.length ? filtered : filterPresets(activePool(), currentFilters());
@@ -370,19 +467,22 @@ export function setupPresetPicker({
     function close() { panel.hidden = true; if (launcher) launcher.style.display = ''; }
     function toggle() { (panel.hidden ? open : close)(); }
 
-    panel.querySelector('.pm-pp-close').addEventListener('click', close);
+    requireEl(panel, '.pm-pp-close').addEventListener('click', close);
     searchEl.addEventListener('input', render);
     tierEl.addEventListener('change', render);
     reactEl.addEventListener('change', render);
     tagEl.addEventListener('change', render);
     tabEls.forEach((tab) => {
         tab.addEventListener('click', () => {
-            activeTab = tab.dataset.tab;
+            activeTab = tab.dataset.tab ?? 'all';
             tabEls.forEach((t) => t.classList.toggle('active', t === tab));
             render();
         });
     });
-    panel.querySelectorAll('.pm-pp-btn').forEach((btn) => {
+    const actionButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (
+        panel.querySelectorAll('.pm-pp-btn')
+    );
+    actionButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
             const act = btn.dataset.act;
             if (act === 'next') step(1);

@@ -75,7 +75,6 @@ function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
  * @typedef {import('./projectm-context-types.ts').ProjectMAudioSourceStatus} ProjectMAudioSourceStatus
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./projectm-context-types.ts').ProjectMPresetDetail} ProjectMPresetDetail
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
 
@@ -349,10 +348,15 @@ this._externalReceiverClose = null;
             // while keeping its CSS size fixed is what actually applies the "internal
             // FBO render scale" tier — see the comment in syncCanvasSize() above.
             this.renderScale = getGovernorRenderScale(this.module) || 1;
-            window.pmOnGovernorRenderScaleChange = (scale) => {
-                this.renderScale = scale;
-                this.resize();
-            };
+            // Via the injected windowRef, like every other global hook this class
+            // installs — a bare `window` here ignores the caller's window and
+            // throws outright where there is no global one.
+            if (this.options.windowRef) {
+                this.options.windowRef.pmOnGovernorRenderScaleChange = (scale) => {
+                    this.renderScale = scale;
+                    this.resize();
+                };
+            }
 
             if (transparent) {
                 setTransparencyMode(this.module, true);
@@ -510,8 +514,8 @@ this._externalReceiverClose = null;
             this._externalReceiverClose();
             this._externalReceiverClose = null;
         }
-        if (window.pmOnGovernorRenderScaleChange) {
-            window.pmOnGovernorRenderScaleChange = null;
+        if (this.options.windowRef?.pmOnGovernorRenderScaleChange) {
+            this.options.windowRef.pmOnGovernorRenderScaleChange = null;
         }
         this.audioRouter?.destroy();
         this.audioRouter = null;

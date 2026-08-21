@@ -16,6 +16,11 @@ import { dualFboGetFormat } from './generated/projectm-wasm-api.js';
 
 const BANNER_ID = 'pm-degraded-mode-banner';
 
+/**
+ * Indexed by the `dual_fbo_get_format()` return value — keep in order.
+ * @typedef {'RGBA32F' | 'RGBA16F' | 'RGBA8'} FboFormatName
+ * @type {readonly [FboFormatName, FboFormatName, FboFormatName]}
+ */
 const FORMAT_NAMES = ['RGBA32F', 'RGBA16F', 'RGBA8'];
 
 function ensureBanner() {
@@ -51,8 +56,9 @@ function ensureBanner() {
  *
  * Must be called after `startRender()`.
  *
- * @param {*} Module The Emscripten module instance.
- * @returns {string} The detected format name.
+ * @param {import('./generated/projectm-wasm-api.ts').ProjectMModule} Module
+ *   The Emscripten module instance.
+ * @returns {FboFormatName} The detected format name.
  */
 export function setupFboFormatIndicator(Module) {
     const formatIndex = dualFboGetFormat(Module);

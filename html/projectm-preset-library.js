@@ -11,8 +11,18 @@ import {
     setupShaderTranspileCacheHooks,
 } from './projectm-shader-cache.js';
 
+/**
+ * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
+ * @typedef {import('./projectm-preset-types.ts').PresetFilters} PresetFilters
+ * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ */
+
 export const DEFAULT_FEATURED_MANIFEST_URL = './featured_pack_manifest.json';
 
+/**
+ * @param {PresetEntry[]} presets
+ * @returns {string[]} Sorted unique tags.
+ */
 export function collectTags(presets) {
     const tags = new Set();
     for (const p of presets) {
@@ -21,6 +31,12 @@ export function collectTags(presets) {
     return [...tags].sort();
 }
 
+/**
+ * @param {PresetEntry} preset
+ * @param {PresetFilters} [filters]
+ * @param {Set<string>} [favorites]
+ * @returns {boolean}
+ */
 export function matchFilters(preset, filters = {}, favorites = getFavorites()) {
     const q = (filters.query || '').trim().toLowerCase();
     if (q) {
@@ -51,11 +67,26 @@ export function matchFilters(preset, filters = {}, favorites = getFavorites()) {
     return true;
 }
 
+/**
+ * @param {PresetEntry[]} presets
+ * @param {PresetFilters} [filters]
+ * @returns {PresetEntry[]}
+ */
 export function filterPresets(presets, filters = {}) {
     const favorites = getFavorites();
     return presets.filter((p) => matchFilters(p, filters, favorites));
 }
 
+/**
+ * Weighted random pick favouring known-good and favourited presets.
+ *
+ * @param {PresetEntry[]} presets
+ * @param {object} [options]
+ * @param {boolean} [options.onlyOk]
+ * @param {boolean} [options.excludeBroken]
+ * @param {Set<string>} [options.favorites]
+ * @returns {PresetEntry | null} null only when `presets` is empty.
+ */
 export function pickWeightedRandom(presets, {
     onlyOk = false,
     excludeBroken = true,
@@ -83,10 +114,44 @@ export function pickWeightedRandom(presets, {
     return pool[pool.length - 1];
 }
 
+/**
+ * @param {string} filename
+ * @returns {string}
+ */
 function safePresetName(filename) {
     return String(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+/**
+ * Readiness probe for the VFS + preset-load path.
+ *
+ * `load_preset_file` is a `ccall` entry in cmake/WasmApiManifest.cmake, so the
+ * generated `ProjectMModule` type has no `_load_preset_file` member to test even
+ * though the symbol is in EXPORTED_FUNCTIONS; `ccall` is what the wrapper
+ * actually uses.
+ *
+ * @param {ProjectMModuleLike | null | undefined} moduleInstance
+ * @returns {moduleInstance is import('./generated/projectm-wasm-api.ts').ProjectMModule
+ *   & { FS: NonNullable<import('./generated/projectm-wasm-api.ts').ProjectMModule['FS']> }}
+ */
+function canLoadPresets(moduleInstance) {
+    return !!(moduleInstance?.FS && moduleInstance.ccall);
+}
+
+/**
+ * Fetches (or reuses cached) preset bytes, writes them into the VFS, and loads
+ * the preset — optionally starting a crossfade once Preset B is ready.
+ *
+ * @param {PresetEntry} entry
+ * @param {object} [options]
+ * @param {ProjectMModuleLike} [options.module]
+ * @param {((opts?: { module?: ProjectMModuleLike | null, timeoutFrames?: number, durationSec?: number }) => Promise<boolean>) | null} [options.startTransitionWhenReady]
+ * @param {number} [options.transitionDurationSec]
+ * @param {boolean} [options.updateDisplay]
+ * @param {typeof fetch} [options.fetchImpl]
+ * @param {string[]} [options.bases] Overrides the default base list.
+ * @returns {Promise<{ vfsPath: string, filename: string, entry: PresetEntry }>}
+ */
 export async function loadPresetEntry(entry, {
     module,
     startTransitionWhenReady = startTransition,
@@ -95,12 +160,13 @@ export async function loadPresetEntry(entry, {
     fetchImpl = fetch,
     bases,
 } = {}) {
-    if (!module?.FS || !module._load_preset_file) {
+    if (!canLoadPresets(module)) {
         throw new Error('Module not ready');
     }
 
-    const filename = String(entry.file).split('/').pop();
+    const filename = String(entry.file).split('/').pop() ?? String(entry.file);
     const id = presetId(entry);
+    /** @type {Uint8Array | null} */
     let bytes = null;
 
     const cached = await getCachedPreset(id).catch(() => null);
@@ -108,13 +174,16 @@ export async function loadPresetEntry(entry, {
 
     const candidateBases = bases || defaultBasesForBase(entry.base || 'custom_milk_fixed');
     if (!bytes) {
+        /** @type {unknown} */
         let lastError = null;
         for (const base of candidateBases) {
             try {
                 const sep = base.endsWith('/') ? '' : '/';
                 const res = await fetchImpl(`${base}${sep}${encodeURIComponent(filename)}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                bytes = new Uint8ClampedArray(await res.arrayBuffer());
+                // Uint8Array, not Uint8ClampedArray: the cached path, cachePreset(),
+                // FS.writeFile() and prepareShaderCacheForLoad() all take Uint8Array.
+                bytes = new Uint8Array(await res.arrayBuffer());
                 break;
             } catch (error) {
                 lastError = error;

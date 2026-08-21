@@ -19,7 +19,11 @@ import type { ProjectMModule } from './generated/projectm-wasm-api.ts';
  * (explicit, readiness-checked) cast back to `ProjectMModule` stays a valid
  * narrowing instead of an unrelated-type error.
  */
-export type ProjectMModuleLike = Partial<ProjectMModule>;
+export type ProjectMModuleLike = Partial<ProjectMModule> & {
+    /** Present on the glue instance for modularized builds. */
+    wasmMemory?: WebAssembly.Memory;
+    HEAPF32?: Float32Array;
+};
 
 /** Custom feed hook signature for {@link setupExternalAudioReceiver}. */
 export type ExternalPcmFeedFn = (
@@ -62,12 +66,128 @@ declare global {
         /** Governor v2 pull getters registered by projectm-fps-governor.js. */
         pmGetGovernorRenderScale?: () => number;
         pmGetGovernorBlurCap?: () => number;
+        /**
+         * External audio-player controls exposed by projectm-audio-player.js
+         * for inline `onclick=` handlers in the legacy panel hosts.
+         */
+        cycleAudioPlayer?: () => void;
+        closeAudioPlayer?: () => void;
+        flacPlayer?: () => void;
+        modPlayer?: () => void;
+        openFlacPlayer?: (trackUrl?: string) => void;
+        openModPlayer?: (trackUrl?: string) => void;
+        /**
+         * Experimental depth/glTF bridge (`?experimental=1`,
+         * projectm-experimental-bridge.js) and the legacy depth-module loader
+         * guard it shares with the B3HD hosts.
+         */
+        pmExperimental?: Record<string, unknown>;
+        __pmDepthModuleLoading?: Promise<boolean>;
+        /** Legacy global preset-label updater used by the full `.1ink` hosts. */
+        updatePresetDisplay?: (name: string, options?: { text?: string }) => void;
         /** Mesh-quality hook registered by projectm-mesh-quality.js. */
         pmSetMeshQuality?: (quality: string) => string;
+        /** Dual-FBO color format, registered by projectm-fbo-format.js. */
+        pmGetFboFormat?: () => 'RGBA32F' | 'RGBA16F' | 'RGBA8';
+        /**
+         * Transpiled-GLSL cache hook, registered by projectm-shader-cache.js and
+         * called from `js_on_transpiled_shader_stored()` (projectM_emscripten.cpp).
+         * `kind` is 0=warp, 1=composite.
+         */
+        pmOnTranspiledShaderStored?: (cacheKey: string, kind: 0 | 1, glsl: string) => void;
+        /** Hot-reload hooks registered by projectm-preset-dev.js (`?devPreset=1`). */
+        pmReloadPresetText?: (text: string, label?: string) => Promise<void>;
+        pmPresetDevEnabled?: boolean;
+        /**
+         * Perf HUD hooks registered by projectm-perf.js. `pmOnPerfFrame` is
+         * called once per frame from `js_perf_report_frame()`
+         * (WasmPerfGovernor.cpp) — the stats shape is defined there.
+         */
+        pmSetPerfHudEnabled?: (enabled: boolean) => void;
+        pmOnPerfFrame?: (stats: {
+            totalMs: number;
+            audioMs: number;
+            perFrameEvalMs: number;
+            perPixelEvalMs: number;
+            blurMs: number;
+            waveformsShapesMs: number;
+            compositeMs: number;
+            gpuMs: number;
+            fps: number;
+        }) => void;
     }
+
+    /**
+     * Globals the WASM glue and `WasmAudioBridge.cpp`'s EM_JS blocks publish on
+     * `window`, redeclared as `var` so the host modules can also reach them
+     * through `globalThis` (the `Window` augmentation above does not apply to
+     * `typeof globalThis`, which is what `globalThis.foo` resolves against).
+     *
+     * Keep in sync with `WasmAudioBridge.cpp` — these are the JS half of the
+     * worklet playback contract, not host-owned state.
+     */
 
     // eslint-disable-next-line no-var
     var Module: ProjectMModuleLike | undefined;
+
+    /** Shared AudioContext created by `js_initialize_worklet_system_once`. */
+    // eslint-disable-next-line no-var
+    var projectMAudioContext_Global_Cpp: AudioContext | undefined;
+    /** Worklet node wired to the projectM PCM path (null while torn down). */
+    // eslint-disable-next-line no-var
+    var projectMWorkletNode_Global_Cpp: AudioWorkletNode | null | undefined;
+    /** Heap pointer for the 2048-float PCM transfer buffer (`_malloc`'d once). */
+    // eslint-disable-next-line no-var
+    var projectMAudioBufferPtr: number | undefined;
+    /** Host-side song loader installed by projectm-worklet-playback.js. */
+    // eslint-disable-next-line no-var
+    var projectMLoadSongIntoWorklet:
+        | ((path: string, loop?: boolean, startPlaying?: boolean) => void)
+        | undefined;
+    /** Progress of the in-flight worklet song load. */
+    // eslint-disable-next-line no-var
+    var projectMSongLoadState: 'loading' | 'loaded' | 'error' | undefined;
+    /** VFS path of the most recent song handed to the worklet. */
+    // eslint-disable-next-line no-var
+    var projectMLastSongPath: string | undefined;
+    /** Guards double-installation of the worklet safety net. */
+    // eslint-disable-next-line no-var
+    var __projectMWorkletSafetyNetInstalled: boolean | undefined;
+    /** Supersession token so a stale BroadcastChannel load can be discarded. */
+    // eslint-disable-next-line no-var
+    var __projectMSongLoadToken: string | undefined;
+
+    /**
+     * Weeks-on-Fire demo-mode globals (projectm-weeks-on-fire.js). The FLAC
+     * helpers are called from the WASM EM_JS glue, which can only reach the
+     * global scope.
+     */
+    // eslint-disable-next-line no-var
+    var __projectMWeeksOnFire: boolean | undefined;
+    // eslint-disable-next-line no-var
+    var __projectMWeeksPaths: Record<string, string> | undefined;
+    // eslint-disable-next-line no-var
+    var resolveFlacDecoderUrl: (() => string) | undefined;
+    // eslint-disable-next-line no-var
+    var ensureWeeksFlacDecoderFrame: (() => HTMLIFrameElement) | undefined;
+    // eslint-disable-next-line no-var
+    var openWeeksFlacDecoder:
+        | ((options?: { preferIframe?: boolean }) => unknown)
+        | undefined;
+
+    /** Emscripten runtime globals exported onto the global scope by the glue. */
+    // eslint-disable-next-line no-var
+    var wasmMemory: WebAssembly.Memory | undefined;
+    // eslint-disable-next-line no-var
+    var HEAPF32: Float32Array | undefined;
+    // eslint-disable-next-line no-var
+    var _malloc: ((size: number) => number) | undefined;
+    // eslint-disable-next-line no-var
+    var _projectm_pcm_add_float_wrapper:
+        | ((pmHandle: number, audioPtr: number, samplesPerChannel: number, channels: number) => void)
+        | undefined;
+    // eslint-disable-next-line no-var
+    var FS: { readFile: (path: string) => Uint8Array } | undefined;
 }
 
 export {};

@@ -47,12 +47,13 @@ export function ensureWeeksFlacDecoderFrame(documentRef = document) {
         );
         documentRef.body.appendChild(frame);
     }
+    const iframe = /** @type {HTMLIFrameElement} */ (frame);
     const target = resolveFlacDecoderUrl(documentRef);
-    const current = frame.getAttribute('src') || frame.src || '';
+    const current = iframe.getAttribute('src') || iframe.src || '';
     if (!current || !current.includes('/flac')) {
-        frame.src = target;
+        iframe.src = target;
     }
-    return frame;
+    return iframe;
 }
 
 /**
@@ -87,7 +88,8 @@ export function wireWeeksOnFireFlacBridge(documentRef = document) {
     }
     globalThis.resolveFlacDecoderUrl = () => resolveFlacDecoderUrl(documentRef);
     globalThis.ensureWeeksFlacDecoderFrame = () => ensureWeeksFlacDecoderFrame(documentRef);
-    globalThis.openWeeksFlacDecoder = (options) => openWeeksFlacDecoder(documentRef, options);
+    globalThis.openWeeksFlacDecoder = (/** @type {{ preferIframe?: boolean } | undefined} */ options) =>
+        openWeeksFlacDecoder(documentRef, options);
 }
 
 /**
@@ -128,12 +130,16 @@ export function isWeeksOnFireMode(search) {
 /**
  * Point the legacy emscripten DOM scanner at the weeks_* folders before WASM init.
  * @param {Document} [documentRef]
- * @param {{ presets?: string, textures?: string, songs?: string }} [paths]
+ * @param {{ presets?: string, textures?: string, songs?: string, flacDecoder?: string }} [paths]
  */
 export function applyWeeksOnFireDomConfig(documentRef = document, paths = DEFAULT_WEEKS_PATHS) {
     const doc = documentRef;
     const merged = { ...DEFAULT_WEEKS_PATHS, ...paths };
 
+    /**
+     * @param {string} id
+     * @param {string} value
+     */
     function setHidden(id, value) {
         const el = doc.getElementById(id);
         if (el) el.textContent = value;
@@ -166,7 +172,8 @@ export function parseMilkDirectoryListing(html, baseUrl) {
     if (typeof DOMParser !== 'undefined') {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
-        const anchors = doc.querySelectorAll('pre a');
+        const anchors = Array.from(doc.querySelectorAll('pre a'));
+        /** @type {string[]} */
         const urls = [];
         for (const anchor of anchors) {
             const href = anchor.getAttribute('href');
@@ -178,6 +185,7 @@ export function parseMilkDirectoryListing(html, baseUrl) {
         return urls;
     }
 
+    /** @type {string[]} */
     const urls = [];
     const anchorRe = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>/gi;
     let match;
@@ -193,7 +201,13 @@ export function parseMilkDirectoryListing(html, baseUrl) {
 
 /**
  * Host-side helper when emscripten globals are unavailable (unit tests / future hosts).
- * @param {{ getModule: () => any, startTransitionWhenReady?: Function, count?: number, fetchImpl?: typeof fetch }} opts
+ *
+ * @param {object} [opts]
+ * @param {() => import('./projectm-host-types.ts').ProjectMModuleLike | null | undefined} [opts.getModule]
+ * @param {((options?: { module?: unknown, durationSec?: number }) => Promise<boolean>) | null} [opts.startTransitionWhenReady]
+ * @param {number} [opts.count]
+ * @param {typeof fetch} [opts.fetchImpl]
+ * @param {string} [opts.presetBase]
  */
 export async function bootstrapWeeksOnFirePresets({
     getModule,
@@ -202,8 +216,8 @@ export async function bootstrapWeeksOnFirePresets({
     fetchImpl = fetch,
     presetBase = DEFAULT_WEEKS_PATHS.presets,
 } = {}) {
-    const module = getModule();
-    if (!module?.FS || !module._load_preset_file) {
+    const module = getModule?.();
+    if (!module?.FS || !module.ccall) {
         throw new Error('Module not ready for weeks preset bootstrap');
     }
 
@@ -225,12 +239,14 @@ export async function bootstrapWeeksOnFirePresets({
         picks.push(pool.splice(idx, 1)[0]);
     }
 
+    /** @type {{ vfsPath: string, label: string | undefined }[]} */
     const vfsPaths = [];
     for (let i = 0; i < picks.length; i += 1) {
         const url = picks[i];
         const res = await fetchImpl(url);
         if (!res.ok) continue;
-        const bytes = new Uint8ClampedArray(await res.arrayBuffer());
+        // Uint8Array, not Uint8ClampedArray: FS.writeFile takes Uint8Array|string.
+        const bytes = new Uint8Array(await res.arrayBuffer());
         const vfsPath = `/presets/weeks_host_${i}.milk`;
         module.FS.writeFile(vfsPath, bytes);
         vfsPaths.push({ vfsPath, label: url.split('/').pop() });

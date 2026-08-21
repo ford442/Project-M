@@ -120,36 +120,84 @@ back into the dual-source problem this migration started from:
    an error disappear — a narrow, correct type here is worth more than a
    passing `tsc` run.
 
-### Converted (checkJs-clean, in `tsconfig.json`)
+### Coverage
 
-- `projectm-external-pcm.js`
-- `projectm-init.js`, `projectm-init-errors.js`
-- `projectm-presets.js`
-- `projectm-context.js`, `projectm-element.js` (implementation; shared types
-  in `projectm-context-types.ts`)
-- `projectm-audio-bootstrap.js`, `projectm-context-loss.js`,
-  `projectm-fps-governor.js`, `projectm-mesh-quality.js`,
-  `projectm-element-attributes.js`, `projectm-wasm-version.js`
+**All 32 `html/projectm-*.js` modules are checkJs-clean and in the `include` of
+one of the two tsconfigs** — there is no unconverted backlog. Add new modules to
+`tsconfig.json` in the same commit that creates them; a module left out is not
+checked, and (as `projectm-worklet-playback.js` showed) being *reachable* from a
+checked module is not the same as being listed, since it stops being checked the
+moment that import goes away.
 
-### Not yet converted
+Two programs, because the libs are mutually exclusive:
 
-`projectm-perf.js`, `projectm-transitions.js`, `projectm-shader-cache.js`,
-`projectm-preset-cache.js`, `projectm-preset-dev.js`,
-`projectm-preset-favorites.js`, `projectm-preset-library.js`,
-`projectm-preset-picker.js`, `projectm-preset-tweaker.js`,
-`projectm-render-worker.js`, `projectm-render-worker-host.js`,
-`projectm-experimental-bridge.js`, `projectm-fbo-format.js`,
-`projectm-synthetic-audio.js`, `projectm-audio-player.js`,
-`projectm-weeks-on-fire.js`. Convert module-by-module (add JSDoc, add to
-`tsconfig.json`'s `include`, fix errors) rather than adding `checkJs` for all
-of them at once — each one surfaces its own batch of implicit-`any` and
-Emscripten-boundary casts to work through.
+| tsconfig | lib | Covers |
+|---|---|---|
+| `tsconfig.json` | `DOM` | every module that runs on the main thread |
+| `tsconfig.worker.json` | `WebWorker` | `projectm-render-worker.js` only |
 
-Unit tests for converted modules live under `tests/web/` and run via
+`npm run typecheck` runs both, so `scripts/check_html_types.sh` (CI:
+`build_linux.yml` / `build_emscripten.yml`) gates both.
+
+The worker and its main-thread bridge only meet across `postMessage`, so the
+wire format lives in `projectm-render-worker-types.ts` — included by both
+programs, and the reason a field renamed on one side is a build error on the
+other. Worker replies go through a `postToHost()` wrapper rather than
+`self.postMessage` directly: the raw signature takes `any`, so without it an
+outgoing typo type-checks fine and fails only on the far side.
+
+### Types-only companions
+
+- `projectm-host-types.ts` — `ProjectMModuleLike` plus every host-owned
+  `window` / `globalThis` global. Note that the `Window` augmentation does not
+  apply to `typeof globalThis`, so globals reached as `globalThis.foo` need a
+  matching `var` declaration in the same file.
+- `projectm-context-types.ts` — `ProjectMContext` options and audio-source shapes.
+- `projectm-preset-types.ts` — preset manifest entries, filters, and the
+  IndexedDB record shapes shared by the preset library / picker / cache modules.
+- `projectm-render-worker-types.ts` — the render-worker message protocol.
+- `projectm-wasm-api-worker.ts` — ccall symbol names for the worker proxy.
+
+`generated/projectm-wasm-api.{js,ts}` is the one same-basename `.js`/`.ts` pair
+in the tree. It does not violate rule 1 below: both halves are emitted together
+from `cmake/WasmApiManifest.cmake`, so the `.ts` shadowing the `.js` for JS
+importers is exactly what gives them the generated types. Never hand-edit
+either half — an earlier revision added `setHostAudioSourceRouter()` to the
+`.js` by hand and the next `scripts/sync_wasm_link_common.sh` run deleted it,
+leaving an import of a non-existent export that threw at ESM link time and took
+`projectm-context.js` down with it. Host-side policy belongs in a hand-written
+module.
+
+### Narrowing the module handle
+
+Host modules hold `ProjectMModuleLike` (`Partial<ProjectMModule>`) because they
+feature-detect before use, but the generated wrappers take a full
+`ProjectMModule`. Bridge that with a readiness-checked type predicate rather
+than widening the shared type or reaching for `any`:
+
+```js
+/**
+ * @param {ProjectMModuleLike | null | undefined} m
+ * @returns {m is ProjectMModule}
+ */
+function hasTransitionApi(m) {
+    return !!(m && m._dual_fbo_begin_transition && m._transition_start);
+}
+```
+
+One wrinkle worth knowing before you write the probe: manifest entries declared
+`ccall` (e.g. `load_preset_file`, `shader_cache_begin_load`) get **no**
+`_`-prefixed member on the generated `ProjectMModule` type, even though they are
+in `EXPORTED_FUNCTIONS` and callable at runtime. Probing `m._load_preset_file`
+is therefore a type error, not a real absence — test `m.ccall`, or a sibling
+`direct` entry from the same manifest block.
+
+Unit tests live under `tests/web/` and run via
 `scripts/test_web_embed.sh` (CI: `build_linux.yml` → `web-embed` job). Coverage
 includes PCM origin allowlist + channel trim, WASM script soft-404 fallback,
-preset URL fetch/VFS mocks, COI init-error shapes, and context canvas/destroy
-behavior.
+preset URL fetch/VFS mocks, COI init-error shapes, context canvas/destroy
+behavior, exclusive audio-source policy, and dual-FBO transition readiness
+ordering.
 
 ## Review Checklist
 

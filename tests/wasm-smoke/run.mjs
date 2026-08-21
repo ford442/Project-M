@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 const root = resolve(process.env.PROJECTM_SMOKE_ROOT || process.cwd());
 const modulePath = resolve(process.argv[2] || 'cmake-build/wasm-smoke/projectm-v.030-thread.js');
 const presetPath = resolve(process.argv[3] || 'presets/tests/000-empty.milk');
+const preset2Path = resolve(process.argv[4] || 'presets/tests/110-per_pixel.milk');
 
 function assertReadableFile(path, label) {
   if (!existsSync(path) || !statSync(path).isFile()) {
@@ -69,13 +70,15 @@ async function listen(server) {
 assertReadableFile(modulePath, 'WASM wrapper JS');
 assertReadableFile(modulePath.replace(/\.js$/, '.wasm'), 'WASM binary');
 assertReadableFile(presetPath, 'Smoke preset');
+assertReadableFile(preset2Path, 'Smoke soft-cut preset');
 
 const server = createStaticServer();
 const port = await listen(server);
 const smokePage = rootRelative(resolve(fileURLToPath(new URL('index.html', import.meta.url))));
 const moduleUrl = rootRelative(modulePath);
 const presetUrl = rootRelative(presetPath);
-const url = `http://127.0.0.1:${port}${smokePage}?module=${encodeURIComponent(moduleUrl)}&preset=${encodeURIComponent(presetUrl)}`;
+const preset2Url = rootRelative(preset2Path);
+const url = `http://127.0.0.1:${port}${smokePage}?module=${encodeURIComponent(moduleUrl)}&preset=${encodeURIComponent(presetUrl)}&preset2=${encodeURIComponent(preset2Url)}`;
 
 let browser;
 try {
@@ -95,8 +98,10 @@ try {
     console.error('[browser:pageerror]', error);
   });
 
+  // Cold load + soft-cut second load can each take several seconds under
+  // SwiftShader; allow headroom above the in-page 30s readiness timeout.
   await page.goto(url, { waitUntil: 'load', timeout: 30000 });
-  const result = await page.waitForFunction(() => window.__projectMWasmSmokeResult, null, { timeout: 60000 });
+  const result = await page.waitForFunction(() => window.__projectMWasmSmokeResult, null, { timeout: 90000 });
   const smokeResult = await result.jsonValue();
   if (!smokeResult.ok) {
     throw new Error(`WASM smoke failed: ${smokeResult.error || JSON.stringify(smokeResult)}`);

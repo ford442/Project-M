@@ -16,7 +16,8 @@
   <div id="stat"></div>
   <div id="milkPath" hidden></div>
   <div id="milkPath2" hidden></div>
-  <div id="track" hidden></div>
+  <!-- Must be <audio>: js_initialize_stream_analyser uses createMediaElementSource. -->
+  <audio id="track" hidden></audio>
   <button id="musicBtn" type="button" hidden></button>
   <button id="milkBtn" type="button" hidden></button>
   <button id="customMilkBtn" type="button" hidden></button>
@@ -28,6 +29,9 @@
       steps: [],
       error: null
     };
+
+    // Missing ASYNCIFY_ONLY entries hang on resume rather than crash — fail loud.
+    const PRESET_READY_TIMEOUT_MS = 30000;
 
     function mark(step) {
       result.steps.push(step);
@@ -52,10 +56,90 @@
       });
     }
 
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /** True once the engine reports the incoming preset's shaders are ready. */
+    function isPresetReady(Module) {
+      if (typeof Module._dual_fbo_is_preset_b_ready === 'function' && Module._dual_fbo_is_preset_b_ready()) {
+        return true;
+      }
+      if (typeof Module._is_preset_ready === 'function' && Module._is_preset_ready()) {
+        return true;
+      }
+      return false;
+    }
+
+    /**
+     * Poll readiness after load_preset_file. ccall may return on the first
+     * Asyncify unwind; a hang here means ASYNCIFY_ONLY missed a stack frame.
+     */
+    async function waitForPresetReady(Module, label) {
+      const deadline = performance.now() + PRESET_READY_TIMEOUT_MS;
+      while (performance.now() < deadline) {
+        if (isPresetReady(Module)) {
+          mark(label + ' ready');
+          return;
+        }
+        if (typeof Module._preset_switch_failed === 'function' && Module._preset_switch_failed()) {
+          throw new Error(label + ': preset_switch_failed');
+        }
+        await sleep(16);
+      }
+      throw new Error(
+        label + ': timed out waiting for preset ready after ' + PRESET_READY_TIMEOUT_MS + 'ms' +
+        ' (possible missing ASYNCIFY_ONLY entry)'
+      );
+    }
+
+    async function writePresetToMemfs(Module, url, vfsPath) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch preset ' + url + ': ' + response.status);
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const parts = vfsPath.split('/').filter(Boolean);
+      let dir = '';
+      for (let i = 0; i < parts.length - 1; ++i) {
+        dir += '/' + parts[i];
+        try { Module.FS.mkdir(dir); } catch (_) {}
+      }
+      Module.FS.writeFile(vfsPath, bytes);
+    }
+
+    function assertNoGlError(gl, label) {
+      const glError = gl.getError();
+      if (glError !== gl.NO_ERROR) {
+        throw new Error('WebGL error ' + label + ': 0x' + glError.toString(16));
+      }
+    }
+
+    function probeOpenMp(Module) {
+      if (typeof Module._get_omp_enabled !== 'function') {
+        return;
+      }
+      const ompCompiled = Module._get_omp_enabled();
+      const ompMax = Module._get_omp_max_threads();
+      // Probe parallel workers only after init: spawning OpenMP threads before
+      // the WebGL/audio bring-up can deadlock the pthread pool under some SDKs.
+      let ompParallel = 1;
+      if (typeof Module._get_omp_thread_count_in_parallel === 'function') {
+        ompParallel = Module._get_omp_thread_count_in_parallel();
+      }
+      mark('openmp compiled=' + ompCompiled + ' maxThreads=' + ompMax + ' parallelObserved=' + ompParallel);
+      result.openmp = {
+        compiled: ompCompiled !== 0,
+        maxThreads: ompMax,
+        parallelThreadsObserved: ompParallel
+      };
+    }
+
     async function runSmoke() {
       const params = new URLSearchParams(window.location.search);
       const moduleSrc = params.get('module');
       const presetSrc = params.get('preset') || '/presets/tests/000-empty.milk';
+      const preset2Src = params.get('preset2') || '/presets/tests/110-per_pixel.milk';
       if (!moduleSrc) throw new Error('Missing ?module=<projectm wasm wrapper js>');
 
       await loadScript(moduleSrc);
@@ -82,20 +166,6 @@
         if (!Module[exportName]) throw new Error('Missing Module.' + exportName);
       }
 
-      if (typeof Module._get_omp_enabled === 'function') {
-        const ompCompiled = Module._get_omp_enabled();
-        const ompMax = Module._get_omp_max_threads();
-        const ompParallel = typeof Module._get_omp_thread_count_in_parallel === 'function'
-          ? Module._get_omp_thread_count_in_parallel()
-          : 1;
-        mark('openmp compiled=' + ompCompiled + ' maxThreads=' + ompMax + ' parallelObserved=' + ompParallel);
-        result.openmp = {
-          compiled: ompCompiled !== 0,
-          maxThreads: ompMax,
-          parallelThreadsObserved: ompParallel
-        };
-      }
-
       const initResult = Module.ccall(
         'init_with_canvases',
         'number',
@@ -107,26 +177,66 @@
       }
       mark('init_with_canvases returned 0 (' + primarySelector + ')');
 
-      const presetResponse = await fetch(presetSrc);
-      if (!presetResponse.ok) {
-        throw new Error('Failed to fetch smoke preset: ' + presetResponse.status);
-      }
-      const presetBytes = new Uint8Array(await presetResponse.arrayBuffer());
-      try { Module.FS.mkdir('/presets'); } catch (_) {}
-      try { Module.FS.mkdir('/presets/tests'); } catch (_) {}
-      Module.FS.writeFile('/presets/tests/000-empty.milk', presetBytes);
+      probeOpenMp(Module);
+      await writePresetToMemfs(Module, presetSrc, '/presets/tests/000-empty.milk');
       mark('preset copied to MEMFS');
 
+      // Cold-cache load: hang on resume = missing ASYNCIFY_ONLY entry.
       Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
-      mark('load_preset_file completed');
+      mark('load_preset_file ccall returned');
+      await waitForPresetReady(Module, 'cold preset');
 
       const gl = document.getElementById('pm-smoke-main').getContext('webgl2');
       if (!gl) throw new Error('webgl2 context is unavailable after init');
-      const glError = gl.getError();
-      if (glError !== gl.NO_ERROR) {
-        throw new Error('WebGL error after preset load: 0x' + glError.toString(16));
-      }
+      assertNoGlError(gl, 'after cold preset load');
       mark('webgl error check passed');
+
+      // Soft-cut / dual-FBO path: second load yields again, then transition while live.
+      const hasDualFbo =
+        typeof Module._dual_fbo_begin_transition === 'function' &&
+        typeof Module._transition_start === 'function' &&
+        typeof Module._render_frame === 'function' &&
+        typeof Module._start_render === 'function';
+
+      if (hasDualFbo) {
+        // dual_fbo_begin_transition requires a known viewport from start_render(w,h).
+        const canvas = document.getElementById('pm-smoke-main');
+        const width = canvas.width || 64;
+        const height = canvas.height || 64;
+        Module._start_render(width, height);
+        mark('start_render ok (' + width + 'x' + height + ')');
+
+        await writePresetToMemfs(Module, preset2Src, '/presets/tests/110-per_pixel.milk');
+        mark('second preset copied to MEMFS');
+
+        Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/110-per_pixel.milk']);
+        mark('second load_preset_file ccall returned');
+        await waitForPresetReady(Module, 'soft-cut preset B');
+
+        if (!Module._dual_fbo_begin_transition()) {
+          throw new Error('dual_fbo_begin_transition failed');
+        }
+        mark('dual_fbo_begin_transition ok');
+
+        if (typeof Module._transition_set_duration === 'function') {
+          Module._transition_set_duration(0.25);
+        }
+        Module._transition_start();
+        mark('transition_start ok');
+
+        for (let i = 0; i < 8; ++i) {
+          Module._render_frame();
+        }
+        mark('soft-cut render_frame x8');
+        assertNoGlError(gl, 'after soft-cut frames');
+
+        if (typeof Module._dual_fbo_end_transition === 'function') {
+          Module._dual_fbo_end_transition();
+        }
+        mark('dual-FBO soft-cut path passed');
+      } else {
+        mark('dual-FBO exports absent; skipped soft-cut path');
+      }
 
       finish(true);
     }

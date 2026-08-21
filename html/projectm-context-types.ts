@@ -65,6 +65,13 @@ export interface ProjectMContextOptions {
     wasmScriptUrl?: string;
     /** Base URL for `resolveWasmScriptUrl()` when `wasmScriptUrl` is omitted. */
     wasmBaseUrl?: string;
+    /**
+     * Selectable host bundle version (`?wasm=` / picker). Forwarded to
+     * `createProjectMModule({ wasmVersion })` so locateFile remaps smoke
+     * artifact names to the chosen deploy tag. Ignored when `wasmScriptUrl`
+     * alone is enough and the default bundle is intended.
+     */
+    wasmVersion?: string;
     /** Fail fast when COOP/COEP headers are missing. Default true. */
     requireCrossOriginIsolation?: boolean;
     meshQuality?: ProjectMMeshQuality;

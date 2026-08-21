@@ -376,21 +376,18 @@ ccs = document.querySelector('#circle');
 </script>
 
 <script type="module">
-import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
-import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
-import { setupContextLossRecovery } from './projectm-context-loss.js';
+import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
+import { ensureWorkletReady } from './projectm-worklet-playback.js';
+import { ProjectMContext } from './projectm-context.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
-import { flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
+import { setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import {
   PROJECTM_WASM_SELECTABLE_VERSIONS,
   PROJECTM_WASM_VERSION_STORAGE_KEY,
-  buildProjectMLocateFile,
   buildWasmBundlePaths,
-  loadScript,
   resolveSelectedWasmVersion,
-  resolveWasmScriptUrl,
 } from './projectm-init.js';
-import { checkCrossOriginIsolation, checkInit, setupInitErrorHandling } from './projectm-init-errors.js';
+import { checkCrossOriginIsolation, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 import {
@@ -398,6 +395,10 @@ import {
   isWeeksOnFireMode,
   wireFlacDecoderBridge,
 } from './projectm-weeks-on-fire.js';
+import {
+  addPresetFile,
+  loadPresetFile,
+} from './generated/projectm-wasm-api.js';
 
 // Optional: a missing ./projectm-song-loader.js must not kill this module
 // (soft-404 HTML is served as text/html and fails MIME checks).
@@ -445,7 +446,10 @@ if (weeksOnFireMode) {
   applyWeeksOnFireDomConfig(document);
   document.title = 'B3HD • Project M — Weeks on Fire';
 }
+/** @type {import('./generated/projectm-wasm-api.ts').ProjectMModule | undefined} */
 let Module;
+/** @type {ProjectMContext | null} */
+let pmContext = null;
 let isBezelMode = true;
 let isPresetLocked = false;
 setupExternalAudioReceiver({ preallocSize: 2048 });
@@ -614,7 +618,9 @@ function lockPreset() {
   const btn = document.getElementById('lockPresetBtn');
   document.body.classList.toggle('has-lock', isPresetLocked);
   btn.classList.toggle('engaged', isPresetLocked);
-  if (Module && Module.ccall) Module.ccall('set_preset_locked', null, ['number'], [isPresetLocked ? 1 : 0]);
+  if (pmContext) {
+    pmContext.setLocked(isPresetLocked);
+  }
 }
 function toggleFullscreen() {
   isBezelMode = false;
@@ -678,8 +684,15 @@ function syncModuleSize() {
   const contain1 = document.querySelector('#contain1');
   const mcanvas = document.querySelector('#mcanvas');
   const scanvas = document.querySelector('#scanvas');
-  if (!contain1 || !mcanvas || !scanvas || !Module) return;
+  if (!contain1 || !mcanvas || !scanvas) return;
 
+  if (pmContext) {
+    pmContext.options.aspectCorrection = isBezelMode;
+    pmContext.resize();
+    return;
+  }
+
+  // Pre-init: size canvas CSS/backing store only (no raw Module._* public API).
   const rect = contain1.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = Math.max(1, Math.round(rect.width * dpr));
@@ -691,9 +704,6 @@ function syncModuleSize() {
   mcanvas.style.height = rect.height + 'px';
   scanvas.style.width = rect.width + 'px';
   scanvas.style.height = rect.height + 'px';
-
-  if (Module._set_window_size) Module._set_window_size(w, h);
-  if (Module._set_aspect_correction) Module._set_aspect_correction(isBezelMode);
 }
 
 const resizeObserver = new ResizeObserver(() => {
@@ -720,9 +730,9 @@ setTimeout(() => { document.getElementById('splash2').style.display = 'none'; },
 setTimeout(() => { document.getElementById('splash1').style.display = 'none'; }, 5500);
 
 // ====== INIT ERROR HANDLING ======
-// Shows a recovery overlay (#pm-init-error) if Module._init() fails (EGL/WebGL/projectM
-// setup). See docs/EMSCRIPTEN.md#init-error-codes. Append ?simulateInitFail=1 to the page
-// URL to preview the overlay without breaking WebGL.
+// Shows a recovery overlay (#pm-init-error) if ProjectMContext / WASM init fails
+// (EGL/WebGL/projectM setup). See docs/EMSCRIPTEN.md#init-error-codes. Append
+// ?simulateInitFail=1 to the page URL to preview the overlay without breaking WebGL.
 const initErrors = setupInitErrorHandling(() => initProjectM());
 
 async function initProjectM() {
@@ -734,57 +744,58 @@ async function initProjectM() {
   }
 
   try {
-    if (!checkCrossOriginIsolation()) {
+    if (!pmContext && !Module && !checkCrossOriginIsolation()) {
       return;
     }
-
-    if (!Module) {
-      const wasmScript = await resolveWasmScriptUrl({
-        baseUrl: import.meta.url,
-        pmScript: selectedWasmPaths.pmScript,
-        rootScript: selectedWasmPaths.rootScript,
-        forceRefresh: true,
-      });
-      await loadScript(wasmScript, { defer: true });
-      Module = await createModule({
-        locateFile: buildProjectMLocateFile({ targetBundle: selectedWasmPaths.bundle }),
-      });
-      globalThis.Module = Module;
-    }
-
-    if (!checkInit(Module)) {
-      return;
-    }
-    setupAudioUnlock();
-    installWorkletPlaybackSafetyNet();
-    setupContextLossRecovery(Module);
-
-    updateLayout();
-    syncModuleSize();
-
-    document.getElementById('splash2').style.display = 'none';
-    requestAnimationFrame(() => {
-      document.getElementById('splash1').style.display = 'none';
-    });
 
     const mcanvas = document.querySelector('#mcanvas');
-    Module._start_render(mcanvas.width, mcanvas.height);
-    flushQueuedExternalPCM();
+    const scanvas = document.querySelector('#scanvas');
+    const contain1 = document.querySelector('#contain1');
 
-    if (!window._pmStartupPresetsLoaded) {
-      window._pmStartupPresetsLoaded = true;
+    if (!pmContext) {
+      updateLayout();
+      syncModuleSize();
 
-      if (!weeksOnFireMode) {
-        const startup = await loadStartupApiPresets(5);
-        if (startup.length > 0) {
-          Module.ccall('load_preset_file', null, ['string'], [startup[0].vfsPath]);
-          window.updatePresetDisplay(startup[0].filename);
-          for (let i = 1; i < startup.length; i++) {
-            Module.ccall('add_preset_file', null, ['string'], [startup[i].vfsPath]);
+      pmContext = new ProjectMContext({
+        canvas: mcanvas,
+        secondaryCanvas: scanvas,
+        primaryCanvasSelector: '#mcanvas',
+        secondaryCanvasSelector: '#scanvas',
+        container: contain1 ?? undefined,
+        wasmBaseUrl: import.meta.url,
+        wasmVersion: selectedWasmVersion,
+        aspectCorrection: isBezelMode,
+        presetLocked: isPresetLocked,
+        audioSource: 'none',
+        onError: (detail) => {
+          console.error('[B3HD] context init error:', detail);
+        },
+      });
+
+      await pmContext.start();
+      Module = pmContext.module;
+      globalThis.Module = Module;
+
+      document.getElementById('splash2').style.display = 'none';
+      requestAnimationFrame(() => {
+        document.getElementById('splash1').style.display = 'none';
+      });
+
+      if (!window._pmStartupPresetsLoaded) {
+        window._pmStartupPresetsLoaded = true;
+
+        if (!weeksOnFireMode) {
+          const startup = await loadStartupApiPresets(5);
+          if (startup.length > 0) {
+            loadPresetFile(Module, startup[0].vfsPath);
+            window.updatePresetDisplay(startup[0].filename);
+            for (let i = 1; i < startup.length; i++) {
+              addPresetFile(Module, startup[i].vfsPath);
+            }
           }
+        } else {
+          console.log('[B3HD] Weeks on fire: preset playlist seeded by WASM bootstrap');
         }
-      } else {
-        console.log('[B3HD] Weeks on fire: preset playlist seeded by WASM bootstrap');
       }
     }
   } catch (err) {

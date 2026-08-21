@@ -2,10 +2,10 @@ name: Host Layer Gate
 
 # Guards the html/ host-layer migration (see html/README.md and Epic #163).
 #
-# Fails if html/projectm-core.html reintroduces raw `Module._<sym>` /
-# `Module.ccall(...)` public-API calls instead of routing public engine ops
-# through the generated WASM API (html/generated/projectm-wasm-api.js) or
-# ProjectMContext / <project-m-visualizer>.
+# Fails if a gated host (projectm-core.html, projectm_panel2.1ink) reintroduces
+# raw `Module._<sym>` / `Module.ccall(...)` public-API calls instead of routing
+# public engine ops through the generated WASM API
+# (html/generated/projectm-wasm-api.js) or ProjectMContext / <project-m-visualizer>.
 
 on:
   push:
@@ -21,12 +21,12 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  core-host-public-api:
-    name: Core host public-API gate
+  host-public-api:
+    name: Host public-API gate
     runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Core host uses generated API / context (no raw Module._ public calls)
+      - name: Gated hosts use generated API / context (no raw Module._ public calls)
         run: scripts/check_core_host_public_api.sh

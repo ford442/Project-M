@@ -1,0 +1,18 @@
+# ASYNCIFY_ONLY list for the WASM wrapper / lib link.
+# Canonical source; passed as -s ASYNCIFY_ONLY=@<abs-path>/cmake/wasm_asyncify_only.txt
+#
+# Only functions that can be on the stack when emscripten_sleep(0) runs in
+# WasmPlaylistBridge.cpp::load_preset_file_impl. Shader compile and
+# projectm_load_preset* run *after* the yield returns — do not list them
+# (that would grow instrumentation). Keep render_frame / renderLoop /
+# dual_fbo_* / transition_* off this list.
+#
+# Wildcards: simple * matching (Emscripten Names-section human-readable form).
+# ASYNCIFY_ADVISE=1 confirms these resolve to:
+#   load_preset_file
+#   load_preset_file_hard
+#   load_preset_file_impl(char const*, bool)
+
+load_preset_file
+load_preset_file_hard
+load_preset_file_impl*

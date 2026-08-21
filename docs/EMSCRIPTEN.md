@@ -32,6 +32,7 @@ that are prerequisites for smooth preset cross-fading in the browser.
 | `-O3` | Maximum optimization — needed to handle dual-preset CPU load |
 | `-s ALLOW_MEMORY_GROWTH=1` | Allow WASM heap to grow dynamically — prevents OOM crash when loading a second preset |
 | `-s ASYNCIFY=1` | Allow synchronous C++ functions to yield to the JS event loop — prevents browser freeze during shader compilation |
+| `-s ASYNCIFY_ONLY=@cmake/wasm_asyncify_only.txt` | Instrument only the `load_preset_file*` yield stack (Option B); keep the 60 Hz render path off Asyncify |
 
 ### CMake option: `ENABLE_WASM_TRANSITIONS`
 
@@ -45,6 +46,9 @@ When `ENABLE_WASM_TRANSITIONS=ON`, the following extra flag is applied:
 
 - `-s ASYNCIFY_STACK_SIZE=65536`: Tunes the ASYNCIFY stack size to reduce binary bloat while preserving enough stack
   space for concurrent preset loading and shader compilation.
+
+`ASYNCIFY_ONLY` (see `cmake/wasm_asyncify_only.txt`) is applied whenever `ASYNCIFY=1` is on — independent of
+this option — so the render path stays uninstrumented even for hard-cut-only builds.
 
 Set `-DENABLE_WASM_TRANSITIONS=OFF` only when explicitly debugging the legacy hard-cut path or comparing transition
 overhead.
@@ -196,7 +200,7 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 | `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `MAXIMUM_MEMORY=4gb`, `ALLOW_MEMORY_GROWTH=1` | yes | yes | See `docs/PERFORMANCE.md` for right-sizing |
 | `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=1` | yes | yes | WebGL 2 / GLES 3 target |
 | `GL_POOL_TEMP_BUFFERS=0`, `GL_MAX_TEMP_BUFFER_SIZE=33177600`, `GL_TRACK_ERRORS=0` | yes | yes | GL emulation tuning |
-| `ASYNCIFY=1`, `ASYNCIFY_STACK_SIZE=65536` | yes / when `ENABLE_WASM_TRANSITIONS=ON` | yes / when `ENABLE_WASM_TRANSITIONS=ON` | Non-blocking shader compile |
+| `ASYNCIFY=1`, `ASYNCIFY_ONLY=@cmake/wasm_asyncify_only.txt`, `ASYNCIFY_STACK_SIZE=65536` | yes / yes / when `ENABLE_WASM_TRANSITIONS=ON` | yes / yes / when `ENABLE_WASM_TRANSITIONS=ON` | Non-blocking shader compile; ONLY list is always-on with ASYNCIFY |
 | `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | yes | yes | Single list in `EmscriptenWasmFlags.cmake` |
 | `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
 | `TRUSTED_TYPES=1`, `WASM_BIGINT=1`, `AUDIO_WORKLET=1` | yes | no | Applied when linking static libs via CMake |

@@ -208,8 +208,17 @@ function(projectm_apply_emscripten_lib_link_flags)
     add_link_options("SHELL:${_shell_args}")
 endfunction()
 
-# Applies ASYNCIFY stack tuning when dual-pipeline transitions are enabled.
+# Absolute path to the ASYNCIFY_ONLY symbol list (one name per line).
+# Sleep in load_preset_file_impl is unconditional, so this applies whenever
+# ASYNCIFY=1 is on (shared WASM link settings) — not only when transitions are ON.
+set(PROJECTM_WASM_ASYNCIFY_ONLY_FILE "${CMAKE_CURRENT_LIST_DIR}/wasm_asyncify_only.txt")
+
+# Applies ASYNCIFY_ONLY (always) and ASYNCIFY_STACK_SIZE when dual-pipeline
+# transitions are enabled.
 function(projectm_apply_emscripten_wasm_transition_flags)
+    # Restrict Asyncify instrumentation to the preset-load yield stack (Option B).
+    # emcc requires an absolute path for @file list inputs.
+    add_link_options("SHELL:-s ASYNCIFY_ONLY=@${PROJECTM_WASM_ASYNCIFY_ONLY_FILE}")
     if(ENABLE_WASM_TRANSITIONS)
         add_link_options("SHELL:-s ASYNCIFY_STACK_SIZE=65536")
     endif()

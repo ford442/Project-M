@@ -13,10 +13,10 @@ import {
 } from './projectm-external-pcm.js';
 import { getGovernorRenderScale, setQualityGovernorEnabled, setTargetFps } from './projectm-fps-governor.js';
 import {
+    buildWasmBundlePaths,
     createProjectMModule,
     loadProjectMWasmScript,
     observeModuleSize,
-    resolveWasmScriptUrl,
 } from './projectm-init.js';
 import { checkCrossOriginIsolation, checkInit } from './projectm-init-errors.js';
 import { setMeshQuality } from './projectm-mesh-quality.js';
@@ -226,6 +226,7 @@ this._externalReceiverClose = null;
             requireCrossOriginIsolation,
             wasmScriptUrl,
             wasmBaseUrl,
+            wasmVersion,
             documentRef,
             windowRef,
             meshQuality,
@@ -262,10 +263,13 @@ this._externalReceiverClose = null;
         }
 
         try {
+            const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
+            const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+
             if (wasmScriptUrl) {
                 await loadProjectMWasmScript({
                     documentRef,
-                    baseUrl: wasmBaseUrl,
+                    baseUrl: resolvedBaseUrl,
                     pmScript: wasmScriptUrl,
                     rootScript: wasmScriptUrl,
                     forceRefresh: true,
@@ -273,15 +277,18 @@ this._externalReceiverClose = null;
             } else {
                 await loadProjectMWasmScript({
                     documentRef,
-                    baseUrl: wasmBaseUrl ?? import.meta.url,
+                    baseUrl: resolvedBaseUrl,
+                    ...(versionPaths
+                        ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                        : {}),
+                    forceRefresh: Boolean(wasmVersion),
                 });
             }
 
             this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
-                scriptSrc: wasmScriptUrl || await resolveWasmScriptUrl({
-                    documentRef,
-                    baseUrl: wasmBaseUrl ?? import.meta.url,
-                }),
+                scriptSrc: wasmScriptUrl || undefined,
+                wasmVersion,
+                baseUrl: resolvedBaseUrl,
                 windowRef,
                 noInitialRun: true,
                 primaryCanvasSelector: this.primaryCanvasSelector,

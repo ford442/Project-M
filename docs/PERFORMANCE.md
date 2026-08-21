@@ -761,21 +761,62 @@ transition after a cold start still soft-cuts; it does not silently degrade to a
 | Option | Status | Notes |
 |---|---|---|
 | **A: `-s JSPI=1`** for async preset/shader load | **Deferred** | Requires Emscripten ≥ 3.1.58 + browser matrix (Chrome 137+, Safari 18.2+ for full JSPI). Mobile Safari gaps documented in Emscripten release notes. Pairs with monolith split (#167). |
-| **B: `ASYNCIFY_ONLY` / structured load entrypoints** | **Recommended next step** | List only `load_preset_file`, shader compile, and `projectm_load_preset*` in `ASYNCIFY_ONLY`; keep `render_frame` / `renderLoop` off the instrumented graph. Lowest risk path to shrink `.wasm` ASYNCIFY metadata without dropping dual-FBO transitions. |
+| **B: `ASYNCIFY_ONLY` / structured load entrypoints** | **Implemented (2026-08)** | Restrict instrumentation to the stack at `emscripten_sleep(0)` in `load_preset_file_impl`. Keep `render_frame` / `renderLoop` off the instrumented graph. |
 | **C: `ASYNCIFY_REMOVE` + explicit `emscripten_sleep` yields** | Fallback | Manual yield points at preset-load boundaries; highest engineering cost, hardest to regression-test. |
 
-**Decision (2026-07):** keep `ASYNCIFY=1` + `ASYNCIFY_STACK_SIZE=65536` for this pass. Implement
-Option B after #167 lands (separate load vs render call graphs). No ASYNCIFY flag change in this PR.
+**Decision (2026-07):** keep `ASYNCIFY=1` + `ASYNCIFY_STACK_SIZE=65536` for that pass. Implement
+Option B after #167 lands (separate load vs render call graphs).
 
-Baseline bundle sizes (Emscripten 3.1.53, `ENABLE_WASM_TRANSITIONS=ON`, smoke wrapper link):
+**Decision (2026-08):** Option B landed. List file: [`cmake/wasm_asyncify_only.txt`](../cmake/wasm_asyncify_only.txt),
+wired as `-s ASYNCIFY_ONLY=@…` from [`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake)
+and the generated [`scripts/wasm_link_common.inc.sh`](../scripts/wasm_link_common.inc.sh).
+
+The only user-space suspend is `emscripten_sleep(0)` at the **start** of
+`WasmPlaylistBridge.cpp::load_preset_file_impl` (before HLSL→GLSL / `glCompileShader`).
+Shader compile and `projectm_load_preset*` therefore are **not** on the Asyncify unwind stack;
+listing them would grow instrumentation. `ASYNCIFY_ADVISE=1` on the smoke-wrapper link confirms
+exactly three functions instrumented:
+
+- `load_preset_file`
+- `load_preset_file_hard`
+- `load_preset_file_impl(char const*, bool)` (matched via `load_preset_file_impl*`)
+
+Historical whole-program baseline (Emscripten 3.1.53, `ENABLE_WASM_TRANSITIONS=ON`, smoke wrapper,
+with `-flto` from an earlier pass):
 
 | Artifact | Size |
 |---|---|
-| `.wasm` | 2,024,548 B (with `-flto`; see table above) |
+| `.wasm` | 2,024,548 B |
 | `.js` | 233,319 B |
 
-ASYNCIFY isolation is expected to shave **~5–15%** off `.wasm` (instrumented function count) based
-on audit estimates; verify with `wasm-opt --print-function-map` before/after when Option B lands.
+Option B before/after on the same smoke-wrapper link (Emscripten 6.0.6 locally; no wrapper `-flto`;
+`ENABLE_WASM_TRANSITIONS=ON`; identical sources except `ASYNCIFY_ONLY`):
+
+| Metric | Before (whole-program `ASYNCIFY=1`) | After (`ASYNCIFY_ONLY`) | Delta |
+|---|---|---|---|
+| `.wasm` | 2,691,227 B | **1,593,417 B** | **−1,097,810 B (−40.8%)** |
+| `.js` | 237,008 B | 237,008 B | 0 |
+| `wasm-opt --all-features --print-function-map` lines | 3,119 | 3,119 | Names-section count unchanged (instrumentation is per-function body / spill, not new named exports) |
+| `ASYNCIFY_ADVISE` instrumented (`state=1`) | whole-program reachable set | **3** | Instrumented set collapsed to the load yield stack |
+
+Verification:
+
+```sh
+# Function map (needs --all-features for pthread/atomics builds)
+"$EMSDK/upstream/bin/wasm-opt" --all-features --print-function-map \
+  cmake-build/wasm-smoke/projectm-v.030-thread.wasm -o /dev/null | wc -l
+
+# Size
+stat -c%s cmake-build/wasm-smoke/projectm-v.030-thread.wasm
+
+# Advise pass (temporary): add -s ASYNCIFY_ADVISE=1 next to ASYNCIFY_ONLY and
+# grep 'only-list to 1' in the link log — expect the three load_preset* symbols.
+```
+
+Regression: `tests/wasm-smoke` waits for `_is_preset_ready` / `_dual_fbo_is_preset_b_ready`
+after each `load_preset_file` (hang = missing list entry) and exercises a soft-cut
+(`start_render` → second load → `dual_fbo_begin_transition` → `transition_start` →
+`render_frame` ×8).
 
 ### OpenMP effectiveness gates
 

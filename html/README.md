@@ -48,6 +48,16 @@ canonical, dogfooded surfaces; **panel hosts** layer calibrated chrome on top;
 **legacy full hosts** remain for extended experiments and are on the
 deprecation path below.
 
+### Gated hosts (public-API ratchet)
+
+These hosts must not call raw `Module._<sym>` / `Module.ccall(...)` for public
+engine ops. They boot through **`ProjectMContext`** and/or
+`generated/projectm-wasm-api.js`. Enforced by
+`scripts/check_core_host_public_api.sh` (CI: `.github/workflows/host_layer_gate.yml`):
+
+- `projectm-core.html`
+- `projectm_panel2.1ink`
+
 ### Core / canonical
 
 - `projectm-core.html`: reference core shell. Markup + panel chrome only; boots via
@@ -55,11 +65,10 @@ deprecation path below.
   transparency on the main-thread path (render-worker mode still uses the worker
   handle). Public engine operations go through the generated WASM API
   (`generated/projectm-wasm-api.js`) or context methods — **no raw
-  `Module._<sym>` / `Module.ccall(...)` public-API calls**.
-  Enforced by `scripts/check_core_host_public_api.sh`
-  (CI: `.github/workflows/host_layer_gate.yml`). Render-worker/perf internals
-  that proxy ccalls through the render-worker handle are the only temporarily
-  allowed exception, and they do not touch the `Module` object directly.
+  `Module._<sym>` / `Module.ccall(...)` public-API calls** (see Gated hosts).
+  Render-worker/perf internals that proxy ccalls through the render-worker handle
+  are the only temporarily allowed exception, and they do not touch the `Module`
+  object directly.
 - `embed-demo.html`: minimal third-party embed demo using
   `<project-m-visualizer>` (see `packages/web/README.md`). The custom element
   and `ProjectMContext` (`projectm-context.js`) are the intended init path for
@@ -67,19 +76,24 @@ deprecation path below.
 
 ### Panel hosts
 
-- `projectm_panel.1ink`: legacy panel shell.
 - `projectm_panel2.1ink`: production bezel host with embedded MOD/FLAC iframe
   sections and current bezel calibration. Supports `?mode=weeks_on_fire` like
-  `projectm-core.html`. **Next to migrate** onto the shared host layer (shared
-  modules / generated API), preserving calibrated bezel artwork and hotspot
-  positions; still owns WASM bootstrap, external PCM, and Weeks-on-Fire mode
-  until then.
+  `projectm-core.html`. Boots via **`ProjectMContext`** + generated WASM API
+  (gated; see above). Still owns bezel chrome, external PCM, Weeks-on-Fire mode,
+  and the WASM version picker (`?wasm=`).
+- `projectm_panel.1ink`: **legacy** panel shell superseded by `projectm_panel2.1ink`.
+  **Not gated** — left on the deprecation path until deleted or turned into a
+  redirect; do not add new raw engine calls here.
 
-### Legacy full hosts
+### Legacy full hosts (not gated)
+
+These remain for extended experiments / harness use and are **explicitly out of
+the public-API gate** on purpose (deprecation path, not production):
 
 - `projectm.1ink`: full legacy shell with extended UI experiments.
 - `projectm_new.1ink`: newer full shell used to trial shared modules.
-- `projectm_test.1ink`: harness/test page.
+- `projectm_test.1ink`: harness/test page (already has no raw `Module._` /
+  `Module.ccall` public-API calls).
 
 Legacy full hosts should converge to thin wrappers or redirect stubs per the
 deprecation path below rather than accreting more inline engine calls.

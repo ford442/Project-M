@@ -118,14 +118,24 @@ projectm_wasm_simd_compile_args() {
 #   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link (link-time only)
 #   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default 4)
 #   ENABLE_WASM_TRANSITIONS=ON       (default) adds ASYNCIFY_STACK_SIZE
+# ASYNCIFY_ONLY always points at cmake/wasm_asyncify_only.txt (absolute path required).
 projectm_wasm_pthread_pool_size() {
     echo "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-4}"
+}
+
+projectm_wasm_asyncify_only_file() {
+    # When this .inc.sh is sourced, BASH_SOURCE[0] is scripts/wasm_link_common.inc.sh.
+    local _root
+    _root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    echo "${_root}/cmake/wasm_asyncify_only.txt"
 }
 
 projectm_wasm_common_link_args() {
     local -n _out=$1
     local pthread_pool_size
     pthread_pool_size="$(projectm_wasm_pthread_pool_size)"
+    local asyncify_only_file
+    asyncify_only_file="$(projectm_wasm_asyncify_only_file)"
     local transition_args=()
     if [[ "${ENABLE_WASM_TRANSITIONS:-ON}" == "ON" ]]; then
         transition_args+=("-s" "ASYNCIFY_STACK_SIZE=65536")
@@ -170,6 +180,7 @@ projectm_wasm_common_link_args() {
         -l embind
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"
+        -s "ASYNCIFY_ONLY=@${asyncify_only_file}"
         "${transition_args[@]}"
     )
 }

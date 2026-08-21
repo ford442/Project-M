@@ -818,6 +818,63 @@ after each `load_preset_file` (hang = missing list entry) and exercises a soft-c
 (`start_render` → second load → `dual_fbo_begin_transition` → `transition_start` →
 `render_frame` ×8).
 
+### OpenMP blocktime: the 032 → 036 audio + framerate regression
+
+Bundle **036** was reported as both quieter/glitchier and slower than **032** on
+the same host, preset and machine, which is why `PROJECTM_WASM_DEFAULT_VERSION`
+was pinned back to `032`. Both symptoms are one cause.
+
+**The delta.** 032 predates OpenMP in the wasm build; 036 links the full LLVM
+libomp. Confirmed against the deployed artifacts rather than inferred from
+source (032 has no source correspondence in this tree — the version constant
+only appears from 035 on):
+
+```
+$ strings projectm-v.032-thread.wasm | grep -cE 'kmp_|libomp|GOMP_'
+0
+$ strings projectm-v.036-thread.wasm | grep -cE 'kmp_|libomp|GOMP_'
+17
+$ grep -o 'pthreadPoolSize=[0-9]*' projectm-v.0{32,36}-thread.*    # both: 4
+```
+
+So the pthread pool is identical; what changed is that 036 actually runs OpenMP
+parallel regions on it.
+
+**The mechanism.** libomp does not sleep a team's helper threads when a parallel
+region ends — it spins them until `KMP_BLOCKTIME` elapses, default **200 ms**.
+`PerPixelMesh::CalculateMesh` opens a region every rendered frame (default
+meshes are 4941 verts at 80x60 and 3185 at 64x48, both over
+`OpenMp::kMinPerPixelMeshVerts = 1000`), so the next region always arrives
+~17 ms in at 60 fps — about a twelfth of the spin window. The helpers never
+reach the sleep path and hold their cores for the whole session.
+
+Three permanently-spinning helpers plus the render loop is enough to miss the
+`AudioWorklet`'s deadline (a 128-sample quantum every ~2.7 ms at 48 kHz), which
+is heard as crackle and dropouts, **and** to slow the render loop competing for
+the same cores. Note the audio symptom is necessarily indirect: the engine
+emits no audio at all: playback is entirely `projectm_audio_processor.js` on the
+browser's audio render thread, so no change to PCM ingest, gain, or channel
+counts inside the wasm module can alter what a listener hears.
+
+**The fix.** `ConfigureWasmOpenMPThreadCount()` calls `kmp_set_blocktime(0)`
+alongside the existing thread-count cap. Setting `KMP_BLOCKTIME` through the
+environment does not work in wasm — libomp reads it via `getenv()` during its
+own init and the module has no environment. The cost is a futex wake per
+parallel region; the gain is three cores that are idle when projectM is not
+computing.
+
+**Verifying a deployed bundle:** `Module._get_omp_blocktime()` returns `0` with
+the fix, `200` without it, `-1` for a bundle with no libomp (e.g. 032). It is
+also reported as `openmp.blocktimeMs` by `html/projectm-perf.js`, so a
+before/after capture records it next to the frame times.
+
+**Still to measure in-browser** (needs a rebuilt 036 and real hardware; neither
+was available where this was diagnosed): side-by-side FPS for 032 vs. 036 vs.
+036+fix on one light and one heavy preset at a fixed mesh/canvas size, and a
+listening check on the default FLAC player. If a framerate gap survives with
+`blocktimeMs === 0`, the remaining suspects are the dual-FBO compositor path
+and ASYNCIFY on the render path — both unrelated to this fix.
+
 ### OpenMP effectiveness gates
 
 Central thresholds live in `src/libprojectM/OpenMpConfig.hpp`:

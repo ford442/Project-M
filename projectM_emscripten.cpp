@@ -35,11 +35,42 @@ bool g_presetSwitchFailed = false;
 
 // kWasmPthreadPoolSize comes from cmake/generated/ProjectMWasmBuildConfig.hpp
 // (generated from PROJECTM_WASM_PTHREAD_POOL_SIZE in EmscriptenWasmFlags.cmake).
+//
+// The blocktime call is what keeps the browser's audio thread alive. LLVM
+// libomp parks a team's helper threads in a *spin* wait after every parallel
+// region and only lets them sleep once KMP_BLOCKTIME elapses; the default is
+// 200 ms. PerPixelMesh::CalculateMesh opens a parallel region every rendered
+// frame (the default 80x60 / 64x48 meshes are 4941 / 3185 verts, both well
+// over OpenMp::kMinPerPixelMeshVerts), so at 60 fps the next region always
+// arrives ~17 ms in — two orders of magnitude inside the spin window. The
+// helpers therefore never reach the sleep path and burn 100% of their cores
+// for the whole session, not just while projectM is computing.
+//
+// That is a visualiser stealing cores from the page's AudioWorklet, which has
+// to produce a 128-sample quantum every ~2.7 ms at 48 kHz. Starve it and
+// playback crackles and drops out; the same contention drags the render loop
+// down, which is why the 036 bundle regressed audio *and* framerate together
+// while 032 (linked without any libomp at all) was clean on the same host.
+//
+// KMP_BLOCKTIME cannot be set the usual way here: libomp reads it via getenv()
+// during its own init, and a wasm module has no environment to inherit one
+// from. kmp_set_blocktime() is the programmatic equivalent and must run before
+// the first parallel region, which init() guarantees.
 static void ConfigureWasmOpenMPThreadCount()
 {
 #ifdef _OPENMP
     omp_set_dynamic(0);
     omp_set_num_threads(kWasmPthreadPoolSize);
+    // Sleep helpers immediately instead of spinning between frames. Costs a
+    // futex wake per parallel region; buys back three idle cores.
+    //
+    // kmp_set_blocktime() is an LLVM/Intel libomp extension, not base OpenMP.
+    // __KAI_KMPC_CONVENTION is defined only by their omp.h (the one bundled in
+    // omp/ and used by the wasm build), so this compiles away rather than
+    // failing to link if the file is ever built against GCC's libgomp.
+#if defined(__KAI_KMPC_CONVENTION)
+    kmp_set_blocktime(0);
+#endif
 #endif
 }
 

@@ -2,8 +2,8 @@ name: Host Layer Gate
 
 # Guards the html/ host-layer migration (see html/README.md and Epic #163).
 #
-# Fails if a gated host (projectm-core.html, projectm_panel2.1ink) reintroduces
-# raw `Module._<sym>` / `Module.ccall(...)` public-API calls instead of routing
+# Fails if any first-party host under html/ reintroduces raw
+# `Module._<sym>` / `Module.ccall(...)` public-API calls instead of routing
 # public engine ops through the generated WASM API
 # (html/generated/projectm-wasm-api.js) or ProjectMContext / <project-m-visualizer>.
 

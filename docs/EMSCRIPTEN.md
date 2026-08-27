@@ -146,8 +146,8 @@ Typed JavaScript wrappers are generated into `html/generated/projectm-wasm-api.{
 
 The Emscripten host wrapper was historically a single ~3100-line
 `projectM_emscripten.cpp`. It is now split into focused translation units, all
-sharing `ProjectMWasmInternal.hpp` for the common Emscripten/projectM/GL
-includes and the small amount of cross-TU state:
+living under `src/wasm/` and sharing `ProjectMWasmInternal.hpp` for the common
+Emscripten/projectM/GL includes and the small amount of cross-TU state:
 
 | File | Responsibility |
 |------|----------------|

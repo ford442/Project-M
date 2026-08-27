@@ -2,14 +2,13 @@
 # ================================================
 # check_core_host_public_api.sh
 #
-# Guards the host-layer migration (Epic #163): public engine ops on gated hosts
-# must go through the generated WASM API (html/generated/projectm-wasm-api.js)
-# or ProjectMContext / <project-m-visualizer>, NOT through raw
-# `Module._<sym>` / `Module.ccall(...)` calls.
-#
-# Gated hosts (ratchet grows host-by-host; see html/README.md):
-#   - html/projectm-core.html
-#   - html/projectm_panel2.1ink
+# Guards the host-layer migration (Epic #163): public engine ops on every
+# first-party host under html/ must go through the generated WASM API
+# (html/generated/projectm-wasm-api.js) or ProjectMContext /
+# <project-m-visualizer>, NOT through raw `Module._<sym>` / `Module.ccall(...)`
+# calls. `projectm.1ink`, `projectm_new.1ink`, and `projectm_panel.1ink` are
+# redirect stubs (see html/README.md ".1ink Deprecation Path") and trivially
+# pass since they make no Module calls at all.
 #
 # Render-worker / perf internals that legitimately proxy ccalls through the
 # render-worker handle (renderWorkerHandle.ccallVoid(...)) are NOT matched here
@@ -27,11 +26,17 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Hosts that must stay clean of raw Module._ / Module.ccall public-API calls.
-# Add a host here only after it has been migrated (ratchet, do not shrink).
+# Every first-party host under html/ must stay clean of raw Module._ /
+# Module.ccall public-API calls. Add new hosts here as they are created.
 HOSTS=(
     "$PROJECT_ROOT/html/projectm-core.html"
+    "$PROJECT_ROOT/html/embed-demo.html"
+    "$PROJECT_ROOT/html/embed-multi-iframe.html"
     "$PROJECT_ROOT/html/projectm_panel2.1ink"
+    "$PROJECT_ROOT/html/projectm_panel.1ink"
+    "$PROJECT_ROOT/html/projectm.1ink"
+    "$PROJECT_ROOT/html/projectm_new.1ink"
+    "$PROJECT_ROOT/html/projectm_test.1ink"
 )
 
 # Allowlist of raw `Module._*` symbols that may remain temporarily. These are

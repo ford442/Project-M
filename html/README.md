@@ -51,18 +51,19 @@ Keep remote asset endpoints configurable. Existing pages read `localStorage.apiB
 
 Hosts fall into three tiers: the **core shell** and the **embed demo** are the
 canonical, dogfooded surfaces; **panel hosts** layer calibrated chrome on top;
-**legacy full hosts** remain for extended experiments and are on the
-deprecation path below.
+the former **legacy full hosts** are now redirect stubs onto the core shell.
 
 ### Gated hosts (public-API ratchet)
 
-These hosts must not call raw `Module._<sym>` / `Module.ccall(...)` for public
-engine ops. They boot through **`ProjectMContext`** and/or
-`generated/projectm-wasm-api.js`. Enforced by
-`scripts/check_core_host_public_api.sh` (CI: `.github/workflows/host_layer_gate.yml`):
-
-- `projectm-core.html`
-- `projectm_panel2.1ink`
+No first-party host under `html/` may call raw `Module._<sym>` /
+`Module.ccall(...)` for public engine ops. Hosts boot through
+**`ProjectMContext`** and/or `generated/projectm-wasm-api.js`; redirect stubs
+make no `Module` calls at all. Enforced by
+`scripts/check_core_host_public_api.sh` (CI: `.github/workflows/host_layer_gate.yml`)
+against every first-party host under `html/`: `projectm-core.html`,
+`embed-demo.html`, `embed-multi-iframe.html`, `projectm_panel2.1ink`,
+`projectm_panel.1ink`, `projectm.1ink`, `projectm_new.1ink`,
+`projectm_test.1ink`.
 
 ### Core / canonical
 
@@ -87,28 +88,28 @@ engine ops. They boot through **`ProjectMContext`** and/or
   `projectm-core.html`. Boots via **`ProjectMContext`** + generated WASM API
   (gated; see above). Still owns bezel chrome, external PCM, Weeks-on-Fire mode,
   and the WASM version picker (`?wasm=`).
-- `projectm_panel.1ink`: **legacy** panel shell superseded by `projectm_panel2.1ink`.
-  **Not gated** — left on the deprecation path until deleted or turned into a
-  redirect; do not add new raw engine calls here.
+- `projectm_panel.1ink`: **redirect stub** → `projectm_panel2.1ink`, preserving
+  the query string and hash. Previous inline content is available via git
+  history.
 
-### Legacy full hosts (not gated)
+### Legacy full hosts (redirect stubs)
 
-These remain for extended experiments / harness use and are **explicitly out of
-the public-API gate** on purpose (deprecation path, not production):
-
-- `projectm.1ink`: full legacy shell with extended UI experiments.
-- `projectm_new.1ink`: newer full shell used to trial shared modules.
-- `projectm_test.1ink`: harness/test page (already has no raw `Module._` /
-  `Module.ccall` public-API calls).
-
-Legacy full hosts should converge to thin wrappers or redirect stubs per the
-deprecation path below rather than accreting more inline engine calls.
+`projectm.1ink` and `projectm_new.1ink` are **redirect stubs** →
+`projectm-core.html?experimental=1`. Their unique experimental UI (Depth
+Anything / glTF hooks) was ported to the opt-in
+`projectm-experimental-bridge.js` (see `docs/EXPERIMENTAL_PRESET_HOOKS.md`);
+other inline chrome (build picker, APNG export, bezel/frame overlays) was not
+ported and is only available via git history. `projectm_test.1ink` remains a
+real harness/test page (already has no raw `Module._` / `Module.ccall`
+public-API calls) and is gated (see above).
 
 ## `.1ink` Deprecation Path
 
 Do not delete the `.1ink` hosts in one sweep. First, move shared behavior into modules and have each host import it. Next, replace repeated chrome with templates or dynamic imports. Once a host is thin enough, turn old `.1ink` names into redirect stubs or build-time composed outputs that point at the canonical shell.
 
-Tracked `.bak` files should not be reintroduced. Use git history for previous versions.
+`projectm_panel.1ink`, `projectm.1ink`, and `projectm_new.1ink` have completed
+this path and are now redirect stubs. Tracked `.bak` files should not be
+reintroduced. Use git history for previous versions.
 
 ## TypeScript Migration (Epic #163)
 

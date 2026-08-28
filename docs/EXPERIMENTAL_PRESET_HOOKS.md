@@ -14,7 +14,7 @@ core `.milk` compatibility.
 | Layer | Role | Milkdrop-safe? |
 |-------|------|----------------|
 | `projectm-core.html` + shared `projectm-*.js` | Canonical visualization host | Yes — default path |
-| `projectm.1ink` / `projectm_new.1ink` | Legacy full shell with inlined experiments | N/A (legacy) |
+| `projectm.1ink` / `projectm_new.1ink` | Redirect stubs → `projectm-core.html?experimental=1` (formerly legacy full shells with inlined experiments) | N/A (legacy, see git history) |
 | `projectm-experimental-bridge.js` | **Opt-in** lazy bridge (`?experimental=1`) | Yes — off by default |
 | `presets/experimental/` | Sample presets + docs only; excluded from default compat | Yes — opt-in load |
 
@@ -222,7 +222,9 @@ canvas, wait for depth result (or click **Bind result**).
 - [x] `projectm-experimental-bridge.js` gated behind `?experimental=1`
 - [x] No new hard dependencies in `projectm-init.js` / WASM link line
 - [x] `// pm:experimental` fields documented here, not in core `PRESET_METADATA.md` table
-- [x] Legacy `.1ink` hosts unchanged (bridge is additive)
+- [x] `projectm.1ink` / `projectm_new.1ink` are now redirect stubs to
+  `projectm-core.html?experimental=1` (see html/README.md ".1ink Deprecation
+  Path"); their prior inline depth/glTF flow is preserved in git history
 - [x] Unit tests do not require network, OpenGL, or the remote depth module
 
 ---

@@ -97,13 +97,13 @@ projectm_wasm_wrapper_include_args wrapper_include_args
 # must be passed to the final em++ link. Header-only pieces (WasmGraphics.hpp,
 # ProjectMWasmInternal.hpp) are #included, not listed here.
 wrapper_sources=(
-    "$PROJECT_ROOT/projectM_emscripten.cpp"
-    "$PROJECT_ROOT/WasmWebGLContext.cpp"
-    "$PROJECT_ROOT/WasmDualFbo.cpp"
-    "$PROJECT_ROOT/WasmAudioBridge.cpp"
-    "$PROJECT_ROOT/WasmPerfGovernor.cpp"
-    "$PROJECT_ROOT/WasmPlaylistBridge.cpp"
-    "$PROJECT_ROOT/WasmJsBindings.cpp"
+    "$PROJECT_ROOT/src/wasm/projectM_emscripten.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmWebGLContext.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmDualFbo.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmAudioBridge.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmPerfGovernor.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmPlaylistBridge.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmJsBindings.cpp"
 )
 
 # Prefer em++ so the final link always pulls in libc++ / libc++abi. Linking the

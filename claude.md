@@ -35,15 +35,16 @@ Project-M/
 ├── presets/              # Visualization presets (.milk files)
 ├── custom_milk_fixed/    # Curated AI-authored preset regression set
 ├── html/                 # WASM demo hosts + shared browser modules (see html/README.md)
-├── projectM_emscripten.cpp  # WASM host: init orchestration + render loop (see split below)
-├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
-├── WasmGraphics.hpp         # Dual-FBO manager, GL state guard, compositing shader
-├── WasmWebGLContext.cpp     # WebGL context create/destroy + canvas selectors
-├── WasmDualFbo.cpp          # dual_fbo_* / transition_* exports
-├── WasmAudioBridge.cpp      # Audio worklet + stream analyser + PCM feed
-├── WasmPerfGovernor.cpp     # Perf HUD + adaptive quality governor + OpenMP info
-├── WasmPlaylistBridge.cpp   # Preset callbacks + playlist path helpers
-├── WasmJsBindings.cpp       # EM_JS DOM/VFS bootstrap + host-page notifications
+├── src/wasm/                 # Emscripten host wrapper (all TUs, see split below)
+│   ├── projectM_emscripten.cpp  # WASM host: init orchestration + render loop
+│   ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
+│   ├── WasmGraphics.hpp         # Dual-FBO manager, GL state guard, compositing shader
+│   ├── WasmWebGLContext.cpp     # WebGL context create/destroy + canvas selectors
+│   ├── WasmDualFbo.cpp          # dual_fbo_* / transition_* exports
+│   ├── WasmAudioBridge.cpp      # Audio worklet + stream analyser + PCM feed
+│   ├── WasmPerfGovernor.cpp     # Perf HUD + adaptive quality governor + OpenMP info
+│   ├── WasmPlaylistBridge.cpp   # Preset callbacks + playlist path helpers
+│   └── WasmJsBindings.cpp       # EM_JS DOM/VFS bootstrap + host-page notifications
 ├── projectm_audio_processor.js  # Web Audio Worklet for audio processing
 ├── CMakeLists.txt        # Build configuration
 └── docs/
@@ -54,7 +55,7 @@ Project-M/
 ## Key Development Areas
 
 ### C++ Code
-- **Main Files**: `projectM_emscripten.cpp`, `src/libprojectM/`
+- **Main Files**: `src/wasm/projectM_emscripten.cpp`, `src/libprojectM/`
 - **Language**: **C++20** (enforced by CMake — see `AGENTS.md` Technology Stack)
 - **Build System**: CMake (see `AGENTS.md` Build System & Commands; do not duplicate here)
 - **Code Style**: Follow `.clang-format` and `.clang-tidy` configs (see `AGENTS.md`)

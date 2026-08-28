@@ -69,7 +69,7 @@ tests/
   libprojectM/               ← Unit tests for core library (GTest)
   playlist/                  ← Unit tests for playlist library (GTest)
 presets/tests/               ← .milk preset files used in render regression tests
-projectM_emscripten.cpp      ← WASM-specific EGL/WebGL init + Emscripten bindings
+src/wasm/projectM_emscripten.cpp ← WASM-specific EGL/WebGL init + Emscripten bindings
 projectm_audio_processor.js  ← Web Audio Worklet (audio pipeline for browser builds)
 ```
 

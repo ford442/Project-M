@@ -1064,7 +1064,11 @@ commands and UI resize/events only" requirement):
   resulting frame pacing on a `setTimeout` fallback has not been measured.
 
 **Browser matrix tested**: none — no browser/display is available in this
-environment. To test:
+environment. Still true as of the `src/wasm/` host-layout reorg (2026-08):
+that session also had no Emscripten toolchain to build a `.wasm` bundle and no
+GPU/audio-backed browser to run one, so `?renderWorker=1` stays opt-in and
+`docs/GRAPHICS_PERF_RECOVERY_PLAN.md` A4 stays deferred — see that section for
+the current default-on decision gate. To test:
 
 1. Serve `html/` (needs to be served with `Cross-Origin-Opener-Policy: same-origin`
    and `Cross-Origin-Embedder-Policy: require-corp` for the SharedArrayBuffer PCM

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>projectM — two engines, one Module</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #050505;
+      color: #cbd5e1;
+      font-family: system-ui, sans-serif;
+    }
+
+    header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 14px;
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      font-size: 14px;
+    }
+
+    #grid {
+      position: absolute;
+      inset: 52px 0 0 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px;
+      background: #111;
+    }
+
+    .cell { position: relative; overflow: hidden; }
+    .cell canvas { display: block; width: 100%; height: 100%; }
+    .cell .label {
+      position: absolute; top: 8px; left: 10px; z-index: 2;
+      font-size: 12px; opacity: 0.8; text-shadow: 0 1px 2px #000;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>projectM — two engines in one Module</strong>
+    <span id="status">Starting…</span>
+  </header>
+
+  <!--
+    #168 Phase B: two independent projectM engines (A/B) rendering to two
+    canvases inside a SINGLE WASM Module — no iframes, one INITIAL_MEMORY
+    reservation. Boot one Module with bootProjectMSharedModule(), then create
+    two ProjectMContext instances that each call create_host() in it.
+
+    Requires COOP/COEP on the page (SharedArrayBuffer). WASM glue resolves from
+    ./pm/ (see projectm-init.js). Audio worklet/analyser is process-global, so
+    this demo runs both engines visual-only (audioSource: 'none'); a host can
+    route PCM to a specific engine with _projectm_pcm_add_float_wrapper(handle,…).
+  -->
+  <div id="grid">
+    <div class="cell">
+      <span class="label">Engine A</span>
+      <canvas id="canvasA" class="pm-main-canvas"></canvas>
+    </div>
+    <div class="cell">
+      <span class="label">Engine B</span>
+      <canvas id="canvasB" class="pm-main-canvas"></canvas>
+    </div>
+  </div>
+
+  <script type="module">
+    import { bootProjectMSharedModule, ProjectMContext } from './projectm-context.js';
+    import { hostCount, maxHostCount } from './generated/projectm-wasm-api.js';
+
+    const status = document.getElementById('status');
+    const setStatus = (t) => { status.textContent = t; };
+
+    (async () => {
+      try {
+        // 1. Boot ONE Module (no engine yet).
+        const module = await bootProjectMSharedModule({});
+
+        // 2. Guard against the instance cap so the demo fails loudly rather
+        //    than silently sharing GL state. Route through the generated API,
+        //    never raw Module._* (host public-API gate).
+        const maxHosts = maxHostCount(module);
+        if (maxHosts < 2) {
+          setStatus(`This build caps engines at ${maxHosts}; need 2.`);
+          return;
+        }
+
+        // 3. Create two engine instances inside that one Module.
+        const contexts = await Promise.all(
+          [
+            { canvas: document.getElementById('canvasA'), preset: './presets/tests/000-empty.milk' },
+            { canvas: document.getElementById('canvasB'), preset: './presets/tests/000-empty.milk' },
+          ].map(({ canvas, preset }) =>
+            new ProjectMContext({
+              canvas,
+              container: canvas.parentElement,
+              sharedModule: module,
+              requireCrossOriginIsolation: true,
+              audioSource: 'none',
+              meshQuality: 'auto',
+              targetFps: 60,
+              presetUrl: preset,
+            }).start()
+          )
+        );
+
+        setStatus(`Ready — ${hostCount(module)} engines live in one Module.`);
+
+        // Clean up both engines (frees each host; the Module persists).
+        window.addEventListener('pagehide', () => {
+          for (const ctx of contexts) ctx.destroy();
+        });
+      } catch (err) {
+        setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>

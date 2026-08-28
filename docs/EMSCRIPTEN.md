@@ -108,20 +108,59 @@ backward compatibility. Hosts can override the CSS selectors used for WebGL cont
 
 ### Multi-instance story (memory)
 
-True dual-engine multi-instance inside **one** Module is **not** supported yet (`AppData` and
-related host state remain process-global — see #168 Phase B).
+Two engines in **one** Module are now supported (#168 Phase B). Per-instance host state
+(`AppData`, the dual-FBO manager, transition timeline, quality governor, audio-source flag,
+WebGL context, and canvas selectors) lives in a heap-allocated `WasmHost` — see
+[Multi-instance host state](#multi-instance-host-state) below. The instance count is capped at
+`max_host_count()` (**2** for v1: A/B, compare-two-presets).
 
 | Approach | Supported? | Memory notes |
 |----------|:----------:|--------------|
-| One Module, one visualizer, configurable selectors | **yes** (MVP) | One `INITIAL_MEMORY` reservation (default **256mb**, growable to 4gb) |
+| One Module, one visualizer, configurable selectors | **yes** | One `INITIAL_MEMORY` reservation (default **256mb**, growable to 4gb) |
 | One Module, `rebind_canvases()` to switch surfaces | **yes** | Same Module; only one surface active |
-| Two `<project-m-visualizer>` in one document sharing one Module | **no** | Would require Phase B instance handles |
+| Two visualizers in one document sharing one Module (`create_host()`) | **yes** (cap 2) | One `INITIAL_MEMORY` reservation; two engines + two dual-FBO pairs on the same heap |
+| Three+ engines in one Module | **no** | `create_host()` past `max_host_count()` returns 0 with a typed error rather than sharing GL state |
 | Two Module instantiations in one document | **avoid** | ≈256 MiB+ each (`INITIAL_MEMORY`); can still OOM low-RAM mobile |
 | Multi-embed via **cross-origin-isolated iframes** | **yes** | One Module per iframe; isolate COOP/COEP on the iframe origin |
 
-Recommended multi-embed recipe: host each visualizer in its own iframe served with COOP/COEP
-(see [DEPLOYMENT.md](DEPLOYMENT.md#cross-origin-isolation-coopcoep)). That keeps pthread /
-`SharedArrayBuffer` working and caps memory per frame.
+For A/B in one Module, boot one Module with `bootProjectMSharedModule()` and give each
+`ProjectMContext` (or `<project-m-visualizer>`) a `sharedModule` — see
+`html/embed-multi-same-module.html`. The cross-origin-isolated **iframe** recipe
+(one Module per iframe, see [DEPLOYMENT.md](DEPLOYMENT.md#cross-origin-isolation-coopcoep))
+remains the escape hatch for full isolation or more than two engines.
+
+### Multi-instance host state
+
+Every former process-global host variable now lives in a heap `WasmHost`
+(`src/wasm/WasmHost.hpp`). `src/wasm/WasmHost.cpp` owns a small registry (the ONE remaining
+host-level global: the active-host pointer + a slot array capped at `kMaxHosts`) and exposes
+the multi-instance C exports:
+
+| Export | Purpose |
+|--------|---------|
+| `create_host(primary, secondary)` | Allocate + init an engine on the given canvases; returns an opaque handle (0 at the cap or on init failure) |
+| `set_active_host(handle)` | Select which host the no-handle exports operate on and make its WebGL context current (0 = default host) |
+| `get_active_host()` | Opaque handle of the active host (0 if none) |
+| `destroy_host(handle)` | Tear down and free a host created with `create_host()` |
+| `host_count()` / `max_host_count()` | Live instance count / compile-time cap |
+
+Every other export operates on the **active** host. `ProjectMContext` selects it with
+`set_active_host()` before each control op (the "close over it" model); the shared Emscripten
+main loop renders each started host in turn, making each one current for its frame. Legacy
+no-handle callers keep working against a lazily-created compat **default** host (slot 0), so a
+single-instance page needs no changes.
+
+**Per-instance vs. still process-global.** Rendering, transitions, the idle-FBO release
+(#199), and the quality governor (#178) are per-host. Two things remain process-global in v1
+and are documented limitations, not bugs:
+
+- **Audio.** The Web Audio worklet / analyser plumbing (`window.projectMAudioContext_Global_Cpp`,
+  one worklet node) is shared. The second engine is visual-only unless the host routes PCM to it
+  explicitly via `_projectm_pcm_add_float_wrapper(handle, …)` (the wrapper now honors a non-zero
+  engine handle; 0 still means "active host").
+- **Transpiled-GLSL shader cache.** `shader_cache_*` install a libprojectM-global hook, so
+  concurrent preset loads on both engines would share the cache key. Fine for the A/B case,
+  where one preset loads at a time.
 
 ## Emscripten flag single source of truth
 
@@ -151,7 +190,8 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 
 | File | Responsibility |
 |------|----------------|
-| `projectM_emscripten.cpp` | Init orchestration, `AppData` ownership, transpiled-GLSL shader cache, render loop, engine lifecycle + render exports, `main()` |
+| `projectM_emscripten.cpp` | Init orchestration, transpiled-GLSL shader cache, shared render loop (iterates started hosts), engine lifecycle + render exports, `main()` |
+| `WasmHost.hpp` / `WasmHost.cpp` | Per-instance `WasmHost` struct (all former host globals), the host registry + active-host pointer, and the `create_host` / `set_active_host` / `destroy_host` multi-instance exports (#168 Phase B) |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `g_dualFbo`/`g_compositorShader` instances, transition state, `dual_fbo_*` and `transition_*` exports |
@@ -177,8 +217,14 @@ To add a new `EMSCRIPTEN_KEEPALIVE` C export:
 1. **Implement it** in the TU that owns the concern (e.g. a new audio export
    goes in `WasmAudioBridge.cpp`, WebGL/canvas work in `WasmWebGLContext.cpp`).
    Wrap it in `extern "C" { ... }` and mark it
-   `EMSCRIPTEN_KEEPALIVE`. If it needs cross-TU state, add an `extern`
-   declaration to `ProjectMWasmInternal.hpp` rather than duplicating a global.
+   `EMSCRIPTEN_KEEPALIVE`. If it needs **per-instance** state, add a field to
+   `struct WasmHost` (`WasmHost.hpp`) and reach it through `Host()` — never a new
+   process-global, which would silently be shared across instances. Each TU maps
+   the field to the active host with the object-like macros / `auto&` aliases at
+   the top of the file (e.g. `#define g_dualFbo (Host().dualFbo)`), so export
+   bodies stay handle-free; make your export run under the caller's host by
+   having the JS side call `set_active_host()` first (`ProjectMContext` already
+   does this before every control op).
 2. **Register the symbol** in `cmake/EmscriptenWasmFlags.cmake`
    (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) so it is added to
    `EXPORTED_FUNCTIONS`, and add a matching entry to

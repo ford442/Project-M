@@ -2,9 +2,21 @@
 //
 // Preset playlist bridge: projectM preset-switch callbacks, playlist path /
 // preset add helpers, load_preset_file(), and preset-readiness queries.
-#include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
 
 using namespace emscripten;
+
+// Per-instance host state (#168 Phase B). The engine/playlist/loading triple
+// and the preset-readiness gate were process-global; they are now members of
+// the active WasmHost. These callbacks fire synchronously from inside the
+// active host's render/load, and the exports run after set_active_host(), so
+// mapping the former global names to Host() members keeps the bodies unchanged.
+#define pm                    (Host().appData.projectm_engine)
+#define app_data              (Host().appData)
+#define g_presetBReady        (Host().presetBReady)
+#define g_renderedFrameCount  (Host().renderedFrameCount)
+#define g_presetReadyFrame    (Host().presetReadyFrame)
+#define g_presetSwitchFailed  (Host().presetSwitchFailed)
 
 void load_preset_callback_example(bool is_hard_cut, unsigned int index,void* user_data) {
 // AppData* app_data = (AppData*)user_data;

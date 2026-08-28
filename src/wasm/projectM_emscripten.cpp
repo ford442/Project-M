@@ -14,24 +14,22 @@
 //   WasmJsBindings.cpp    EM_JS DOM/VFS bootstrap + host-page notifications
 //
 // See docs/EMSCRIPTEN.md ("Where to add a WASM export").
-#include "ProjectMWasmInternal.hpp"
-#include "WasmGraphics.hpp"
-#include "WasmWebGLContext.hpp"
+#include "WasmHost.hpp"
 
 #include <cstdlib>
 
 using namespace emscripten;
 
-// ---- Core engine state (declared extern in ProjectMWasmInternal.hpp) -------
-projectm_handle pm;
-AppData app_data;
-projectm_playlist_handle playlist = {};
+// All former process-global engine/transition/loading state now lives in the
+// active WasmHost (see WasmHost.hpp). Each function opens with
+// `WasmHost& H = Host();` and same-named reference aliases so the bodies below
+// read exactly as they did when these were file-scope globals.
 
-// ---- Async preset loading / transition gating (declared extern in header) --
-bool g_presetBReady = false;
-uint32_t g_renderedFrameCount = 0;
-uint32_t g_presetReadyFrame = 0;
-bool g_presetSwitchFailed = false;
+// Whether the shared Emscripten main loop (renderLoop) has been registered.
+// Process-global loop bookkeeping, not per-instance host state: one main loop
+// services every started host. start_render() registers it once; a rebind
+// teardown cancels it and clears this so the next start_render() re-registers.
+static bool g_mainLoopRegistered = false;
 
 // kWasmPthreadPoolSize comes from cmake/generated/ProjectMWasmBuildConfig.hpp
 // (generated from PROJECTM_WASM_PTHREAD_POOL_SIZE in EmscriptenWasmFlags.cmake).
@@ -82,6 +80,13 @@ static void ConfigureWasmOpenMPThreadCount()
 // allocation resume a blend against a stale g_transitionStartTime.
 static void ResetTransitionState()
 {
+    WasmHost& H = Host();
+    auto& g_transitionActive    = H.transitionActive;
+    auto& g_transitionBlend     = H.transitionBlend;
+    auto& g_transitionStartTime = H.transitionStartTime;
+    auto& g_transitionEndTime   = H.transitionEndTime;
+    auto& g_presetBReady        = H.presetBReady;
+
     g_transitionActive  = false;
     g_transitionBlend   = 0.0f;
     g_transitionStartTime = 0.0;
@@ -91,9 +96,18 @@ static void ResetTransitionState()
 
 static void TearDownEngineForRebind()
 {
+    WasmHost& H = Host();
+    auto& pm        = H.appData.projectm_engine;
+    auto& playlist  = H.appData.playlist;
+    auto& app_data  = H.appData;
+    auto& g_dualFbo = H.dualFbo;
+
     // Cancel the Emscripten main loop if one is running so rebind can restart it
-    // via start_render() after a fresh init().
+    // via start_render() after a fresh init(). The loop is process-global, so
+    // clear the registration flag too. Single-instance rebind only (documented).
     emscripten_cancel_main_loop();
+    g_mainLoopRegistered = false;
+    H.renderLoopStarted = false;
 
     if (playlist)
     {
@@ -283,14 +297,14 @@ void create_sprite()
         "per_pixel_4=g = 0.0;"
         "per_pixel_5=b = 1.0;";
 
-    projectm_sprite_create(app_data.projectm_engine, "milkdrop", new_sprite_code);
+    projectm_sprite_create(Host().appData.projectm_engine, "milkdrop", new_sprite_code);
     return;
 }
 
 EMSCRIPTEN_KEEPALIVE
 uintptr_t get_projectm_handle()
 {
-    return reinterpret_cast<uintptr_t>(app_data.projectm_engine);
+    return reinterpret_cast<uintptr_t>(Host().appData.projectm_engine);
 }
 } // extern "C"
 
@@ -299,8 +313,19 @@ uintptr_t get_projectm_handle()
 // Emscripten main loop by start_render() — must call it every frame.
 extern "C" void render_frame();
 
-void renderLoop()
+// Renders one frame for the currently-active host. renderLoop() makes each
+// started host active in turn and calls this. All state read here is per-host;
+// the audio-feed and perf-HUD JS hooks operate on the active host's engine /
+// current WebGL context.
+static void RenderActiveHostFrame()
 {
+    WasmHost& H = Host();
+    auto& app_data             = H.appData;
+    auto& g_wasLoading         = H.wasLoading;
+    auto& g_postLoadGraceFrames = H.postLoadGraceFrames;
+    auto& g_is_streaming_audio = H.isStreamingAudio;
+    auto& g_perfHudEnabled     = H.perfHudEnabled;
+
     if (app_data.loading == EM_TRUE)
     {
         g_wasLoading = true;
@@ -351,10 +376,35 @@ void renderLoop()
     return;
 }
 
+// The single Emscripten main loop services every started host. With one host
+// (the compat/default path) this is exactly the old single-instance loop; with
+// two (#168 Phase B) each is made active — which makes its own WebGL context
+// current — and rendered in turn within the same rAF tick.
+void renderLoop()
+{
+    const int slots = HostSlotCount();
+    for (int i = 0; i < slots; ++i)
+    {
+        WasmHost* h = HostSlot(i);
+        if (h == nullptr || !h->renderLoopStarted)
+        {
+            continue;
+        }
+        SetActiveHost(h);
+        RenderActiveHostFrame();
+    }
+}
+
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void start_render(int width, int height)
 {
+    WasmHost& H = Host();
+    auto& pm                 = H.appData.projectm_engine;
+    auto& app_data           = H.appData;
+    auto& g_dualFbo          = H.dualFbo;
+    auto& g_compositorShader = H.compositorShader;
+
     // glClearColor( 1.0, 1.0, 1.0, 0.0 );
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     printf("Setting window size: %i x %i\n", width, height);
@@ -390,11 +440,20 @@ void start_render(int width, int height)
     {
         fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
     }
-    emscripten_set_main_loop((void (*)()) renderLoop, 0, 0);
+
+    // Opt this host into the shared render loop. Register the process-global
+    // Emscripten main loop only once; it then iterates every started host.
+    H.renderLoopStarted = true;
+    if (!g_mainLoopRegistered)
+    {
+        emscripten_set_main_loop((void (*)()) renderLoop, 0, 0);
 
 
-    emscripten_set_main_loop_timing(2, 1);
+        emscripten_set_main_loop_timing(2, 1);
 
+
+        g_mainLoopRegistered = true;
+    }
 
     return;
 }
@@ -420,8 +479,9 @@ EMSCRIPTEN_KEEPALIVE
 int rebind_canvases(const char* primary, const char* secondary)
 {
     // Single-instance rebind: tear down the active engine/GL context and re-init
-    // against new canvas selectors. Does not support two simultaneous engines in
-    // one Module (INITIAL_MEMORY ≈ 1 GiB per Module instance).
+    // against new canvas selectors. For two simultaneous engines use
+    // create_host() (#168 Phase B) rather than rebinding.
+    auto& pm = Host().appData.projectm_engine;
     set_canvas_selectors(primary, secondary);
     if (pm || WasmWebGLGetContext())
     {
@@ -433,6 +493,12 @@ int rebind_canvases(const char* primary, const char* secondary)
 EMSCRIPTEN_KEEPALIVE
 int init()
 {
+    WasmHost& H = Host();
+    auto& pm        = H.appData.projectm_engine;
+    auto& app_data  = H.appData;
+    auto& playlist  = H.appData.playlist;
+    auto& g_dualFbo = H.dualFbo;
+
     if (pm)
     {
         js_report_init_success();
@@ -495,13 +561,29 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void set_mesh(int w, int h)
 {
-    projectm_set_mesh_size(pm, w, h);
+    projectm_set_mesh_size(Host().appData.projectm_engine, w, h);
     return;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void destruct()
 {
+    WasmHost& H = Host();
+    auto& pm        = H.appData.projectm_engine;
+    auto& g_dualFbo = H.dualFbo;
+
+    // This host leaves the shared render loop; the loop keeps running for any
+    // other started host.
+    H.renderLoopStarted = false;
+
+    // Destroy the playlist before the engine it references (matches
+    // TearDownEngineForRebind); required so a per-host destroy_host() does not
+    // leak the playlist.
+    if (H.appData.playlist)
+    {
+        projectm_playlist_destroy(H.appData.playlist);
+        H.appData.playlist = NULL;
+    }
     if (pm)
     {
         projectm_destroy(pm);
@@ -526,6 +608,12 @@ void destruct()
 EMSCRIPTEN_KEEPALIVE
 void pm_handle_context_loss()
 {
+    WasmHost& H = Host();
+    auto& pm        = H.appData.projectm_engine;
+    auto& app_data  = H.appData;
+    auto& playlist  = H.appData.playlist;
+    auto& g_dualFbo = H.dualFbo;
+
     if (pm)
     {
         projectm_destroy(pm);
@@ -543,6 +631,7 @@ void pm_handle_context_loss()
 EMSCRIPTEN_KEEPALIVE
 void set_aspect_correction(bool enabled)
 {
+    auto& pm = Host().appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_aspect_correction(pm, enabled);
@@ -552,6 +641,7 @@ void set_aspect_correction(bool enabled)
 EMSCRIPTEN_KEEPALIVE
 void set_preset_locked(bool locked)
 {
+    auto& pm = Host().appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_preset_locked(pm, locked);
@@ -562,6 +652,7 @@ void set_preset_locked(bool locked)
 EMSCRIPTEN_KEEPALIVE
 void set_transparency_mode(bool enabled)
 {
+    auto& pm = Host().appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_transparency_mode(pm, enabled);
@@ -571,6 +662,7 @@ void set_transparency_mode(bool enabled)
 EMSCRIPTEN_KEEPALIVE
 bool get_transparency_mode()
 {
+    auto& pm = Host().appData.projectm_engine;
     if (!pm)
         return false;
     return projectm_get_transparency_mode(pm);
@@ -579,6 +671,7 @@ bool get_transparency_mode()
 EMSCRIPTEN_KEEPALIVE
 void set_transparency_threshold(float threshold)
 {
+    auto& pm = Host().appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_transparency_threshold(pm, threshold);
@@ -588,6 +681,7 @@ void set_transparency_threshold(float threshold)
 EMSCRIPTEN_KEEPALIVE
 float get_transparency_threshold()
 {
+    auto& pm = Host().appData.projectm_engine;
     if (!pm)
         return 0.01f;
     return projectm_get_transparency_threshold(pm);
@@ -599,10 +693,11 @@ float get_transparency_threshold()
 // preset crossfade is active.
 static bool ShouldUseDualFboCompositor()
 {
-    return g_transitionActive &&
-           g_dualFbo.IsPresetAAllocated() &&
-           g_dualFbo.IsPresetBAllocated() &&
-           g_compositorShader.IsInitialized();
+    WasmHost& H = Host();
+    return H.transitionActive &&
+           H.dualFbo.IsPresetAAllocated() &&
+           H.dualFbo.IsPresetBAllocated() &&
+           H.compositorShader.IsInitialized();
 }
 
 // Reclaims the Preset A ping-pong pair once it has been idle long enough.
@@ -615,6 +710,12 @@ static bool ShouldUseDualFboCompositor()
 // or disable it via dual_fbo_set_idle_release_seconds().
 static void ReleaseDualFboIfIdle()
 {
+    WasmHost& H = Host();
+    auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
+    auto& g_transitionActive      = H.transitionActive;
+    auto& g_dualFbo               = H.dualFbo;
+    auto& g_transitionEndTime     = H.transitionEndTime;
+
     if (g_dualFboIdleReleaseSec < 0.0f || g_transitionActive || !g_dualFbo.IsPresetAAllocated())
     {
         return;
@@ -643,6 +744,18 @@ static void ReleaseDualFboIfIdle()
 EMSCRIPTEN_KEEPALIVE
 void render_frame()
 {
+    WasmHost& H = Host();
+    auto& pm                    = H.appData.projectm_engine;
+    auto& g_dualFbo             = H.dualFbo;
+    auto& g_compositorShader    = H.compositorShader;
+    auto& g_transitionBlend     = H.transitionBlend;
+    auto& g_transitionDuration  = H.transitionDuration;
+    auto& g_transitionStartTime = H.transitionStartTime;
+    auto& g_transitionEndTime   = H.transitionEndTime;
+    auto& g_transitionActive    = H.transitionActive;
+    auto& g_presetBReady        = H.presetBReady;
+    auto& g_renderedFrameCount  = H.renderedFrameCount;
+
     if (!pm)
         return;
 
@@ -734,6 +847,10 @@ void render_frame()
 EMSCRIPTEN_KEEPALIVE
 void set_window_size(int width, int height)
 {
+    WasmHost& H = Host();
+    auto& pm        = H.appData.projectm_engine;
+    auto& g_dualFbo = H.dualFbo;
+
     if (!pm)
         return;
     WasmWebGLResizeCanvases(width, height);

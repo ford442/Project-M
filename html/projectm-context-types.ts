@@ -61,6 +61,15 @@ export interface ProjectMContextOptions {
     secondaryCanvasSelector?: string;
     /** Element observed for resize / DPR sync. Defaults to the canvas parent. */
     container?: HTMLElement;
+    /**
+     * A projectM Module already booted by `bootProjectMSharedModule()`. When
+     * set, this context does NOT boot its own Module; it creates a dedicated
+     * engine instance inside the shared one via `create_host()` (#168 Phase B),
+     * so several visualizers share one INITIAL_MEMORY reservation without
+     * iframes. The shared Module is torn down by whoever booted it, not by this
+     * context's `destroy()`. See docs/EMSCRIPTEN.md ("Multi-instance host state").
+     */
+    sharedModule?: import('./generated/projectm-wasm-api.ts').ProjectMModule | null;
     /** Override resolved WASM glue URL (absolute or site-relative). */
     wasmScriptUrl?: string;
     /** Base URL for `resolveWasmScriptUrl()` when `wasmScriptUrl` is omitted. */

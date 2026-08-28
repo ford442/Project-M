@@ -32,6 +32,7 @@ HOSTS=(
     "$PROJECT_ROOT/html/projectm-core.html"
     "$PROJECT_ROOT/html/embed-demo.html"
     "$PROJECT_ROOT/html/embed-multi-iframe.html"
+    "$PROJECT_ROOT/html/embed-multi-same-module.html"
     "$PROJECT_ROOT/html/projectm_panel2.1ink"
     "$PROJECT_ROOT/html/projectm_panel.1ink"
     "$PROJECT_ROOT/html/projectm.1ink"

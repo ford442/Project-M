@@ -19,6 +19,12 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _set_canvas_selectors
     _init_with_canvases
     _rebind_canvases
+    _create_host
+    _set_active_host
+    _get_active_host
+    _destroy_host
+    _host_count
+    _max_host_count
     _load_preset_file
     _switch_preset
     _set_aspect_correction

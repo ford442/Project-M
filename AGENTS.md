@@ -46,7 +46,8 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   └── stb_image/          # Image loading
 ├── src/wasm/                # Emscripten host wrapper (all TUs, see docs/EMSCRIPTEN.md)
 │   ├── projectM_emscripten.cpp # WASM host wrapper: init orchestration + render loop
-│   ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
+│   ├── WasmHost.hpp/.cpp       # Per-instance WasmHost struct + host registry + create/set/destroy_host
+│   ├── ProjectMWasmInternal.hpp # Shared WASM host includes (AppData, EM_JS decls)
 │   ├── WasmGraphics.hpp        # Dual-FBO manager, GL state guard, compositing shader
 │   ├── WasmWebGLContext.cpp    # WebGL context create/destroy + canvas selectors
 │   ├── WasmDualFbo.cpp         # dual_fbo_* / transition_* exports

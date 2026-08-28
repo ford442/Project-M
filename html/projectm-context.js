@@ -31,10 +31,82 @@ import {
     setTransparencyMode,
     setTransparencyThreshold,
     switchPreset,
+    createHost,
+    setActiveHost,
+    destroyHost,
 } from './generated/projectm-wasm-api.js';
 
 const DEFAULT_TARGET_FPS = 60;
 let canvasIdSerial = 0;
+
+/**
+ * Boot a single projectM WASM Module *without* initialising an engine, so that
+ * several `ProjectMContext` instances can share it and each create their own
+ * per-instance host with `create_host()` (#168 Phase B). Pass the returned
+ * module to each context as `options.sharedModule`.
+ *
+ * Two engines in one Module cost one INITIAL_MEMORY reservation instead of one
+ * per iframe; see docs/EMSCRIPTEN.md ("Multi-instance host state") for the
+ * memory budget and the process-global audio caveat.
+ *
+ * @param {{
+ *   wasmVersion?: string,
+ *   wasmBaseUrl?: string,
+ *   wasmScriptUrl?: string,
+ *   documentRef?: Document,
+ *   windowRef?: (Window & typeof globalThis),
+ *   primaryCanvasSelector?: string,
+ *   secondaryCanvasSelector?: string,
+ * }} [options]
+ * @returns {Promise<ProjectMModule>}
+ */
+export async function bootProjectMSharedModule(options = {}) {
+    const {
+        wasmVersion,
+        wasmBaseUrl,
+        wasmScriptUrl,
+        documentRef = typeof document !== 'undefined' ? document : undefined,
+        windowRef = typeof window !== 'undefined' ? window : undefined,
+        primaryCanvasSelector,
+        secondaryCanvasSelector,
+    } = options;
+
+    const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
+    const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+
+    if (wasmScriptUrl) {
+        await loadProjectMWasmScript({
+            documentRef,
+            baseUrl: resolvedBaseUrl,
+            pmScript: wasmScriptUrl,
+            rootScript: wasmScriptUrl,
+            forceRefresh: true,
+        });
+    } else {
+        await loadProjectMWasmScript({
+            documentRef,
+            baseUrl: resolvedBaseUrl,
+            ...(versionPaths
+                ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                : {}),
+            forceRefresh: Boolean(wasmVersion),
+        });
+    }
+
+    const module = /** @type {ProjectMModule} */ (await createProjectMModule({
+        scriptSrc: wasmScriptUrl || undefined,
+        wasmVersion,
+        baseUrl: resolvedBaseUrl,
+        windowRef,
+        noInitialRun: true,
+        primaryCanvasSelector,
+        secondaryCanvasSelector,
+    }));
+    if (windowRef) {
+        windowRef.Module = module;
+    }
+    return module;
+}
 
 /**
  * Ensure a canvas has a document-unique id for Emscripten CSS selectors.
@@ -191,6 +263,16 @@ export class ProjectMContext {
             : (options.secondaryCanvasSelector || '#scanvas');
         /** @type {ProjectMModule | null} */
         this.module = null;
+        /**
+         * Opaque per-instance host handle from create_host() when this context
+         * shares a Module with others (#168 Phase B). 0 means the process
+         * default host (single-instance / legacy path), where no set_active_host
+         * is needed because there is only one engine.
+         * @type {number}
+         */
+        this.hostHandle = 0;
+        /** Whether this context owns the Module (created it) vs. shares one. */
+        this.ownsModule = true;
         this.ready = false;
         this.destroyed = false;
         /** @type {ResizeObserver | null} */
@@ -263,48 +345,75 @@ this._externalReceiverClose = null;
         }
 
         try {
-            const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
-            const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
-
-            if (wasmScriptUrl) {
-                await loadProjectMWasmScript({
-                    documentRef,
-                    baseUrl: resolvedBaseUrl,
-                    pmScript: wasmScriptUrl,
-                    rootScript: wasmScriptUrl,
-                    forceRefresh: true,
-                });
+            const sharedModule = this.options.sharedModule;
+            if (sharedModule) {
+                // Multi-instance path (#168 Phase B): reuse a Module booted by
+                // bootProjectMSharedModule() and create a dedicated engine
+                // instance inside it. create_host() sets its own canvas
+                // selectors and inits the engine, returning an opaque handle;
+                // every engine op below activates this host first.
+                this.module = /** @type {ProjectMModule} */ (sharedModule);
+                this.ownsModule = false;
+                if (windowRef) {
+                    windowRef.Module = this.module;
+                }
+                const handle = createHost(
+                    this.module,
+                    this.primaryCanvasSelector,
+                    this.secondaryCanvasSelector || '#scanvas'
+                );
+                if (!handle) {
+                    const error = new Error(
+                        'create_host() failed (instance cap reached or engine init failed)'
+                    );
+                    onError?.({ code: 4, message: error.message, error });
+                    throw error;
+                }
+                this.hostHandle = handle;
             } else {
-                await loadProjectMWasmScript({
-                    documentRef,
+                const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
+                const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+
+                if (wasmScriptUrl) {
+                    await loadProjectMWasmScript({
+                        documentRef,
+                        baseUrl: resolvedBaseUrl,
+                        pmScript: wasmScriptUrl,
+                        rootScript: wasmScriptUrl,
+                        forceRefresh: true,
+                    });
+                } else {
+                    await loadProjectMWasmScript({
+                        documentRef,
+                        baseUrl: resolvedBaseUrl,
+                        ...(versionPaths
+                            ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                            : {}),
+                        forceRefresh: Boolean(wasmVersion),
+                    });
+                }
+
+                this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
+                    scriptSrc: wasmScriptUrl || undefined,
+                    wasmVersion,
                     baseUrl: resolvedBaseUrl,
-                    ...(versionPaths
-                        ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
-                        : {}),
-                    forceRefresh: Boolean(wasmVersion),
-                });
-            }
+                    windowRef,
+                    noInitialRun: true,
+                    primaryCanvasSelector: this.primaryCanvasSelector,
+                    secondaryCanvasSelector: this.secondaryCanvasSelector,
+                }));
+                if (windowRef) {
+                    windowRef.Module = this.module;
+                }
 
-            this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
-                scriptSrc: wasmScriptUrl || undefined,
-                wasmVersion,
-                baseUrl: resolvedBaseUrl,
-                windowRef,
-                noInitialRun: true,
-                primaryCanvasSelector: this.primaryCanvasSelector,
-                secondaryCanvasSelector: this.secondaryCanvasSelector,
-            }));
-            if (windowRef) {
-                windowRef.Module = this.module;
-            }
-
-            if (!checkInit(this.module, {
-                primaryCanvasSelector: this.primaryCanvasSelector,
-                secondaryCanvasSelector: this.secondaryCanvasSelector,
-            })) {
-                const error = new Error('projectM init() failed');
-                onError?.({ code: -1, message: error.message, error });
-                throw error;
+                if (!checkInit(this.module, {
+                    primaryCanvasSelector: this.primaryCanvasSelector,
+                    secondaryCanvasSelector: this.secondaryCanvasSelector,
+                })) {
+                    const error = new Error('projectM init() failed');
+                    onError?.({ code: -1, message: error.message, error });
+                    throw error;
+                }
             }
 
             this.audioRouter = existingAudioRouter ?? createAudioSourceRouter({
@@ -330,6 +439,12 @@ this._externalReceiverClose = null;
             setupContextLossRecovery(this.module, {
                 canvasSelector: this.primaryCanvasSelector,
             });
+
+            // Everything from here drives the engine; make this context's host
+            // active first (no-op for the single-instance default host). The
+            // calls below run synchronously without yielding, so one activation
+            // covers the whole startup control sequence.
+            this.#activate();
 
             syncCanvasSize({
                 module: this.module,
@@ -408,6 +523,7 @@ this._externalReceiverClose = null;
         if (!this.module) {
             throw new Error('ProjectMContext is not started');
         }
+        this.#activate();
         return loadPresetFromUrl(url, {
             module: this.module,
             windowRef: this.options.windowRef,
@@ -422,6 +538,7 @@ this._externalReceiverClose = null;
         if (!this.module) {
             throw new Error('ProjectMContext is not started');
         }
+        this.#activate();
         return loadLocalPresetFile(file, {
             module: this.module,
             updateDisplay: true,
@@ -432,6 +549,7 @@ this._externalReceiverClose = null;
         if (!this.module) {
             return;
         }
+        this.#activate();
         switchPreset(this.module);
     }
 
@@ -440,6 +558,7 @@ this._externalReceiverClose = null;
         if (!this.module) {
             return;
         }
+        this.#activate();
         setPresetLocked(this.module, locked);
     }
 
@@ -448,6 +567,7 @@ this._externalReceiverClose = null;
         if (!this.module) {
             return;
         }
+        this.#activate();
         setTransparencyMode(this.module, enabled);
         if (this.secondaryCanvas) {
             this.secondaryCanvas.style.display = enabled ? 'none' : 'block';
@@ -462,6 +582,7 @@ this._externalReceiverClose = null;
         if (!this.module) {
             return;
         }
+        this.#activate();
         return setMeshQuality(this.module, quality);
     }
 
@@ -473,6 +594,7 @@ this._externalReceiverClose = null;
         if (!this.module) {
             return;
         }
+        this.#activate();
         return setTargetFps(this.module, fps);
     }
 
@@ -491,6 +613,7 @@ this._externalReceiverClose = null;
     }
 
     resize() {
+        this.#activate();
         syncCanvasSize({
             module: this.module,
             container: this.container,
@@ -500,6 +623,17 @@ this._externalReceiverClose = null;
             devicePixelRatio: this.options.devicePixelRatio,
             renderScale: this.renderScale,
         });
+    }
+
+    /**
+     * Make this context's engine the active host before a control op. No-op for
+     * the single-instance default host (hostHandle 0), where there is only one
+     * engine and set_active_host would be redundant.
+     */
+    #activate() {
+        if (this.hostHandle && this.module) {
+            setActiveHost(this.module, this.hostHandle);
+        }
     }
 
     destroy() {
@@ -526,7 +660,13 @@ this._externalReceiverClose = null;
         }
         this.audioRouter?.destroy();
         this.audioRouter = null;
-        if (this.module?._destruct) {
+        if (this.hostHandle && this.module) {
+            // Multi-instance: free just this engine; the shared Module and any
+            // sibling contexts keep running. The Module itself is torn down by
+            // whoever booted it (bootProjectMSharedModule caller).
+            destroyHost(this.module, this.hostHandle);
+            this.hostHandle = 0;
+        } else if (this.ownsModule && this.module?._destruct) {
             this.module._destruct();
         }
         this.module = null;
@@ -604,6 +744,7 @@ this._externalReceiverClose = null;
             }
 
             const now = performance.now();
+            this.#activate();
             const frameCount = this.module._get_rendered_frame_count?.() ?? 0;
             if (!this.fpsLastSample) {
                 this.fpsLastSample = now;

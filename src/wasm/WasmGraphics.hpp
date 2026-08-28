@@ -901,6 +901,8 @@ private:
     GLint  m_locPos      = -1;
 };
 
-// Shared instances (defined in WasmDualFbo.cpp).
-extern DualPingPongFramebuffer g_dualFbo;
-extern CompositingBlendShader g_compositorShader;
+// The dual-FBO manager and compositing shader are per-instance state: each
+// engine owns its own pair as members of WasmHost (see WasmHost.hpp). TUs reach
+// the active host's instances via `auto& g_dualFbo = H.dualFbo;` aliases, so the
+// class definitions above stay shared here while the instances are no longer
+// process-global.

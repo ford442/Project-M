@@ -37,7 +37,8 @@ Project-M/
 ├── html/                 # WASM demo hosts + shared browser modules (see html/README.md)
 ├── src/wasm/                 # Emscripten host wrapper (all TUs, see split below)
 │   ├── projectM_emscripten.cpp  # WASM host: init orchestration + render loop
-│   ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
+│   ├── WasmHost.hpp/.cpp        # Per-instance WasmHost struct + host registry + create/set/destroy_host
+│   ├── ProjectMWasmInternal.hpp # Shared WASM host includes (AppData, EM_JS decls)
 │   ├── WasmGraphics.hpp         # Dual-FBO manager, GL state guard, compositing shader
 │   ├── WasmWebGLContext.cpp     # WebGL context create/destroy + canvas selectors
 │   ├── WasmDualFbo.cpp          # dual_fbo_* / transition_* exports

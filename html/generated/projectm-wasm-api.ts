@@ -19,6 +19,9 @@ export type ProjectMModule = EmscriptenModule & {
     _destruct: () => void;
     _get_projectm_handle: () => number;
     _init: () => number;
+    _get_active_host: () => number;
+    _host_count: () => number;
+    _max_host_count: () => number;
     _switch_preset: () => void;
     _set_aspect_correction: (enabled: number) => void;
     _render_frame: () => void;
@@ -92,6 +95,12 @@ export const WASM_API_SYMBOLS = {
     setCanvasSelectors: 'set_canvas_selectors',
     initWithCanvases: 'init_with_canvases',
     rebindCanvases: 'rebind_canvases',
+    createHost: 'create_host',
+    setActiveHost: 'set_active_host',
+    getActiveHost: 'get_active_host',
+    destroyHost: 'destroy_host',
+    hostCount: 'host_count',
+    maxHostCount: 'max_host_count',
     loadPresetFile: 'load_preset_file',
     switchPreset: 'switch_preset',
     setAspectCorrection: 'set_aspect_correction',
@@ -242,6 +251,36 @@ export function initWithCanvases(module: ProjectMModule, primary: string, second
 /** Tear down and re-init against new canvas selectors (single-instance) */
 export function rebindCanvases(module: ProjectMModule, primary: string, secondary: string): number {
     return module.ccall('rebind_canvases', 'number', ['string', 'string'], [primary, secondary]) as number;
+}
+
+/** Create and init a new engine instance on the given canvases, returning an opaque host handle (0 if at the instance cap or init failed) */
+export function createHost(module: ProjectMModule, primary: string, secondary: string): number {
+    return module.ccall('create_host', 'number', ['string', 'string'], [primary, secondary]) as number;
+}
+
+/** Select which host subsequent no-handle exports operate on and make its WebGL context current (0 = default host) */
+export function setActiveHost(module: ProjectMModule, handle: number): void {
+    module.ccall('set_active_host', null, ['number'], [handle]);
+}
+
+/** Opaque handle of the active host (0 if none) */
+export function getActiveHost(module: ProjectMModule): number {
+    return module._get_active_host();
+}
+
+/** Tear down and free a host created with create_host() */
+export function destroyHost(module: ProjectMModule, handle: number): void {
+    module.ccall('destroy_host', null, ['number'], [handle]);
+}
+
+/** Number of live engine instances in this Module */
+export function hostCount(module: ProjectMModule): number {
+    return module._host_count();
+}
+
+/** Compile-time cap on simultaneous engine instances per Module */
+export function maxHostCount(module: ProjectMModule): number {
+    return module._max_host_count();
 }
 
 /** Load preset from Emscripten VFS path */
@@ -575,6 +614,12 @@ export const PUBLIC_WASM_API = [
     setCanvasSelectors,
     initWithCanvases,
     rebindCanvases,
+    createHost,
+    setActiveHost,
+    getActiveHost,
+    destroyHost,
+    hostCount,
+    maxHostCount,
     loadPresetFile,
     switchPreset,
     setAspectCorrection,

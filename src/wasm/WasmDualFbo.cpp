@@ -4,43 +4,34 @@
 // Owns the shared g_dualFbo / g_compositorShader instances and the transition
 // timeline state. Exposes the dual_fbo_* and transition_* EMSCRIPTEN_KEEPALIVE
 // C exports that JavaScript drives during a preset crossfade.
-#include "ProjectMWasmInternal.hpp"
-#include "WasmGraphics.hpp"
-
-// Global dual ping-pong FBO manager instance (Emscripten/WASM build only).
-DualPingPongFramebuffer g_dualFbo;
-
-// Global compositing shader instance (Emscripten/WASM build only).
-CompositingBlendShader g_compositorShader;
+#include "WasmHost.hpp"
 
 // =============================================================================
-// Phase 5: Transition Controller State
+// Per-instance host state (#168 Phase B).
 //
-// Manages the blend timeline that crossfades Preset A -> Preset B.
+// The dual-FBO manager, compositing shader, and the transition/idle-release
+// timeline were process-global (one blend in flight per Module). They are now
+// members of the active WasmHost (see WasmHost.hpp), so each engine crossfades
+// independently. Rather than thread a host handle through all 29 dual-FBO /
+// transition exports, the former global names are mapped to the active host's
+// members below; every export body stays byte-for-byte unchanged. The active
+// host is selected by set_active_host() (ProjectMContext) or the render loop
+// before any of these run, and Host() is a cheap pointer deref.
+//
+// Defaults that used to live on the global initialisers (transitionDuration =
+// 3 s, dualFboIdleReleaseSec = 5 s, etc.) now live on the WasmHost member
+// initialisers.
 // =============================================================================
-float  g_transitionDuration  = 3.0f;  //!< Crossfade duration in seconds (default 3 s).
-bool   g_transitionActive    = false; //!< Whether a blend is currently in progress.
-float  g_transitionBlend     = 0.0f;  //!< Current blend value in [0.0, 1.0].
-double g_transitionStartTime = 0.0;   //!< emscripten_get_now() timestamp (ms) at blend start.
-
-// =============================================================================
-// Idle release policy for the Preset A pair
-//
-// Preset A is crossfade scratch only: between transitions render_frame() takes
-// the direct-to-canvas path and never samples it. Holding the pair resident for
-// a whole session costs ~14 MB at 1280x720 RGBA16F (~31 MB at 1920x1080) of VRAM
-// that nothing reads. render_frame() reclaims it once this many seconds have
-// passed since the last transition ended.
-//
-//   > 0  release after that many idle seconds (default)
-//   == 0 release on the first idle frame after a transition
-//   <  0 never release; keep the pair resident once allocated
-//
-// The grace period exists so back-to-back preset switches reuse the live pair
-// instead of thrashing glTexImage2D on every switch.
-// =============================================================================
-float  g_dualFboIdleReleaseSec = 5.0f; //!< Idle seconds before Preset A is reclaimed.
-double g_transitionEndTime     = 0.0;  //!< emscripten_get_now() timestamp (ms) at last blend end.
+#define pm                      (Host().appData.projectm_engine)
+#define g_dualFbo               (Host().dualFbo)
+#define g_compositorShader      (Host().compositorShader)
+#define g_transitionDuration    (Host().transitionDuration)
+#define g_transitionActive      (Host().transitionActive)
+#define g_transitionBlend       (Host().transitionBlend)
+#define g_transitionStartTime   (Host().transitionStartTime)
+#define g_transitionEndTime     (Host().transitionEndTime)
+#define g_dualFboIdleReleaseSec (Host().dualFboIdleReleaseSec)
+#define g_presetBReady          (Host().presetBReady)
 
 // =============================================================================
 // Phase 2 + Phase 3: Dual ping-pong FBO lifecycle C API (EMSCRIPTEN_KEEPALIVE exports)

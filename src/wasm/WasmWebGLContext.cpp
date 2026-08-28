@@ -3,15 +3,21 @@
 // WebGL 2 context create/destroy, extension enablement, and configurable canvas
 // CSS selectors. See docs/EMSCRIPTEN.md § WebGL context attributes.
 #include "WasmWebGLContext.hpp"
-#include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
 
 using namespace emscripten;
 
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE g_glCtx = 0;
-
-static char g_mainCanvasSelector[kCanvasSelectorMax] = "#mcanvas";
-static char g_secondaryCanvasSelector[kCanvasSelectorMax] = "#scanvas";
-static bool g_canvasSelectorsExplicit = false;
+// Per-instance host state (#168 Phase B). The WebGL context handle and the
+// canvas CSS selectors were process-global, so a second engine could not own a
+// distinct canvas. They are now WasmHost members; mapping the former names to
+// the active host's members keeps the create/destroy/resize bodies unchanged.
+// The selector defaults ("#mcanvas" / "#scanvas") live on the WasmHost member
+// initialisers. None of the EM_ASM/EM_JS bodies below reference these
+// identifiers, so these object-like macros do not rewrite the embedded JS.
+#define g_glCtx                   (Host().glCtx)
+#define g_mainCanvasSelector      (Host().primarySelector)
+#define g_secondaryCanvasSelector (Host().secondarySelector)
+#define g_canvasSelectorsExplicit (Host().canvasSelectorsExplicit)
 
 static void CopyCanvasSelector(char* dest, size_t destSize, const char* src, const char* fallback)
 {

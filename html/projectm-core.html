@@ -576,6 +576,35 @@ const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)
 const enableLocalPresets = new URLSearchParams(window.location.search).get('localPresets') === '1';
 const urlParams = new URLSearchParams(window.location.search);
 const weeksOnFireMode = isWeeksOnFireMode(urlParams);
+
+// WebGL context attributes are parsed here in the host layer and forwarded to
+// the WASM host as ProjectMContext options (the C++ side no longer scrapes the
+// URL — see #128 / docs/EMSCRIPTEN.md "WebGL context attributes"). `?aa=1` or
+// localStorage.canvasAA opt into MSAA; `?capture=1` (or window.__projectMCaptureMode)
+// keeps a readable back-buffer; `?fboPrecision=high|byte` picks the dual-FBO format.
+function resolveCanvasAntialias(params) {
+    const q = params.get('aa');
+    if (q === '1' || q === 'true') return true;
+    if (q === '0' || q === 'false') return false;
+    try {
+        const stored = window.localStorage ? window.localStorage.getItem('canvasAA') : null;
+        return stored === '1' || stored === 'true';
+    } catch (_) {
+        return false;
+    }
+}
+function resolveCapture(params) {
+    return window.__projectMCaptureMode === true
+        || params.get('capture') === '1' || params.get('capture') === 'true';
+}
+/** @returns {'half' | 'high' | 'byte'} */
+function resolveFboPrecision(params) {
+    const v = (params.get('fboPrecision') || '').toLowerCase();
+    return v === 'high' || v === 'byte' ? v : 'half';
+}
+const contextAntialias = resolveCanvasAntialias(urlParams);
+const contextPreserveDrawingBuffer = resolveCapture(urlParams);
+const contextFboPrecision = resolveFboPrecision(urlParams);
 wireFlacDecoderBridge(document);
 if (weeksOnFireMode) {
     applyWeeksOnFireDomConfig(document);
@@ -1380,6 +1409,9 @@ async function attemptInit() {
                 transparent: isTransparencyMode,
                 transparencyThreshold: TRANSPARENCY_THRESHOLD,
                 presetLocked: isPresetLocked,
+                antialias: contextAntialias,
+                preserveDrawingBuffer: contextPreserveDrawingBuffer,
+                fboPrecision: contextFboPrecision,
                 audioSource: 'none',
                 audioRouter: audioSourceRouter,
                 onError: (detail) => {

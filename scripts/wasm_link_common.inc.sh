@@ -17,6 +17,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _get_projectm_handle
     _init
     _set_canvas_selectors
+    _set_context_config
     _init_with_canvases
     _rebind_canvases
     _create_host

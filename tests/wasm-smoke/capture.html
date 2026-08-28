@@ -287,6 +287,20 @@
         if (!Module[name]) throw new Error('Missing Module.' + name);
       }
 
+      // Capture needs a stable, readable back-buffer. The host builds its own
+      // WebGL context (the createModule webglContextAttributes above are inert),
+      // so preserveDrawingBuffer must come through set_context_config() before
+      // init() — the C++ side no longer scrapes ?capture= / __projectMCaptureMode
+      // for context attributes (#128). Args: antialias, preserveDrawingBuffer,
+      // depth, stencil, alpha, powerPreference, fboPrecision.
+      if (typeof Module._set_context_config === 'function') {
+        Module.ccall(
+          'set_context_config', null,
+          ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
+          [0, 1, 1, 1, 1, 2, 0]
+        );
+      }
+
       const initResult = Module._init();
       if (initResult !== 0) throw new Error('Module._init() returned ' + initResult);
       setStat('init ok');

@@ -76,8 +76,19 @@ public:
      * @param ctx The active Emscripten WebGL context handle.
      * @param preferHighPrecision Whether RGBA32F should be preferred over RGBA16F.
      */
-    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, bool preferHighPrecision = false)
+    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, int precisionMode = 0)
     {
+        // precisionMode: 0 = prefer RGBA16F (default), 1 = prefer RGBA32F
+        // (high), 2 = force RGBA8 (byte, degraded — for debugging the low-
+        // precision path on a float-capable GPU). Host sets this via
+        // set_context_config({ fboPrecision }).
+        if (precisionMode == 2)
+        {
+            m_format = FboFloatFormat::RGBA8;
+            printf("DualFBO: Forced GL_RGBA8 (fboPrecision=byte); output is dithered/clamped.\n");
+            return;
+        }
+        const bool preferHighPrecision = (precisionMode == 1);
         const bool hasFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE);
         const bool hasHalfFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE);
 

@@ -22,6 +22,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "get_projectm_handle|internal|direct|number||Opaque projectM handle pointer"
     "init|public|direct|number||Initialize EGL/WebGL and projectM, returns 0 on success"
     "set_canvas_selectors|public|ccall|void|primary:string,secondary:string|Set primary/secondary canvas CSS selectors (default #mcanvas/#scanvas)"
+    "set_context_config|public|ccall|void|antialias:number,preserveDrawingBuffer:number,depth:number,stencil:number,alpha:number,powerPreference:number,fboPrecision:number|Configure WebGL context attributes and dual-FBO precision (call before init/init_with_canvases/create_host)"
     "init_with_canvases|public|ccall|number|primary:string,secondary:string|Set canvas selectors then init (returns 0 on success)"
     "rebind_canvases|public|ccall|number|primary:string,secondary:string|Tear down and re-init against new canvas selectors (single-instance)"
     "create_host|public|ccall|number|primary:string,secondary:string|Create and init a new engine instance on the given canvases, returning an opaque host handle (0 if at the instance cap or init failed)"

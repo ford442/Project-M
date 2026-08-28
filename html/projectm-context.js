@@ -34,6 +34,7 @@ import {
     createHost,
     setActiveHost,
     destroyHost,
+    setContextConfig,
 } from './generated/projectm-wasm-api.js';
 
 const DEFAULT_TARGET_FPS = 60;
@@ -357,6 +358,9 @@ this._externalReceiverClose = null;
                 if (windowRef) {
                     windowRef.Module = this.module;
                 }
+                // Context attributes are baked at context creation, which
+                // create_host() does — configure them first.
+                this.#applyContextConfig();
                 const handle = createHost(
                     this.module,
                     this.primaryCanvasSelector,
@@ -405,6 +409,10 @@ this._externalReceiverClose = null;
                 if (windowRef) {
                     windowRef.Module = this.module;
                 }
+
+                // Context attributes are baked when checkInit() creates the
+                // WebGL context — configure them first.
+                this.#applyContextConfig();
 
                 if (!checkInit(this.module, {
                     primaryCanvasSelector: this.primaryCanvasSelector,
@@ -634,6 +642,33 @@ this._externalReceiverClose = null;
         if (this.hostHandle && this.module) {
             setActiveHost(this.module, this.hostHandle);
         }
+    }
+
+    /**
+     * Forward WebGL context attributes + dual-FBO precision to the WASM host
+     * before it creates the context. Options default to the historical behavior
+     * (MSAA off, preserveDrawingBuffer off, depth/stencil on, high-performance
+     * GPU, RGBA16F precision), so a host that sets none keeps the old defaults.
+     */
+    #applyContextConfig() {
+        if (!this.module || typeof setContextConfig !== 'function') {
+            return;
+        }
+        const o = this.options;
+        const powerMap = { 'default': 0, 'low-power': 1, 'high-performance': 2 };
+        const fboMap = { 'half': 0, 'high': 1, 'byte': 2 };
+        setContextConfig(
+            this.module,
+            o.antialias ? 1 : 0,
+            o.preserveDrawingBuffer ? 1 : 0,
+            (o.depth ?? true) ? 1 : 0,
+            (o.stencil ?? true) ? 1 : 0,
+            // Context alpha stays on (transparency overlays); the `alpha` option
+            // is a separate canvas-CSS hint, not the WebGL alpha attribute.
+            1,
+            powerMap[o.powerPreference ?? 'high-performance'] ?? 2,
+            fboMap[o.fboPrecision ?? 'half'] ?? 0
+        );
     }
 
     destroy() {

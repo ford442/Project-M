@@ -11,6 +11,7 @@ export const WASM_API_SYMBOLS = {
     getProjectmHandle: 'get_projectm_handle',
     init: 'init',
     setCanvasSelectors: 'set_canvas_selectors',
+    setContextConfig: 'set_context_config',
     initWithCanvases: 'init_with_canvases',
     rebindCanvases: 'rebind_canvases',
     createHost: 'create_host',
@@ -162,6 +163,11 @@ export function init(module) {
 /** Set primary/secondary canvas CSS selectors (default #mcanvas/#scanvas) */
 export function setCanvasSelectors(module, primary, secondary) {
     module.ccall('set_canvas_selectors', null, ['string', 'string'], [primary, secondary]);
+}
+
+/** Configure WebGL context attributes and dual-FBO precision (call before init/init_with_canvases/create_host) */
+export function setContextConfig(module, antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision) {
+    module.ccall('set_context_config', null, ['number', 'number', 'number', 'number', 'number', 'number', 'number'], [antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision]);
 }
 
 /** Set canvas selectors then init (returns 0 on success) */
@@ -533,6 +539,7 @@ export function transitionGetDuration(module) {
 export const PUBLIC_WASM_API = [
     init,
     setCanvasSelectors,
+    setContextConfig,
     initWithCanvases,
     rebindCanvases,
     createHost,

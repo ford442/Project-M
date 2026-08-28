@@ -92,6 +92,25 @@ export interface ProjectMContextOptions {
     aspectCorrection?: boolean;
     /** Hint for hosts compositing over non-black backgrounds (canvas CSS). */
     alpha?: boolean;
+    /**
+     * WebGL context attributes + dual-FBO precision, forwarded to the WASM host
+     * via `set_context_config()` before init (#128 / #84 / #179 A5). These
+     * replace the old `?aa=` / `?capture=` / `?fboPrecision=` scraping the C++
+     * side used to do; hosts parse the query string and pass these instead
+     * (see `projectm-core.html`). All default to the historical behavior.
+     */
+    /** Multisampled canvas (default false — #178; only sprite geometry benefits). */
+    antialias?: boolean;
+    /** Keep a stable back-buffer for screenshot/readback hosts (default false). */
+    preserveDrawingBuffer?: boolean;
+    /** GPU power hint (default 'high-performance'; mobile may want 'low-power'). */
+    powerPreference?: 'default' | 'low-power' | 'high-performance';
+    /** Canvas depth attachment (default true). */
+    depth?: boolean;
+    /** Canvas stencil attachment (default true). */
+    stencil?: boolean;
+    /** Dual-FBO color precision (default 'half' = RGBA16F; 'high' = RGBA32F; 'byte' = RGBA8). */
+    fboPrecision?: 'half' | 'high' | 'byte';
     presetUrl?: string;
     presetLocked?: boolean;
     audioSource?: ProjectMAudioSource;

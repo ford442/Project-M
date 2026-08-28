@@ -55,19 +55,30 @@ overhead.
 
 ## WebGL context attributes
 
-`projectM_emscripten.cpp::init()` creates the rendering context with Emscripten's html5 WebGL API only — there is
-no parallel EGL config path. `ProjectMDefaultWebGLAttributes()` sets a minimal, documented attribute block:
+`WasmWebGLContext.cpp::init()` creates the rendering context with Emscripten's html5 WebGL API only — there is
+no parallel EGL config path. `ProjectMDefaultWebGLAttributes()` builds the attribute block from a
+`WasmContextConfig` the **host sets from JS** via `set_context_config()` (#128 / #84 / #179 A5). The C++ side no
+longer scrapes `window.location` / `localStorage` for context attributes — query-string parsing (`?aa=1`,
+`?capture=1`, `?fboPrecision=high`) lives in the host JS layer (`projectm-core.html`) and is forwarded through
+`ProjectMContextOptions`. Defaults (used when a host calls neither `set_context_config()` nor `ProjectMContext`)
+match the historical behavior:
 
-| Attribute | Value | Rationale |
-|-----------|-------|-----------|
-| `majorVersion` / `minorVersion` | 2 / 0 | WebGL 2 required for GLES 3 emulation |
-| `alpha` | `true` | Enables future transparency overlays (`#135`) |
-| `depth` / `stencil` | `true` | Preset shaders may use depth/stencil |
-| `antialias` | `false` by default; opt in with `?aa=1` or `localStorage.canvasAA='1'` | Everything that hits the canvas (FBO 0) is a fullscreen quad — the transition blend or final `CopyTexture` present — plus optional user sprites. A fullscreen quad has no interior edges, so MSAA is invisible on it; only sprite geometry benefits. Default off skips a multisampled color buffer + its per-frame resolve (see `docs/GRAPHICS_PERF_RECOVERY_PLAN.md` §5, issue #178). |
-| `premultipliedAlpha` | `true` | Matches browser compositing defaults |
-| `preserveDrawingBuffer` | `true` only when `?capture=1` or `window.__projectMCaptureMode` | Screenshot/capture harnesses need a stable back-buffer |
-| `enableExtensionsByDefault` | `true` | Lets projectM probe float/half-float FBO formats |
-| `powerPreference` | `high-performance` | Prefer discrete GPU on hybrid laptops |
+| Attribute | `ProjectMContext` option | Default | Rationale |
+|-----------|--------------------------|---------|-----------|
+| `majorVersion` / `minorVersion` | — (fixed 2 / 0) | 2 / 0 | WebGL 2 required for GLES 3 emulation |
+| `alpha` | (fixed on; the `alpha` option is a separate CSS hint) | `true` | Transparency overlays (`#135`) |
+| `depth` | `depth` | `true` | Preset shaders may use depth |
+| `stencil` | `stencil` | `true` | Preset shaders may use stencil |
+| `antialias` | `antialias` | `false` | Everything hitting the canvas (FBO 0) is a fullscreen quad + optional sprites; a fullscreen quad has no interior edges, so MSAA is invisible on it — only sprite geometry benefits (`docs/GRAPHICS_PERF_RECOVERY_PLAN.md` §5, #178). Host opts in (`projectm-core.html` reads `?aa=1` / `localStorage.canvasAA`). |
+| `premultipliedAlpha` | (fixed on) | `true` | Matches browser compositing defaults |
+| `preserveDrawingBuffer` | `preserveDrawingBuffer` | `false` | Screenshot/capture hosts set `true` (e.g. `?capture=1` in host JS, or `capture.html` calling `set_context_config`) for a stable back-buffer |
+| `enableExtensionsByDefault` | (fixed on) | `true` | Lets projectM probe float/half-float FBO formats |
+| `powerPreference` | `powerPreference` | `high-performance` | Prefer discrete GPU; mobile hosts may request `low-power` |
+| dual-FBO precision | `fboPrecision` | `half` (RGBA16F) | `high` → RGBA32F, `byte` → RGBA8; consumed by `DualPingPongFramebuffer::DetectFormat()` |
+
+`set_context_config(antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision)` is read
+at context creation, so call it **before** `init()` / `init_with_canvases()` / `create_host()`. Attributes are baked
+into the WebGL context and cannot change afterward.
 
 Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, half-float samplers) are enabled
 explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
@@ -823,9 +834,13 @@ mean/median/p95 stats. See [docs/PERFORMANCE.md](PERFORMANCE.md) for details.
 Dual-FBO format probing defaults to `RGBA16F -> RGBA32F -> RGBA8` to cut transition VRAM/bandwidth
 while keeping float precision by default.
 
-- Default: `RGBA16F` when `EXT_color_buffer_half_float` is available
-- High precision opt-in: add `?fboPrecision=high` to prefer `RGBA32F` first
+- Default: `RGBA16F` when `EXT_color_buffer_half_float` is available (`fboPrecision: 'half'`)
+- High precision opt-in: `fboPrecision: 'high'` (host JS reads `?fboPrecision=high`) prefers `RGBA32F` first
+- Force byte: `fboPrecision: 'byte'` pins `RGBA8` (debug the degraded path on a float-capable GPU)
 - Fallback: `RGBA8` (degraded-mode banner in `html/projectm-fbo-format.js`)
+
+The precision is set through `ProjectMContext`'s `fboPrecision` option / `set_context_config()`; the C++ side no
+longer reads `?fboPrecision=` from the URL (see "WebGL context attributes" above).
 
 `RGBA32F` is 16 bytes/px against 8 for `RGBA16F`, across four surfaces (A_Read/A_Write,
 B_Read/B_Write) — so the default halves both transition VRAM and compositor bandwidth during a

@@ -143,21 +143,10 @@ EM_JS(void, js_on_transpiled_shader_stored, (const char* key, int kind, const ch
     }
 });
 
-EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
-    if (typeof window === 'undefined' || !window.location || !window.location.search)
-    {
-        return 0;
-    }
-    try
-    {
-        const value = new URLSearchParams(window.location.search).get('fboPrecision');
-        return (value && value.toLowerCase() === 'high') ? 1 : 0;
-    }
-    catch (e)
-    {
-        return 0;
-    }
-});
+// (Dual-FBO precision was formerly scraped from `?fboPrecision=high` here; it
+// now comes from set_context_config({ fboPrecision }) via
+// WasmWebGLGetContextConfig().fboPrecision — see #128 / #179 A5. The host JS
+// layer parses the query string.)
 
 EM_JS(int, js_blur_force_copy_path, (), {
     if (typeof window === 'undefined' || !window.location || !window.location.search)
@@ -517,7 +506,7 @@ int init()
     // Hosts can opt into RGBA32F-first probing with ?fboPrecision=high.
     // This must be called after the WebGL context is made current so that
     // extension availability can be probed reliably.
-    g_dualFbo.DetectFormat(WasmWebGLGetContext(), js_dual_fbo_prefer_high_precision() != 0);
+    g_dualFbo.DetectFormat(WasmWebGLGetContext(), WasmWebGLGetContextConfig().fboPrecision);
 
     // Must happen before the first preset renders, since both paths are decided once.
     ApplyBlurPathOverride();

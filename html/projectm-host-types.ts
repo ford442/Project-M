@@ -130,6 +130,21 @@ declare global {
     // eslint-disable-next-line no-var
     var Module: ProjectMModuleLike | undefined;
 
+    /**
+     * Transpiled-GLSL cache hook, installed by
+     * `setupShaderTranspileCacheHooks()` (projectm-shader-cache.js) and called
+     * from `js_on_transpiled_shader_stored()` (projectM_emscripten.cpp).
+     * `kind` is 0=warp, 1=composite.
+     *
+     * Declared here as well as on `Window` above because the installer writes it
+     * through `globalThis`: preset loading pulls projectm-shader-cache.js into
+     * scopes with no `window` (Node tests, the OffscreenCanvas render worker).
+     */
+    // eslint-disable-next-line no-var
+    var pmOnTranspiledShaderStored:
+        | ((cacheKey: string, kind: 0 | 1, glsl: string) => void)
+        | undefined;
+
     /** Shared AudioContext created by `js_initialize_worklet_system_once`. */
     // eslint-disable-next-line no-var
     var projectMAudioContext_Global_Cpp: AudioContext | undefined;

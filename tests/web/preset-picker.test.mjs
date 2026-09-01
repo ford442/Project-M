@@ -33,13 +33,19 @@ function makeModule() {
     };
 }
 
-test('fetchCustomPresetManifest returns presets array', async () => {
-    const presets = await fetchCustomPresetManifest({
+test('fetchCustomPresetManifest returns the manifest object with presets[]', async () => {
+    // The helper resolves to the whole manifest (callers read `data.presets`
+    // alongside sibling metadata), not to a bare array.
+    const manifest = await fetchCustomPresetManifest({
         url: 'x',
-        fetchImpl: () => jsonResponse({ presets: [{ file: 'a.milk', label: 'A', status: 'ok' }] })
+        fetchImpl: () => jsonResponse({
+            generated: '2026-01-01',
+            presets: [{ file: 'a.milk', label: 'A', status: 'ok' }]
+        })
     });
-    assert.equal(presets.length, 1);
-    assert.equal(presets[0].file, 'a.milk');
+    assert.equal(manifest.presets.length, 1);
+    assert.equal(manifest.presets[0].file, 'a.milk');
+    assert.equal(manifest.generated, '2026-01-01');
 });
 
 test('fetchCustomPresetManifest rejects malformed manifest', async () => {
@@ -72,10 +78,15 @@ test('pickRandomFromList honours onlyOk, falls back when no ok presets', () => {
 test('loadCustomPresetFile falls through bases until one succeeds', async () => {
     const module = makeModule();
     const tried = [];
+    // 404 whichever base is attempted first, so the assertion tracks
+    // "retries the next base", not a hard-coded base ordering. The load path
+    // resolves bases through defaultBasesForBase() in projectm-preset-cache.js
+    // (local dirs first, CDN last) — not the picker's DEFAULT_CUSTOM_PRESET_BASES
+    // (CDN first), which the two lists disagree about.
     const fetchImpl = (url) => {
         tried.push(url);
-        if (url.includes('glsl.1ink.us')) return bytesResponse([], false, 404); // first base 404s
-        return bytesResponse([1, 2, 3, 4]); // second base serves
+        if (tried.length === 1) return bytesResponse([], false, 404); // first base 404s
+        return bytesResponse([1, 2, 3, 4]); // next base serves
     };
     const result = await loadCustomPresetFile('milk012.milk', {
         module,
@@ -84,7 +95,9 @@ test('loadCustomPresetFile falls through bases until one succeeds', async () => 
     });
     assert.equal(tried.length, 2, 'should retry the second base after a 404');
     assert.equal(result.filename, 'milk012.milk');
-    assert.match(result.vfsPath, /^\/presets\/custom_milk012\.milk$/);
+    // VFS path is /presets/<entry.base>_<sanitised filename>; loadCustomPresetFile
+    // pins entry.base to 'custom_milk_fixed'.
+    assert.match(result.vfsPath, /^\/presets\/custom_milk_fixed_milk012\.milk$/);
     const write = module.calls.find((c) => c.kind === 'write');
     const load = module.calls.find((c) => c.kind === 'ccall');
     assert.equal(write.len, 4);

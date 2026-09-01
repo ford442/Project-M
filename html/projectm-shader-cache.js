@@ -226,13 +226,19 @@ function queueShaderWrite(cacheKey, kind, glsl) {
 }
 
 /**
- * Wire window.pmOnTranspiledShaderStored once per page load.
+ * Wire globalThis.pmOnTranspiledShaderStored once per page load.
+ *
+ * Installed on `globalThis`, not `window`: this module is imported by preset
+ * loading (projectm-preset-library.js), which also runs under Node in
+ * tests/web and inside the OffscreenCanvas render worker, where `window` is
+ * not defined and a bare reference throws. In a document `globalThis === window`,
+ * so the hook the WASM glue looks up is unchanged.
  */
 export function setupShaderTranspileCacheHooks() {
     if (hooksInstalled) return;
     hooksInstalled = true;
     ensureShaderCacheEngineVersion().catch(() => {});
-    window.pmOnTranspiledShaderStored = (cacheKey, kind, glsl) => {
+    globalThis.pmOnTranspiledShaderStored = (cacheKey, kind, glsl) => {
         queueShaderWrite(cacheKey, kind, glsl);
         touchShaderCacheEntry(cacheKey).catch(() => {});
     };

@@ -1,0 +1,43 @@
+name: Web Host Tests
+
+# Runs the browser host-layer suite that had no CI owner: every
+# tests/web/*.test.mjs plus the packages/web embed-SDK build.
+#
+# Type-checking (scripts/check_html_types.sh) is covered by the Linux and
+# Emscripten workflows; the unit tests were not covered anywhere, which is how
+# tests/web/preset-picker.test.mjs stayed red across three separate API changes.
+
+on:
+  push:
+    paths:
+      - 'html/**'
+      - 'tests/web/**'
+      - 'packages/web/**'
+      - 'scripts/test_web_embed.sh'
+      - '.github/workflows/web_host_tests.yml'
+  pull_request:
+    paths:
+      - 'html/**'
+      - 'tests/web/**'
+      - 'packages/web/**'
+      - 'scripts/test_web_embed.sh'
+      - '.github/workflows/web_host_tests.yml'
+  workflow_dispatch: {}
+
+jobs:
+  host-tests:
+    name: Host-layer unit tests + embed SDK build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Host-layer unit tests + packages/web build
+        run: scripts/test_web_embed.sh
+
+      - name: Type-check html/ host modules
+        run: scripts/check_html_types.sh

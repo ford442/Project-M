@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
-# Node unit tests for embed SDK modules (no browser/WASM required).
+# Node unit tests for the browser host layer (no browser/WASM required).
+#
+# Runs EVERY tests/web/*.test.mjs. Do not go back to an explicit file list:
+# an enumerated list silently drops new suites, which is how
+# preset-picker.test.mjs stayed red against a changed
+# fetchCustomPresetManifest() contract without anything noticing.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-node --test \
-  tests/web/projectm-wasm-version.test.mjs \
-  tests/web/projectm-init.test.mjs \
-  tests/web/projectm-init-errors.test.mjs \
-  tests/web/projectm-context.test.mjs \
-  tests/web/projectm-element.test.mjs \
-  tests/web/projectm-external-pcm.test.mjs \
-  tests/web/projectm-audio-source-router.test.mjs \
-  tests/web/projectm-presets.test.mjs \
-  tests/web/projectm-transitions.test.mjs
+shopt -s nullglob
+tests=(tests/web/*.test.mjs)
+shopt -u nullglob
+
+if [[ ${#tests[@]} -eq 0 ]]; then
+    echo "No tests found under tests/web/ — expected at least one *.test.mjs" >&2
+    exit 1
+fi
+
+echo "Running ${#tests[@]} host-layer test file(s)..."
+node --test "${tests[@]}"
 
 (cd packages/web && node scripts/build.mjs)

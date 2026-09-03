@@ -77,10 +77,15 @@ bool WasmWebGLCanvasElementExists(const char* selector)
     {
         return false;
     }
+    // Resolve the document once and bail when there is none: this same TU runs
+    // in the OffscreenCanvas render worker, where there is no DOM and a canvas
+    // selector can never match.
     // clang-format off
     return EM_ASM_INT({
                try {
-                   return document.querySelector(UTF8ToString($0)) ? 1 : 0;
+                   const doc = globalThis.document;
+                   if (!doc) { return 0; }
+                   return doc.querySelector(UTF8ToString($0)) ? 1 : 0;
                } catch (e) {
                    return 0;
                } }, selector) != 0;
@@ -102,7 +107,7 @@ static bool ProjectMCanvasAntialiasRequested()
     return EM_ASM_INT({
                try
                {
-                   var params = new URLSearchParams(window.location.search || '');
+                   var params = new URLSearchParams((globalThis.location && globalThis.location.search) || '');
                    var q = params.get('aa');
                    if (q === '1' || q === 'true')
                    {
@@ -112,7 +117,8 @@ static bool ProjectMCanvasAntialiasRequested()
                    {
                        return 0;
                    }
-                   var stored = window.localStorage ? window.localStorage.getItem('canvasAA') : null;
+                   var storage = globalThis.localStorage;
+                   var stored = storage ? storage.getItem('canvasAA') : null;
                    return (stored === '1' || stored === 'true') ? 1 : 0;
                }
                catch (e)
@@ -138,12 +144,12 @@ static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
     attrs.preserveDrawingBuffer = EM_ASM_INT({
         try
         {
-            var params = new URLSearchParams(window.location.search || '');
-            return (window.__projectMCaptureMode === true || params.get('capture') === '1' || params.get('capture') === 'true') ? 1 : 0;
+            var params = new URLSearchParams((globalThis.location && globalThis.location.search) || '');
+            return (globalThis.__projectMCaptureMode === true || params.get('capture') === '1' || params.get('capture') === 'true') ? 1 : 0;
         }
         catch (e)
         {
-            return window.__projectMCaptureMode === true ? 1 : 0;
+            return globalThis.__projectMCaptureMode === true ? 1 : 0;
         }
     })
                                     // clang-format on
@@ -178,7 +184,7 @@ static void ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDL
  * the panel, instead of silently reinterpreting RGB numbers as P3.
  *
  * Uses Emscripten's GLctx so this works for both the main-thread canvas and
- * the OffscreenCanvas render-worker path (no document.querySelector).
+ * the OffscreenCanvas render-worker path (no DOM query).
  * Properties are no-ops on browsers that lack WebGL color management.
  */
 static void ProjectMApplySrgbCanvasColorSpace()

@@ -11,11 +11,33 @@
 // Named `*-types.ts` per html/README.md: a same-basename `.ts` would shadow the
 // real `.js` module for every JS importer during typecheck.
 
-/** PCM ring buffer shared with the worker via SharedArrayBuffer. */
-export interface PcmRingInit {
-    sab: SharedArrayBuffer;
-    /** Stereo frames the ring can hold (the data view is twice this long). */
-    capacityPairs: number;
+/**
+ * Descriptor for the WASM-owned PCM ring (src/wasm/WasmPcmRing.cpp), as posted
+ * from the worker to the host once the module has booted.
+ *
+ * The ring lives in the worker module's heap, not in a SharedArrayBuffer the
+ * host allocated: there is one ring per engine, owned by the engine, and both
+ * topologies write into it the same way. `memory` is the module's own
+ * `wasmMemory.buffer`, which is only shareable when the page is cross-origin
+ * isolated — otherwise the worker posts no descriptor and the host falls back
+ * to `postPcm`.
+ */
+export interface PcmRingDescriptor {
+    /**
+     * The module's `wasmMemory.buffer`. Typed as ArrayBufferLike because that is
+     * what the module exposes; in practice a descriptor only ever crosses
+     * postMessage when it is a SharedArrayBuffer (the worker checks before
+     * posting), since a plain ArrayBuffer cannot be shared.
+     */
+    memory: ArrayBufferLike;
+    /** Byte offset of the int32 header: [write, capacity, read, overruns]. */
+    headerPtr: number;
+    /** Byte offset of the interleaved float storage. */
+    dataPtr: number;
+    /** Stereo frames the ring holds (the data view is twice this long). */
+    capacityFrames: number;
+    /** Modulus the frame indices wrap at. */
+    indexModulus: number;
 }
 
 /** Host → worker: boot the module and take over the transferred canvas. */
@@ -28,8 +50,6 @@ export interface RenderWorkerInitMessage {
     targetFps?: number;
     governor?: boolean;
     meshQuality?: string;
-    /** null when cross-origin isolation is unavailable; PCM then arrives by postMessage. */
-    pcm: PcmRingInit | null;
 }
 
 /** Host → worker: canvas size changed. */
@@ -39,7 +59,7 @@ export interface RenderWorkerResizeMessage {
     height: number;
 }
 
-/** Host → worker: PCM chunk, used only when the SAB ring is unavailable. */
+/** Host → worker: PCM chunk, used only when the ring cannot be shared. */
 export interface RenderWorkerPcmMessage {
     type: 'pcm';
     buffer: Float32Array;
@@ -90,6 +110,15 @@ export interface RenderWorkerStatsMessage {
     qualityTier: number;
 }
 
+/**
+ * Worker → host: the module's PCM ring is shareable, here is where it lives.
+ * Sent once, after init. Absent means the host must use `postPcm`.
+ */
+export interface RenderWorkerPcmRingMessage {
+    type: 'pcm-ring';
+    descriptor: PcmRingDescriptor;
+}
+
 /** Worker → host: the result of a `ccall` that carried a `requestId`. */
 export interface RenderWorkerCcallResultMessage {
     type: 'ccall-result';
@@ -102,12 +131,16 @@ export type RenderWorkerMessage =
     | RenderWorkerUnsupportedMessage
     | RenderWorkerErrorMessage
     | RenderWorkerStatsMessage
+    | RenderWorkerPcmRingMessage
     | RenderWorkerCcallResultMessage;
 
 /** The handle `setupRenderWorker()` hands back to the host. */
 export interface RenderWorkerHandle {
     worker: Worker;
-    pcmRing: PcmRing | null;
+    /** Null until the worker posts a shareable ring, and when it never does. */
+    getPcmRing(): PcmRingWriter | null;
+    /** Writes to the ring when there is one, else posts the chunk. */
+    feedPcm(buffer: Float32Array, channels: number): void;
     postResize(width: number, height: number): void;
     postPcm(buffer: Float32Array, channels: number): void;
     ccall(
@@ -119,10 +152,11 @@ export interface RenderWorkerHandle {
     ccallVoid(name: string, argTypes: string[], args: unknown[]): void;
 }
 
-/** Main-thread writer half of the SharedArrayBuffer PCM ring. */
-export interface PcmRing {
-    sab: SharedArrayBuffer;
-    capacityPairs: number;
-    /** Interleaves mono input to stereo before writing. */
-    write(buffer: Float32Array, channels: number): void;
+/** Writer half of the WASM-owned PCM ring (html/projectm-pcm-ring.js). */
+export interface PcmRingWriter {
+    /** Duplicates mono input to both channels before writing. */
+    write(buffer: Float32Array, channels?: number): number;
+    writeIndex(): number;
+    capacityFrames: number;
+    descriptor: PcmRingDescriptor;
 }

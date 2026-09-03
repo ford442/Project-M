@@ -76,22 +76,22 @@ EM_JS(double, js_perf_gpu_get_last_ms, (), {
 // it can show or hide the on-screen HUD. See html/projectm-perf.js.
 // clang-format off
 EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
-    if (typeof window.pmSetPerfHudEnabled === 'function') {
-        window.pmSetPerfHudEnabled(!!enabled);
+    if (typeof globalThis.pmSetPerfHudEnabled === 'function') {
+        globalThis.pmSetPerfHudEnabled(!!enabled);
     }
 });
 // clang-format on
 
 // Reports one frame's worth of CPU/GPU timings to the host page. If
-// window.pmOnPerfFrame(stats) is defined (see html/projectm-perf.js), it is
+// globalThis.pmOnPerfFrame(stats) is defined (see html/projectm-perf.js), it is
 // called with a stats object so the HUD and/or benchmark harness can consume it.
 // clang-format off
 EM_JS(void, js_perf_report_frame, (
     double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
     double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps
 ), {
-    if (typeof window.pmOnPerfFrame === 'function') {
-        window.pmOnPerfFrame({
+    if (typeof globalThis.pmOnPerfFrame === 'function') {
+        globalThis.pmOnPerfFrame({
             totalMs: totalMs,
             audioMs: audioMs,
             perFrameEvalMs: perFrameEvalMs,
@@ -180,8 +180,8 @@ constexpr QualityTierSettings kQualityTiers[kMaxQualityTier + 1] = {
 // UI can reflect it (e.g. show a "reduced quality" indicator).
 // clang-format off
 EM_JS(void, js_governor_report_tier, (int tier), {
-    if (typeof window.pmOnGovernorTierChange === 'function') {
-        window.pmOnGovernorTierChange(tier);
+    if (typeof globalThis.pmOnGovernorTierChange === 'function') {
+        globalThis.pmOnGovernorTierChange(tier);
     }
 });
 // clang-format on
@@ -193,8 +193,8 @@ EM_JS(void, js_governor_report_tier, (int tier), {
 // counterpart for late-binding hosts.
 // clang-format off
 EM_JS(void, js_governor_report_render_scale, (double scale), {
-    if (typeof window.pmOnGovernorRenderScaleChange === 'function') {
-        window.pmOnGovernorRenderScaleChange(scale);
+    if (typeof globalThis.pmOnGovernorRenderScaleChange === 'function') {
+        globalThis.pmOnGovernorRenderScaleChange(scale);
     }
 });
 // clang-format on
@@ -204,8 +204,8 @@ EM_JS(void, js_governor_report_render_scale, (double scale), {
 // JS action is required for the cap to take effect.
 // clang-format off
 EM_JS(void, js_governor_report_blur_cap, (int cap), {
-    if (typeof window.pmOnGovernorBlurCapChange === 'function') {
-        window.pmOnGovernorBlurCapChange(cap);
+    if (typeof globalThis.pmOnGovernorBlurCapChange === 'function') {
+        globalThis.pmOnGovernorBlurCapChange(cap);
     }
 });
 // clang-format on
@@ -358,7 +358,7 @@ int get_governor_blur_cap()
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
 // enabled, CPU timers (libprojectM's projectm_perf API) and, if available,
 // a WebGL GPU timer query are collected each frame and reported to the host
-// page via js_perf_report_frame()/window.pmOnPerfFrame. See
+// page via js_perf_report_frame()/globalThis.pmOnPerfFrame. See
 // docs/PERFORMANCE.md and html/projectm-perf.js.
 EMSCRIPTEN_KEEPALIVE
 void set_perf_hud(int enabled)

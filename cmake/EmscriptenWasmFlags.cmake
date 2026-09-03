@@ -42,6 +42,18 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _add_preset_file
         _add_custom_milk_paths
         _projectm_pcm_add_float_wrapper
+        _pcm_ring_init
+        _pcm_ring_shutdown
+        _pcm_ring_drain
+        _get_pcm_ring_header_ptr
+        _get_pcm_ring_data_ptr
+        _get_pcm_ring_capacity_frames
+        _get_pcm_ring_index_modulus
+        _get_pcm_ring_write_index
+        _get_pcm_ring_read_index
+        _get_pcm_ring_overruns
+        _attach_worklet_ingest
+        _connect_media_element_source
         _create_sprite
         _stop_worklet_playback
         _set_audio_source_to_stream

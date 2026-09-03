@@ -5,7 +5,7 @@
  *
  * Four ingress paths feed PCM to the engine:
  *   'worklet'  — internal AudioWorklet (projectm_audio_processor.js)
- *   'element'  — media element / stream analyser (#audio-stream-element)
+ *   'element'  — media element routed through the worklet (#audio-stream-element)
  *   'external' — MOD/FLAC players via postMessage (projectm-external-pcm.js)
  *   'none'     — no source configured (default / reset)
  *
@@ -14,8 +14,8 @@
  * panels can reflect the current state.  Switching from one source to another
  * fires the event again with the new value.
  *
- * The router does **not** suppress WASM-managed paths (worklet / stream analyser)
- * because those are controlled from C++ land.  It does:
+ * The router does **not** suppress the WASM-managed worklet, because it is
+ * created from C++ land.  It does:
  *   - Gate the external-PCM feed (see `shouldFeedExternal()`) so that external
  *     chunks are ignored when a different source is currently active.
  *   - Expose the active source via `activeSource` for host UI and context events.

@@ -533,6 +533,8 @@ canvas.emscripten {
 import { createPopupAudioPlayerController } from './projectm-audio-player.js';
 import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
 import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
+import { installHostPcmRingWriter } from './projectm-pcm-ring.js';
+import { installMediaElementSourceHook } from './projectm-audio-element-source.js';
 import { createAudioSourceRouter } from './projectm-audio-source-router.js';
 import { ProjectMContext } from './projectm-context.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
@@ -1054,11 +1056,10 @@ setupExternalAudioReceiver({
         if (!renderWorkerHandle) {
             return defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
         }
-        if (renderWorkerHandle.pcmRing) {
-            renderWorkerHandle.pcmRing.write(buffer, channels);
-        } else {
-            renderWorkerHandle.postPcm(buffer.slice(0), channels);
-        }
+        // One entry point: writes the worker module's PCM ring when it is
+        // shared, posts the chunk otherwise. Either way it lands in the same
+        // ring, drained by render_frame() on the worker side.
+        renderWorkerHandle.feedPcm(buffer, channels);
         return true;
     }),
 });
@@ -1390,6 +1391,13 @@ async function attemptInit() {
             await pmContext.start();
             Module = pmContext.module;
             globalThis.Module = Module;
+
+            // Give the baked EM_JS worklet handler and the media-element export
+            // their host implementations, so both go through the one PCM ring
+            // writer in html/projectm-pcm-ring.js rather than the inline copies
+            // compiled into the WASM bundle.
+            installHostPcmRingWriter(Module);
+            installMediaElementSourceHook();
 
             applyTransparencyDomState(isTransparencyMode);
 

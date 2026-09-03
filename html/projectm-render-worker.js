@@ -7,9 +7,9 @@
 // main loop here instead.
 //
 // Message protocol (host -> worker):
-//   { type: 'init', canvas, scriptSrc, width, height, pcm, targetFps, governor, meshQuality }
+//   { type: 'init', canvas, scriptSrc, width, height, targetFps, governor, meshQuality }
 //   { type: 'resize', width, height }
-//   { type: 'pcm', buffer, channels }                 // only used when SAB ring is unavailable
+//   { type: 'pcm', buffer, channels }                 // only when the ring cannot be shared
 //   { type: 'ccall', name, returnType, argTypes, args, requestId }
 //
 // Message protocol (worker -> host):
@@ -17,26 +17,23 @@
 //   { type: 'unsupported', reason }
 //   { type: 'error', message }
 //   { type: 'stats', fps, fboFormat, qualityTier }
+//   { type: 'pcm-ring', descriptor }
 //   { type: 'ccall-result', requestId, result }
+//
+// Audio: the module owns its PCM ring (src/wasm/WasmPcmRing.cpp) and drains it
+// in render_frame(), exactly as on the main thread. This worker's only jobs are
+// to hand the host the ring descriptor when the memory is shareable, and to
+// write posted PCM into the ring when it is not. It no longer runs a drain of
+// its own — the C++ drain replaced it, which is what makes the two topologies
+// behave identically.
 
 /**
- * @typedef {import('./projectm-render-worker-types.ts').PcmRingInit} PcmRingInit
+ * @typedef {import('./projectm-render-worker-types.ts').PcmRingDescriptor} PcmRingDescriptor
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerHostMessage} RenderWorkerHostMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerInitMessage} RenderWorkerInitMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerCcallMessage} RenderWorkerCcallMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- */
-
-/**
- * Reader half of the SharedArrayBuffer PCM ring. The host owns the write index
- * (published through `header[0]` with Atomics); this side keeps its own cursor.
- *
- * @typedef {object} PcmRingReader
- * @property {Int32Array} header Single-element view holding the write index.
- * @property {Float32Array} data Interleaved stereo sample storage.
- * @property {number} capacityPairs
- * @property {number} readIndex
  */
 
 /**
@@ -64,65 +61,90 @@ function postToHost(message) {
 
 /** @type {ProjectMModule | null} */
 let Module = null;
-/** @type {PcmRingReader | null} */
-let pcmRing = null;
 let statsInterval = 0;
 let lastFrameTime = 0;
 let lastFps = 0;
 
 /**
- * @param {PcmRingInit | null | undefined} pcm
- * @returns {PcmRingReader | null}
+ * Reads the module's PCM ring descriptor. Mirrors readPcmRingDescriptor() in
+ * html/projectm-pcm-ring.js — this is a classic worker (importScripts, no ES
+ * module imports), so the few lines are duplicated rather than imported.
+ *
+ * @returns {PcmRingDescriptor | null}
  */
-function setupPcmRing(pcm) {
-    if (!pcm || !pcm.sab) return null;
-    const header = new Int32Array(pcm.sab, 0, 1);
-    const data = new Float32Array(pcm.sab, 4, pcm.capacityPairs * 2);
-    return { header, data, capacityPairs: pcm.capacityPairs, readIndex: 0 };
-}
+function readPcmRingDescriptor() {
+    const m = /** @type {any} */ (Module);
+    if (!m || typeof m._get_pcm_ring_data_ptr !== 'function') return null;
 
-function drainPcmRing() {
-    if (!pcmRing || !Module || !Module._projectm_pcm_add_float_wrapper) return;
-
-    const writeIndex = Atomics.load(pcmRing.header, 0);
-    let available = writeIndex - pcmRing.readIndex;
-    if (available <= 0) return;
-
-    if (available > pcmRing.capacityPairs) {
-        // Reader fell behind by more than the ring capacity; drop the oldest data.
-        pcmRing.readIndex = writeIndex - pcmRing.capacityPairs;
-        available = pcmRing.capacityPairs;
+    let dataPtr = m._get_pcm_ring_data_ptr();
+    if (!dataPtr && typeof m._pcm_ring_init === 'function') {
+        m._pcm_ring_init(0);
+        dataPtr = m._get_pcm_ring_data_ptr();
     }
-
-    const interleaved = new Float32Array(available * 2);
-    const start = pcmRing.readIndex % pcmRing.capacityPairs;
-    const firstPairs = Math.min(available, pcmRing.capacityPairs - start);
-    interleaved.set(pcmRing.data.subarray(start * 2, (start + firstPairs) * 2), 0);
-    if (firstPairs < available) {
-        const remaining = available - firstPairs;
-        interleaved.set(pcmRing.data.subarray(0, remaining * 2), firstPairs * 2);
+    const headerPtr = m._get_pcm_ring_header_ptr();
+    const capacityFrames = m._get_pcm_ring_capacity_frames();
+    const indexModulus = m._get_pcm_ring_index_modulus();
+    const memory = m.HEAPF32?.buffer;
+    if (!dataPtr || !headerPtr || capacityFrames <= 0 || indexModulus <= 0 || !memory) {
+        return null;
     }
-
-    pcmRing.readIndex = writeIndex;
-    feedInterleavedPcm(interleaved, available);
+    return { memory, headerPtr, dataPtr, capacityFrames, indexModulus };
 }
 
 /**
- * @param {Float32Array} interleaved
- * @param {number} samplesPerChannel
+ * Hands the host the ring descriptor, if the module's memory can cross the
+ * postMessage boundary. Without cross-origin isolation it is a plain
+ * ArrayBuffer, which cannot be shared, and the host keeps posting PCM instead.
  */
-function feedInterleavedPcm(interleaved, samplesPerChannel) {
-    // Mirrors feedPcmFloat() in html/generated/projectm-wasm-api.js (worker cannot import ES modules).
-    if (!Module || !Module._malloc || !Module.HEAPF32 || !Module._projectm_pcm_add_float_wrapper) return;
-
-    const ptr = Module._malloc(interleaved.length * 4);
-    if (!ptr) return;
-    try {
-        Module.HEAPF32.set(interleaved, ptr >> 2);
-        Module._projectm_pcm_add_float_wrapper(0, ptr, samplesPerChannel, 2);
-    } finally {
-        Module._free(ptr);
+function publishPcmRing() {
+    const descriptor = readPcmRingDescriptor();
+    if (!descriptor) return;
+    if (typeof SharedArrayBuffer === 'undefined'
+        || !(descriptor.memory instanceof SharedArrayBuffer)) {
+        return;
     }
+    postToHost({ type: 'pcm-ring', descriptor });
+}
+
+/**
+ * Writes posted PCM into the module's ring. Mirrors createPcmRingWriter().write()
+ * in html/projectm-pcm-ring.js, for the same no-imports reason.
+ *
+ * @param {Float32Array} buffer Interleaved stereo, or mono when channels is 1.
+ * @param {number} channels
+ */
+function writePcmToRing(buffer, channels) {
+    const descriptor = readPcmRingDescriptor();
+    if (!descriptor || !buffer || buffer.length === 0) return;
+
+    const { memory, headerPtr, dataPtr, capacityFrames, indexModulus } = descriptor;
+    const header = new Int32Array(memory, headerPtr, 4);
+    const data = new Float32Array(memory, dataPtr, capacityFrames * 2);
+
+    const stereo = channels === 2;
+    let frames = stereo ? (buffer.length >> 1) : buffer.length;
+    if (frames <= 0) return;
+
+    let offset = 0;
+    if (frames > capacityFrames) {
+        offset = frames - capacityFrames;
+        frames = capacityFrames;
+    }
+
+    const writeIndex = Atomics.load(header, 0);
+    for (let i = 0; i < frames; i += 1) {
+        const slot = ((writeIndex + i) % capacityFrames) * 2;
+        const src = offset + i;
+        if (stereo) {
+            data[slot] = buffer[src * 2];
+            data[slot + 1] = buffer[src * 2 + 1];
+        } else {
+            const sample = buffer[src];
+            data[slot] = sample;
+            data[slot + 1] = sample;
+        }
+    }
+    Atomics.store(header, 0, (writeIndex + frames) % indexModulus);
 }
 
 function postStats() {
@@ -207,8 +229,6 @@ async function init(msg) {
         return;
     }
 
-    pcmRing = setupPcmRing(msg.pcm);
-
     Module._start_render(msg.width, msg.height);
 
     if (Module._set_target_fps && msg.targetFps) {
@@ -222,11 +242,7 @@ async function init(msg) {
         Module._set_mesh(grid[0], grid[1]);
     }
 
-    if (pcmRing) {
-        // Drain the PCM ring on a short interval independent of the render
-        // loop, so audio data is consumed even if frame timing varies.
-        setInterval(drainPcmRing, 16);
-    }
+    publishPcmRing();
 
     statsInterval = setInterval(postStats, 500);
 
@@ -245,22 +261,8 @@ self.onmessage = (event) => {
             }
             break;
         case 'pcm':
-            if (!pcmRing && msg.buffer) {
-                const channels = msg.channels === 1 ? 1 : 2;
-                let interleaved = msg.buffer;
-                let samplesPerChannel = interleaved.length;
-                if (channels === 1) {
-                    // Duplicate mono to stereo to match _projectm_pcm_add_float_wrapper's expectations.
-                    const stereo = new Float32Array(interleaved.length * 2);
-                    for (let i = 0; i < interleaved.length; i++) {
-                        stereo[i * 2] = interleaved[i];
-                        stereo[i * 2 + 1] = interleaved[i];
-                    }
-                    interleaved = stereo;
-                } else {
-                    samplesPerChannel = interleaved.length / 2;
-                }
-                feedInterleavedPcm(interleaved, samplesPerChannel);
+            if (msg.buffer) {
+                writePcmToRing(msg.buffer, msg.channels === 1 ? 1 : 2);
             }
             break;
         case 'ccall':

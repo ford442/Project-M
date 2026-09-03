@@ -112,7 +112,20 @@ extern float g_dualFboIdleReleaseSec;
 extern double g_transitionEndTime;
 
 // ---- Audio bridge state (defined in WasmAudioBridge.cpp) -------------------
+// Records which host source the AudioSourceRouter last selected. Purely
+// informational since the SharedArrayBuffer PCM ring (WasmPcmRing.cpp) became
+// the only ingest: every source writes into the same ring, so nothing in the
+// render loop branches on it.
 extern bool g_is_streaming_audio;
+
+// ---- PCM ring (defined in WasmPcmRing.cpp) --------------------------------
+// The single audio ingest path. render_frame() drains it once per frame; JS
+// producers write into it at audio rate. See WasmPcmRing.cpp for the layout.
+extern "C" {
+int pcm_ring_init(int capacity_frames);
+void pcm_ring_shutdown();
+int pcm_ring_drain();
+}
 
 // ---- Perf HUD / quality governor state (defined in WasmPerfGovernor.cpp) ---
 extern bool g_perfHudEnabled;
@@ -140,9 +153,7 @@ void _on_preset_switch_failed(const char* preset_filename, const char* message, 
 // the render loop / init path / callbacks can invoke them.
 extern "C" {
 // Audio bridge (WasmAudioBridge.cpp)
-void js_feed_stream_data_to_projectm(uintptr_t pm_handle, int buffer_size);
-void js_initialize_stream_analyser();
-void js_initialize_worklet_system_once(uintptr_t pm_handle_for_addpcm);
+void js_initialize_worklet_system_once();
 
 // Perf HUD (WasmPerfGovernor.cpp)
 void js_perf_gpu_begin_frame();

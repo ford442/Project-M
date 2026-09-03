@@ -3,6 +3,12 @@
  * Used by ?audioTest=1 debug panel and tests/wasm-smoke/audio_reactivity.html.
  */
 
+import { feedPcmThroughRing } from './projectm-pcm-ring.js';
+
+// projectM's internal analysis buffer size (AudioBufferSamples). Kept as the
+// generators' default chunk length — it is a convenient, engine-shaped block
+// size for tests — not as a cap on what may be fed: the PCM ring takes whatever
+// a producer writes.
 export const PROJECTM_ANALYSIS_WINDOW = 576;
 export const DEFAULT_SAMPLE_RATE = 44100;
 
@@ -124,23 +130,35 @@ export function trimToAnalysisWindow(buffer, samplesPerChannel, window = PROJECT
  * @returns {boolean} true if the chunk was handed to the engine.
  */
 export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel) {
-    // Feature-detect every symbol used below: the WASM build's exported set
-    // varies by link flags, and HEAPF32/_free were previously assumed present.
-    if (!module?._projectm_pcm_add_float_wrapper || !module._malloc
-        || !module._free || !module.HEAPF32) {
-        return false;
-    }
+    if (!module) return false;
     const frames = samplesPerChannel ?? (channels === 1 ? buffer.length : buffer.length / 2);
-    const { buffer: trimmed, samplesPerChannel: windowFrames } = trimToAnalysisWindow(buffer, frames);
-    const ptr = module._malloc(trimmed.length * 4);
-    if (!ptr) return false;
-    try {
-        module.HEAPF32.set(trimmed, ptr >> 2);
-        module._projectm_pcm_add_float_wrapper(0, ptr, windowFrames, channels);
-        return true;
-    } finally {
-        module._free(ptr);
-    }
+
+    // Preferred path: the WASM-owned PCM ring, the same one the worklet and
+    // external PCM write to, so a synthetic feed exercises the real ingest
+    // rather than a test-only shortcut.
+    return feedPcmThroughRing(module, buffer, {
+        channels,
+        fallback: () => {
+            // Feature-detect every symbol used below: the WASM build's exported
+            // set varies by link flags, and HEAPF32/_free were previously
+            // assumed present.
+            if (!module._projectm_pcm_add_float_wrapper || !module._malloc
+                || !module._free || !module.HEAPF32) {
+                return false;
+            }
+            const { buffer: trimmed, samplesPerChannel: windowFrames } =
+                trimToAnalysisWindow(buffer, frames);
+            const ptr = module._malloc(trimmed.length * 4);
+            if (!ptr) return false;
+            try {
+                module.HEAPF32.set(trimmed, ptr >> 2);
+                module._projectm_pcm_add_float_wrapper(0, ptr, windowFrames, channels);
+                return true;
+            } finally {
+                module._free(ptr);
+            }
+        },
+    });
 }
 
 /**

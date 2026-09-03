@@ -8,13 +8,15 @@ limitations. Companion to issue [#115](https://github.com/ford442/Project-M/issu
 
 ```mermaid
 flowchart LR
-  subgraph ingress [JavaScript ingress]
+  subgraph ingress [JavaScript producers]
     WL[AudioWorklet\nprojectm_audio_processor.js]
-    ST[Stream / #track\nAnalyserNode]
+    ST[Media element\nMediaElementAudioSourceNode]
     EXT[External PCM\nprojectm-external-pcm.js]
     SYN[Synthetic test\nprojectm-synthetic-audio.js]
   end
   subgraph wasm [WASM / libprojectM]
+    PCMRING[(PCM ring\n16384 stereo frames\nWasmPcmRing.cpp)]
+    DRAIN[render_frame\npcm_ring_drain]
     ADD[projectm_pcm_add_float\nPCM::Add]
     RING[(576-sample ring\nper channel)]
     UPD[PCM::UpdateFrameAudioData]
@@ -24,10 +26,12 @@ flowchart LR
     FRAME[FrameAudioData]
     EQ[per_frame / per_pixel / shaders]
   end
-  WL --> ADD
-  ST --> ADD
-  EXT --> ADD
-  SYN --> ADD
+  WL --> PCMRING
+  ST --> WL
+  EXT --> PCMRING
+  SYN --> PCMRING
+  PCMRING --> DRAIN
+  DRAIN --> ADD
   ADD --> RING
   RING --> UPD
   UPD --> FFT --> LOUD
@@ -68,6 +72,53 @@ Beat bands split the spectrum into sixths (`Loudness::Band` in `Loudness.hpp`):
 Relative values (`bass`, `mid`, `treb`) revolve around **1.0**; spikes on transients,
 quieter during silence. Attenuated variants (`bass_att`, …) change more slowly.
 
+## The PCM ring: one ingest
+
+Every producer writes into a single ring buffer that lives in the WASM heap and
+is owned by `src/wasm/WasmPcmRing.cpp`. `render_frame()` drains everything
+written since the last frame and hands it to `projectm_pcm_add_float()` in one
+**stereo** call.
+
+| | |
+|---|---|
+| Capacity | 16384 stereo frames (~0.37 s at 44.1 kHz) |
+| Layout | `int32[4]` header — write index, capacity, read index, overruns — plus `float32[capacity * 2]` interleaved stereo |
+| Handshake | producers publish the write index with `Atomics.store`; the drain reads it with a sequentially-consistent atomic load |
+| Indices | frame counts wrapping at `capacity * 1024`, so neither side overflows int32 during a long session |
+| Overrun policy | a drain that finds more than `capacity` frames outstanding skips forward to the newest ones and bumps the overrun counter — it skips rather than tearing |
+
+Producers write at **audio rate**, not frame rate. A dropped animation frame
+delays the audio by one frame instead of discarding a frame's worth of samples.
+
+Descriptor exports (`get_pcm_ring_data_ptr`, `get_pcm_ring_header_ptr`,
+`get_pcm_ring_capacity_frames`, `get_pcm_ring_index_modulus`) let JavaScript map
+views over the ring; `html/projectm-pcm-ring.js` is the host-side writer, and
+`projectm_audio_processor.js` writes each 128-sample quantum directly when the
+page is cross-origin isolated.
+
+### Transports
+
+There is one ingest and two transports into it:
+
+| Transport | When | Path |
+|-----------|------|------|
+| Direct ring write | cross-origin isolated (COOP/COEP), so the WASM heap is a `SharedArrayBuffer` | producer → ring |
+| `postMessage` | no cross-origin isolation | producer → main thread / worker → same ring |
+
+Both land in the same ring with the same overrun policy. The same holds for the
+OffscreenCanvas render worker: the module there owns its ring and drains it in
+`render_frame()`, and the host either writes it directly (descriptor posted back
+over `pcm-ring`) or posts chunks the worker writes on arrival.
+
+### What this replaced
+
+`js_feed_stream_data_to_projectm` polled an `AnalyserNode` once per animation
+frame and forwarded the newest **576 mono** samples of a 2048-sample window. At
+48 kHz a 60 Hz page produces ~800 samples per frame, so ~28% of the signal was
+never analysed, stereo separation was lost before the engine saw it, and the code
+could only run on the main thread because it reached for `window` and
+`document`. Both it and `js_initialize_stream_analyser` are gone.
+
 ## JavaScript ingress paths
 
 ### Single-active-source policy (`AudioSourceRouter`)
@@ -80,10 +131,10 @@ engine.
 `html/projectm-audio-source-router.js` enforces an **exclusive** policy by
 default:
 
-| Active source | Stream (`#audio-stream-element`) | Worklet (`pl()`) | External PCM |
-|---------------|----------------------------------|------------------|--------------|
+| Active source | Element (`#audio-stream-element`) | Worklet (`pl()`) | External PCM |
+|---------------|-----------------------------------|------------------|--------------|
 | `none` | off | stopped | dropped |
-| `element` | on (`set_audio_source_to_stream(true)`) | stopped | dropped |
+| `element` | connected (`set_audio_source_to_stream(true)`) | stopped | dropped |
 | `external` | off | stopped | accepted |
 | `worklet` | off | playing | dropped |
 
@@ -103,10 +154,11 @@ designed.
 
 | Path | File | Feed size | Preprocessing |
 |------|------|-----------|---------------|
-| **Worklet** (local decode) | `projectm_audio_processor.js` → `WasmAudioBridge.cpp` `pl()` | **576** mono batch | Last 576 samples before `_projectm_pcm_add_float_wrapper` |
-| **Stream / `#track`** | `js_feed_stream_data_to_projectm` | **576** mono | Last 576 of AnalyserNode time-domain buffer |
-| **External PCM** | `html/projectm-external-pcm.js` | **576** per channel | `preprocessExternalPcm()` trim + optional `externalPcmGain` |
-| **Legacy uint8** | `add_audio_data()` | variable | Mono 8-bit centered at 128 |
+| **Worklet** (local decode) | `projectm_audio_processor.js` | 128-frame quantum, stereo | none — written straight to the ring |
+| **Media element** | `html/projectm-audio-element-source.js` → the same worklet | 128-frame quantum, stereo | none |
+| **External PCM** | `html/projectm-external-pcm.js` | whole chunk, stereo | optional `externalPcmGain` |
+| **Synthetic** | `html/projectm-synthetic-audio.js` | whole chunk | none |
+| **Legacy uint8** | `add_audio_data()` | variable | Mono 8-bit centered at 128 (does not use the ring) |
 
 FLAC “Start/Change Song” uses the worklet path: the `./flac/` decoder posts a WAV on
 `BroadcastChannel('file')`, WASM writes it to MEMFS and calls `pl()`. If
@@ -114,8 +166,8 @@ FLAC “Start/Change Song” uses the worklet path: the `./flac/` decoder posts 
 `ensureWorkletReady()` on the music gesture and `installWorkletPlaybackSafetyNet()` after init
 (`html/projectm-worklet-playback.js`).
 
-All float paths should hit `projectm_pcm_add_float` with the same effective analysis
-window so beat detection feels comparable across sources.
+All float paths write the same ring, so beat detection sees the same signal
+regardless of source — there is no per-path analysis window left to keep in sync.
 
 ### External PCM tuning
 
@@ -167,11 +219,11 @@ Player-side helper: `html/flac-player/projectm-pcm-bridge.js` (`createPcmSender`
    Untrusted `postMessage` origins are ignored (debug log only).
 2. **Router gate** — when another source is active, chunks are **dropped** (not
    queued). See `AudioSourceRouter.externalFeedGate()`.
-3. **Trim** — keep the most recent **576** samples per channel
-   (`PROJECTM_ANALYSIS_WINDOW`).
-4. **Gain** — multiply by `externalPcmGain` (default `1.0`, overridable via
+3. **Gain** — multiply by `externalPcmGain` (default `1.0`, overridable via
    `localStorage.externalPcmGain` or `setExternalPcmGain()`).
-5. **Feed** — `_projectm_pcm_add_float_wrapper` with trimmed/scaled buffer.
+4. **Feed** — write the whole chunk into the PCM ring. Chunks are no longer
+   trimmed to 576 frames: that trim only existed to mirror the analyser poll,
+   which could forward one window per animation frame and dropped the rest.
 
 ### Queue behaviour (module not ready)
 
@@ -182,7 +234,10 @@ chunks drop the **oldest** entry. A 100 ms flush interval replays the queue once
 ### Fixture tests
 
 ```bash
-node --test tests/web/projectm-external-pcm.test.mjs tests/web/projectm-audio-source-router.test.mjs
+node --test tests/web/projectm-external-pcm.test.mjs \
+  tests/web/projectm-audio-source-router.test.mjs \
+  tests/web/projectm-pcm-ring.test.mjs \
+  tests/web/projectm-audio-element-source.test.mjs
 ```
 
 Optional Playwright host-layer smoke (no WASM build required):
@@ -290,10 +345,11 @@ Chunks arriving when the router is not in `'external'` mode are returned as `fal
 queued by `setupExternalAudioReceiver`; they can be flushed later if the source switches
 back.
 
-> **Note on WASM-managed paths**: the worklet and stream-analyser paths are controlled
-> by C++ code inside the WASM module and cannot be suppressed from JavaScript alone.
-> The router documents and tracks intent; full suppression of the worklet path would
-> require a future C++ export (`_set_audio_source_enabled`).
+> **Note on WASM-managed paths**: the worklet is created by C++ inside the WASM
+> module, so the router can stop its playback (`stop_worklet_playback`) but not
+> unhook it. `set_audio_source_to_stream` is now only a record of the host's
+> choice — with one ring behind every source, nothing in the render loop branches
+> on it.
 
 ### Source names
 
@@ -301,7 +357,7 @@ back.
 |------|-------------|
 | `'none'` | No source configured (initial / reset state) |
 | `'worklet'` | Internal AudioWorklet (`projectm_audio_processor.js`) |
-| `'element'` | Media element / stream analyser (`#audio-stream-element`) |
+| `'element'` | Media element routed through the worklet (`#audio-stream-element`) |
 | `'external'` | MOD/FLAC players via `postMessage` / `BroadcastChannel` |
 
 ### `pm-audio-source` event

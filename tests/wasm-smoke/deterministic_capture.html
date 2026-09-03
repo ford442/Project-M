@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM deterministic capture</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; }
+    #stat { color: #0f0; font: 12px monospace; padding: 4px; }
+  </style>
+</head>
+<body>
+  <canvas id="mcanvas" width="640" height="480"></canvas>
+  <canvas id="scanvas" width="640" height="480" hidden></canvas>
+  <!-- Stubs js_init_projectm_dom() expects to find. -->
+  <button id="musicBtn" type="button" hidden></button>
+  <button id="customMilkBtn" type="button" hidden></button>
+  <div id="milkPath" hidden></div>
+  <div id="textureDir" hidden>textures/</div>
+  <div id="songDir" hidden>songs/</div>
+  <audio id="track" hidden></audio>
+  <div id="stat">loading…</div>
+  <script type="module">
+    // Deterministic frame capture: renders a preset on a pinned RNG, a virtual
+    // clock and a fixed audio schedule, and reads back the canvas at exact frame
+    // indices. Two runs of this page on the same build and the same rasterizer
+    // must produce byte-identical PNGs — that is the harness's acceptance test,
+    // not an aspiration (see docs/GRAPHICS_BENCHMARK_HARNESS.md).
+    //
+    // The five inputs a Milkdrop frame depends on, and where each is pinned:
+    //
+    //   preset       ?preset=, loaded into MEMFS, exactly one per page load.
+    //   audio        generateDeterministicBlock(frameIndex) — a pure function of
+    //                the absolute sample index — written into the WASM PCM ring,
+    //                one block per rendered frame. Not RAF-sampled.
+    //   frame index  We drive render_frame() ourselves with the RAF main loop
+    //                paused, so frame N is the Nth call, always.
+    //   RNG          set_deterministic_seed() before init(), so the preset's hue
+    //                offsets, the noise textures and rand_frame are all pinned.
+    //   time         set_deterministic_clock(1, fps): frame N happens at N/fps.
+    //
+    // Everything the page does is sequenced by an explicit pump loop; there is
+    // no requestAnimationFrame anywhere in the capture path on purpose.
+    import {
+      feedPcmToModule,
+      generateDeterministicBlock,
+      PROJECTM_ANALYSIS_WINDOW,
+    } from '../../html/projectm-synthetic-audio.js';
+
+    window.__projectMCaptureMode = true;
+    window.projectMPresetSwitchFailed = false;
+
+    const result = {
+      ok: false,
+      preset: null,
+      presetDisplayName: null,
+      seed: null,
+      fps: null,
+      width: 0,
+      height: 0,
+      framesRendered: 0,
+      settleFrames: 0,
+      captures: [],       // [{ frame, dataUrl, nonBlackFraction, meanRgb }]
+      ringFedBlocks: 0,
+      ringOverruns: null,
+      deterministicSeed: false,
+      deterministicClock: false,
+      consoleErrors: [],
+      presetSwitchFailed: false,
+      error: null,
+    };
+
+    (function installErrorCapture() {
+      for (const level of ['error', 'warn']) {
+        const original = console[level].bind(console);
+        console[level] = (...args) => {
+          try {
+            result.consoleErrors.push(`[${level}] ` + args.map(String).join(' '));
+          } catch (_) {}
+          original(...args);
+        };
+      }
+      window.addEventListener('error', (event) => {
+        result.consoleErrors.push('[uncaught] ' + (event.message || String(event.error)));
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        result.consoleErrors.push('[unhandledrejection] ' + String(event.reason));
+      });
+    })();
+
+    function setStat(message) {
+      const element = document.getElementById('stat');
+      if (element) element.textContent = message;
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    function requireExports(Module, names) {
+      const missing = names.filter((name) => typeof Module[name] !== 'function');
+      if (missing.length > 0) {
+        throw new Error(
+          'WASM bundle is missing deterministic-capture exports: ' + missing.join(', ')
+          + '. Rebuild with the current cmake/EmscriptenWasmFlags.cmake export list.',
+        );
+      }
+    }
+
+    function canvasStats(canvas) {
+      const gl = canvas.getContext('webgl2');
+      if (!gl) return null;
+      const { width, height } = canvas;
+      const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let r = 0, g = 0, b = 0, nonBlack = 0;
+      for (let i = 0; i < pixels.length; i += 4) {
+        r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2];
+        if (pixels[i] > 8 || pixels[i + 1] > 8 || pixels[i + 2] > 8) nonBlack += 1;
+      }
+      const count = width * height;
+      return { meanRgb: { r: r / count, g: g / count, b: b / count }, nonBlackFraction: nonBlack / count };
+    }
+
+    // One frame: feed exactly one audio block, then render exactly once. The
+    // order matters — the engine drains the ring at the top of render_frame(),
+    // so audio written after the call would land a frame late and make the
+    // capture depend on which side of the call the write happened on.
+    function pumpFrame(Module, frameIndex) {
+      const pcm = generateDeterministicBlock(frameIndex, { frames: PROJECTM_ANALYSIS_WINDOW });
+      if (feedPcmToModule(Module, pcm, 1)) result.ringFedBlocks += 1;
+      Module._render_frame();
+      result.framesRendered += 1;
+    }
+
+    async function runCapture() {
+      const params = new URLSearchParams(window.location.search);
+      const moduleSrc = params.get('module');
+      const presetSrc = params.get('preset');
+      if (!moduleSrc) throw new Error('Missing ?module=');
+      if (!presetSrc) throw new Error('Missing ?preset=');
+
+      const width = Math.max(64, parseInt(params.get('width'), 10) || 640);
+      const height = Math.max(64, parseInt(params.get('height'), 10) || 480);
+      const seed = Number.parseInt(params.get('seed') ?? '20260901', 10);
+      const fps = Number.parseFloat(params.get('fps') ?? '60');
+      // Frames rendered before the first capture index counts. Fixed, never
+      // "until ready": a variable settle length is a variable amount of feedback
+      // accumulated in the ping-pong buffer, i.e. a different picture.
+      const settleFrames = Math.max(1, parseInt(params.get('settleFrames'), 10) || 30);
+      const captureFrames = (params.get('captureFrames') || '60,300')
+        .split(',')
+        .map((value) => parseInt(value.trim(), 10))
+        .filter((value) => Number.isInteger(value) && value >= 0)
+        .sort((a, b) => a - b);
+      const meshWidth = parseInt(params.get('meshWidth'), 10) || 80;
+      const meshHeight = parseInt(params.get('meshHeight'), 10) || 60;
+
+      if (captureFrames.length === 0) throw new Error('No valid ?captureFrames=');
+
+      Object.assign(result, { preset: presetSrc, seed, fps, width, height, settleFrames });
+
+      await loadScript(moduleSrc);
+      const canvas = document.getElementById('mcanvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const Module = await createModule({
+        canvas,
+        noInitialRun: true,
+        // Required to read the canvas back after rendering; the WASM side also
+        // sets it under ?capture=1, this is the belt to that's braces.
+        webglContextAttributes: { preserveDrawingBuffer: true },
+        locateFile: (path, prefix) => prefix + path,
+      });
+      window.__projectMModule = Module;
+
+      requireExports(Module, [
+        '_init', '_start_render', '_render_frame', '_load_preset_file',
+        '_set_deterministic_seed', '_set_deterministic_clock', '_set_render_loop_paused',
+        '_is_preset_ready', '_preset_switch_failed',
+      ]);
+
+      // Before init(): PresetState's hue offsets and the noise textures are
+      // drawn at construction time, so a seed set afterwards would be too late.
+      Module._set_deterministic_seed(1, seed >>> 0);
+      result.deterministicSeed = Module._is_deterministic_seed
+        ? Module._is_deterministic_seed() !== 0 : true;
+
+      const initResult = Module._init();
+      if (initResult !== 0) throw new Error('Module._init() returned ' + initResult);
+
+      // Fixed quality: the governor exists to trade quality for frame rate, and
+      // a capture whose mesh size depends on how fast the runner is would differ by
+      // machine. Perf runs measure the governor; golden runs pin it.
+      Module._set_quality_governor && Module._set_quality_governor(0);
+      Module._set_mesh && Module._set_mesh(meshWidth, meshHeight);
+      Module._set_target_fps && Module._set_target_fps(fps);
+      Module._set_perf_hud && Module._set_perf_hud(0);
+
+      Module._start_render(width, height);
+      // start_render() registers the RAF main loop; the capture drives frames
+      // itself, so stop it before a single RAF frame can slip in.
+      Module._set_render_loop_paused(1);
+
+      Module._set_deterministic_clock(1, fps);
+      result.deterministicClock = Module._is_deterministic_clock
+        ? Module._is_deterministic_clock() !== 0 : true;
+
+      const presetResponse = await fetch(presetSrc);
+      if (!presetResponse.ok) throw new Error('Preset fetch failed: ' + presetResponse.status);
+      const presetBytes = new Uint8Array(await presetResponse.arrayBuffer());
+      try {
+        const match = new TextDecoder('utf-8').decode(presetBytes)
+          .match(/^\s*presetname\s*=\s*(.+?)\s*$/m);
+        if (match) result.presetDisplayName = match[1];
+      } catch (_) {}
+
+      const vfsPath = '/presets/' + presetSrc.split('/').pop();
+      try { Module.FS.mkdir('/presets'); } catch (_) {}
+      Module.FS.writeFile(vfsPath, presetBytes);
+      Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+      setStat('preset loaded; settling');
+
+      for (let frame = 0; frame < settleFrames; frame += 1) {
+        pumpFrame(Module, frame);
+      }
+
+      // Readiness is asserted after a *fixed* settle, never waited on. If the
+      // shader did not compile in `settleFrames`, the run is not slow — it is
+      // not comparable to the golden, and silently capturing a half-loaded
+      // preset is how a golden gate starts lying.
+      if (Module._preset_switch_failed() !== 0) {
+        throw new Error('Preset switch failed during settle');
+      }
+      if (Module._is_preset_ready(1) === 0) {
+        throw new Error(
+          `Preset not ready after ${settleFrames} settle frames. Raise settleFrames for this `
+          + 'preset in the manifest rather than making the settle adaptive.',
+        );
+      }
+
+      const lastCaptureFrame = captureFrames[captureFrames.length - 1];
+      const wanted = new Set(captureFrames);
+      for (let frame = settleFrames; frame <= lastCaptureFrame; frame += 1) {
+        pumpFrame(Module, frame);
+        if (wanted.has(frame)) {
+          const stats = canvasStats(canvas);
+          result.captures.push({
+            frame,
+            dataUrl: canvas.toDataURL('image/png'),
+            nonBlackFraction: stats ? stats.nonBlackFraction : null,
+            meanRgb: stats ? stats.meanRgb : null,
+          });
+          setStat(`captured frame ${frame}`);
+        }
+      }
+
+      // Any capture index below settleFrames would silently go missing.
+      const captured = new Set(result.captures.map((capture) => capture.frame));
+      const skipped = captureFrames.filter((frame) => !captured.has(frame));
+      if (skipped.length > 0) {
+        throw new Error(
+          `Capture frames [${skipped.join(', ')}] are below settleFrames (${settleFrames}) and were never reached.`,
+        );
+      }
+
+      const gl = canvas.getContext('webgl2');
+      if (gl) {
+        const error = gl.getError();
+        if (error !== gl.NO_ERROR) throw new Error('WebGL error 0x' + error.toString(16));
+      }
+
+      if (Module._get_pcm_ring_overruns) result.ringOverruns = Module._get_pcm_ring_overruns();
+      result.presetSwitchFailed = Module._preset_switch_failed() !== 0;
+      result.ok = !result.presetSwitchFailed;
+      setStat(`done: ${result.captures.length} capture(s), ${result.framesRendered} frames`);
+    }
+
+    runCapture()
+      .catch((error) => {
+        result.ok = false;
+        result.error = String(error && error.stack ? error.stack : error);
+        setStat('failed: ' + error);
+      })
+      .finally(() => {
+        window.__projectMDeterministicCapture = result;
+      });
+  </script>
+</body>
+</html>

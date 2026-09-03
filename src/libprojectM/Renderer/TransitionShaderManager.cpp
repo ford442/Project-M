@@ -2,11 +2,13 @@
 
 #include "BuiltInTransitionsResources.hpp"
 
+#include <RandomSeed.hpp>
+
 namespace libprojectM {
 namespace Renderer {
 
 TransitionShaderManager::TransitionShaderManager()
-    : m_mersenneTwister(m_randomDevice())
+    : m_mersenneTwister(RandomSeed::Get("TransitionShaderManager"))
 {
     // Compile all candidate shaders and keep only those that succeeded.
     // Each entry is {shaderBody, passCount}. Most are single-pass (1).

@@ -10,6 +10,9 @@
 #include <Audio/AudioConstants.hpp>
 #include <Renderer/Platform/GLResolver.hpp>
 
+#include <RandomSeed.hpp>
+
+#include <projectM-4/debug.h>
 #include <projectM-4/parameters.h>
 #include <projectM-4/projectm_perf.h>
 #include <projectM-4/render_opengl.h>
@@ -291,6 +294,21 @@ void projectm_opengl_burn_texture(projectm_handle instance, uint32_t texture, in
 {
     auto projectMInstance = handle_to_instance(instance);
     projectMInstance->BurnInTexture(texture, left, top, width, height);
+}
+
+void projectm_set_deterministic_seed(uint32_t seed)
+{
+    libprojectM::RandomSeed::SetDeterministicSeed(seed);
+}
+
+void projectm_clear_deterministic_seed()
+{
+    libprojectM::RandomSeed::ClearDeterministicSeed();
+}
+
+bool projectm_is_deterministic_seed_set()
+{
+    return libprojectM::RandomSeed::IsDeterministic();
 }
 
 void projectm_set_frame_time(projectm_handle instance, double seconds_since_first_frame)

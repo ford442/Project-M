@@ -5,7 +5,8 @@
 #include "Renderer/OpenGL.h"
 #include "Renderer/Texture.hpp"
 
-#include <chrono>
+#include <RandomSeed.hpp>
+
 #include <memory>
 #include <random>
 
@@ -15,6 +16,25 @@
 
 namespace libprojectM {
 namespace Renderer {
+
+namespace {
+
+/**
+ * Seeds the noise generators. Previously each call seeded from
+ * `system_clock::now()`, which is both non-reproducible and, for two textures
+ * generated inside one clock tick, occasionally *identical*. Routing through
+ * RandomSeed gives a real `random_device` draw by default and a reproducible
+ * value under `projectm_set_deterministic_seed()`. Size and zoom factor are
+ * folded in so the LQ/MQ/HQ variants keep distinct noise in either mode.
+ */
+auto NoiseSeed(const char* domain, int size, int zoomFactor) -> uint32_t
+{
+    const auto base = RandomSeed::Get(domain);
+    return base ^ (static_cast<uint32_t>(size) * 2654435761u)
+         ^ (static_cast<uint32_t>(zoomFactor) * 40503u);
+}
+
+} // namespace
 
 auto MilkdropNoise::LowQuality() -> std::shared_ptr<Texture>
 {
@@ -59,7 +79,7 @@ auto MilkdropNoise::GetPreferredInternalFormat() -> int
 
 auto MilkdropNoise::generate2D(int size, int zoomFactor) -> std::vector<uint32_t>
 {
-    uint32_t randomSeed = static_cast<uint32_t>(std::chrono::system_clock::now().time_since_epoch().count());
+    uint32_t randomSeed = NoiseSeed("MilkdropNoise2D", size, zoomFactor);
     std::default_random_engine randomGenerator(randomSeed);
     std::uniform_int_distribution<int> randomDistribution(0, INT32_MAX);
 
@@ -183,7 +203,7 @@ auto MilkdropNoise::generate2D(int size, int zoomFactor) -> std::vector<uint32_t
 
 auto MilkdropNoise::generate3D(int size, int zoomFactor) -> std::vector<uint32_t>
 {
-    uint32_t randomSeed = static_cast<uint32_t>(std::chrono::system_clock::now().time_since_epoch().count());
+    uint32_t randomSeed = NoiseSeed("MilkdropNoise3D", size, zoomFactor);
     std::default_random_engine randomGenerator(randomSeed);
     std::uniform_int_distribution<int> randomDistribution(0, INT32_MAX);
 

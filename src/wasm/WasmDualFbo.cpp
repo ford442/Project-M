@@ -21,7 +21,7 @@ CompositingBlendShader g_compositorShader;
 float g_transitionDuration = 3.0f;  //!< Crossfade duration in seconds (default 3 s).
 bool g_transitionActive = false;    //!< Whether a blend is currently in progress.
 float g_transitionBlend = 0.0f;     //!< Current blend value in [0.0, 1.0].
-double g_transitionStartTime = 0.0; //!< emscripten_get_now() timestamp (ms) at blend start.
+double g_transitionStartTime = 0.0; //!< WasmNow() timestamp (ms) at blend start.
 
 // =============================================================================
 // Idle release policy for the Preset A pair
@@ -40,7 +40,7 @@ double g_transitionStartTime = 0.0; //!< emscripten_get_now() timestamp (ms) at 
 // instead of thrashing glTexImage2D on every switch.
 // =============================================================================
 float g_dualFboIdleReleaseSec = 5.0f; //!< Idle seconds before Preset A is reclaimed.
-double g_transitionEndTime = 0.0;     //!< emscripten_get_now() timestamp (ms) at last blend end.
+double g_transitionEndTime = 0.0;     //!< WasmNow() timestamp (ms) at last blend end.
 
 // =============================================================================
 // Phase 2 + Phase 3: Dual ping-pong FBO lifecycle C API (EMSCRIPTEN_KEEPALIVE exports)
@@ -126,7 +126,7 @@ void dual_fbo_end_transition()
     g_dualFbo.PromoteBtoA();
     // Preset A is idle again from here; render_frame() reclaims it once the
     // grace period set by dual_fbo_set_idle_release_seconds() elapses.
-    g_transitionEndTime = emscripten_get_now();
+    g_transitionEndTime = WasmNow();
 }
 
 /**
@@ -141,7 +141,7 @@ EMSCRIPTEN_KEEPALIVE
 void dual_fbo_cancel_transition()
 {
     g_dualFbo.ReleasePresetB();
-    g_transitionEndTime = emscripten_get_now();
+    g_transitionEndTime = WasmNow();
 }
 
 /**
@@ -409,11 +409,11 @@ void transition_start()
         g_transitionBlend = 0.0f;
         g_transitionActive = false;
         g_presetBReady = false;
-        g_transitionEndTime = emscripten_get_now();
+        g_transitionEndTime = WasmNow();
         return;
     }
     g_transitionBlend = 0.0f;
-    g_transitionStartTime = emscripten_get_now(); // milliseconds
+    g_transitionStartTime = WasmNow(); // milliseconds
     g_transitionActive = true;
     fprintf(stderr, "Phase5: Transition started (duration=%.2f s).\n",
             static_cast<double>(g_transitionDuration));
@@ -438,7 +438,7 @@ void transition_cancel()
     g_dualFbo.ReleasePresetB();
     // Start the Preset A idle clock here too – a cancelled transition leaves the
     // A pair allocated with nothing left to sample it.
-    g_transitionEndTime = emscripten_get_now();
+    g_transitionEndTime = WasmNow();
     fprintf(stderr, "Phase5: Transition cancelled.\n");
 }
 

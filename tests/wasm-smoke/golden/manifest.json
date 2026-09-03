@@ -1,0 +1,49 @@
+{
+  "$comment": [
+    "Golden-image set for the graphics regression gate. See docs/GRAPHICS_BENCHMARK_HARNESS.md.",
+    "Presets are chosen to cover the render paths the FPS recovery work (#174) touches, not to",
+    "look impressive: the empty/solid presets pin the clear + final-blit path, the per-pixel ones",
+    "pin the warp mesh, the compshader ones pin the composite path (and the extra Y-flip that",
+    "presets *without* a composite shader pay), the noise ones pin RNG determinism end to end,",
+    "and the heavy custom preset covers a real multi-pass warp+blur frame.",
+    "Capture frames are absolute render-frame indices, counted from the first pumped frame.",
+    "settleFrames must stay >= the longest shader compile in the set — the capture asserts",
+    "readiness after a fixed settle rather than waiting, so that the frame schedule is fixed."
+  ],
+  "canvas": { "width": 640, "height": 480 },
+  "seed": 20260901,
+  "fps": 60,
+  "settleFrames": 30,
+  "mesh": { "width": 80, "height": 60 },
+  "captureFrames": [60, 300],
+  "tolerance": {
+    "$comment": [
+      "Applied when comparing against committed goldens on a DIFFERENT machine or driver.",
+      "The same-runner, same-commit repeat check is byte-exact and ignores these.",
+      "minSsim catches structural change (a flip, a dropped pass, a dead preset);",
+      "maxDifferingFraction catches localized damage a whole-image average would dilute."
+    ],
+    "minSsim": 0.995,
+    "maxDifferingFraction": 0.002,
+    "pixelThreshold": 8
+  },
+  "presets": [
+    { "path": "presets/tests/000-empty.milk", "label": "empty baseline (clear + blit only)" },
+    { "path": "presets/tests/100-square.milk", "label": "static shape" },
+    { "path": "presets/tests/101-per_frame.milk", "label": "per-frame equations" },
+    { "path": "presets/tests/110-per_pixel.milk", "label": "per-pixel warp mesh" },
+    { "path": "presets/tests/205-wave.milk", "label": "waveform" },
+    { "path": "presets/tests/245-wave-smooth-100.milk", "label": "smoothed waveform" },
+    { "path": "presets/tests/250-wavecode.milk", "label": "custom wavecode" },
+    { "path": "presets/tests/251-wavecode-spectrum.milk", "label": "spectrum wavecode (audio reactive)" },
+    { "path": "presets/tests/260-compshader-noise_lq.milk", "label": "composite shader + 2D noise texture" },
+    { "path": "presets/tests/261-compshader-noisevol_lq.milk", "label": "composite shader + 3D noise volume" },
+    { "path": "presets/tests/270-compshader-solid-color.milk", "label": "composite shader, solid output" },
+    { "path": "presets/tests/300-beatdetect-bassmidtreb.milk", "label": "beat detection, bass/mid/treble" },
+    {
+      "path": "custom_milk_fixed/milk011.milk",
+      "label": "heavy multi-pass warp + blur",
+      "settleFrames": 60
+    }
+  ]
+}

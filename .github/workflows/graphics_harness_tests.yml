@@ -1,0 +1,48 @@
+name: Graphics Harness Tests
+
+# Unit tests for the golden-image / frame-budget harness itself: PNG I/O, the
+# perceptual diff and its tolerance policy, the frame-budget percentiles and the
+# regression gate, and the deterministic audio schedule.
+#
+# Separate from the Emscripten workflow on purpose. This is the code that decides
+# whether a PR goes red, it needs no toolchain, and it runs in seconds — so it
+# gates every push to the harness rather than waiting on a WASM build.
+
+on:
+  push:
+    paths:
+      - 'tests/graphics-harness/**'
+      - 'tests/wasm-smoke/lib/**'
+      - 'tests/wasm-smoke/golden/**'
+      - 'tests/wasm-smoke/golden_images.mjs'
+      - 'tests/wasm-smoke/deterministic_capture.html'
+      - 'html/projectm-synthetic-audio.js'
+      - 'scripts/test_graphics_harness.sh'
+      - 'scripts/record_frame_budget.mjs'
+      - 'scripts/compare_benchmark_results.mjs'
+      - '.github/workflows/graphics_harness_tests.yml'
+  pull_request:
+    paths:
+      - 'tests/graphics-harness/**'
+      - 'tests/wasm-smoke/lib/**'
+      - 'tests/wasm-smoke/golden/**'
+      - 'tests/wasm-smoke/golden_images.mjs'
+      - 'tests/wasm-smoke/deterministic_capture.html'
+      - 'html/projectm-synthetic-audio.js'
+      - 'scripts/test_graphics_harness.sh'
+      - 'scripts/record_frame_budget.mjs'
+      - 'scripts/compare_benchmark_results.mjs'
+      - '.github/workflows/graphics_harness_tests.yml'
+  workflow_dispatch: {}
+
+jobs:
+  harness-tests:
+    name: Harness unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Harness unit tests + golden manifest validation
+        run: scripts/test_graphics_harness.sh

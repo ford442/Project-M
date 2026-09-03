@@ -91,6 +91,13 @@ export type ProjectMModule = EmscriptenModule & {
     _transition_get_blend: () => number;
     _transition_set_duration: (seconds: number) => void;
     _transition_get_duration: () => number;
+    _set_deterministic_seed: (enabled: number, seed: number) => void;
+    _is_deterministic_seed: () => boolean;
+    _set_deterministic_clock: (enabled: number, fps: number) => void;
+    _is_deterministic_clock: () => boolean;
+    _deterministic_now_ms: () => number;
+    _deterministic_frame_index: () => number;
+    _set_render_loop_paused: (paused: number) => void;
 };
 
 /** C symbol names for render-worker ccall proxying. */
@@ -180,6 +187,13 @@ export const WASM_API_SYMBOLS = {
     transitionGetBlend: 'transition_get_blend',
     transitionSetDuration: 'transition_set_duration',
     transitionGetDuration: 'transition_get_duration',
+    setDeterministicSeed: 'set_deterministic_seed',
+    isDeterministicSeed: 'is_deterministic_seed',
+    setDeterministicClock: 'set_deterministic_clock',
+    isDeterministicClock: 'is_deterministic_clock',
+    deterministicNowMs: 'deterministic_now_ms',
+    deterministicFrameIndex: 'deterministic_frame_index',
+    setRenderLoopPaused: 'set_render_loop_paused',
 } as const;
 
 /**
@@ -652,6 +666,41 @@ export function transitionGetDuration(module: ProjectMModule): number {
     return module._transition_get_duration();
 }
 
+/** Pin libprojectM's RNG to a seed so a preset renders identical pixels run to run */
+export function setDeterministicSeed(module: ProjectMModule, enabled: boolean, seed: number): void {
+    module._set_deterministic_seed(enabled ? 1 : 0, seed);
+}
+
+/** Whether deterministic RNG seeding is active */
+export function isDeterministicSeed(module: ProjectMModule): boolean {
+    return !!module._is_deterministic_seed();
+}
+
+/** Drive the engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs) */
+export function setDeterministicClock(module: ProjectMModule, enabled: boolean, fps: number): void {
+    module._set_deterministic_clock(enabled ? 1 : 0, fps);
+}
+
+/** Whether the virtual clock is active */
+export function isDeterministicClock(module: ProjectMModule): boolean {
+    return !!module._is_deterministic_clock();
+}
+
+/** The host time base in milliseconds: virtual when the clock is on, real otherwise */
+export function deterministicNowMs(module: ProjectMModule): number {
+    return module._deterministic_now_ms();
+}
+
+/** Frames ticked since the virtual clock was last enabled */
+export function deterministicFrameIndex(module: ProjectMModule): number {
+    return module._deterministic_frame_index();
+}
+
+/** Pause/resume the requestAnimationFrame main loop so a harness can drive render_frame() itself */
+export function setRenderLoopPaused(module: ProjectMModule, paused: boolean): void {
+    module._set_render_loop_paused(paused ? 1 : 0);
+}
+
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
     init,
@@ -698,5 +747,12 @@ export const PUBLIC_WASM_API = [
     transitionIsActive,
     transitionGetBlend,
     transitionSetDuration,
-    transitionGetDuration
+    transitionGetDuration,
+    setDeterministicSeed,
+    isDeterministicSeed,
+    setDeterministicClock,
+    isDeterministicClock,
+    deterministicNowMs,
+    deterministicFrameIndex,
+    setRenderLoopPaused
 ] as const;

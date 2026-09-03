@@ -105,6 +105,7 @@ wrapper_sources=(
     "$PROJECT_ROOT/src/wasm/WasmPerfGovernor.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPlaylistBridge.cpp"
     "$PROJECT_ROOT/src/wasm/WasmJsBindings.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmDeterminism.cpp"
 )
 
 # Prefer em++ so the final link always pulls in libc++ / libc++abi. Linking the

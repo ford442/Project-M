@@ -27,6 +27,7 @@
 #include "Renderer/TextureManager.hpp"
 
 #include <Logging.hpp>
+#include <RandomSeed.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -53,7 +54,7 @@ PresetTransition::PresetTransition(const std::shared_ptr<Shader>& transitionShad
 
     m_mesh.Update();
 
-    std::mt19937 rand32(m_randomDevice());
+    std::mt19937 rand32(RandomSeed::Get("PresetTransition"));
     m_staticRandomValues = {rand32(), rand32(), rand32(), rand32()};
 
     // Pick a random easing curve for this transition (default smoothstep).
@@ -220,7 +221,7 @@ void PresetTransition::Draw(const Preset& oldPreset,
         return;
     }
 
-    std::mt19937 rand32(m_randomDevice());
+    std::mt19937 rand32(RandomSeed::Get("PresetTransition"));
 
     // Calculate progress values
     const auto secondsSinceStart = currentFrameTime - m_transitionStartTime;

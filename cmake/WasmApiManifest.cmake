@@ -101,4 +101,11 @@ set(PROJECTM_WASM_API_MANIFEST
     "transition_get_blend|public|direct|number||Current transition blend factor 0..1"
     "transition_set_duration|public|direct|void|seconds:number|Set transition duration in seconds"
     "transition_get_duration|public|direct|number||Configured transition duration in seconds"
+    "set_deterministic_seed|public|direct|void|enabled:boolean,seed:number|Pin libprojectM's RNG to a seed so a preset renders identical pixels run to run"
+    "is_deterministic_seed|public|direct|boolean||Whether deterministic RNG seeding is active"
+    "set_deterministic_clock|public|direct|void|enabled:boolean,fps:number|Drive the engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs)"
+    "is_deterministic_clock|public|direct|boolean||Whether the virtual clock is active"
+    "deterministic_now_ms|public|direct|number||The host time base in milliseconds: virtual when the clock is on, real otherwise"
+    "deterministic_frame_index|public|direct|number||Frames ticked since the virtual clock was last enabled"
+    "set_render_loop_paused|public|direct|void|paused:boolean|Pause/resume the requestAnimationFrame main loop so a harness can drive render_frame() itself"
 )

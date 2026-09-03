@@ -153,6 +153,61 @@ jobs:
             --out screenshots/ci \
             --frames 60
 
+      # ---- Graphics golden-image gate (#174 measurement harness) -------------
+      # Runs here rather than in its own workflow because the only expensive
+      # part — the emsdk build — has already happened in this job. Software GL
+      # (ANGLE/SwiftShader) on purpose: deterministic pixels, free runner. Its
+      # frame times are meaningless and are not recorded; perf lives in
+      # .github/workflows/graphics_perf_bench.yml on a GPU runner.
+      # Only the transitions=ON leg, so goldens have exactly one producer.
+      - name: Golden images — determinism self-check
+        if: matrix.wasm-transitions == 'ON'
+        env:
+          PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js
+        # Captures a subset twice in one browser and requires byte-identical
+        # output. If this fails, some frame input is still unpinned and every
+        # golden comparison below is noise — so it runs first, and blocks.
+        # A subset because it doubles capture time; the nightly job self-checks
+        # the whole set.
+        run: |
+          node tests/wasm-smoke/golden_images.mjs \
+            --module "$PROJECTM_WASM_JS" \
+            --self-check \
+            --preset presets/tests/110-per_pixel.milk \
+            --preset presets/tests/260-compshader-noise_lq.milk \
+            --preset presets/tests/300-beatdetect-bassmidtreb.milk
+
+      - name: Golden images — compare against committed goldens
+        if: matrix.wasm-transitions == 'ON'
+        env:
+          PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js
+        # Bootstrap path: with no goldens committed yet there is nothing to
+        # compare against, so capture them and upload them for a maintainer to
+        # review and commit. Once tests/wasm-smoke/golden/images/ has content
+        # this branch never runs again and the gate is blocking.
+        run: |
+          if compgen -G "tests/wasm-smoke/golden/images/*.png" > /dev/null; then
+            node tests/wasm-smoke/golden_images.mjs --module "$PROJECTM_WASM_JS"
+          else
+            echo "::warning::No goldens committed yet — capturing a candidate set instead of gating."
+            echo "Download the golden-images-bootstrap artifact, review the PNGs, and commit them"
+            echo "to tests/wasm-smoke/golden/images/ to turn this step into a blocking gate."
+            node tests/wasm-smoke/golden_images.mjs --module "$PROJECTM_WASM_JS" --update
+          fi
+
+      - name: Upload golden image artifacts
+        if: always() && matrix.wasm-transitions == 'ON'
+        uses: actions/upload-artifact@v4
+        with:
+            name: golden-images-bootstrap
+            if-no-files-found: warn
+            # benchmark-results/golden/ holds the JSON report plus, on failure,
+            # one golden|actual|diff triptych per mismatching frame — reviewing a
+            # visualizer change without seeing the pixels is guesswork.
+            path: |
+              benchmark-results/golden/**
+              tests/wasm-smoke/golden/images/**
+
       - name: Upload Preset Screenshot Report
         if: failure()
         uses: actions/upload-artifact@v4

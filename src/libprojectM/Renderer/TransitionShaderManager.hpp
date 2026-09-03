@@ -72,7 +72,6 @@ private:
     std::shared_ptr<Shader> m_fallbackShader; //!< SimpleBlend fallback used when all custom shaders fail to compile.
     int m_fallbackPassCount{1}; //!< Pass count for the fallback shader.
 
-    std::random_device m_randomDevice; //!< Seed for the random number generator
     std::mt19937 m_mersenneTwister; //!< Random engine to select shader
 };
 

@@ -96,6 +96,13 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _transition_get_blend
     _transition_set_duration
     _transition_get_duration
+    _set_deterministic_seed
+    _is_deterministic_seed
+    _set_deterministic_clock
+    _is_deterministic_clock
+    _deterministic_now_ms
+    _deterministic_frame_index
+    _set_render_loop_paused
 )
 
 projectm_wasm_join_exported_functions() {

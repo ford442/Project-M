@@ -20,7 +20,15 @@ now landed in-tree** — see [§179 implementation notes](#179-implementation-no
 for the WebGL2 outcomes and the **defer** decision on WebGPU.
 **No sub-issue has before/after benchmark JSON yet** — that requires a GPU and a
 browser, and every code-truth finding here (including #178's) was reached by reading/
-writing the tree, not by measuring.
+writing the tree, not by measuring. **The machinery for changing that has now landed**:
+see [`GRAPHICS_BENCHMARK_HARNESS.md`](GRAPHICS_BENCHMARK_HARNESS.md) for the
+deterministic capture path (pinned RNG, virtual clock, frame-exact audio, pumped
+frames), the golden-image gate that runs on software GL on every PR, and the
+frame-budget record that accumulates per commit under `benchmark-results/`. What
+is still outstanding is *data*: a reviewed golden set has to be captured on a
+machine with the Emscripten toolchain and committed, and the first baseline
+record has to come off a GPU runner. Until then the caveat above stands for every
+figure in this document.
 The "verify first" step is now done against the tree — see
 [Verified against the tree](#verified-against-the-tree-2026-07-31) before picking up
 any sub-issue. Two results change the plan: the largest listed suspect is **already

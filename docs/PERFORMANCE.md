@@ -61,6 +61,14 @@ the `window.pmOnPerfFrame` / `window.pmSetPerfHudEnabled` hooks called from C++.
 
 > **Full preset benchmark guide:** [`docs/BENCHMARKING.md`](BENCHMARKING.md) — `optimize.sh --bench`,
 > curated manifest, native parse/audio/OpenMP modes, before/after baselines.
+>
+> **Reproducible frames and the regression gates:**
+> [`docs/GRAPHICS_BENCHMARK_HARNESS.md`](GRAPHICS_BENCHMARK_HARNESS.md) — deterministic
+> capture (pinned RNG, virtual clock, frame-exact audio), the golden-image gate on
+> software GL, and the relative p95 frame-budget gate on a GPU runner. Read it before
+> quoting any figure in this document as measured: numbers taken under a software
+> rasterizer, or across two runners, are not comparable and the tooling refuses to
+> gate on them.
 
 Append the following query parameters to `projectm-core.html`:
 

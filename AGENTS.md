@@ -327,6 +327,27 @@ standalone (each falls back to installing its own dependencies if the root
 workspace hasn't been installed yet) and are what CI (`web_host_tests.yml`)
 actually runs `npm test` / `npm run typecheck` through.
 
+`tests/web/projectm-render-worker-host.test.mjs` covers the main-thread half
+of the OffscreenCanvas render-worker wire protocol
+(`projectm-render-worker-types.ts`): the PCM ring writer (including
+wraparound), `isRenderWorkerSupported`/`isRenderWorkerEnabled`, and
+`setupRenderWorker()`'s message dispatch / ccall bridging.
+`projectm-render-worker.js` (the worker half) is a *classic*, non-module
+Worker script — it assigns to the bare `self` global and expects
+`importScripts()` to define a global `createModule`. Both only behave that
+way under a real browser Worker global scope; importing the file under
+Node's ESM loader (`html/`'s `package.json` sets `"type": "module"`) changes
+`var` semantics enough — module-scoped instead of a `self`/`globalThis`
+property — that its `init()` handshake and the PCM ring reader
+(`drainPcmRing`) can't be driven the same way from Node without either a
+real browser/Worker environment or a production refactor that can't be
+verified without one. Follow-up options, either needing browser
+verification before landing: convert the worker to a module Worker
+(`new Worker(url, { type: 'module' })`, replacing `importScripts` with
+`import()`), or extract the ring math into a small classic-script-compatible
+file loaded via `importScripts` on the worker side and re-exported for tests
+on the host side.
+
 ### Preset Compatibility Harness
 
 `tests/libprojectM/PresetCompatTest.cpp` parses every `.milk` preset in `presets/tests/` and

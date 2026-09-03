@@ -35,37 +35,12 @@ import { getFavorites } from './projectm-preset-favorites.js';
 
 export const DEFAULT_MANIFEST_URL = './custom_presets_manifest.json';
 
-export const DEFAULT_CUSTOM_PRESET_BASES = [
-    'https://glsl.1ink.us/custom_milk/',
-    '../custom_milk_fixed/',
-    './custom_milk_fixed/',
-];
-
 /**
  * @param {string} filename
  * @returns {string}
  */
 function safePresetName(filename) {
     return String(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-}
-
-/**
- * @param {object} [options]
- * @param {string} [options.preferred] Base tried before everything else.
- * @param {string[]} [options.fallbacks]
- * @returns {string[]} De-duplicated base URLs, in try order.
- */
-export function getCustomPresetBases({ preferred, fallbacks = DEFAULT_CUSTOM_PRESET_BASES } = {}) {
-    /** @type {string | null} */
-    let fromStorage = null;
-    try {
-        fromStorage = localStorage.getItem('customPresetBase');
-    } catch {
-        // localStorage may be unavailable
-    }
-    return [...new Set(
-        /** @type {string[]} */ ([preferred, fromStorage, ...fallbacks].filter(Boolean)),
-    )];
 }
 
 /**

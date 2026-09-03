@@ -219,6 +219,26 @@ Third-party code that is compiled as part of the project:
   - Braces on new lines after classes, functions, enums, and control statements (Allman-style)
   - Pointer alignment: left (`int* ptr`)
   - Short functions/lambdas: allowed on single line; other blocks: never
+- `scripts/check_cpp_format.sh` runs `clang-format --dry-run -Werror` over a
+  fixed, growing list of directories (currently `src/wasm/`,
+  `src/libprojectM/Renderer/Platform/`, `tests/cxx-interface/`) and runs in
+  its own `cpp_format_gate.yml` workflow. It is deliberately not
+  repo-wide yet: most of `src/libprojectM/` and `src/playlist/` are not
+  clang-format clean, and a repo-wide reformat in one commit would drown
+  every other diff in noise. Widen the list one reformatted directory at a
+  time instead of doing it all at once.
+- **`EM_JS`/`EM_ASYNC_JS`/`EM_ASM*` macro bodies in `src/wasm/` are wrapped in
+  `// clang-format off` / `// clang-format on`.** Those bodies are literal
+  JavaScript, not C++; clang-format tokenizes `===`/`!==` as separate `==`
+  and `=` operators (C++ has no triple-equals) and re-spaces them into
+  `== =` / `!= =`, silently breaking the JS. Never remove those guards or
+  run `clang-format -i` across an `EM_JS`/`EM_ASM` body — reformat only the
+  surrounding C++.
+- `src/wasm/` was mechanically reformatted to `.clang-format` in a single
+  commit recorded in `.git-blame-ignore-revs`. Configure
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs` (or pass
+  `--ignore-revs-file` to `git blame` directly) so that commit doesn't
+  attribute unrelated lines to the reformat.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:
@@ -229,6 +249,17 @@ Third-party code that is compiled as part of the project:
   - `performance-*`
   - `misc-*`
 - Disabled checks include `magic-numbers`, `owning-memory`, `pro-bounds-pointer-arithmetic`, and `easily-swappable-parameters`.
+- `scripts/check_cpp_tidy.sh` runs a narrower check list
+  (`bugprone-*`, `performance-*`, `modernize-use-nullptr`,
+  `readability-braces-around-statements`) over `src/wasm/` only, against a
+  `compile_commands.json` produced by an Emscripten build configured with
+  `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` (native builds never compile
+  `src/wasm/`, so there is no non-Emscripten path for this). It runs as a
+  `continue-on-error: true` step in `build_emscripten.yml` — non-blocking
+  until a real CI run confirms the narrow check list is clean, at which
+  point drop `continue-on-error` to make it a hard gate. Widen the check
+  list and the directory coverage together, gradually, same reasoning as
+  `check_cpp_format.sh`'s PATHS list.
 
 ### Naming Conventions (enforced by `.clang-tidy`)
 | Entity | Style | Example |
@@ -277,6 +308,45 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
 
 The CI builds both `Debug` and `Release` configurations and runs `ctest` for each.
+
+### Browser host-layer tests (`tests/web/`)
+
+`html/` (the browser host modules) and `packages/web/` (the publishable embed
+SDK) are an npm workspace rooted at the repo's own `package.json`. From the
+repo root:
+
+```bash
+npm install               # installs html/'s devDependencies once, hoisted
+npm test                  # every tests/web/*.test.mjs (coverage-gated, see
+                           # scripts/test_web_embed.sh) + the packages/web build
+npm run typecheck         # tsc over html/'s two tsconfigs
+```
+
+`scripts/test_web_embed.sh` and `scripts/check_html_types.sh` still work
+standalone (each falls back to installing its own dependencies if the root
+workspace hasn't been installed yet) and are what CI (`web_host_tests.yml`)
+actually runs `npm test` / `npm run typecheck` through.
+
+`tests/web/projectm-render-worker-host.test.mjs` covers the main-thread half
+of the OffscreenCanvas render-worker wire protocol
+(`projectm-render-worker-types.ts`): the PCM ring writer (including
+wraparound), `isRenderWorkerSupported`/`isRenderWorkerEnabled`, and
+`setupRenderWorker()`'s message dispatch / ccall bridging.
+`projectm-render-worker.js` (the worker half) is a *classic*, non-module
+Worker script — it assigns to the bare `self` global and expects
+`importScripts()` to define a global `createModule`. Both only behave that
+way under a real browser Worker global scope; importing the file under
+Node's ESM loader (`html/`'s `package.json` sets `"type": "module"`) changes
+`var` semantics enough — module-scoped instead of a `self`/`globalThis`
+property — that its `init()` handshake and the PCM ring reader
+(`drainPcmRing`) can't be driven the same way from Node without either a
+real browser/Worker environment or a production refactor that can't be
+verified without one. Follow-up options, either needing browser
+verification before landing: convert the worker to a module Worker
+(`new Worker(url, { type: 'module' })`, replacing `importScripts` with
+`import()`), or extract the ring math into a small classic-script-compatible
+file loaded via `importScripts` on the worker side and re-exported for tests
+on the host side.
 
 ### Preset Compatibility Harness
 
@@ -402,7 +472,9 @@ ctest --test-dir cmake-build --verbose --build-config Debug
 cmake --build cmake-build --config Debug --target install
 ```
 
-There is no separate lint CI job; formatting is manual via `clang-format` (see above).
+`scripts/check_cpp_format.sh` is a CI-enforced format gate over the directory
+list documented above (see "Code Formatting"); everywhere else, formatting is
+still manual via `clang-format` (see above).
 
 ### C++ interface smoke test (optional, matches Linux CI)
 

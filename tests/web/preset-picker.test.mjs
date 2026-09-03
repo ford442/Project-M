@@ -10,10 +10,8 @@ import assert from 'node:assert/strict';
 
 import {
     fetchCustomPresetManifest,
-    getCustomPresetBases,
     loadCustomPresetFile,
-    pickRandomFromList,
-    DEFAULT_CUSTOM_PRESET_BASES
+    pickRandomFromList
 } from '../../html/projectm-preset-picker.js';
 
 function jsonResponse(body, ok = true, status = 200) {
@@ -55,13 +53,6 @@ test('fetchCustomPresetManifest rejects malformed manifest', async () => {
     );
 });
 
-test('getCustomPresetBases includes defaults and dedupes', () => {
-    const bases = getCustomPresetBases({ preferred: DEFAULT_CUSTOM_PRESET_BASES[0] });
-    assert.ok(bases.includes('https://glsl.1ink.us/custom_milk/'));
-    // preferred duplicate of a default must not appear twice
-    assert.equal(bases.filter((b) => b === DEFAULT_CUSTOM_PRESET_BASES[0]).length, 1);
-});
-
 test('pickRandomFromList honours onlyOk, falls back when no ok presets', () => {
     const list = [
         { file: 'a', status: 'ok' },
@@ -81,8 +72,7 @@ test('loadCustomPresetFile falls through bases until one succeeds', async () => 
     // 404 whichever base is attempted first, so the assertion tracks
     // "retries the next base", not a hard-coded base ordering. The load path
     // resolves bases through defaultBasesForBase() in projectm-preset-cache.js
-    // (local dirs first, CDN last) — not the picker's DEFAULT_CUSTOM_PRESET_BASES
-    // (CDN first), which the two lists disagree about.
+    // (local dirs first, CDN last), the single owner of base-list ordering.
     const fetchImpl = (url) => {
         tried.push(url);
         if (tried.length === 1) return bytesResponse([], false, 404); // first base 404s

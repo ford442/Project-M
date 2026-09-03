@@ -1,11 +1,10 @@
 name: Web Host Tests
 
 # Runs the browser host-layer suite that had no CI owner: every
-# tests/web/*.test.mjs plus the packages/web embed-SDK build.
-#
-# Type-checking (scripts/check_html_types.sh) is covered by the Linux and
-# Emscripten workflows; the unit tests were not covered anywhere, which is how
-# tests/web/preset-picker.test.mjs stayed red across three separate API changes.
+# tests/web/*.test.mjs (with a coverage floor) plus the packages/web
+# embed-SDK build and html/'s typecheck, via the root npm workspace
+# (package.json: workspaces over html/ and packages/web/) instead of each
+# script doing its own ad hoc `npm install`.
 
 on:
   push:
@@ -13,14 +12,18 @@ on:
       - 'html/**'
       - 'tests/web/**'
       - 'packages/web/**'
+      - 'package.json'
       - 'scripts/test_web_embed.sh'
+      - 'scripts/check_html_types.sh'
       - '.github/workflows/web_host_tests.yml'
   pull_request:
     paths:
       - 'html/**'
       - 'tests/web/**'
       - 'packages/web/**'
+      - 'package.json'
       - 'scripts/test_web_embed.sh'
+      - 'scripts/check_html_types.sh'
       - '.github/workflows/web_host_tests.yml'
   workflow_dispatch: {}
 
@@ -36,8 +39,11 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Host-layer unit tests + packages/web build
-        run: scripts/test_web_embed.sh
+      - name: npm ci (workspace root)
+        run: npm ci
+
+      - name: Host-layer unit tests (coverage-gated) + packages/web build
+        run: npm test
 
       - name: Type-check html/ host modules
-        run: scripts/check_html_types.sh
+        run: npm run typecheck

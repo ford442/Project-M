@@ -1,0 +1,10 @@
+# Commits listed here are ignored by `git blame` when
+# blame.ignoreRevsFile is configured (see AGENTS.md). Use this only for
+# whitespace-only / mechanical reformatting commits — never for commits
+# that also change behavior.
+#
+# Enable locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style(wasm): mechanical clang-format reformat of src/wasm/
+d6b90ab159500b45dc5e5cb1a6c4f949101989c0

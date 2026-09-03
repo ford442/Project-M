@@ -53,9 +53,9 @@ enum class FboFloatFormat
 class DualPingPongFramebuffer
 {
 public:
-    static constexpr int kARead  = 0; //!< Preset A read  (history) slot
+    static constexpr int kARead = 0;  //!< Preset A read  (history) slot
     static constexpr int kAWrite = 1; //!< Preset A write (current) slot
-    static constexpr int kBRead  = 2; //!< Preset B read  (history) slot
+    static constexpr int kBRead = 2;  //!< Preset B read  (history) slot
     static constexpr int kBWrite = 3; //!< Preset B write (current) slot
 
     DualPingPongFramebuffer() = default;
@@ -130,7 +130,7 @@ public:
             return true;
         }
 
-        m_width  = width;
+        m_width = width;
         m_height = height;
 
         if (!CreateFBO(kARead, width, height) || !CreateFBO(kAWrite, width, height))
@@ -246,15 +246,15 @@ public:
         }
 
         // Move Preset B into Preset A slots (transfer ownership).
-        m_fbos[kARead]      = m_fbos[kBRead];
-        m_fbos[kAWrite]     = m_fbos[kBWrite];
-        m_textures[kARead]  = m_textures[kBRead];
+        m_fbos[kARead] = m_fbos[kBRead];
+        m_fbos[kAWrite] = m_fbos[kBWrite];
+        m_textures[kARead] = m_textures[kBRead];
         m_textures[kAWrite] = m_textures[kBWrite];
 
         // Clear Preset B slots (ownership transferred; do not delete).
-        m_fbos[kBRead]      = 0;
-        m_fbos[kBWrite]     = 0;
-        m_textures[kBRead]  = 0;
+        m_fbos[kBRead] = 0;
+        m_fbos[kBWrite] = 0;
+        m_textures[kBRead] = 0;
         m_textures[kBWrite] = 0;
 
         m_presetAAllocated = true;
@@ -270,8 +270,8 @@ public:
      */
     void SwapPresetA()
     {
-        std::swap(m_fbos[kARead],      m_fbos[kAWrite]);
-        std::swap(m_textures[kARead],  m_textures[kAWrite]);
+        std::swap(m_fbos[kARead], m_fbos[kAWrite]);
+        std::swap(m_textures[kARead], m_textures[kAWrite]);
     }
 
     /**
@@ -281,8 +281,8 @@ public:
      */
     void SwapPresetB()
     {
-        std::swap(m_fbos[kBRead],      m_fbos[kBWrite]);
-        std::swap(m_textures[kBRead],  m_textures[kBWrite]);
+        std::swap(m_fbos[kBRead], m_fbos[kBWrite]);
+        std::swap(m_textures[kBRead], m_textures[kBWrite]);
     }
 
     /**
@@ -301,17 +301,17 @@ public:
             return;
         }
 
-        m_width  = width;
+        m_width = width;
         m_height = height;
 
         if (m_presetAAllocated)
         {
-            ResizeFBOTexture(kARead,  width, height);
+            ResizeFBOTexture(kARead, width, height);
             ResizeFBOTexture(kAWrite, width, height);
         }
         if (m_presetBAllocated)
         {
-            ResizeFBOTexture(kBRead,  width, height);
+            ResizeFBOTexture(kBRead, width, height);
             ResizeFBOTexture(kBWrite, width, height);
         }
 
@@ -321,22 +321,61 @@ public:
     // -------------------------------------------------------------------------
     // Accessor functions – return raw OpenGL handles for use in render passes.
     // -------------------------------------------------------------------------
-    GLuint GetAReadFBO()    const { return m_fbos[kARead]; }
-    GLuint GetAWriteFBO()   const { return m_fbos[kAWrite]; }
-    GLuint GetAReadTex()    const { return m_textures[kARead]; }
-    GLuint GetAWriteTex()   const { return m_textures[kAWrite]; }
+    GLuint GetAReadFBO() const
+    {
+        return m_fbos[kARead];
+    }
+    GLuint GetAWriteFBO() const
+    {
+        return m_fbos[kAWrite];
+    }
+    GLuint GetAReadTex() const
+    {
+        return m_textures[kARead];
+    }
+    GLuint GetAWriteTex() const
+    {
+        return m_textures[kAWrite];
+    }
 
-    GLuint GetBReadFBO()    const { return m_fbos[kBRead]; }
-    GLuint GetBWriteFBO()   const { return m_fbos[kBWrite]; }
-    GLuint GetBReadTex()    const { return m_textures[kBRead]; }
-    GLuint GetBWriteTex()   const { return m_textures[kBWrite]; }
+    GLuint GetBReadFBO() const
+    {
+        return m_fbos[kBRead];
+    }
+    GLuint GetBWriteFBO() const
+    {
+        return m_fbos[kBWrite];
+    }
+    GLuint GetBReadTex() const
+    {
+        return m_textures[kBRead];
+    }
+    GLuint GetBWriteTex() const
+    {
+        return m_textures[kBWrite];
+    }
 
-    bool IsPresetAAllocated() const { return m_presetAAllocated; }
-    bool IsPresetBAllocated() const { return m_presetBAllocated; }
+    bool IsPresetAAllocated() const
+    {
+        return m_presetAAllocated;
+    }
+    bool IsPresetBAllocated() const
+    {
+        return m_presetBAllocated;
+    }
 
-    FboFloatFormat GetFormat() const { return m_format; }
-    int Width()  const { return m_width; }
-    int Height() const { return m_height; }
+    FboFloatFormat GetFormat() const
+    {
+        return m_format;
+    }
+    int Width() const
+    {
+        return m_width;
+    }
+    int Height() const
+    {
+        return m_height;
+    }
 
 private:
     // -------------------------------------------------------------------------
@@ -346,24 +385,33 @@ private:
     {
         switch (m_format)
         {
-            case FboFloatFormat::RGBA32F: return GL_RGBA32F;
-            case FboFloatFormat::RGBA16F: return GL_RGBA16F;
-            case FboFloatFormat::RGBA8:   return GL_RGBA8;
+            case FboFloatFormat::RGBA32F:
+                return GL_RGBA32F;
+            case FboFloatFormat::RGBA16F:
+                return GL_RGBA16F;
+            case FboFloatFormat::RGBA8:
+                return GL_RGBA8;
             default:
                 fprintf(stderr, "DualFBO: Unknown FboFloatFormat; falling back to GL_RGBA8.\n");
                 return GL_RGBA8;
         }
     }
 
-    GLenum GetGLFormat() const { return GL_RGBA; }
+    GLenum GetGLFormat() const
+    {
+        return GL_RGBA;
+    }
 
     GLenum GetGLType() const
     {
         switch (m_format)
         {
-            case FboFloatFormat::RGBA32F: return GL_FLOAT;
-            case FboFloatFormat::RGBA16F: return GL_HALF_FLOAT;
-            case FboFloatFormat::RGBA8:   return GL_UNSIGNED_BYTE;
+            case FboFloatFormat::RGBA32F:
+                return GL_FLOAT;
+            case FboFloatFormat::RGBA16F:
+                return GL_HALF_FLOAT;
+            case FboFloatFormat::RGBA8:
+                return GL_UNSIGNED_BYTE;
             default:
                 fprintf(stderr, "DualFBO: Unknown FboFloatFormat; falling back to GL_UNSIGNED_BYTE.\n");
                 return GL_UNSIGNED_BYTE;
@@ -402,7 +450,7 @@ private:
             glDeleteTextures(1, &m_textures[index]);
             glDeleteFramebuffers(1, &m_fbos[index]);
             m_textures[index] = 0;
-            m_fbos[index]     = 0;
+            m_fbos[index] = 0;
             return false;
         }
 
@@ -460,7 +508,7 @@ private:
      */
     void ConfigureTextureSampling(GLuint texId)
     {
-        (void)texId; // The texture must be bound before calling this helper.
+        (void) texId; // The texture must be bound before calling this helper.
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -468,10 +516,10 @@ private:
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
-    GLuint m_fbos[4]     = {0, 0, 0, 0}; //!< FBO IDs:     [A_Read, A_Write, B_Read, B_Write]
+    GLuint m_fbos[4] = {0, 0, 0, 0};     //!< FBO IDs:     [A_Read, A_Write, B_Read, B_Write]
     GLuint m_textures[4] = {0, 0, 0, 0}; //!< Texture IDs: [A_Read, A_Write, B_Read, B_Write]
 
-    int m_width  = 0; //!< Current FBO texture width in pixels
+    int m_width = 0;  //!< Current FBO texture width in pixels
     int m_height = 0; //!< Current FBO texture height in pixels
 
     bool m_presetAAllocated = false; //!< Whether Preset A FBOs are currently allocated
@@ -514,8 +562,8 @@ public:
     {
         // --- Blend state ---
         m_blendEnabled = glIsEnabled(GL_BLEND);
-        glGetIntegerv(GL_BLEND_SRC_RGB,   &m_blendSrcRGB);
-        glGetIntegerv(GL_BLEND_DST_RGB,   &m_blendDstRGB);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &m_blendSrcRGB);
+        glGetIntegerv(GL_BLEND_DST_RGB, &m_blendDstRGB);
         glGetIntegerv(GL_BLEND_SRC_ALPHA, &m_blendSrcAlpha);
         glGetIntegerv(GL_BLEND_DST_ALPHA, &m_blendDstAlpha);
 
@@ -579,24 +627,24 @@ public:
     }
 
     // Non-copyable, non-movable.
-    GLStateGuard(const GLStateGuard&)            = delete;
+    GLStateGuard(const GLStateGuard&) = delete;
     GLStateGuard& operator=(const GLStateGuard&) = delete;
-    GLStateGuard(GLStateGuard&&)                 = delete;
-    GLStateGuard& operator=(GLStateGuard&&)      = delete;
+    GLStateGuard(GLStateGuard&&) = delete;
+    GLStateGuard& operator=(GLStateGuard&&) = delete;
 
 private:
-    GLboolean m_blendEnabled   = GL_FALSE;
-    GLint     m_blendSrcRGB    = GL_ONE;
-    GLint     m_blendDstRGB    = GL_ZERO;
-    GLint     m_blendSrcAlpha  = GL_ONE;
-    GLint     m_blendDstAlpha  = GL_ZERO;
-    GLboolean m_depthMask      = GL_TRUE;
-    GLint     m_viewport[4]    = {0, 0, 0, 0};
+    GLboolean m_blendEnabled = GL_FALSE;
+    GLint m_blendSrcRGB = GL_ONE;
+    GLint m_blendDstRGB = GL_ZERO;
+    GLint m_blendSrcAlpha = GL_ONE;
+    GLint m_blendDstAlpha = GL_ZERO;
+    GLboolean m_depthMask = GL_TRUE;
+    GLint m_viewport[4] = {0, 0, 0, 0};
     GLboolean m_scissorEnabled = GL_FALSE;
-    GLint     m_scissorBox[4]  = {0, 0, 0, 0};
-    GLint     m_activeTexture  = GL_TEXTURE0;
-    GLint     m_tex0Binding    = 0;
-    GLint     m_fboBinding     = 0;
+    GLint m_scissorBox[4] = {0, 0, 0, 0};
+    GLint m_activeTexture = GL_TEXTURE0;
+    GLint m_tex0Binding = 0;
+    GLint m_fboBinding = 0;
 };
 
 /**
@@ -765,21 +813,25 @@ void main() {
         }
 
         // Cache uniform / attribute locations.
-        m_locTexA   = glGetUniformLocation(m_program, "uTexA");
-        m_locTexB   = glGetUniformLocation(m_program, "uTexB");
-        m_locBlend  = glGetUniformLocation(m_program, "uBlend");
+        m_locTexA = glGetUniformLocation(m_program, "uTexA");
+        m_locTexB = glGetUniformLocation(m_program, "uTexB");
+        m_locBlend = glGetUniformLocation(m_program, "uBlend");
         m_locDither = glGetUniformLocation(m_program, "uDither");
         m_locTransparencyEnabled = glGetUniformLocation(m_program, "u_transparencyEnabled");
         m_locTransparencyThreshold = glGetUniformLocation(m_program, "u_transparencyThreshold");
-        m_locPos    = glGetAttribLocation(m_program, "aPosition");
+        m_locPos = glGetAttribLocation(m_program, "aPosition");
 
         // Fullscreen triangle-strip quad in NDC (CCW winding):
         //   (-1,-1)  (1,-1)  (-1,1)  (1,1)
         static const GLfloat kQuad[8] = {
-            -1.0f, -1.0f,
-             1.0f, -1.0f,
-            -1.0f,  1.0f,
-             1.0f,  1.0f,
+            -1.0f,
+            -1.0f,
+            1.0f,
+            -1.0f,
+            -1.0f,
+            1.0f,
+            1.0f,
+            1.0f,
         };
 
         glGenVertexArrays(1, &m_vao);
@@ -863,7 +915,10 @@ void main() {
         glUseProgram(0);
     }
 
-    bool IsInitialized() const { return m_initialized; }
+    bool IsInitialized() const
+    {
+        return m_initialized;
+    }
 
 private:
     static GLuint CompileShader(GLenum type, const char* src)
@@ -888,17 +943,17 @@ private:
         return shader;
     }
 
-    bool   m_initialized = false;
-    GLuint m_program     = 0;
-    GLuint m_vao         = 0;
-    GLuint m_vbo         = 0;
-    GLint  m_locTexA     = -1;
-    GLint  m_locTexB     = -1;
-    GLint  m_locBlend    = -1;
-    GLint  m_locDither   = -1;
-    GLint  m_locTransparencyEnabled = -1;
-    GLint  m_locTransparencyThreshold = -1;
-    GLint  m_locPos      = -1;
+    bool m_initialized = false;
+    GLuint m_program = 0;
+    GLuint m_vao = 0;
+    GLuint m_vbo = 0;
+    GLint m_locTexA = -1;
+    GLint m_locTexB = -1;
+    GLint m_locBlend = -1;
+    GLint m_locDither = -1;
+    GLint m_locTransparencyEnabled = -1;
+    GLint m_locTransparencyThreshold = -1;
+    GLint m_locPos = -1;
 };
 
 // Shared instances (defined in WasmDualFbo.cpp).

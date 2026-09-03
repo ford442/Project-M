@@ -10,6 +10,7 @@ using namespace emscripten;
 // path (true) or the worklet/capture path (false).
 bool g_is_streaming_audio = false;
 
+// clang-format off
 EM_JS(void, js_feed_stream_data_to_projectm, (uintptr_t pm_handle, int buffer_size), {
     const analyser = window.projectMStreamAnalyser;
     const pcmBuffer = window.projectMStreamBuffer;
@@ -38,7 +39,9 @@ EM_JS(void, js_feed_stream_data_to_projectm, (uintptr_t pm_handle, int buffer_si
     new Float32Array(wasmMemory.buffer).set(src, buf >> 2);
     _projectm_pcm_add_float_wrapper(pm_handle, buf, src.length, 1);
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, js_initialize_stream_analyser, (), {
     const audioContext = window.projectMAudioContext_Global_Cpp;
     const audioElement = document.getElementById('audio-stream-element')
@@ -60,36 +63,42 @@ EM_JS(void, js_initialize_stream_analyser, (), {
     window.projectMStreamBuffer = new Float32Array(analyser.fftSize);
     console.log("JS Stream Init: Media element and analyser connected.");
 });
+// clang-format on
 
 void projectm_pcm_add_float_from_js_array_wrapper(
-uintptr_t pm_handle_value,
-emscripten::val js_audio_array_val,
-unsigned int num_samples_per_channel,
-int channels_enum_value) {
-projectm_handle current_pm_handle = app_data.projectm_engine;
-if (!current_pm_handle) {
-fprintf(stderr, "Error: projectM handle is null in from_js_array_wrapper.\n");
-return;
+    uintptr_t pm_handle_value,
+    emscripten::val js_audio_array_val,
+    unsigned int num_samples_per_channel,
+    int channels_enum_value)
+{
+    projectm_handle current_pm_handle = app_data.projectm_engine;
+    if (!current_pm_handle)
+    {
+        fprintf(stderr, "Error: projectM handle is null in from_js_array_wrapper.\n");
+        return;
+    }
+
+    std::vector<float> cpp_audio_buffer = emscripten::vecFromJSArray<float>(js_audio_array_val);
+    if (channels_enum_value <= 0 || num_samples_per_channel == 0)
+    {
+        fprintf(stderr, "Error: Invalid channel count (%d) or samples_per_channel (%u).\n",
+                channels_enum_value, num_samples_per_channel);
+        return;
+    }
+
+    size_t expected_total_elements = static_cast<size_t>(num_samples_per_channel) * static_cast<size_t>(channels_enum_value);
+    if (cpp_audio_buffer.size() != expected_total_elements)
+    {
+        fprintf(stderr, "Error: Audio data size mismatch. Expected %zu elements, got %zu elements from JS array.\n",
+                expected_total_elements, cpp_audio_buffer.size());
+        return;
+    }
+
+    projectm_pcm_add_float(current_pm_handle, cpp_audio_buffer.data(), num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));
+    return;
 }
 
-std::vector<float> cpp_audio_buffer = emscripten::vecFromJSArray<float>(js_audio_array_val);
-if (channels_enum_value <= 0 || num_samples_per_channel == 0) {
-fprintf(stderr, "Error: Invalid channel count (%d) or samples_per_channel (%u).\n",
-channels_enum_value, num_samples_per_channel);
-return;
-}
-
-size_t expected_total_elements = static_cast<size_t>(num_samples_per_channel) * static_cast<size_t>(channels_enum_value);
-if (cpp_audio_buffer.size() != expected_total_elements) {
-fprintf(stderr, "Error: Audio data size mismatch. Expected %zu elements, got %zu elements from JS array.\n",
-expected_total_elements, cpp_audio_buffer.size());
-return;
-}
-
-projectm_pcm_add_float(current_pm_handle, cpp_audio_buffer.data(), num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));
-return;
-}
-
+// clang-format off
 EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm), {
     if (window.projectMAudioContext_Global_Cpp) { return; }
     try {
@@ -150,7 +159,9 @@ EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm),
     }
     return;
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool startPlaying), {
     const filePath = UTF8ToString(path_in_vfs);
     // Prefer host override (deployable without rebuilding WASM).
@@ -240,31 +251,37 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
     waitForWorkletAndLoad();
     return;
 });
+// clang-format on
 
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE
-void pl(const char* song_path_in_vfs) {
-printf("C++: pl() called for unique path: %s\n", song_path_in_vfs);
-js_load_song_into_worklet(song_path_in_vfs, true, true);
-return;
+void pl(const char* song_path_in_vfs)
+{
+    printf("C++: pl() called for unique path: %s\n", song_path_in_vfs);
+    js_load_song_into_worklet(song_path_in_vfs, true, true);
+    return;
 }
 
 EMSCRIPTEN_KEEPALIVE
-void set_audio_source_to_stream(bool is_streaming) {
-g_is_streaming_audio = is_streaming;
-printf("C++: Audio source set to stream: %s\n", is_streaming ? "true" : "false");
+void set_audio_source_to_stream(bool is_streaming)
+{
+    g_is_streaming_audio = is_streaming;
+    printf("C++: Audio source set to stream: %s\n", is_streaming ? "true" : "false");
 }
 
+// clang-format off
 EM_JS(void, js_stop_worklet_playback, (), {
     const workletNode = window.projectMWorkletNode_Global_Cpp;
     if (workletNode) {
         workletNode.port.postMessage({ type: 'stopPlayback' });
     }
 });
+// clang-format on
 
 EMSCRIPTEN_KEEPALIVE
-void stop_worklet_playback() {
+void stop_worklet_playback()
+{
     js_stop_worklet_playback();
 }
 
@@ -272,19 +289,21 @@ void stop_worklet_playback() {
 
 extern "C" {
 
-void add_audio_data(uint8_t* data, int len) {
-projectm_pcm_add_uint8(pm, data, len, PROJECTM_MONO);
-return;
+void add_audio_data(uint8_t* data, int len)
+{
+    projectm_pcm_add_uint8(pm, data, len, PROJECTM_MONO);
+    return;
 }
-
 }
 
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
-void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data, unsigned int num_samples_per_channel, int channels_enum_value) {
-    (void)pm_handle_value;
+void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data, unsigned int num_samples_per_channel, int channels_enum_value)
+{
+    (void) pm_handle_value;
     projectm_handle current_pm_handle = app_data.projectm_engine;
-    if (!current_pm_handle) {
+    if (!current_pm_handle)
+    {
         fprintf(stderr, "Error: projectM handle is null in pcm_add_float_wrapper.\n");
         return;
     }

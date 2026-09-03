@@ -5,15 +5,18 @@
 // notifications back to the host page.
 #include "ProjectMWasmInternal.hpp"
 
+// clang-format off
 EM_JS(void, js_update_preset_name, (const char* name), {
     const presetName = UTF8ToString(name);
     if (window.updatePresetDisplay) {
         window.updatePresetDisplay(presetName);
     }
 });
+// clang-format on
 
 // Surfaces a preset-switch failure to the host page via the #stat readout (if present),
 // so users see something other than a silently frozen preset. Falls back to console.warn.
+// clang-format off
 EM_JS(void, js_report_preset_switch_failed, (const char* preset_filename, const char* message), {
     const name = preset_filename ? UTF8ToString(preset_filename) : '(unknown preset)';
     const msg = message ? UTF8ToString(message) : '';
@@ -26,7 +29,9 @@ EM_JS(void, js_report_preset_switch_failed, (const char* preset_filename, const 
         statEl.style.backgroundColor = 'red';
     }
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void,getCustomShader,(),{
 var pth=document.querySelector('#milkPath2').innerHTML;
 var presetName = pth.split('/').pop();
@@ -52,7 +57,9 @@ if (statEl6) { statEl6.innerHTML='Downloaded Shader'; statEl6.style.backgroundCo
 ff.send(null);
 return;
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void,getShader,(int num),{
 var pth=document.querySelector('#milkPath').innerHTML;
 var presetName = pth.split('/').pop();
@@ -77,7 +84,9 @@ document.querySelector('#stat').style.backgroundColor='blue';
 ff.send(null);
 return;
 });
+// clang-format on
 
+// clang-format off
 EM_JS(void, js_init_projectm_dom, (), {
 if (window.projectMDOMInitialized) return;
 window.projectMDOMInitialized = true;
@@ -578,12 +587,14 @@ if (meshSizeEl) {
 
 
 });
+// clang-format on
 
 // Reports an init() failure to the host page. If the page has defined
 // window.pmReportInitError(code, detail) (see html/projectm-init-errors.js), it is
 // called so an overlay can be shown; otherwise the error is just logged.
 //
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of `code`.
+// clang-format off
 EM_JS(void, js_report_init_error, (int code, const char* detail), {
     const detailStr = detail ? UTF8ToString(detail) : '';
     if (typeof window.pmReportInitError === 'function') {
@@ -592,11 +603,14 @@ EM_JS(void, js_report_init_error, (int code, const char* detail), {
         console.error('[projectM] init() failed with code ' + code + (detailStr ? ': ' + detailStr : ''));
     }
 });
+// clang-format on
 
 // Notifies the host page that init() succeeded, so any previously shown init-error
 // overlay can be hidden. See html/projectm-init-errors.js.
+// clang-format off
 EM_JS(void, js_report_init_success, (), {
     if (typeof window.pmHideInitError === 'function') {
         window.pmHideInitError();
     }
 });
+// clang-format on

@@ -18,10 +18,10 @@ CompositingBlendShader g_compositorShader;
 //
 // Manages the blend timeline that crossfades Preset A -> Preset B.
 // =============================================================================
-float  g_transitionDuration  = 3.0f;  //!< Crossfade duration in seconds (default 3 s).
-bool   g_transitionActive    = false; //!< Whether a blend is currently in progress.
-float  g_transitionBlend     = 0.0f;  //!< Current blend value in [0.0, 1.0].
-double g_transitionStartTime = 0.0;   //!< emscripten_get_now() timestamp (ms) at blend start.
+float g_transitionDuration = 3.0f;  //!< Crossfade duration in seconds (default 3 s).
+bool g_transitionActive = false;    //!< Whether a blend is currently in progress.
+float g_transitionBlend = 0.0f;     //!< Current blend value in [0.0, 1.0].
+double g_transitionStartTime = 0.0; //!< emscripten_get_now() timestamp (ms) at blend start.
 
 // =============================================================================
 // Idle release policy for the Preset A pair
@@ -39,8 +39,8 @@ double g_transitionStartTime = 0.0;   //!< emscripten_get_now() timestamp (ms) a
 // The grace period exists so back-to-back preset switches reuse the live pair
 // instead of thrashing glTexImage2D on every switch.
 // =============================================================================
-float  g_dualFboIdleReleaseSec = 5.0f; //!< Idle seconds before Preset A is reclaimed.
-double g_transitionEndTime     = 0.0;  //!< emscripten_get_now() timestamp (ms) at last blend end.
+float g_dualFboIdleReleaseSec = 5.0f; //!< Idle seconds before Preset A is reclaimed.
+double g_transitionEndTime = 0.0;     //!< emscripten_get_now() timestamp (ms) at last blend end.
 
 // =============================================================================
 // Phase 2 + Phase 3: Dual ping-pong FBO lifecycle C API (EMSCRIPTEN_KEEPALIVE exports)
@@ -169,35 +169,59 @@ void dual_fbo_swap_preset_b()
 
 /** @brief Returns the Preset A Read FBO ID (bind as render target). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_read_fbo()   { return g_dualFbo.GetAReadFBO(); }
+GLuint dual_fbo_get_a_read_fbo()
+{
+    return g_dualFbo.GetAReadFBO();
+}
 
 /** @brief Returns the Preset A Write FBO ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_write_fbo()  { return g_dualFbo.GetAWriteFBO(); }
+GLuint dual_fbo_get_a_write_fbo()
+{
+    return g_dualFbo.GetAWriteFBO();
+}
 
 /** @brief Returns the Preset A Read texture ID (sample as history/feedback). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_read_tex()   { return g_dualFbo.GetAReadTex(); }
+GLuint dual_fbo_get_a_read_tex()
+{
+    return g_dualFbo.GetAReadTex();
+}
 
 /** @brief Returns the Preset A Write texture ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_write_tex()  { return g_dualFbo.GetAWriteTex(); }
+GLuint dual_fbo_get_a_write_tex()
+{
+    return g_dualFbo.GetAWriteTex();
+}
 
 /** @brief Returns the Preset B Read FBO ID (bind as render target). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_read_fbo()   { return g_dualFbo.GetBReadFBO(); }
+GLuint dual_fbo_get_b_read_fbo()
+{
+    return g_dualFbo.GetBReadFBO();
+}
 
 /** @brief Returns the Preset B Write FBO ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_write_fbo()  { return g_dualFbo.GetBWriteFBO(); }
+GLuint dual_fbo_get_b_write_fbo()
+{
+    return g_dualFbo.GetBWriteFBO();
+}
 
 /** @brief Returns the Preset B Read texture ID (sample as history/feedback). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_read_tex()   { return g_dualFbo.GetBReadTex(); }
+GLuint dual_fbo_get_b_read_tex()
+{
+    return g_dualFbo.GetBReadTex();
+}
 
 /** @brief Returns the Preset B Write texture ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_write_tex()  { return g_dualFbo.GetBWriteTex(); }
+GLuint dual_fbo_get_b_write_tex()
+{
+    return g_dualFbo.GetBWriteTex();
+}
 
 /**
  * @brief Returns true if the Preset B FBOs are currently allocated
@@ -382,15 +406,15 @@ void transition_start()
         // the rest of the session. Fall back to an explicit hard cut instead.
         fprintf(stderr, "transition_start: compositor unavailable – hard-cutting to Preset B.\n");
         g_dualFbo.PromoteBtoA();
-        g_transitionBlend  = 0.0f;
+        g_transitionBlend = 0.0f;
         g_transitionActive = false;
-        g_presetBReady     = false;
+        g_presetBReady = false;
         g_transitionEndTime = emscripten_get_now();
         return;
     }
-    g_transitionBlend     = 0.0f;
+    g_transitionBlend = 0.0f;
     g_transitionStartTime = emscripten_get_now(); // milliseconds
-    g_transitionActive    = true;
+    g_transitionActive = true;
     fprintf(stderr, "Phase5: Transition started (duration=%.2f s).\n",
             static_cast<double>(g_transitionDuration));
 }
@@ -408,9 +432,9 @@ void transition_cancel()
     {
         return;
     }
-    g_transitionActive  = false;
-    g_transitionBlend   = 0.0f;
-    g_presetBReady      = false;
+    g_transitionActive = false;
+    g_transitionBlend = 0.0f;
+    g_presetBReady = false;
     g_dualFbo.ReleasePresetB();
     // Start the Preset A idle clock here too – a cancelled transition leaves the
     // A pair allocated with nothing left to sample it.

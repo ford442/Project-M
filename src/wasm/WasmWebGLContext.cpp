@@ -42,6 +42,7 @@ void WasmWebGLApplyModuleCanvasSelectorsIfPresent()
 
     // Pull optional Module factory config into the C selector buffers before
     // creating the WebGL context. Empty / missing properties keep defaults.
+    // clang-format off
     EM_ASM({
         function copySel(key, fallback, ptr, len) {
             var sel = fallback;
@@ -57,6 +58,7 @@ void WasmWebGLApplyModuleCanvasSelectorsIfPresent()
         }
         copySel('primaryCanvasSelector', '#mcanvas', $0, $1);
         copySel('secondaryCanvasSelector', '#scanvas', $2, $3); }, g_mainCanvasSelector, static_cast<int>(sizeof(g_mainCanvasSelector)), g_secondaryCanvasSelector, static_cast<int>(sizeof(g_secondaryCanvasSelector)));
+    // clang-format on
 }
 
 const char* WasmWebGLGetMainCanvasSelector()
@@ -75,12 +77,14 @@ bool WasmWebGLCanvasElementExists(const char* selector)
     {
         return false;
     }
+    // clang-format off
     return EM_ASM_INT({
                try {
                    return document.querySelector(UTF8ToString($0)) ? 1 : 0;
                } catch (e) {
                    return 0;
                } }, selector) != 0;
+    // clang-format on
 }
 
 // Governor v2 canvas MSAA policy (see docs/PERFORMANCE.md, issue #178).
@@ -94,6 +98,7 @@ bool WasmWebGLCanvasElementExists(const char* selector)
 // with `?aa=1` or `localStorage.canvasAA = '1'` for desktop builds that draw sprites.
 static bool ProjectMCanvasAntialiasRequested()
 {
+    // clang-format off
     return EM_ASM_INT({
                try
                {
@@ -115,6 +120,7 @@ static bool ProjectMCanvasAntialiasRequested()
                    return 0;
                }
            }) != 0;
+    // clang-format on
 }
 
 static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
@@ -128,6 +134,7 @@ static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
     attrs.stencil = EM_TRUE;
     attrs.antialias = ProjectMCanvasAntialiasRequested() ? EM_TRUE : EM_FALSE;
     attrs.premultipliedAlpha = EM_TRUE;
+    // clang-format off
     attrs.preserveDrawingBuffer = EM_ASM_INT({
         try
         {
@@ -139,8 +146,9 @@ static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
             return window.__projectMCaptureMode === true ? 1 : 0;
         }
     })
-                                      ? EM_TRUE
-                                      : EM_FALSE;
+                                    // clang-format on
+                                    ? EM_TRUE
+                                    : EM_FALSE;
     attrs.enableExtensionsByDefault = EM_TRUE;
     attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
     return attrs;
@@ -175,6 +183,7 @@ static void ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDL
  */
 static void ProjectMApplySrgbCanvasColorSpace()
 {
+    // clang-format off
     EM_ASM({
         try
         {
@@ -196,6 +205,7 @@ static void ProjectMApplySrgbCanvasColorSpace()
         {
         }
     });
+    // clang-format on
 }
 
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext()

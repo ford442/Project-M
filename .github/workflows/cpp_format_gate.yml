@@ -1,0 +1,36 @@
+name: C++ Format Gate
+
+# Guards C++ style against the repo-root .clang-format for the directories
+# scripts/check_cpp_format.sh currently covers (src/wasm/ plus the other
+# directories that are already clang-format clean). See AGENTS.md's "Code
+# Formatting" section for why this isn't repo-wide yet.
+
+on:
+  push:
+    paths:
+      - 'src/wasm/**'
+      - 'src/libprojectM/Renderer/Platform/**'
+      - 'tests/cxx-interface/**'
+      - '.clang-format'
+      - 'scripts/check_cpp_format.sh'
+      - '.github/workflows/cpp_format_gate.yml'
+  pull_request:
+    paths:
+      - 'src/wasm/**'
+      - 'src/libprojectM/Renderer/Platform/**'
+      - 'tests/cxx-interface/**'
+      - '.clang-format'
+      - 'scripts/check_cpp_format.sh'
+      - '.github/workflows/cpp_format_gate.yml'
+  workflow_dispatch: {}
+
+jobs:
+  cpp-format:
+    name: clang-format --dry-run -Werror
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clang-format check
+        run: scripts/check_cpp_format.sh

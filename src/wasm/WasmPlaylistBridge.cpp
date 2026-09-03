@@ -49,7 +49,7 @@ void on_preset_switch_requested(bool is_hard_cut, void* user_data)
 {
     // Ignore timer-driven switches while a manual preset load is compiling.
     // Without this, clicking "custom preset" can load the pick and then immediately
-    // play_next() from an expired preset timer in the same frame window.
+    // play_next() from an expired preset timer within the same frame.
     if (app_data.loading == EM_TRUE)
     {
         return;

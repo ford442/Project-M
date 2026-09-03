@@ -8,15 +8,15 @@
 // existing main-thread render path unchanged.
 
 import { WASM_API_SYMBOLS } from './generated/projectm-wasm-api.js';
+import { createPcmRingWriter } from './projectm-pcm-ring.js';
 
 /**
- * @typedef {import('./projectm-render-worker-types.ts').PcmRing} PcmRing
+ * @typedef {import('./projectm-render-worker-types.ts').PcmRingDescriptor} PcmRingDescriptor
+ * @typedef {import('./projectm-render-worker-types.ts').PcmRingWriter} PcmRingWriter
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerHandle} RenderWorkerHandle
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerStatsMessage} RenderWorkerStatsMessage
  */
-
-const DEFAULT_PCM_RING_CAPACITY_PAIRS = 16384; // ~0.37s of audio at 44.1kHz stereo
 
 /**
  * @param {object} [options]
@@ -48,57 +48,6 @@ export function isRenderWorkerSupported(canvas) {
         typeof Worker !== 'undefined' &&
         typeof OffscreenCanvas !== 'undefined'
     );
-}
-
-// Creates a SharedArrayBuffer-backed ring buffer for PCM data, if available.
-// Requires cross-origin isolation (COOP/COEP) for SharedArrayBuffer; falls
-// back to null (caller should use postMessage 'pcm' messages instead).
-/**
- * @param {number} [capacityPairs]
- * @returns {PcmRing | null} null without cross-origin isolation (no SharedArrayBuffer).
- */
-export function createPcmRing(capacityPairs = DEFAULT_PCM_RING_CAPACITY_PAIRS) {
-    if (typeof SharedArrayBuffer === 'undefined' || !globalThis.crossOriginIsolated) {
-        return null;
-    }
-
-    const sab = new SharedArrayBuffer(4 + capacityPairs * 2 * 4);
-    const header = new Int32Array(sab, 0, 1);
-    const data = new Float32Array(sab, 4, capacityPairs * 2);
-    let writeIndex = 0;
-
-    return {
-        sab,
-        capacityPairs,
-        /**
-         * @param {Float32Array} buffer
-         * @param {number} channels
-         */
-        write(buffer, channels) {
-            let interleaved = buffer;
-            let pairs;
-            if (channels === 1) {
-                pairs = buffer.length;
-                interleaved = new Float32Array(pairs * 2);
-                for (let i = 0; i < pairs; i++) {
-                    interleaved[i * 2] = buffer[i];
-                    interleaved[i * 2 + 1] = buffer[i];
-                }
-            } else {
-                pairs = buffer.length / 2;
-            }
-
-            const start = writeIndex % capacityPairs;
-            const firstPairs = Math.min(pairs, capacityPairs - start);
-            data.set(interleaved.subarray(0, firstPairs * 2), start * 2);
-            if (firstPairs < pairs) {
-                data.set(interleaved.subarray(firstPairs * 2), 0);
-            }
-
-            writeIndex += pairs;
-            Atomics.store(header, 0, writeIndex);
-        }
-    };
 }
 
 // Transfers `canvas` to a new render worker and starts the WASM module
@@ -149,8 +98,14 @@ export function setupRenderWorker({
         return null;
     }
 
-    const pcmRing = createPcmRing();
     const worker = new Worker(new URL('./projectm-render-worker.js', import.meta.url));
+
+    // The ring is owned by the worker's WASM module, so it only exists once the
+    // module has booted there and only when its memory is shareable (COOP/COEP).
+    // Until then — and forever, without cross-origin isolation — PCM goes over
+    // postMessage and the worker writes it into the same ring on arrival.
+    /** @type {PcmRingWriter | null} */
+    let pcmRing = null;
 
     let nextRequestId = 1;
     /** @type {Map<number, (result: unknown) => void>} */
@@ -170,6 +125,14 @@ export function setupRenderWorker({
                 break;
             case 'stats':
                 if (onStats) onStats(msg);
+                break;
+            case 'pcm-ring':
+                try {
+                    pcmRing = createPcmRingWriter(msg.descriptor);
+                } catch (error) {
+                    if (onError) onError(`PCM ring map failed: ${error}`);
+                    pcmRing = null;
+                }
                 break;
             case 'ccall-result': {
                 const resolve = pendingCcalls.get(msg.requestId);
@@ -196,13 +159,36 @@ export function setupRenderWorker({
         height,
         targetFps,
         governor,
-        meshQuality,
-        pcm: pcmRing ? { sab: pcmRing.sab, capacityPairs: pcmRing.capacityPairs } : null
+        meshQuality
     }, [offscreen]);
 
     return {
         worker,
-        pcmRing,
+
+        /** @returns {PcmRingWriter | null} */
+        getPcmRing() {
+            return pcmRing;
+        },
+
+        /**
+         * The one entry point hosts should use: writes straight into the
+         * worker's PCM ring when it is shared, and posts the chunk otherwise.
+         * Either way the audio lands in the same ring and is drained by
+         * render_frame() on the worker side.
+         *
+         * @param {Float32Array} buffer
+         * @param {number} channels
+         */
+        feedPcm(buffer, channels) {
+            if (pcmRing) {
+                pcmRing.write(buffer, channels);
+                return;
+            }
+            // postMessage transfers the backing buffer, so hand over a copy:
+            // callers reuse their chunks.
+            const copy = new Float32Array(buffer);
+            worker.postMessage({ type: 'pcm', buffer: copy, channels }, [copy.buffer]);
+        },
 
         /**
          * @param {number} w
@@ -213,7 +199,9 @@ export function setupRenderWorker({
         },
 
         /**
-         * Used only when pcmRing is unavailable (no cross-origin isolation).
+         * Raw transfer of `buffer` to the worker. Prefer {@link feedPcm}, which
+         * picks the transport; this stays for callers that already own a
+         * throwaway buffer and want to avoid the copy.
          *
          * @param {Float32Array} buffer
          * @param {number} channels

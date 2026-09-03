@@ -26,16 +26,45 @@
       generateSine,
       PROJECTM_ANALYSIS_WINDOW,
     } from '../../html/projectm-synthetic-audio.js';
+    import { setupRenderWorker } from '../../html/projectm-render-worker-host.js';
 
     window.__projectMCaptureMode = true;
 
+    // 'main' renders on this thread; 'worker' transfers the canvas to the
+    // OffscreenCanvas render worker. Both feed audio through the same WASM-owned
+    // PCM ring, which is the property this page exists to check.
+    const mode = new URLSearchParams(location.search).get('mode') === 'worker'
+      ? 'worker'
+      : 'main';
+
     const result = {
       ok: false,
+      mode,
       preset: '300-beatdetect-bassmidtreb.milk',
       tests: {},
       error: null,
     };
     window.__projectMAudioReactivity = result;
+
+    /** Interleaves a mono signal into stereo with independent per-channel gain. */
+    function pan(mono, leftGain, rightGain) {
+      const out = new Float32Array(mono.length * 2);
+      for (let i = 0; i < mono.length; i += 1) {
+        out[i * 2] = mono[i] * leftGain;
+        out[i * 2 + 1] = mono[i] * rightGain;
+      }
+      return out;
+    }
+
+    /** Ring counters, so both modes can be compared on ingest, not just pixels. */
+    function ringStats(read) {
+      return {
+        capacityFrames: read('get_pcm_ring_capacity_frames'),
+        readIndex: read('get_pcm_ring_read_index'),
+        writeIndex: read('get_pcm_ring_write_index'),
+        overruns: read('get_pcm_ring_overruns'),
+      };
+    }
 
     function loadScript(src) {
       return new Promise((resolve, reject) => {
@@ -65,17 +94,79 @@
       return { r: r / n, g: g / n, b: b / n };
     }
 
-    async function renderWithPcm(Module, generator, frames = 90) {
+    async function renderWithPcm(Module, generator, frames = 90, channels = 1) {
       for (let f = 0; f < frames; f += 1) {
         const mono = generator(f);
-        feedPcmToModule(Module, mono, 1);
+        feedPcmToModule(Module, mono, channels);
         Module._render_frame?.();
         await new Promise((r) => requestAnimationFrame(r));
       }
     }
 
+    // Worker mode: the canvas is transferred out of this page, so pixels are not
+    // readable here. What is checkable — and what this change is about — is that
+    // the same PCM reaches the engine the same way: every frame written lands in
+    // the ring and is drained, with no overruns, exactly as on the main thread.
+    async function runWorkerMode(params) {
+      const canvas = document.getElementById('mcanvas');
+      const scriptSrc = params.get('wasm') || './projectm-v.030-thread.js';
+
+      const ready = new Promise((resolve, reject) => {
+        const handle = setupRenderWorker({
+          canvas,
+          scriptSrc: new URL(scriptSrc, location.href).href,
+          width: 640,
+          height: 480,
+          onReady: () => resolve(handle),
+          onUnsupported: (reason) => reject(new Error(`render worker unsupported: ${reason}`)),
+          onError: (message) => reject(new Error(`render worker error: ${message}`)),
+        });
+        if (!handle) reject(new Error('setupRenderWorker returned null'));
+      });
+
+      const handle = await ready;
+      const read = (name) => handle.ccall(name, 'number', [], []);
+
+      const chunks = 90;
+      let framesFed = 0;
+      for (let f = 0; f < chunks; f += 1) {
+        const mono = generateSine(PROJECTM_ANALYSIS_WINDOW, {
+          frequencyHz: 80,
+          amplitude: 0.9,
+          phase: f * PROJECTM_ANALYSIS_WINDOW,
+        });
+        handle.feedPcm(pan(mono, 1, 0), 2);
+        framesFed += PROJECTM_ANALYSIS_WINDOW;
+        await new Promise((r) => setTimeout(r, 8));
+      }
+
+      // Let the worker's render loop drain what is still outstanding.
+      await new Promise((r) => setTimeout(r, 500));
+
+      const stats = {
+        capacityFrames: await read('get_pcm_ring_capacity_frames'),
+        readIndex: await read('get_pcm_ring_read_index'),
+        writeIndex: await read('get_pcm_ring_write_index'),
+        overruns: await read('get_pcm_ring_overruns'),
+        renderedFrames: await read('get_rendered_frame_count'),
+      };
+
+      result.tests = { framesFed, ring: stats, ringShared: !!handle.getPcmRing() };
+      const drained = stats.readIndex === stats.writeIndex;
+      const rendered = stats.renderedFrames > 0;
+      result.ok = drained && rendered;
+      result.error = result.ok
+        ? null
+        : `worker mode: drained=${drained} rendered=${rendered}`;
+      document.getElementById('stat').textContent = JSON.stringify(result, null, 2);
+    }
+
     async function main() {
       const params = new URLSearchParams(location.search);
+      if (mode === 'worker') {
+        await runWorkerMode(params);
+        return;
+      }
       const wasmScript = params.get('wasm') || './projectm-v.030-thread.js';
       await loadScript(wasmScript);
 
@@ -115,14 +206,47 @@
       }), 90);
       const trebleMeans = canvasChannelMeans(document.getElementById('mcanvas'));
 
-      result.tests = { silenceMeans, bassMeans, trebleMeans };
+      // Stereo: a hard-panned tone must reach the engine asymmetric. The old
+      // ingest fed channels=1, so left-only and right-only were indistinguishable
+      // by the time projectM saw them.
+      const panTone = (f) => generateSine(PROJECTM_ANALYSIS_WINDOW, {
+        frequencyHz: 80,
+        amplitude: 0.9,
+        phase: f * PROJECTM_ANALYSIS_WINDOW,
+      });
+      await renderWithPcm(Module, (f) => pan(panTone(f), 1, 0), 30, 2);
+      const leftPannedRing = ringStats((name) => Module.ccall(name, 'number', [], []));
+
+      // Read back what the ring actually holds for one hard-panned block, so the
+      // assertion is on the samples the engine drains, not on the caller's copy.
+      const dataPtr = Module._get_pcm_ring_data_ptr();
+      const capacityFrames = Module._get_pcm_ring_capacity_frames();
+      const ringView = Module.HEAPF32.subarray(dataPtr >> 2, (dataPtr >> 2) + capacityFrames * 2);
+      let leftEnergy = 0;
+      let rightEnergy = 0;
+      for (let i = 0; i < capacityFrames; i += 1) {
+        leftEnergy += Math.abs(ringView[i * 2]);
+        rightEnergy += Math.abs(ringView[i * 2 + 1]);
+      }
+      const stereoAsymmetric = leftEnergy > 1 && rightEnergy < leftEnergy * 0.05;
+
+      result.tests = {
+        silenceMeans,
+        bassMeans,
+        trebleMeans,
+        stereo: { leftEnergy, rightEnergy, asymmetric: stereoAsymmetric },
+        ring: leftPannedRing,
+      };
       // beatdetect preset: wave0=bass(red), wave1=mid(green), wave2=treb(blue)
       const bassReacts = bassMeans.r > silenceMeans.r + 8;
       const trebleReacts = trebleMeans.b > silenceMeans.b + 8;
       const bandsDiffer = Math.abs(bassMeans.r - trebleMeans.r) > 5
         || Math.abs(bassMeans.b - trebleMeans.b) > 5;
-      result.ok = bassReacts && trebleReacts && bandsDiffer;
-      result.error = result.ok ? null : 'channel means did not diverge as expected';
+      const noOverruns = leftPannedRing.overruns === 0;
+      result.ok = bassReacts && trebleReacts && bandsDiffer && stereoAsymmetric && noOverruns;
+      result.error = result.ok
+        ? null
+        : `bass=${bassReacts} treble=${trebleReacts} bands=${bandsDiffer} stereo=${stereoAsymmetric} overruns=${leftPannedRing.overruns}`;
 
       document.getElementById('stat').textContent = JSON.stringify(result, null, 2);
     }

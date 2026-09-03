@@ -2,6 +2,15 @@
 /**
  * Playwright runner for tests/wasm-smoke/audio_reactivity.html
  *
+ * Runs the page twice: once rendering on the main thread, once with the canvas
+ * transferred to the OffscreenCanvas render worker. Both must pass. There is one
+ * audio ingest now — the WASM-owned PCM ring — so a regression that only shows up
+ * in one topology is exactly what this catches.
+ *
+ * The server sends COOP/COEP so the page is cross-origin isolated: without it
+ * there is no SharedArrayBuffer, the worker cannot share its module's heap, and
+ * the run would silently only ever exercise the postMessage fallback.
+ *
  * Usage:
  *   node scripts/test_audio_reactivity_wasm.mjs [wasm-js-path] [preset-milk-path]
  *
@@ -45,7 +54,14 @@ function startServer(root) {
                 const filePath = join(root, rel === '/' ? 'index.html' : rel.replace(/^\//, ''));
                 const data = await readFile(filePath);
                 const ext = filePath.slice(filePath.lastIndexOf('.'));
-                res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream' });
+                res.writeHead(200, {
+                    'Content-Type': mime[ext] || 'application/octet-stream',
+                    // Required for SharedArrayBuffer (pthread WASM, and sharing
+                    // the module heap with the render worker).
+                    'Cross-Origin-Opener-Policy': 'same-origin',
+                    'Cross-Origin-Embedder-Policy': 'require-corp',
+                    'Cross-Origin-Resource-Policy': 'same-origin',
+                });
                 res.end(data);
             } catch {
                 res.writeHead(404);
@@ -54,6 +70,34 @@ function startServer(root) {
         });
         server.listen(0, '127.0.0.1', () => resolveServer(server));
     });
+}
+
+/**
+ * Runs the page in one mode and returns its reported outcome.
+ *
+ * @param {import('playwright').Browser} browser
+ * @param {URL} baseUrl
+ * @param {'main' | 'worker'} mode
+ */
+async function runMode(browser, baseUrl, mode) {
+    const pageUrl = new URL(baseUrl.href);
+    pageUrl.searchParams.set('mode', mode);
+
+    const page = await browser.newPage();
+    try {
+        await page.goto(pageUrl.href, { waitUntil: 'networkidle', timeout: 120000 });
+        await page.waitForFunction(
+            () => {
+                const r = window.__projectMAudioReactivity;
+                return !!r && (r.ok || r.error);
+            },
+            null,
+            { timeout: 180000 }
+        );
+        return await page.evaluate(() => window.__projectMAudioReactivity);
+    } finally {
+        await page.close();
+    }
 }
 
 async function run() {
@@ -68,17 +112,23 @@ async function run() {
 
     const { chromium } = await import('playwright');
     const browser = await chromium.launch({ headless: true });
+    const outcomes = {};
     try {
-        const page = await browser.newPage();
-        await page.goto(pageUrl.href, { waitUntil: 'networkidle', timeout: 120000 });
-        await page.waitForFunction(() => window.__projectMAudioReactivity?.tests?.bassMeans, null, { timeout: 120000 });
-        const outcome = await page.evaluate(() => window.__projectMAudioReactivity);
-        console.log(JSON.stringify(outcome, null, 2));
-        server.close();
-        process.exit(outcome.ok ? 0 : 1);
+        for (const mode of ['main', 'worker']) {
+            outcomes[mode] = await runMode(browser, pageUrl, mode);
+        }
     } finally {
         await browser.close();
+        server.close();
     }
+
+    console.log(JSON.stringify(outcomes, null, 2));
+
+    const failed = Object.entries(outcomes).filter(([, outcome]) => !outcome?.ok);
+    for (const [mode, outcome] of failed) {
+        console.error(`FAIL (${mode}): ${outcome?.error ?? 'no outcome reported'}`);
+    }
+    process.exit(failed.length === 0 ? 0 : 1);
 }
 
 run().catch((err) => {

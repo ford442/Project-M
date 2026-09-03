@@ -1,4 +1,5 @@
 import { feedPcmFloat } from './generated/projectm-wasm-api.js';
+import { feedPcmThroughRing } from './projectm-pcm-ring.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
@@ -26,13 +27,6 @@ const LOCAL_STORAGE_ORIGIN_KEYS = [
 ];
 const MAX_PENDING_EXTERNAL_PCM = 24;
 const DEFAULT_PCM_TRANSFER_CAP = 2048;
-// projectM's internal analysis buffer is 576 samples per channel (AudioBufferSamples).
-// The built-in stream path (js_feed_stream_data_to_projectm in projectM_emscripten.cpp)
-// trims its analyser output to the most recent 576 samples before feeding, so anything
-// larger just overwrites the ring buffer before analysis. Mirror that here so external
-// PCM hits projectm_pcm_add_float with the same analysis window as #track/stream, keeping
-// beat detection and reactivity comparable across sources.
-const PROJECTM_ANALYSIS_WINDOW = 576;
 const GAIN_STORAGE_KEYS = ['externalPcmGain'];
 const DEFAULT_EXTERNAL_PCM_GAIN = 1.0;
 /** @type {string[] | null} */
@@ -168,11 +162,15 @@ function externalPcmGain() {
     return Number.isFinite(gain) && gain > 0 ? gain : DEFAULT_EXTERNAL_PCM_GAIN;
 }
 
-// Matches the internal stream path's preprocessing: trim to the most recent
-// PROJECTM_ANALYSIS_WINDOW samples per channel, then apply input gain. Returns the
-// samples to feed plus the post-trim samplesPerChannel. Returns a Float32Array view
-// (subarray) when no gain scaling is needed (gain === 1 and untrimmed), otherwise a
-// fresh scaled copy — never mutates the caller's buffer (queued chunks are reused).
+// Applies the configured input gain. Returns the caller's buffer unchanged when
+// the gain is unity, otherwise a fresh scaled copy — never mutates the caller's
+// buffer, since queued chunks are reused on the next flush.
+//
+// This no longer trims to projectM's 576-sample analysis window. That trim
+// existed to mirror the old AnalyserNode poll, which could only forward one
+// window per animation frame and threw the rest away; feeding the whole chunk
+// into the PCM ring instead is the point of the ring — the engine drains
+// everything that arrived since the last frame.
 /**
  * @param {Float32Array} buffer
  * @param {number} channels
@@ -180,22 +178,16 @@ function externalPcmGain() {
  * @returns {{ samples: Float32Array; samplesPerChannel: number }}
  */
 function preprocessExternalPcm(buffer, channels, samplesPerChannel) {
-    const window = Math.min(samplesPerChannel, PROJECTM_ANALYSIS_WINDOW);
-    const trimmedLength = window * channels;
-    const trimmed = trimmedLength < buffer.length
-        ? buffer.subarray(buffer.length - trimmedLength)
-        : buffer;
-
     const gain = externalPcmGain();
     if (gain === 1) {
-        return { samples: trimmed, samplesPerChannel: window };
+        return { samples: buffer, samplesPerChannel };
     }
 
-    const scaled = new Float32Array(trimmed.length);
-    for (let i = 0; i < trimmed.length; i++) {
-        scaled[i] = trimmed[i] * gain;
+    const scaled = new Float32Array(buffer.length);
+    for (let i = 0; i < buffer.length; i++) {
+        scaled[i] = buffer[i] * gain;
     }
-    return { samples: scaled, samplesPerChannel: window };
+    return { samples: scaled, samplesPerChannel };
 }
 
 /**
@@ -260,10 +252,22 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
     const m = /** @type {any} */ (moduleInstance);
 
-    // Match the internal stream path: 576-sample analysis window + input gain.
     const { samples, samplesPerChannel: framesPerChannel } = preprocessExternalPcm(
         buffer, channels, samplesPerChannel
     );
+
+    // Preferred path: straight into the WASM-owned PCM ring, same as every other
+    // producer. The malloc/HEAPF32 marshaling below is the fallback for bundles
+    // built before the ring existed.
+    if (feedPcmThroughRing(m, samples, { channels })) {
+        console.debug('[projectM external PCM] fed chunk to ring', {
+            channels,
+            samplesPerChannel: framesPerChannel,
+            totalSamples: samples.length,
+            sampleRate
+        });
+        return true;
+    }
 
     let ptr = 0;
     let usedPrealloc = false;

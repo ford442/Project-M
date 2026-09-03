@@ -29,9 +29,9 @@ fi
 #   node --experimental-test-coverage --test tests/web/*.test.mjs
 # and read the "all files" row of the printed report to see the current
 # numbers before raising these.
-COVERAGE_LINES_MIN=73.0
-COVERAGE_BRANCHES_MIN=79.5
-COVERAGE_FUNCTIONS_MIN=68.9
+COVERAGE_LINES_MIN=74.0
+COVERAGE_BRANCHES_MIN=80.0
+COVERAGE_FUNCTIONS_MIN=69.5
 
 echo "Running ${#tests[@]} host-layer test file(s)..."
 node --experimental-test-coverage \

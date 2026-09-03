@@ -12,6 +12,11 @@
 
 import { ensureAudioRunning, getAudioContext } from './projectm-audio-bootstrap.js';
 import { getHostAudioSourceRouter } from './generated/projectm-wasm-api.js';
+import {
+    getPcmRingWriter,
+    installHostPcmRingWriter,
+    readPcmRingDescriptor,
+} from './projectm-pcm-ring.js';
 
 const PROCESSOR_URL = 'projectm_audio_processor.js';
 const PROCESSOR_NAME = 'projectm-audio-processor';
@@ -27,56 +32,51 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Resolve the WASM PCM feed export (modularized builds only put it on Module).
- * @returns {{ addPcm: Function, malloc: Function, heap: ArrayBuffer } | null}
- */
-function resolvePcmFeedRuntime() {
-    const mod = globalThis.Module;
-    const addPcm = globalThis._projectm_pcm_add_float_wrapper
-        || mod?._projectm_pcm_add_float_wrapper;
-    const malloc = globalThis._malloc || mod?._malloc;
-    const heap = globalThis.wasmMemory?.buffer
-        || globalThis.HEAPF32?.buffer
-        || mod?.wasmMemory?.buffer
-        || mod?.HEAPF32?.buffer;
-    if (typeof addPcm !== 'function' || typeof malloc !== 'function' || !heap) {
-        return null;
-    }
-    return { addPcm, malloc, heap };
+/** The Emscripten module, wherever this build put it. */
+function currentModule() {
+    return globalThis.Module || null;
 }
 
 /**
- * Wire the worklet → projectM PCM path the same way WasmAudioBridge EM_JS does.
+ * Wire a repaired worklet node into the PCM ring.
+ *
+ * Two transports, one ingest. When the module's memory is shared (COOP/COEP),
+ * the processor writes the ring itself at audio rate and this only has to hand
+ * it the descriptor. Otherwise the processor posts PCM and we write the same
+ * ring here, one hop later.
+ *
+ * There is no `_malloc` and no scratch buffer: the ring is allocated once by
+ * `pcm_ring_init()` in the WASM heap and owned there.
+ *
  * @param {AudioWorkletNode} workletNode
- * @param {number} [pmHandle]
  */
-function attachPcmHandler(workletNode, pmHandle) {
+function attachPcmHandler(workletNode) {
+    const module = currentModule();
+
+    // Prefer the module's own attach path so the descriptor handoff and the
+    // fallback handler stay defined in one place (WasmAudioBridge.cpp).
+    if (typeof module?._attach_worklet_ingest === 'function') {
+        installHostPcmRingWriter(module);
+        module._attach_worklet_ingest();
+        return;
+    }
+
+    const descriptor = readPcmRingDescriptor(module);
+    if (descriptor && typeof SharedArrayBuffer !== 'undefined'
+        && descriptor.memory instanceof SharedArrayBuffer) {
+        workletNode.port.postMessage({ type: 'pcmRing', ...descriptor });
+    }
+
     workletNode.port.onmessage = (event) => {
-        if (event.data?.type !== 'pcmData') {
+        if (event.data?.type !== 'pcmData' || !event.data.audioData) {
             return;
         }
-        const runtime = resolvePcmFeedRuntime();
-        if (!runtime) {
+        // Re-resolved per message: the WASM heap can grow, which detaches views.
+        const writer = getPcmRingWriter(currentModule());
+        if (!writer) {
             return;
         }
-        if (!globalThis.projectMAudioBufferPtr) {
-            globalThis.projectMAudioBufferPtr = runtime.malloc(2048 * 4);
-        }
-        const buf = globalThis.projectMAudioBufferPtr;
-        if (buf == null) {
-            return;
-        }
-        const audioData = event.data.audioData;
-        const projectmBufferSize = 576;
-        const src = audioData.length > projectmBufferSize
-            ? audioData.subarray(audioData.length - projectmBufferSize)
-            : audioData;
-        // SharedArrayBuffer can grow; always re-read the live heap buffer.
-        const liveHeap = resolvePcmFeedRuntime()?.heap || runtime.heap;
-        new Float32Array(liveHeap).set(src, buf >> 2);
-        const handle = pmHandle || 0;
-        runtime.addPcm(handle, buf, src.length, event.data.channelsForPM || 1);
+        writer.write(event.data.audioData, event.data.channelsForPM === 1 ? 1 : 2);
     };
 }
 

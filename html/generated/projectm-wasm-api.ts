@@ -29,6 +29,17 @@ export type ProjectMModule = EmscriptenModule & {
     _add_existing_vfs_presets: () => void;
     _add_custom_milk_paths: (count: number) => void;
     _projectm_pcm_add_float_wrapper: (pmHandle: number, audioPtr: number, samplesPerChannel: number, channels: number) => void;
+    _pcm_ring_init: (capacityFrames: number) => number;
+    _pcm_ring_shutdown: () => void;
+    _pcm_ring_drain: () => number;
+    _get_pcm_ring_header_ptr: () => number;
+    _get_pcm_ring_data_ptr: () => number;
+    _get_pcm_ring_capacity_frames: () => number;
+    _get_pcm_ring_index_modulus: () => number;
+    _get_pcm_ring_write_index: () => number;
+    _get_pcm_ring_read_index: () => number;
+    _get_pcm_ring_overruns: () => number;
+    _attach_worklet_ingest: () => void;
     _create_sprite: () => void;
     _stop_worklet_playback: () => void;
     _set_audio_source_to_stream: (isStreaming: number) => void;
@@ -104,6 +115,18 @@ export const WASM_API_SYMBOLS = {
     addPresetFile: 'add_preset_file',
     addCustomMilkPaths: 'add_custom_milk_paths',
     projectmPcmAddFloatWrapper: 'projectm_pcm_add_float_wrapper',
+    pcmRingInit: 'pcm_ring_init',
+    pcmRingShutdown: 'pcm_ring_shutdown',
+    pcmRingDrain: 'pcm_ring_drain',
+    getPcmRingHeaderPtr: 'get_pcm_ring_header_ptr',
+    getPcmRingDataPtr: 'get_pcm_ring_data_ptr',
+    getPcmRingCapacityFrames: 'get_pcm_ring_capacity_frames',
+    getPcmRingIndexModulus: 'get_pcm_ring_index_modulus',
+    getPcmRingWriteIndex: 'get_pcm_ring_write_index',
+    getPcmRingReadIndex: 'get_pcm_ring_read_index',
+    getPcmRingOverruns: 'get_pcm_ring_overruns',
+    attachWorkletIngest: 'attach_worklet_ingest',
+    connectMediaElementSource: 'connect_media_element_source',
     createSprite: 'create_sprite',
     stopWorkletPlayback: 'stop_worklet_playback',
     setAudioSourceToStream: 'set_audio_source_to_stream',
@@ -302,6 +325,66 @@ export function addCustomMilkPaths(module: ProjectMModule, count: number): void 
 /** Feed interleaved float PCM (use feedPcmFloat helper) */
 export function projectmPcmAddFloatWrapper(module: ProjectMModule, pmHandle: number, audioPtr: number, samplesPerChannel: number, channels: number): void {
     module._projectm_pcm_add_float_wrapper(pmHandle, audioPtr, samplesPerChannel, channels);
+}
+
+/** Allocate the WASM-owned PCM ring (0 = default 16384 frames), returns 1 on success */
+export function pcmRingInit(module: ProjectMModule, capacityFrames: number): number {
+    return module._pcm_ring_init(capacityFrames);
+}
+
+/** Release the PCM ring */
+export function pcmRingShutdown(module: ProjectMModule): void {
+    module._pcm_ring_shutdown();
+}
+
+/** Feed every frame written since the last drain, returns frames fed */
+export function pcmRingDrain(module: ProjectMModule): number {
+    return module._pcm_ring_drain();
+}
+
+/** Byte offset of the ring's int32 header in the WASM heap */
+export function getPcmRingHeaderPtr(module: ProjectMModule): number {
+    return module._get_pcm_ring_header_ptr();
+}
+
+/** Byte offset of the ring's interleaved float storage in the WASM heap */
+export function getPcmRingDataPtr(module: ProjectMModule): number {
+    return module._get_pcm_ring_data_ptr();
+}
+
+/** Ring capacity in stereo frames */
+export function getPcmRingCapacityFrames(module: ProjectMModule): number {
+    return module._get_pcm_ring_capacity_frames();
+}
+
+/** Modulus the ring's frame indices wrap at */
+export function getPcmRingIndexModulus(module: ProjectMModule): number {
+    return module._get_pcm_ring_index_modulus();
+}
+
+/** Current producer write index, in frames */
+export function getPcmRingWriteIndex(module: ProjectMModule): number {
+    return module._get_pcm_ring_write_index();
+}
+
+/** Current drain read index, in frames */
+export function getPcmRingReadIndex(module: ProjectMModule): number {
+    return module._get_pcm_ring_read_index();
+}
+
+/** Drains that skipped unread audio because producers lapped the ring */
+export function getPcmRingOverruns(module: ProjectMModule): number {
+    return module._get_pcm_ring_overruns();
+}
+
+/** Hand the audio worklet its ring descriptor and install the postMessage fallback */
+export function attachWorkletIngest(module: ProjectMModule): void {
+    module._attach_worklet_ingest();
+}
+
+/** Route an <audio>/<video> element into the worklet (returns 1 on success) */
+export function connectMediaElementSource(module: ProjectMModule, selector: string): number {
+    return module.ccall('connect_media_element_source', 'number', ['string'], [selector]) as number;
 }
 
 /** Create demo user sprite */
@@ -584,6 +667,13 @@ export const PUBLIC_WASM_API = [
     setMesh,
     addPresetFile,
     projectmPcmAddFloatWrapper,
+    pcmRingInit,
+    getPcmRingHeaderPtr,
+    getPcmRingDataPtr,
+    getPcmRingCapacityFrames,
+    getPcmRingIndexModulus,
+    attachWorkletIngest,
+    connectMediaElementSource,
     setPresetLocked,
     setTransparencyMode,
     getTransparencyMode,

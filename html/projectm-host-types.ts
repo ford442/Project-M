@@ -151,9 +151,24 @@ declare global {
     /** Worklet node wired to the projectM PCM path (null while torn down). */
     // eslint-disable-next-line no-var
     var projectMWorkletNode_Global_Cpp: AudioWorkletNode | null | undefined;
-    /** Heap pointer for the 2048-float PCM transfer buffer (`_malloc`'d once). */
+    /**
+     * Host writer for the WASM-owned PCM ring, installed by
+     * `installHostPcmRingWriter()` (html/projectm-pcm-ring.js). The baked EM_JS
+     * worklet handler prefers it over its own inline copy of the write.
+     */
     // eslint-disable-next-line no-var
-    var projectMAudioBufferPtr: number | undefined;
+    var projectMWritePcmRing:
+        | ((buffer: Float32Array, channels?: number) => void)
+        | undefined;
+    /**
+     * Host implementation of `connect_media_element_source()`, installed by
+     * `installMediaElementSourceHook()` (html/projectm-audio-element-source.js).
+     */
+    // eslint-disable-next-line no-var
+    var projectMConnectMediaElement: ((selector: string) => boolean) | undefined;
+    /** Source nodes already made per media element, keyed by element. */
+    // eslint-disable-next-line no-var
+    var projectMElementSources: WeakMap<HTMLMediaElement, MediaElementAudioSourceNode> | undefined;
     /** Host-side song loader installed by projectm-worklet-playback.js. */
     // eslint-disable-next-line no-var
     var projectMLoadSongIntoWorklet:

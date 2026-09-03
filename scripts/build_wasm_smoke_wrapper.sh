@@ -101,6 +101,7 @@ wrapper_sources=(
     "$PROJECT_ROOT/src/wasm/WasmWebGLContext.cpp"
     "$PROJECT_ROOT/src/wasm/WasmDualFbo.cpp"
     "$PROJECT_ROOT/src/wasm/WasmAudioBridge.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmPcmRing.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPerfGovernor.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPlaylistBridge.cpp"
     "$PROJECT_ROOT/src/wasm/WasmJsBindings.cpp"

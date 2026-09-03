@@ -1,5 +1,9 @@
 import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
-import { installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
+import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
+import {
+    connectMediaElement,
+    installMediaElementSourceHook,
+} from './projectm-audio-element-source.js';
 import {
     AudioSourceRouter,
     audioSourceToRouterSource,
@@ -570,9 +574,19 @@ this._externalReceiverClose = null;
         router?.setActiveSource('element');
         this.audioElement = media;
         media.id = media.id || 'audio-stream-element';
+        installMediaElementSourceHook();
         ensureAudioRunning().catch(() => {
             // Autoplay policies may require a user gesture; host should call ensureAudioRunning().
         });
+        // The element feeds the engine through the shared worklet (and from there
+        // the PCM ring), so it cannot be connected until the worklet node exists.
+        ensureWorkletReady()
+            .then((ready) => {
+                if (ready) connectMediaElement(media);
+            })
+            .catch((err) => {
+                console.warn('[ProjectMContext] could not connect audio element:', err);
+            });
     }
 
     #observeResize() {

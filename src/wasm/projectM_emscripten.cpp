@@ -42,7 +42,7 @@ bool g_presetSwitchFailed = false;
 // 200 ms. PerPixelMesh::CalculateMesh opens a parallel region every rendered
 // frame (the default 80x60 / 64x48 meshes are 4941 / 3185 verts, both well
 // over OpenMp::kMinPerPixelMeshVerts), so at 60 fps the next region always
-// arrives ~17 ms in — two orders of magnitude inside the spin window. The
+// arrives ~17 ms in — two orders of magnitude inside the spin interval. The
 // helpers therefore never reach the sleep path and burn 100% of their cores
 // for the whole session, not just while projectM is computing.
 //
@@ -124,22 +124,22 @@ static std::optional<std::string> g_importedCompGlsl;
 
 // clang-format off
 EM_JS(void, js_on_transpiled_shader_stored, (const char* key, int kind, const char* glsl), {
-    if (typeof window.pmOnTranspiledShaderStored === 'function')
+    if (typeof globalThis.pmOnTranspiledShaderStored === 'function')
     {
-        window.pmOnTranspiledShaderStored(UTF8ToString(key), kind, UTF8ToString(glsl));
+        globalThis.pmOnTranspiledShaderStored(UTF8ToString(key), kind, UTF8ToString(glsl));
     }
 });
 // clang-format on
 
 // clang-format off
 EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
-    if (typeof window === 'undefined' || !window.location || !window.location.search)
+    if (!globalThis.location || !globalThis.location.search)
     {
         return 0;
     }
     try
     {
-        const value = new URLSearchParams(window.location.search).get('fboPrecision');
+        const value = new URLSearchParams(globalThis.location.search).get('fboPrecision');
         return (value && value.toLowerCase() === 'high') ? 1 : 0;
     }
     catch (e)
@@ -151,13 +151,13 @@ EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
 
 // clang-format off
 EM_JS(int, js_blur_force_copy_path, (), {
-    if (typeof window === 'undefined' || !window.location || !window.location.search)
+    if (!globalThis.location || !globalThis.location.search)
     {
         return 0;
     }
     try
     {
-        const value = new URLSearchParams(window.location.search).get('blurPath');
+        const value = new URLSearchParams(globalThis.location.search).get('blurPath');
         return (value && value.toLowerCase() === 'copy') ? 1 : 0;
     }
     catch (e)
@@ -169,13 +169,13 @@ EM_JS(int, js_blur_force_copy_path, (), {
 
 // clang-format off
 EM_JS(int, js_copy_force_shader_path, (), {
-    if (typeof window === 'undefined' || !window.location || !window.location.search)
+    if (!globalThis.location || !globalThis.location.search)
     {
         return 0;
     }
     try
     {
-        const value = new URLSearchParams(window.location.search).get('copyPath');
+        const value = new URLSearchParams(globalThis.location.search).get('copyPath');
         return (value && value.toLowerCase() === 'shader') ? 1 : 0;
     }
     catch (e)
@@ -321,17 +321,6 @@ void renderLoop()
         ResetGovernorCounters();
     }
     const double frameStartMs = emscripten_get_now();
-    if (g_is_streaming_audio)
-    {
-        js_feed_stream_data_to_projectm(
-            reinterpret_cast<uintptr_t>(app_data.projectm_engine),
-
-
-            2048 // This MUST match the analyser.fftSize
-
-
-        );
-    }
     // Phase 5: Route through render_frame(). Steady-state frames render directly
     // to the canvas; the dual-FBO compositor runs only during preset crossfades.
     if (g_perfHudEnabled)
@@ -491,8 +480,10 @@ int init()
     InstallShaderTranspileCacheHooks();
     // projectm_playlist_connect(app_data.playlist,app_data.projectm_engine);
     printf("  --==  projectM initialized!  ==--\n");
-    js_initialize_worklet_system_once(reinterpret_cast<uintptr_t>(app_data.projectm_engine));
-    js_initialize_stream_analyser();
+    // Allocate the PCM ring before any producer can look for it: the worklet
+    // bootstrap below reads the descriptor as soon as its module resolves.
+    pcm_ring_init(0);
+    js_initialize_worklet_system_once();
     js_report_init_success();
     return 0;
 }
@@ -514,6 +505,12 @@ void destruct()
         projectm_destroy(pm);
     }
     pm = NULL;
+    // Release the PCM ring here and nowhere else. rebind_canvases() deliberately
+    // keeps it: the ring is engine-independent, JS producers (the worklet in
+    // particular, which holds raw views and cannot call back into WASM) keep
+    // writing across a rebind, and it is allocated exactly once, so leaving it
+    // alone costs nothing and freeing it under a live producer would not be safe.
+    pcm_ring_shutdown();
     // Phase 2: Release dual FBO resources before destroying the WebGL context
     // to avoid calling OpenGL functions with an invalid context.
     g_dualFbo.ReleaseAll();
@@ -652,6 +649,13 @@ void render_frame()
 {
     if (!pm)
         return;
+
+    // Single audio ingest: drain everything JS producers wrote into the PCM ring
+    // since the last frame and hand it to the engine as one stereo block. Done
+    // here rather than in renderLoop() so the render-worker path (which drives
+    // render_frame() from its own loop) and any host calling render_frame()
+    // directly get identical audio, with no window/AnalyserNode involved.
+    pcm_ring_drain();
 
     // Phase 5: Integrated dual-FBO render pipeline (transitions only).
     //

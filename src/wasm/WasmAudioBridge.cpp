@@ -1,69 +1,32 @@
 // WasmAudioBridge.cpp
 //
-// Audio bridge: Web Audio worklet + stream analyser EM_JS interop, PCM feed
-// wrappers, and the pl()/stream-source C exports.
+// Audio bridge: Web Audio worklet EM_JS interop, PCM feed wrappers, and the
+// pl()/stream-source C exports.
+//
+// This file no longer ingests audio itself. Everything it wires up -- the
+// worklet, media elements, host PCM producers -- writes into the single PCM
+// ring owned by WasmPcmRing.cpp, which render_frame() drains. The former
+// AnalyserNode poll (js_feed_stream_data_to_projectm /
+// js_initialize_stream_analyser) is gone with it.
+//
+// Nothing here touches `window` or `document` directly: the same EM_JS runs in
+// a worker (OffscreenCanvas render path), where neither exists. Globals that
+// are genuinely the host contract go through `globalThis`; DOM lookups resolve
+// `globalThis.document` once and bail when it is absent.
 #include "ProjectMWasmInternal.hpp"
 
 using namespace emscripten;
 
-// Whether audio is currently being fed from the media-element stream analyser
-// path (true) or the worklet/capture path (false).
+// Which host source the AudioSourceRouter last selected: a media element
+// (true) or the worklet/capture path (false).
+//
+// Informational only. Every source -- worklet playback, media elements routed
+// through a MediaElementAudioSourceNode, external postMessage PCM, synthetic
+// test feeds -- now writes into the one PCM ring in WasmPcmRing.cpp, which
+// render_frame() drains. Nothing branches on this flag; it is kept so the
+// host-side exclusive-source router (html/projectm-audio-source-router.js)
+// keeps its existing export and hosts can read back what they selected.
 bool g_is_streaming_audio = false;
-
-// clang-format off
-EM_JS(void, js_feed_stream_data_to_projectm, (uintptr_t pm_handle, int buffer_size), {
-    const analyser = window.projectMStreamAnalyser;
-    const pcmBuffer = window.projectMStreamBuffer;
-    if (!analyser || !pcmBuffer || pcmBuffer.length !== buffer_size) {
-        return;
-    }
-    analyser.getFloatTimeDomainData(pcmBuffer);
-
-    // Lazy-allocate a permanent 2048-float WASM buffer (max size for both audio paths).
-    // Using a pre-allocated buffer avoids ccall's 'array' type which relies on stackAlloc,
-    // and is fragile with ALLOW_MEMORY_GROWTH + pthreads + SHARED_MEMORY.
-    if (!window.projectMAudioBufferPtr) {
-        window.projectMAudioBufferPtr = _malloc(2048 * 4);
-    }
-    const buf = window.projectMAudioBufferPtr;
-
-    // Optimization: projectM's internal analysis buffer is 576 samples (AudioBufferSamples).
-    // Sending more than this just overwrites the older data in the ring buffer before analysis.
-    // We send only the most recent 576 samples to minimize overhead while keeping the buffer fresh.
-    const projectm_buffer_size = 576;
-    const src = (pcmBuffer.length > projectm_buffer_size)
-                ? pcmBuffer.subarray(pcmBuffer.length - projectm_buffer_size)
-                : pcmBuffer;
-
-    // Write via a fresh Float32Array view of the live SharedArrayBuffer.
-    new Float32Array(wasmMemory.buffer).set(src, buf >> 2);
-    _projectm_pcm_add_float_wrapper(pm_handle, buf, src.length, 1);
-});
-// clang-format on
-
-// clang-format off
-EM_JS(void, js_initialize_stream_analyser, (), {
-    const audioContext = window.projectMAudioContext_Global_Cpp;
-    const audioElement = document.getElementById('audio-stream-element')
-        || document.getElementById('track');
-    if (!audioContext || !audioElement) {
-        console.error("JS Stream Init: AudioContext or audio element not found.");
-        return;
-    }
-    const analyser = audioContext.createAnalyser();
-
-
-    analyser.fftSize = 2048; // A common size for detailed analysis
-
-
-    const source = audioContext.createMediaElementSource(audioElement);
-    source.connect(analyser);
-    analyser.connect(audioContext.destination);
-    window.projectMStreamAnalyser = analyser;
-    window.projectMStreamBuffer = new Float32Array(analyser.fftSize);
-    console.log("JS Stream Init: Media element and analyser connected.");
-});
-// clang-format on
 
 void projectm_pcm_add_float_from_js_array_wrapper(
     uintptr_t pm_handle_value,
@@ -98,49 +61,123 @@ void projectm_pcm_add_float_from_js_array_wrapper(
     return;
 }
 
+// Ring descriptor handed to the AudioWorkletProcessor so it can write each
+// 128-sample quantum straight into the WASM-owned PCM ring, at audio rate,
+// without a postMessage round trip. Returns null when the ring has not been
+// allocated yet (init() allocates it before this runs) or when the module's
+// memory is not shared (no COOP/COEP), in which case the processor falls back
+// to posting `pcmData` messages that land in the same ring one hop later.
 // clang-format off
-EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm), {
-    if (window.projectMAudioContext_Global_Cpp) { return; }
+EM_JS(void, js_post_pcm_ring_to_worklet, (), {
+    const node = globalThis.projectMWorkletNode_Global_Cpp;
+    if (!node || typeof _get_pcm_ring_data_ptr !== 'function') { return; }
+    const dataPtr = _get_pcm_ring_data_ptr();
+    const headerPtr = _get_pcm_ring_header_ptr();
+    const capacityFrames = _get_pcm_ring_capacity_frames();
+    if (!dataPtr || !headerPtr || capacityFrames <= 0) { return; }
+    const memory = wasmMemory && wasmMemory.buffer;
+    if (typeof SharedArrayBuffer === 'undefined' || !(memory instanceof SharedArrayBuffer)) {
+        // Not cross-origin isolated: the processor keeps postMessage'ing PCM.
+        return;
+    }
+    node.port.postMessage({
+        type: 'pcmRing',
+        memory: memory,
+        headerPtr: headerPtr,
+        dataPtr: dataPtr,
+        capacityFrames: capacityFrames,
+        indexModulus: _get_pcm_ring_index_modulus()
+    });
+});
+// clang-format on
+
+// Fallback ingest for the non-isolated case: the processor posts PCM, and this
+// writes it into the same ring the drain reads, so there is one ingest path with
+// one overrun policy either way -- the transport differs, the architecture does
+// not. Prefers the host writer from html/projectm-pcm-ring.js when the page has
+// loaded it (one implementation), and otherwise writes the ring inline.
+//
+// Note there is no _malloc here, and no per-message scratch buffer: the ring is
+// allocated once by pcm_ring_init() and owned by WasmPcmRing.cpp.
+// clang-format off
+EM_JS(void, js_install_worklet_pcm_handler, (), {
+    const node = globalThis.projectMWorkletNode_Global_Cpp;
+    if (!node) { return; }
+    node.port.onmessage = (event) => {
+        const data = event.data;
+        if (!data || data.type !== 'pcmData' || !data.audioData) { return; }
+        const channels = data.channelsForPM === 2 ? 2 : 1;
+        const hostWrite = globalThis.projectMWritePcmRing;
+        if (typeof hostWrite === 'function') {
+            hostWrite(data.audioData, channels);
+            return;
+        }
+        if (typeof _get_pcm_ring_data_ptr !== 'function') { return; }
+        const dataPtr = _get_pcm_ring_data_ptr();
+        const headerPtr = _get_pcm_ring_header_ptr();
+        const capacityFrames = _get_pcm_ring_capacity_frames();
+        const indexModulus = _get_pcm_ring_index_modulus();
+        if (!dataPtr || !headerPtr || capacityFrames <= 0) { return; }
+
+        const heap = wasmMemory.buffer;
+        const header = new Int32Array(heap, headerPtr, 4);
+        const ring = new Float32Array(heap, dataPtr, capacityFrames * 2);
+        const src = data.audioData;
+        const frames = channels === 2 ? (src.length >> 1) : src.length;
+        if (frames <= 0) { return; }
+
+        let writeIndex = Atomics.load(header, 0);
+        for (let i = 0; i < frames; i++) {
+            const slot = ((writeIndex + i) % capacityFrames) * 2;
+            if (channels === 2) {
+                ring[slot] = src[i * 2];
+                ring[slot + 1] = src[i * 2 + 1];
+            } else {
+                ring[slot] = src[i];
+                ring[slot + 1] = src[i];
+            }
+        }
+        writeIndex = (writeIndex + frames) % indexModulus;
+        Atomics.store(header, 0, writeIndex);
+    };
+});
+// clang-format on
+
+// clang-format off
+EM_JS(void, js_initialize_worklet_system_once, (), {
+    if (globalThis.projectMAudioContext_Global_Cpp) { return; }
     try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        window.projectMAudioContext_Global_Cpp = audioContext;
+        const AudioContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext;
+        if (!AudioContextCtor) {
+            console.warn("JS Audio Init: Web Audio unavailable in this context.");
+            return;
+        }
+        const audioContext = new AudioContextCtor();
+        globalThis.projectMAudioContext_Global_Cpp = audioContext;
         console.log("JS Audio Init: Web Audio context created.");
 
         // Shared promise so hosts / pl() can await worklet readiness instead of
         // silently no-op'ing when addModule is still in flight or previously failed.
         let resolveReady;
         let rejectReady;
-        window.projectMWorkletReady = new Promise((resolve, reject) => {
+        globalThis.projectMWorkletReady = new Promise((resolve, reject) => {
             resolveReady = resolve;
             rejectReady = reject;
         });
-        window.projectMWorkletReadyResolve = resolveReady;
-        window.projectMWorkletReadyReject = rejectReady;
+        globalThis.projectMWorkletReadyResolve = resolveReady;
+        globalThis.projectMWorkletReadyReject = rejectReady;
 
         (async () => {
             try {
                 await audioContext.audioWorklet.addModule('projectm_audio_processor.js');
-                if (window.projectMWorkletNode_Global_Cpp) {
-                    resolveReady(window.projectMWorkletNode_Global_Cpp);
+                if (globalThis.projectMWorkletNode_Global_Cpp) {
+                    _attach_worklet_ingest();
+                    resolveReady(globalThis.projectMWorkletNode_Global_Cpp);
                     return;
                 }
                 const workletNode = new AudioWorkletNode(audioContext, 'projectm-audio-processor');
-                window.projectMWorkletNode_Global_Cpp = workletNode;
-                workletNode.port.onmessage = (event) => {
-                    if (event.data.type === 'pcmData' && _projectm_pcm_add_float_wrapper) {
-                        if (!window.projectMAudioBufferPtr) {
-                            window.projectMAudioBufferPtr = _malloc(2048 * 4);
-                        }
-                        const buf = window.projectMAudioBufferPtr;
-                        const audioData = event.data.audioData;
-                        const projectm_buffer_size = 576;
-                        const src = (audioData.length > projectm_buffer_size)
-                            ? audioData.subarray(audioData.length - projectm_buffer_size)
-                            : audioData;
-                        new Float32Array(wasmMemory.buffer).set(src, buf >> 2);
-                        _projectm_pcm_add_float_wrapper(pm_handle_for_addpcm, buf, src.length, event.data.channelsForPM);
-                    }
-                };
+                globalThis.projectMWorkletNode_Global_Cpp = workletNode;
+                _attach_worklet_ingest();
                 workletNode.connect(audioContext.destination);
                 console.log("JS Audio Init: AudioWorkletNode created and connected permanently.");
                 resolveReady(workletNode);
@@ -148,7 +185,7 @@ EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm),
                 console.error("JS Audio Init: AudioWorklet setup failed:", err);
                 // Allow a later user-gesture repair (html/projectm-worklet-playback.js)
                 // to recreate the promise / node.
-                window.projectMWorkletNode_Global_Cpp = null;
+                globalThis.projectMWorkletNode_Global_Cpp = null;
                 if (typeof rejectReady === 'function') {
                     rejectReady(err);
                 }
@@ -165,8 +202,8 @@ EM_JS(void, js_initialize_worklet_system_once, (uintptr_t pm_handle_for_addpcm),
 EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool startPlaying), {
     const filePath = UTF8ToString(path_in_vfs);
     // Prefer host override (deployable without rebuilding WASM).
-    if (typeof window.projectMLoadSongIntoWorklet === 'function') {
-        window.projectMLoadSongIntoWorklet(filePath, !!loop, !!startPlaying);
+    if (typeof globalThis.projectMLoadSongIntoWorklet === 'function') {
+        globalThis.projectMLoadSongIntoWorklet(filePath, !!loop, !!startPlaying);
         return;
     }
 
@@ -174,7 +211,7 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
         try {
             const fileDataUint8Array = FS.readFile(filePath);
             console.log(`JS Load Song: Read ${fileDataUint8Array.length} bytes from ${filePath}.`);
-            if (fileDataUint8Array.length === 0) { window.projectMSongLoadState = 'error'; return; }
+            if (fileDataUint8Array.length === 0) { globalThis.projectMSongLoadState = 'error'; return; }
 
             const audioDataArrayBuffer = fileDataUint8Array.buffer.slice(
                 fileDataUint8Array.byteOffset, fileDataUint8Array.byteOffset + fileDataUint8Array.byteLength
@@ -194,57 +231,57 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
                 loop: loop,
                 startPlaying: startPlaying
             });
-            window.projectMSongLoadState = 'loaded';
+            globalThis.projectMSongLoadState = 'loaded';
         } catch(e) {
             console.error("JS Load Song: Error during decode and send:", e);
-            window.projectMSongLoadState = 'error';
+            globalThis.projectMSongLoadState = 'error';
         }
     }
 
     async function waitForWorkletAndLoad() {
-        let audioContext = window.projectMAudioContext_Global_Cpp;
-        let workletNode = window.projectMWorkletNode_Global_Cpp;
+        let audioContext = globalThis.projectMAudioContext_Global_Cpp;
+        let workletNode = globalThis.projectMWorkletNode_Global_Cpp;
 
         if (!audioContext) {
             console.error('JS Load Song: AudioContext missing — init may not have run. Path:', filePath);
-            window.projectMSongLoadState = 'error';
+            globalThis.projectMSongLoadState = 'error';
             return;
         }
 
         if (!workletNode) {
             console.warn('JS Load Song: AudioWorklet not ready yet; waiting before loading', filePath);
             try {
-                if (window.projectMWorkletReady && typeof window.projectMWorkletReady.then === 'function') {
+                if (globalThis.projectMWorkletReady && typeof globalThis.projectMWorkletReady.then === 'function') {
                     await Promise.race([
-                        window.projectMWorkletReady,
+                        globalThis.projectMWorkletReady,
                         new Promise((_, reject) => setTimeout(() => reject(new Error('worklet ready timeout')), 12000))
                     ]);
                 } else {
                     const deadline = Date.now() + 12000;
-                    while (!window.projectMWorkletNode_Global_Cpp && Date.now() < deadline) {
+                    while (!globalThis.projectMWorkletNode_Global_Cpp && Date.now() < deadline) {
                         await new Promise((r) => setTimeout(r, 50));
                     }
                 }
             } catch (err) {
                 console.error('JS Load Song: timed out waiting for AudioWorklet:', err);
-                window.projectMSongLoadState = 'error';
+                globalThis.projectMSongLoadState = 'error';
                 return;
             }
-            workletNode = window.projectMWorkletNode_Global_Cpp;
-            audioContext = window.projectMAudioContext_Global_Cpp;
+            workletNode = globalThis.projectMWorkletNode_Global_Cpp;
+            audioContext = globalThis.projectMAudioContext_Global_Cpp;
         }
 
         if (!audioContext || !workletNode) {
             console.error('JS Load Song: AudioWorklet still unavailable after wait; song will not play:', filePath);
-            window.projectMSongLoadState = 'error';
+            globalThis.projectMSongLoadState = 'error';
             return;
         }
 
-        if (window.projectMSongLoadState === 'loading') {
+        if (globalThis.projectMSongLoadState === 'loading') {
             console.warn('JS Load Song: Load already in progress, skipping duplicate request for ' + filePath);
             return;
         }
-        window.projectMSongLoadState = 'loading';
+        globalThis.projectMSongLoadState = 'loading';
         await decodeAndSend(audioContext, workletNode);
     }
 
@@ -256,6 +293,63 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE
+// Routes an <audio>/<video> element into the worklet via a
+// MediaElementAudioSourceNode, so element playback is not a special case with
+// its own analyser and its own sampling behaviour -- it is the same producer
+// writing the same ring as everything else.
+//
+// Prefers a host implementation (html/projectm-audio-element-source.js) when the
+// page provides one, so the wiring is deployable without a WASM rebuild.
+// clang-format off
+EM_JS(int, js_connect_media_element_source, (const char* selector), {
+    const sel = UTF8ToString(selector);
+    if (typeof globalThis.projectMConnectMediaElement === 'function') {
+        return globalThis.projectMConnectMediaElement(sel) ? 1 : 0;
+    }
+
+    // Resolved once, and never dereferenced when absent: in the render worker
+    // there is no DOM, and an element source is not reachable from there.
+    const doc = globalThis.document;
+    const audioContext = globalThis.projectMAudioContext_Global_Cpp;
+    const node = globalThis.projectMWorkletNode_Global_Cpp;
+    if (!doc || !audioContext || !node) { return 0; }
+
+    const element = doc.querySelector(sel);
+    if (!element) {
+        console.warn('JS Element Source: no element matched', sel);
+        return 0;
+    }
+
+    globalThis.projectMElementSources = globalThis.projectMElementSources || new WeakMap();
+    // createMediaElementSource() throws if the element already has a source node,
+    // so reuse the one made earlier for this element.
+    let source = globalThis.projectMElementSources.get(element);
+    if (!source) {
+        source = audioContext.createMediaElementSource(element);
+        globalThis.projectMElementSources.set(element, source);
+    }
+    source.connect(node);
+    return 1;
+});
+// clang-format on
+
+// Hands the worklet its ring descriptor and installs the postMessage fallback.
+// Exported because html/projectm-worklet-playback.js repairs a failed worklet
+// setup on a later user gesture and must re-attach ingest to the new node.
+EMSCRIPTEN_KEEPALIVE
+void attach_worklet_ingest()
+{
+    js_install_worklet_pcm_handler();
+    js_post_pcm_ring_to_worklet();
+}
+
+// Connects a media element (CSS selector) to the worklet. Returns 1 on success.
+EMSCRIPTEN_KEEPALIVE
+int connect_media_element_source(const char* selector)
+{
+    return js_connect_media_element_source(selector);
+}
+
 void pl(const char* song_path_in_vfs)
 {
     printf("C++: pl() called for unique path: %s\n", song_path_in_vfs);
@@ -272,7 +366,7 @@ void set_audio_source_to_stream(bool is_streaming)
 
 // clang-format off
 EM_JS(void, js_stop_worklet_playback, (), {
-    const workletNode = window.projectMWorkletNode_Global_Cpp;
+    const workletNode = globalThis.projectMWorkletNode_Global_Cpp;
     if (workletNode) {
         workletNode.port.postMessage({ type: 'stopPlayback' });
     }

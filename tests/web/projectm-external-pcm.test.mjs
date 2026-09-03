@@ -97,11 +97,11 @@ test('setupExternalAudioReceiver only feeds PCM posted from an allowlisted origi
     }
 });
 
-test('defaultFeedPCMToModule trims to the 576-sample analysis window via the transfer buffer', () => {
+test('defaultFeedPCMToModule feeds the whole chunk, not just an analysis window', () => {
     const channels = 2;
-    const samplesPerChannel = 700; // exceeds the 576-sample analysis window
+    const samplesPerChannel = 700; // more than projectM's 576-frame analysis buffer
     const buffer = new Float32Array(channels * samplesPerChannel);
-    // Distinct values per sample so we can assert the *tail* was kept after trimming.
+    // Distinct values per sample so we can assert which samples survived.
     for (let i = 0; i < buffer.length; i++) buffer[i] = i;
 
     const module = fakeModule();
@@ -115,12 +115,16 @@ test('defaultFeedPCMToModule trims to the 576-sample analysis window via the tra
         const ok = defaultFeedPCMToModule(buffer, channels, 44100, samplesPerChannel);
         assert.equal(ok, true);
         assert.equal(module.wrapperCalls.length, 1);
-        assert.equal(module.wrapperCalls[0].samplesPerChannel, 576, 'must trim to the internal analysis window');
+        // The old analyser-shaped path trimmed to the newest 576 frames and threw
+        // the rest away. The ring takes everything, so nothing is dropped here
+        // either — the fallback marshaling path must match the ring's contract.
+        assert.equal(
+            module.wrapperCalls[0].samplesPerChannel,
+            samplesPerChannel,
+            'must feed every frame the producer sent'
+        );
         assert.equal(module.wrapperCalls[0].channels, channels);
-
-        // The trimmed window keeps the *most recent* samples (the tail of the buffer).
-        const expectedFirstKeptSample = buffer[buffer.length - 576 * channels];
-        assert.equal(module.HEAPF32[0], expectedFirstKeptSample);
+        assert.equal(module.HEAPF32[0], buffer[0], 'the chunk is fed from its first sample');
     } finally {
         delete globalThis.Module;
     }

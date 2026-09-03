@@ -155,7 +155,8 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `g_dualFbo`/`g_compositorShader` instances, transition state, `dual_fbo_*` and `transition_*` exports |
-| `WasmAudioBridge.cpp` | Audio worklet + stream analyser EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
+| `WasmAudioBridge.cpp` | Audio worklet + media-element EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
+| `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
 | `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
 | `WasmPlaylistBridge.cpp` | Preset-switch callbacks, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
 | `WasmJsBindings.cpp` | EM_JS clusters: DOM/VFS bootstrap (`js_init_projectm_dom`), preset download helpers, host-page notifications |
@@ -380,17 +381,17 @@ background — the same readout already used for preset-loading status messages.
 ## Audio Autoplay Policy
 
 Browsers (most strictly Safari/iOS) start every `AudioContext` in the `suspended` state and only
-allow `resume()` from inside a user-gesture handler (click, tap, or key press). The WASM build has
-three audio ingress paths, only one of which is affected by this:
+allow `resume()` from inside a user-gesture handler (click, tap, or key press). Every Web Audio
+producer is affected by this:
 
-- **AudioWorklet** and **AnalyserNode stream** both read from the single shared
-  `window.projectMAudioContext_Global_Cpp`, created synchronously inside
+- **Worklet playback** and **media elements** (routed through the same worklet) both use the shared
+  `globalThis.projectMAudioContext_Global_Cpp`, created synchronously inside
   `js_initialize_worklet_system_once` (`WasmAudioBridge.cpp`), which C++ `init()` calls before
   reporting success via `js_report_init_success()`. If the browser created this context in the
   `suspended` state, no audio reaches projectM until it is resumed from a user gesture.
   The worklet *module* is loaded asynchronously (`audioWorklet.addModule`); if that fails or is
   still pending when `pl()` runs, older builds silently skipped playback. Current builds wait on
-  `window.projectMWorkletReady`, and hosts call `ensureWorkletReady()` /
+  `globalThis.projectMWorkletReady`, and hosts call `ensureWorkletReady()` /
   `installWorkletPlaybackSafetyNet()` from `html/projectm-worklet-playback.js` so a failed
   async setup can be repaired on the music-button gesture.
 - **External PCM** (`html/projectm-external-pcm.js`, used by MOD/FLAC players) never creates an
@@ -435,20 +436,20 @@ before `projectm_pcm_add_float` change how reactive presets feel.
 
 How the paths differ:
 
-| Path | Source | Analysis window fed |
-|------|--------|---------------------|
-| AudioWorklet | raw decoded worklet PCM | worklet batches (512) |
-| Stream / `#track` | AnalyserNode `getFloatTimeDomainData` | **most recent 576 samples** (`js_feed_stream_data_to_projectm`) |
-| External PCM | player's AnalyserNode time-domain via `postMessage` | see below |
+| Path | Source | What reaches the engine |
+|------|--------|-------------------------|
+| AudioWorklet | raw decoded worklet PCM | every 128-frame quantum, stereo, into the PCM ring |
+| Media element | `MediaElementAudioSourceNode` → the same worklet | every 128-frame quantum, stereo, into the PCM ring |
+| External PCM | player PCM via `postMessage` | the whole chunk, into the PCM ring |
 
-`html/projectm-external-pcm.js` now matches the stream path's preprocessing in
+All of them write the one ring described in `docs/AUDIO_PIPELINE.md`, which
+`render_frame()` drains — so no path has an analysis window of its own to keep in
+sync with the others.
+
+`html/projectm-external-pcm.js` keeps one preprocessing step of its own in
 `defaultFeedPCMToModule` / `preprocessExternalPcm`:
 
-- **576-sample analysis window** — trims each incoming chunk to the most recent
-  `PROJECTM_ANALYSIS_WINDOW` (576) samples per channel before feeding, just like
-  `js_feed_stream_data_to_projectm`. Anything beyond 576 only overwrites projectM's internal ring
-  buffer before analysis, so the trim is parity, not loss.
-- **Input gain** — an optional multiplier (default `1.0`, no change) applied after the trim. External
+- **Input gain** — an optional multiplier (default `1.0`, no change) applied before the write. External
   players send raw analyser amplitude with no gain stage, so a quiet source can be boosted to match
   `#track` loudness on a reference preset *without* rebuilding the WASM module. Configure it with
   any of:
@@ -459,11 +460,11 @@ How the paths differ:
   via `console.debug`, so you can compare an external source's loudness against the internal one when
   tuning gain.
 
-Channel handling is unchanged: mono (`channels: 1`) is fed as-is; stereo (`channels: 2`) must be
-even-length interleaved L/R. Senders that derive PCM from a single AnalyserNode should send
-`channels: 1`. For best fidelity a player should eventually forward **decoded worklet output** rather
-than `getFloatTimeDomainData`, which is post-FFT-window time-domain data rather than the exact
-rendered samples the internal worklet path sees.
+Channel handling: mono (`channels: 1`) is duplicated into both ring channels at the host boundary;
+stereo (`channels: 2`) must be even-length interleaved L/R and is preserved end to end. Senders that
+derive PCM from a single AnalyserNode should send `channels: 1`. For best fidelity a player should
+forward **decoded output** rather than `getFloatTimeDomainData`, which is post-FFT-window
+time-domain data rather than the exact rendered samples.
 
 ### Which HTML variant to use for external-player testing
 

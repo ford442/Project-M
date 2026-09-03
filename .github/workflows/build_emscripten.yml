@@ -72,6 +72,7 @@ jobs:
             -B "${{ github.workspace }}/cmake-build" \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
             -DCMAKE_VERBOSE_MAKEFILE=YES \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DBUILD_TESTING=YES \
             -DENABLE_OPENMP=ON \
             -DENABLE_WASM_TRANSITIONS=${{ matrix.wasm-transitions }} \
@@ -103,6 +104,16 @@ jobs:
 
       - name: Type-check WASM JS API
         run: bash scripts/check_html_types.sh
+
+      # Non-blocking until a CI run confirms the narrow check list (see
+      # scripts/check_cpp_tidy.sh) is clean against real src/wasm/ findings
+      # from this exact compile_commands.json — remove continue-on-error
+      # once verified.
+      - name: clang-tidy (src/wasm/, narrow check list)
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y clang-tidy
+          scripts/check_cpp_tidy.sh "${{ github.workspace }}/cmake-build"
 
       - name: Build WASM Smoke Wrapper
         env:

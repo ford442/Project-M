@@ -221,8 +221,8 @@ Third-party code that is compiled as part of the project:
   - Short functions/lambdas: allowed on single line; other blocks: never
 - `scripts/check_cpp_format.sh` runs `clang-format --dry-run -Werror` over a
   fixed, growing list of directories (currently `src/wasm/`,
-  `src/libprojectM/Renderer/Platform/`, `tests/cxx-interface/`) and is wired
-  into `web_host_tests.yml` / the Emscripten CI job. It is deliberately not
+  `src/libprojectM/Renderer/Platform/`, `tests/cxx-interface/`) and runs in
+  its own `cpp_format_gate.yml` workflow. It is deliberately not
   repo-wide yet: most of `src/libprojectM/` and `src/playlist/` are not
   clang-format clean, and a repo-wide reformat in one commit would drown
   every other diff in noise. Widen the list one reformatted directory at a
@@ -249,6 +249,17 @@ Third-party code that is compiled as part of the project:
   - `performance-*`
   - `misc-*`
 - Disabled checks include `magic-numbers`, `owning-memory`, `pro-bounds-pointer-arithmetic`, and `easily-swappable-parameters`.
+- `scripts/check_cpp_tidy.sh` runs a narrower check list
+  (`bugprone-*`, `performance-*`, `modernize-use-nullptr`,
+  `readability-braces-around-statements`) over `src/wasm/` only, against a
+  `compile_commands.json` produced by an Emscripten build configured with
+  `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` (native builds never compile
+  `src/wasm/`, so there is no non-Emscripten path for this). It runs as a
+  `continue-on-error: true` step in `build_emscripten.yml` — non-blocking
+  until a real CI run confirms the narrow check list is clean, at which
+  point drop `continue-on-error` to make it a hard gate. Widen the check
+  list and the directory coverage together, gradually, same reasoning as
+  `check_cpp_format.sh`'s PATHS list.
 
 ### Naming Conventions (enforced by `.clang-tidy`)
 | Entity | Style | Example |

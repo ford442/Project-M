@@ -358,7 +358,6 @@ void start_render(int width, int height)
     // glClearColor( 1.0, 1.0, 1.0, 0.0 );
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     printf("Setting window size: %i x %i\n", width, height);
-    glViewport(0, 0, 8192, 8192);    //  viewport/scissor after UsePrg runs at full resolution
     glViewport(0, 0, width, height); //  viewport/scissor after UsePrg runs at full resolution
     glEnable(GL_SCISSOR_TEST);
     glScissor(0, 0, width, height);
@@ -390,7 +389,7 @@ void start_render(int width, int height)
     {
         fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
     }
-    emscripten_set_main_loop((void (*)()) renderLoop, 0, 0);
+    emscripten_set_main_loop(renderLoop, 0, 0);
 
 
     emscripten_set_main_loop_timing(2, 1);

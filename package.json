@@ -1,0 +1,14 @@
+{
+  "name": "projectm-web-workspace",
+  "private": true,
+  "description": "Workspace root for the projectM browser host layer (html/) and the publishable embed SDK (packages/web/). Not itself published.",
+  "workspaces": [
+    "html",
+    "packages/web"
+  ],
+  "scripts": {
+    "test": "scripts/test_web_embed.sh",
+    "typecheck": "npm run typecheck --workspace=html",
+    "build": "npm run build --workspace=packages/web"
+  }
+}

@@ -298,6 +298,24 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 The CI builds both `Debug` and `Release` configurations and runs `ctest` for each.
 
+### Browser host-layer tests (`tests/web/`)
+
+`html/` (the browser host modules) and `packages/web/` (the publishable embed
+SDK) are an npm workspace rooted at the repo's own `package.json`. From the
+repo root:
+
+```bash
+npm install               # installs html/'s devDependencies once, hoisted
+npm test                  # every tests/web/*.test.mjs (coverage-gated, see
+                           # scripts/test_web_embed.sh) + the packages/web build
+npm run typecheck         # tsc over html/'s two tsconfigs
+```
+
+`scripts/test_web_embed.sh` and `scripts/check_html_types.sh` still work
+standalone (each falls back to installing its own dependencies if the root
+workspace hasn't been installed yet) and are what CI (`web_host_tests.yml`)
+actually runs `npm test` / `npm run typecheck` through.
+
 ### Preset Compatibility Harness
 
 `tests/libprojectM/PresetCompatTest.cpp` parses every `.milk` preset in `presets/tests/` and

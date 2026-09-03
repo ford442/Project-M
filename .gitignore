@@ -42,8 +42,11 @@ m4/lt~obsolete.m4
 /build
 /dist
 
-# Type-check toolchain for html/generated (scripts/check_html_types.sh)
+# npm workspace (root package.json: html/ + packages/web/) and the
+# standalone type-check toolchain fallback (scripts/check_html_types.sh)
+/node_modules/
 html/node_modules/
+packages/web/node_modules/
 
 # Emscripten build artifacts (all bundle versions — the canonical version is
 # PROJECTM_WASM_BUNDLE in html/projectm-init.js, currently v.035)

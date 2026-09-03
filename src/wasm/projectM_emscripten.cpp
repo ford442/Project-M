@@ -82,11 +82,11 @@ static void ConfigureWasmOpenMPThreadCount()
 // allocation resume a blend against a stale g_transitionStartTime.
 static void ResetTransitionState()
 {
-    g_transitionActive  = false;
-    g_transitionBlend   = 0.0f;
+    g_transitionActive = false;
+    g_transitionBlend = 0.0f;
     g_transitionStartTime = 0.0;
     g_transitionEndTime = 0.0;
-    g_presetBReady      = false;
+    g_presetBReady = false;
 }
 
 static void TearDownEngineForRebind()
@@ -122,13 +122,16 @@ static std::string g_shaderCacheKey;
 static std::optional<std::string> g_importedWarpGlsl;
 static std::optional<std::string> g_importedCompGlsl;
 
+// clang-format off
 EM_JS(void, js_on_transpiled_shader_stored, (const char* key, int kind, const char* glsl), {
     if (typeof window.pmOnTranspiledShaderStored === 'function')
     {
         window.pmOnTranspiledShaderStored(UTF8ToString(key), kind, UTF8ToString(glsl));
     }
 });
+// clang-format on
 
+// clang-format off
 EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
     if (typeof window === 'undefined' || !window.location || !window.location.search)
     {
@@ -144,7 +147,9 @@ EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
         return 0;
     }
 });
+// clang-format on
 
+// clang-format off
 EM_JS(int, js_blur_force_copy_path, (), {
     if (typeof window === 'undefined' || !window.location || !window.location.search)
     {
@@ -160,7 +165,9 @@ EM_JS(int, js_blur_force_copy_path, (), {
         return 0;
     }
 });
+// clang-format on
 
+// clang-format off
 EM_JS(int, js_copy_force_shader_path, (), {
     if (typeof window === 'undefined' || !window.location || !window.location.search)
     {
@@ -176,6 +183,7 @@ EM_JS(int, js_copy_force_shader_path, (), {
         return 0;
     }
 });
+// clang-format on
 
 // Ablation switch for benchmarking the texture-copy path: ?copyPath=shader restores the
 // pre-#179 fullscreen-quad copy so it can be A/B'd against the default glBlitFramebuffer

@@ -15,15 +15,15 @@
 
 #include "ProjectMWasmBuildConfig.hpp"
 #include "omp.h"
-#include <unistd.h>
 #include <emscripten.h>
 #include <emscripten/bind.h>
-#include <emscripten/val.h>
 #include <emscripten/html5.h>
+#include <emscripten/html5_webgl.h>
+#include <emscripten/val.h>
 #include <projectM-4/playlist.h>
 #include <projectM-4/projectM.h>
 #include <projectM-4/projectm_perf.h>
-#include <emscripten/html5_webgl.h>
+#include <unistd.h>
 
 #ifdef __EMSCRIPTEN__
 #ifndef USE_GLES
@@ -31,14 +31,14 @@
 #endif
 #endif
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <vector>
 #include <limits>
-#include <cmath>
-#include <algorithm>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <MilkdropPreset/MilkdropStaticShaders.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
@@ -102,13 +102,13 @@ extern uint32_t g_presetReadyFrame;
 extern bool g_presetSwitchFailed;
 
 // ---- Transition controller state (defined in WasmDualFbo.cpp) --------------
-extern float  g_transitionDuration;
-extern bool   g_transitionActive;
-extern float  g_transitionBlend;
+extern float g_transitionDuration;
+extern bool g_transitionActive;
+extern float g_transitionBlend;
 extern double g_transitionStartTime;
 
 // ---- Preset A idle-release policy (defined in WasmDualFbo.cpp) -------------
-extern float  g_dualFboIdleReleaseSec;
+extern float g_dualFboIdleReleaseSec;
 extern double g_transitionEndTime;
 
 // ---- Audio bridge state (defined in WasmAudioBridge.cpp) -------------------
@@ -117,7 +117,7 @@ extern bool g_is_streaming_audio;
 // ---- Perf HUD / quality governor state (defined in WasmPerfGovernor.cpp) ---
 extern bool g_perfHudEnabled;
 extern bool g_wasLoading;
-extern int  g_postLoadGraceFrames;
+extern int g_postLoadGraceFrames;
 
 // Frames to ignore right after a preset finishes loading. Shared between the
 // render loop (projectM_emscripten.cpp) and the governor (WasmPerfGovernor.cpp).

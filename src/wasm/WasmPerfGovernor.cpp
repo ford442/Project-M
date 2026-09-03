@@ -18,6 +18,7 @@ bool g_perfHudEnabled = false; //!< Whether set_perf_hud(1) has been called.
 
 // Begins a GPU timer query for the upcoming render_frame() call, if the
 // EXT_disjoint_timer_query_webgl2 extension is available. No-op otherwise.
+// clang-format off
 EM_JS(void, js_perf_gpu_begin_frame, (), {
     if (!Module.__pmPerfGpu) {
         const ext = GLctx.getExtension('EXT_disjoint_timer_query_webgl2');
@@ -31,9 +32,11 @@ EM_JS(void, js_perf_gpu_begin_frame, (), {
     GLctx.beginQuery(gpu.ext.TIME_ELAPSED_EXT, query);
     gpu.queries.push(query);
 });
+// clang-format on
 
 // Ends the GPU timer query started by js_perf_gpu_begin_frame() and polls
 // previously submitted queries (without blocking) for completed results.
+// clang-format off
 EM_JS(void, js_perf_gpu_end_frame, (), {
     const gpu = Module.__pmPerfGpu;
     if (!gpu || !gpu.ext) {
@@ -59,24 +62,30 @@ EM_JS(void, js_perf_gpu_end_frame, (), {
         GLctx.deleteQuery(gpu.queries.shift());
     }
 });
+// clang-format on
 
 // Returns the most recently completed GPU frame time in milliseconds, or -1
 // if the timer query extension is unavailable or no result has arrived yet.
+// clang-format off
 EM_JS(double, js_perf_gpu_get_last_ms, (), {
     return (Module.__pmPerfGpu && Module.__pmPerfGpu.ext) ? Module.__pmPerfGpu.lastMs : -1;
 });
+// clang-format on
 
 // Notifies the host page that perf timer collection was enabled/disabled, so
 // it can show or hide the on-screen HUD. See html/projectm-perf.js.
+// clang-format off
 EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
     if (typeof window.pmSetPerfHudEnabled === 'function') {
         window.pmSetPerfHudEnabled(!!enabled);
     }
 });
+// clang-format on
 
 // Reports one frame's worth of CPU/GPU timings to the host page. If
 // window.pmOnPerfFrame(stats) is defined (see html/projectm-perf.js), it is
 // called with a stats object so the HUD and/or benchmark harness can consume it.
+// clang-format off
 EM_JS(void, js_perf_report_frame, (
     double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
     double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps
@@ -95,6 +104,7 @@ EM_JS(void, js_perf_report_frame, (
         });
     }
 });
+// clang-format on
 
 // =============================================================================
 // Adaptive quality governor v2 (see docs/PERFORMANCE.md, issue #178)
@@ -137,18 +147,17 @@ static int g_underBudgetFrames = 0;
 bool g_wasLoading = false;
 int g_postLoadGraceFrames = 0;
 
-constexpr double kOverBudgetRatio = 1.3;        //!< Step down once frame time exceeds 1.3x budget...
-constexpr int kOverBudgetFrameThreshold = 15;   //!< ...for this many consecutive frames (~0.25s @ 60fps).
-constexpr double kUnderBudgetRatio = 0.8;       //!< Step back up once frame time is under 0.8x budget...
-constexpr int kUnderBudgetFrameThreshold = 90;  //!< ...for this many consecutive frames (~1.5s @ 60fps).
-constexpr int kMaxQualityTier = 2;              //!< Highest (lowest-quality) tier index.
+constexpr double kOverBudgetRatio = 1.3;       //!< Step down once frame time exceeds 1.3x budget...
+constexpr int kOverBudgetFrameThreshold = 15;  //!< ...for this many consecutive frames (~0.25s @ 60fps).
+constexpr double kUnderBudgetRatio = 0.8;      //!< Step back up once frame time is under 0.8x budget...
+constexpr int kUnderBudgetFrameThreshold = 90; //!< ...for this many consecutive frames (~1.5s @ 60fps).
+constexpr int kMaxQualityTier = 2;             //!< Highest (lowest-quality) tier index.
 
-struct QualityTierSettings
-{
+struct QualityTierSettings {
     size_t meshWidth;
     size_t meshHeight;
-    int32_t maxBlurLevel;     //!< -1 = uncapped, else BlurTexture::BlurLevel (0-3). See ProjectM::SetMaxBlurLevel().
-    double renderScale;       //!< Internal render scale applied by the JS host (1.0 = full resolution).
+    int32_t maxBlurLevel;       //!< -1 = uncapped, else BlurTexture::BlurLevel (0-3). See ProjectM::SetMaxBlurLevel().
+    double renderScale;         //!< Internal render scale applied by the JS host (1.0 = full resolution).
     double blurResolutionScale; //!< Extra blur-texture downscale (issue #177 item 3), see ProjectM::SetBlurResolutionScale().
 };
 
@@ -163,37 +172,43 @@ struct QualityTierSettings
 // aggressively" coordination point with this governor).
 constexpr QualityTierSettings kQualityTiers[kMaxQualityTier + 1] = {
     {80, 60, -1, 1.00, 1.00}, // tier 0: high    - uncapped blur, full resolution
-    {64, 48,  2, 0.75, 0.60}, // tier 1: regular - cap at Blur2, 0.75x render / 0.6x blur-texture scale
-    {48, 36,  1, 0.50, 0.40}, // tier 2: low     - cap at Blur1, 0.5x render / 0.4x blur-texture scale
+    {64, 48, 2, 0.75, 0.60},  // tier 1: regular - cap at Blur2, 0.75x render / 0.6x blur-texture scale
+    {48, 36, 1, 0.50, 0.40},  // tier 2: low     - cap at Blur1, 0.5x render / 0.4x blur-texture scale
 };
 
 // Notifies the host page when the governor changes the quality tier, so the
 // UI can reflect it (e.g. show a "reduced quality" indicator).
+// clang-format off
 EM_JS(void, js_governor_report_tier, (int tier), {
     if (typeof window.pmOnGovernorTierChange === 'function') {
         window.pmOnGovernorTierChange(tier);
     }
 });
+// clang-format on
 
 // Notifies the host page of the tier's internal render scale (1.0/0.75/0.5), so
 // it can shrink the canvas backing store while keeping its CSS display size fixed
 // (see html/projectm-fps-governor.js and syncModuleSize() in projectm-core.html).
 // This is a *push* notification; get_governor_render_scale() below is the pull
 // counterpart for late-binding hosts.
+// clang-format off
 EM_JS(void, js_governor_report_render_scale, (double scale), {
     if (typeof window.pmOnGovernorRenderScaleChange === 'function') {
         window.pmOnGovernorRenderScaleChange(scale);
     }
 });
+// clang-format on
 
 // Notifies the host page of the tier's blur-level cap, mainly for HUD/telemetry.
 // The actual clamping is applied purely in C++ via ProjectM::SetMaxBlurLevel(); no
 // JS action is required for the cap to take effect.
+// clang-format off
 EM_JS(void, js_governor_report_blur_cap, (int cap), {
     if (typeof window.pmOnGovernorBlurCapChange === 'function') {
         window.pmOnGovernorBlurCapChange(cap);
     }
 });
+// clang-format on
 
 static void ApplyQualityTier(int tier)
 {
@@ -288,33 +303,38 @@ extern "C" {
 // and as the adaptive quality governor's frame budget reference
 // (1000 / target_fps). See html/projectm-fps-governor.js.
 EMSCRIPTEN_KEEPALIVE
-void set_target_fps(int fps) {
-if (fps <= 0) {
-fps = 60;
-}
-g_targetFps = fps;
-if (pm) {
-projectm_set_fps(pm, fps);
-}
-ResetGovernorCounters();
-return;
+void set_target_fps(int fps)
+{
+    if (fps <= 0)
+    {
+        fps = 60;
+    }
+    g_targetFps = fps;
+    if (pm)
+    {
+        projectm_set_fps(pm, fps);
+    }
+    ResetGovernorCounters();
+    return;
 }
 
 // Enables/disables the adaptive quality governor (see UpdateQualityGovernor
 // above). Disabling does not change the current quality tier, it just stops
 // further automatic adjustments.
 EMSCRIPTEN_KEEPALIVE
-void set_quality_governor(int enabled) {
-g_governorEnabled = enabled != 0;
-ResetGovernorCounters();
-return;
+void set_quality_governor(int enabled)
+{
+    g_governorEnabled = enabled != 0;
+    ResetGovernorCounters();
+    return;
 }
 
 // Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48,
 // 2 = low/48x36). See kQualityTiers.
 EMSCRIPTEN_KEEPALIVE
-int get_quality_tier() {
-return g_qualityTier;
+int get_quality_tier()
+{
+    return g_qualityTier;
 }
 
 // Returns the current tier's internal render scale (1.0/0.75/0.5). Pull
@@ -322,15 +342,17 @@ return g_qualityTier;
 // hosts that bind pmOnGovernorRenderScaleChange after the governor already
 // initialized its starting tier.
 EMSCRIPTEN_KEEPALIVE
-double get_governor_render_scale() {
-return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].renderScale;
+double get_governor_render_scale()
+{
+    return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].renderScale;
 }
 
 // Returns the current tier's blur-level cap (-1 = uncapped, else 0-3). See
 // ProjectM::MaxBlurLevel().
 EMSCRIPTEN_KEEPALIVE
-int get_governor_blur_cap() {
-return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].maxBlurLevel;
+int get_governor_blur_cap()
+{
+    return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].maxBlurLevel;
 }
 
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
@@ -339,24 +361,27 @@ return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].maxB
 // page via js_perf_report_frame()/window.pmOnPerfFrame. See
 // docs/PERFORMANCE.md and html/projectm-perf.js.
 EMSCRIPTEN_KEEPALIVE
-void set_perf_hud(int enabled) {
-g_perfHudEnabled = enabled != 0;
-projectm_perf_set_enabled(g_perfHudEnabled);
-js_perf_hud_set_enabled(enabled);
-return;
+void set_perf_hud(int enabled)
+{
+    g_perfHudEnabled = enabled != 0;
+    projectm_perf_set_enabled(g_perfHudEnabled);
+    js_perf_hud_set_enabled(enabled);
+    return;
 }
 
 // OpenMP introspection for benchmark reports and runtime verification.
 // See docs/PERFORMANCE.md and projectm_perf_get_openmp_info().
 EMSCRIPTEN_KEEPALIVE
-int get_omp_enabled() {
+int get_omp_enabled()
+{
     projectm_perf_openmp_info info{};
     projectm_perf_get_openmp_info(&info);
     return info.compiled_enabled ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
-int get_omp_max_threads() {
+int get_omp_max_threads()
+{
     projectm_perf_openmp_info info{};
     projectm_perf_get_openmp_info(&info);
     return info.max_threads;
@@ -374,7 +399,8 @@ int get_omp_max_threads() {
 // Returns -1 when built without OpenMP, or with a runtime that has no
 // kmp_get_blocktime() — both mean "no libomp spin-wait to worry about".
 EMSCRIPTEN_KEEPALIVE
-int get_omp_blocktime() {
+int get_omp_blocktime()
+{
 #if defined(_OPENMP) && defined(__KAI_KMPC_CONVENTION)
     return kmp_get_blocktime();
 #else
@@ -385,7 +411,8 @@ int get_omp_blocktime() {
 // Returns omp_get_num_threads() from inside a short parallel region so
 // benchmarks can confirm worker threads are actually spawned (not just compiled).
 EMSCRIPTEN_KEEPALIVE
-int get_omp_thread_count_in_parallel() {
+int get_omp_thread_count_in_parallel()
+{
     int observed = 1;
 #pragma omp parallel
     {

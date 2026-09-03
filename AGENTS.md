@@ -219,6 +219,26 @@ Third-party code that is compiled as part of the project:
   - Braces on new lines after classes, functions, enums, and control statements (Allman-style)
   - Pointer alignment: left (`int* ptr`)
   - Short functions/lambdas: allowed on single line; other blocks: never
+- `scripts/check_cpp_format.sh` runs `clang-format --dry-run -Werror` over a
+  fixed, growing list of directories (currently `src/wasm/`,
+  `src/libprojectM/Renderer/Platform/`, `tests/cxx-interface/`) and is wired
+  into `web_host_tests.yml` / the Emscripten CI job. It is deliberately not
+  repo-wide yet: most of `src/libprojectM/` and `src/playlist/` are not
+  clang-format clean, and a repo-wide reformat in one commit would drown
+  every other diff in noise. Widen the list one reformatted directory at a
+  time instead of doing it all at once.
+- **`EM_JS`/`EM_ASYNC_JS`/`EM_ASM*` macro bodies in `src/wasm/` are wrapped in
+  `// clang-format off` / `// clang-format on`.** Those bodies are literal
+  JavaScript, not C++; clang-format tokenizes `===`/`!==` as separate `==`
+  and `=` operators (C++ has no triple-equals) and re-spaces them into
+  `== =` / `!= =`, silently breaking the JS. Never remove those guards or
+  run `clang-format -i` across an `EM_JS`/`EM_ASM` body — reformat only the
+  surrounding C++.
+- `src/wasm/` was mechanically reformatted to `.clang-format` in a single
+  commit recorded in `.git-blame-ignore-revs`. Configure
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs` (or pass
+  `--ignore-revs-file` to `git blame` directly) so that commit doesn't
+  attribute unrelated lines to the reformat.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:
@@ -402,7 +422,9 @@ ctest --test-dir cmake-build --verbose --build-config Debug
 cmake --build cmake-build --config Debug --target install
 ```
 
-There is no separate lint CI job; formatting is manual via `clang-format` (see above).
+`scripts/check_cpp_format.sh` is a CI-enforced format gate over the directory
+list documented above (see "Code Formatting"); everywhere else, formatting is
+still manual via `clang-format` (see above).
 
 ### C++ interface smoke test (optional, matches Linux CI)
 

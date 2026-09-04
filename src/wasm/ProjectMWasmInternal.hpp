@@ -136,6 +136,19 @@ extern int g_postLoadGraceFrames;
 // render loop (projectM_emscripten.cpp) and the governor (WasmPerfGovernor.cpp).
 constexpr int kPostLoadGraceFrames = 10;
 
+// ---- Deterministic clock (defined in WasmDeterminism.cpp) -----------------
+// WasmNow() is the host's time base for anything whose *result* must be
+// reproducible (transition blend progress, dual-FBO idle release). It returns
+// emscripten_get_now() unless the harness enabled the virtual clock, in which
+// case frame N reads exactly N/fps. Code that measures how long something
+// actually took — the quality governor's frame cost — must keep calling
+// emscripten_get_now() directly. See WasmDeterminism.cpp.
+double WasmNow();
+
+// Advances the virtual clock by one frame and pushes it into the engine.
+// Called once per frame from render_frame(); a no-op unless enabled.
+void DeterministicFrameTick();
+
 // ---- Quality governor entry points (defined in WasmPerfGovernor.cpp) -------
 void ResetGovernorCounters();
 void UpdateQualityGovernor(double frameMs);

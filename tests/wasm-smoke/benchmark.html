@@ -23,15 +23,41 @@
       return sortedValues[idx];
     }
 
+    // `median` is kept alongside `p50` because scripts/benchmark_presets_wasm.mjs
+    // compares on it; `p50`/`p99`/`count` are what the frame-budget record
+    // (tests/wasm-smoke/lib/frame-budget.mjs) gates on.
     function summarize(values) {
       const sorted = values.slice().sort((a, b) => a - b);
       const sum = sorted.reduce((a, b) => a + b, 0);
       return {
+        count: sorted.length,
         mean: sorted.length ? sum / sorted.length : 0,
         median: percentile(sorted, 0.5),
+        p50: percentile(sorted, 0.5),
         p95: percentile(sorted, 0.95),
+        p99: percentile(sorted, 0.99),
         min: sorted.length ? sorted[0] : 0,
         max: sorted.length ? sorted[sorted.length - 1] : 0,
+      };
+    }
+
+    // Which GL actually rendered this run. A perf number from a software
+    // rasterizer is not a perf number, and the only way the comparison step can
+    // refuse to gate on one is if the run says so itself.
+    function describeRenderer(canvas) {
+      const gl = canvas.getContext('webgl2');
+      if (!gl) return { renderer: null, vendor: null, softwareGl: false };
+      const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      const renderer = String(
+        (debugInfo && gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '',
+      );
+      const vendor = String(
+        (debugInfo && gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)) || gl.getParameter(gl.VENDOR) || '',
+      );
+      return {
+        renderer,
+        vendor,
+        softwareGl: /swiftshader|llvmpipe|softwarerasterizer|software/i.test(renderer + ' ' + vendor),
       };
     }
 
@@ -187,6 +213,7 @@
         presetResults.push({
           preset: vfsPath,
           presetUrl,
+          governorTier: Module._get_quality_tier ? Module._get_quality_tier() : null,
           loadCallMs,
           switchReadyMs: summarize(switchMs.slice(-switchIterations)),
           frames: samples.length,
@@ -208,6 +235,7 @@
       const result = {
         ok: true,
         canvas: { width, height },
+        gl: describeRenderer(canvas),
         framesPerPreset,
         warmupFrames,
         audioLoad,

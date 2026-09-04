@@ -105,6 +105,53 @@ export function generateBeatPulse(sampleCount, {
 }
 
 /**
+ * One block of the deterministic capture signal.
+ *
+ * Every sample is a pure function of its **absolute** index
+ * (`frameIndex * frames + i`), not of any accumulated phase, so block N is
+ * identical no matter when — or whether — blocks 0..N-1 were generated. That is
+ * what makes a golden-image capture reproducible: the audio history behind
+ * frame N is fixed by N alone, where an RAF-sampled feed makes it a function of
+ * how the machine happened to schedule the browser that run.
+ *
+ * The signal deliberately drives all three analysis bands plus beat detection,
+ * so a capture exercises bass/mid/treble reactivity and the beat-driven parts
+ * of a preset rather than sitting on one tone.
+ *
+ * @param {number} frameIndex Zero-based render frame this block belongs to.
+ * @param {object} [options]
+ * @param {number} [options.frames] Samples per block.
+ * @param {number} [options.sampleRate]
+ * @param {number} [options.bpm] Beat rate of the pulse component.
+ * @returns {Float32Array} Mono PCM.
+ */
+export function generateDeterministicBlock(frameIndex, {
+    frames = PROJECTM_ANALYSIS_WINDOW,
+    sampleRate = DEFAULT_SAMPLE_RATE,
+    bpm = 120,
+} = {}) {
+    const out = new Float32Array(frames);
+    const beatInterval = Math.round(sampleRate * 60 / bpm);
+    const beatDecaySamples = Math.round(sampleRate * 0.12);
+
+    for (let i = 0; i < frames; i += 1) {
+        const n = frameIndex * frames + i;
+        const t = n / sampleRate;
+        const sinceBeat = n % beatInterval;
+        const beatEnvelope = sinceBeat < beatDecaySamples
+            ? (1 - sinceBeat / beatDecaySamples) ** 2
+            : 0;
+        // Component amplitudes sum to 0.93, so the worst case where every
+        // component peaks together still cannot clip.
+        out[i] = 0.40 * Math.sin(2 * Math.PI * 80 * t)
+            + 0.20 * Math.sin(2 * Math.PI * 523.25 * t)
+            + 0.08 * Math.sin(2 * Math.PI * 4186 * t)
+            + 0.25 * beatEnvelope * Math.sin(2 * Math.PI * 55 * t);
+    }
+    return out;
+}
+
+/**
  * Trims interleaved PCM to the trailing `window` frames projectM analyses.
  *
  * @param {Float32Array} buffer Interleaved PCM.

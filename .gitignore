@@ -104,3 +104,10 @@ background.png
 # CMake install-prefix build output dirs (see docs/EMSCRIPTEN.md)
 /install/
 /install-wasm/
+
+# Graphics harness scratch output. Per-commit frame-budget records
+# (benchmark-results/<sha>.json) ARE committed — they are the history the
+# regression gate compares against; see benchmark-results/README.md.
+benchmark-results/golden/
+benchmark-results/preset-benchmark.json
+benchmark-results/frame-budget-comparison.md

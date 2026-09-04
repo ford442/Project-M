@@ -320,6 +320,8 @@ void renderLoop()
         g_postLoadGraceFrames = kPostLoadGraceFrames;
         ResetGovernorCounters();
     }
+    // Real clock, deliberately: this measures how long the frame actually took,
+    // which is what the governor steps quality on. WasmNow() may be virtual.
     const double frameStartMs = emscripten_get_now();
     // Phase 5: Route through render_frame(). Steady-state frames render directly
     // to the canvas; the dual-FBO compositor runs only during preset crossfades.
@@ -636,7 +638,7 @@ static void ReleaseDualFboIfIdle()
     {
         return;
     }
-    const double idleMs = emscripten_get_now() - g_transitionEndTime;
+    const double idleMs = WasmNow() - g_transitionEndTime;
     if (idleMs < static_cast<double>(g_dualFboIdleReleaseSec) * 1000.0)
     {
         return;
@@ -649,6 +651,10 @@ void render_frame()
 {
     if (!pm)
         return;
+
+    // Deterministic-clock tick (no-op unless the harness enabled it): pins this
+    // frame to N/fps before anything reads the time.
+    DeterministicFrameTick();
 
     // Single audio ingest: drain everything JS producers wrote into the PCM ring
     // since the last frame and hand it to the engine as one stereo block. Done
@@ -720,8 +726,8 @@ void render_frame()
     }
     else
     {
-        // Time-based blend (emscripten_get_now() returns milliseconds).
-        const double now = emscripten_get_now();
+        // Time-based blend (WasmNow() returns milliseconds).
+        const double now = WasmNow();
         newBlend = static_cast<float>((now - g_transitionStartTime) / (static_cast<double>(g_transitionDuration) * 1000.0));
     }
     g_transitionBlend = newBlend < 1.0f ? newBlend : 1.0f;
@@ -735,7 +741,7 @@ void render_frame()
         g_presetBReady = false;
         // Start the Preset A idle clock: from here nothing samples the pair
         // until the next transition, so ReleaseDualFboIfIdle() can reclaim it.
-        g_transitionEndTime = emscripten_get_now();
+        g_transitionEndTime = WasmNow();
         fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
     }
     g_renderedFrameCount++;

@@ -90,6 +90,13 @@ export const WASM_API_SYMBOLS = {
     transitionGetBlend: 'transition_get_blend',
     transitionSetDuration: 'transition_set_duration',
     transitionGetDuration: 'transition_get_duration',
+    setDeterministicSeed: 'set_deterministic_seed',
+    isDeterministicSeed: 'is_deterministic_seed',
+    setDeterministicClock: 'set_deterministic_clock',
+    isDeterministicClock: 'is_deterministic_clock',
+    deterministicNowMs: 'deterministic_now_ms',
+    deterministicFrameIndex: 'deterministic_frame_index',
+    setRenderLoopPaused: 'set_render_loop_paused',
 };
 
 /**
@@ -565,6 +572,41 @@ export function transitionGetDuration(module) {
     return module._transition_get_duration();
 }
 
+/** Pin libprojectM's RNG to a seed so a preset renders identical pixels run to run */
+export function setDeterministicSeed(module, enabled, seed) {
+    module._set_deterministic_seed(enabled ? 1 : 0, seed);
+}
+
+/** Whether deterministic RNG seeding is active */
+export function isDeterministicSeed(module) {
+    return !!module._is_deterministic_seed();
+}
+
+/** Drive the engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs) */
+export function setDeterministicClock(module, enabled, fps) {
+    module._set_deterministic_clock(enabled ? 1 : 0, fps);
+}
+
+/** Whether the virtual clock is active */
+export function isDeterministicClock(module) {
+    return !!module._is_deterministic_clock();
+}
+
+/** The host time base in milliseconds: virtual when the clock is on, real otherwise */
+export function deterministicNowMs(module) {
+    return module._deterministic_now_ms();
+}
+
+/** Frames ticked since the virtual clock was last enabled */
+export function deterministicFrameIndex(module) {
+    return module._deterministic_frame_index();
+}
+
+/** Pause/resume the requestAnimationFrame main loop so a harness can drive render_frame() itself */
+export function setRenderLoopPaused(module, paused) {
+    module._set_render_loop_paused(paused ? 1 : 0);
+}
+
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
     init,
@@ -611,5 +653,12 @@ export const PUBLIC_WASM_API = [
     transitionIsActive,
     transitionGetBlend,
     transitionSetDuration,
-    transitionGetDuration
+    transitionGetDuration,
+    setDeterministicSeed,
+    isDeterministicSeed,
+    setDeterministicClock,
+    isDeterministicClock,
+    deterministicNowMs,
+    deterministicFrameIndex,
+    setRenderLoopPaused
 ];

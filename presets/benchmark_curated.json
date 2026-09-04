@@ -29,7 +29,7 @@
       "tier": "medium"
     },
     {
-      "path": "custom_milk_fixed/milk011_optimized.milk",
+      "path": "custom_milk_fixed/milk011.milk",
       "label": "optimized custom (GPU warp + per-pixel)",
       "tier": "heavy"
     },

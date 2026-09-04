@@ -52,6 +52,57 @@ extern "C" {
  */
 PROJECTM_EXPORT void projectm_write_debug_image_on_next_frame(projectm_handle instance, const char* output_file);
 
+/**
+ * @brief Makes libprojectM's random number generation reproducible.
+ *
+ * By default every RNG in the library seeds itself from std::random_device, so
+ * two runs of the same preset over the same frames differ in preset hue
+ * offsets, per-frame shader `rand_frame` values, the noise textures and the
+ * transition shader/easing choice. That is correct for playback and fatal for
+ * golden-image regression testing.
+ *
+ * After this call, all of those seeds become a pure function of @a seed and an
+ * internal per-call-site name, so an identical (preset, audio, frame schedule)
+ * run produces identical pixels. Combine it with @a projectm_set_frame_time()
+ * for a virtual clock and a fixed audio schedule to get a fully reproducible
+ * frame — see docs/GRAPHICS_BENCHMARK_HARNESS.md.
+ *
+ * Scope and caveats:
+ *  - The setting is **process-global**, not per instance: there is one RNG
+ *    policy for the library, so this takes no handle.
+ *  - It also calls std::srand(), which pins the libc rand() stream behind
+ *    MilkdropShader's per-frame `rand_frame` uniform. That single global
+ *    sequence reproduces only when the sequence of draws from it is itself
+ *    identical — true for a deterministic single-engine frame schedule, not
+ *    true if two engines render interleaved in one process.
+ *  - Objects sharing a call site (e.g. the two PresetStates alive during a
+ *    crossfade) draw the same values, by design: seeds do not depend on call
+ *    ordering, so adding a call site elsewhere cannot invalidate goldens.
+ *  - It does not make the *renderer* deterministic. GPU/driver differences
+ *    still apply; compare captures perceptually, not byte-wise, across devices.
+ *
+ * @param seed The seed. Any value is valid, including 0.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_deterministic_seed(uint32_t seed);
+
+/**
+ * @brief Returns RNG seeding to std::random_device.
+ *
+ * Does not restore the libc rand() stream disturbed by
+ * @a projectm_set_deterministic_seed().
+ *
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_clear_deterministic_seed(void);
+
+/**
+ * @brief Whether deterministic seeding is currently active.
+ * @return True if @a projectm_set_deterministic_seed() is in effect.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT bool projectm_is_deterministic_seed_set(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

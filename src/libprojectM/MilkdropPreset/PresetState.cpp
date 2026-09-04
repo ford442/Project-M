@@ -4,6 +4,7 @@
 #include "PresetFileParser.hpp"
 
 #include <Renderer/ShaderCache.hpp>
+#include <RandomSeed.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -18,8 +19,7 @@ const glm::mat4 PresetState::orthogonalProjectionFlipped = glm::ortho(-1.0f, 1.0
 PresetState::PresetState()
     : globalMemory(projectm_eval_memory_buffer_create())
 {
-    std::random_device randomDevice;
-    std::mt19937 randomGenerator(randomDevice());
+    std::mt19937 randomGenerator(RandomSeed::Get("PresetState"));
     std::uniform_int_distribution<> distrib(0, std::numeric_limits<int>::max());
 
     hueRandomOffsets[0] = static_cast<float>(distrib(randomGenerator) % 64841L) * 0.01f;

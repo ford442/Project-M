@@ -1,0 +1,132 @@
+name: Graphics Perf Benchmark
+
+# Frame-budget measurement on a runner whose timings mean something.
+#
+# Deliberately NOT part of the PR gate. The golden-image gate runs on software
+# GL on every PR because SwiftShader is reproducible and free; its frame times
+# are not a performance measurement. This job is the other half: real GL, real
+# numbers, and therefore a runner that a hosted PR job cannot assume exists.
+#
+# It needs a runner labelled `gpu` (self-hosted, with a working GL driver). With
+# no such runner registered the job is skipped by GitHub and nothing here goes
+# red — the whole point of splitting it out of the PR gate.
+#
+# Results are recorded per commit under benchmark-results/ and compared against
+# the base record when one exists. The gate is relative (p95 up more than
+# --max-regression-pct against the same runner), never absolute.
+
+on:
+  schedule:
+    # 04:20 UTC nightly.
+    - cron: '20 4 * * *'
+  workflow_dispatch:
+    inputs:
+      base_commit:
+        description: 'Commit whose benchmark-results/<sha>.json to compare against (default: the newest record present)'
+        required: false
+        type: string
+      max_regression_pct:
+        description: 'p95 regression that fails the run'
+        required: false
+        default: '15'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Frame budget (real GPU)
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup emsdk
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.53
+          actions-cache-folder: 'emsdk-cache'
+
+      - name: Build libprojectM (Emscripten) + smoke wrapper
+        run: |
+          emcmake cmake -G "Unix Makefiles" -S "$PWD" -B "$PWD/cmake-build" \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install" \
+            -DBUILD_TESTING=NO \
+            -DENABLE_OPENMP=ON \
+            -DENABLE_WASM_TRANSITIONS=ON
+          emmake cmake --build "$PWD/cmake-build" --parallel
+          (cd "$PWD/cmake-build" && emmake make install)
+          ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR="$PWD/install" \
+            OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
+
+      - name: Install harness dependencies
+        working-directory: tests/wasm-smoke
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run the preset benchmark
+        run: |
+          node scripts/benchmark_presets_wasm.mjs \
+            "$PWD/cmake-build/wasm-smoke/projectm-v.030-thread.js" \
+            --audio-load \
+            --out benchmark-results/preset-benchmark.json
+
+      - name: Record the frame budget for this commit
+        run: |
+          node scripts/record_frame_budget.mjs \
+            --input benchmark-results/preset-benchmark.json \
+            --runner "${{ runner.name }}"
+
+      # A record that says softwareGl:true means the "GPU" runner fell back to a
+      # software rasterizer. Recording it is fine — gating on it is not, and the
+      # comparison step refuses to. Surface it loudly instead of silently
+      # publishing numbers that mean nothing.
+      - name: Warn if the runner fell back to software GL
+        run: |
+          record="benchmark-results/$(git rev-parse HEAD).json"
+          if node -e "process.exit(JSON.parse(require('fs').readFileSync('$record','utf8')).softwareGl ? 0 : 1)"; then
+            echo "::warning::This runner rendered with a software rasterizer; the timings are not a performance measurement."
+          fi
+
+      - name: Compare against the base record
+        run: |
+          head="benchmark-results/$(git rev-parse HEAD).json"
+          base="${{ inputs.base_commit }}"
+          if [[ -n "$base" ]]; then
+            basefile="benchmark-results/$base.json"
+          else
+            # Newest committed record that is not this run's own output.
+            basefile="$(ls -t benchmark-results/*.json 2>/dev/null | grep -v "$(basename "$head")" | grep -v preset-benchmark.json | head -n1 || true)"
+          fi
+          if [[ -z "$basefile" || ! -f "$basefile" ]]; then
+            echo "No base record to compare against yet — this run establishes the baseline."
+            exit 0
+          fi
+          node scripts/compare_benchmark_results.mjs \
+            --base "$basefile" --head "$head" \
+            --max-regression-pct "${{ inputs.max_regression_pct || '15' }}" \
+            --markdown benchmark-results/frame-budget-comparison.md
+
+      - name: Summarise on the run page
+        if: always()
+        run: |
+          if [[ -f benchmark-results/frame-budget-comparison.md ]]; then
+            cat benchmark-results/frame-budget-comparison.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload benchmark records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frame-budget-${{ github.sha }}
+          if-no-files-found: warn
+          path: benchmark-results/**

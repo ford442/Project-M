@@ -29,6 +29,8 @@ add_library(projectM_main OBJECT
         ProjectM.hpp
         ProjectMCWrapper.cpp
         ProjectMCWrapper.hpp
+        RandomSeed.cpp
+        RandomSeed.hpp
         TimeKeeper.cpp
         TimeKeeper.hpp
         Utils.cpp

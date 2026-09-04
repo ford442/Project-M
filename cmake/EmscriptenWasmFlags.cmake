@@ -107,6 +107,13 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _transition_get_blend
         _transition_set_duration
         _transition_get_duration
+        _set_deterministic_seed
+        _is_deterministic_seed
+        _set_deterministic_clock
+        _is_deterministic_clock
+        _deterministic_now_ms
+        _deterministic_frame_index
+        _set_render_loop_paused
         )
 
 list(JOIN PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "," PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS_STR)

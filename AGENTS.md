@@ -327,26 +327,69 @@ standalone (each falls back to installing its own dependencies if the root
 workspace hasn't been installed yet) and are what CI (`web_host_tests.yml`)
 actually runs `npm test` / `npm run typecheck` through.
 
-`tests/web/projectm-render-worker-host.test.mjs` covers the main-thread half
-of the OffscreenCanvas render-worker wire protocol
-(`projectm-render-worker-types.ts`): the PCM ring writer (including
-wraparound), `isRenderWorkerSupported`/`isRenderWorkerEnabled`, and
-`setupRenderWorker()`'s message dispatch / ccall bridging.
-`projectm-render-worker.js` (the worker half) is a *classic*, non-module
-Worker script — it assigns to the bare `self` global and expects
-`importScripts()` to define a global `createModule`. Both only behave that
-way under a real browser Worker global scope; importing the file under
-Node's ESM loader (`html/`'s `package.json` sets `"type": "module"`) changes
-`var` semantics enough — module-scoped instead of a `self`/`globalThis`
-property — that its `init()` handshake and the PCM ring reader
-(`drainPcmRing`) can't be driven the same way from Node without either a
-real browser/Worker environment or a production refactor that can't be
-verified without one. Follow-up options, either needing browser
-verification before landing: convert the worker to a module Worker
-(`new Worker(url, { type: 'module' })`, replacing `importScripts` with
-`import()`), or extract the ring math into a small classic-script-compatible
-file loaded via `importScripts` on the worker side and re-exported for tests
-on the host side.
+#### What the suite gates
+
+`scripts/test_web_embed.sh` fails a change for exactly three reasons, and says
+which:
+
+1. **A test failed.**
+2. **Coverage dropped below the floor.** The floor lives in that script as
+   `COVERAGE_LINES_MIN` / `COVERAGE_BRANCHES_MIN` / `COVERAGE_FUNCTIONS_MIN`.
+   Raise them as coverage improves; never lower them to make a PR pass. The run
+   passes `--test-coverage-exclude='tests/**'`, which is load-bearing: without
+   it node <= 22 folds the test files (~100% covered by definition) into the
+   "all files" row and node >= 23 does not, so the same tree scored 74.97% in
+   CI and 64.91% locally. The number now means "coverage of `html/`" on any
+   node version. `web_host_tests.yml` pins the node major the floor was
+   measured on.
+3. **`tests/web/untested-modules.txt` is out of date.** A coverage floor can
+   only score files the suite imported, so a module with *no* tests is
+   invisible to it — and deleting a module's last test *raises* coverage. That
+   ledger lists the `html/` modules no test loads, with a reason each. It only
+   shrinks: writing the first test for a listed module means deleting its line,
+   and a module that falls out of the suite must be given a test or an entry
+   explaining why not.
+
+#### The render-worker wire protocol
+
+`projectm-render-worker-types.ts` is the only place the OffscreenCanvas
+render-worker's wire format is written down, and it has two implementations —
+`projectm-render-worker-host.js` on the main thread and
+`projectm-render-worker.js` in the worker. Three test files hold that together:
+
+- `tests/web/projectm-render-worker-host.test.mjs` — the host half:
+  `isRenderWorkerSupported`/`isRenderWorkerEnabled`, `setupRenderWorker()`'s
+  message dispatch, ccall bridging and PCM handoff.
+- `tests/web/projectm-render-worker.test.mjs` — the worker half. The worker is
+  a *classic*, non-module Worker script: it assigns to the bare `self` global
+  and expects `importScripts()` to define a global `createModule`, neither of
+  which survives being imported under Node's ESM loader (`html/`'s
+  `package.json` sets `"type": "module"`). `node:vm` is the way in — evaluating
+  the source in a context whose global carries `self`, `importScripts`,
+  `performance` and `setInterval` reproduces the classic-worker scope closely
+  enough to drive the real `onmessage` handler, with no production refactor and
+  no browser. Two things to know when extending it: objects built inside the vm
+  carry that context's `Object.prototype`, so copy them (`{ ...message }`)
+  before `assert.deepEqual`; and inject this realm's `SharedArrayBuffer` and
+  `Atomics` into the sandbox, or the worker's `instanceof SharedArrayBuffer`
+  check on the ring descriptor never matches.
+- The last test in that file reads all three sources and asserts each message
+  type declared in the union types is both posted by one side and handled by
+  the other, so a type renamed on one side is a red test rather than a silent
+  postMessage that goes nowhere.
+
+#### IndexedDB and DOM in Node
+
+`tests/web/helpers/fake-indexeddb.mjs` and `tests/web/helpers/fake-dom.mjs` are
+the stand-ins for the two browser APIs the host layer cannot avoid. The
+IndexedDB fake models the parts `projectm-preset-cache.js` and
+`projectm-shader-cache.js` actually depend on — asynchronous requests, requests
+queued from inside another request's `onsuccess` landing before `oncomplete`,
+cursors that terminate on a null result. The DOM fake resolves selectors
+lazily (asking for one mints and remembers an element) and installs a
+hand-driven `performance.now()`, because `projectm-perf.js` throttles its HUD
+to one repaint per 200 ms and against the real clock that makes the test depend
+on how long the process took to get there.
 
 ### Preset Compatibility Harness
 

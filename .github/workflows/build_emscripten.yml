@@ -58,11 +58,16 @@ jobs:
           git clone https://github.com/projectM-visualizer/build-gtest.git ${{ github.workspace }}/build-gtest
           cd ${{ github.workspace }}/build-gtest && ./setup.sh && ./build-emscripten.sh
 
+      # setup-emsdk exports EMSDK; scripts/build_libomp_emscripten.sh picks that
+      # up on its own. Do not pass EMSDK_ROOT="$(dirname "$(dirname "$(which
+      # emcc)")")" here — emcc lives at $EMSDK/upstream/emscripten/emcc, so two
+      # dirnames land on $EMSDK/upstream, which has no emsdk_env.sh, and every
+      # run of this workflow died on "set EMSDK_ROOT to your emsdk directory"
+      # before reaching the build (and so before the clang-tidy gate below).
       - name: Build libomp for Emscripten (when not cached)
         run: |
           if [[ ! -f "${{ github.workspace }}/libomp.a" ]]; then
-            EMSDK_ROOT="$(dirname "$(dirname "$(which emcc)")")" \
-              bash "${{ github.workspace }}/scripts/build_libomp_emscripten.sh"
+            bash "${{ github.workspace }}/scripts/build_libomp_emscripten.sh"
           fi
 
       - name: Configure Build

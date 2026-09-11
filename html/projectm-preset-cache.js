@@ -34,11 +34,6 @@ export function openPresetCacheDb() {
     });
 }
 
-/** @deprecated use openPresetCacheDb */
-function openDb() {
-    return openPresetCacheDb();
-}
-
 /**
  * @param {string} id `<base>::<file>`
  * @param {Uint8Array} bytes

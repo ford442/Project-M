@@ -20,8 +20,18 @@ LLVM_OPENMP_SRC="${LLVM_OPENMP_SRC:-}"
 BUILD_DIR="${BUILD_DIR:-$PROJECT_ROOT/cmake-build-libomp}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
+# emcc sits at <emsdk>/upstream/emscripten/emcc, but that layout has changed
+# across SDK versions — walk up from wherever it is until emsdk_env.sh appears
+# rather than assuming a fixed number of levels.
 if [[ -z "$EMSDK_ROOT" ]] && command -v emcc >/dev/null 2>&1; then
-    EMSDK_ROOT="$(cd "$(dirname "$(dirname "$(command -v emcc)")")" && pwd)"
+    candidate="$(cd "$(dirname "$(command -v emcc)")" && pwd)"
+    while [[ "$candidate" != "/" ]]; do
+        if [[ -f "$candidate/emsdk_env.sh" ]]; then
+            EMSDK_ROOT="$candidate"
+            break
+        fi
+        candidate="$(dirname "$candidate")"
+    done
 fi
 
 if [[ -z "$EMSDK_ROOT" ]]; then

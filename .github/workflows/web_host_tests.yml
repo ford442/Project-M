@@ -35,9 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned to the major the coverage floor in scripts/test_web_embed.sh was
+      # measured on. The floor is comparable across majors now that the run
+      # excludes the test files themselves (see that script), but keeping CI
+      # and local dev on one major keeps the numbers exactly reproducible.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: npm ci (workspace root)
         run: npm ci

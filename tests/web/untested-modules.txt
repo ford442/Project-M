@@ -1,0 +1,32 @@
+# Host modules under html/ that no test in tests/web/ loads.
+#
+# The coverage floor in scripts/test_web_embed.sh only sees files the suite
+# actually imports, so a module with no tests at all is invisible to it —
+# adding one costs nothing and removing every test for one costs nothing
+# either. This ledger closes that hole: scripts/test_web_embed.sh compares the
+# modules the run loaded against this list and fails when they differ in
+# either direction.
+#
+#   - a module here that the suite now loads  -> delete its line (ratchet)
+#   - a module not here that the suite stopped loading -> write a test, or
+#     add it here with a reason, in a commit that says why
+#
+# One path per line, relative to the repository root. Third-party code
+# (html/flac-decode/example/, html/flac-player/bundle.*.js) is not tracked.
+
+# The <project-m-visualizer> custom element. Needs customElements/HTMLElement
+# and a live WebGL canvas; its attribute contract is covered instead by
+# tests/web/projectm-element.test.mjs against projectm-element-attributes.js.
+html/projectm-element.js
+
+# Preset-authoring dev tools, loaded only behind their own debug query params.
+html/projectm-preset-dev.js
+html/projectm-preset-tweaker.js
+
+# Synthetic PCM generators for the ?audioTest=1 panel and
+# tests/wasm-smoke/audio_reactivity.html — exercised there, in a browser.
+html/projectm-synthetic-audio.js
+
+# Classic (non-module) script that rewrites the page URL on load; it runs its
+# redirect as a side effect at parse time and exports nothing.
+html/projectm-wasm-default-redirect.js

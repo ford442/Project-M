@@ -2,15 +2,15 @@
 # Verify deployed WASM + host assets return real artifacts (not HTML soft-404s).
 #
 # Usage:
-#   scripts/verify_deploy_urls.sh [BASE_URL] [BUNDLE projectm-v.036-thread]
+#   scripts/verify_deploy_urls.sh [BASE_URL] [BUNDLE projectm-v.037-thread]
 #
 # Example:
-#   scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.036-thread
+#   scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.037-thread
 
 set -euo pipefail
 
 BASE_URL="${1:-https://projectm.1ink.us/}"
-BUNDLE="${2:-projectm-v.036-thread}"
+BUNDLE="${2:-projectm-v.037-thread}"
 BASE_URL="${BASE_URL%/}"
 SMOKE_BUNDLE="projectm-v.030-thread"
 

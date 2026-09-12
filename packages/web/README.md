@@ -40,6 +40,36 @@ Pin the bundle version with `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-versio
 
 First-party CDN default: `https://projectm.1ink.us` (see `buildProjectMWasmUrls()`).
 
+#### Self-hosting the artifacts
+
+The package ships a `projectm-fetch-wasm` bin that downloads the pinned bundle
+into your static directory and records a lockfile, so you can serve the WASM from
+your own origin, work offline, and pin independently of whatever the CDN serves
+today:
+
+```bash
+npx projectm-fetch-wasm --out public/pm            # download glue + .wasm + lockfile
+npx projectm-fetch-wasm --out public/pm --verify   # re-check hashes in CI, no network
+```
+
+`projectm-wasm.lock.json` records each file's SHA-256 and an SRI `integrity`
+string. Commit it. The layout written is the first candidate
+`resolveWasmScriptUrl()` probes, so pointing the element at the **parent** of
+that directory is all the wiring needed:
+
+```html
+<project-m-visualizer wasm-base-url="/"></project-m-visualizer>
+<!-- with files served from /pm/ -->
+```
+
+> **Version note.** `--version` defaults to `036`, the tag the runtime resolver
+> asks for. The first-party hosts currently default to `032`
+> (`PROJECTM_WASM_DEFAULT_VERSION`) because 036 has open audio and framerate
+> regressions. If you hit those, `--version 032` fetches the older bundle — it
+> lives at the site root as a UTF-16 `.1ijs` glue script rather than under `pm/`,
+> and the tool handles that layout difference for you. This split is the one
+> thing an embedder has to make a decision about today.
+
 ## Quick start (CDN / ES modules)
 
 Serve this page **with COOP/COEP** and place WASM artifacts next to your host (or point `wasm-base-url` at a CDN):
@@ -92,22 +122,156 @@ import { PROJECTM_WASM_BUNDLE, buildProjectMWasmUrls } from '@projectm/web/wasm-
 
 Type-checking: `bash scripts/check_html_types.sh` (includes context + element typings).
 
+### Types are generated, never hand-written
+
+Every `.d.ts` this package ships is emitted by `tsc --emitDeclarationOnly`
+(`tsconfig.build.json`) from the vendored `dist/` closure, as part of
+`npm run build`. There is no hand-maintained type surface to drift: the JSDoc on
+`html/*.js` and the `*-types.ts` companions are the single source, exactly as
+`html/generated/projectm-wasm-api.ts` is generated from
+`cmake/WasmApiManifest.cmake`.
+
+The hand-written `types/*.d.ts` shims this replaced had already drifted —
+`types/entry.d.ts` re-exported the context API from the `.` entry point, whose
+runtime module (`projectm-element.js`) does not export it, so
+`import { ProjectMContext } from '@projectm/web'` type-checked and then failed at
+run time. Import it from `@projectm/web/context`.
+
+### Public API stability
+
+The `public` symbols in `cmake/WasmApiManifest.cmake` are held to this package's
+version by `scripts/check_wasm_public_api.sh` (`npm run check:api`, run in CI).
+Removing a public symbol or changing its signature requires a version bump here;
+see [docs/WASM_JS_API.md](../../docs/WASM_JS_API.md#visibility-tiers).
+
+### Framework wrappers
+
+`<project-m-visualizer>` is a custom element, so these are thin. They exist for
+the two things frameworks get wrong about custom elements: object and boolean
+props (React stringifies an array to `[object Object]`; an attribute set to the
+string `"false"` still reads as present), and `on*` handlers, which no
+framework's prop system connects to a `CustomEvent`.
+
+All three take the same camelCase props, derived from `OBSERVED_ATTRIBUTES` so
+they cannot fall behind the element, plus `onReady`, `onError`,
+`onPresetChanged`, `onFps` and `onAudioSource`, which receive `event.detail`.
+
+**React** (`react >= 17` as an optional peer dependency):
+
+```jsx
+import { ProjectMVisualizer } from '@projectm/web/react';
+
+<ProjectMVisualizer
+  presetUrl="/presets/000-empty.milk"
+  audioSource="external"
+  externalPcmOrigins={['https://your-player.example']}
+  transparent
+  onReady={() => console.log('ready')}
+  onError={(detail) => console.error(detail)}
+/>
+```
+
+**Svelte** (an action; works on the element itself or on a wrapper node):
+
+```svelte
+<script>
+  import { projectM } from '@projectm/web/svelte';
+</script>
+
+<project-m-visualizer use:projectM={{ presetUrl, onReady }} />
+```
+
+**Vue 3** (a directive):
+
+```js
+import { vProjectM } from '@projectm/web/vue';
+app.directive('projectm', vProjectM);
+// Vue also needs to be told the tag is a custom element, or it warns on render:
+//   compilerOptions.isCustomElement = (tag) => tag === 'project-m-visualizer'
+```
+
+```vue
+<project-m-visualizer v-projectm="{ presetUrl, onReady }" />
+```
+
+Wrapper sources live in `packages/web/src/` (they have no `html/` counterpart),
+are type-checked by `tsconfig.src.json`, and are covered by
+`tests/web/projectm-web-wrappers.test.mjs`.
+
+### Playground
+
+A live page with a control for every attribute, an event log, and an embed
+snippet that updates as you change them — HTML, React, Svelte and Vue flavours:
+
+```bash
+npm run build                                      # in packages/web
+node scripts/fetch-wasm.mjs --out playground/pm    # the engine itself
+npm run playground                                 # http://localhost:8173
+```
+
+It loads `dist/`, not `html/`, so what it exercises is what an embedder installs.
+
+`scripts/serve-playground.mjs` exists because of the single most common way a
+first embed appears broken: `python -m http.server` and friends send no
+COOP/COEP, `SharedArrayBuffer` is then unavailable, and the engine fails with
+init error code 4 before drawing anything. The page detects that case and says
+so rather than showing a black rectangle.
+
+The page is plain static HTML and will run from any cross-origin-isolated
+origin. Note that **GitHub Pages cannot serve it** — it does not let you set
+COOP/COEP — so a hosted playground needs either an origin you control (the
+first-party host already sends these headers) or a `coi-serviceworker`-style
+shim.
+
+### Script tag (no bundler)
+
+`dist/projectm-web.iife.js` is a single minified file that defines the element
+and exposes the same exports on a `projectM` global:
+
+```html
+<script src="/node_modules/@projectm/web/dist/projectm-web.iife.js"></script>
+```
+
+Serve the whole `dist/` directory: the render worker is fetched by URL relative
+to the script, and so is the default WASM base.
+
 ### Packaging / publishing
 
 The published package is **self-contained** — it does not reference monorepo
 (`../../html/...`) paths, so `npm pack` / `npm install @projectm/web` work for
-third parties. The `html/` module graph is vendored into a package-local
-`dist/` by a build step that follows the real import closure from
-`projectm-element.js` (so it can't drift from source):
+third parties. `scripts/build.mjs` runs three stages:
+
+1. **vendor** — follow the real import closure from `projectm-element.js` into
+   `staging/`, so the file list cannot drift from source;
+2. **declare** — emit `dist/types/**/*.d.ts` from the staged copies;
+3. **bundle** — esbuild to minified, source-mapped ESM (code-split, so importing
+   both `.` and `./context` shares one copy of the module-level state) plus the
+   IIFE build.
 
 ```bash
 npm run build      # regenerate dist/ from ../../html
 npm pack --dry-run # inspect the tarball contents
 ```
 
-`dist/` is git-ignored and regenerated automatically on `prepack`, so
-`npm publish` always ships fresh vendored sources. The `.wasm`/glue artifacts
-are still **not** bundled — host them yourself (see [WASM artifacts](#wasm-artifacts)).
+`dist/` and `staging/` are git-ignored; `prepack` rebuilds, so `npm publish`
+always ships fresh output. Publishing runs from a `web-v<version>` tag through
+`.github/workflows/publish_web_package.yml`, with `npm publish --provenance`.
+
+Two things about the layout are load-bearing, and
+`tests/web/projectm-web-package.test.mjs` asserts both:
+
+- **Every emitted module stays flat in `dist/`.** `import.meta.url` survives
+  bundling into shared chunks, and both the render worker URL and the default
+  WASM base resolve against the containing file's directory. A `chunks/`
+  subdirectory would make both resolve one level too deep.
+- **`dist/projectm-render-worker.js` is never bundled into a module.** It is a
+  classic worker loaded by URL, invisible to the import-graph scan, and it was
+  absent from the package entirely before — the worker render topology 404'd for
+  every npm consumer and silently fell back to the main thread.
+
+The `.wasm`/glue artifacts are still **not** in the tarball — fetch them with
+`projectm-fetch-wasm` or host them yourself (see
+[WASM artifacts](#wasm-artifacts)).
 
 ## Custom element API
 
@@ -148,8 +312,8 @@ are still **not** bundled — host them yourself (see [WASM artifacts](#wasm-art
 
 - **One visualizer per Module / document**: host state (`AppData`) is still process-global. Canvas CSS selectors are configurable (`init_with_canvases` / unique ids from `<project-m-visualizer>`), and `rebind_canvases()` can switch the active surface, but two simultaneous engines in one Module are not supported. For dashboards / multi-deck embeds, use **one cross-origin-isolated iframe per visualizer** (**256 MiB** `INITIAL_MEMORY` per Module instance, growable to 4 GiB — see [docs/EMSCRIPTEN.md](../../docs/EMSCRIPTEN.md#configurable-canvas-selectors)).
 - **No SharedArrayBuffer polyfill**: non-isolated pages cannot run this build.
-- **WASM not bundled**: host or CDN must serve version-pinned artifacts.
-- Full panel chrome, render worker, and experimental hooks remain in first-party hosts only.
+- **WASM not bundled**: host or CDN must serve version-pinned artifacts. `npx projectm-fetch-wasm` writes them into your static directory with a verifiable lockfile.
+- Full panel chrome and experimental hooks remain in first-party hosts only. The **render worker** now ships (it previously did not), so the OffscreenCanvas topology is available to embedders.
 
 ## Related docs
 

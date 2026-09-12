@@ -68,14 +68,17 @@ against every first-party host under `html/`: `projectm-core.html`,
 ### Core / canonical
 
 - `projectm-core.html`: reference core shell. Markup + panel chrome only; boots via
-  **`ProjectMContext`** (`projectm-context.js`) for init, resize, preset lock, and
-  transparency on the main-thread path (render-worker mode still uses the worker
-  handle). Public engine operations go through the generated WASM API
-  (`generated/projectm-wasm-api.js`) or context methods — **no raw
-  `Module._<sym>` / `Module.ccall(...)` public-API calls** (see Gated hosts).
-  Render-worker/perf internals that proxy ccalls through the render-worker handle
-  are the only temporarily allowed exception, and they do not touch the `Module`
-  object directly.
+  **`ProjectMContext`** (`projectm-context.js`) for init, resize, preset lock and
+  transparency in **both** render topologies — the context picks between the
+  main-thread and render-worker transports itself
+  (`projectm-render-transport.js`), so this host no longer holds a second set of
+  call sites for the worker handle. Public engine operations go through the
+  generated WASM API (`generated/projectm-wasm-api.js`) or context methods —
+  **no raw `Module._<sym>` / `Module.ccall(...)` public-API calls** (see Gated
+  hosts). What remains main-thread-only here are the dev panels (perf HUD,
+  preset dev tools, experimental bridge, FBO-format banner), which read engine
+  state through a module object on this thread; in worker mode they stay
+  unbuilt, and `?renderWorker=0` brings them back.
 - `embed-demo.html`: minimal third-party embed demo using
   `<project-m-visualizer>` (see `packages/web/README.md`). The custom element
   and `ProjectMContext` (`projectm-context.js`) are the intended init path for
@@ -181,6 +184,8 @@ outgoing typo type-checks fine and fails only on the far side.
 - `projectm-preset-types.ts` — preset manifest entries, filters, and the
   IndexedDB record shapes shared by the preset library / picker / cache modules.
 - `projectm-render-worker-types.ts` — the render-worker message protocol.
+- `projectm-transport-types.ts` — `RenderTransport`, the one interface over both
+  render topologies (implemented by `projectm-render-transport.js`).
 - `projectm-wasm-api-worker.ts` — ccall symbol names for the worker proxy.
 
 `generated/projectm-wasm-api.{js,ts}` is the one same-basename `.js`/`.ts` pair

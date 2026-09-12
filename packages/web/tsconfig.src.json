@@ -1,0 +1,27 @@
+{
+  "// purpose": [
+    "Type-check the framework wrappers in src/.",
+    "",
+    "tsconfig.build.json emits their declarations with checkJs off, because it",
+    "also compiles the staged html/ closure that html/tsconfig.json already",
+    "checks. Nothing checked src/ itself, so this program does — with checkJs and",
+    "strict on, like every other JS in this repo.",
+    "",
+    "Needs staging/ to exist (the wrappers import the element from there), so run",
+    "it after `npm run build --workspace=packages/web`."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react"
+  },
+  "include": ["src/**/*.js"]
+}

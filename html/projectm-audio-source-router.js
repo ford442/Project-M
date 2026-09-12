@@ -111,6 +111,11 @@ export class AudioSourceRouter {
      *   PCM chunk or `pl()` call promotes that path to active (used by legacy
      *   `projectm-core.html` which wires external PCM alongside worklet).
      * @param {(status: ProjectMAudioSourceStatus) => void} [options.onStatusChange]
+     * @param {import('./projectm-transport-types.ts').RenderTransport | null} [options.transport]
+     *   Render transport, when the host has one. The two engine ops the router
+     *   performs go through it instead of through `module`, so the router works
+     *   unchanged when the engine is in the render worker and there is no
+     *   module on this thread at all.
      */
     constructor({
         module = null,
@@ -118,9 +123,12 @@ export class AudioSourceRouter {
         initialSource = 'none',
         autoSwitchOnFeed = false,
         onStatusChange,
+        transport = null,
     } = {}) {
         /** @type {ProjectMModuleLike | null} */
         this.module = module;
+        /** @type {import('./projectm-transport-types.ts').RenderTransport | null} */
+        this.transport = transport;
         this.mode = mode;
         this.autoSwitchOnFeed = autoSwitchOnFeed;
         /** @type {ProjectMAudioSourceActive} */
@@ -131,6 +139,18 @@ export class AudioSourceRouter {
         this.onStatusChange = onStatusChange;
         this._applyExclusivePolicy(this.activeSource);
         setHostAudioSourceRouter(this);
+    }
+
+    /**
+     * @param {import('./projectm-transport-types.ts').RenderTransport | null} transport
+     */
+    setTransport(transport) {
+        if (this.transport === transport) {
+            return;
+        }
+        this.transport = transport;
+        setHostAudioSourceRouter(this);
+        this._applyExclusivePolicy(this.activeSource);
     }
 
     /** @param {ProjectMModuleLike | null} module */
@@ -243,11 +263,21 @@ export class AudioSourceRouter {
     destroy() {
         setHostAudioSourceRouter(null);
         this.module = null;
+        this.transport = null;
         this.onStatusChange = undefined;
     }
 
     /** @param {ProjectMAudioSourceActive} source */
     _applyExclusivePolicy(source) {
+        const transport = this.transport;
+        if (transport && transport.topology === 'worker') {
+            if (source === 'external' || source === 'element' || source === 'none') {
+                transport.callVoid('stopWorkletPlayback');
+            }
+            transport.callVoid('setAudioSourceToStream', source === 'element');
+            return;
+        }
+
         const module = this.module;
         if (!canRouteAudio(module)) {
             return;

@@ -16,6 +16,14 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# Build the embed SDK BEFORE the suite: tests/web/projectm-web-package.test.mjs
+# asserts against packages/web/dist (exports map, the run-time-only render
+# worker, import.meta.url depth), so a stale or absent dist would make it pass
+# on yesterday's output or fail for the wrong reason.
+echo "Building packages/web..."
+(cd packages/web && node scripts/build.mjs)
+echo ""
+
 shopt -s nullglob
 tests=(tests/web/*.test.mjs)
 shopt -u nullglob
@@ -44,10 +52,12 @@ fi
 # them out. That made the same unchanged tree read as 74.97% in CI and
 # 64.91% locally, so the floor measured the node version as much as the code.
 # Excluding them explicitly makes the number mean "coverage of html/" on
-# every version.
+# every version. packages/** is excluded for the same reason: the package test
+# imports the minified bundle, and letting a 44 kB generated artifact into the
+# "all files" row would make the floor measure the bundler.
 COVERAGE_LINES_MIN=71.5
-COVERAGE_BRANCHES_MIN=79.0
-COVERAGE_FUNCTIONS_MIN=62.5
+COVERAGE_BRANCHES_MIN=79.5
+COVERAGE_FUNCTIONS_MIN=64.5
 
 # Modules the run is expected NOT to load; see the file's header.
 UNTESTED_LEDGER="tests/web/untested-modules.txt"
@@ -59,6 +69,7 @@ echo "Running ${#tests[@]} host-layer test file(s)..."
 test_status=0
 node --experimental-test-coverage \
     --test-coverage-exclude='tests/**' \
+    --test-coverage-exclude='packages/**' \
     --test-coverage-lines="$COVERAGE_LINES_MIN" \
     --test-coverage-branches="$COVERAGE_BRANCHES_MIN" \
     --test-coverage-functions="$COVERAGE_FUNCTIONS_MIN" \
@@ -114,4 +125,5 @@ fi
 
 echo "Host-layer suite clean: coverage floor met, $UNTESTED_LEDGER up to date."
 
-(cd packages/web && node scripts/build.mjs)
+# Public WASM API surface vs. the blessed baseline (see the script's header).
+scripts/check_wasm_public_api.sh

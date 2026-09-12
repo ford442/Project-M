@@ -24,11 +24,19 @@ writing the tree, not by measuring. **The machinery for changing that has now la
 see [`GRAPHICS_BENCHMARK_HARNESS.md`](GRAPHICS_BENCHMARK_HARNESS.md) for the
 deterministic capture path (pinned RNG, virtual clock, frame-exact audio, pumped
 frames), the golden-image gate that runs on software GL on every PR, and the
-frame-budget record that accumulates per commit under `benchmark-results/`. What
-is still outstanding is *data*: a reviewed golden set has to be captured on a
-machine with the Emscripten toolchain and committed, and the first baseline
-record has to come off a GPU runner. Until then the caveat above stands for every
-figure in this document.
+frame-budget record that accumulates per commit under `benchmark-results/`. **The golden set has now been captured** (2026-09-12): 13 presets at frames 60
+and 300 under ANGLE/SwiftShader, in `tests/wasm-smoke/golden/images/`, verified
+byte-identical across two runs and verified to fail on an injected one-pixel
+Y-offset in `CopyTexture::TryBlit()`. Capturing it required four fixes to the
+harness and the WASM host — see "What the first capture cost" in
+[`GRAPHICS_BENCHMARK_HARNESS.md`](GRAPHICS_BENCHMARK_HARNESS.md); until those
+landed the capture either failed outright or rendered a crossfade on silence.
+
+What is still outstanding is *perf data*: the first gateable baseline has to come
+off a runner with a real GPU. The record/compare plumbing is exercised end to end
+(`benchmark-results/<sha>.json`, relative p95 comparison, software-GL records
+reported but never gating), but no number in this document has been measured on
+hardware yet, so the caveat above still stands for every figure here.
 The "verify first" step is now done against the tree — see
 [Verified against the tree](#verified-against-the-tree-2026-07-31) before picking up
 any sub-issue. Two results change the plan: the largest listed suspect is **already
@@ -124,9 +132,9 @@ code-truth findings that tell you where to point the profiler, not benchmark res
 
 ### 1. Every-frame compositor blit — **already fixed in code** (#175)
 
-`ShouldUseDualFboCompositor()` (`projectM_emscripten.cpp:475`) returns false unless a
+`ShouldUseDualFboCompositor()` (`WasmRenderLoop.cpp`) returns false unless a
 transition is active, and `render_frame()` takes the direct-to-canvas path in that case
-(`projectM_emscripten.cpp:503-509`). The steady-state extra FBO resolve + fullscreen
+(same file). The steady-state extra FBO resolve + fullscreen
 blit is gone from the source.
 
 **So the open question is purely deployment.** If the live bundle predates this,
@@ -241,7 +249,7 @@ Two behavioural details worth knowing:
   same domain as the source. The option defaults to `OFF`, so default builds are
   unaffected.
 
-**Ablation switch:** `?blurPath=copy` (WASM) or `PROJECTM_BLUR_COPY_PATH=1` (native)
+**Ablation switch:** `?blurPath=copy` (WASM, `src/wasm/WasmRenderPathOverrides.cpp`) or `PROJECTM_BLUR_COPY_PATH=1` (native)
 forces the legacy copy path, so before/after can be benchmarked **on a single build**.
 This is the recommended way to produce #177's before/after `?benchmark=1` JSON —
 and note the `blurMs` caveat above: that bucket will fall further than frame time does.
@@ -315,7 +323,8 @@ epic-level record:
   push callbacks (`window.pmOnGovernorRenderScaleChange`/`...BlurCapChange`) plus pull
   getters (`get_governor_render_scale`/`get_governor_blur_cap`) are documented in
   `docs/WASM_JS_API.md`. `html/projectm-context.js` and `html/projectm-core.html` apply
-  it; `?renderWorker=1` (OffscreenCanvas) does not yet.
+  it, and so does the render worker, which owns its own `OffscreenCanvas` and
+  installs the same `pmOnGovernorRenderScaleChange` hook on its worker global.
 - **Canvas MSAA** default flipped to `false` (`WasmWebGLContext.cpp`), opt-in via
   `?aa=1`/`localStorage.canvasAA`, per this document's own §5 finding that a fullscreen
   quad has no interior edges for MSAA to smooth — only sprite geometry benefits.
@@ -347,7 +356,7 @@ records either what landed or what must be measured before it can land.
 | A1 | `glBlitFramebuffer` for resolves | ✅ **Landed** — see below |
 | A2 | Attach textures directly / MRT | ✅ **Already done**, no further cheap win — see below |
 | A3 | `WEBGL_get_program_binary` cache | ❌ **No-go**, not a deferral — see below |
-| A4 | Default `?renderWorker=1` | ⏸ **Deferred**, needs in-browser verification — see below |
+| A4 | Default the render worker | ✅ **Done** — default ON, `?renderWorker=0` opts out; verified on headless Chromium, see below |
 | A5 | `FULL_ES3=0`, Closure | ⏸ **Deferred**, needs in-browser verification — see below |
 | A6 | JSPI / ASYNCIFY isolation | ➡ Owned by [#173](https://github.com/ford442/Project-M/issues/173), not touched here |
 
@@ -384,7 +393,7 @@ It deliberately falls back to the quad whenever the blit would **not** be equiva
   `shared_ptr` without re-issuing `glFramebufferTexture2D` and so is not a straightforward
   render-to-target (pre-existing behaviour; not changed here).
 
-**Ablation switch:** `?copyPath=shader` (WASM) or `PROJECTM_COPY_SHADER_PATH=1` (native)
+**Ablation switch:** `?copyPath=shader` (WASM, `src/wasm/WasmRenderPathOverrides.cpp`) or `PROJECTM_COPY_SHADER_PATH=1` (native)
 restores the all-quad behaviour on the same build, mirroring `?blurPath=copy` from #177.
 
 **Not measured.** The A/B that sizes this must use an old-school preset with a **custom warp
@@ -412,25 +421,33 @@ What actually covers the warm-preset-switch case:
 1. The browser's own internal program cache (Chrome/ANGLE persist compiled programs across
    loads keyed on source; nothing to do from our side).
 2. The GLSL transpile cache we already ship — `Renderer::ShaderTranspileCache` plus the
-   IndexedDB hooks installed in `projectM_emscripten.cpp` — which skips the HLSL parse and
+   IndexedDB hooks installed in `WasmShaderCache.cpp` — which skips the HLSL parse and
    `M4::GLSLGenerator` run on repeat visits. That is the expensive half on preset switch;
    `glCompileShader`/`glLinkProgram` after it are the browser's to cache.
 
 If warm preset switches are still slow after that, the next lever is reducing the *number* of
 distinct programs (shader dedup across presets), not binary caching.
 
-#### A4 — Default the OffscreenCanvas render worker (deferred)
+#### A4 — Default the OffscreenCanvas render worker (done)
 
-`?renderWorker=1` is implemented and opt-in (`html/projectm-render-worker-host.js`,
-`html/projectm-render-worker.js`; rationale and manual test matrix in `PERFORMANCE.md`
-"OffscreenCanvas render worker"). Flipping the default is a *product* change with real
-fallout — input/resize/preset control all move to `postMessage`, and every host embedding
-`projectm-element.js` inherits it — so it must not be defaulted on unverified code.
+The render worker is the default; `?renderWorker=0` opts out and is covered by
+`tests/web/`. `ProjectMContext` picks the topology and falls back to the main thread on
+its own when the browser or the page cannot host a worker, so callers no longer see the
+difference — see `html/projectm-render-transport.js`.
 
-**Blocked on:** running that document's existing five-step manual matrix (desktop Chrome,
-Firefox, an OffscreenCanvas-less browser, the default path bit-for-bit, and audio latency),
-plus `?benchmark=1` frame-p95 with and without the worker on one machine. Until someone has
-a browser in front of them, the honest state is opt-in. Cross-reference: issue
+Getting here was not a flag flip. The opt-in path had never actually run: the module
+hung at boot because Emscripten created its pthread pool Workers from the render
+worker's own URL instead of the glue's, `init()` could not resolve `#mcanvas` with no
+document, and resize never reached the transferred canvas. All three are fixed — see
+`PERFORMANCE.md` "OffscreenCanvas render worker" for the detail. Verified on headless
+Chromium with SwiftShader via `scripts/test_audio_reactivity_wasm.mjs`, which runs both
+topologies; Safari and Firefox are still unverified.
+
+**Still open:** the perf claim itself. Correctness is verified; the isolation benefit —
+that the embed holds frame rate while the host page is busy — needs a real GPU, a
+synthetic main-thread hog on the host page, and `?benchmark=1` frame-p95 with and
+without the worker on one machine. Also unverified: Safari (`transferControlToOffscreen`
+and nested Workers for the OpenMP pool) and Firefox. Cross-reference: issue
 [#81](https://github.com/ford442/Project-M/issues/81).
 
 #### A5 — `FULL_ES3=0` and Closure (deferred)
@@ -607,7 +624,7 @@ baselines exist (do not block FPS recovery on WebGPU).
 ### Already in tree / verify first
 
 1. **Direct-to-canvas when not transitioning** — `ShouldUseDualFboCompositor()` in
-   `projectM_emscripten.cpp:475`. ✅ Confirmed present in source; **confirm deploy**.
+   `WasmRenderLoop.cpp`. ✅ Confirmed present in source; **confirm deploy**.
 2. **Mesh quality A/B** — `?meshQuality=low` (64×48) vs high (80×60); a 1.56× vertex
    ratio, not the 6.25× the context section's "from 32×24" framing suggests.
 3. **Perf HUD ranking** — ⚠️ only valid for `perPixelEvalMs`/`audioMs` and the
@@ -638,7 +655,7 @@ baselines exist (do not block FPS recovery on WebGPU).
 
 15. Land deferred link flags after browser verify (`FULL_ES3=0`, Closure) — size/startup; coordinate with #173 for ASYNCIFY→JSPI. ⏸ Still deferred (#179 A5) — verify in the same browser session as item 10.
 16. **`WEBGL_get_program_binary`** warm cache — ❌ no-go (#179 A3): no shipping browser exposes program binaries to WebGL2. The GLSL IDB transpile cache plus the browser's own program cache is the whole story.
-17. Verify and consider defaulting **OffscreenCanvas render worker** (`?renderWorker=1`). ⏸ Still opt-in (#179 A4) — blocked on `PERFORMANCE.md`'s manual browser matrix.
+17. Verify and consider defaulting **OffscreenCanvas render worker**. ✅ Done (#179 A4) — default ON with `?renderWorker=0` as the escape hatch, verified on headless Chromium.
 18. **WebGPU spike** — ⏸ **defer** (#179 B): frame graph maps cleanly, but there is no WGSL target in the vendored `hlslparser` and preset shaders are transpiled at runtime, so a backend is XL with no win WebGL2 cannot deliver first. Revisit conditions in §179 B4.
 
 There was **no existing WebGPU roadmap** in this repo; [§179](#179-implementation-notes-webgl2-advances-and-webgpu-spike-report) is now the decision record.

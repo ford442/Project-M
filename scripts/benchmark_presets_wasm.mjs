@@ -10,6 +10,7 @@
  *   node scripts/benchmark_presets_wasm.mjs [path/to/projectm-v.030-thread.js]
  *   node scripts/benchmark_presets_wasm.mjs --baseline out/baseline.json
  *   node scripts/benchmark_presets_wasm.mjs --compare out/baseline.json
+ *   node scripts/benchmark_presets_wasm.mjs --software-gl   # no GPU: timings are not a measurement
  *
  * Environment:
  *   PROJECTM_SMOKE_ROOT  repo root for static file serving (default: cwd)
@@ -20,9 +21,14 @@ import { createServer } from 'node:http';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromiumArgs, loadPlaywright } from '../tests/wasm-smoke/lib/harness-runtime.mjs';
 
 const projectRoot = resolve(process.env.PROJECTM_SMOKE_ROOT || process.cwd());
+// Playwright is a devDependency of tests/wasm-smoke, not of the repo root, so a
+// bare `import 'playwright'` here resolves only when this script happens to be
+// run from that directory. loadPlaywright() looks there first, which is where
+// the golden gate and every other browser-driven runner already find it.
+const { chromium } = loadPlaywright(projectRoot);
 const scriptDir = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const defaultModulePath = resolve(projectRoot, 'cmake-build/wasm-smoke/projectm-v.030-thread.js');
 const defaultManifestPath = resolve(
@@ -38,6 +44,13 @@ function parseArgs(argv) {
     out: null,
     headless: true,
     audioLoad: false,
+    // Real GL by default. This script exists to measure frame time, and the
+    // only runner whose frame times mean anything is one with a GPU — it used
+    // to force ANGLE/SwiftShader unconditionally, so the nightly "real GPU"
+    // job measured a software rasterizer and its record was rejected as
+    // ungateable. --software-gl is for reproducing a run without a GPU, where
+    // the numbers are for eyeballing only.
+    softwareGl: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -46,6 +59,7 @@ function parseArgs(argv) {
     else if (arg === '--out') opts.out = argv[++i];
     else if (arg === '--headed') opts.headless = false;
     else if (arg === '--audio-load') opts.audioLoad = true;
+    else if (arg === '--software-gl') opts.softwareGl = true;
     else if (!arg.startsWith('-')) opts.modulePath = resolve(arg);
     else {
       console.error(`Unknown argument: ${arg}`);
@@ -183,7 +197,10 @@ let browser;
 try {
   browser = await chromium.launch({
     headless: opts.headless,
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader'],
+    args: chromiumArgs(opts.softwareGl ? 'software' : 'gpu'),
+    ...(process.env.PROJECTM_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.PROJECTM_CHROMIUM_EXECUTABLE }
+      : {}),
   });
   const page = await browser.newPage();
   page.on('console', (message) => {
@@ -193,7 +210,14 @@ try {
     console.error('[browser:pageerror]', error);
   });
 
-  const timeoutMs = Math.max(180000, presets.length * (manifest.framesPerPreset || 300) * 50);
+  // A software rasterizer renders these presets roughly an order of magnitude
+  // slower than a GPU, so the GPU-shaped budget expires mid-run and the whole
+  // benchmark is lost to a timeout rather than reported.
+  const perFrameBudgetMs = opts.softwareGl ? 400 : 50;
+  const timeoutMs = Math.max(
+    opts.softwareGl ? 1_800_000 : 180_000,
+    presets.length * (manifest.framesPerPreset || 300) * perFrameBudgetMs,
+  );
   await page.goto(url, { waitUntil: 'load', timeout: 60000 });
   const handle = await page.waitForFunction(() => window.__projectMPresetBenchmarkResult, null, { timeout: timeoutMs });
   const result = await handle.jsonValue();

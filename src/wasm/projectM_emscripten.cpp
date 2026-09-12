@@ -1,13 +1,16 @@
 // projectM_emscripten.cpp  (ProjectMWasmMain)
 //
-// Init orchestration and AppData ownership for the projectM Emscripten/WASM
-// host. Owns the process-global engine state, the transpiled-GLSL shader cache
-// hooks, the render loop, and the engine-lifecycle / render C exports.
+// Engine lifecycle for the projectM Emscripten/WASM host: it defines the
+// process-global engine state (`pm`, `app_data`, `playlist`), builds and tears
+// down the engine + playlist + GL context around it, and owns `main()`.
 //
 // The rest of the host glue lives in the focused WASM TUs:
 //   WasmWebGLContext.cpp  WebGL context create/destroy + extensions + canvas selectors
 //   WasmGraphics.hpp      dual-FBO classes + compositing shader
 //   WasmDualFbo.cpp       dual_fbo_* / transition_* exports
+//   WasmRenderLoop.cpp    Emscripten main loop + start_render/render_frame/set_window_size
+//   WasmShaderCache.cpp   transpiled-GLSL cache hooks + shader_cache_* exports
+//   WasmRenderPathOverrides.cpp  ?blurPath / ?copyPath / ?fboPrecision ablation switches
 //   WasmAudioBridge.cpp   audio worklet + stream analyser + PCM feed
 //   WasmPerfGovernor.cpp  perf HUD + adaptive quality governor + OpenMP info
 //   WasmPlaylistBridge.cpp preset callbacks + playlist path helpers
@@ -17,8 +20,6 @@
 #include "ProjectMWasmInternal.hpp"
 #include "WasmGraphics.hpp"
 #include "WasmWebGLContext.hpp"
-
-#include <cstdlib>
 
 using namespace emscripten;
 
@@ -65,10 +66,17 @@ static void ConfigureWasmOpenMPThreadCount()
     // futex wake per parallel region; buys back three idle cores.
     //
     // kmp_set_blocktime() is an LLVM/Intel libomp extension, not base OpenMP.
-    // __KAI_KMPC_CONVENTION is defined only by their omp.h (the one bundled in
-    // omp/ and used by the wasm build), so this compiles away rather than
-    // failing to link if the file is ever built against GCC's libgomp.
-#if defined(__KAI_KMPC_CONVENTION)
+    // KMP_VERSION_MAJOR is defined only by their omp.h (the one bundled in omp/
+    // and used by the wasm build), so this compiles away rather than failing to
+    // link if the file is ever built against GCC's libgomp.
+    //
+    // Do NOT gate this on __KAI_KMPC_CONVENTION: libomp's own omp.h #undefs that
+    // macro at the end of the header (it is a calling-convention helper for the
+    // declarations, not a feature flag), so the guard is always false and the
+    // blocktime call silently vanishes — which is exactly how this fix sat
+    // inert while the 036 audio/framerate regression was being investigated.
+    // KMP_VERSION_MAJOR is defined near the top of the same header and survives.
+#if defined(KMP_VERSION_MAJOR)
     kmp_set_blocktime(0);
 #endif
 #endif
@@ -114,166 +122,6 @@ static void TearDownEngineForRebind()
     WasmWebGLDestroyContext();
 }
 
-// =============================================================================
-// Transpiled GLSL cache (browser IndexedDB via JS hooks)
-// =============================================================================
-
-static std::string g_shaderCacheKey;
-static std::optional<std::string> g_importedWarpGlsl;
-static std::optional<std::string> g_importedCompGlsl;
-
-// clang-format off
-EM_JS(void, js_on_transpiled_shader_stored, (const char* key, int kind, const char* glsl), {
-    if (typeof globalThis.pmOnTranspiledShaderStored === 'function')
-    {
-        globalThis.pmOnTranspiledShaderStored(UTF8ToString(key), kind, UTF8ToString(glsl));
-    }
-});
-// clang-format on
-
-// clang-format off
-EM_JS(int, js_dual_fbo_prefer_high_precision, (), {
-    if (!globalThis.location || !globalThis.location.search)
-    {
-        return 0;
-    }
-    try
-    {
-        const value = new URLSearchParams(globalThis.location.search).get('fboPrecision');
-        return (value && value.toLowerCase() === 'high') ? 1 : 0;
-    }
-    catch (e)
-    {
-        return 0;
-    }
-});
-// clang-format on
-
-// clang-format off
-EM_JS(int, js_blur_force_copy_path, (), {
-    if (!globalThis.location || !globalThis.location.search)
-    {
-        return 0;
-    }
-    try
-    {
-        const value = new URLSearchParams(globalThis.location.search).get('blurPath');
-        return (value && value.toLowerCase() === 'copy') ? 1 : 0;
-    }
-    catch (e)
-    {
-        return 0;
-    }
-});
-// clang-format on
-
-// clang-format off
-EM_JS(int, js_copy_force_shader_path, (), {
-    if (!globalThis.location || !globalThis.location.search)
-    {
-        return 0;
-    }
-    try
-    {
-        const value = new URLSearchParams(globalThis.location.search).get('copyPath');
-        return (value && value.toLowerCase() === 'shader') ? 1 : 0;
-    }
-    catch (e)
-    {
-        return 0;
-    }
-});
-// clang-format on
-
-// Ablation switch for benchmarking the texture-copy path: ?copyPath=shader restores the
-// pre-#179 fullscreen-quad copy so it can be A/B'd against the default glBlitFramebuffer
-// resolve on one build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
-static void ApplyCopyPathOverride()
-{
-    if (js_copy_force_shader_path() != 0)
-    {
-        setenv("PROJECTM_COPY_SHADER_PATH", "1", 1);
-    }
-}
-
-// Ablation switch for benchmarking the blur chain: ?blurPath=copy restores the legacy
-// render-to-scratch + glCopyTexSubImage2D behaviour so it can be A/B'd against the
-// default render-to-texture path on one build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
-static void ApplyBlurPathOverride()
-{
-    if (js_blur_force_copy_path() != 0)
-    {
-        setenv("PROJECTM_BLUR_COPY_PATH", "1", 1);
-    }
-}
-
-static void InstallShaderTranspileCacheHooks()
-{
-    libprojectM::Renderer::SetTranspiledGlslCacheCallbacks(
-        [](const std::string& key, int shaderType) -> std::optional<std::string> {
-            if (key != g_shaderCacheKey)
-            {
-                return std::nullopt;
-            }
-            if (shaderType == 0 && g_importedWarpGlsl)
-            {
-                return g_importedWarpGlsl;
-            }
-            if (shaderType == 1 && g_importedCompGlsl)
-            {
-                return g_importedCompGlsl;
-            }
-            return std::nullopt;
-        },
-        [](const std::string& key, int shaderType, const std::string& glsl) {
-            js_on_transpiled_shader_stored(key.c_str(), shaderType, glsl.c_str());
-        });
-}
-
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void shader_cache_begin_load(const char* key)
-{
-    g_shaderCacheKey = key ? key : "";
-    g_importedWarpGlsl.reset();
-    g_importedCompGlsl.reset();
-    libprojectM::Renderer::SetTranspiledGlslCacheKey(g_shaderCacheKey);
-}
-
-EMSCRIPTEN_KEEPALIVE
-void shader_cache_import_glsl(int shaderType, const char* glsl)
-{
-    if (!glsl)
-    {
-        return;
-    }
-    if (shaderType == 0)
-    {
-        g_importedWarpGlsl = glsl;
-    }
-    else if (shaderType == 1)
-    {
-        g_importedCompGlsl = glsl;
-    }
-}
-
-EMSCRIPTEN_KEEPALIVE
-void shader_cache_end_load()
-{
-    libprojectM::Renderer::ClearTranspiledGlslCacheKey();
-    g_shaderCacheKey.clear();
-    g_importedWarpGlsl.reset();
-    g_importedCompGlsl.reset();
-}
-
-EMSCRIPTEN_KEEPALIVE
-int get_glsl_generator_version()
-{
-    return static_cast<int>(
-        libprojectM::MilkdropPreset::MilkdropStaticShaders::Get()->GetGlslGeneratorVersion());
-}
-} // extern "C"
-
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void create_sprite()
@@ -299,102 +147,6 @@ EMSCRIPTEN_KEEPALIVE
 uintptr_t get_projectm_handle()
 {
     return reinterpret_cast<uintptr_t>(app_data.projectm_engine);
-}
-} // extern "C"
-
-// Forward declaration: render_frame() is defined later in this file (Phase 5
-// dual-FBO compositor pipeline), but renderLoop() — registered as the
-// Emscripten main loop by start_render() — must call it every frame.
-extern "C" void render_frame();
-
-void renderLoop()
-{
-    if (app_data.loading == EM_TRUE)
-    {
-        g_wasLoading = true;
-        return;
-    }
-    if (g_wasLoading)
-    {
-        g_wasLoading = false;
-        g_postLoadGraceFrames = kPostLoadGraceFrames;
-        ResetGovernorCounters();
-    }
-    // Real clock, deliberately: this measures how long the frame actually took,
-    // which is what the governor steps quality on. WasmNow() may be virtual.
-    const double frameStartMs = emscripten_get_now();
-    // Phase 5: Route through render_frame(). Steady-state frames render directly
-    // to the canvas; the dual-FBO compositor runs only during preset crossfades.
-    if (g_perfHudEnabled)
-    {
-        js_perf_gpu_begin_frame();
-    }
-    render_frame();
-    if (g_perfHudEnabled)
-    {
-        js_perf_gpu_end_frame();
-    }
-    // The compositor (and the legacy fallback) both leave the composited frame
-    // in the default framebuffer (FBO 0). The browser presents the canvas directly;
-    // no eglSwapBuffers() is required on wasm.
-    if (g_perfHudEnabled)
-    {
-        projectm_perf_frame_timings timings;
-        projectm_perf_get_frame_timings(&timings);
-        js_perf_report_frame(
-            timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
-            timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
-            timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps);
-    }
-    UpdateQualityGovernor(emscripten_get_now() - frameStartMs);
-    return;
-}
-
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void start_render(int width, int height)
-{
-    // glClearColor( 1.0, 1.0, 1.0, 0.0 );
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    printf("Setting window size: %i x %i\n", width, height);
-    glViewport(0, 0, width, height); //  viewport/scissor after UsePrg runs at full resolution
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(0, 0, width, height);
-    glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT, GL_NICEST);
-    glHint(GL_GENERATE_MIPMAP_HINT, GL_NICEST);
-    // GL_DITHER only affects fixed-function/blit paths on most GLES drivers and
-    // is a no-op for the shader-based render passes used here, but in the
-    // degraded RGBA8 dual-FBO fallback (DetectFormat() already ran in init())
-    // every bit of extra entropy on the final blit helps hide 8-bit banding, so
-    // leave it enabled in that case instead of unconditionally disabling it.
-    if (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8)
-    {
-        glEnable(GL_DITHER);
-    }
-    else
-    {
-        glDisable(GL_DITHER);
-    }
-    glFrontFace(GL_CW);
-    glCullFace(GL_BACK);
-    app_data.loading = EM_FALSE;
-    projectm_set_window_size(pm, width, height);
-    // Phase 2: Persist dual-FBO dimensions now that the viewport is known.
-    // Preset A/B textures are lazily allocated on first transition request.
-    g_dualFbo.Resize(width, height);
-    // Phase 5: Compile and link the compositing blend shader now that the GL
-    // context is current.
-    if (!g_compositorShader.Init())
-    {
-        fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
-    }
-    emscripten_set_main_loop(renderLoop, 0, 0);
-
-
-    emscripten_set_main_loop_timing(2, 1);
-
-
-    return;
 }
 } // extern "C"
 
@@ -449,7 +201,7 @@ int init()
     // Hosts can opt into RGBA32F-first probing with ?fboPrecision=high.
     // This must be called after the WebGL context is made current so that
     // extension availability can be probed reliably.
-    g_dualFbo.DetectFormat(WasmWebGLGetContext(), js_dual_fbo_prefer_high_precision() != 0);
+    g_dualFbo.DetectFormat(WasmWebGLGetContext(), WasmPreferHighPrecisionFbo());
 
     // Must happen before the first preset renders, since both paths are decided once.
     ApplyBlurPathOverride();
@@ -597,169 +349,6 @@ float get_transparency_threshold()
     if (!pm)
         return 0.01f;
     return projectm_get_transparency_threshold(pm);
-}
-
-// Returns true when the dual-FBO compositor path is required this frame.
-// Steady-state playback renders directly to the canvas (one pass); the
-// offscreen ping-pong FBO + fullscreen compositor blit is only used while a
-// preset crossfade is active.
-static bool ShouldUseDualFboCompositor()
-{
-    return g_transitionActive &&
-           g_dualFbo.IsPresetAAllocated() &&
-           g_dualFbo.IsPresetBAllocated() &&
-           g_compositorShader.IsInitialized();
-}
-
-// Reclaims the Preset A ping-pong pair once it has been idle long enough.
-//
-// Preset A only ever feeds the crossfade compositor. Between transitions
-// render_frame() renders straight to the default framebuffer and never samples
-// it, so a resident pair is ~14 MB of VRAM (1280x720 RGBA16F; ~31 MB at
-// 1920x1080) that nothing reads for the rest of the session. The grace period
-// keeps back-to-back preset switches from thrashing glTexImage2D; hosts can tune
-// or disable it via dual_fbo_set_idle_release_seconds().
-static void ReleaseDualFboIfIdle()
-{
-    if (g_dualFboIdleReleaseSec < 0.0f || g_transitionActive || !g_dualFbo.IsPresetAAllocated())
-    {
-        return;
-    }
-    // Preset B live without an active blend means a transition is mid-setup:
-    // dual_fbo_begin_transition() has run and the host is still polling before
-    // transition_start(). Pulling A out from under it would make that
-    // transition_start() bail and degrade the crossfade into a hard cut.
-    if (g_dualFbo.IsPresetBAllocated())
-    {
-        return;
-    }
-    // No transition has ever ended, so nothing has established an idle baseline.
-    if (g_transitionEndTime <= 0.0)
-    {
-        return;
-    }
-    const double idleMs = WasmNow() - g_transitionEndTime;
-    if (idleMs < static_cast<double>(g_dualFboIdleReleaseSec) * 1000.0)
-    {
-        return;
-    }
-    g_dualFbo.ReleasePresetA();
-}
-
-EMSCRIPTEN_KEEPALIVE
-void render_frame()
-{
-    if (!pm)
-        return;
-
-    // Deterministic-clock tick (no-op unless the harness enabled it): pins this
-    // frame to N/fps before anything reads the time.
-    DeterministicFrameTick();
-
-    // Single audio ingest: drain everything JS producers wrote into the PCM ring
-    // since the last frame and hand it to the engine as one stereo block. Done
-    // here rather than in renderLoop() so the render-worker path (which drives
-    // render_frame() from its own loop) and any host calling render_frame()
-    // directly get identical audio, with no window/AnalyserNode involved.
-    pcm_ring_drain();
-
-    // Phase 5: Integrated dual-FBO render pipeline (transitions only).
-    //
-    // When a crossfade is active, the render loop orchestrates:
-    //
-    //   1. Render Preset A → FBO_A_Write, ping-pong to FBO_A_Read.
-    //   2. Render Preset B → FBO_B_Write, ping-pong to FBO_B_Read.
-    //   3. Composite to screen: blend FBO_A_Read + FBO_B_Read using uBlend.
-    //   4. Advance blend timer; auto-complete when uBlend >= 1.0.
-    //
-    // Between transitions (the common case), render straight to the default
-    // framebuffer via projectm_opengl_render_frame() — the same path used before
-    // the dual-FBO work landed — avoiding an extra FBO resolve + fullscreen blit
-    // every frame.
-
-    if (!ShouldUseDualFboCompositor())
-    {
-        // Direct-to-canvas path (steady state, startup, or compositor unavailable).
-        ReleaseDualFboIfIdle();
-        GLStateGuard guard;
-        projectm_opengl_render_frame(pm);
-        g_renderedFrameCount++;
-        return;
-    }
-
-    const int w = g_dualFbo.Width();
-    const int h = g_dualFbo.Height();
-    const bool ditherOutput = (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8);
-    const bool transparencyMode = projectm_get_transparency_mode(pm);
-    const float transparencyThreshold = projectm_get_transparency_threshold(pm);
-
-    // --- Step 1: Render Preset A into its Write FBO ---
-    // Note: projectm_opengl_render_frame() hardcodes its final composite blit to
-    // FBO 0 (the default framebuffer / canvas) regardless of which FBO is bound
-    // when called. Use projectm_opengl_render_frame_fbo() so the final composite
-    // lands in our Write FBO instead of clobbering the canvas directly.
-    {
-        GLStateGuard guard;
-        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
-    }
-    g_dualFbo.SwapPresetA();
-
-    // --- Step 2: Render Preset B into its Write FBO ---
-    gl_reset_state_between_pipelines();
-    {
-        GLStateGuard guard;
-        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
-    }
-    g_dualFbo.SwapPresetB();
-
-    // --- Step 3: Composite to the default framebuffer (browser canvas) ---
-    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), g_dualFbo.GetBReadTex(),
-                            g_transitionBlend, w, h, ditherOutput,
-                            transparencyMode, transparencyThreshold);
-
-    // --- Step 4: Advance blend timer ---
-    float newBlend;
-    if (g_transitionDuration <= 0.0f)
-    {
-        // Hard cut: jump immediately to full B.
-        newBlend = 1.0f;
-    }
-    else
-    {
-        // Time-based blend (WasmNow() returns milliseconds).
-        const double now = WasmNow();
-        newBlend = static_cast<float>((now - g_transitionStartTime) / (static_cast<double>(g_transitionDuration) * 1000.0));
-    }
-    g_transitionBlend = newBlend < 1.0f ? newBlend : 1.0f;
-
-    if (g_transitionBlend >= 1.0f)
-    {
-        // Transition complete: promote B → A, release B's FBOs, reset state.
-        g_dualFbo.PromoteBtoA();
-        g_transitionBlend = 0.0f;
-        g_transitionActive = false;
-        g_presetBReady = false;
-        // Start the Preset A idle clock: from here nothing samples the pair
-        // until the next transition, so ReleaseDualFboIfIdle() can reclaim it.
-        g_transitionEndTime = WasmNow();
-        fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
-    }
-    g_renderedFrameCount++;
-    return;
-}
-
-EMSCRIPTEN_KEEPALIVE
-void set_window_size(int width, int height)
-{
-    if (!pm)
-        return;
-    WasmWebGLResizeCanvases(width, height);
-    glViewport(0, 0, width, height);
-    glScissor(0, 0, width, height);
-    projectm_set_window_size(pm, width, height);
-    // Phase 2: Resize all allocated dual ping-pong FBOs to match the new viewport.
-    g_dualFbo.Resize(width, height);
-    return;
 }
 } // extern "C"
 

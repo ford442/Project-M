@@ -20,6 +20,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _init_with_canvases
     _rebind_canvases
     _load_preset_file
+    _load_preset_file_hard
     _switch_preset
     _set_aspect_correction
     _render_frame
@@ -112,7 +113,7 @@ projectm_wasm_join_exported_functions() {
 
 # EXPORTED_RUNTIME_METHODS for the final wrapper link (common + VFS FS helper).
 projectm_wasm_exported_runtime_methods() {
-    echo "ccall,cwrap,FS"
+    echo "ccall,cwrap,HEAPF32,FS,specialHTMLTargets"
 }
 
 # SIMD + atomics compile flags for the final emcc link of projectM_emscripten.cpp.
@@ -150,12 +151,23 @@ projectm_wasm_asyncify_only_file() {
     echo "${_root}/cmake/wasm_asyncify_only.txt"
 }
 
+
+# Restores Module.mainScriptUrlOrBlob so the OffscreenCanvas render worker can
+# point the pthread pool at the glue it importScripts()-ed rather than at itself.
+projectm_wasm_pthread_script_url_pre_js() {
+    local _root
+    _root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    echo "${_root}/src/wasm/pthread_script_url.pre.js"
+}
+
 projectm_wasm_common_link_args() {
     local -n _out=$1
     local pthread_pool_size
     pthread_pool_size="$(projectm_wasm_pthread_pool_size)"
     local asyncify_only_file
     asyncify_only_file="$(projectm_wasm_asyncify_only_file)"
+    local pthread_script_url_pre_js
+    pthread_script_url_pre_js="$(projectm_wasm_pthread_script_url_pre_js)"
     local transition_args=()
     if [[ "${ENABLE_WASM_TRANSITIONS:-ON}" == "ON" ]]; then
         transition_args+=("-s" "ASYNCIFY_STACK_SIZE=65536")
@@ -185,6 +197,7 @@ projectm_wasm_common_link_args() {
         -s GL_POOL_TEMP_BUFFERS=0
         -s GL_MAX_TEMP_BUFFER_SIZE=33177600
         -s GL_TRACK_ERRORS=0
+        -s GL_ENABLE_GET_PROC_ADDRESS=1
         -s NO_DISABLE_EXCEPTION_CATCHING=1
         -s ALLOW_MEMORY_GROWTH=1
         -s MALLOC=mimalloc
@@ -201,6 +214,7 @@ projectm_wasm_common_link_args() {
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"
         -s "ASYNCIFY_ONLY=@${asyncify_only_file}"
+        --pre-js "${pthread_script_url_pre_js}"
         "${transition_args[@]}"
     )
 }

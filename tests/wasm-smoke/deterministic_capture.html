@@ -214,6 +214,21 @@
       result.deterministicClock = Module._is_deterministic_clock
         ? Module._is_deterministic_clock() !== 0 : true;
 
+      // Prime the engine's clock before the preset is loaded.
+      //
+      // set_deterministic_clock() hands the virtual time to the engine, but
+      // TimeKeeper only adopts it inside RenderFrame() — until a frame has run,
+      // its "now" is still a real-clock reading. StartPreset() (which runs while
+      // the preset below loads) stamps that "now" as the preset's start time, so
+      // without this frame every capture carries an offset equal to however long
+      // the page took to get here: `time` in the per-frame equations, and the
+      // transition's progress, both differ run to run. One pumped frame makes the
+      // engine's clock virtual t=0 first. No audio is written for it, so the
+      // block-per-frame schedule below still starts at block 0.
+      Module._render_frame();
+      // Restart the frame count so the primed frame is not frame 0 of the capture.
+      Module._set_deterministic_clock(1, fps);
+
       const presetResponse = await fetch(presetSrc);
       if (!presetResponse.ok) throw new Error('Preset fetch failed: ' + presetResponse.status);
       const presetBytes = new Uint8Array(await presetResponse.arrayBuffer());
@@ -226,7 +241,32 @@
       const vfsPath = '/presets/' + presetSrc.split('/').pop();
       try { Module.FS.mkdir('/presets'); } catch (_) {}
       Module.FS.writeFile(vfsPath, presetBytes);
-      Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+      // Hard cut, deliberately: a soft cut leaves a crossfade running through the
+      // capture frames, so every golden would be a picture of the transition
+      // blending the default preset into this one rather than of this preset.
+      // Transitions are worth pinning too, but as their own capture, not as a
+      // contaminant in every other one.
+      Module.ccall('load_preset_file_hard', null, ['string'], [vfsPath]);
+
+      // load_preset_file() yields to the browser (emscripten_sleep(0)) before it
+      // transpiles and compiles the preset's shaders, so under ASYNCIFY the ccall
+      // above returns with the load only *started*. Nothing is rendered here, so
+      // waiting costs no frames: the settle below still runs a fixed count. What
+      // must not happen is pumping frames at a preset that has not loaded — the
+      // feedback buffer would then hold a different number of stale-preset frames
+      // depending on how the browser scheduled the continuation.
+      const loadDeadline = 600; // event-loop turns, not frames
+      let loadTurns = 0;
+      while (Module._preset_switch_failed() === 0 && Module._is_preset_ready(0) === 0) {
+        if (loadTurns >= loadDeadline) {
+          throw new Error(`Preset load did not complete after ${loadDeadline} event-loop turns`);
+        }
+        // A macrotask: emscripten_sleep() resumes from a timer, so a microtask
+        // yield would spin without ever letting the continuation run.
+        await new Promise((resume) => setTimeout(resume, 0));
+        loadTurns += 1;
+      }
+      result.loadTurns = loadTurns;
       setStat('preset loaded; settling');
 
       for (let frame = 0; frame < settleFrames; frame += 1) {
@@ -239,6 +279,18 @@
       // preset is how a golden gate starts lying.
       if (Module._preset_switch_failed() !== 0) {
         throw new Error('Preset switch failed during settle');
+      }
+      // A capture that fed no audio is a capture of the renderer on silence —
+      // it still produces a plausible-looking image, and every audio-reactive
+      // preset in the manifest silently stops testing what it is there to test.
+      // feedPcmToModule() reports per-block success, so assert on it rather than
+      // trusting that the ring is wired up.
+      if (result.ringFedBlocks !== result.framesRendered) {
+        throw new Error(
+          `Audio did not reach the engine: ${result.ringFedBlocks} block(s) fed for `
+          + `${result.framesRendered} frame(s). The PCM ring writer needs Module.HEAPF32; `
+          + 'check EXPORTED_RUNTIME_METHODS in cmake/EmscriptenWasmFlags.cmake.',
+        );
       }
       if (Module._is_preset_ready(1) === 0) {
         throw new Error(

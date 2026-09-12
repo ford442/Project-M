@@ -20,6 +20,10 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  * @property {boolean} [logLoaded]
  * @property {(opts: { module?: ProjectMModuleLike }) => void} [startTransitionWhenReady]
  * @property {boolean} [updateDisplay]
+ * @property {(vfsPath: string, bytes: Uint8Array) => void} [writeBytes] Where the
+ *   fetched preset should be written. Supplied by hosts whose engine (and
+ *   therefore whose virtual filesystem) is not on this thread; when omitted the
+ *   bytes go straight into `module.FS`.
  */
 
 /**
@@ -166,7 +170,7 @@ export function getLocalPresetVfsPath(filename) {
 
 /**
  * @param {PresetApiOptions} [options]
- * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string }>}
+ * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string; bytes: Uint8Array }>}
  */
 export async function fetchApiPreset({
     module,
@@ -176,7 +180,8 @@ export async function fetchApiPreset({
     fallbackApiBases = [DEFAULT_PRESET_API_BASE],
     requireDir = false,
     vfsPathForPreset,
-    warnOnFallback = true
+    warnOnFallback = true,
+    writeBytes
 } = {}) {
     const dir = presetDir || getPresetDir();
     const bases = apiBases || getPresetApiBases({ preferred: apiBase, fallbacks: fallbackApiBases });
@@ -200,15 +205,23 @@ export async function fetchApiPreset({
                 ? vfsPathForPreset(data)
                 : `/presets/api_${data.dir || dir || 'any'}_${safePresetName(data.filename)}`;
 
-            if (!module || !module.FS) throw new Error('Module.FS not available');
-            module.FS.writeFile(vfsPath, bytes);
+            // `writeBytes` is how the render-worker topology gets presets: the
+            // VFS is in the worker, so the caller supplies the write instead of
+            // this function reaching for a module that is not on this thread.
+            if (writeBytes) {
+                writeBytes(vfsPath, bytes);
+            } else {
+                if (!module || !module.FS) throw new Error('Module.FS not available');
+                module.FS.writeFile(vfsPath, bytes);
+            }
 
             return {
                 vfsPath,
                 filename: data.filename,
                 dir: data.dir || dir,
                 url: data.url,
-                apiBase: base
+                apiBase: base,
+                bytes
             };
         } catch (error) {
             lastError = error;
@@ -223,7 +236,7 @@ export async function fetchApiPreset({
 
 /**
  * @param {PresetApiOptions} options
- * @returns {Promise<Array<string | { vfsPath: string; filename: string; dir: string; url: string; apiBase: string }>>}
+ * @returns {Promise<Array<string | { vfsPath: string; filename: string; dir: string; url: string; apiBase: string; bytes: Uint8Array }>>}
  */
 export async function loadStartupApiPresets({
     module,
@@ -235,7 +248,8 @@ export async function loadStartupApiPresets({
     returnPaths = false,
     logLoaded = false,
     requireDir = false,
-    vfsPathForPreset
+    vfsPathForPreset,
+    writeBytes
 }) {
     const results = [];
     for (let i = 0; i < count; i++) {
@@ -246,7 +260,8 @@ export async function loadStartupApiPresets({
                 apiBases,
                 fallbackApiBases,
                 requireDir,
-                vfsPathForPreset
+                vfsPathForPreset,
+                writeBytes
             });
             results.push(returnPaths ? result.vfsPath : result);
             if (updateDisplayMode === 'all' || (updateDisplayMode === 'first' && i === 0)) {

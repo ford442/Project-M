@@ -149,6 +149,26 @@ double WasmNow();
 // Called once per frame from render_frame(); a no-op unless enabled.
 void DeterministicFrameTick();
 
+// ---- Render loop (defined in WasmRenderLoop.cpp) ---------------------------
+// render_frame() is the single per-frame entry point: the Emscripten main loop
+// registered by start_render() calls it, and so does the render worker, which
+// pauses that loop and drives frames itself (see WasmDeterminism.cpp).
+extern "C" {
+void render_frame();
+}
+
+// ---- Transpiled-GLSL cache (defined in WasmShaderCache.cpp) ----------------
+// Registers the lookup/store callbacks that bridge libprojectM's shader
+// transpile cache to the host page. Called once from init().
+void InstallShaderTranspileCacheHooks();
+
+// ---- Render-path ablation switches (defined in WasmRenderPathOverrides.cpp) -
+// URL query overrides applied once from init(), before the first preset
+// renders. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+void ApplyBlurPathOverride();
+void ApplyCopyPathOverride();
+bool WasmPreferHighPrecisionFbo();
+
 // ---- Quality governor entry points (defined in WasmPerfGovernor.cpp) -------
 void ResetGovernorCounters();
 void UpdateQualityGovernor(double frameMs);

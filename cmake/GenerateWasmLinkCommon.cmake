@@ -194,12 +194,23 @@ projectm_wasm_asyncify_only_file() {
     echo \"\${_root}/cmake/wasm_asyncify_only.txt\"
 }
 
+
+# Restores Module.mainScriptUrlOrBlob so the OffscreenCanvas render worker can
+# point the pthread pool at the glue it importScripts()-ed rather than at itself.
+projectm_wasm_pthread_script_url_pre_js() {
+    local _root
+    _root=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")/..\" && pwd)\"
+    echo \"\${_root}/src/wasm/pthread_script_url.pre.js\"
+}
+
 projectm_wasm_common_link_args() {
     local -n _out=\$1
     local pthread_pool_size
     pthread_pool_size=\"\$(projectm_wasm_pthread_pool_size)\"
     local asyncify_only_file
     asyncify_only_file=\"\$(projectm_wasm_asyncify_only_file)\"
+    local pthread_script_url_pre_js
+    pthread_script_url_pre_js=\"\$(projectm_wasm_pthread_script_url_pre_js)\"
     local transition_args=()
     if [[ \"\${ENABLE_WASM_TRANSITIONS:-ON}\" == \"ON\" ]]; then
         transition_args+=(\"-s\" \"ASYNCIFY_STACK_SIZE=65536\")
@@ -217,6 +228,7 @@ ${_wrapper_s_block}        -l embind
         -s EXPORTED_FUNCTIONS=\"\$(projectm_wasm_join_exported_functions)\"
         -s EXPORTED_RUNTIME_METHODS=\"\$(projectm_wasm_exported_runtime_methods)\"
         -s \"ASYNCIFY_ONLY=@\${asyncify_only_file}\"
+        --pre-js \"\${pthread_script_url_pre_js}\"
         \"\${transition_args[@]}\"
     )
 }
@@ -461,6 +473,81 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
 endforeach()
 string(APPEND _ts_body "} as const;\n")
 
+# ---------------------------------------------------------------------------
+# WASM_API_SIGNATURES — the ccall marshaling table.
+#
+# WASM_API_SYMBOLS above gives a call its C name; that is enough for a host
+# that already knows the argument types by hand. A topology-agnostic caller
+# does not: html/projectm-render-transport.js has to marshal the *same* call
+# either as a direct `module._sym(...)` on the main thread or as a
+# `ccall(sym, returnType, argTypes, args)` proxied to the render worker, and
+# the two must agree on types down to the boolean coercion. Writing those
+# types out by hand on the worker side is exactly the drift this manifest
+# exists to prevent, so they are generated here instead.
+#
+#   returnType  what to pass to Module.ccall (null for void)
+#   argTypes    ccall argument types ('number' | 'string')
+#   paramTypes  manifest-level types, so a caller can coerce a JS boolean to
+#               the 0/1 the WASM boundary wants before the ccall
+# ---------------------------------------------------------------------------
+set(_signature_lines "")
+foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
+    _projectm_wasm_parse_manifest_entry("${_entry}" _name _visibility _binding _returns _args _doc)
+    if(_visibility STREQUAL "runtime")
+        continue()
+    endif()
+    _projectm_wasm_snake_to_camel("${_name}" _js_name)
+    _projectm_wasm_ccall_return("${_returns}" _sig_return)
+
+    set(_sig_arg_types "")
+    set(_sig_param_types "")
+    if(NOT _args STREQUAL "")
+        string(REPLACE "," ";" _sig_pairs "${_args}")
+        foreach(_pair IN LISTS _sig_pairs)
+            string(REPLACE ":" ";" _sig_fields "${_pair}")
+            list(GET _sig_fields 1 _arg_type)
+            if(_arg_type STREQUAL "string")
+                set(_ccall_arg "'string'")
+            else()
+                set(_ccall_arg "'number'")
+            endif()
+            _projectm_wasm_ts_type("${_arg_type}" _param_type)
+            if(_sig_arg_types STREQUAL "")
+                set(_sig_arg_types "${_ccall_arg}")
+                set(_sig_param_types "'${_param_type}'")
+            else()
+                set(_sig_arg_types "${_sig_arg_types}, ${_ccall_arg}")
+                set(_sig_param_types "${_sig_param_types}, '${_param_type}'")
+            endif()
+        endforeach()
+    endif()
+
+    string(APPEND _signature_lines
+        "    ${_js_name}: { symbol: '${_name}', returnType: ${_sig_return}, argTypes: [${_sig_arg_types}], paramTypes: [${_sig_param_types}] },\n")
+endforeach()
+
+string(APPEND _ts_body "
+/** One row of {@link WASM_API_SIGNATURES}. */
+export interface WasmApiSignature {
+    /** The C symbol, as in {@link WASM_API_SYMBOLS}. */
+    symbol: string;
+    /** What to hand Module.ccall as its return type; null for void. */
+    returnType: 'number' | 'string' | 'boolean' | null;
+    /** ccall argument types, positional. */
+    argTypes: Array<'number' | 'string'>;
+    /** Manifest-level argument types, for coercing booleans to 0/1. */
+    paramTypes: Array<'number' | 'string' | 'boolean'>;
+}
+
+/**
+ * Everything needed to marshal a call without knowing its signature by hand.
+ * Keyed like {@link WASM_API_SYMBOLS}; see html/projectm-render-transport.js,
+ * which uses it to issue the same call over either topology.
+ */
+export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
+${_signature_lines}};
+")
+
 string(APPEND _ts_body "
 /**
  * Feed interleaved float PCM into projectM (malloc + HEAPF32 marshaling).
@@ -523,6 +610,22 @@ set(_js_body "// projectm-wasm-api.js
 /** C symbol names for render-worker ccall proxying. */
 export const WASM_API_SYMBOLS = {
 ${_js_symbols}};
+
+/**
+ * Everything needed to marshal a call without knowing its signature by hand:
+ * the C symbol, the ccall return type (null for void), the ccall argument
+ * types, and the manifest-level argument types so a caller can coerce a JS
+ * boolean to the 0/1 the WASM boundary wants.
+ *
+ * Keyed like WASM_API_SYMBOLS. See html/projectm-render-transport.js, which
+ * uses it to issue the same call over either render topology.
+ *
+ * @typedef {{ symbol: string, returnType: 'number' | 'string' | 'boolean' | null, argTypes: Array<'number' | 'string'>, paramTypes: Array<'number' | 'string' | 'boolean'> }} WasmApiSignature
+ */
+
+/** @type {Record<string, WasmApiSignature>} */
+export const WASM_API_SIGNATURES = {
+${_signature_lines}};
 
 /**
  * Feed interleaved float PCM into projectM (malloc + HEAPF32 marshaling).

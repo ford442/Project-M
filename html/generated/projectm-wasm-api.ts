@@ -111,6 +111,7 @@ export const WASM_API_SYMBOLS = {
     initWithCanvases: 'init_with_canvases',
     rebindCanvases: 'rebind_canvases',
     loadPresetFile: 'load_preset_file',
+    loadPresetFileHard: 'load_preset_file_hard',
     switchPreset: 'switch_preset',
     setAspectCorrection: 'set_aspect_correction',
     renderFrame: 'render_frame',
@@ -195,6 +196,119 @@ export const WASM_API_SYMBOLS = {
     deterministicFrameIndex: 'deterministic_frame_index',
     setRenderLoopPaused: 'set_render_loop_paused',
 } as const;
+
+/** One row of {@link WASM_API_SIGNATURES}. */
+export interface WasmApiSignature {
+    /** The C symbol, as in {@link WASM_API_SYMBOLS}. */
+    symbol: string;
+    /** What to hand Module.ccall as its return type; null for void. */
+    returnType: 'number' | 'string' | 'boolean' | null;
+    /** ccall argument types, positional. */
+    argTypes: Array<'number' | 'string'>;
+    /** Manifest-level argument types, for coercing booleans to 0/1. */
+    paramTypes: Array<'number' | 'string' | 'boolean'>;
+}
+
+/**
+ * Everything needed to marshal a call without knowing its signature by hand.
+ * Keyed like {@link WASM_API_SYMBOLS}; see html/projectm-render-transport.js,
+ * which uses it to issue the same call over either topology.
+ */
+export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
+    addAudioData: { symbol: 'add_audio_data', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    pl: { symbol: 'pl', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
+    destruct: { symbol: 'destruct', returnType: null, argTypes: [], paramTypes: [] },
+    getProjectmHandle: { symbol: 'get_projectm_handle', returnType: 'number', argTypes: [], paramTypes: [] },
+    init: { symbol: 'init', returnType: 'number', argTypes: [], paramTypes: [] },
+    setCanvasSelectors: { symbol: 'set_canvas_selectors', returnType: null, argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
+    initWithCanvases: { symbol: 'init_with_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
+    rebindCanvases: { symbol: 'rebind_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
+    loadPresetFile: { symbol: 'load_preset_file', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
+    loadPresetFileHard: { symbol: 'load_preset_file_hard', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
+    switchPreset: { symbol: 'switch_preset', returnType: null, argTypes: [], paramTypes: [] },
+    setAspectCorrection: { symbol: 'set_aspect_correction', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    renderFrame: { symbol: 'render_frame', returnType: null, argTypes: [], paramTypes: [] },
+    startRender: { symbol: 'start_render', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    setWindowSize: { symbol: 'set_window_size', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    setMesh: { symbol: 'set_mesh', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    addPresetPath: { symbol: 'add_preset_path', returnType: null, argTypes: [], paramTypes: [] },
+    addExistingVfsPresets: { symbol: 'add_existing_vfs_presets', returnType: null, argTypes: [], paramTypes: [] },
+    addPresetFile: { symbol: 'add_preset_file', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
+    addCustomMilkPaths: { symbol: 'add_custom_milk_paths', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    projectmPcmAddFloatWrapper: { symbol: 'projectm_pcm_add_float_wrapper', returnType: null, argTypes: ['number', 'number', 'number', 'number'], paramTypes: ['number', 'number', 'number', 'number'] },
+    pcmRingInit: { symbol: 'pcm_ring_init', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
+    pcmRingShutdown: { symbol: 'pcm_ring_shutdown', returnType: null, argTypes: [], paramTypes: [] },
+    pcmRingDrain: { symbol: 'pcm_ring_drain', returnType: 'number', argTypes: [], paramTypes: [] },
+    getPcmRingHeaderPtr: { symbol: 'get_pcm_ring_header_ptr', returnType: 'number', argTypes: [], paramTypes: [] },
+    getPcmRingDataPtr: { symbol: 'get_pcm_ring_data_ptr', returnType: 'number', argTypes: [], paramTypes: [] },
+    getPcmRingCapacityFrames: { symbol: 'get_pcm_ring_capacity_frames', returnType: 'number', argTypes: [], paramTypes: [] },
+    getPcmRingIndexModulus: { symbol: 'get_pcm_ring_index_modulus', returnType: 'number', argTypes: [], paramTypes: [] },
+    getPcmRingWriteIndex: { symbol: 'get_pcm_ring_write_index', returnType: 'number', argTypes: [], paramTypes: [] },
+    getPcmRingReadIndex: { symbol: 'get_pcm_ring_read_index', returnType: 'number', argTypes: [], paramTypes: [] },
+    getPcmRingOverruns: { symbol: 'get_pcm_ring_overruns', returnType: 'number', argTypes: [], paramTypes: [] },
+    attachWorkletIngest: { symbol: 'attach_worklet_ingest', returnType: null, argTypes: [], paramTypes: [] },
+    connectMediaElementSource: { symbol: 'connect_media_element_source', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
+    createSprite: { symbol: 'create_sprite', returnType: null, argTypes: [], paramTypes: [] },
+    stopWorkletPlayback: { symbol: 'stop_worklet_playback', returnType: null, argTypes: [], paramTypes: [] },
+    setAudioSourceToStream: { symbol: 'set_audio_source_to_stream', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    setPresetLocked: { symbol: 'set_preset_locked', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    setTransparencyMode: { symbol: 'set_transparency_mode', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    getTransparencyMode: { symbol: 'get_transparency_mode', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    setTransparencyThreshold: { symbol: 'set_transparency_threshold', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    getTransparencyThreshold: { symbol: 'get_transparency_threshold', returnType: 'number', argTypes: [], paramTypes: [] },
+    setPerfHud: { symbol: 'set_perf_hud', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    setTargetFps: { symbol: 'set_target_fps', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    setQualityGovernor: { symbol: 'set_quality_governor', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    getQualityTier: { symbol: 'get_quality_tier', returnType: 'number', argTypes: [], paramTypes: [] },
+    getGovernorRenderScale: { symbol: 'get_governor_render_scale', returnType: 'number', argTypes: [], paramTypes: [] },
+    getGovernorBlurCap: { symbol: 'get_governor_blur_cap', returnType: 'number', argTypes: [], paramTypes: [] },
+    isPresetReady: { symbol: 'is_preset_ready', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
+    getRenderedFrameCount: { symbol: 'get_rendered_frame_count', returnType: 'number', argTypes: [], paramTypes: [] },
+    presetSwitchFailed: { symbol: 'preset_switch_failed', returnType: 'number', argTypes: [], paramTypes: [] },
+    getOmpEnabled: { symbol: 'get_omp_enabled', returnType: 'number', argTypes: [], paramTypes: [] },
+    getOmpMaxThreads: { symbol: 'get_omp_max_threads', returnType: 'number', argTypes: [], paramTypes: [] },
+    getOmpThreadCountInParallel: { symbol: 'get_omp_thread_count_in_parallel', returnType: 'number', argTypes: [], paramTypes: [] },
+    getOmpBlocktime: { symbol: 'get_omp_blocktime', returnType: 'number', argTypes: [], paramTypes: [] },
+    shaderCacheBeginLoad: { symbol: 'shader_cache_begin_load', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
+    shaderCacheImportGlsl: { symbol: 'shader_cache_import_glsl', returnType: null, argTypes: ['number', 'string'], paramTypes: ['number', 'string'] },
+    shaderCacheEndLoad: { symbol: 'shader_cache_end_load', returnType: null, argTypes: [], paramTypes: [] },
+    getGlslGeneratorVersion: { symbol: 'get_glsl_generator_version', returnType: 'number', argTypes: [], paramTypes: [] },
+    pmHandleContextLoss: { symbol: 'pm_handle_context_loss', returnType: null, argTypes: [], paramTypes: [] },
+    dualFboBeginTransition: { symbol: 'dual_fbo_begin_transition', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    dualFboEndTransition: { symbol: 'dual_fbo_end_transition', returnType: null, argTypes: [], paramTypes: [] },
+    dualFboCancelTransition: { symbol: 'dual_fbo_cancel_transition', returnType: null, argTypes: [], paramTypes: [] },
+    dualFboSwapPresetA: { symbol: 'dual_fbo_swap_preset_a', returnType: null, argTypes: [], paramTypes: [] },
+    dualFboSwapPresetB: { symbol: 'dual_fbo_swap_preset_b', returnType: null, argTypes: [], paramTypes: [] },
+    dualFboGetAReadFbo: { symbol: 'dual_fbo_get_a_read_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboGetAWriteFbo: { symbol: 'dual_fbo_get_a_write_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboGetAReadTex: { symbol: 'dual_fbo_get_a_read_tex', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboGetAWriteTex: { symbol: 'dual_fbo_get_a_write_tex', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboGetBReadFbo: { symbol: 'dual_fbo_get_b_read_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboGetBWriteFbo: { symbol: 'dual_fbo_get_b_write_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboGetBReadTex: { symbol: 'dual_fbo_get_b_read_tex', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboGetBWriteTex: { symbol: 'dual_fbo_get_b_write_tex', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboIsPresetAAllocated: { symbol: 'dual_fbo_is_preset_a_allocated', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    dualFboIsPresetBAllocated: { symbol: 'dual_fbo_is_preset_b_allocated', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    dualFboSetIdleReleaseSeconds: { symbol: 'dual_fbo_set_idle_release_seconds', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    dualFboGetIdleReleaseSeconds: { symbol: 'dual_fbo_get_idle_release_seconds', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboIsPresetBReady: { symbol: 'dual_fbo_is_preset_b_ready', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    dualFboGetFormat: { symbol: 'dual_fbo_get_format', returnType: 'number', argTypes: [], paramTypes: [] },
+    dualFboRenderPresetA: { symbol: 'dual_fbo_render_preset_a', returnType: null, argTypes: [], paramTypes: [] },
+    dualFboRenderPresetB: { symbol: 'dual_fbo_render_preset_b', returnType: null, argTypes: [], paramTypes: [] },
+    transitionStart: { symbol: 'transition_start', returnType: null, argTypes: [], paramTypes: [] },
+    transitionCancel: { symbol: 'transition_cancel', returnType: null, argTypes: [], paramTypes: [] },
+    transitionIsActive: { symbol: 'transition_is_active', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    transitionGetBlend: { symbol: 'transition_get_blend', returnType: 'number', argTypes: [], paramTypes: [] },
+    transitionSetDuration: { symbol: 'transition_set_duration', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    transitionGetDuration: { symbol: 'transition_get_duration', returnType: 'number', argTypes: [], paramTypes: [] },
+    setDeterministicSeed: { symbol: 'set_deterministic_seed', returnType: null, argTypes: ['number', 'number'], paramTypes: ['boolean', 'number'] },
+    isDeterministicSeed: { symbol: 'is_deterministic_seed', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    setDeterministicClock: { symbol: 'set_deterministic_clock', returnType: null, argTypes: ['number', 'number'], paramTypes: ['boolean', 'number'] },
+    isDeterministicClock: { symbol: 'is_deterministic_clock', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    deterministicNowMs: { symbol: 'deterministic_now_ms', returnType: 'number', argTypes: [], paramTypes: [] },
+    deterministicFrameIndex: { symbol: 'deterministic_frame_index', returnType: 'number', argTypes: [], paramTypes: [] },
+    setRenderLoopPaused: { symbol: 'set_render_loop_paused', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+};
 
 /**
  * Feed interleaved float PCM into projectM (malloc + HEAPF32 marshaling).
@@ -284,6 +398,11 @@ export function rebindCanvases(module: ProjectMModule, primary: string, secondar
 /** Load preset from Emscripten VFS path */
 export function loadPresetFile(module: ProjectMModule, vfsPath: string): void {
     module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+}
+
+/** Load preset from VFS path with a hard cut (no crossfade) */
+export function loadPresetFileHard(module: ProjectMModule, vfsPath: string): void {
+    module.ccall('load_preset_file_hard', null, ['string'], [vfsPath]);
 }
 
 /** Advance playlist to next preset */
@@ -708,6 +827,7 @@ export const PUBLIC_WASM_API = [
     initWithCanvases,
     rebindCanvases,
     loadPresetFile,
+    loadPresetFileHard,
     switchPreset,
     setAspectCorrection,
     renderFrame,

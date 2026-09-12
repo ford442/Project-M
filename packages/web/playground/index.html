@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>@projectm/web playground</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #07080b;
+    --panel: #11141b;
+    --line: #232936;
+    --text: #dfe4ec;
+    --dim: #8d97a8;
+    --accent: #7cc4ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  @media (max-width: 860px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 50vh auto; }
+  }
+
+  #stage { position: relative; min-width: 0; background: #000; }
+  project-m-visualizer { display: block; width: 100%; height: 100%; }
+  #banner {
+    position: absolute; inset: auto 12px 12px 12px;
+    padding: 10px 12px; border-radius: 8px;
+    background: rgba(10, 12, 18, 0.86);
+    border: 1px solid var(--line);
+    font-size: 13px;
+  }
+  #banner[hidden] { display: none; }
+  #banner code { color: var(--accent); }
+
+  aside {
+    overflow-y: auto;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    padding: 16px;
+  }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--dim); margin: 20px 0 8px; font-weight: 600;
+  }
+  p.lede { margin: 0 0 4px; color: var(--dim); font-size: 13px; }
+  label { display: block; margin-bottom: 10px; font-size: 12px; color: var(--dim); }
+  label span { display: block; margin-bottom: 3px; }
+  input, select {
+    width: 100%; padding: 6px 8px; font: inherit; font-size: 13px;
+    color: var(--text); background: #0b0d13;
+    border: 1px solid var(--line); border-radius: 6px;
+  }
+  .row { display: flex; gap: 10px; }
+  .row > label { flex: 1; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--text); }
+  .check input { width: auto; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+  .tabs button {
+    flex: 1; padding: 5px; font: inherit; font-size: 12px;
+    color: var(--dim); background: #0b0d13;
+    border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+  }
+  .tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); }
+  pre {
+    margin: 0; padding: 10px; overflow-x: auto;
+    background: #0b0d13; border: 1px solid var(--line); border-radius: 6px;
+    font-size: 12px; line-height: 1.45;
+  }
+  #log {
+    height: 150px; overflow-y: auto; padding: 8px;
+    background: #0b0d13; border: 1px solid var(--line); border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11.5px;
+  }
+  #log div { color: var(--dim); }
+  #log div.error { color: #ff9a9a; }
+  #log div b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <project-m-visualizer
+    id="viz"
+    wasm-base-url="./"
+    preset-url="/presets/tests/101-per_frame.milk"
+    audio-source="none"
+    mesh-quality="auto"
+    target-fps="60"
+  ></project-m-visualizer>
+  <div id="banner" hidden></div>
+</div>
+
+<aside>
+  <h1>@projectm/web playground</h1>
+  <p class="lede">Every control sets an attribute on a live
+    <code>&lt;project-m-visualizer&gt;</code>. The snippet below updates with it.</p>
+
+  <h2>Attributes</h2>
+  <label><span>preset-url</span>
+    <input id="preset-url" value="/presets/tests/101-per_frame.milk" /></label>
+  <div class="row">
+    <label><span>audio-source</span>
+      <select id="audio-source">
+        <option value="none">none</option>
+        <option value="element">element</option>
+        <option value="external">external</option>
+      </select></label>
+    <label><span>mesh-quality</span>
+      <select id="mesh-quality">
+        <option value="auto">auto</option>
+        <option value="high">high</option>
+        <option value="low">low</option>
+      </select></label>
+  </div>
+  <div class="row">
+    <label><span>target-fps</span>
+      <input id="target-fps" type="number" min="10" max="144" value="60" /></label>
+  </div>
+  <label class="check"><input id="transparent" type="checkbox" /> transparent</label>
+  <label class="check"><input id="locked" type="checkbox" /> locked</label>
+
+  <h2>Embed snippet</h2>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-flavor="html" aria-selected="true">HTML</button>
+    <button role="tab" data-flavor="react" aria-selected="false">React</button>
+    <button role="tab" data-flavor="svelte" aria-selected="false">Svelte</button>
+    <button role="tab" data-flavor="vue" aria-selected="false">Vue</button>
+  </div>
+  <pre><code id="snippet"></code></pre>
+
+  <h2>Events</h2>
+  <div id="log"></div>
+</aside>
+
+<script type="module">
+// The playground loads the BUILT package, not html/ — the point is to exercise
+// what an embedder installs. Run `npm run build` in packages/web first.
+import '../dist/projectm-web.js';
+
+const viz = document.getElementById('viz');
+const banner = document.getElementById('banner');
+const log = document.getElementById('log');
+const snippet = document.getElementById('snippet');
+
+/** Control id -> attribute name. Boolean controls are listed separately. */
+const TEXT_CONTROLS = ['preset-url', 'audio-source', 'mesh-quality', 'target-fps'];
+const FLAG_CONTROLS = ['transparent', 'locked'];
+
+let flavor = 'html';
+
+function readState() {
+    const state = {};
+    for (const id of TEXT_CONTROLS) state[id] = document.getElementById(id).value;
+    for (const id of FLAG_CONTROLS) state[id] = document.getElementById(id).checked;
+    return state;
+}
+
+function applyState(state) {
+    for (const id of TEXT_CONTROLS) viz.setAttribute(id, state[id]);
+    for (const id of FLAG_CONTROLS) {
+        if (state[id]) viz.setAttribute(id, '');
+        else viz.removeAttribute(id);
+    }
+}
+
+/** `preset-url` -> `presetUrl`, matching the framework wrappers' prop names. */
+const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+
+function renderSnippet(state) {
+    const flags = FLAG_CONTROLS.filter((id) => state[id]);
+    if (flavor === 'html') {
+        const attributes = [
+            ...TEXT_CONTROLS.map((id) => `  ${id}="${state[id]}"`),
+            ...flags.map((id) => `  ${id}`),
+        ].join('\n');
+        return `<script type="module">\n  import '@projectm/web';\n<\/script>\n\n`
+            + `<project-m-visualizer\n${attributes}\n></project-m-visualizer>`;
+    }
+    if (flavor === 'react') {
+        const props = [
+            ...TEXT_CONTROLS.map((id) => (id === 'target-fps'
+                ? `  targetFps={${state[id]}}`
+                : `  ${camel(id)}="${state[id]}"`)),
+            ...flags.map((id) => `  ${id}`),
+        ].join('\n');
+        return `import { ProjectMVisualizer } from '@projectm/web/react';\n\n`
+            + `<ProjectMVisualizer\n${props}\n/>`;
+    }
+    const options = [
+        ...TEXT_CONTROLS.map((id) => (id === 'target-fps'
+            ? `${camel(id)}: ${state[id]}`
+            : `${camel(id)}: '${state[id]}'`)),
+        ...flags.map((id) => `${id}: true`),
+    ].join(', ');
+    if (flavor === 'svelte') {
+        return `<script>\n  import { projectM } from '@projectm/web/svelte';\n<\/script>\n\n`
+            + `<project-m-visualizer use:projectM={{ ${options} }} />`;
+    }
+    return `import { vProjectM } from '@projectm/web/vue';\n`
+        + `app.directive('projectm', vProjectM);\n\n`
+        + `<project-m-visualizer v-projectm="{ ${options} }" />`;
+}
+
+function sync() {
+    const state = readState();
+    applyState(state);
+    snippet.textContent = renderSnippet(state);
+}
+
+for (const id of [...TEXT_CONTROLS, ...FLAG_CONTROLS]) {
+    document.getElementById(id).addEventListener('input', sync);
+}
+for (const tab of document.querySelectorAll('[role="tab"]')) {
+    tab.addEventListener('click', () => {
+        flavor = tab.dataset.flavor;
+        for (const other of document.querySelectorAll('[role="tab"]')) {
+            other.setAttribute('aria-selected', String(other === tab));
+        }
+        sync();
+    });
+}
+
+function append(type, text, isError = false) {
+    const line = document.createElement('div');
+    if (isError) line.className = 'error';
+    line.innerHTML = `<b>${type}</b> `;
+    line.append(text);
+    log.prepend(line);
+    while (log.children.length > 60) log.lastChild.remove();
+}
+
+viz.addEventListener('pm-ready', () => append('pm-ready', 'engine running'));
+viz.addEventListener('pm-preset-changed', (e) => append('pm-preset-changed', e.detail.name || ''));
+viz.addEventListener('pm-audio-source', (e) => append('pm-audio-source', JSON.stringify(e.detail)));
+viz.addEventListener('pm-error', (e) => {
+    append('pm-error', `${e.detail.code}: ${e.detail.message}`, true);
+    if (e.detail.code === 4) {
+        banner.innerHTML = 'This page is not cross-origin isolated. Serve it with '
+            + '<code>Cross-Origin-Opener-Policy: same-origin</code> and '
+            + '<code>Cross-Origin-Embedder-Policy: require-corp</code> — '
+            + '<code>npm run playground</code> does.';
+        banner.hidden = false;
+    }
+});
+
+// pm-fps is high-frequency; show the latest rather than logging every frame.
+let lastFps = 0;
+viz.addEventListener('pm-fps', (e) => { lastFps = Math.round(e.detail.fps); });
+setInterval(() => { if (lastFps) document.title = `${lastFps} fps — @projectm/web playground`; }, 1000);
+
+if (!crossOriginIsolated) {
+    banner.innerHTML = 'Not cross-origin isolated — the threaded WASM build cannot start. '
+        + 'Serve this page with <code>npm run playground</code>.';
+    banner.hidden = false;
+}
+
+sync();
+</script>
+</body>
+</html>

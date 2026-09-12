@@ -176,17 +176,43 @@
       });
       window.Module = Module;
 
+      // The bundle boots inert; init() creates the GL context and the engine.
+      const initStatus = Module._init();
+      if (initStatus !== 0) throw new Error(`projectM init() failed (code ${initStatus})`);
+
+      // Create the render targets and then take the loop: render_frame() draws
+      // nothing before start_render(), so without this the page fed PCM into a
+      // ring nobody drained and read an all-black canvas — reported as
+      // "bass=false treble=false", which reads like an engine regression rather
+      // than a harness that never started rendering.
+      Module._start_render(640, 480);
+      Module._set_render_loop_paused?.(1);
+
       const presetPath = '/presets/beatdetect.milk';
+      // A bundle that preloads no presets has no /presets, and writeFile there
+      // fails with a bare ErrnoError 44 (ENOENT).
+      try { Module.FS.mkdirTree('/presets'); } catch (_) { /* already there */ }
       const presetUrl = params.get('preset')
         || '../../presets/tests/300-beatdetect-bassmidtreb.milk';
       const res = await fetch(presetUrl);
       if (!res.ok) throw new Error(`preset fetch ${res.status}`);
       Module.FS.writeFile(presetPath, new Uint8Array(await res.arrayBuffer()));
       Module.ccall('load_preset_file', null, ['string'], [presetPath]);
+      // Pin it. The playlist advances on its own, and a switch landing between
+      // the silence and bass windows compared two different presets' pixels —
+      // which is how this run reported band failures that moved around between
+      // invocations.
+      Module._set_preset_locked?.(1);
 
-      for (let i = 0; i < 30; i += 1) {
+      // Wait for the preset's shaders, not a fixed frame count. A preset that
+      // is still compiling renders the default black, and since the bass window
+      // is measured first it was the one that landed on it — the run then
+      // reported "bass=false treble=true", which looks like a band-detection
+      // regression and is really a race with shader compilation.
+      for (let i = 0; i < 600; i += 1) {
         Module._render_frame?.();
         await new Promise((r) => requestAnimationFrame(r));
+        if (i >= 30 && Module._is_preset_ready?.(10)) break;
       }
 
       await renderWithPcm(Module, () => generateSilence(PROJECTM_ANALYSIS_WINDOW), 60);
@@ -252,7 +278,15 @@
     }
 
     main().catch((err) => {
-      result.error = String(err);
+      // Emscripten rejects with a plain object often enough that String(err)
+      // here reported "[object Object]" and nothing else — the runner then has
+      // a failure it cannot act on.
+      result.error = err instanceof Error
+        ? `${err.message}\n${err.stack || ''}`
+        : (typeof err === 'object' && err !== null
+          ? `${err.name || 'error'}: ${err.message || JSON.stringify(err)}`
+          : String(err));
+      console.error('[audio_reactivity] failed:', err);
       document.getElementById('stat').textContent = JSON.stringify(result, null, 2);
     });
   </script>

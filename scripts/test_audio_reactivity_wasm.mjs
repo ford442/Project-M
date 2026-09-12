@@ -84,6 +84,12 @@ async function runMode(browser, baseUrl, mode) {
     pageUrl.searchParams.set('mode', mode);
 
     const page = await browser.newPage();
+    // A failure inside the page reaches the runner only as a timeout otherwise,
+    // which says nothing about which of the two topologies broke or why.
+    if (process.env.PROJECTM_HARNESS_VERBOSE === '1') {
+        page.on('console', (message) => console.error(`[${mode}] ${message.type()}: ${message.text()}`));
+        page.on('pageerror', (error) => console.error(`[${mode}] pageerror: ${error.message}`));
+    }
     try {
         await page.goto(pageUrl.href, { waitUntil: 'networkidle', timeout: 120000 });
         await page.waitForFunction(
@@ -108,10 +114,25 @@ async function run() {
         : null;
     const pageUrl = new URL(`http://127.0.0.1:${port}/tests/wasm-smoke/audio_reactivity.html`);
     if (wasmRel) pageUrl.searchParams.set('wasm', `/${wasmRel}`);
-    pageUrl.searchParams.set('preset', `/${presetPath.startsWith(repoRoot) ? presetPath.slice(repoRoot.length) : presetPath}`);
+    // slice(repoRoot.length) keeps the leading separator, so the old template
+    // produced `//presets/...` — a protocol-relative URL pointing at a host
+    // named "presets", which fetch() reports only as "Failed to fetch".
+    const presetRel = presetPath.startsWith(repoRoot)
+        ? presetPath.slice(repoRoot.length).replace(/^\//, '')
+        : presetPath.replace(/^\//, '');
+    pageUrl.searchParams.set('preset', `/${presetRel}`);
 
-    const { chromium } = await import('playwright');
-    const browser = await chromium.launch({ headless: true });
+    // Resolved the way every other harness resolves it: playwright is a
+    // dependency of tests/wasm-smoke, not of the repo root, so a bare
+    // `import('playwright')` from scripts/ finds nothing and the whole
+    // dual-topology gate silently never runs.
+    const { loadPlaywright, launchChromium } = await import('../tests/wasm-smoke/lib/harness-runtime.mjs');
+    const { chromium } = loadPlaywright(repoRoot);
+    // Same launcher as the golden-image gate: software GL, so the run does not
+    // depend on whatever GPU the machine happens to have. Without it this
+    // harness rendered through a different GL path than every other harness and
+    // its reactivity thresholds went flaky.
+    const browser = await launchChromium(chromium, 'swiftshader');
     const outcomes = {};
     try {
         for (const mode of ['main', 'worker']) {

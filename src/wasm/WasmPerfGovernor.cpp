@@ -401,7 +401,11 @@ int get_omp_max_threads()
 EMSCRIPTEN_KEEPALIVE
 int get_omp_blocktime()
 {
-#if defined(_OPENMP) && defined(__KAI_KMPC_CONVENTION)
+// KMP_VERSION_MAJOR, not __KAI_KMPC_CONVENTION: libomp's omp.h #undefs the
+// latter at the end of the header, so gating on it always reported -1 ("no
+// libomp") even in bundles that link libomp. See ConfigureWasmOpenMPThreadCount()
+// in projectM_emscripten.cpp.
+#if defined(_OPENMP) && defined(KMP_VERSION_MAJOR)
     return kmp_get_blocktime();
 #else
     return -1;

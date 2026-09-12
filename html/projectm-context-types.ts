@@ -28,6 +28,17 @@ export interface ProjectMAudioSourceStatus {
 
 export type ProjectMMeshQuality = 'auto' | 'high' | 'low';
 
+/**
+ * Where rendering happens.
+ *
+ * `'auto'` (the default) asks isRenderWorkerEnabled() — which says yes unless
+ * the page opted out with `?renderWorker=0` — and falls back to `'main'` on its
+ * own when the browser cannot provide an OffscreenCanvas render worker.
+ * `'worker'` demands the worker and fails start() if it cannot have it, which
+ * is what a parity test wants. `'main'` pins rendering to this thread.
+ */
+export type ProjectMRenderTopology = 'auto' | 'worker' | 'main';
+
 export interface ProjectMErrorDetail {
     code: number;
     message: string;
@@ -101,6 +112,14 @@ export interface ProjectMContextOptions {
     onError?: (detail: ProjectMErrorDetail) => void;
     onPresetChanged?: (detail: ProjectMPresetDetail) => void;
     onFps?: (fps: number) => void;
+    /** Where to render; see {@link ProjectMRenderTopology}. Defaults to `'auto'`. */
+    renderTopology?: ProjectMRenderTopology;
+    /**
+     * Called when the render worker was wanted but could not be used, with the
+     * reason, just before start() continues on the main thread. Purely
+     * informational — the fallback is automatic.
+     */
+    onRenderWorkerFallback?: (reason: string) => void;
 }
 
 /**
@@ -121,6 +140,7 @@ export type ProjectMResolvedContextOptions = Required<
         | 'alpha'
         | 'audioSource'
         | 'presetLocked'
+        | 'renderTopology'
         | 'devicePixelRatio'
     >
 > &

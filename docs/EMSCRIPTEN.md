@@ -151,7 +151,10 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 
 | File | Responsibility |
 |------|----------------|
-| `projectM_emscripten.cpp` | Init orchestration, `AppData` ownership, transpiled-GLSL shader cache, render loop, engine lifecycle + render exports, `main()` |
+| `projectM_emscripten.cpp` | Engine lifecycle: `AppData` ownership, init / rebind / destruct / context-loss, engine setters, `main()` |
+| `WasmRenderLoop.cpp` | Emscripten main loop, `start_render()`, the dual-FBO compositor decision, `render_frame()`, `set_window_size()` |
+| `WasmShaderCache.cpp` | Transpiled-GLSL cache hooks (host-page store/lookup), `shader_cache_*` and `get_glsl_generator_version()` exports |
+| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?fboPrecision` URL ablation switches, applied once from `init()` |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `g_dualFbo`/`g_compositorShader` instances, transition state, `dual_fbo_*` and `transition_*` exports |
@@ -237,8 +240,19 @@ reported against bundle 036 versus 032. (032's `.wasm` links no libomp at all;
 `KMP_BLOCKTIME` through `getenv()` during its own init and a wasm module has no
 environment to inherit one from.
 
+**Gate the call on `KMP_VERSION_MAJOR`, not `__KAI_KMPC_CONVENTION`.** Both are
+defined by libomp's `omp.h`, but that header `#undef`s `__KAI_KMPC_CONVENTION` at
+the end — it is a calling-convention helper for the declarations, not a feature
+flag. Gating on it made `#if defined(__KAI_KMPC_CONVENTION)` always false, so
+`kmp_set_blocktime(0)` compiled to nothing and `get_omp_blocktime()` always
+returned `-1`, in bundles that do link libomp. The fix was inert from the day it
+landed until 037. `KMP_VERSION_MAJOR` is defined near the top of the same header,
+is likewise absent from GCC's libgomp `omp.h`, and survives to end of translation
+unit.
+
 Verify it in any deployed bundle with the `get_omp_blocktime` export — `0` means
-the fix is present, `200` means it is not, `-1` means the bundle has no libomp:
+the fix is present, `200` means it is not, `-1` means the bundle has no libomp
+(or, before 037, that the guard above had compiled the call away):
 
 ```js
 Module._get_omp_blocktime()   // or getOmpBlocktime(Module) from the generated API
@@ -661,7 +675,7 @@ black-canvas/regressions in the render pipeline without a full browser.
   already provides the stub DOM elements (`#musicBtn`, `#customMilkBtn`, `#milkPath`, `#textureDir`,
   `#songDir`, `#track`) that `js_init_projectm_dom()` expects.
 - After `load_preset_file()`, polls `is_preset_ready()` / `preset_switch_failed()`
-  (`EMSCRIPTEN_KEEPALIVE`, `projectM_emscripten.cpp`) once per `requestAnimationFrame` instead of a
+  (`EMSCRIPTEN_KEEPALIVE`, `WasmPlaylistBridge.cpp`) once per `requestAnimationFrame` instead of a
   fixed sleep, so the capture waits for shader compile/link to finish and for a few frames of the
   dual-FBO/compositor pipeline to render before the screenshot frame budget starts. A
   `readyTimeoutMs` query param (default 30s) bounds this wait.

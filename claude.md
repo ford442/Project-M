@@ -36,8 +36,11 @@ Project-M/
 ├── custom_milk_fixed/    # Curated AI-authored preset regression set
 ├── html/                 # WASM demo hosts + shared browser modules (see html/README.md)
 ├── src/wasm/                 # Emscripten host wrapper (all TUs, see split below)
-│   ├── projectM_emscripten.cpp  # WASM host: init orchestration + render loop
+│   ├── projectM_emscripten.cpp  # WASM host: engine lifecycle (init/rebind/destruct)
 │   ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
+│   ├── WasmRenderLoop.cpp       # Main loop, start_render/render_frame/set_window_size
+│   ├── WasmShaderCache.cpp      # Transpiled-GLSL cache hooks + shader_cache_* exports
+│   ├── WasmRenderPathOverrides.cpp # ?blurPath / ?copyPath / ?fboPrecision switches
 │   ├── WasmGraphics.hpp         # Dual-FBO manager, GL state guard, compositing shader
 │   ├── WasmWebGLContext.cpp     # WebGL context create/destroy + canvas selectors
 │   ├── WasmDualFbo.cpp          # dual_fbo_* / transition_* exports
@@ -66,7 +69,9 @@ Project-M/
   `cmake/EmscriptenWasmFlags.cmake` (no `EMSCRIPTEN_BINDINGS`/embind block).
   Grep `EMSCRIPTEN_KEEPALIVE` to find all exports.
 - **Host source layout**: the wrapper is split across focused TUs sharing
-  `ProjectMWasmInternal.hpp` — `projectM_emscripten.cpp` (init + render loop),
+  `ProjectMWasmInternal.hpp` — `projectM_emscripten.cpp` (engine lifecycle),
+  `WasmRenderLoop.cpp` (main loop + `render_frame()`), `WasmShaderCache.cpp`,
+  `WasmRenderPathOverrides.cpp`,
   `WasmWebGLContext.cpp` (WebGL context + canvas selectors),
   `WasmGraphics.hpp` / `WasmDualFbo.cpp` (dual-FBO transitions),
   `WasmAudioBridge.cpp`, `WasmPerfGovernor.cpp`, `WasmPlaylistBridge.cpp`,
@@ -155,9 +160,10 @@ only adds WASM-specific notes:
 1. Define the function with `EMSCRIPTEN_KEEPALIVE` in the WASM host TU that owns
    the concern (audio → `WasmAudioBridge.cpp`, WebGL/canvas →
    `WasmWebGLContext.cpp`, dual-FBO/transitions →
-   `WasmDualFbo.cpp`, perf/governor → `WasmPerfGovernor.cpp`, playlist →
-   `WasmPlaylistBridge.cpp`, EM_JS DOM glue → `WasmJsBindings.cpp`, otherwise
-   `projectM_emscripten.cpp`). Cross-TU state goes in `ProjectMWasmInternal.hpp`.
+   `WasmDualFbo.cpp`, per-frame/render loop → `WasmRenderLoop.cpp`,
+   shader cache → `WasmShaderCache.cpp`, perf/governor → `WasmPerfGovernor.cpp`,
+   playlist → `WasmPlaylistBridge.cpp`, EM_JS DOM glue → `WasmJsBindings.cpp`,
+   otherwise `projectM_emscripten.cpp`). Cross-TU state goes in `ProjectMWasmInternal.hpp`.
 2. Add its name (prefixed with `_`) to `PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS` in
    `cmake/EmscriptenWasmFlags.cmake`, then run `scripts/sync_wasm_link_common.sh`
    (regenerates `wasm_link_common.inc.sh` and `ProjectMWasmBuildConfig.hpp`)

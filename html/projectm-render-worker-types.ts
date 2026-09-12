@@ -67,6 +67,29 @@ export interface RenderWorkerPcmMessage {
 }
 
 /**
+ * Host → worker: write a preset into the worker module's virtual filesystem
+ * and act on it.
+ *
+ * Presets cannot go over as a ccall: loading one is a VFS write followed by a
+ * call, and the VFS only exists where the module does. Without this message a
+ * worker-rendered page can play whatever playlist the bundle shipped with and
+ * nothing else — which is most of what "the worker is a second implementation"
+ * used to mean in practice.
+ */
+export interface RenderWorkerPresetMessage {
+    type: 'preset';
+    /** Path to write inside the worker module's FS, e.g. `/presets/url_x.milk`. */
+    vfsPath: string;
+    bytes: Uint8Array;
+    /**
+     * `load` crossfades to it, `load-hard` cuts to it, `add` only appends it to
+     * the playlist. Mirrors load_preset_file / load_preset_file_hard /
+     * add_preset_file.
+     */
+    mode: 'load' | 'load-hard' | 'add';
+}
+
+/**
  * Host → worker: proxy a `Module.ccall`. `requestId` is omitted for
  * fire-and-forget calls (`ccallVoid`), in which case no result is posted back.
  */
@@ -83,6 +106,7 @@ export type RenderWorkerHostMessage =
     | RenderWorkerInitMessage
     | RenderWorkerResizeMessage
     | RenderWorkerPcmMessage
+    | RenderWorkerPresetMessage
     | RenderWorkerCcallMessage;
 
 /** Worker → host: module booted and the render loop is running. */
@@ -108,6 +132,14 @@ export interface RenderWorkerStatsMessage {
     fps: number;
     fboFormat: number;
     qualityTier: number;
+    /**
+     * Governor v2 internal render scale (1.0/0.75/0.5) currently applied to the
+     * offscreen backing store. The host cannot read it off the canvas — it gave
+     * the canvas away — so the worker reports it, and a host that wants to show
+     * the effective resolution has the same information it has on the main
+     * thread.
+     */
+    renderScale: number;
 }
 
 /**
@@ -143,6 +175,8 @@ export interface RenderWorkerHandle {
     feedPcm(buffer: Float32Array, channels: number): void;
     postResize(width: number, height: number): void;
     postPcm(buffer: Float32Array, channels: number): void;
+    /** Writes `bytes` into the worker module's VFS at `vfsPath`, then acts on it. */
+    postPreset(vfsPath: string, bytes: Uint8Array, mode?: 'load' | 'load-hard' | 'add'): void;
     ccall(
         name: string,
         returnType: string | null,

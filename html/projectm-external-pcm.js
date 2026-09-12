@@ -5,7 +5,29 @@ import { feedPcmThroughRing } from './projectm-pcm-ring.js';
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./projectm-host-types.ts').ExternalPcmFeedFn} ExternalPcmFeedFn
  * @typedef {import('./projectm-host-types.ts').ExternalPcmChunk} ExternalPcmChunk
+ * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
  */
+
+/**
+ * The render transport to feed, when the host has one.
+ *
+ * External PCM arrives on the main thread by postMessage regardless of where
+ * rendering happens, so this is the seam where it learns which engine to hand
+ * the samples to. Unset (the default) keeps the historical behaviour of
+ * reaching for `globalThis.Module`.
+ *
+ * @type {RenderTransport | null}
+ */
+let renderTransport = null;
+
+/**
+ * Registers (or clears, with null) the transport external PCM should feed.
+ *
+ * @param {RenderTransport | null} transport
+ */
+export function setExternalPcmTransport(transport) {
+    renderTransport = transport;
+}
 
 const AUDIO_CHANNEL_NAME = 'projectm-audio';
 /**
@@ -136,6 +158,7 @@ export function resetExternalPcmStateForTests() {
     configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
     feedGate = null;
     customFeed = null;
+    renderTransport = null;
     pendingExternalPCM.length = 0;
 }
 
@@ -248,6 +271,16 @@ function queueExternalPCM(buffer, channels, sampleRate) {
  * @returns {boolean}
  */
 export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel) {
+    // With rendering in the worker there is no module on this thread to check
+    // or marshal into: the transport owns the ingest and the samples cross
+    // once, here. Gain still applies first, so the two topologies hear the
+    // same signal.
+    if (renderTransport && renderTransport.topology === 'worker') {
+        const { samples } = preprocessExternalPcm(buffer, channels, samplesPerChannel);
+        renderTransport.feedPcm(samples, channels);
+        return true;
+    }
+
     const moduleInstance = currentProjectMModule();
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
     const m = /** @type {any} */ (moduleInstance);

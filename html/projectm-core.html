@@ -540,7 +540,6 @@ import { ProjectMContext } from './projectm-context.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { setupFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
-import { resolveWasmScriptUrl } from './projectm-init.js';
 import { checkCrossOriginIsolation, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
 import { setupPerfTools } from './projectm-perf.js';
@@ -549,7 +548,6 @@ import { setupExperimentalBridge } from './projectm-experimental-bridge.js';
 import { setupPresetDevTools } from './projectm-preset-dev.js';
 import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { setupPresetPicker } from './projectm-preset-picker.js';
-import { isRenderWorkerEnabled, isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 import {
     applyWeeksOnFireDomConfig,
@@ -597,13 +595,12 @@ function getModule() {
     return pmContext?.module ?? Module;
 }
 
-// ====== OFFSCREENCANVAS RENDER WORKER (opt-in, see docs/PERFORMANCE.md) ======
-// Disabled by default; enable with ?renderWorker=1 or localStorage.renderWorker = '1'.
-// When active, the WASM module and render loop run in a dedicated worker that
-// owns #mcanvas via transferControlToOffscreen(); the main thread only forwards
-// PCM data, resize events and the preset-lock toggle. Falls back to the normal
-// main-thread path (unchanged) if unsupported or if setup fails.
-let renderWorkerHandle = null;
+// ====== RENDER TOPOLOGY (see docs/PERFORMANCE.md) ======
+// Rendering runs in a dedicated OffscreenCanvas worker by default and on this
+// thread with ?renderWorker=0, but nothing below this line knows which: the
+// choice, the fallback, and the two transports all live inside ProjectMContext.
+// This page used to hold a second, parallel set of call sites for the worker
+// handle — that is what made every feature here main-thread-only by default.
 
 // ====== DRAGGABLE KNOB ======
 const knob = document.getElementById('knob');
@@ -926,13 +923,10 @@ function applyTransparencyMode(enabled) {
     isTransparencyMode = enabled;
     applyTransparencyDomState(enabled);
 
-    if (renderWorkerHandle) {
-        renderWorkerHandle.ccallVoid('set_transparency_mode', ['number'], [enabled ? 1 : 0]);
-        renderWorkerHandle.ccallVoid('set_transparency_threshold', ['number'], [TRANSPARENCY_THRESHOLD]);
-    } else if (pmContext) {
+    if (pmContext) {
         pmContext.setTransparent(enabled);
         if (typeof TRANSPARENCY_THRESHOLD === 'number') {
-            setTransparencyThreshold(pmContext.module, TRANSPARENCY_THRESHOLD);
+            pmContext.setTransparencyThreshold(TRANSPARENCY_THRESHOLD);
         }
     } else {
         const module = getModule();
@@ -962,9 +956,7 @@ function lockPreset() {
     try {
         localStorage.setItem('projectm:presetLocked', isPresetLocked ? '1' : '0');
     } catch { /* ignore */ }
-    if (renderWorkerHandle) {
-        renderWorkerHandle.ccallVoid('set_preset_locked', ['number'], [isPresetLocked ? 1 : 0]);
-    } else if (pmContext) {
+    if (pmContext) {
         pmContext.setLocked(isPresetLocked);
     } else {
         const module = getModule();
@@ -1052,16 +1044,10 @@ const audioSourceRouter = createAudioSourceRouter({
 setupExternalAudioReceiver({
     preallocSize: 2048,
     feedGate: () => audioSourceRouter.externalFeedGate(),
-    onFeed: audioSourceRouter.wrapExternalFeed((buffer, channels, sampleRate, samplesPerChannel) => {
-        if (!renderWorkerHandle) {
-            return defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
-        }
-        // One entry point: writes the worker module's PCM ring when it is
-        // shared, posts the chunk otherwise. Either way it lands in the same
-        // ring, drained by render_frame() on the worker side.
-        renderWorkerHandle.feedPcm(buffer, channels);
-        return true;
-    }),
+    // One entry point for both topologies: ProjectMContext registers its
+    // transport with the external-PCM module at start(), so this lands in the
+    // engine's PCM ring whether that ring is on this thread or in the worker.
+    onFeed: audioSourceRouter.wrapExternalFeed(defaultFeedPCMToModule),
 });
 
 // Safe button wiring (guarded; the core panel uses the flacPlayer() / modPlayer() shims above)
@@ -1079,23 +1065,6 @@ function syncModuleSize() {
     const mcanvas = document.querySelector('#mcanvas');
     const scanvas = document.querySelector('#scanvas');
     if (!contain1 || !mcanvas || !scanvas) return;
-
-    if (renderWorkerHandle) {
-        const rect = contain1.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        const w = Math.max(1, Math.round(rect.width * dpr));
-        const h = Math.max(1, Math.round(rect.height * dpr));
-        mcanvas.width = w;
-        mcanvas.height = h;
-        scanvas.width = w;
-        scanvas.height = h;
-        mcanvas.style.width = rect.width + 'px';
-        mcanvas.style.height = rect.height + 'px';
-        scanvas.style.width = rect.width + 'px';
-        scanvas.style.height = rect.height + 'px';
-        renderWorkerHandle.postResize(w, h);
-        return;
-    }
 
     if (pmContext) {
         pmContext.options.aspectCorrection = isBezelMode;
@@ -1281,9 +1250,9 @@ setTimeout(() => {
 const initErrors = setupInitErrorHandling(() => attemptInit());
 
 // Resolves the same ?targetFps=/?governor=/?meshQuality= and localStorage
-// overrides as projectm-fps-governor.js/projectm-mesh-quality.js, for the
-// render worker's initial config (the worker has no `location`/localStorage
-// of its own, so these are resolved on the main thread and sent in 'init').
+// overrides as projectm-fps-governor.js/projectm-mesh-quality.js. The render
+// worker has no `location`/localStorage of its own, so these are resolved here
+// and handed to ProjectMContext, which forwards them in the worker's 'init'.
 function resolveRenderWorkerConfig() {
     const params = new URLSearchParams(location.search);
 
@@ -1301,40 +1270,6 @@ function resolveRenderWorkerConfig() {
     return { targetFps, governor, meshQuality };
 }
 
-// Attempts to move rendering into a dedicated OffscreenCanvas worker. Resolves
-// to a render-worker handle on success, or null if unsupported/failed (caller
-// falls back to the normal main-thread path, which remains unchanged).
-async function tryStartRenderWorker(mcanvas) {
-    const config = resolveRenderWorkerConfig();
-    const scriptSrc = new URL(
-        await resolveWasmScriptUrl({ baseUrl: import.meta.url }),
-        import.meta.url
-    ).href;
-    return new Promise((resolve) => {
-        const handle = setupRenderWorker({
-            canvas: mcanvas,
-            scriptSrc,
-            width: mcanvas.width,
-            height: mcanvas.height,
-            targetFps: config.targetFps,
-            governor: config.governor,
-            meshQuality: config.meshQuality,
-            onReady: () => resolve(handle),
-            onUnsupported: (reason) => {
-                console.warn('[ProjectM] Render worker setup unsupported:', reason);
-                resolve(null);
-            },
-            onError: (message) => {
-                console.error('[ProjectM] Render worker error:', message);
-            },
-            onStats: (stats) => {
-                window._pmRenderWorkerStats = stats;
-            }
-        });
-        if (!handle) resolve(null);
-    });
-}
-
 async function attemptInit() {
     if (initErrors.simulate) {
         // First call (the automatic one below) just leaves the simulated overlay visible.
@@ -1344,7 +1279,7 @@ async function attemptInit() {
     }
 
     try {
-        if (!pmContext && !renderWorkerHandle && !getModule() && !checkCrossOriginIsolation()) {
+        if (!pmContext && !getModule() && !checkCrossOriginIsolation()) {
             return;
         }
 
@@ -1352,25 +1287,13 @@ async function attemptInit() {
         const scanvas = document.querySelector('#scanvas');
         const contain1 = document.querySelector('#contain1');
 
-        if (!getModule() && !renderWorkerHandle && !pmContext) {
+        if (!getModule() && !pmContext) {
             updateLayout();
             syncModuleSize();
-
-            if (isRenderWorkerEnabled() && isRenderWorkerSupported(mcanvas)) {
-                const rw = await tryStartRenderWorker(mcanvas);
-                if (rw) {
-                    renderWorkerHandle = rw;
-                    flushQueuedExternalPCM();
-                    if (isTransparencyMode) {
-                        applyTransparencyMode(true);
-                    }
-                    return;
-                }
-                console.warn('[ProjectM] Render worker unavailable, falling back to main-thread rendering');
-            }
         }
 
-        if (!pmContext && !renderWorkerHandle) {
+        if (!pmContext) {
+            const workerConfig = resolveRenderWorkerConfig();
             pmContext = new ProjectMContext({
                 canvas: mcanvas,
                 secondaryCanvas: scanvas,
@@ -1383,6 +1306,12 @@ async function attemptInit() {
                 presetLocked: isPresetLocked,
                 audioSource: 'none',
                 audioRouter: audioSourceRouter,
+                targetFps: workerConfig.targetFps,
+                qualityGovernor: workerConfig.governor,
+                meshQuality: workerConfig.meshQuality,
+                onRenderWorkerFallback: (reason) => {
+                    console.warn('[ProjectM] Render worker unavailable, rendering on the main thread:', reason);
+                },
                 onError: (detail) => {
                     console.error('[ProjectM] context init error:', detail);
                 },
@@ -1392,49 +1321,87 @@ async function attemptInit() {
             Module = pmContext.module;
             globalThis.Module = Module;
 
-            // Give the baked EM_JS worklet handler and the media-element export
-            // their host implementations, so both go through the one PCM ring
-            // writer in html/projectm-pcm-ring.js rather than the inline copies
-            // compiled into the WASM bundle.
-            installHostPcmRingWriter(Module);
+            flushQueuedExternalPCM();
             installMediaElementSourceHook();
-
             applyTransparencyDomState(isTransparencyMode);
-
-            setupMeshQuality(Module);
-            setupFpsGovernor(Module, {
-                onRenderScaleChange: (scale) => {
-                    // Governor v2: shrink the canvas backing store while pmContext
-                    // keeps its CSS display size fixed (see syncCanvasSize() in
-                    // projectm-context.js). Supersedes the identical wiring
-                    // pmContext.start() already did internally, same as the
-                    // setupMeshQuality()/setTargetFps() calls around this one.
-                    if (pmContext) {
-                        pmContext.renderScale = scale;
-                        pmContext.resize();
-                    }
-                },
-            });
-            setupFboFormatIndicator(Module);
-            setupPerfTools(Module);
-            setupPresetDevTools(Module, { startTransitionWhenReady });
-            setupExperimentalBridge(Module);
-            setupAudioTestPanel(() => getModule());
 
             const transparencyBtn = document.getElementById('transparencyBtn');
             if (transparencyBtn) {
                 transparencyBtn.addEventListener('click', toggleTransparencyMode);
             }
 
+            // The panels below read and write engine state through a module
+            // object on this thread: the perf HUD, the preset dev tools, the
+            // experimental bridge, the FBO indicator. In the worker topology
+            // there is no such object here, so they stay unbuilt rather than
+            // throwing — porting them onto the transport is what remains of
+            // making this page fully topology-agnostic.
+            if (Module) {
+                // Give the baked EM_JS worklet handler and the media-element export
+                // their host implementations, so both go through the one PCM ring
+                // writer in html/projectm-pcm-ring.js rather than the inline copies
+                // compiled into the WASM bundle.
+                installHostPcmRingWriter(Module);
+
+                setupMeshQuality(Module);
+                setupFpsGovernor(Module, {
+                    onRenderScaleChange: (scale) => {
+                        // Governor v2: shrink the canvas backing store while pmContext
+                        // keeps its CSS display size fixed (see syncCanvasSize() in
+                        // projectm-context.js). Supersedes the identical wiring
+                        // pmContext.start() already did internally, same as the
+                        // setupMeshQuality()/setTargetFps() calls around this one.
+                        if (pmContext) {
+                            pmContext.renderScale = scale;
+                            pmContext.resize();
+                        }
+                    },
+                });
+                setupFboFormatIndicator(Module);
+                setupPerfTools(Module);
+                setupPresetDevTools(Module, { startTransitionWhenReady });
+                setupExperimentalBridge(Module);
+                setupAudioTestPanel(() => getModule());
+            } else {
+                console.info('[ProjectM] Rendering in the render worker; main-thread dev panels are inactive (use ?renderWorker=0 for them).');
+            }
+
             if (!window._pmStartupPresetsLoaded) {
                 window._pmStartupPresetsLoaded = true;
                 if (!weeksOnFireMode) {
-                    const startupResults = await loadStartupApiPresets(5);
+                    // Presets reach the engine through the context in either
+                    // topology: on the main thread it is a VFS write plus a
+                    // call, in the worker the same two steps happen there.
+                    //
+                    // (`count` is a named option. This was passed positionally
+                    // as `loadStartupApiPresets(5)`, which destructured to
+                    // count = 0 and quietly loaded nothing.)
+                    const startupResults = await loadStartupApiPresets({
+                        module: Module,
+                        count: 5,
+                        updateDisplayMode: 'first',
+                        writeBytes: Module
+                            ? undefined
+                            : (vfsPath, bytes) => pmContext.transport.writePreset(vfsPath, bytes, 'add'),
+                    });
                     if (startupResults.length > 0) {
-                        loadPresetFile(Module, startupResults[0].vfsPath);
-                        updatePresetDisplay(startupResults[0].filename);
-                        for (let i = 1; i < startupResults.length; i++) {
-                            addPresetFile(Module, startupResults[i].vfsPath);
+                        if (Module) {
+                            loadPresetFile(Module, startupResults[0].vfsPath);
+                            updatePresetDisplay(startupResults[0].filename);
+                            for (let i = 1; i < startupResults.length; i++) {
+                                addPresetFile(Module, startupResults[i].vfsPath);
+                            }
+                        } else {
+                            for (let i = 0; i < startupResults.length; i++) {
+                                const { vfsPath, bytes } = startupResults[i];
+                                if (!bytes) continue;
+                                if (i === 0) {
+                                    pmContext.transport.writePreset(vfsPath, bytes);
+                                    updatePresetDisplay(startupResults[0].filename);
+                                } else {
+                                    pmContext.addPreset(vfsPath, bytes);
+                                }
+                            }
                         }
                     }
                 } else {

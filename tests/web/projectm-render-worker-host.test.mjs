@@ -59,16 +59,30 @@ function makeCanvas({ offscreen = {}, throwOnTransfer = false } = {}) {
     };
 }
 
+test('the render worker is on unless the page opts out', () => {
+    assert.equal(isRenderWorkerEnabled({ search: '', storage: null }), true);
+    assert.equal(isRenderWorkerEnabled({ search: '?other=1', storage: null }), true);
+});
+
 test('isRenderWorkerEnabled reads the renderWorker query param first', () => {
     assert.equal(isRenderWorkerEnabled({ search: '?renderWorker=1', storage: null }), true);
     assert.equal(isRenderWorkerEnabled({ search: '?renderWorker=0', storage: null }), false);
-    assert.equal(isRenderWorkerEnabled({ search: '?renderWorker=nope', storage: null }), false);
+    // Neither an opt-in nor an opt-out: a garbled value must not be able to
+    // pin the page to the slower topology.
+    assert.equal(isRenderWorkerEnabled({ search: '?renderWorker=nope', storage: null }), true);
 });
 
 test('isRenderWorkerEnabled falls back to storage when no query param is present', () => {
-    const storage = { getItem: (k) => (k === 'renderWorker' ? '1' : null) };
-    assert.equal(isRenderWorkerEnabled({ search: '', storage }), true);
-    assert.equal(isRenderWorkerEnabled({ search: '', storage: null }), false);
+    const stored = (value) => ({ getItem: (k) => (k === 'renderWorker' ? value : null) });
+    assert.equal(isRenderWorkerEnabled({ search: '', storage: stored('1') }), true);
+    assert.equal(isRenderWorkerEnabled({ search: '', storage: stored('0') }), false);
+    assert.equal(isRenderWorkerEnabled({ search: '', storage: stored(null) }), true);
+});
+
+test('the query param wins over a stored preference in both directions', () => {
+    const stored = (value) => ({ getItem: () => value });
+    assert.equal(isRenderWorkerEnabled({ search: '?renderWorker=0', storage: stored('1') }), false);
+    assert.equal(isRenderWorkerEnabled({ search: '?renderWorker=1', storage: stored('0') }), true);
 });
 
 test('isRenderWorkerSupported requires transferControlToOffscreen, Worker, and OffscreenCanvas', () => {

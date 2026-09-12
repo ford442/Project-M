@@ -31,6 +31,7 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _init_with_canvases
         _rebind_canvases
         _load_preset_file
+        _load_preset_file_hard
         _switch_preset
         _set_aspect_correction
         _render_frame
@@ -122,11 +123,26 @@ list(JOIN PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "," PROJECTM_WASM_WRAPPER_EXP
 set(PROJECTM_WASM_EXPORTED_RUNTIME_METHODS
         ccall
         cwrap
+        # The host-side PCM ring writer (html/projectm-pcm-ring.js) reaches the
+        # ring through Module.HEAPF32.buffer. Emscripten stopped exporting the
+        # HEAP views by default, and its absence is silent: readPcmRingDescriptor()
+        # returns null, feedPcmToModule() falls through to a direct path that also
+        # needs HEAPF32, and every synthetic/external PCM write is dropped with the
+        # engine rendering to silence. Since #235 made the ring the only ingest,
+        # this view is part of the host API, not a debugging convenience.
+        HEAPF32
         )
 
 # Extra runtime methods for the final browser wrapper link (VFS preset loading).
 set(PROJECTM_WASM_WRAPPER_EXPORTED_RUNTIME_METHODS_EXTRA
         FS
+        # How the OffscreenCanvas render worker gives the engine its canvas.
+        # emscripten_webgl_create_context() resolves "#mcanvas" through
+        # findEventTarget(), which checks specialHTMLTargets before
+        # document.querySelector() — and a worker has no document at all, so
+        # without this the context creation fails and _start_render() then
+        # traps on a null function pointer. See html/projectm-render-worker.js.
+        specialHTMLTargets
         )
 
 set(_PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_ALL ${PROJECTM_WASM_EXPORTED_RUNTIME_METHODS} ${PROJECTM_WASM_WRAPPER_EXPORTED_RUNTIME_METHODS_EXTRA})
@@ -169,6 +185,12 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "GL_POOL_TEMP_BUFFERS=0"
         "GL_MAX_TEMP_BUFFER_SIZE=33177600"
         "GL_TRACK_ERRORS=0"
+        # libprojectM's GLResolver (Renderer/Platform/GLResolver.cpp) resolves GL
+        # entry points through emscripten_webgl{,2}_get_proc_address() on the
+        # Emscripten path. Those are stubbed out of the GL library unless this is
+        # set, and the link fails with "Undefined symbol:
+        # emscripten_webgl2_get_proc_address()".
+        "GL_ENABLE_GET_PROC_ADDRESS=1"
         "NO_DISABLE_EXCEPTION_CATCHING=1"
         "ALLOW_MEMORY_GROWTH=1"
         "MALLOC=mimalloc"
@@ -225,8 +247,14 @@ function(projectm_apply_emscripten_lib_link_flags)
     string(APPEND _shell_args " -s PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE}")
     string(APPEND _shell_args " -s EXPORTED_RUNTIME_METHODS='${PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_STR}'")
     string(APPEND _shell_args " -s EXPORTED_FUNCTIONS='${PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS_STR}'")
+    string(APPEND _shell_args " --pre-js ${PROJECTM_WASM_PTHREAD_SCRIPT_URL_PRE_JS}")
     add_link_options("SHELL:${_shell_args}")
 endfunction()
+
+# Absolute path to the --pre-js that restores Module.mainScriptUrlOrBlob, so the
+# OffscreenCanvas render worker can tell the pthread pool which script to load.
+# See src/wasm/pthread_script_url.pre.js.
+set(PROJECTM_WASM_PTHREAD_SCRIPT_URL_PRE_JS "${CMAKE_CURRENT_LIST_DIR}/../src/wasm/pthread_script_url.pre.js")
 
 # Absolute path to the ASYNCIFY_ONLY symbol list (one name per line).
 # Sleep in load_preset_file_impl is unconditional, so this applies whenever

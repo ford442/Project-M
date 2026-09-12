@@ -57,6 +57,15 @@ Symbols in [`cmake/WasmApiManifest.cmake`](../cmake/WasmApiManifest.cmake) are t
 
 Intended for third-party embedders. Breaking changes require a major WASM bundle version bump.
 
+The tier is **enforced**, not advisory. `scripts/check_wasm_public_api.sh` extracts
+every `public` entry as `name(args) -> returns [binding]` and diffs it against
+`packages/web/wasm-public-api.baseline`; the Web Host Tests workflow runs it as
+`npm run check:api`. Adding a symbol is free. Removing one, or changing its
+return type, argument list, or `ccall`/`direct` binding, fails CI unless
+`packages/web/package.json` carries a bump (major at >= 1.0.0, minor pre-1.0).
+Re-bless the surface with `scripts/check_wasm_public_api.sh --update`. Editing a
+symbol's doc text is not an API change and needs nothing.
+
 | JS helper | C symbol | Notes |
 |-----------|----------|-------|
 | `init` | `init` | Returns `0` on success; see [EMSCRIPTEN.md#init-error-codes](EMSCRIPTEN.md#init-error-codes) |
@@ -145,13 +154,22 @@ Query params / localStorage, mirroring the existing `?targetFps=`/`?governor=` p
 
 [`html/projectm-wasm-api-worker.ts`](../html/projectm-wasm-api-worker.ts) re-exports `WASM_API_SYMBOLS` (camelCase key → C symbol string) for the OffscreenCanvas worker `ccall` proxy. The worker script itself (`projectm-render-worker.js`) cannot import ES modules; it mirrors `feedPcmFloat` inline.
 
-**Governor v2 render-scale is not yet wired in `?renderWorker=1` mode.** The mesh and
-blur-cap tiers still apply (they're internal to the WASM module), but nothing in
-`projectm-render-worker.js`/`projectm-render-worker-host.js` resizes the
-`OffscreenCanvas` backing store on `pmOnGovernorRenderScaleChange` today — consistent
-with that path's other known gaps (perf HUD, FBO-format banner; see PERFORMANCE.md
-§"OffscreenCanvas render worker"). Follow-up for whoever verifies the render-worker
-path in a real browser.
+Governor v2 render-scale **is** wired in the render-worker topology:
+`WasmPerfGovernor.cpp` pushes tier changes through `globalThis`, which inside a
+worker is the worker scope, and `projectm-render-worker.js` installs
+`pmOnGovernorRenderScaleChange` there and resizes the `OffscreenCanvas` backing
+store it owns. The host keeps the CSS box at full size, exactly as on the main
+thread, so the present upscale looks the same either way — and the effective
+scale comes back to the host on the `stats` message.
+
+Hosts should not reach for the worker handle directly: `RenderTransport`
+(`html/projectm-render-transport.js`, typed in
+`html/projectm-transport-types.ts`) issues the same call over either topology,
+marshaling it from the generated `WASM_API_SIGNATURES` table so the ccall
+argument types cannot drift from the main-thread wrappers. What is still
+main-thread-only is the set of dev panels that read engine state through a
+module object on the page (perf HUD, preset dev tools, experimental bridge,
+FBO-format banner).
 
 ## Raw `Module._foo` / `ccall`
 

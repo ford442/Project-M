@@ -1,0 +1,163 @@
+{
+  "schema": "projectm.frame-budget/1",
+  "capturedAt": "2026-09-12T02:15:06.008Z",
+  "softwareGl": true,
+  "commit": "d5c616c3a640817bd4744507a3d73e33d854f147",
+  "branch": "main",
+  "runner": "dev-container-swiftshader",
+  "gpu": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "source": {
+    "input": "oot-Project-M/caa58a83-43b5-4ec0-a413-559c03a5284f/scratchpad/bench.json",
+    "canvas": {
+      "width": 1280,
+      "height": 720
+    },
+    "framesPerPreset": 300,
+    "audioLoad": false,
+    "openmp": {
+      "compiled": true,
+      "maxThreads": 4,
+      "parallelThreadsObserved": 4
+    }
+  },
+  "presets": [
+    {
+      "preset": "/presets/tests/000-empty.milk",
+      "frameMs": {
+        "count": 300,
+        "mean": 90.57075285333332,
+        "min": 2.040064,
+        "p50": 38.275072,
+        "p95": 355.085056,
+        "p99": 619.264768,
+        "max": 688.950016
+      },
+      "gpuMs": {
+        "count": 300,
+        "mean": 861.7626769999971,
+        "median": 861.762677,
+        "p50": 861.762677,
+        "p95": 861.762677,
+        "p99": 861.762677,
+        "min": 861.762677,
+        "max": 861.762677
+      },
+      "governorTier": 0
+    },
+    {
+      "preset": "/presets/tests/110-per_pixel.milk",
+      "frameMs": {
+        "count": 300,
+        "mean": 118.99564287999999,
+        "min": 3.04512,
+        "p50": 48.395008,
+        "p95": 521.789952,
+        "p99": 871.915008,
+        "max": 1881.38496
+      },
+      "gpuMs": {
+        "count": 300,
+        "mean": 861.7626769999971,
+        "median": 861.762677,
+        "p50": 861.762677,
+        "p95": 861.762677,
+        "p99": 861.762677,
+        "min": 861.762677,
+        "max": 861.762677
+      },
+      "governorTier": 0
+    },
+    {
+      "preset": "/presets/tests/300-beatdetect-bassmidtreb.milk",
+      "frameMs": {
+        "count": 300,
+        "mean": 134.46861567999994,
+        "min": 2.534656,
+        "p50": 54.200064,
+        "p95": 586.439936,
+        "p99": 1150.335232,
+        "max": 1252.36992
+      },
+      "gpuMs": {
+        "count": 300,
+        "mean": 861.7626769999971,
+        "median": 861.762677,
+        "p50": 861.762677,
+        "p95": 861.762677,
+        "p99": 861.762677,
+        "min": 861.762677,
+        "max": 861.762677
+      },
+      "governorTier": 0
+    },
+    {
+      "preset": "/custom_milk_fixed/milk011.milk",
+      "frameMs": {
+        "count": 300,
+        "mean": 87.31079850666667,
+        "min": 3.039744,
+        "p50": 33.295104,
+        "p95": 388.665088,
+        "p99": 775.980032,
+        "max": 817.979904
+      },
+      "gpuMs": {
+        "count": 300,
+        "mean": 861.7626769999971,
+        "median": 861.762677,
+        "p50": 861.762677,
+        "p95": 861.762677,
+        "p99": 861.762677,
+        "min": 861.762677,
+        "max": 861.762677
+      },
+      "governorTier": 0
+    },
+    {
+      "preset": "/custom_milk_fixed/milk012.milk",
+      "frameMs": {
+        "count": 300,
+        "mean": 116.46086314666667,
+        "min": 3.529984,
+        "p50": 48.884992,
+        "p95": 510.319872,
+        "p99": 941.325056,
+        "max": 1102.109952
+      },
+      "gpuMs": {
+        "count": 300,
+        "mean": 861.7626769999971,
+        "median": 861.762677,
+        "p50": 861.762677,
+        "p95": 861.762677,
+        "p99": 861.762677,
+        "min": 861.762677,
+        "max": 861.762677
+      },
+      "governorTier": 0
+    },
+    {
+      "preset": "/custom_milk_fixed/milk015.milk",
+      "frameMs": {
+        "count": 300,
+        "mean": 89.48906837333331,
+        "min": 3.314944,
+        "p50": 31.429888,
+        "p95": 385.714944,
+        "p99": 694.140416,
+        "max": 1050.270208
+      },
+      "gpuMs": {
+        "count": 300,
+        "mean": 861.7626769999971,
+        "median": 861.762677,
+        "p50": 861.762677,
+        "p95": 861.762677,
+        "p99": 861.762677,
+        "min": 861.762677,
+        "max": 861.762677
+      },
+      "governorTier": 0
+    }
+  ]
+}

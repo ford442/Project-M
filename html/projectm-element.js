@@ -7,6 +7,7 @@ export { ELEMENT_TAG, OBSERVED_ATTRIBUTES };
 /**
  * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
  * @typedef {import('./projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
+ * @typedef {import('./projectm-context-types.ts').ProjectMRenderTopology} ProjectMRenderTopology
  */
 
 /**
@@ -243,6 +244,13 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 ?? this.getAttribute('require-cross-origin-isolation'),
             true
         );
+        // Embedders cannot set a query parameter on someone else's page, so the
+        // topology escape hatch has to be an attribute too. Read once at boot:
+        // where rendering happens is not something that can change under a
+        // running engine.
+        const renderTopology = /** @type {ProjectMRenderTopology} */ (
+            this.getAttribute('render-topology') || 'auto'
+        );
 
         this.#bootPromise = (async () => {
             const context = new ProjectMContext({
@@ -261,6 +269,10 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 audioSource,
                 audioElement: this.getAttribute('audio-element') || undefined,
                 externalPcmOrigins: parseOriginList(this.getAttribute('external-pcm-origins')),
+                renderTopology,
+                onRenderWorkerFallback: (reason) => {
+                    console.info('[project-m-visualizer] rendering on the main thread:', reason);
+                },
                 onReady: () => {
                     dispatchLifecycleEvent(this, 'pm-ready', { version: buildProjectMWasmUrls().wasm });
                 },

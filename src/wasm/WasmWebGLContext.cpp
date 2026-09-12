@@ -77,15 +77,25 @@ bool WasmWebGLCanvasElementExists(const char* selector)
     {
         return false;
     }
-    // Resolve the document once and bail when there is none: this same TU runs
-    // in the OffscreenCanvas render worker, where there is no DOM and a canvas
-    // selector can never match.
+    // Resolve the selector the same way emscripten_webgl_create_context() will,
+    // so this check cannot disagree with the call it guards: specialHTMLTargets
+    // first, then a DOM query.
+    //
+    // This TU also runs in the OffscreenCanvas render worker, where there is no
+    // DOM at all and the canvas arrives by transfer — the worker registers
+    // it under this selector in specialHTMLTargets (see
+    // html/projectm-render-worker.js). Querying only the DOM here reported
+    // "not found" for a canvas the very next line would have resolved fine, and
+    // failed init() with code 2 in every worker.
     // clang-format off
     return EM_ASM_INT({
                try {
+                   const sel = UTF8ToString($0);
+                   const targets = typeof specialHTMLTargets !== 'undefined' ? specialHTMLTargets : null;
+                   if (targets && targets[sel]) { return 1; }
                    const doc = globalThis.document;
                    if (!doc) { return 0; }
-                   return doc.querySelector(UTF8ToString($0)) ? 1 : 0;
+                   return doc.querySelector(sel) ? 1 : 0;
                } catch (e) {
                    return 0;
                } }, selector) != 0;

@@ -4,42 +4,59 @@
   "description": "Embeddable projectM web components and context API for music visualizers",
   "license": "LGPL-2.1-only",
   "type": "module",
-  "sideEffects": [
-    "./dist/projectm-element.js"
-  ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "prepare": "node scripts/build.mjs"
+    "prepack": "node scripts/build.mjs",
+    "typecheck:wrappers": "tsc -p tsconfig.src.json",
+    "playground": "node scripts/serve-playground.mjs"
   },
   "files": [
     "dist",
-    "types",
+    "scripts/fetch-wasm.mjs",
     "README.md"
   ],
   "exports": {
     ".": {
-      "types": "./types/entry.d.ts",
-      "default": "./dist/projectm-element.js"
+      "types": "./dist/types/staging/projectm-element.d.ts",
+      "default": "./dist/projectm-web.js"
     },
     "./element": {
-      "types": "./types/element.d.ts",
-      "default": "./dist/projectm-element.js"
+      "types": "./dist/types/staging/projectm-element.d.ts",
+      "default": "./dist/projectm-web.js"
     },
     "./context": {
-      "types": "./types/context.d.ts",
-      "default": "./dist/projectm-context.js"
+      "types": "./dist/types/staging/projectm-context.d.ts",
+      "default": "./dist/context.js"
     },
     "./wasm-version": {
-      "types": "./types/wasm-version.d.ts",
-      "default": "./dist/projectm-wasm-version.js"
+      "types": "./dist/types/staging/projectm-wasm-version.d.ts",
+      "default": "./dist/wasm-version.js"
     },
     "./wasm-api": {
-      "types": "./dist/generated/projectm-wasm-api.ts",
-      "default": "./dist/generated/projectm-wasm-api.js"
-    }
+      "types": "./dist/types/staging/generated/projectm-wasm-api.d.ts",
+      "default": "./dist/wasm-api.js"
+    },
+    "./react": {
+      "types": "./dist/types/src/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./svelte": {
+      "types": "./dist/types/src/svelte.d.ts",
+      "default": "./dist/svelte.js"
+    },
+    "./vue": {
+      "types": "./dist/types/src/vue.d.ts",
+      "default": "./dist/vue.js"
+    },
+    "./render-worker": {
+      "default": "./dist/projectm-render-worker.js"
+    },
+    "./package.json": "./package.json"
   },
-  "types": "./types/entry.d.ts",
-  "peerDependencies": {},
+  "types": "./dist/types/staging/projectm-element.d.ts",
+  "peerDependencies": {
+    "react": ">=17"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -54,5 +71,20 @@
     "visualizer",
     "web-component",
     "wasm"
-  ]
+  ],
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "esbuild": "0.28.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "typescript": "5.8.3"
+  },
+  "bin": {
+    "projectm-fetch-wasm": "./scripts/fetch-wasm.mjs"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
 }

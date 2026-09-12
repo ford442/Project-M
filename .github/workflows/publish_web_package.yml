@@ -1,0 +1,83 @@
+name: Publish @projectm/web
+
+# Publishes the embed SDK to npm from a tag, with build provenance.
+#
+# Tag format: `web-v<version>`, e.g. `web-v0.2.0`. Kept distinct from the
+# `*-release` tags push_release.yml watches, so cutting an npm release does not
+# trigger a binary release and vice versa.
+#
+# The tag is the trigger, but packages/web/package.json is the source of truth
+# for the version: the job refuses to publish if they disagree, which is the
+# failure mode that otherwise puts the wrong version on the registry
+# permanently.
+
+on:
+  push:
+    tags:
+      - 'web-v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Pack and validate without publishing'
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    name: Build, verify, publish
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      # Required for `npm publish --provenance`: npm exchanges this for a
+      # Sigstore signature tying the tarball to this workflow run.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: npm ci (workspace root)
+        run: npm ci
+
+      - name: Verify the tag matches packages/web/package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#web-v}"
+          pkg_version="$(node -p "require('./packages/web/package.json').version")"
+          if [[ "$tag_version" != "$pkg_version" ]]; then
+              echo "Tag $GITHUB_REF_NAME implies version $tag_version, but" >&2
+              echo "packages/web/package.json is $pkg_version." >&2
+              exit 1
+          fi
+          echo "Publishing @projectm/web@$pkg_version"
+
+      # The same gates web_host_tests.yml runs. Duplicated deliberately: a tag
+      # can point at any commit, including one that never went through a PR.
+      - name: Host-layer tests + package build
+        run: npm test
+
+      - name: Type-check html/ host modules
+        run: npm run typecheck
+
+      - name: Public WASM API surface gate
+        run: npm run check:api
+
+      - name: Pack
+        run: npm pack --workspace=@projectm/web
+
+      - name: Publish to npm
+        if: github.event_name == 'push' || inputs.dry_run == false
+        run: npm publish --workspace=@projectm/web --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Dry run summary
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: |
+          echo "Dry run: tarball built and gates passed, nothing published." >> "$GITHUB_STEP_SUMMARY"
+          ls -la ./*.tgz >> "$GITHUB_STEP_SUMMARY"

@@ -158,6 +158,29 @@ jobs:
             --out screenshots/ci \
             --frames 60
 
+      # ---- Render topology parity (#243) -------------------------------------
+      # Both topologies, one run: the engine and its PCM ring are identical, so
+      # anything that only works on one side is a host-layer bug. This is the
+      # gate that keeps the render-worker default honest — and the one that
+      # would have caught the worker never booting at all.
+      - name: Audio reactivity — both render topologies
+        # Non-blocking for now, and that is a known state, not an oversight:
+        # the *worker* leg passes, but the main-thread leg's bass assertion
+        # fails reproducibly under software GL (silence r≈3.4, bass r≈4.6,
+        # against a +8 threshold) while its treble and stereo assertions pass.
+        # That leg had never actually executed before — the harness could not
+        # resolve playwright, fetched its preset from a bogus URL, and never
+        # called init()/start_render() — so the threshold has never been true
+        # here, and it is not a topology difference. Make it blocking once the
+        # bass-band expectation is settled against a real engine run.
+        continue-on-error: true
+        env:
+          PROJECTM_HARNESS_VERBOSE: '1'
+        run: |
+          node scripts/test_audio_reactivity_wasm.mjs \
+            "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" \
+            "${{ github.workspace }}/presets/tests/300-beatdetect-bassmidtreb.milk"
+
       # ---- Graphics golden-image gate (#174 measurement harness) -------------
       # Runs here rather than in its own workflow because the only expensive
       # part — the emsdk build — has already happened in this job. Software GL

@@ -3,8 +3,9 @@
 // Run with: node --test tests/web/projectm-render-worker.test.mjs
 //
 // The worker is a *classic* (non-module) Worker script: it assigns to a bare
-// `self`, declares `var createModule` for `importScripts()` to fill in, and has
-// no exports. Importing it under Node's ESM loader therefore cannot drive it —
+// `self`, reads the Emscripten factory `importScripts()` defines as
+// `self.createModule`, and has no exports. Importing it under Node's ESM loader
+// therefore cannot drive it —
 // which is why it had no tests. `node:vm` can: evaluating the source in a
 // context whose global carries `self`, `importScripts`, `performance` and
 // `setInterval` reproduces the classic-worker scope closely enough to exercise
@@ -27,6 +28,15 @@ const HOST_PATH = fileURLToPath(new URL('../../html/projectm-render-worker-host.
 const TYPES_PATH = fileURLToPath(new URL('../../html/projectm-render-worker-types.ts', import.meta.url));
 
 const WORKER_SOURCE = readFileSync(WORKER_PATH, 'utf8');
+
+// The bundler-scope variant evaluates a *wrapped* copy of the same source. It
+// has to be attributed to a different filename, or V8 coverage folds two texts
+// with different line offsets into one report entry for the real worker and its
+// numbers become fiction. This path is under tests/, which
+// scripts/test_web_embed.sh excludes from coverage entirely.
+const BUNDLER_SCOPE_PATH = fileURLToPath(
+    new URL('./projectm-render-worker.bundler-scope.js', import.meta.url),
+);
 
 // Non-zero heap offsets, as in tests/web/projectm-pcm-ring.test.mjs: the
 // descriptor reader treats a zero data pointer as "not allocated yet".
@@ -54,6 +64,11 @@ function fakeRingModule({ capacityFrames = 4, shared = true } = {}) {
         _get_pcm_ring_data_ptr: () => DATA_PTR,
         _get_pcm_ring_capacity_frames: () => capacityFrames,
         _get_pcm_ring_index_modulus: () => capacityFrames * 4,
+        // The worker registers the transferred canvas here and runs init()
+        // itself, because the engine resolves "#mcanvas" through
+        // specialHTMLTargets when there is no document.
+        specialHTMLTargets: /** @type {Record<string, unknown>} */ ({}),
+        _init: () => 0,
         _start_render: (w, h) => startRenders.push([w, h]),
         ccall: (name, _returnType, _argTypes, args) => { ccalls.push({ name, args }); return `${name}-result`; },
         header: new Int32Array(memory, HEADER_PTR, 4),
@@ -73,12 +88,16 @@ function fakeRingModule({ capacityFrames = 4, shared = true } = {}) {
  * @param {Error | null} [options.importScriptsError]
  * @param {boolean} [options.offscreenCanvas] Whether the scope has OffscreenCanvas.
  * @param {boolean} [options.sharedArrayBuffer]
+ * @param {boolean} [options.bundlerScope] Evaluate the source wrapped in a
+ *   strict-mode function scope, the way a bundler that treats the file as a
+ *   module or an IIFE does. Top-level declarations stop being globals there.
  */
 function loadWorker({
     createModule = null,
     importScriptsError = null,
     offscreenCanvas = true,
     sharedArrayBuffer = true,
+    bundlerScope = false,
 } = {}) {
     /** @type {any[]} */
     const posted = [];
@@ -111,14 +130,23 @@ function loadWorker({
         importScripts: (src) => {
             importedScripts.push(src);
             if (importScriptsError) throw importScriptsError;
-            if (createModule) sandbox.createModule = createModule;
+            // Onto `self`, because that is where importScripts() puts it: in a
+            // worker `self` IS the global scope. Assigning it as a bare sandbox
+            // global instead would only work through the equivalence that
+            // bundlers break — see getCreateModule() in the worker.
+            if (createModule) self.createModule = createModule;
         },
     };
     if (!sharedArrayBuffer) delete sandbox.SharedArrayBuffer;
     if (!offscreenCanvas) delete sandbox.OffscreenCanvas;
 
     vm.createContext(sandbox);
-    vm.runInContext(WORKER_SOURCE, sandbox, { filename: WORKER_PATH });
+    const source = bundlerScope
+        ? `(function(){"use strict";\n${WORKER_SOURCE}\n})();`
+        : WORKER_SOURCE;
+    vm.runInContext(source, sandbox, {
+        filename: bundlerScope ? BUNDLER_SCOPE_PATH : WORKER_PATH,
+    });
 
     return {
         posted,
@@ -172,6 +200,32 @@ test('init reports unsupported when the glue defines no createModule', async () 
     }]);
 });
 
+test('the worker still finds its factory when a bundler wraps it in a scope', async () => {
+    // Regression test for the whole worker render topology under npm consumers.
+    //
+    // The worker is loaded as `new Worker(new URL('./projectm-render-worker.js',
+    // import.meta.url))`, and Vite (and any bundler with the same pattern
+    // support) re-processes that file into its own scope. A top-level
+    // `var createModule` is the worker global in a classic worker but a plain
+    // local once wrapped, so importScripts() could never fill it: init() bailed
+    // with "createModule not defined after importScripts", and a minifier that
+    // could prove that then dead-code-eliminated the preset and ccall handlers.
+    // Reading `self.createModule` survives the wrapping.
+    const module = fakeRingModule();
+    const worker = loadWorker({ bundlerScope: true, createModule: async () => module });
+    await worker.send(initMessage());
+
+    assert.deepEqual(
+        worker.posted.filter((message) => message.type === 'unsupported'),
+        [],
+        'the worker reported unsupported inside a bundler scope',
+    );
+    assert.ok(
+        worker.posted.some((message) => message.type === 'ready'),
+        'the worker never reported ready inside a bundler scope',
+    );
+});
+
 test('init reports an error when the module factory rejects', async () => {
     const worker = loadWorker({ createModule: async () => { throw new Error('out of memory'); } });
     await worker.send(initMessage());
@@ -217,6 +271,43 @@ test('init boots the module, applies the options, publishes the ring, and report
     assert.equal(descriptor.dataPtr, DATA_PTR);
     assert.equal(descriptor.capacityFrames, 4);
     assert.equal(descriptor.indexModulus, 16);
+});
+
+test('init registers the transferred canvas under the engine canvas selector', async () => {
+    const module = fakeRingModule();
+    const worker = loadWorker({ createModule: async () => module });
+    const canvas = { id: 'offscreen' };
+    await worker.send(initMessage({ canvas }));
+
+    // This is how the engine finds its drawing surface with no document around:
+    // emscripten_webgl_create_context("#mcanvas") resolves through
+    // specialHTMLTargets first.
+    assert.equal(module.specialHTMLTargets['#mcanvas'], canvas);
+});
+
+test('init reports unsupported on a bundle that does not export specialHTMLTargets', async () => {
+    const module = fakeRingModule();
+    delete module.specialHTMLTargets;
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    assert.equal(worker.posted.length, 1);
+    assert.equal(worker.posted[0].type, 'unsupported');
+    assert.match(worker.posted[0].reason, /specialHTMLTargets/);
+});
+
+test('a non-zero init() status is reported instead of trapping in start_render', async () => {
+    const module = fakeRingModule();
+    module._init = () => 2;
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    assert.equal(worker.posted.length, 1);
+    assert.equal(worker.posted[0].type, 'error');
+    assert.match(worker.posted[0].message, /init\(\) failed in the render worker \(code 2\)/);
+    // start_render() on an engine with no GL context traps on a null function
+    // pointer, which surfaces as an unattributable RuntimeError.
+    assert.deepEqual(module.startRenders, []);
 });
 
 test('the mesh quality option maps anything but "low" to the full grid', async () => {
@@ -459,7 +550,7 @@ test('both implementations cover every message type declared in the wire protoco
 
     // Guards the parsing itself: a types file that stopped declaring unions
     // would otherwise make this test vacuously pass.
-    assert.deepEqual(hostToWorker.slice().sort(), ['ccall', 'init', 'pcm', 'resize']);
+    assert.deepEqual(hostToWorker.slice().sort(), ['ccall', 'init', 'pcm', 'preset', 'resize']);
     assert.deepEqual(
         workerToHost.slice().sort(),
         ['ccall-result', 'error', 'pcm-ring', 'ready', 'stats', 'unsupported'],

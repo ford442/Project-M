@@ -5,6 +5,11 @@ name: Web Host Tests
 # embed-SDK build and html/'s typecheck, via the root npm workspace
 # (package.json: workspaces over html/ and packages/web/) instead of each
 # script doing its own ad hoc `npm install`.
+#
+# It also owns the public WASM API gate: cmake/WasmApiManifest.cmake's
+# visibility tiers only mean something if a removal or signature change to a
+# `public` symbol has to be blessed, so the check runs here next to the package
+# whose version it holds to account.
 
 on:
   push:
@@ -15,6 +20,8 @@ on:
       - 'package.json'
       - 'scripts/test_web_embed.sh'
       - 'scripts/check_html_types.sh'
+      - 'scripts/check_wasm_public_api.sh'
+      - 'cmake/WasmApiManifest.cmake'
       - '.github/workflows/web_host_tests.yml'
   pull_request:
     paths:
@@ -24,6 +31,8 @@ on:
       - 'package.json'
       - 'scripts/test_web_embed.sh'
       - 'scripts/check_html_types.sh'
+      - 'scripts/check_wasm_public_api.sh'
+      - 'cmake/WasmApiManifest.cmake'
       - '.github/workflows/web_host_tests.yml'
   workflow_dispatch: {}
 
@@ -51,3 +60,8 @@ jobs:
 
       - name: Type-check html/ host modules
         run: npm run typecheck
+
+      # Fails on a removed or re-signatured `public` manifest entry that has not
+      # been paired with a version bump in packages/web/package.json.
+      - name: Public WASM API surface gate
+        run: npm run check:api

@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "test": "scripts/test_web_embed.sh",
-    "typecheck": "npm run typecheck --workspace=html",
-    "build": "npm run build --workspace=packages/web"
+    "typecheck": "npm run typecheck --workspace=html && npm run typecheck:wrappers --workspace=packages/web",
+    "build": "npm run build --workspace=packages/web",
+    "check:api": "scripts/check_wasm_public_api.sh",
+    "playground": "npm run playground --workspace=packages/web"
   }
 }

@@ -1,0 +1,37 @@
+{
+  "// purpose": [
+    "Declaration-only emit over the staged html/ closure, so packages/web ships",
+    "generated .d.ts instead of hand-written shims that can drift from html/.",
+    "Run by scripts/build.mjs between the vendor and bundle stages; never run",
+    "against html/ directly.",
+    "rootDir is the package root because two trees are compiled: staging/ (the",
+    "vendored html/ closure) and src/ (the framework wrappers, which are authored",
+    "here and have no html/ counterpart). Declarations therefore land under",
+    "dist/types/staging/ and dist/types/src/, mirroring where they came from.",
+    "checkJs is off on purpose: html/tsconfig.json already type-checks these same",
+    "modules with checkJs+strict as the `npm run typecheck` gate. Repeating that",
+    "here would just report the same errors twice, against copies.",
+    "projectm-render-worker.js is excluded because it is a *classic* worker, not",
+    "a module: its top-level `let Module` is a script-scope global that collides",
+    "with the `declare var Module` in projectm-host-types.ts. It exports nothing,",
+    "so there is no declaration to emit, and html/tsconfig.worker.json already",
+    "type-checks it in the right (worker) lib context."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": true,
+    "rootDir": ".",
+    "outDir": "dist/types"
+  },
+  "include": ["staging/**/*.js", "staging/**/*.ts", "src/**/*.js"],
+  "exclude": ["staging/projectm-render-worker.js"]
+}

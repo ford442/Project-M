@@ -62,6 +62,18 @@ if [[ ! -f "$LLVM_OPENMP_SRC/CMakeLists.txt" ]]; then
     LLVM_OPENMP_SRC="$PROJECT_ROOT/vendor/llvm-project/openmp"
 fi
 
+# Wasm feature flags. These must match the ones the rest of the build uses
+# (PROJECTM_WASM_SHARED_COMPILE_ARGS in cmake/EmscriptenWasmFlags.cmake): the
+# wrapper links with -sSHARED_MEMORY=1, and wasm-ld refuses to produce a
+# shared-memory module if any input object was compiled without the 'atomics'
+# and 'bulk-memory' features —
+#   wasm-ld: error: --shared-memory is disallowed by kmp_alloc.cpp.o because it
+#   was not compiled with 'atomics' or 'bulk-memory' features.
+# -pthread turns both on and defines __EMSCRIPTEN_SHARED_MEMORY__; the rest keep
+# libomp's target_features section aligned with libprojectM's so the final link
+# does not enable a feature only half the objects were built for.
+LIBOMP_WASM_FLAGS="${LIBOMP_WASM_FLAGS:--pthread -matomics -mbulk-memory -mmutable-globals -mnontrapping-fptoint -msign-ext}"
+
 echo "=== Configuring libomp for wasm32 ==="
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -69,6 +81,9 @@ cd "$BUILD_DIR"
 
 emcmake cmake -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS="$LIBOMP_WASM_FLAGS" \
+    -DCMAKE_CXX_FLAGS="$LIBOMP_WASM_FLAGS" \
+    -DCMAKE_ASM_FLAGS="$LIBOMP_WASM_FLAGS" \
     -DOPENMP_STANDALONE_BUILD=ON \
     -DOPENMP_ENABLE_LIBOMPTARGET=OFF \
     -DLIBOMP_HAVE_OMPT_SUPPORT=OFF \

@@ -198,27 +198,66 @@ It *is* the same-machine determinism gate, where it is exactly right.
 
 ## Acceptance criteria, and where each is checked
 
-| Criterion | Where |
-|---|---|
-| Two consecutive runs on an unchanged commit produce byte-identical captures under software GL | `--self-check`, blocking in `build_emscripten.yml` |
-| A deliberately introduced one-pixel Y-flip in `CopyTexture` fails the gate | Property tested directly in `tests/graphics-harness/image-diff.test.mjs` ("a one-pixel horizontal shift", "a vertical flip"); end to end by the golden gate |
-| `benchmark-results/` accumulates per-commit JSON | `scripts/record_frame_budget.mjs`, run nightly |
-| A PR regressing p95 by >15% is red, with a table showing which presets moved | `scripts/compare_benchmark_results.mjs`, tested in `frame-budget.test.mjs` |
+| Criterion | Where | Measured |
+|---|---|---|
+| Two consecutive runs on an unchanged commit produce byte-identical captures under software GL | `--self-check`, blocking in `build_emscripten.yml` | Yes — all 13 presets, both frames, 0 differing pixels |
+| A deliberately introduced one-pixel Y-flip in `CopyTexture` fails the gate | Property tested directly in `tests/graphics-harness/image-diff.test.mjs` ("a one-pixel horizontal shift", "a vertical flip"); end to end by the golden gate | Yes — a one-pixel Y offset in `TryBlit()`'s destination rectangle failed 22 of 26 checks (exit 1); a clean rebuild then matched every golden at ssim 1.00000 |
+| `benchmark-results/` accumulates per-commit JSON | `scripts/record_frame_budget.mjs`, run nightly | Plumbing exercised on software GL; a *gateable* baseline still needs a GPU runner |
+| A PR regressing p95 by >15% is red, with a table showing which presets moved | `scripts/compare_benchmark_results.mjs`, tested in `frame-budget.test.mjs` | Unit-tested; not yet exercised against two real GPU records |
+
+The four checks that survived the injected Y-offset were the sparsest presets
+(a thin waveform on black) at frame 300, where a one-pixel shift moves less than
+0.2% of the pixels. Nothing about the gate is wrong there — it is the honest
+sensitivity floor of a perceptual comparison on a near-empty frame, and it is
+the reason the manifest pairs SSIM with a differing-pixel fraction instead of
+trusting either alone.
 
 ---
 
-## Bootstrapping the goldens
+## The goldens
 
-The committed golden set has to be produced by a machine with the Emscripten
-toolchain, and it has to be reviewed by a human before it becomes the definition
-of correct. Until `tests/wasm-smoke/golden/images/` has content, the CI step
-captures a candidate set and uploads it as the `golden-images-bootstrap`
-artifact with a warning instead of gating. Download it, look at the images,
-commit them, and the step becomes blocking from the next run on.
+`tests/wasm-smoke/golden/images/` holds 26 PNGs — 13 presets at frames 60 and
+300 — captured on ANGLE/SwiftShader from an Emscripten build of this tree. The
+CI step gates against them; it only falls back to uploading a candidate set as
+the `golden-images-bootstrap` artifact when that directory is empty.
 
 Regenerate on the same runner kind that produced the originals (software GL),
 and re-review whenever a change legitimately alters output — `--update` accepts
 whatever rendered, including a regression.
+
+### What the first capture cost
+
+The determinism claims above were written against the code; capturing the set
+found four things that reading could not, all of which produced a
+plausible-looking image rather than an error:
+
+1. **The preset never loaded.** `load_preset_file()` yields to the browser
+   (`emscripten_sleep(0)`) before it compiles shaders, so under ASYNCIFY the
+   `ccall` returns with the load only started. The settle loop pumped frames
+   synchronously and never let the continuation run, so every capture died at
+   "Preset not ready after 30 settle frames". The page now waits for the load to
+   complete — in event-loop turns, rendering nothing, so the settle count stays
+   fixed.
+2. **No audio reached the engine.** The host-side ring writer reads
+   `Module.HEAPF32.buffer`, and `HEAPF32` was not in `EXPORTED_RUNTIME_METHODS`;
+   `readPcmRingDescriptor()` returned null, the direct fallback needed the same
+   view, and `feedPcmToModule()` silently dropped every block. Since
+   [#235](https://github.com/ford442/Project-M/issues/235) made the ring the only
+   ingest, that view is part of the host API. The capture page now asserts one
+   fed block per rendered frame rather than trusting the wiring.
+3. **The engine's clock was still real at preset-load time.** `TimeKeeper` only
+   adopts the virtual clock inside `RenderFrame()`, and `StartPreset()` stamps
+   the *current* `m_currentTime` as the preset's start. Loading before any frame
+   had run therefore anchored `time` (and the transition's progress) to however
+   long shader compilation took — the single largest source of run-to-run
+   divergence, and invisible until audio was flowing to make the renderer react.
+   The page pumps one priming frame before the load, then restarts the count.
+4. **Every capture was a picture of a crossfade.** The default (soft) cut left a
+   transition running through the capture frames, so each golden showed the
+   default preset blending into the subject. The page loads with a hard cut;
+   `load_preset_file_hard` had to be added to the exported API to allow it.
+
+With those four fixed, all 13 presets are byte-identical across two runs.
 
 ---
 

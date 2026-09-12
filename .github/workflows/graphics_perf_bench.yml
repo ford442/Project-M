@@ -104,8 +104,20 @@ jobs:
           if [[ -n "$base" ]]; then
             basefile="benchmark-results/$base.json"
           else
-            # Newest committed record that is not this run's own output.
-            basefile="$(ls -t benchmark-results/*.json 2>/dev/null | grep -v "$(basename "$head")" | grep -v preset-benchmark.json | head -n1 || true)"
+            # Newest committed record that is not this run's own output, and that
+            # is gateable: a software-GL record (a runner that fell back to a
+            # software rasterizer) makes compare_benchmark_results.mjs report
+            # without gating, so picking one as the base silently turns the gate
+            # off instead of failing loudly.
+            basefile=""
+            while IFS= read -r candidate; do
+              [[ "$candidate" == "$head" ]] && continue
+              [[ "$(basename "$candidate")" == "preset-benchmark.json" ]] && continue
+              if node -e "process.exit(JSON.parse(require('fs').readFileSync('$candidate','utf8')).softwareGl ? 1 : 0)"; then
+                basefile="$candidate"
+                break
+              fi
+            done < <(ls -t benchmark-results/*.json 2>/dev/null || true)
           fi
           if [[ -z "$basefile" || ! -f "$basefile" ]]; then
             echo "No base record to compare against yet — this run establishes the baseline."

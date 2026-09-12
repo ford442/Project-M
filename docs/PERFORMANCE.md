@@ -285,7 +285,7 @@ therefore animate at the wrong speed whenever the real frame rate diverged from 
 
 The WASM render loop already drives `renderLoop()` via
 `emscripten_set_main_loop((void (*)())renderLoop, 0, 0)` with
-`emscripten_set_main_loop_timing(EM_TIMING_RAF, 1)` (`projectM_emscripten.cpp`), i.e. it is already
+`emscripten_set_main_loop_timing(EM_TIMING_RAF, 1)` (`WasmRenderLoop.cpp`), i.e. it is already
 vsync/`requestAnimationFrame`-driven, uncapped by a fixed timer. No change was needed here; this
 section documents that the acceptance criterion was already satisfied.
 `emscripten_request_animation_frame_loop` was considered but not adopted — the existing
@@ -294,8 +294,8 @@ without the API and lifecycle changes that switching would require.
 
 ### Adaptive quality governor (WASM, v1)
 
-Implemented in `projectM_emscripten.cpp` as `UpdateQualityGovernor()`, called once per frame from
-`renderLoop()` with the wall-clock time of the whole render (measured via `emscripten_get_now()`,
+Implemented in `WasmPerfGovernor.cpp` as `UpdateQualityGovernor()`, called once per frame from
+`renderLoop()` (`WasmRenderLoop.cpp`) with the wall-clock time of the whole render (measured via `emscripten_get_now()`,
 always-on, independent of `g_perfHudEnabled`). v1 is intentionally minimal — it only steps the
 per-pixel mesh resolution between two tiers (matching `html/projectm-mesh-quality.js`):
 
@@ -369,8 +369,10 @@ technique many canvas-based games use for dynamic resolution scaling. This is wh
 tier is a **host** responsibility (see `docs/WASM_JS_API.md#governor-v2-host-callbacks-push-vs-getters`):
 `html/projectm-fps-governor.js`'s `setupFpsGovernor(Module, { onRenderScaleChange })` wires
 `window.pmOnGovernorRenderScaleChange`, and `html/projectm-context.js`'s `syncCanvasSize()` /
-`html/projectm-core.html`'s `syncModuleSize()` (via `pmContext`) apply it. Not yet wired for
-`?renderWorker=1` (OffscreenCanvas) — see the caveat in `WASM_JS_API.md`.
+`html/projectm-core.html`'s `syncModuleSize()` (via `pmContext`) apply it. The
+render-worker topology applies the same factor to the `OffscreenCanvas` it owns, via the
+`globalThis.pmOnGovernorRenderScaleChange` hook installed in
+`html/projectm-render-worker.js` — the C++ push reaches both topologies unchanged.
 
 New exports (`WasmPerfGovernor.cpp`, `cmake/WasmApiManifest.cmake`):
 
@@ -474,7 +476,7 @@ Emscripten exports (see `cmake/WasmApiManifest.cmake`):
 - `_shader_cache_end_load()` — clear key after load
 - `_get_glsl_generator_version()` — cache-key component for JS
 
-`projectM_emscripten.cpp` forwards stored GLSL to JS via `window.pmOnTranspiledShaderStored`.
+`WasmShaderCache.cpp` forwards stored GLSL to JS via `window.pmOnTranspiledShaderStored`.
 
 ### JavaScript modules
 
@@ -600,7 +602,7 @@ verify and land them.
 
 ### What the dual-FBO pairs are for
 
-`ShouldUseDualFboCompositor()` (`projectM_emscripten.cpp`) only returns true while a preset
+`ShouldUseDualFboCompositor()` (`WasmRenderLoop.cpp`) only returns true while a preset
 crossfade is running. Steady-state playback takes the direct-to-canvas branch of `render_frame()`
 and never binds or samples either ping-pong pair. Both pairs are therefore **crossfade scratch**,
 not steady-state render targets — anything they cost between transitions is pure residency.
@@ -978,23 +980,40 @@ Follow-up to the 60 FPS/quality governor and link-flag work above: moving the re
 main thread (Part A) and vectorizing the audio analysis hot paths with `wasm_simd128.h` (Part B).
 This depends on the profiling/governor work above and is implemented incrementally, as requested.
 
-### Part A: OffscreenCanvas render worker (opt-in, default OFF)
+### Part A: OffscreenCanvas render worker (default ON)
 
-Added `html/projectm-render-worker.js` (runs in a dedicated Worker) and
-`html/projectm-render-worker-host.js` (main-thread bridge), wired into
-`html/projectm-core.html`'s `attemptInit()`.
+`html/projectm-render-worker.js` (runs in a dedicated Worker) and
+`html/projectm-render-worker-host.js` (main-thread bridge), selected by
+`ProjectMContext` through `html/projectm-render-transport.js`.
 
-**Disabled by default** — enable with `?renderWorker=1` or
-`localStorage.renderWorker = '1'`. This was a deliberate scoping decision: this
-environment has no browser/display, so none of Part A's "Verify" steps (worker
-render path, Safari/Firefox fallback, audio reactivity after migration) can be
-exercised here. Keeping it opt-in with feature detection means:
+**Enabled by default.** `?renderWorker=0` (or `localStorage.renderWorker = '0'`)
+opts out, and stays a supported path — `tests/web/` covers the opt-out and
+`scripts/test_audio_reactivity_wasm.mjs` exercises both topologies. Feature
+detection still falls back to the main thread on its own when
+`OffscreenCanvas`/`transferControlToOffscreen`/`Worker` are missing or the page
+is not cross-origin isolated, so browsers that cannot host a render worker are
+unaffected.
 
-- Browsers without `OffscreenCanvas`/`transferControlToOffscreen`/`Worker` are
-  completely unaffected (the existing main-thread path is untouched and remains
-  the default for 100% of current users).
-- Browsers *with* OffscreenCanvas support also get the unchanged main-thread
-  path by default, until the opt-in path has been verified in real browsers.
+**Three things had to be fixed before the default could move**, and all three
+failed silently, which is why this stayed opt-in through several rounds of
+"needs browser verification":
+
+1. **The module never booted in the worker.** Emscripten creates pthread pool
+   Workers from the running script's own URL, which inside
+   `projectm-render-worker.js` is that file — not the glue it
+   `importScripts()`'d. Every pool worker re-loaded the render worker, none
+   joined, and `createModule()` waited forever for a pool that could not fill.
+   `src/wasm/pthread_script_url.pre.js` restores `Module.mainScriptUrlOrBlob`
+   so the worker can point the pool at the glue.
+2. **The engine could not find its canvas.** `init()` resolves `#mcanvas`, and a
+   worker has no document. The worker now registers the transferred canvas in
+   `Module.specialHTMLTargets` (newly exported) and runs `init()` itself, so the
+   C++ needs no worker-specific path — and `WasmWebGLCanvasElementExists()`
+   consults the same table rather than only the document, which is what used to
+   fail `init()` with code 2.
+3. **Resize was a no-op.** The host cannot touch a transferred canvas's
+   `width`/`height`; only the worker can. It now sizes its own surface from the
+   layout size the host sends, times the governor's render scale.
 
 **How it works when enabled**:
 
@@ -1040,17 +1059,22 @@ commands and UI resize/events only" requirement):
   generic `ccall` forwarder (`{ type: 'ccall', name, returnType, argTypes, args }`)
   that the worker executes against its own `Module.ccall`.
 
-**Known limitations of this opt-in path (not yet wired)**:
+**Known limitations of the render-worker topology**:
 
-- Startup/random preset loading (`projectm-presets.js`'s
-  `loadStartupApiPresets`/`loadRandomApiPreset`), the FBO-format degraded-mode
-  banner (`projectm-fbo-format.js`), and the on-screen perf HUD
-  (`projectm-perf.js`) all call `Module.*` directly *and* manipulate the DOM —
-  neither is available to the worker's `Module` instance. In render-worker mode,
-  the worker renders with whatever preset(s) `_init()`/`main()` load by default;
-  these richer UI integrations are a follow-up once the core worker path is
-  verified in-browser.
-- **Nested OpenMP/pthread workers**: the WASM module is built with
+- Preset loading works: it is a VFS write plus a call, so it crosses as a
+  `preset` message (`projectm-render-worker-types.ts`) and the worker performs
+  both steps on its side. `ProjectMContext.loadPresetUrl()` /
+  `loadPresetFile()` / `addPreset()` and `fetchApiPreset({ writeBytes })` are
+  topology-agnostic.
+- Still main-thread-only: the FBO-format degraded-mode banner
+  (`projectm-fbo-format.js`), the on-screen perf HUD (`projectm-perf.js`), the
+  preset dev tools and the experimental bridge. All four read engine state
+  through a module object on the page and drive the DOM from it; in worker mode
+  they stay unbuilt rather than throwing, and `?renderWorker=0` brings them
+  back. Porting them onto `RenderTransport` is what remains of making
+  `projectm-core.html` fully topology-agnostic.
+- **Nested OpenMP/pthread workers** (confirmed working on Chromium, 2026-09;
+  see the browser matrix below): the WASM module is built with
   `-pthread -fopenmp` and `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'`.
   When this module is instantiated *inside* `projectm-render-worker.js`, its
   pthread pool Workers become **nested Workers** (Worker-within-Worker).
@@ -1071,18 +1095,19 @@ commands and UI resize/events only" requirement):
   by the Emscripten runtime itself, so no extra code was needed here, but the
   resulting frame pacing on a `setTimeout` fallback has not been measured.
 
-**Browser matrix tested**: none — no browser/display is available in this
-environment. Still true as of the `src/wasm/` host-layout reorg (2026-08):
-that session also had no Emscripten toolchain to build a `.wasm` bundle and no
-GPU/audio-backed browser to run one, so `?renderWorker=1` stays opt-in and
-`docs/GRAPHICS_PERF_RECOVERY_PLAN.md` A4 stays deferred — see that section for
-the current default-on decision gate. To test:
+**Browser matrix tested**: headless Chromium with SwiftShader (software GL),
+2026-09, via `scripts/test_audio_reactivity_wasm.mjs`. The render-worker
+topology boots, creates its GL context on the transferred `OffscreenCanvas`,
+renders frames, and fully drains the shared PCM ring with zero overruns — the
+first time this path has been observed working at all. The nested-Worker
+question below is therefore answered for Chromium; Safari and Firefox remain
+unverified. To test by hand:
 
 1. Serve `html/` (needs to be served with `Cross-Origin-Opener-Policy: same-origin`
    and `Cross-Origin-Embedder-Policy: require-corp` for the SharedArrayBuffer PCM
    ring to activate; without those headers, PCM still works via the
    `postMessage` fallback).
-2. Desktop Chrome, `?renderWorker=1`: open DevTools Performance tab, confirm the
+2. Desktop Chrome (the default now; `?renderWorker=1` pins it): open DevTools Performance tab, confirm the
    main thread is mostly idle while `projectm-render-worker.js` shows
    `_render_frame`/GL activity; confirm visuals react to
    `startLocalProjectMTestSender()`.
@@ -1094,13 +1119,14 @@ the current default-on decision gate. To test:
    `projectm-render-worker-host.js`'s `onUnsupported`/`onError` callbacks (logged
    via `console.warn`/`console.error`), which should trigger the main-thread
    fallback.
-5. Without `?renderWorker=1` (default): confirm behavior is bit-for-bit
-   identical to before this change (no new network requests, no new Workers).
+5. With `?renderWorker=0`: confirm the main-thread path still behaves as it
+   always did, including the dev panels, which only exist there.
 
-**Perf numbers**: not measured (no browser). The new files add
-`html/projectm-render-worker.js` (~5 KB) and
-`html/projectm-render-worker-host.js` (~5 KB), loaded only when
-`?renderWorker=1` is set — zero added bytes/requests for the default path.
+**Perf numbers**: the headline claim — that the embed holds frame rate against a
+busy host page — has *not* been measured. What has been verified is correctness:
+the worker boots, renders, and drains the ring with no overruns under software
+GL. Measuring the isolation benefit needs a real GPU and a synthetic
+main-thread hog on the host page.
 
 **Drive-by fix**: `scripts/build_projectm.sh` and `scripts/colab_build.sh`'s
 `EXPORTED_FUNCTIONS` lists were missing `_set_target_fps`,

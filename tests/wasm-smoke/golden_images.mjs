@@ -68,6 +68,21 @@ function parseArgs(argv) {
     return options;
 }
 
+/**
+ * Repo-relative path for reporting, or the absolute path when the file is
+ * outside the repository. `--artifacts` accepts any directory, so a report entry
+ * must not be the thing that fails the run — rootRelative() throws on an outside
+ * path, which previously turned every golden mismatch into a path error and hid
+ * the SSIM numbers the run existed to produce.
+ */
+function describePath(path) {
+    try {
+        return rootRelative(root, path);
+    } catch (_) {
+        return path;
+    }
+}
+
 /** Stable, filesystem-safe name for a preset path. */
 function presetKey(presetPath) {
     return presetPath.replace(/\.milk$/i, '').replace(/[^a-zA-Z0-9]+/g, '_');
@@ -215,7 +230,7 @@ try {
                         failures += 1;
                         const stripPath = join(options.artifacts, `${presetKey(entry.path)}__f${capture.frame}__nondeterministic.png`);
                         writeFileSync(stripPath, encodePng(composeStrip([capture.image, other.image, comparison.diff])));
-                        frameReport.artifact = rootRelative(root, stripPath);
+                        frameReport.artifact = describePath(stripPath);
                         console.error(
                             `  ✗ frame ${capture.frame}: two runs of the same commit differ in `
                             + `${comparison.differingPixels} pixel(s) — determinism is not pinned. ${stripPath}`,
@@ -227,8 +242,8 @@ try {
                     mkdirSync(dirname(target), { recursive: true });
                     writeFileSync(target, encodePng(capture.image));
                     frameReport.ok = true;
-                    frameReport.golden = rootRelative(root, target);
-                    console.log(`  ↑ wrote golden ${rootRelative(root, target)}`);
+                    frameReport.golden = describePath(target);
+                    console.log(`  ↑ wrote golden ${describePath(target)}`);
                 } else if (!existsSync(target)) {
                     failures += 1;
                     frameReport.ok = false;
@@ -259,7 +274,7 @@ try {
                             `${presetKey(entry.path)}__f${capture.frame}__golden-actual-diff.png`,
                         );
                         writeFileSync(stripPath, encodePng(composeStrip([golden, capture.image, comparison.diff])));
-                        frameReport.artifact = rootRelative(root, stripPath);
+                        frameReport.artifact = describePath(stripPath);
                         console.error(`  ✗ frame ${capture.frame}: ${verdict.failures.join('; ')}`);
                         console.error(`    golden | actual | diff → ${stripPath}`);
                     }

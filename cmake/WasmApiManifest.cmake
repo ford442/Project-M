@@ -25,6 +25,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "init_with_canvases|public|ccall|number|primary:string,secondary:string|Set canvas selectors then init (returns 0 on success)"
     "rebind_canvases|public|ccall|number|primary:string,secondary:string|Tear down and re-init against new canvas selectors (single-instance)"
     "load_preset_file|public|ccall|void|vfsPath:string|Load preset from Emscripten VFS path"
+    "load_preset_file_hard|public|ccall|void|vfsPath:string|Load preset from VFS path with a hard cut (no crossfade)"
     "switch_preset|public|direct|void||Advance playlist to next preset"
     "set_aspect_correction|public|direct|void|enabled:boolean|Enable bezel/aspect correction"
     "render_frame|public|direct|void||Render one visualization frame"

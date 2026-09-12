@@ -1,11 +1,13 @@
-// Main-thread bridge for the opt-in OffscreenCanvas render worker
+// Main-thread bridge for the OffscreenCanvas render worker
 // (projectm-render-worker.js).
 //
-// Disabled by default. Enable with ?renderWorker=1 (or
-// localStorage.renderWorker = '1'). When enabled but unsupported by the
-// browser (no OffscreenCanvas/transferControlToOffscreen, or no Worker),
-// setupRenderWorker() returns null and the caller should fall back to the
-// existing main-thread render path unchanged.
+// Enabled by default: rendering off the main thread is what keeps the embed's
+// frame rate independent of whatever the host page is doing on its own thread.
+// `?renderWorker=0` (or localStorage.renderWorker = '0') opts out, and stays a
+// supported path — CI covers it. When the browser cannot do it (no
+// OffscreenCanvas/transferControlToOffscreen, or no Worker), setupRenderWorker()
+// returns null and the caller falls back to the main-thread render path
+// unchanged.
 
 import { WASM_API_SYMBOLS } from './generated/projectm-wasm-api.js';
 import { createPcmRingWriter } from './projectm-pcm-ring.js';
@@ -19,6 +21,15 @@ import { createPcmRingWriter } from './projectm-pcm-ring.js';
  */
 
 /**
+ * Whether the host *wants* the render worker. Says nothing about whether the
+ * browser can provide one — that is isRenderWorkerSupported() /
+ * canUseRenderWorker() in projectm-render-transport.js.
+ *
+ * The default is on. Both the query parameter and the stored preference are
+ * read as explicit opt-outs ('0') or opt-ins ('1'); any other value is neither
+ * and leaves the default in place, so a stale or garbled setting cannot
+ * silently pin a page to the slower topology.
+ *
  * @param {object} [options]
  * @param {string} [options.search]
  * @param {Storage | null} [options.storage]
@@ -29,9 +40,14 @@ export function isRenderWorkerEnabled({ search = location.search, storage = (() 
 })() } = {}) {
     const params = new URLSearchParams(search);
     if (params.has('renderWorker')) {
-        return params.get('renderWorker') === '1';
+        const value = params.get('renderWorker');
+        if (value === '0') return false;
+        if (value === '1') return true;
     }
-    return !!storage && storage.getItem('renderWorker') === '1';
+    const stored = storage ? storage.getItem('renderWorker') : null;
+    if (stored === '0') return false;
+    if (stored === '1') return true;
+    return true;
 }
 
 /**
@@ -208,6 +224,21 @@ export function setupRenderWorker({
          */
         postPcm(buffer, channels) {
             worker.postMessage({ type: 'pcm', buffer, channels }, [buffer.buffer]);
+        },
+
+        /**
+         * Hands a preset to the worker's module: the bytes are written into its
+         * VFS and then loaded/added there, since that filesystem is the one the
+         * engine reads.
+         *
+         * @param {string} vfsPath
+         * @param {Uint8Array} bytes
+         * @param {'load' | 'load-hard' | 'add'} [mode]
+         */
+        postPreset(vfsPath, bytes, mode = 'load') {
+            // Transferred, so hand over a copy: callers may still own theirs.
+            const copy = new Uint8Array(bytes);
+            worker.postMessage({ type: 'preset', vfsPath, bytes: copy, mode }, [copy.buffer]);
         },
 
         /**

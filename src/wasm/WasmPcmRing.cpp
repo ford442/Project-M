@@ -34,7 +34,9 @@
 // silent one. The modulus is a multiple of the capacity, so `index % capacity`
 // still lands on the same storage slot either side of a wrap, and distances are
 // computed modulo it.
-#include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
+
+#define app_data (Host().appData)
 
 #include <cstdlib>
 

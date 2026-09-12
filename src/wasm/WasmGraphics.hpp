@@ -4,9 +4,9 @@
 // compositing/crossfade shader used by the WASM preset-transition system.
 //
 // These types are defined in a header (rather than a .cpp) because both the
-// render loop in projectM_emscripten.cpp and the dual-FBO C exports in
-// WasmDualFbo.cpp operate on the shared g_dualFbo / g_compositorShader
-// instances. The instances themselves are defined once in WasmDualFbo.cpp.
+// render loop in WasmRenderLoop.cpp and the dual-FBO C exports in
+// WasmDualFbo.cpp operate on the active host's dualFbo / compositorShader
+// instances (see WasmHost).
 #pragma once
 
 #include "ProjectMWasmInternal.hpp"
@@ -76,8 +76,19 @@ public:
      * @param ctx The active Emscripten WebGL context handle.
      * @param preferHighPrecision Whether RGBA32F should be preferred over RGBA16F.
      */
-    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, bool preferHighPrecision = false)
+    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, int precisionMode = 0)
     {
+        // precisionMode: 0 = prefer RGBA16F (default), 1 = prefer RGBA32F
+        // (high), 2 = force RGBA8 (byte, degraded — for debugging the low-
+        // precision path on a float-capable GPU). Host sets this via
+        // set_context_config({ fboPrecision }).
+        if (precisionMode == 2)
+        {
+            m_format = FboFloatFormat::RGBA8;
+            printf("DualFBO: Forced GL_RGBA8 (fboPrecision=byte); output is dithered/clamped.\n");
+            return;
+        }
+        const bool preferHighPrecision = (precisionMode == 1);
         const bool hasFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE);
         const bool hasHalfFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE);
 
@@ -956,6 +967,8 @@ private:
     GLint m_locPos = -1;
 };
 
-// Shared instances (defined in WasmDualFbo.cpp).
-extern DualPingPongFramebuffer g_dualFbo;
-extern CompositingBlendShader g_compositorShader;
+// The dual-FBO manager and compositing shader are per-instance state: each
+// engine owns its own pair as members of WasmHost (see WasmHost.hpp). TUs reach
+// the active host's instances via `auto& g_dualFbo = H.dualFbo;` aliases, so the
+// class definitions above stay shared here while the instances are no longer
+// process-global.

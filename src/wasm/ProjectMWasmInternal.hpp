@@ -77,12 +77,15 @@
 #endif
 
 // =============================================================================
-// AppData – ownership record for the process-global projectM engine instance.
+// AppData – per-instance engine/playlist/loading triple.
 //
-// NOTE: this is still process-global for now (see #163 / #168). Canvas CSS
-// selectors are configurable (Phase A); true multi-instance host state remains
-// a follow-up. Until then, the globals below are declared here and defined
-// once in ProjectMWasmMain (projectM_emscripten.cpp).
+// Formerly a process-global. As of #168 Phase B it is a member of WasmHost
+// (see WasmHost.hpp), one per engine instance, so two visualizers can share a
+// single Module without iframes. The former g_* host-state globals (transition
+// timeline, dual-FBO manager, quality governor, audio-source flag, WebGL
+// context, canvas selectors) are likewise WasmHost members now; each TU reaches
+// them through `WasmHost& H = Host();` plus same-named reference aliases so the
+// export bodies read unchanged.
 // =============================================================================
 typedef struct {
     projectm_handle projectm_engine;
@@ -90,47 +93,17 @@ typedef struct {
     EM_BOOL loading;
 } AppData;
 
-// ---- Core engine state (defined in projectM_emscripten.cpp) ----------------
-extern projectm_handle pm;
-extern AppData app_data;
-extern projectm_playlist_handle playlist;
-
-// ---- Async preset loading / transition gating (defined in projectM_emscripten.cpp) ----
-extern bool g_presetBReady;
-extern uint32_t g_renderedFrameCount;
-extern uint32_t g_presetReadyFrame;
-extern bool g_presetSwitchFailed;
-
-// ---- Transition controller state (defined in WasmDualFbo.cpp) --------------
-extern float g_transitionDuration;
-extern bool g_transitionActive;
-extern float g_transitionBlend;
-extern double g_transitionStartTime;
-
-// ---- Preset A idle-release policy (defined in WasmDualFbo.cpp) -------------
-extern float g_dualFboIdleReleaseSec;
-extern double g_transitionEndTime;
-
-// ---- Audio bridge state (defined in WasmAudioBridge.cpp) -------------------
-// Records which host source the AudioSourceRouter last selected. Purely
-// informational since the SharedArrayBuffer PCM ring (WasmPcmRing.cpp) became
-// the only ingest: every source writes into the same ring, so nothing in the
-// render loop branches on it.
-extern bool g_is_streaming_audio;
-
 // ---- PCM ring (defined in WasmPcmRing.cpp) --------------------------------
 // The single audio ingest path. render_frame() drains it once per frame; JS
 // producers write into it at audio rate. See WasmPcmRing.cpp for the layout.
+// Process-global on purpose: every source writes into one ring, and the active
+// host's engine drains it. Per-host rings are a follow-up if two engines need
+// independent audio.
 extern "C" {
 int pcm_ring_init(int capacity_frames);
 void pcm_ring_shutdown();
 int pcm_ring_drain();
 }
-
-// ---- Perf HUD / quality governor state (defined in WasmPerfGovernor.cpp) ---
-extern bool g_perfHudEnabled;
-extern bool g_wasLoading;
-extern int g_postLoadGraceFrames;
 
 // Frames to ignore right after a preset finishes loading. Shared between the
 // render loop (projectM_emscripten.cpp) and the governor (WasmPerfGovernor.cpp).

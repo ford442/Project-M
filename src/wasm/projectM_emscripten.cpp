@@ -1,8 +1,8 @@
 // projectM_emscripten.cpp  (ProjectMWasmMain)
 //
-// Engine lifecycle for the projectM Emscripten/WASM host: it defines the
-// process-global engine state (`pm`, `app_data`, `playlist`), builds and tears
-// down the engine + playlist + GL context around it, and owns `main()`.
+// Engine lifecycle for the projectM Emscripten/WASM host: it builds and tears
+// down the engine + playlist + GL context around the active WasmHost, and owns
+// `main()`. Per-instance state lives in WasmHost (#168 Phase B).
 //
 // The rest of the host glue lives in the focused WASM TUs:
 //   WasmWebGLContext.cpp  WebGL context create/destroy + extensions + canvas selectors
@@ -17,22 +17,24 @@
 //   WasmJsBindings.cpp    EM_JS DOM/VFS bootstrap + host-page notifications
 //
 // See docs/EMSCRIPTEN.md ("Where to add a WASM export").
-#include "ProjectMWasmInternal.hpp"
 #include "WasmGraphics.hpp"
+#include "WasmHost.hpp"
 #include "WasmWebGLContext.hpp"
 
 using namespace emscripten;
 
-// ---- Core engine state (declared extern in ProjectMWasmInternal.hpp) -------
-projectm_handle pm;
-AppData app_data;
-projectm_playlist_handle playlist = {};
-
-// ---- Async preset loading / transition gating (declared extern in header) --
-bool g_presetBReady = false;
-uint32_t g_renderedFrameCount = 0;
-uint32_t g_presetReadyFrame = 0;
-bool g_presetSwitchFailed = false;
+// Per-instance host state (#168 Phase B). Former process-global engine /
+// playlist / dual-FBO / transition fields are WasmHost members; these aliases
+// keep the lifecycle bodies reading the same as before.
+#define pm (Host().appData.projectm_engine)
+#define app_data (Host().appData)
+#define playlist (Host().appData.playlist)
+#define g_presetBReady (Host().presetBReady)
+#define g_dualFbo (Host().dualFbo)
+#define g_transitionActive (Host().transitionActive)
+#define g_transitionBlend (Host().transitionBlend)
+#define g_transitionStartTime (Host().transitionStartTime)
+#define g_transitionEndTime (Host().transitionEndTime)
 
 // kWasmPthreadPoolSize comes from cmake/generated/ProjectMWasmBuildConfig.hpp
 // (generated from PROJECTM_WASM_PTHREAD_POOL_SIZE in EmscriptenWasmFlags.cmake).
@@ -100,8 +102,11 @@ static void ResetTransitionState()
 static void TearDownEngineForRebind()
 {
     // Cancel the Emscripten main loop if one is running so rebind can restart it
-    // via start_render() after a fresh init().
+    // via start_render() after a fresh init(). The loop is process-global, so
+    // clear the registration flag too. Single-instance rebind only (documented).
     emscripten_cancel_main_loop();
+    g_mainLoopRegistered = false;
+    Host().renderLoopStarted = false;
 
     if (playlist)
     {
@@ -201,7 +206,7 @@ int init()
     // Hosts can opt into RGBA32F-first probing with ?fboPrecision=high.
     // This must be called after the WebGL context is made current so that
     // extension availability can be probed reliably.
-    g_dualFbo.DetectFormat(WasmWebGLGetContext(), WasmPreferHighPrecisionFbo());
+    g_dualFbo.DetectFormat(WasmWebGLGetContext(), WasmWebGLGetContextConfig().fboPrecision);
 
     // Must happen before the first preset renders, since both paths are decided once.
     ApplyBlurPathOverride();
@@ -259,12 +264,13 @@ void destruct()
         projectm_destroy(pm);
     }
     pm = NULL;
-    // Release the PCM ring here and nowhere else. rebind_canvases() deliberately
-    // keeps it: the ring is engine-independent, JS producers (the worklet in
-    // particular, which holds raw views and cannot call back into WASM) keep
-    // writing across a rebind, and it is allocated exactly once, so leaving it
-    // alone costs nothing and freeing it under a live producer would not be safe.
-    pcm_ring_shutdown();
+    // Release the PCM ring only when this is the last live host. The ring is
+    // process-global (one ingest for the Module); rebind_canvases() and
+    // destroy_host() of a sibling must not free it under a live producer.
+    if (LiveHostCount() <= 1)
+    {
+        pcm_ring_shutdown();
+    }
     // Phase 2: Release dual FBO resources before destroying the WebGL context
     // to avoid calling OpenGL functions with an invalid context.
     g_dualFbo.ReleaseAll();

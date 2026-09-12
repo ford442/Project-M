@@ -98,6 +98,7 @@ projectm_wasm_wrapper_include_args wrapper_include_args
 # ProjectMWasmInternal.hpp) are #included, not listed here.
 wrapper_sources=(
     "$PROJECT_ROOT/src/wasm/projectM_emscripten.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmHost.cpp"
     "$PROJECT_ROOT/src/wasm/WasmRenderLoop.cpp"
     "$PROJECT_ROOT/src/wasm/WasmShaderCache.cpp"
     "$PROJECT_ROOT/src/wasm/WasmRenderPathOverrides.cpp"

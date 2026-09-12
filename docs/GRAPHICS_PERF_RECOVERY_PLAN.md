@@ -264,7 +264,13 @@ the WASM module — no host wiring needed, unlike the render-scale tier.
 
 ### 5. Canvas MSAA — narrower than it looks (#178)
 
-`attrs.antialias = EM_TRUE` is set unconditionally (`WasmWebGLContext.cpp:95`).
+**Status (updated #128):** canvas MSAA now defaults **off** and is host-controlled.
+`ProjectMDefaultWebGLAttributes()` (`WasmWebGLContext.cpp`) reads
+`attrs.antialias` from the `WasmContextConfig` set via `set_context_config()` (default
+`0`), not from a hard-coded `EM_TRUE` and no longer by scraping `?aa=` / `canvasAA` in
+C++. Hosts opt in with `antialias: true` on `ProjectMContext` (`projectm-core.html`
+parses `?aa=1` / `localStorage.canvasAA` and forwards it). The analysis below is why the
+default is off.
 
 What actually gets drawn into the canvas (FBO 0) is small: `ProjectM::RenderFrame()`
 binds the target FBO (`ProjectM.cpp:220`) and then draws either the transition's
@@ -463,6 +469,20 @@ of-WebGL2 rather than failing to link. A1 makes this slightly more pressing, not
 `glBlitFramebuffer` with an inverted destination rectangle is precisely the kind of call where
 an emulation layer and native WebGL2 could differ. **Verify A1 and `FULL_ES3=0` in the same
 browser session**, in that order.
+
+**Status (#128 context-config PR):** that PR did the *contract* half of this item — WebGL
+context attributes and dual-FBO precision are now host-driven (`set_context_config()`), so a
+browser session can flip attributes without rebuilding — but it deliberately **did not** flip
+`FULL_ES3=1 → 0`. Per this issue's acceptance criteria ("`FULL_ES3=0` either lands with a
+recorded in-browser pass, **or** the issue records a concrete GL call that still needs the
+emulation layer"), the concrete blocker is recorded and remains:
+`CopyTexture::TryBlit()` (A1) issues `glBlitFramebuffer(src, 0,h,w,0 → dst, 0,0,w,h)` — a
+Y-inverted resolve — every frame that flips a same-size color attachment. That inverted-rect
+blit is the call most likely to behave differently between Emscripten's ES3 emulation and raw
+WebGL2's `blitFramebuffer`, and it has not been rendered with `FULL_ES3=0` on a real GPU. Until
+a session renders the A1 blit + blur3 + a no-composite-shader preset + a composite-shader
+preset + a soft-cut with `FULL_ES3=0` and records the JSON under `benchmark-results/`, the flag
+stays at `1`. The build-side measurement (−4.4% JS glue) is not sufficient on its own.
 
 Closure is the same shape of bet (JS-side size, needs a smoke test with the full host stack
 including the worker path) and should ride along with the same verification session.

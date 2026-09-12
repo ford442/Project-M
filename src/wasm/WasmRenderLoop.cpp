@@ -16,11 +16,29 @@
 // Engine lifecycle (init/destruct/rebind) and AppData ownership live in
 // projectM_emscripten.cpp; the FBO/compositor classes live in WasmGraphics.hpp
 // and their exports in WasmDualFbo.cpp.
-#include "ProjectMWasmInternal.hpp"
 #include "WasmGraphics.hpp"
+#include "WasmHost.hpp"
 #include "WasmWebGLContext.hpp"
 
-static void renderLoop()
+#define pm (Host().appData.projectm_engine)
+#define app_data (Host().appData)
+#define g_wasLoading (Host().wasLoading)
+#define g_postLoadGraceFrames (Host().postLoadGraceFrames)
+#define g_perfHudEnabled (Host().perfHudEnabled)
+#define g_dualFbo (Host().dualFbo)
+#define g_compositorShader (Host().compositorShader)
+#define g_transitionActive (Host().transitionActive)
+#define g_transitionBlend (Host().transitionBlend)
+#define g_transitionDuration (Host().transitionDuration)
+#define g_transitionStartTime (Host().transitionStartTime)
+#define g_transitionEndTime (Host().transitionEndTime)
+#define g_dualFboIdleReleaseSec (Host().dualFboIdleReleaseSec)
+#define g_presetBReady (Host().presetBReady)
+#define g_renderedFrameCount (Host().renderedFrameCount)
+
+// Renders one frame for the currently-active host. renderLoop() makes each
+// started host active in turn and calls this.
+static void RenderActiveHostFrame()
 {
     if (app_data.loading == EM_TRUE)
     {
@@ -63,6 +81,25 @@ static void renderLoop()
     return;
 }
 
+// The single Emscripten main loop services every started host. With one host
+// (the compat/default path) this is exactly the old single-instance loop; with
+// two (#168 Phase B) each is made active — which makes its own WebGL context
+// current — and rendered in turn within the same rAF tick.
+static void renderLoop()
+{
+    const int slots = HostSlotCount();
+    for (int i = 0; i < slots; ++i)
+    {
+        WasmHost* h = HostSlot(i);
+        if (h == nullptr || !h->renderLoopStarted)
+        {
+            continue;
+        }
+        SetActiveHost(h);
+        RenderActiveHostFrame();
+    }
+}
+
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void start_render(int width, int height)
@@ -101,11 +138,16 @@ void start_render(int width, int height)
     {
         fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
     }
-    emscripten_set_main_loop(renderLoop, 0, 0);
 
-
-    emscripten_set_main_loop_timing(2, 1);
-
+    // Opt this host into the shared render loop. Register the process-global
+    // Emscripten main loop only once; it then iterates every started host.
+    Host().renderLoopStarted = true;
+    if (!g_mainLoopRegistered)
+    {
+        emscripten_set_main_loop(renderLoop, 0, 0);
+        emscripten_set_main_loop_timing(2, 1);
+        g_mainLoopRegistered = true;
+    }
 
     return;
 }

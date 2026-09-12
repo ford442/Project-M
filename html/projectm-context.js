@@ -37,10 +37,88 @@ import {
     loadLocalPresetFile,
     updatePresetDisplay,
 } from './projectm-presets.js';
-import { startRender } from './generated/projectm-wasm-api.js';
+import {
+    startRender,
+    setPresetLocked,
+    setTransparencyMode,
+    switchPreset,
+    createHost,
+    setActiveHost,
+    destroyHost,
+    setContextConfig,
+} from './generated/projectm-wasm-api.js';
 
 const DEFAULT_TARGET_FPS = 60;
 let canvasIdSerial = 0;
+
+/**
+ * Boot a single projectM WASM Module *without* initialising an engine, so that
+ * several `ProjectMContext` instances can share it and each create their own
+ * per-instance host with `create_host()` (#168 Phase B). Pass the returned
+ * module to each context as `options.sharedModule`.
+ *
+ * Two engines in one Module cost one INITIAL_MEMORY reservation instead of one
+ * per iframe; see docs/EMSCRIPTEN.md ("Multi-instance host state") for the
+ * memory budget and the process-global audio caveat.
+ *
+ * @param {{
+ *   wasmVersion?: string,
+ *   wasmBaseUrl?: string,
+ *   wasmScriptUrl?: string,
+ *   documentRef?: Document,
+ *   windowRef?: (Window & typeof globalThis),
+ *   primaryCanvasSelector?: string,
+ *   secondaryCanvasSelector?: string,
+ * }} [options]
+ * @returns {Promise<ProjectMModule>}
+ */
+export async function bootProjectMSharedModule(options = {}) {
+    const {
+        wasmVersion,
+        wasmBaseUrl,
+        wasmScriptUrl,
+        documentRef = typeof document !== 'undefined' ? document : undefined,
+        windowRef = typeof window !== 'undefined' ? window : undefined,
+        primaryCanvasSelector,
+        secondaryCanvasSelector,
+    } = options;
+
+    const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
+    const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+
+    if (wasmScriptUrl) {
+        await loadProjectMWasmScript({
+            documentRef,
+            baseUrl: resolvedBaseUrl,
+            pmScript: wasmScriptUrl,
+            rootScript: wasmScriptUrl,
+            forceRefresh: true,
+        });
+    } else {
+        await loadProjectMWasmScript({
+            documentRef,
+            baseUrl: resolvedBaseUrl,
+            ...(versionPaths
+                ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                : {}),
+            forceRefresh: Boolean(wasmVersion),
+        });
+    }
+
+    const module = /** @type {ProjectMModule} */ (await createProjectMModule({
+        scriptSrc: wasmScriptUrl || undefined,
+        wasmVersion,
+        baseUrl: resolvedBaseUrl,
+        windowRef,
+        noInitialRun: true,
+        primaryCanvasSelector,
+        secondaryCanvasSelector,
+    }));
+    if (windowRef) {
+        windowRef.Module = module;
+    }
+    return module;
+}
 
 /**
  * Ensure a canvas has a document-unique id for Emscripten CSS selectors.
@@ -230,6 +308,16 @@ export class ProjectMContext {
         this.workerStats = null;
         /** @type {((fps: number) => void) | undefined} */
         this.workerFpsSink = undefined;
+        /**
+         * Opaque per-instance host handle from create_host() when this context
+         * shares a Module with others (#168 Phase B). 0 means the process
+         * default host (single-instance / legacy path), where no set_active_host
+         * is needed because there is only one engine.
+         * @type {number}
+         */
+        this.hostHandle = 0;
+        /** Whether this context owns the Module (created it) vs. shares one. */
+        this.ownsModule = true;
         this.ready = false;
         this.destroyed = false;
         /** @type {ResizeObserver | null} */
@@ -305,72 +393,107 @@ this._externalReceiverClose = null;
         try {
             const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
             const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+            const sharedModule = this.options.sharedModule;
 
-            // Topology first: the render worker takes the canvas by transfer,
-            // so it has to be asked before anything on this thread touches a
-            // drawing context. A worker that cannot start falls back to the
-            // main thread here and the rest of start() is identical — that is
-            // the whole point of the transport.
-            const preferWorker = renderTopology === 'worker'
-                || (renderTopology === 'auto' && isRenderWorkerEnabled());
-            if (preferWorker) {
-                this.transport = await this.#startRenderWorker({
-                    resolvedBaseUrl,
-                    wasmScriptUrl,
-                    versionPaths,
-                    wasmVersion,
-                    targetFps,
-                    qualityGovernor,
-                    meshQuality,
-                });
-                if (!this.transport && renderTopology === 'worker') {
-                    throw new Error('renderTopology="worker" was requested but the render worker could not start');
-                }
-            }
-
-            if (!this.transport) {
-                if (wasmScriptUrl) {
-                    await loadProjectMWasmScript({
-                        documentRef,
-                        baseUrl: resolvedBaseUrl,
-                        pmScript: wasmScriptUrl,
-                        rootScript: wasmScriptUrl,
-                        forceRefresh: true,
-                    });
-                } else {
-                    await loadProjectMWasmScript({
-                        documentRef,
-                        baseUrl: resolvedBaseUrl,
-                        ...(versionPaths
-                            ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
-                            : {}),
-                        forceRefresh: Boolean(wasmVersion),
-                    });
-                }
-
-                this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
-                    scriptSrc: wasmScriptUrl || undefined,
-                    wasmVersion,
-                    baseUrl: resolvedBaseUrl,
-                    windowRef,
-                    noInitialRun: true,
-                    primaryCanvasSelector: this.primaryCanvasSelector,
-                    secondaryCanvasSelector: this.secondaryCanvasSelector,
-                }));
+            if (sharedModule) {
+                // Multi-instance path (#168 Phase B): reuse a Module booted by
+                // bootProjectMSharedModule() and create a dedicated engine
+                // instance inside it. create_host() sets its own canvas
+                // selectors and inits the engine, returning an opaque handle;
+                // every engine op below activates this host first.
+                this.module = /** @type {ProjectMModule} */ (sharedModule);
+                this.ownsModule = false;
                 if (windowRef) {
                     windowRef.Module = this.module;
                 }
-
-                if (!checkInit(this.module, {
-                    primaryCanvasSelector: this.primaryCanvasSelector,
-                    secondaryCanvasSelector: this.secondaryCanvasSelector,
-                })) {
-                    const error = new Error('projectM init() failed');
-                    onError?.({ code: -1, message: error.message, error });
+                // Context attributes are baked at context creation, which
+                // create_host() does — configure them first.
+                this.#applyContextConfig();
+                const handle = createHost(
+                    this.module,
+                    this.primaryCanvasSelector,
+                    this.secondaryCanvasSelector || '#scanvas'
+                );
+                if (!handle) {
+                    const error = new Error(
+                        'create_host() failed (instance cap reached or engine init failed)'
+                    );
+                    onError?.({ code: 4, message: error.message, error });
                     throw error;
                 }
-
+                this.hostHandle = handle;
                 this.transport = createModuleTransport(this.module);
+            } else {
+                // Topology first: the render worker takes the canvas by transfer,
+                // so it has to be asked before anything on this thread touches a
+                // drawing context. A worker that cannot start falls back to the
+                // main thread here and the rest of start() is identical — that is
+                // the whole point of the transport.
+                const preferWorker = renderTopology === 'worker'
+                    || (renderTopology === 'auto' && isRenderWorkerEnabled());
+                if (preferWorker) {
+                    this.transport = await this.#startRenderWorker({
+                        resolvedBaseUrl,
+                        wasmScriptUrl,
+                        versionPaths,
+                        wasmVersion,
+                        targetFps,
+                        qualityGovernor,
+                        meshQuality,
+                    });
+                    if (!this.transport && renderTopology === 'worker') {
+                        throw new Error('renderTopology="worker" was requested but the render worker could not start');
+                    }
+                }
+
+                if (!this.transport) {
+                    if (wasmScriptUrl) {
+                        await loadProjectMWasmScript({
+                            documentRef,
+                            baseUrl: resolvedBaseUrl,
+                            pmScript: wasmScriptUrl,
+                            rootScript: wasmScriptUrl,
+                            forceRefresh: true,
+                        });
+                    } else {
+                        await loadProjectMWasmScript({
+                            documentRef,
+                            baseUrl: resolvedBaseUrl,
+                            ...(versionPaths
+                                ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                                : {}),
+                            forceRefresh: Boolean(wasmVersion),
+                        });
+                    }
+
+                    this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
+                        scriptSrc: wasmScriptUrl || undefined,
+                        wasmVersion,
+                        baseUrl: resolvedBaseUrl,
+                        windowRef,
+                        noInitialRun: true,
+                        primaryCanvasSelector: this.primaryCanvasSelector,
+                        secondaryCanvasSelector: this.secondaryCanvasSelector,
+                    }));
+                    if (windowRef) {
+                        windowRef.Module = this.module;
+                    }
+
+                    // Context attributes are baked when checkInit() creates the
+                    // WebGL context — configure them first.
+                    this.#applyContextConfig();
+
+                    if (!checkInit(this.module, {
+                        primaryCanvasSelector: this.primaryCanvasSelector,
+                        secondaryCanvasSelector: this.secondaryCanvasSelector,
+                    })) {
+                        const error = new Error('projectM init() failed');
+                        onError?.({ code: -1, message: error.message, error });
+                        throw error;
+                    }
+
+                    this.transport = createModuleTransport(this.module);
+                }
             }
 
             const transport = /** @type {RenderTransport} */ (this.transport);
@@ -408,6 +531,12 @@ this._externalReceiverClose = null;
                     canvasSelector: this.primaryCanvasSelector,
                 });
             }
+
+            // Everything from here drives the engine; make this context's host
+            // active first (no-op for the single-instance default host). The
+            // calls below run synchronously without yielding, so one activation
+            // covers the whole startup control sequence.
+            this.#activate();
 
             syncCanvasSize({
                 transport,
@@ -502,6 +631,7 @@ this._externalReceiverClose = null;
         if (!this.transport) {
             throw new Error('ProjectMContext is not started');
         }
+        this.#activate();
         if (this.module) {
             return loadPresetFromUrl(url, {
                 module: this.module,
@@ -532,6 +662,7 @@ this._externalReceiverClose = null;
         if (!this.transport) {
             throw new Error('ProjectMContext is not started');
         }
+        this.#activate();
         if (this.module) {
             return loadLocalPresetFile(file, {
                 module: this.module,
@@ -559,6 +690,7 @@ this._externalReceiverClose = null;
      * @param {Uint8Array} bytes
      */
     addPreset(vfsPath, bytes) {
+        this.#activate();
         this.transport?.writePreset(vfsPath, bytes, 'add');
     }
 
@@ -566,24 +698,45 @@ this._externalReceiverClose = null;
      * @param {number} threshold RGB cutoff below which pixels go transparent.
      */
     setTransparencyThreshold(threshold) {
+        this.#activate();
         this.transport?.callVoid('setTransparencyThreshold', threshold);
     }
 
     nextPreset() {
-        this.transport?.callVoid('switchPreset');
+        this.#activate();
+        if (this.transport) {
+            this.transport.callVoid('switchPreset');
+            return;
+        }
+        if (!this.module) {
+            return;
+        }
+        switchPreset(this.module);
     }
 
     /** @param {boolean} locked */
     setLocked(locked) {
-        this.transport?.callVoid('setPresetLocked', locked);
+        this.#activate();
+        if (this.transport) {
+            this.transport.callVoid('setPresetLocked', locked);
+            return;
+        }
+        if (!this.module) {
+            return;
+        }
+        setPresetLocked(this.module, locked);
     }
 
     /** @param {boolean} enabled */
     setTransparent(enabled) {
-        if (!this.transport) {
+        this.#activate();
+        if (this.transport) {
+            this.transport.callVoid('setTransparencyMode', enabled);
+        } else if (this.module) {
+            setTransparencyMode(this.module, enabled);
+        } else {
             return;
         }
-        this.transport.callVoid('setTransparencyMode', enabled);
         if (this.secondaryCanvas) {
             this.secondaryCanvas.style.display = enabled ? 'none' : 'block';
         }
@@ -594,6 +747,7 @@ this._externalReceiverClose = null;
      * @returns {string | undefined}
      */
     setMeshQuality(quality) {
+        this.#activate();
         if (this.module) {
             // 'auto' resolves against the device, which needs the module's own
             // view of it; only the resolved grid crosses to the worker.
@@ -602,6 +756,7 @@ this._externalReceiverClose = null;
         if (!this.transport) {
             return;
         }
+        this.#activate();
         const grid = quality === 'low' ? [64, 48] : [80, 60];
         this.transport.callVoid('setMesh', grid[0], grid[1]);
         return quality;
@@ -612,12 +767,14 @@ this._externalReceiverClose = null;
      * @returns {number | undefined}
      */
     setTargetFps(fps) {
+        this.#activate();
         if (this.module) {
             return setTargetFps(this.module, fps);
         }
         if (!this.transport) {
             return;
         }
+        this.#activate();
         this.transport.callVoid('setTargetFps', fps);
         return fps;
     }
@@ -640,6 +797,7 @@ this._externalReceiverClose = null;
      * @param {number} [channels]
      */
     feedPcm(buffer, channels = 2) {
+        this.#activate();
         this.transport?.feedPcm(buffer, channels);
     }
 
@@ -658,6 +816,7 @@ this._externalReceiverClose = null;
     }
 
     resize() {
+        this.#activate();
         syncCanvasSize({
             transport: this.transport,
             container: this.container,
@@ -667,6 +826,44 @@ this._externalReceiverClose = null;
             devicePixelRatio: this.options.devicePixelRatio,
             renderScale: this.renderScale,
         });
+    }
+
+    /**
+     * Make this context's engine the active host before a control op. No-op for
+     * the single-instance default host (hostHandle 0), where there is only one
+     * engine and set_active_host would be redundant.
+     */
+    #activate() {
+        if (this.hostHandle && this.module) {
+            setActiveHost(this.module, this.hostHandle);
+        }
+    }
+
+    /**
+     * Forward WebGL context attributes + dual-FBO precision to the WASM host
+     * before it creates the context. Options default to the historical behavior
+     * (MSAA off, preserveDrawingBuffer off, depth/stencil on, high-performance
+     * GPU, RGBA16F precision), so a host that sets none keeps the old defaults.
+     */
+    #applyContextConfig() {
+        if (!this.module || typeof setContextConfig !== 'function') {
+            return;
+        }
+        const o = this.options;
+        const powerMap = { 'default': 0, 'low-power': 1, 'high-performance': 2 };
+        const fboMap = { 'half': 0, 'high': 1, 'byte': 2 };
+        setContextConfig(
+            this.module,
+            o.antialias ? 1 : 0,
+            o.preserveDrawingBuffer ? 1 : 0,
+            (o.depth ?? true) ? 1 : 0,
+            (o.stencil ?? true) ? 1 : 0,
+            // Context alpha stays on (transparency overlays); the `alpha` option
+            // is a separate canvas-CSS hint, not the WebGL alpha attribute.
+            1,
+            powerMap[o.powerPreference ?? 'high-performance'] ?? 2,
+            fboMap[o.fboPrecision ?? 'half'] ?? 0
+        );
     }
 
     destroy() {
@@ -698,12 +895,17 @@ this._externalReceiverClose = null;
         setExternalPcmTransport(null);
         this.audioRouter?.destroy();
         this.audioRouter = null;
-        // Tears down the module on the main thread, terminates the worker in
-        // the other topology. A module set without a transport (start() never
-        // ran, or a host wired one in by hand) still gets torn down.
-        if (this.transport) {
+        if (this.hostHandle && this.module) {
+            // Multi-instance: free just this engine; the shared Module and any
+            // sibling contexts keep running. The Module itself is torn down by
+            // whoever booted it (bootProjectMSharedModule caller).
+            destroyHost(this.module, this.hostHandle);
+            this.hostHandle = 0;
+        } else if (this.transport) {
+            // Tears down the module on the main thread, terminates the worker in
+            // the other topology.
             this.transport.destroy();
-        } else if (this.module?._destruct) {
+        } else if (this.ownsModule && this.module?._destruct) {
             this.module._destruct();
         }
         this.transport = null;
@@ -870,6 +1072,7 @@ this._externalReceiverClose = null;
             }
 
             const now = performance.now();
+            this.#activate();
             const frameCount = this.module._get_rendered_frame_count?.() ?? 0;
             if (!this.fpsLastSample) {
                 this.fpsLastSample = now;

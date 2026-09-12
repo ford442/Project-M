@@ -28,8 +28,15 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _get_projectm_handle
         _init
         _set_canvas_selectors
+        _set_context_config
         _init_with_canvases
         _rebind_canvases
+        _create_host
+        _set_active_host
+        _get_active_host
+        _destroy_host
+        _host_count
+        _max_host_count
         _load_preset_file
         _load_preset_file_hard
         _switch_preset

@@ -13,20 +13,22 @@
 // a worker (OffscreenCanvas render path), where neither exists. Globals that
 // are genuinely the host contract go through `globalThis`; DOM lookups resolve
 // `globalThis.document` once and bail when it is absent.
-#include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
 
 using namespace emscripten;
 
-// Which host source the AudioSourceRouter last selected: a media element
-// (true) or the worklet/capture path (false).
+// Per-instance host state (#168 Phase B). The audio-source flag is now a
+// WasmHost member. Informational only: every source writes into the one PCM
+// ring in WasmPcmRing.cpp. The worklet itself is still process-global, so in a
+// two-instance Module the second engine is visual-only unless the host routes
+// PCM to it via _projectm_pcm_add_float_wrapper(handle, ...).
 //
-// Informational only. Every source -- worklet playback, media elements routed
-// through a MediaElementAudioSourceNode, external postMessage PCM, synthetic
-// test feeds -- now writes into the one PCM ring in WasmPcmRing.cpp, which
-// render_frame() drains. Nothing branches on this flag; it is kept so the
-// host-side exclusive-source router (html/projectm-audio-source-router.js)
-// keeps its existing export and hosts can read back what they selected.
-bool g_is_streaming_audio = false;
+// None of the EM_JS bodies below contain a bare `pm` / `app_data` /
+// `g_is_streaming_audio` token, so these object-like macros do not rewrite the
+// embedded JavaScript.
+#define pm (Host().appData.projectm_engine)
+#define app_data (Host().appData)
+#define g_is_streaming_audio (Host().isStreamingAudio)
 
 void projectm_pcm_add_float_from_js_array_wrapper(
     uintptr_t pm_handle_value,
@@ -34,7 +36,11 @@ void projectm_pcm_add_float_from_js_array_wrapper(
     unsigned int num_samples_per_channel,
     int channels_enum_value)
 {
-    projectm_handle current_pm_handle = app_data.projectm_engine;
+    // Honor an explicit engine handle (multi-instance PCM routing); fall back to
+    // the active host's engine when 0 is passed (legacy single-instance callers).
+    projectm_handle current_pm_handle = pm_handle_value
+                                            ? reinterpret_cast<projectm_handle>(pm_handle_value)
+                                            : app_data.projectm_engine;
     if (!current_pm_handle)
     {
         fprintf(stderr, "Error: projectM handle is null in from_js_array_wrapper.\n");
@@ -394,8 +400,12 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data, unsigned int num_samples_per_channel, int channels_enum_value)
 {
-    (void) pm_handle_value;
-    projectm_handle current_pm_handle = app_data.projectm_engine;
+    // Honor an explicit engine handle so a host can feed a specific instance
+    // (multi-instance A/B). 0 falls back to the active host's engine, preserving
+    // the legacy single-instance contract where the argument was ignored.
+    projectm_handle current_pm_handle = pm_handle_value
+                                            ? reinterpret_cast<projectm_handle>(pm_handle_value)
+                                            : app_data.projectm_engine;
     if (!current_pm_handle)
     {
         fprintf(stderr, "Error: projectM handle is null in pcm_add_float_wrapper.\n");

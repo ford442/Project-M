@@ -254,6 +254,52 @@
         mark('dual-FBO exports absent; skipped soft-cut path');
       }
 
+      // Two-instance init/render/teardown (#168 Phase B). Guarded so an older
+      // bundle without the multi-instance exports still passes (marked skipped).
+      if (typeof Module._max_host_count === 'function' && typeof Module._create_host === 'function') {
+        const maxHosts = Module._max_host_count();
+        if (maxHosts >= 2) {
+          const c2 = document.createElement('canvas');
+          c2.id = 'pm-smoke-main-2'; c2.width = 64; c2.height = 64;
+          document.body.appendChild(c2);
+          const s2 = document.createElement('canvas');
+          s2.id = 'pm-smoke-secondary-2'; s2.width = 64; s2.height = 64;
+          document.body.appendChild(s2);
+
+          const before = Module._host_count();
+          const handle = Module.ccall('create_host', 'number', ['string', 'string'],
+            ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
+          if (!handle) throw new Error('create_host() returned 0 (init failed or at cap)');
+          if (Module._host_count() !== before + 1) {
+            throw new Error('host_count did not increment after create_host (' + before + ' -> ' + Module._host_count() + ')');
+          }
+          if (Module._get_active_host() !== handle) {
+            throw new Error('active host != created handle after create_host');
+          }
+
+          // Render a few frames on the second engine (it is the active host now).
+          if (typeof Module._start_render === 'function') Module._start_render(64, 64);
+          for (let i = 0; i < 4; ++i) Module._render_frame();
+          mark('second-instance render_frame x4');
+
+          // Switch back to the default host and confirm both engines coexist.
+          Module.ccall('set_active_host', null, ['number'], [0]);
+          Module._render_frame();
+
+          // Tear the second engine down; the first must survive.
+          Module.ccall('destroy_host', null, ['number'], [handle]);
+          if (Module._host_count() !== before) {
+            throw new Error('host_count not restored after destroy_host (' + Module._host_count() + ' != ' + before + ')');
+          }
+          Module._render_frame(); // default host still renders
+          mark('two-instance create/render/destroy passed (host_count ' + before + ' -> ' + (before + 1) + ' -> ' + Module._host_count() + ')');
+        } else {
+          mark('two-instance skipped (max_host_count < 2)');
+        }
+      } else {
+        mark('two-instance exports absent; skipped');
+      }
+
       finish(true);
     }
 

@@ -83,6 +83,14 @@ export class ProjectMVisualizerElement extends HTMLElement {
     #context = null;
     /** @type {Promise<ProjectMContext> | null} */
     #bootPromise = null;
+    /**
+     * Optional shared projectM Module (from bootProjectMSharedModule()). Set
+     * this property before the element boots to run this visualizer as an
+     * additional engine instance inside one Module (#168 Phase B) instead of
+     * booting its own. See html/embed-multi-same-module.html.
+     * @type {import('./generated/projectm-wasm-api.ts').ProjectMModule | null}
+     */
+    sharedModule = null;
 
     connectedCallback() {
         if (this.querySelector('canvas.pm-main-canvas')) {
@@ -227,11 +235,19 @@ export class ProjectMVisualizerElement extends HTMLElement {
             return Promise.reject(error);
         }
 
-        if (document.querySelectorAll('project-m-visualizer').length > 1) {
+        // Multi-instance (#168 Phase B): set the element's `sharedModule`
+        // property (to a Module from bootProjectMSharedModule()) before it boots
+        // and each element creates its own engine via create_host() in that one
+        // Module — no iframes, one INITIAL_MEMORY reservation. Without a shared
+        // module each element still boots its own Module (the higher-memory
+        // path), so warn only in that case.
+        const sharedModule = this.sharedModule ?? undefined;
+        if (!sharedModule && document.querySelectorAll('project-m-visualizer').length > 1) {
             console.warn(
-                '[project-m-visualizer] Multiple elements in one document: only one Module ' +
-                'instance / one active visualizer is supported. Use separate iframes for ' +
-                'multi-embed, or rebind_canvases() to switch the active surface.'
+                '[project-m-visualizer] Multiple elements each booting their own Module. ' +
+                'For two visualizers in one Module (lower memory), boot one module with ' +
+                'bootProjectMSharedModule() and set each element\'s `sharedModule` property, ' +
+                'or use separate iframes for isolation.'
             );
         }
 
@@ -257,6 +273,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 canvas,
                 secondaryCanvas,
                 container: canvas.parentElement ?? this,
+                sharedModule,
                 wasmBaseUrl: wasmBaseUrl || import.meta.url,
                 wasmScriptUrl: wasmScriptUrl || undefined,
                 requireCrossOriginIsolation,

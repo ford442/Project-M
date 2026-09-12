@@ -46,6 +46,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   └── stb_image/          # Image loading
 ├── src/wasm/                # Emscripten host wrapper (all TUs, see docs/EMSCRIPTEN.md)
 │   ├── projectM_emscripten.cpp # WASM host wrapper: engine lifecycle + main()
+│   ├── WasmHost.hpp/.cpp       # Per-instance WasmHost struct + host registry + create/set/destroy_host
 │   ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
 │   ├── WasmRenderLoop.cpp      # Main loop, start_render/render_frame/set_window_size
 │   ├── WasmShaderCache.cpp     # Transpiled-GLSL cache hooks + shader_cache_* exports

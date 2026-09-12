@@ -28,7 +28,9 @@
 //
 // See docs/GRAPHICS_BENCHMARK_HARNESS.md.
 
-#include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
+
+#define pm (Host().appData.projectm_engine)
 
 #include <projectM-4/debug.h>
 

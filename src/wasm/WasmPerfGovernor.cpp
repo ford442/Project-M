@@ -3,7 +3,7 @@
 // Performance HUD instrumentation (CPU perf timers + WebGL GPU timer queries)
 // and the adaptive quality governor that trades per-pixel mesh resolution for
 // frame-rate stability. Also hosts the OpenMP introspection exports.
-#include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
 
 // =============================================================================
 // Perf HUD / Benchmark support (see docs/PERFORMANCE.md)
@@ -14,7 +14,24 @@
 // called, so there is no overhead in normal use.
 // =============================================================================
 
-bool g_perfHudEnabled = false; //!< Whether set_perf_hud(1) has been called.
+// Per-instance host state (#168 Phase B). The perf HUD flag and the entire
+// adaptive-quality governor (enabled flag, target FPS, current tier, hysteresis
+// counters, post-load grace) were process-global; they are now WasmHost members
+// so each engine governs its own quality independently (acceptance: "governor v2
+// works per instance, not process-wide"). The former global names map to the
+// active host's members so the governor bodies below stay unchanged. Governor
+// entry points (UpdateQualityGovernor / ResetGovernorCounters / renderLoop) run
+// under the active host.
+#define pm (Host().appData.projectm_engine)
+#define g_perfHudEnabled (Host().perfHudEnabled)
+#define g_wasLoading (Host().wasLoading)
+#define g_postLoadGraceFrames (Host().postLoadGraceFrames)
+#define g_governorEnabled (Host().governorEnabled)
+#define g_targetFps (Host().targetFps)
+#define g_qualityTier (Host().qualityTier)
+#define g_qualityTierInitialized (Host().qualityTierInitialized)
+#define g_overBudgetFrames (Host().overBudgetFrames)
+#define g_underBudgetFrames (Host().underBudgetFrames)
 
 // Begins a GPU timer query for the upcoming render_frame() call, if the
 // EXT_disjoint_timer_query_webgl2 extension is available. No-op otherwise.
@@ -137,15 +154,9 @@ EM_JS(void, js_perf_report_frame, (
 //     ASYNCIFY preset compile cannot trigger a permanent downgrade.
 // =============================================================================
 
-static bool g_governorEnabled = true; //!< Whether the adaptive quality governor is active.
-static int g_targetFps = 60;          //!< Frame budget reference, set via set_target_fps().
-static int g_qualityTier = 0;         //!< 0 = high, 1 = regular, 2 = low. See kQualityTiers.
-static bool g_qualityTierInitialized = false;
-
-static int g_overBudgetFrames = 0;
-static int g_underBudgetFrames = 0;
-bool g_wasLoading = false;
-int g_postLoadGraceFrames = 0;
+// (g_governorEnabled / g_targetFps / g_qualityTier / g_qualityTierInitialized /
+// g_overBudgetFrames / g_underBudgetFrames / g_wasLoading / g_postLoadGraceFrames
+// are now per-host WasmHost members mapped to macros at the top of this file.)
 
 constexpr double kOverBudgetRatio = 1.3;       //!< Step down once frame time exceeds 1.3x budget...
 constexpr int kOverBudgetFrameThreshold = 15;  //!< ...for this many consecutive frames (~0.25s @ 60fps).

@@ -37,6 +37,7 @@ Project-M/
 ├── html/                 # WASM demo hosts + shared browser modules (see html/README.md)
 ├── src/wasm/                 # Emscripten host wrapper (all TUs, see split below)
 │   ├── projectM_emscripten.cpp  # WASM host: engine lifecycle (init/rebind/destruct)
+│   ├── WasmHost.hpp/.cpp        # Per-instance WasmHost struct + host registry + create/set/destroy_host
 │   ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
 │   ├── WasmRenderLoop.cpp       # Main loop, start_render/render_frame/set_window_size
 │   ├── WasmShaderCache.cpp      # Transpiled-GLSL cache hooks + shader_cache_* exports

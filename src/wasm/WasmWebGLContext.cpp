@@ -3,15 +3,60 @@
 // WebGL 2 context create/destroy, extension enablement, and configurable canvas
 // CSS selectors. See docs/EMSCRIPTEN.md § WebGL context attributes.
 #include "WasmWebGLContext.hpp"
-#include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
 
 using namespace emscripten;
 
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE g_glCtx = 0;
+// Per-instance host state (#168 Phase B). The WebGL context handle and the
+// canvas CSS selectors were process-global, so a second engine could not own a
+// distinct canvas. They are now WasmHost members; mapping the former names to
+// the active host's members keeps the create/destroy/resize bodies unchanged.
+// The selector defaults ("#mcanvas" / "#scanvas") live on the WasmHost member
+// initialisers. None of the EM_ASM/EM_JS bodies below reference these
+// identifiers, so these object-like macros do not rewrite the embedded JS.
+#define g_glCtx (Host().glCtx)
+#define g_mainCanvasSelector (Host().primarySelector)
+#define g_secondaryCanvasSelector (Host().secondarySelector)
+#define g_canvasSelectorsExplicit (Host().canvasSelectorsExplicit)
 
-static char g_mainCanvasSelector[kCanvasSelectorMax] = "#mcanvas";
-static char g_secondaryCanvasSelector[kCanvasSelectorMax] = "#scanvas";
-static bool g_canvasSelectorsExplicit = false;
+// WebGL context attributes + dual-FBO precision, set from the JS host layer via
+// set_context_config() and read at context creation (#128 / #84 / #179 A5).
+// Process-global "current" config: create_host() calls are sequential and JS
+// sets this immediately before each one, so a context created here always sees
+// the config intended for it. Defaults live on the struct.
+static WasmContextConfig g_contextConfig;
+
+void WasmWebGLSetContextConfig(const WasmContextConfig& cfg)
+{
+    g_contextConfig = cfg;
+}
+
+const WasmContextConfig& WasmWebGLGetContextConfig()
+{
+    return g_contextConfig;
+}
+
+extern "C" {
+// Host-driven context configuration. Individual numeric args (rather than a
+// packed struct pointer) keep the ccall marshalling simple and robust. Call
+// before init() / init_with_canvases() / create_host(); attributes are baked
+// into the WebGL context at creation and cannot change afterward.
+EMSCRIPTEN_KEEPALIVE
+void set_context_config(int antialias, int preserveDrawingBuffer, int depth,
+                        int stencil, int alpha, int powerPreference,
+                        int fboPrecision)
+{
+    WasmContextConfig cfg;
+    cfg.antialias = antialias ? 1 : 0;
+    cfg.preserveDrawingBuffer = preserveDrawingBuffer ? 1 : 0;
+    cfg.depth = depth ? 1 : 0;
+    cfg.stencil = stencil ? 1 : 0;
+    cfg.alpha = alpha ? 1 : 0;
+    cfg.powerPreference = (powerPreference >= 0 && powerPreference <= 2) ? powerPreference : 2;
+    cfg.fboPrecision = (fboPrecision >= 0 && fboPrecision <= 2) ? fboPrecision : 0;
+    WasmWebGLSetContextConfig(cfg);
+}
+} // extern "C"
 
 static void CopyCanvasSelector(char* dest, size_t destSize, const char* src, const char* fallback)
 {
@@ -102,71 +147,36 @@ bool WasmWebGLCanvasElementExists(const char* selector)
     // clang-format on
 }
 
-// Governor v2 canvas MSAA policy (see docs/PERFORMANCE.md, issue #178).
+// Builds the WebGL context attributes from the host-supplied WasmContextConfig
+// (set via set_context_config() from the JS layer — see WasmWebGLContext.hpp).
 //
-// What actually draws into the canvas (FBO 0) is a fullscreen quad (the transition
-// blend or the final CopyTexture present) plus, if used, user sprites — everything
-// else (warp mesh, waveforms, shapes, composite grid) renders into the preset's own
-// FBOs, where MSAA never applied in the first place. A fullscreen quad has no
-// interior edges, so multisampling it is invisible; only sprite geometry benefits.
-// Default OFF (skips a multisampled color buffer + its per-frame resolve); opt in
-// with `?aa=1` or `localStorage.canvasAA = '1'` for desktop builds that draw sprites.
-static bool ProjectMCanvasAntialiasRequested()
-{
-    // clang-format off
-    return EM_ASM_INT({
-               try
-               {
-                   var params = new URLSearchParams((globalThis.location && globalThis.location.search) || '');
-                   var q = params.get('aa');
-                   if (q === '1' || q === 'true')
-                   {
-                       return 1;
-                   }
-                   if (q === '0' || q === 'false')
-                   {
-                       return 0;
-                   }
-                   var storage = globalThis.localStorage;
-                   var stored = storage ? storage.getItem('canvasAA') : null;
-                   return (stored === '1' || stored === 'true') ? 1 : 0;
-               }
-               catch (e)
-               {
-                   return 0;
-               }
-           }) != 0;
-    // clang-format on
-}
-
+// Canvas MSAA (governor v2, #178) defaults OFF: what draws into the canvas
+// (FBO 0) is a fullscreen quad (the transition blend or final CopyTexture
+// present) plus optional user sprites — everything else renders into the
+// preset's own FBOs, where MSAA never applied. A fullscreen quad has no interior
+// edges, so multisampling it is invisible; only sprite geometry benefits, so the
+// host opts in with `antialias: true` (e.g. `?aa=1` parsed in host JS). The
+// former `?aa=` / `?capture=` / `localStorage.canvasAA` scraping that lived here
+// moved to the host JS layer per #128.
 static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
 {
+    const WasmContextConfig& cfg = WasmWebGLGetContextConfig();
+
     EmscriptenWebGLContextAttributes attrs;
     emscripten_webgl_init_context_attributes(&attrs);
     attrs.majorVersion = 2;
     attrs.minorVersion = 0;
-    attrs.alpha = EM_TRUE;
-    attrs.depth = EM_TRUE;
-    attrs.stencil = EM_TRUE;
-    attrs.antialias = ProjectMCanvasAntialiasRequested() ? EM_TRUE : EM_FALSE;
+    attrs.alpha = cfg.alpha ? EM_TRUE : EM_FALSE;
+    attrs.depth = cfg.depth ? EM_TRUE : EM_FALSE;
+    attrs.stencil = cfg.stencil ? EM_TRUE : EM_FALSE;
+    attrs.antialias = cfg.antialias ? EM_TRUE : EM_FALSE;
     attrs.premultipliedAlpha = EM_TRUE;
-    // clang-format off
-    attrs.preserveDrawingBuffer = EM_ASM_INT({
-        try
-        {
-            var params = new URLSearchParams((globalThis.location && globalThis.location.search) || '');
-            return (globalThis.__projectMCaptureMode === true || params.get('capture') === '1' || params.get('capture') === 'true') ? 1 : 0;
-        }
-        catch (e)
-        {
-            return globalThis.__projectMCaptureMode === true ? 1 : 0;
-        }
-    })
-                                    // clang-format on
-                                    ? EM_TRUE
-                                    : EM_FALSE;
+    attrs.preserveDrawingBuffer = cfg.preserveDrawingBuffer ? EM_TRUE : EM_FALSE;
     attrs.enableExtensionsByDefault = EM_TRUE;
-    attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
+    attrs.powerPreference =
+        cfg.powerPreference == 1   ? EM_WEBGL_POWER_PREFERENCE_LOW_POWER
+        : cfg.powerPreference == 0 ? EM_WEBGL_POWER_PREFERENCE_DEFAULT
+                                   : EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
     return attrs;
 }
 

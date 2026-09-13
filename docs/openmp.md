@@ -21,7 +21,8 @@ The per-pixel mesh loop is the largest remaining CPU cost at 80×60. Compiling t
 equations to a warp vertex shader (so OpenMP is no longer load-bearing for lowerable
 presets) is [#227](https://github.com/ford442/Project-M/issues/227); design in
 [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). **Not implemented.** A GPU path must not
-reintroduce a 4-thread libomp spin (`kmp_set_blocktime(0)`, #220).
+reintroduce a 4-thread libomp spin. The CPU path already uses `kmp_set_blocktime(0)`
+to suppress that spin (#220).
 
 Tune thresholds with:
 

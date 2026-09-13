@@ -156,24 +156,27 @@ to float to "match."
 | `mod` | `mod(a,b)` | Milkdrop `mod` is floating; GLSL `mod` matches better than `%` |
 | `equal` `notequal` `below` `above` `beloweq` `aboveeq` | `float(a==b)` etc. | Eval returns 0.0/1.0 floats, not bools |
 | `bnot` | `float(a==0.0)` | |
-| `boolean_and_*` / `boolean_or_*` | `float(a!=0.0 && b!=0.0)` | Short-circuit vs eager: see below |
+| `boolean_and_op` / `boolean_or_op` | GLSL short-circuit logical and/or | Eval **does** short-circuit these (`TreeFunctions.c`). GLSL matches. |
+| `boolean_and_func` / `boolean_or_func` (`band` / `bor`) | eager temps, then `float(a!=0.0 && b!=0.0)` | Eval evaluates **both** args. Do not emit GLSL `&&` for `band`. |
 | `bitwise_and` `bitwise_or` | `float(int(a) & int(b))` | `(5&(x*10-0.5))` appears in `sun fan phoets*` |
-| `sin` `cos` `tan` `asin` `acos` `atan` `atan2` `sqrt` `pow` `exp` `log` `log10` `floor` `ceil` `abs` `min` `max` `sign` | same | `int()` is an alias of `floor` in `TreeFunctions.c` |
+| `sin` `cos` `tan` `asin` `acos` `atan` `sqrt` `pow` `exp` `log` `floor` `ceil` `abs` `min` `max` `sign` | same | `int()` is an alias of `floor` in `TreeFunctions.c`. Eval `sqrt` is `sqrt(fabs(x))` — emit that, not bare `sqrt`. |
+| `atan2` | `atan(y, x)` | GLSL ES 3.00 has two-arg `atan`, not `atan2`. Eval is C `atan2(arg0, arg1)` → `atan(arg0, arg1)`. |
+| `log10` | `x <= 0.0 ? 0.0 : log(x) / log(10.0)` | No `log10` in GLSL ES 3.00. The `x <= 0` arm matches `prjm_eval_func_log10`. |
 | `sqr` | `x*x` | |
 | `invsqrt` | `inversesqrt(x)` | |
-| `sigmoid` | `1.0/(1.0+exp(-x))` (match eval's exact formula when printing) | Verify against `TreeFunctions.c` |
-| `if` | `mix(else, then, float(cond!=0.0))` **or** `?:` | Eval's `if` returns a **reference** (so `if(...) = x` can assign). If the `if` is used as an l-value, **refuse** and keep CPU |
+| `sigmoid` | match `TreeFunctions.c` (two args: `x`, `q`) | `1.0 / (1.0 + exp(-x * q))` with eval's `close_factor` zero-guard — **not** the one-arg logistic |
+| `if` | `cond != 0.0 ? then : else` | Eval evaluates **only the taken branch** (`prjm_eval_func_if`). GLSL `mix(else, then, …)` evaluates **both** arguments and will run inactive-branch assignments. `mix` is allowed only when both branches are side-effect-free. Eval's `if` returns a **reference** (so `if(...) = x` can assign); if used as an l-value, **refuse** and keep CPU. If the printer cannot emit `?:` / an `if` statement that skips the dead branch, **CPU fallback**. |
 | `exec2` `exec3` | statement list, last value | Lowerable |
 | `execute_list` | `{ ... }` | Lowerable |
-| `execute_loop` | `for (int i = 0; i < n; ++i)` | Only if trip count is a compile-time constant or a per-frame uniform clamped to a small max (Milkdrop `loop(n)`). Data-dependent huge `n` → CPU |
+| `execute_loop` | `int n = int(bound); for (int i = 0; i < n; ++i)` | Eval truncates the bound with `(PRJM_EVAL_I)(*value_ptr)` (toward zero) — GLSL `int(float)` is the same. GLSL ES 3.00 has **no** implicit int/float conversion, so the cast is mandatory. If `n` is not a compile-time constant, or `n` exceeds a small documented GPU cap (64 is a reasonable first cap), **CPU fallback**. Do **not** clamp a large `n` down to that cap (that changes the look). Eval's CPU `MAX_LOOP_COUNT` (1 048 576) is a safety net, not a GPU policy. Negative `n`: loop does not run, same as CPU. |
 | `execute_while` | **CPU fallback** | Unbounded; GLSL ES has no reliable unbounded loops |
 | `rand` | **CPU fallback** (first version) | Hash-of-(vertex, frame) is possible later; it will not match `rand()` bit-exact and will fail goldens |
 | `mem` `freembuf` `memcpy` `memset` | **CPU fallback** | megabuf / gmegabuf |
 
-Boolean operators in eval are not guaranteed to short-circuit the same way
-GLSL `&&`/`||` do. For a first printer, emit `float((a!=0.0)&&(b!=0.0))`
-(eager via two temps) so side-effecting args still run. If a side-effecting
-arg appears, the sequential-vs-parallel question below still applies.
+Eval `&&` / `||` short-circuit; `band` / `bor` do not. Match that in the
+printer (table above). Side-effecting args in `band`/`bor` still run on
+both GPU and CPU; they do not create a new sequential-vs-parallel fork
+beyond the q*/local rules below.
 
 ### Feature detect (per preset, at load)
 
@@ -182,7 +185,9 @@ Walk the compiled `prjm_eval_program_t` **once** after
 
 1. **Refuse (keep CPU OpenMP path)** if the tree contains `mem` /
    `freembuf` / `memcpy` / `memset`, `execute_while`, `rand`, an l-value
-   `if`, or any unknown `func` pointer (forward-compat).
+   `if`, an `if` whose taken-only semantics cannot be preserved (see
+   lowering table), an `execute_loop` that fails the bound rule above,
+   or any unknown `func` pointer (forward-compat).
 2. **Refuse** if a non-builtin local is **read before it is assigned** in
    one execution of the program. In original Milkdrop (and in this tree's
    OpenMP pool) eval locals **persist across vertices on the same
@@ -198,18 +203,18 @@ Walk the compiled `prjm_eval_program_t` **once** after
    zero-init those and **fail screenshot similarity**. Detecting
    read-before-write is the difference between a correct prototype and a
    pretty-but-wrong one.
-3. **Warn-but-allow** writes to `q1..q32` *after* they have been read in
-   the same vertex, if every vertex still seeds `q*` from the per-frame
-   uniforms. Cross-vertex `q` accumulation is an OpenMP-thread accident
-   (each worker keeps its own `q` copy). Documented Milkdrop is "set in
-   `per_frame`, read in `per_pixel`." GPU seeding from uniforms each
-   vertex is the documented model. Still: if a `q` is read before it is
-   written **in that vertex**, the read is the per-frame value on GPU and
-   "previous vertex on this thread" on CPU — treat as refuse until a
-   golden A/B says the pixels match anyway.
-4. **Accept** otherwise. `if`/`above`/`below`/`equal`/`bnot`/`pow`/`atan2`
-   / bitwise `&`/`|` / locals that are assigned before use are all in the
-   heaviest worklist entries and **are** lowerable.
+3. **Refuse if the program writes any `q1..q32`.** CPU `q*` persist per
+   OpenMP thread and are **not** reset at the start of each vertex in
+   `CalculateMesh`. GPU Phase 1 reseeds `q*` from per-frame uniforms every
+   vertex. A write is therefore a cross-vertex leak on CPU (the next
+   vertex on that thread reads the written value) and a no-op leak on
+   GPU. Documented Milkdrop is "set in `per_frame`, read in `per_pixel`,"
+   but screenshot similarity against this tree requires matching the CPU
+   path, not the docs. Do not warn-and-allow. Loosen later only with a
+   golden A/B that shows the pixels match anyway.
+4. **Accept** otherwise. `if`/`above`/`below`/`equal`/`bnot`/`pow` /
+   `atan2` (as `atan`) / bitwise `&`/`|` / locals that are assigned before
+   use are all in the heaviest worklist entries and **are** lowerable.
 
 The HUD shows `perPixelEval=gpu` or `perPixelEval=cpu` from this
 classification. A runtime override (`?perPixelEval=cpu`) forces fallback
@@ -220,10 +225,10 @@ for A/B, matching `?blurPath=copy` / `?copyPath=shader`.
 | Topic | CPU today | GPU Phase 1 | Rule |
 |-------|-----------|-------------|------|
 | Carry-state locals (`thresh`, `dx_r`) | Persist on the eval context; OpenMP → persist **per thread** | Per-vertex zero | Fallback if read-before-write |
-| `q*` writes | Persist per thread; not reset at the start of `CalculateMesh` | Uniform seed every vertex | Fallback if read-before-write; else documented Milkdrop |
+| `q*` writes | Persist per thread; not reset at the start of `CalculateMesh` | Uniform seed every vertex | **CPU fallback if any `q*` is written** |
 | `rand()` | libc / eval RNG | Would need a hash | Fallback |
 | Precision | `double` | `highp float` | Allowed; goldens already perceptual |
-| `if` as l-value | Eval returns a reference | GLSL cannot | Fallback |
+| `if` as l-value, or `if` with a side-effecting dead branch that cannot be skipped | Eval returns a reference; only the taken branch runs | GLSL `mix` runs both; `?:` skips the dead branch | Fallback if l-value or if `?:` / `if` cannot be emitted |
 | OpenMP | `kMinPerPixelMeshVerts=1000`, `kmp_set_blocktime(0)` | Not used on the GPU path | Leave the CPU path untouched; do not spin the pool "just in case" |
 
 ### HUD and `projectm_perf_frame_timings`

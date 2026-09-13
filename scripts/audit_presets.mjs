@@ -532,6 +532,12 @@ function selfTest() {
   check('per_pixel outweighs the same count of per_frame',
     estimateCost({ perPixel: 20 }) > estimateCost({ perFrame: 20 }));
 
+  const worklistFooter = renderWorklist({ generatedAt: 'selftest', corpora: [] });
+  check('worklist footer names #227 Phase 1', worklistFooter.includes('#227'));
+  check('worklist footer links GPU_PERPIXEL_EVAL.md',
+    worklistFooter.includes('[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md)'));
+  check('worklist footer still names #170 rewrite path', worklistFooter.includes('#170'));
+
   console.log(failed === 0 ? '\nself-test PASSED' : `\nself-test FAILED (${failed})`);
   process.exit(failed === 0 ? 0 : 1);
 }
@@ -693,7 +699,10 @@ function renderWorklist(report) {
   L.push('');
   L.push('- **per_pixel equations dominant** — the CPU evaluates these once per mesh vertex per');
   L.push('  frame. Moving the zoom/warp math into a `warp_*` shader body hands it to the GPU and');
-  L.push('  is usually the single biggest win.');
+  L.push('  is usually the single biggest win (**#170**, by rewriting the preset). Compiling');
+  L.push('  `per_pixel_*` to a generated warp vertex snippet so the next 400 presets do not need');
+  L.push('  a human is **#227** Phase 1 — design only, see');
+  L.push('  [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md); not in the engine yet.');
   L.push('- **tex2D fetches dominant** — bandwidth bound. Look for repeated fetches of the same');
   L.push('  coordinate that can be hoisted into a local, or blur taps that can drop an octave.');
   L.push('- **shader body length dominant** — long per-fragment programs. Check for math that is');

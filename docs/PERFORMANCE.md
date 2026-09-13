@@ -26,7 +26,7 @@ frame, broken down into:
 |---|---|
 | `audio_analysis_ms` | `PCM::UpdateFrameAudioData()` — FFT (`MilkdropFFT.cpp`) + loudness (`Loudness.cpp`) analysis. |
 | `per_frame_eval_ms` | Per-frame equation evaluation (`PerFrameUpdate()`, projectm-eval). |
-| `per_pixel_eval_ms` | Per-pixel mesh evaluation and warp draw (`PerPixelMesh::Draw`, `PerPixelContext`). Today this is CPU `projectm-eval` over the warp mesh (OpenMP in WASM). A later GPU path (`perPixelEval=gpu|cpu`) is designed in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) (#227) and is **not in the tree yet**. |
+| `per_pixel_eval_ms` | Per-pixel mesh evaluation and warp draw (`PerPixelMesh::Draw`, `PerPixelContext`). Today this is CPU `projectm-eval` over the warp mesh (OpenMP in WASM). A later GPU path (`perPixelEval=gpu` / `perPixelEval=cpu`) is designed in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) (#227) and is **not in the tree yet**. |
 | `blur_ms` | Blur texture chain update. |
 | `waveforms_shapes_ms` | Custom shapes, custom waveforms, built-in waveform, darken center, border. |
 | `composite_ms` | Final compositing pass and associated texture flips. |

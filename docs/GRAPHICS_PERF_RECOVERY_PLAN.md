@@ -633,8 +633,10 @@ What Phase 1 will be, when that gate opens (not in this change):
   `rot`/`warp`/`cx`/`cy`/`dx`/`dy`/`sx`/`sy`). Inject it into
   `PresetWarpVertexShaderGlsl330.vert` **before** the existing zoom/stretch/warp
   math. Fallback to the OpenMP CPU loop when the tree uses megabuf, `while`,
-  `rand`, l-value `if`, or a local that is read before it is assigned (carry
-  state across vertices — the `thresh`/`dx_r` IIR in `sun fan phoets*`).
+  `rand`, l-value `if`, an `if` that cannot skip a side-effecting dead branch,
+  a `loop` whose bound is not a small compile-time `int`, a write to any `q*`,
+  or a local that is read before it is assigned (carry state across vertices —
+  the `thresh`/`dx_r` IIR in `sun fan phoets*`).
 - HUD / `projectm_perf_frame_timings`: `perPixelEval=gpu|cpu`. Ablation:
   `?perPixelEval=cpu`. First proof: `presets/tests/110-per_pixel.milk` plus five
   currently-`heavy` worklist presets that feature-detect clean; screenshot

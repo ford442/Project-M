@@ -17,6 +17,13 @@ Loops below the threshold use OpenMP's `if(...)` clause or run serially. `Loudne
 (~85 samples) and `WaveformAligner` cross-correlation inner loops are **always serial** (fork/join
 cost exceeds gain; the aligner reduction also conflicted with wasm `libomp` link symbols).
 
+The per-pixel mesh loop is the largest remaining CPU cost at 80×60. Compiling those
+equations to a warp vertex shader (so OpenMP is no longer load-bearing for lowerable
+presets) is [#227](https://github.com/ford442/Project-M/issues/227); design in
+[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). **Not implemented.** A GPU path must not
+reintroduce a 4-thread libomp spin. The CPU path already uses `kmp_set_blocktime(0)`
+to suppress that spin (#220).
+
 Tune thresholds with:
 
 ```sh

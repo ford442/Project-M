@@ -14,11 +14,14 @@ for changing that.
 ## Why this exists
 
 Two open projects — [#227](https://github.com/ford442/Project-M/issues/227)
-(WebGPU backend) and [#229](https://github.com/ford442/Project-M/issues/229)
-(Milkdrop 2 multi-pass shaders) — are both *"rewrite the renderer and keep it
-looking the same"*. Without a golden-image gate the only regression detector is
-somebody noticing a preset looks off, weeks later. And the rest of #174's backlog
-is blocked on being able to measure at all.
+(GPU per-pixel eval on WebGL2, then a WGSL emitter, WebGPU last; see
+[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md)) and
+[#229](https://github.com/ford442/Project-M/issues/229)
+(Milkdrop 2 multi-pass shaders) — are both *"change how a frame is produced and
+keep it looking the same"*. Without a golden-image gate the only regression
+detector is somebody noticing a preset looks off, weeks later. And the rest of
+#174's backlog is blocked on being able to measure at all. Phase 1 of #227
+explicitly uses this harness as its screenshot-similarity gate.
 
 ---
 

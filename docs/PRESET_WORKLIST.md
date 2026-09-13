@@ -65,7 +65,10 @@ No presets in the `heavy` tier. 🎉
 
 - **per_pixel equations dominant** — the CPU evaluates these once per mesh vertex per
   frame. Moving the zoom/warp math into a `warp_*` shader body hands it to the GPU and
-  is usually the single biggest win.
+  is usually the single biggest win (**#170**, by rewriting the preset). Compiling
+  `per_pixel_*` to a generated warp vertex snippet so the next 400 presets do not need
+  a human is **#227** Phase 1 — design only, see
+  [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md); not in the engine yet.
 - **tex2D fetches dominant** — bandwidth bound. Look for repeated fetches of the same
   coordinate that can be hoisted into a local, or blur taps that can drop an octave.
 - **shader body length dominant** — long per-fragment programs. Check for math that is

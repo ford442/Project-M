@@ -8,7 +8,7 @@ Canonical discussion: GitHub epic
 [#174 — Graphics FPS Recovery](https://github.com/ford442/Project-M/issues/174).
 This file is the in-repo companion so the plan travels with the code.
 
-**Status (2026-08-13):** Plan + five sub-issues filed. #175 (format policy + lazy
+**Status (2026-09-13):** Plan + five sub-issues filed. #175 (format policy + lazy
 allocation + helper fixups), #176 (pre-warp flip removed, `glBlitFramebuffer` for final
 output) and #177 (blur renders straight into its destination textures) have landed
 in-tree — #177's code has been in the tree since before this update (commit
@@ -18,6 +18,9 @@ now landed in-tree** — see [§178 implementation notes](#178-implementation-no
 and `docs/PERFORMANCE.md`'s "Adaptive quality governor (WASM, v2)" section. **#179's spike has
 now landed in-tree** — see [§179 implementation notes](#179-implementation-notes-webgl2-advances-and-webgpu-spike-report)
 for the WebGL2 outcomes and the **defer** decision on WebGPU.
+**#227's later-on design and WGSL spike are now in-tree as docs** — see
+[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) and [§227](#227-gpu-per-pixel-eval--wgsl-path-later-on-not-this-sprint)
+below. **No Phase 1 compiler code until #224 leftovers (`FULL_ES3=0`) are measured.**
 **No sub-issue has before/after benchmark JSON yet** — that requires a GPU and a
 browser, and every code-truth finding here (including #178's) was reached by reading/
 writing the tree, not by measuring. **The machinery for changing that has now landed**:
@@ -567,18 +570,80 @@ are structural and already answer the question.
 Revisit WebGPU when **any two** of these hold:
 
 - WebGL2 is measured and exhausted: A1/A4/A5 landed and benchmarked, and `gpuMs` is still the
-  budget after governor v2 has stepped down.
-- A maintained HLSL→WGSL (or GLSL→WGSL) path exists that we can adopt rather than write,
-  small enough to ship in the bundle or usable ahead of time.
+  budget after governor v2 has stepped down. **A5 (`FULL_ES3=0`) is still the missing
+  measurement** (#224 closed the context-config contract without flipping the flag).
+- A maintained HLSL→WGSL path exists that we can adopt rather than write. **That path is
+  #227 Phase 2** (`WgslGenerator` in hlslparser, naga-cli in CI) — it does not exist in
+  code yet; the decision to grow hlslparser rather than vendor naga/DXC is in
+  [§B5](#b5--follow-up-spike-227-hlslparser-wgsl-vs-naga-vs-stay-glsl).
 - The renderer gains a device abstraction for another reason (e.g. a native Vulkan/Metal
   backend upstream), making the second backend incremental instead of foundational.
-- A concrete workload appears that compute wins decisively and WebGL2 cannot express — the
-  realistic candidate is per-pixel mesh evaluation moving to the GPU, which today is CPU
-  + OpenMP and is the largest `perPixelEvalMs` bucket.
+- A concrete workload appears that compute/VS wins decisively. **Per-pixel mesh eval
+  moving to the GPU is that workload**, and WebGL2 *can* express it (a generated warp
+  vertex shader). That is **#227 Phase 1**, still coded against GLES, and it should
+  land *before* anyone starts a WebGPU renderer. See
+  [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md).
 
 **Estimated invasiveness if pursued anyway:** XL. Device abstraction (L) + WGSL shader corpus
 (L) + HLSL→WGSL runtime path (XL, highest risk) + Emscripten/canvas/worker integration (M),
 with a long tail of per-preset visual regressions that only a large preset sweep would catch.
+
+#### B5 — Follow-up spike (#227): hlslparser WGSL vs naga vs stay GLSL
+
+[#227](https://github.com/ford442/Project-M/issues/227) asked for an explicit emitter
+decision before anyone vendors a second compiler. Full design (Phase 1 eval→GLSL,
+lowering table, fallback rules, HUD) lives in
+[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). The emitter call, in one paragraph:
+
+**Stay on GLSL 300 ES as the shipped target. Grow `WgslGenerator` next to
+`GLSLGenerator` (walk the existing `HLSLTree`) when we need WGSL. Validate that
+output with `naga-cli` in CI only. Do not vendor naga, Tint, DXC, or libniceshade
+into the WASM runtime** unless hlslparser cannot emit WGSL and a size spike is
+**&lt;500 KB**. **Do not merge WebGPU** until `presets/tests/` round-trips through
+the new emitter. Phase 1 (eval IR → GLSL vertex displacement on **WebGL2**) does
+not wait on any of that — it is the only change that deletes 4941 CPU `per_pixel_*`
+evals, and it is still **gated on measuring #224 / A5 (`FULL_ES3=0`)**.
+
+| Option | Verdict |
+|--------|---------|
+| hlslparser `WgslGenerator` | **Phase 2.** Same Milkdrop `HLSLTree` the GLSL path already parsed. Gate behind `ENABLE_WGSL_EMIT` / `ENABLE_WEBGPU` so the WebGL2 bundle does not pay for it. |
+| naga/Tint/glslang **in the runtime** | **Rejected.** Megabytes on a bundle that is fighting over 10 KB of JS glue; second compiler on the preset-switch path; not Milkdrop dialect unless we still parse with hlslparser and only ask naga to consume GLSL — which is the GLSL-via-Tint hack #179 B2.1 already refused. |
+| naga-cli **in CI** | **Yes, Phase 2.** Pin a binary or `cargo install naga-cli` on the job that already runs `PresetCompatTest` / `glslangValidator`. Users never download it. |
+| Stay GLSL forever | **The product, until Phase 2 is green.** Correct. Browsers do not ingest GLSL into WebGPU; "forever" means "do not start Phase 3 on a sidecar transpiler." |
+| libniceshade / DXC-wasm | **Never by default** (upstream #761; DXC wasm ~15 MB vs ~2.6 MB `projectm-v.037-thread.wasm`). |
+
+This does **not** lift the #179 deferral. It names the compiler work that *would*
+lift B4's "WGSL-capable HLSL path" bullet, and it names Phase 1 as the WebGL2-only
+workload B4 already called the realistic compute/VS candidate (per-pixel mesh).
+
+---
+
+## #227 GPU per-pixel eval + WGSL path (later-on, not this sprint)
+
+**Defer coding** until the #224 / #179 A5 in-browser pass exists
+(`FULL_ES3=0` + inverted `glBlitFramebuffer` + blur3 + both preset shapes + a
+soft-cut, JSON in `benchmark-results/`). #224 closed the host-side context
+contract; it did not measure the leftover link flags.
+
+What Phase 1 will be, when that gate opens (not in this change):
+
+- After `CompilePerPixelCode`, walk the `projectm-eval` tree (`func` pointers;
+  there is no opcode enum) and emit a GLSL 300 ES **vertex** snippet that writes
+  the same ten warp channels `CalculateMesh` writes today (`zoom`/`zoomexp`/
+  `rot`/`warp`/`cx`/`cy`/`dx`/`dy`/`sx`/`sy`). Inject it into
+  `PresetWarpVertexShaderGlsl330.vert` **before** the existing zoom/stretch/warp
+  math. Fallback to the OpenMP CPU loop when the tree uses megabuf, `while`,
+  `rand`, l-value `if`, or a local that is read before it is assigned (carry
+  state across vertices — the `thresh`/`dx_r` IIR in `sun fan phoets*`).
+- HUD / `projectm_perf_frame_timings`: `perPixelEval=gpu|cpu`. Ablation:
+  `?perPixelEval=cpu`. First proof: `presets/tests/110-per_pixel.milk` plus five
+  currently-`heavy` worklist presets that feature-detect clean; screenshot
+  similarity via the [golden-image harness](GRAPHICS_BENCHMARK_HARNESS.md).
+- **Do not** start with `sun fan phoets newborns of satan.milk`: 143 lines is
+  the prize, but it carries IIR locals and will fail goldens if blindly lowered.
+
+Phase 2/3 remain exactly the B5 table. Keep #227 open as the epic; Phase 1 is
+enough to close a first *code* PR.
 
 ---
 
@@ -633,9 +698,12 @@ Option 2 is the cheaper first move and is the recommended way to satisfy the epi
 | [#177](https://github.com/ford442/Project-M/issues/177) | Blur chain render-to-texture (kill `glCopyTexSubImage2D`) | `P1` | ✅ Code landed; benchmark JSON outstanding |
 | [#178](https://github.com/ford442/Project-M/issues/178) | Governor v2 — FBO scale, blur tier, MSAA policy | `P1` | ✅ Code landed; benchmark JSON outstanding |
 | [#179](https://github.com/ford442/Project-M/issues/179) | Advance WebGL2 + WebGPU feasibility spike | `P2` | ✅ Blit resolves landed + WebGPU deferred; A4/A5 need browser verify |
+| [#227](https://github.com/ford442/Project-M/issues/227) | GPU per-pixel mesh + HLSL→WGSL path | `P2` | ⏸ Docs + spike landed; **no code** until #224 `FULL_ES3=0` is measured. Design: [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) |
 
 Suggested order: **#175 → #176 → #177 → #178**, with **#179** spiked in parallel once
-baselines exist (do not block FPS recovery on WebGPU).
+baselines exist (do not block FPS recovery on WebGPU). **#227 Phase 1** only after
+A5/`FULL_ES3=0` has a recorded in-browser pass; Phase 3 (WebGPU) only after Phase 2's
+WGSL corpus is green.
 
 ---
 
@@ -676,9 +744,10 @@ baselines exist (do not block FPS recovery on WebGPU).
 15. Land deferred link flags after browser verify (`FULL_ES3=0`, Closure) — size/startup; coordinate with #173 for ASYNCIFY→JSPI. ⏸ Still deferred (#179 A5) — verify in the same browser session as item 10.
 16. **`WEBGL_get_program_binary`** warm cache — ❌ no-go (#179 A3): no shipping browser exposes program binaries to WebGL2. The GLSL IDB transpile cache plus the browser's own program cache is the whole story.
 17. Verify and consider defaulting **OffscreenCanvas render worker**. ✅ Done (#179 A4) — default ON with `?renderWorker=0` as the escape hatch, verified on headless Chromium.
-18. **WebGPU spike** — ⏸ **defer** (#179 B): frame graph maps cleanly, but there is no WGSL target in the vendored `hlslparser` and preset shaders are transpiled at runtime, so a backend is XL with no win WebGL2 cannot deliver first. Revisit conditions in §179 B4.
+18. **WebGPU spike** — ⏸ **defer** (#179 B): frame graph maps cleanly, but there is no WGSL target in the vendored `hlslparser` and preset shaders are transpiled at runtime, so a backend is XL with no win WebGL2 cannot deliver first. Revisit conditions in §179 B4. Emitter decision for that revisit: [§B5](#b5--follow-up-spike-227-hlslparser-wgsl-vs-naga-vs-stay-glsl) / [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) — hlslparser `WgslGenerator`, naga **CI-only**, no DXC/naga/Tint in the runtime.
+19. **GPU per-pixel eval on WebGL2** (#227 Phase 1) — ⏸ **defer coding** until item 15 (`FULL_ES3=0`) is measured. Then: eval AST → GLSL vertex displacement, CPU fallback, HUD `perPixelEval=gpu|cpu`. This is the remaining `perPixelEvalMs` win and does **not** need WebGPU.
 
-There was **no existing WebGPU roadmap** in this repo; [§179](#179-implementation-notes-webgl2-advances-and-webgpu-spike-report) is now the decision record.
+There was **no existing WebGPU roadmap** in this repo; [§179](#179-implementation-notes-webgl2-advances-and-webgpu-spike-report) is the original go/no-go and [§227](#227-gpu-per-pixel-eval--wgsl-path-later-on-not-this-sprint) is the later-on compiler + GPU-eval plan.
 
 ---
 
@@ -701,8 +770,18 @@ There was **no existing WebGPU roadmap** in this repo; [§179](#179-implementati
 ### M3 — Platform next (`P2`)
 
 - #179 WebGL2 leftovers + WebGPU go/no-go — ✅ decision recorded; blit resolves merged, A4/A5 deferred with a named verification step
+- #224 context-config contract — ✅ landed; `FULL_ES3=0` in-browser pass still outstanding (A5)
+- #227 later-on design + WGSL emitter spike — ✅ docs; coding deferred to M4
 
 **Exit:** Plan section filled with decision; any cheap WebGL2 items merged or explicitly deferred.
+
+### M4 — GPU eval on WebGL2, then WGSL (`P2`, after M3 A5)
+
+- #227 Phase 1: `projectm-eval` → GLSL vertex displacement, five `heavy` presets, HUD path bit
+- #227 Phase 2: `WgslGenerator` + naga-cli corpus (still no WebGPU in tree)
+- #227 Phase 3: `ENABLE_WEBGPU` only after Phase 2 is green; +30% wasm size cap
+
+**Exit:** `perPixelEval=gpu` on ≥5 worklist-heavy presets with golden-image parity and lower `per_pixel_eval_ms`; no WebGPU sources until the WGSL corpus job is green.
 
 ---
 
@@ -744,4 +823,6 @@ Native SDL comparison table in PERFORMANCE.md remains optional but useful for pa
 - [ ] Docs updated (`PERFORMANCE.md` and this file’s status line)  
 - [ ] Epic #174 checklist item marked when all five close  
 
-Update this file whenever a sub-issue changes state or the WebGPU decision lands.
+Update this file whenever a sub-issue changes state or the WebGPU / #227 decision lands.
+The later-on compiler design lives in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md); keep
+the two in sync.

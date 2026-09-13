@@ -26,7 +26,7 @@ frame, broken down into:
 |---|---|
 | `audio_analysis_ms` | `PCM::UpdateFrameAudioData()` — FFT (`MilkdropFFT.cpp`) + loudness (`Loudness.cpp`) analysis. |
 | `per_frame_eval_ms` | Per-frame equation evaluation (`PerFrameUpdate()`, projectm-eval). |
-| `per_pixel_eval_ms` | Per-pixel mesh evaluation and warp draw (`PerPixelMesh::Draw`, `PerPixelContext`). |
+| `per_pixel_eval_ms` | Per-pixel mesh evaluation and warp draw (`PerPixelMesh::Draw`, `PerPixelContext`). Today this is CPU `projectm-eval` over the warp mesh (OpenMP in WASM). A later GPU path (`perPixelEval=gpu|cpu`) is designed in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) (#227) and is **not in the tree yet**. |
 | `blur_ms` | Blur texture chain update. |
 | `waveforms_shapes_ms` | Custom shapes, custom waveforms, built-in waveform, darken center, border. |
 | `composite_ms` | Final compositing pass and associated texture flips. |
@@ -223,6 +223,10 @@ warp/zoom/rotation fidelity. The adaptive governor's regular tier is **64×48**
 
 To keep this affordable on the additional ~2.3x vertices, `PerPixelMesh::CalculateMesh()` runs the
 per-pixel evaluation loop with `#pragma omp parallel for` when built with `ENABLE_OPENMP=ON`.
+The later-on replacement for that loop — compiling `per_pixel_*` to a GLSL vertex snippet on
+WebGL2, with a CPU fallback — is [#227](https://github.com/ford442/Project-M/issues/227);
+design in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). **Not coded yet.** Governor v2 and
+OpenMP remain the shipping levers.
 Since `projectm-eval` contexts are not re-entrant (see
 `vendor/projectm-eval/docs/Memory-Handling.md`), `MilkdropPreset` maintains a pool of one
 `PerPixelContext` per extra OpenMP worker thread (`m_perPixelContextPool`), each compiled with the

@@ -230,7 +230,9 @@ void render_frame()
     auto& g_presetBReady = H.presetBReady;
     auto& g_renderedFrameCount = H.renderedFrameCount;
     if (!pm)
+    {
         return;
+    }
 
     // Deterministic-clock tick (no-op unless the harness enabled it): pins this
     // frame to N/fps before anything reads the time.
@@ -335,7 +337,9 @@ void set_window_size(int width, int height)
     auto& pm = H.appData.projectm_engine;
     auto& g_dualFbo = H.dualFbo;
     if (!pm)
+    {
         return;
+    }
     WasmWebGLResizeCanvases(width, height);
     glViewport(0, 0, width, height);
     glScissor(0, 0, width, height);

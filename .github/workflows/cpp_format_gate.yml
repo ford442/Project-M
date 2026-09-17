@@ -9,6 +9,7 @@ on:
   push:
     paths:
       - 'src/wasm/**'
+      - 'src/libprojectM/Audio/**'
       - 'src/libprojectM/Renderer/Platform/**'
       - 'tests/cxx-interface/**'
       - '.clang-format'
@@ -18,6 +19,7 @@ on:
   pull_request:
     paths:
       - 'src/wasm/**'
+      - 'src/libprojectM/Audio/**'
       - 'src/libprojectM/Renderer/Platform/**'
       - 'tests/cxx-interface/**'
       - '.clang-format'

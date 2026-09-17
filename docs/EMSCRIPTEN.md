@@ -482,7 +482,7 @@ QA/testing without needing to actually break WebGL.
 ### Preset-load failures
 
 Failures that happen *after* a successful `init()` (e.g. an individual preset fails to switch)
-do not use the overlay. Instead, `_on_preset_switch_failed` calls
+do not use the overlay. Instead, `on_preset_switch_failed` calls
 `js_report_preset_switch_failed(preset_filename, message)`, which logs a `console.warn` and, if
 the page defines a `#stat` element, sets its text to `Preset failed: <name>` with a red
 background — the same readout already used for preset-loading status messages.

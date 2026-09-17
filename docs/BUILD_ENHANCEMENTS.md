@@ -67,9 +67,9 @@ Conduct a thorough audit of the ProjectM Emscripten build pipeline and CMake con
 
 ### 5. **Code Quality & Maintainability**
 - [ ] C++ code analysis:
-  - Memory leak detection (valgrind/clang-analyzer)
-  - Undefined behavior sanitizers (UBSAN)
-  - Thread sanitizer (TSAN) for multi-threaded code
+  - [x] Memory errors/leaks + undefined behavior: ASan + UBSan (LSan included) run the
+        native Debug ctest suite in `build_linux.yml`'s `sanitizers` job
+  - [ ] Thread sanitizer (TSAN) for multi-threaded code (needs an OpenMP suppressions file)
   - Profile-guided optimization (PGO) feasibility
 - [ ] Preset/Milkdrop compatibility:
   - Are all required presets loading correctly in Emscripten?

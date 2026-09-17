@@ -8,3 +8,6 @@
 
 # style(wasm): mechanical clang-format reformat of src/wasm/
 d6b90ab159500b45dc5e5cb1a6c4f949101989c0
+
+# style(audio): mechanical clang-format reformat of src/libprojectM/Audio/
+fe07fb3e95e0cb2ad45611319d3550837914b2fb

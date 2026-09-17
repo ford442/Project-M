@@ -149,12 +149,12 @@ private:
      */
     void InitCosSinTable();
 
-    size_t m_samplesIn{}; //!< Number of waveform samples to use for the FFT calculation.
+    size_t m_samplesIn{};      //!< Number of waveform samples to use for the FFT calculation.
     size_t m_numFrequencies{}; //!< Number of frequency samples calculated by the FFT.
 
-    std::vector<size_t> m_bitRevTable; //!< Index table for frequency-specific waveform data lookups.
-    std::vector<float> m_envelope; //!< Equalizer envelope table.
-    std::vector<float> m_equalize; //!< Equalization values.
+    std::vector<size_t> m_bitRevTable;              //!< Index table for frequency-specific waveform data lookups.
+    std::vector<float> m_envelope;                  //!< Equalizer envelope table.
+    std::vector<float> m_equalize;                  //!< Equalization values.
     std::vector<std::complex<float>> m_cosSinTable; //!< Table with complex polar coordinates for the different frequency domains used in the FFT.
 };
 

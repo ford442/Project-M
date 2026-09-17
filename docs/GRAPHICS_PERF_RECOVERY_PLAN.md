@@ -236,6 +236,14 @@ How the three `Framebuffer` hazards above were handled:
   only when the copy fallback is actually in use, so `SetSize()` can never reallocate
   blur textures out from under `AllocateTextures()`.
 
+**Follow-up: the raw FBO is a temporary workaround.** `Framebuffer::SetAttachment()` now
+takes `AttachmentStorage::External`, and `SetSize()` skips slots marked that way, so a
+`Renderer::Framebuffer` can hold caller-owned textures safely (contract pinned by
+`tests/libprojectM/FramebufferTest.cpp`). What still blocks moving blur (and #229's
+preset-authored render targets) onto `Renderer::Framebuffer` is the `m_width`/`m_height`
+early-out in `SetAttachment()`: blur's per-pass targets have different sizes and the FBO
+never gets one of its own.
+
 Two behavioural details worth knowing:
 
 - **Blur textures are now sized formats** (`GL_RGB8`, or `GL_RGBA16F` under

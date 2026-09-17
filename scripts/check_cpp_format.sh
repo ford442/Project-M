@@ -47,6 +47,7 @@ fi
 # per directory, never all at once.
 PATHS=(
     "src/wasm"
+    "src/libprojectM/Audio"
     "src/libprojectM/Renderer/Platform"
     "tests/cxx-interface"
 )

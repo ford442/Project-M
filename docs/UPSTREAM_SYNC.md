@@ -7,6 +7,37 @@ integrations).
 
 Tracked in issue [#116](https://github.com/ford442/Project-M/issues/116) (Preset Modernization M3).
 
+## Branch layout
+
+| Branch | Role |
+|--------|------|
+| **`main`** | Fork development. Cherry-pick selected upstream fixes here. Do **not** merge `master` into `main`, rebase `main` onto `master`, or use GitHub “Sync fork” on `main`. |
+| **`master`** | Read-only mirror of `projectM-visualizer/projectm` `master`. Refresh it to see the next upstream changes. Do **not** commit on it. |
+
+### Refresh the upstream mirror
+
+```bash
+./scripts/sync_upstream_master.sh
+```
+
+Equivalent:
+
+```bash
+git fetch upstream
+git push origin upstream/master:master
+```
+
+`upstream` is the parent repo (`projectM-visualizer/projectm`). Its push URL is set to `DISABLE` so a stray `git push upstream` cannot overwrite the original.
+
+To inspect what upstream gained since the last fork review (still compared against **`main`**, not merged):
+
+```bash
+git log --oneline main..master
+./scripts/upstream_sync_check.sh
+```
+
+Then cherry-pick onto a branch off `main` as usual. Never fast-forward `main` to `master`.
+
 ## Cadence
 
 | Trigger | Action |
@@ -30,14 +61,7 @@ Target review time: **30–60 minutes**. Only deep-merge when a backport is appr
 ./scripts/upstream_sync_check.sh --check
 ```
 
-Optional: add a read-only remote (do **not** push to it):
-
-```bash
-git remote add upstream https://github.com/projectM-visualizer/projectm.git
-git fetch upstream master
-```
-
-The script works **without** configuring `upstream` — it fetches to `refs/remotes/upstream-sync/master`.
+The check script works **without** configuring `upstream` — it fetches to `refs/remotes/upstream-sync/master`. If the remote is missing, `scripts/sync_upstream_master.sh` adds it as read-only.
 
 ## Review checklist
 
@@ -97,7 +121,7 @@ Prefer **cherry-pick** for isolated fixes in `src/libprojectM/`. Avoid merging u
 | **Experimental** | Depth Anything / Transformers.js / glTF hooks in `projectm.1ink`, `projectm_new.1ink` (not in slim `projectm-core.html`) | Not present |
 | **AI authoring** | `scripts/audit_presets.mjs`, `kimi_*`, `toml_to_milk.mjs`, capture baselines | Not present |
 | **Deployment** | `deploy.py`, COOP/COEP docs, custom CDN paths | N/A |
-| **Remote** | `origin` → `ford442/Project-M` | `projectM-visualizer/projectm` |
+| **Remote / branches** | `origin` → `ford442/Project-M` (`main` = fork, `master` = upstream mirror) | `projectM-visualizer/projectm` (`master`) |
 
 When upstream adds a feature the fork also wants (e.g. PCM thread safety), **port the fix** but keep
 fork-specific surrounding code.

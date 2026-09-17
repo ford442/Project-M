@@ -224,7 +224,7 @@ Third-party code that is compiled as part of the project:
   - Pointer alignment: left (`int* ptr`)
   - Short functions/lambdas: allowed on single line; other blocks: never
 - `scripts/check_cpp_format.sh` runs `clang-format --dry-run -Werror` over a
-  fixed, growing list of directories (currently `src/wasm/`,
+  fixed, growing list of directories (currently `src/wasm/`, `src/libprojectM/Audio/`,
   `src/libprojectM/Renderer/Platform/`, `tests/cxx-interface/`) and runs in
   its own `cpp_format_gate.yml` workflow. It is deliberately not
   repo-wide yet: most of `src/libprojectM/` and `src/playlist/` are not

@@ -504,12 +504,11 @@ The default `/usr/bin/c++` on this image is **Clang**, which fails to link again
 cmake -G "Ninja Multi-Config" -S . -B cmake-build \
   -DCMAKE_CXX_COMPILER=g++ \
   -DCMAKE_C_COMPILER=gcc \
-  -DCMAKE_CXX_FLAGS="-include atomic" \
   -DBUILD_TESTING=ON \
   -DENABLE_SDL_UI=ON
 ```
 
-The `-include atomic` flag works around a missing `#include <atomic>` in `src/libprojectM/Audio/PCM.hpp` on `main` as of this writing (GCC does not pull it in transitively).
+No `-include atomic` is needed: every header that uses `std::atomic` (including `src/libprojectM/Audio/PCM.hpp`) includes `<atomic>` itself. Older instructions passed `-DCMAKE_CXX_FLAGS="-include atomic"`; drop it.
 
 ### Build, test, and install
 
@@ -529,7 +528,6 @@ still manual via `clang-format` (see above).
 cmake -G "Ninja Multi-Config" \
   -S tests/cxx-interface -B cmake-build-cxx-api \
   -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc \
-  -DCMAKE_CXX_FLAGS="-include atomic" \
   -DprojectM4_DIR="$PWD/install/lib/cmake/projectM4"
 cmake --build cmake-build-cxx-api --config Debug
 ```

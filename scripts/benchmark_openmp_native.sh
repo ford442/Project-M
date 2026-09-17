@@ -20,7 +20,6 @@ common_cmake_args=(
     -S "$PROJECT_ROOT"
     -DCMAKE_CXX_COMPILER="$CXX"
     -DCMAKE_C_COMPILER="$CC"
-    -DCMAKE_CXX_FLAGS="-include atomic"
     -DCMAKE_BUILD_TYPE=Release
     -DBUILD_TESTING=ON
     -DENABLE_SDL_UI=OFF

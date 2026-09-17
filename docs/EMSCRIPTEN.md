@@ -11,9 +11,10 @@ the Emscripten linker:
 - `-sUSE_SDL=2`: Recommended if you use Emscripten's built-in SDL2 port to set up the rendering context. This
   flag will link the appropriate library. (Not used by this fork's `projectM_emscripten.cpp` wrapper, which sets up
   its own EGL/WebGL context — see `claude.md`.)
-- `-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2`: Forces the use of WebGL 2, which is required for OpenGL ES 3 emulation.
-- `-sFULL_ES3=1`: Enables full emulation support for OpenGL ES 3.0. This fork builds with `-sFULL_ES2=0`
-  (ES2 emulation off) — see `claude.md` "WASM Build Flags".
+- `-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2`: Forces native WebGL 2, which maps directly onto OpenGL ES 3.0.
+- `-sFULL_ES3=1` / `-sFULL_ES2=1`: Emulation layers for client-side vertex arrays and buffer mapping on top of WebGL.
+  libprojectM needs neither (it draws from bound VBOs/EBOs only), and this fork builds with both **off** — see
+  `cmake/EmscriptenWasmFlags.cmake` for the verification record.
 - `-sALLOW_MEMORY_GROWTH=1`: Allows allocating additional memory if necessary. This may be required to load additional
   textures etc. in projectM.
 
@@ -28,7 +29,7 @@ that are prerequisites for smooth preset cross-fading in the browser.
 |------|---------|
 | `-s USE_WEBGL2=1` | Target WebGL 2.0 — required for MRTs and float texture support |
 | `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2` | Strictly target WebGL 2.0 and avoid fallback to WebGL 1.0 |
-| `-s FULL_ES3=1` | Enable full OpenGL ES 3.0 emulation for advanced shader features |
+| `-s FULL_ES2=0 -s FULL_ES3=0` | Native WebGL 2 only; no GL emulation layer (libprojectM uses no client-side arrays or buffer mapping) |
 | `-O3` | Maximum optimization — needed to handle dual-preset CPU load |
 | `-s ALLOW_MEMORY_GROWTH=1` | Allow WASM heap to grow dynamically — prevents OOM crash when loading a second preset |
 | `-s ASYNCIFY=1` | Allow synchronous C++ functions to yield to the JS event loop — prevents browser freeze during shader compilation |
@@ -260,10 +261,11 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 | `SHARED_MEMORY=1`, `WASM_WORKERS=1`, `-pthread` | yes | yes | Required for pthread pool + SharedArrayBuffer |
 | `PTHREAD_POOL_SIZE` | yes (`4`) | yes (`4`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | Must match `kWasmPthreadPoolSize` / `omp_set_num_threads()` |
 | `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `MAXIMUM_MEMORY=4gb`, `ALLOW_MEMORY_GROWTH=1` | yes | yes | See `docs/PERFORMANCE.md` for right-sizing |
-| `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=1` | yes | yes | WebGL 2 / GLES 3 target |
-| `GL_POOL_TEMP_BUFFERS=0`, `GL_MAX_TEMP_BUFFER_SIZE=33177600`, `GL_TRACK_ERRORS=0` | yes | yes | GL emulation tuning |
+| `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
+| `GL_POOL_TEMP_BUFFERS=0`, `GL_TRACK_ERRORS=0` | yes | yes | Uniform-upload pooling (live because `MAXIMUM_MEMORY=4gb` disables the garbage-free WebGL2 APIs) and error tracking |
+| `-fwasm-exceptions` (or `NO_DISABLE_EXCEPTION_CATCHING=1` with `PROJECTM_WASM_EXCEPTIONS=js`) | compile + link | link (`PROJECTM_WASM_EXCEPTIONS` env) | C++ exception ABI; libs and wrapper must match or `wasm-ld` fails with undefined `__resumeException` / `__cpp_exception` |
 | `ASYNCIFY=1`, `ASYNCIFY_ONLY=@cmake/wasm_asyncify_only.txt`, `ASYNCIFY_STACK_SIZE=65536` | yes / yes / when `ENABLE_WASM_TRANSITIONS=ON` | yes / yes / when `ENABLE_WASM_TRANSITIONS=ON` | Non-blocking shader compile; ONLY list is always-on with ASYNCIFY |
-| `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | yes | yes | Single list in `EmscriptenWasmFlags.cmake` |
+| `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | no | yes | Single list in `EmscriptenWasmFlags.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
 | `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
 | `TRUSTED_TYPES=1`, `WASM_BIGINT=1`, `AUDIO_WORKLET=1` | yes | no | Applied when linking static libs via CMake |
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
@@ -770,16 +772,39 @@ regenerated automatically, so any change to `projectM_emscripten.cpp` — includ
 fixes to `render_frame()` — has **no effect on screenshots until the smoke
 wrapper is rebuilt and the artifacts are refreshed**.
 
-**Use Emscripten SDK 3.1.53** — the same version pinned by
-`.github/workflows/build_emscripten.yml` / `nightly_preset_screenshots.yml`.
-A rebuild with a newer SDK (e.g. 5.0.4) was observed to produce an all-black
-canvas for every preset, independent of any source changes:
+#### Emscripten SDK version
+
+**Use Emscripten SDK 6.0.6**, the version pinned by
+`.github/workflows/build_emscripten.yml`, `graphics_perf_bench.yml` and
+`nightly_preset_screenshots.yml`:
 
 ```bash
 cd /path/to/emsdk
-./emsdk install 3.1.53 && ./emsdk activate 3.1.53
+./emsdk install 6.0.6 && ./emsdk activate 6.0.6
 source ./emsdk_env.sh   # required in every new shell before building
 ```
+
+Why 6.0.6 (2026-09):
+
+- It is what the product is actually built with. Bundle 037, the committed
+  golden images and the `omp/omp.zip` libomp (6.0.3) all came from 6.0.x; CI was
+  the only thing still on 3.1.53.
+- 3.1.53 could no longer run CI at all. Building `llvmorg-19.1.0` libomp from
+  source fails there (`z_Linux_util.cpp`: use of undeclared identifier
+  `PAGESIZE`), so every run stopped before the smoke, golden and audio steps.
+  That also rules out keeping 3.1.53 as a canary job.
+- Verified on 6.0.6: from-source libomp builds; wrapper links; browser smoke
+  (init, OpenMP 4 threads, cold load, dual-FBO soft cut, two instances,
+  known-bad preset) passes; all 26 goldens match at ssim 1.00000.
+- Unblocks JSPI (needs ≥ 3.1.58) and lets CI build the `-fwasm-exceptions`
+  ABI the flags now default to.
+
+An older note here said a newer SDK (5.0.4) rendered an all-black canvas for
+every preset. That does not reproduce on 6.0.6 with the current source.
+
+Emscripten 6.0.6 does not emit a separate `projectm-v.030-thread.worker.js`;
+pthread workers load the main glue script. The `.worker.js` steps below only
+apply to bundles from older SDKs.
 
 To rebuild after changing `projectM_emscripten.cpp` (or projectM itself):
 
@@ -798,10 +823,13 @@ INSTALL_DIR=$PWD/install-wasm OUT_DIR=$PWD/cmake-build-wasm/wasm-smoke \
 # -> writes cmake-build-wasm/wasm-smoke/projectm-v.030-thread.{js,wasm,worker.js}
 ```
 
-`scripts/build_wasm_smoke_wrapper.sh` does **not** pass `-flto`: the projectM
-static libs are built without LTO, and mixing bitcode (`-flto`) and
-non-bitcode inputs makes `wasm-ld` fail with `attempt to add bitcode file
-after LTO` under emsdk 3.1.53.
+`scripts/build_wasm_smoke_wrapper.sh` does **not** pass `-flto` unless
+`PROJECTM_WASM_LTO=1`. That opt-in is currently broken: under emsdk 6.0.6 the
+LTO link fails with undefined `EM_JS` symbols (`js_report_init_success`,
+`js_init_projectm_dom`, and eight more declared in `ProjectMWasmInternal.hpp`
+and defined in `WasmJsBindings.cpp`). Under 3.1.53 it failed differently
+(`attempt to add bitcode file after LTO`, from mixing bitcode with the non-LTO
+static libs).
 
 Then point the capture script at the freshly built module, either by **copying
 the artifacts to the repo root** (what the committed bundle expects):

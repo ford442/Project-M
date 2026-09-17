@@ -101,7 +101,7 @@ fi
 
 if [ ! -f "$EMSDK_ENV" ]; then
     echo "Error: Emscripten env script not found at $EMSDK_ENV" >&2
-    echo "Install emsdk 3.1.53 (recommended) and set EMSDK_ROOT." >&2
+    echo "Install emsdk 6.0.6 (the version CI pins) and set EMSDK_ROOT." >&2
     exit 1
 fi
 

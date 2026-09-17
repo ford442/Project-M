@@ -130,6 +130,9 @@ foreach(_flag IN LISTS PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS)
     string(APPEND _shared_plain_lines "        ${_flag}\n")
 endforeach()
 
+list(JOIN PROJECTM_WASM_EXCEPTION_ARGS_JS " " _exception_args_js)
+list(JOIN PROJECTM_WASM_EXCEPTION_ARGS_WASM " " _exception_args_wasm)
+
 set(_shared_s_lines "")
 _projectm_wasm_append_shell_s_settings(PROJECTM_WASM_SHARED_S_LINK_SETTINGS _shared_s_lines)
 
@@ -182,6 +185,8 @@ ${_simd_flag_lines}    )
 #   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link (link-time only)
 #   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default ${PROJECTM_WASM_PTHREAD_POOL_SIZE})
 #   ENABLE_WASM_TRANSITIONS=ON       (default) adds ASYNCIFY_STACK_SIZE
+#   PROJECTM_WASM_EXCEPTIONS=js|wasm C++ exception ABI (default ${PROJECTM_WASM_EXCEPTIONS}); must match the
+#                                    PROJECTM_WASM_EXCEPTIONS the static libs were configured with
 # ASYNCIFY_ONLY always points at cmake/wasm_asyncify_only.txt (absolute path required).
 projectm_wasm_pthread_pool_size() {
     echo \"\${PROJECTM_WASM_PTHREAD_POOL_SIZE:-${PROJECTM_WASM_PTHREAD_POOL_SIZE}}\"
@@ -216,6 +221,16 @@ projectm_wasm_common_link_args() {
         transition_args+=(\"-s\" \"ASYNCIFY_STACK_SIZE=65536\")
     fi
 
+    local exception_args=()
+    case \"\${PROJECTM_WASM_EXCEPTIONS:-${PROJECTM_WASM_EXCEPTIONS}}\" in
+        js) exception_args=(${_exception_args_js}) ;;
+        wasm) exception_args=(${_exception_args_wasm}) ;;
+        *)
+            echo \"PROJECTM_WASM_EXCEPTIONS must be js or wasm\" >&2
+            return 1
+            ;;
+    esac
+
     local lto_args=()
     if [[ \"\${PROJECTM_WASM_LTO:-0}\" == \"1\" ]]; then
         lto_args+=(\"-flto\")
@@ -223,7 +238,8 @@ projectm_wasm_common_link_args() {
 
     _out=(
         \"\${lto_args[@]}\"
-${_shared_plain_lines}${_shared_s_block}        -s \"PTHREAD_POOL_SIZE=\${pthread_pool_size}\"
+${_shared_plain_lines}        \"\${exception_args[@]}\"
+${_shared_s_block}        -s \"PTHREAD_POOL_SIZE=\${pthread_pool_size}\"
 ${_wrapper_s_block}        -l embind
         -s EXPORTED_FUNCTIONS=\"\$(projectm_wasm_join_exported_functions)\"
         -s EXPORTED_RUNTIME_METHODS=\"\$(projectm_wasm_exported_runtime_methods)\"

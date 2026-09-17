@@ -131,10 +131,13 @@ The authoritative flag list is `cmake/EmscriptenWasmFlags.cmake` (included by th
 As of this writing, the Emscripten target uses:
 
 - `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -s USE_WEBGL2=1`
-- `-s FULL_ES2=0 -s FULL_ES3=1` (ES2 emulation is **off**; do not document `FULL_ES2=1`)
+- `-s FULL_ES2=0 -s FULL_ES3=0` (no GL emulation layer; do not document `FULL_ES2=1` or `FULL_ES3=1`)
 - `-s SHARED_MEMORY=1 -s WASM_WORKERS=1 -pthread`
 - `-s ALLOW_MEMORY_GROWTH=1 -sMALLOC='mimalloc' -sMAXIMUM_MEMORY=4gb -sINITIAL_MEMORY=256mb`
-- `-s NO_DISABLE_EXCEPTION_CATCHING`
+- `-fwasm-exceptions` on every TU (`PROJECTM_WASM_EXCEPTIONS=wasm`, default; `js` selects the old
+  `-s NO_DISABLE_EXCEPTION_CATCHING` ABI). Libs and wrapper must be built with the same value.
+- No `--closure 1`: it renames the `globalThis.*`/`Module.*` names EM_JS shares with `html/`.
+  `tests/wasm-smoke/host_contract_names.mjs` is the CI gate for that.
 - `-s FORCE_FILESYSTEM=1 -s ASYNCIFY=1` (plus `-s ASYNCIFY_STACK_SIZE=65536` when
   `ENABLE_WASM_TRANSITIONS=ON`, the default)
 - `-s EXPORTED_RUNTIME_METHODS='ccall,cwrap'` (wrapper link also exports `FS`) and an explicit `EXPORTED_FUNCTIONS` list
@@ -146,7 +149,7 @@ There is no `-sUSE_SDL=2` in the Emscripten build (SDL2 is only used by the nati
 ## Build, Test, and Workflow
 
 Build/test/lint commands live in `AGENTS.md` — in particular the "Cursor Cloud specific
-instructions" section (GCC + `-include atomic` workaround, `cmake-build` layout) and
+instructions" section (GCC compiler selection, `cmake-build` layout) and
 "Testing Instructions" (CTest, `PresetCompat` harness). Use those verbatim; this file
 only adds WASM-specific notes:
 

@@ -55,5 +55,8 @@ not compiled with 'atomics' or 'bulk-memory' features.
 features (`bulk-memory-opt`, `call-indirect-overlong`) that an older Binaryen
 does not recognise, and `wasm-opt` aborts with `Unknown option
 '--enable-bulk-memory-opt'`. Build it with the same SDK you link with. CI
-(`.github/workflows/build_emscripten.yml`) pins emsdk 3.1.53 and rebuilds libomp
-from source rather than using this archive, so the two can drift.
+(`.github/workflows/build_emscripten.yml`) pins emsdk 6.0.6 and rebuilds libomp
+from source rather than using this archive. That is the same SDK major as this
+archive (6.0.3), and both libraries link and pass the browser smoke test against
+the same wrapper. The earlier 3.1.53 pin could not build `llvmorg-19.1.0` libomp
+at all (`z_Linux_util.cpp`: use of undeclared identifier `PAGESIZE`).

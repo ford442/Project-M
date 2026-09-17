@@ -119,7 +119,6 @@ static void TearDownEngineForRebind()
         pm = nullptr;
     }
     app_data.projectm_engine = nullptr;
-    app_data.playlist = nullptr;
     app_data.loading = EM_FALSE;
 
     g_dualFbo.ReleaseAll();
@@ -221,7 +220,6 @@ int init()
     }
     app_data.projectm_engine = pm;
     playlist = projectm_playlist_create(pm);
-    app_data.playlist = playlist;
     const char* loc = "/presets/";
     projectm_playlist_add_path(playlist, loc, true, true);
     projectm_playlist_set_preset_switched_event_callback(playlist, &load_preset_callback_done, &app_data);
@@ -297,7 +295,6 @@ void pm_handle_context_loss()
     pm = NULL;
     app_data.projectm_engine = NULL;
     playlist = NULL;
-    app_data.playlist = NULL;
     g_dualFbo.ReleaseAll();
     ResetTransitionState();
     WasmWebGLDestroyContext();

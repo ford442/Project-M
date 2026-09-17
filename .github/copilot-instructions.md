@@ -38,7 +38,7 @@ Key CMake options:
 
 ### Emscripten / WASM build
 
-CI uses emsdk **3.1.53**.
+CI uses emsdk **6.0.6** (`.github/workflows/build_emscripten.yml`; rationale in `docs/EMSCRIPTEN.md` → "Emscripten SDK version").
 
 ```bash
 emcmake cmake -G "Unix Makefiles" -S . -B cmake-build \
@@ -46,7 +46,7 @@ emcmake cmake -G "Unix Makefiles" -S . -B cmake-build \
 emmake cmake --build cmake-build --parallel
 ```
 
-Required linker flags (set in CMakeLists): `-sUSE_SDL=2`, `-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2`, `-sFULL_ES2=1 -sFULL_ES3=1`, `-sALLOW_MEMORY_GROWTH=1`. The `OES_texture_float` WebGL extension must be enabled at runtime for the motion-vector grid.
+WASM compile/link flags are **not** written in `CMakeLists.txt` — the single source of truth is `cmake/EmscriptenWasmFlags.cmake`, which also generates `scripts/wasm_link_common.inc.sh` for the final wrapper link. After editing it, run `scripts/sync_wasm_link_common.sh` (CI checks the generated files with `scripts/verify_wasm_link_common.sh`). Do not copy flag lists into docs or instructions; point at that file. Notable choices it records: native WebGL 2 only (`MIN_WEBGL_VERSION=2`/`MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` — no GL emulation layer), no SDL port, `SHARED_MEMORY`/pthreads + OpenMP, and a C++ exception ABI selected by `PROJECTM_WASM_EXCEPTIONS`. The `OES_texture_float` WebGL extension must be enabled at runtime for the motion-vector grid.
 
 ---
 

@@ -300,6 +300,29 @@
         mark('two-instance exports absent; skipped');
       }
 
+      // Known-bad preset: C++ exception catching end to end, in whichever ABI the
+      // bundle was built with (NO_DISABLE_EXCEPTION_CATCHING or -fwasm-exceptions).
+      // A missing file makes MilkdropPreset::Load throw MilkdropPresetLoadException,
+      // PresetFactoryManager rethrows it as PresetFactoryException, and
+      // ProjectM::LoadPresetFile catches it and raises the switch-failed event. If
+      // catching is broken the throw aborts the module instead of setting the flag.
+      if (typeof Module._preset_switch_failed === 'function') {
+        globalThis.projectMPresetSwitchFailed = false;
+        Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/does-not-exist.milk']);
+        const failDeadline = performance.now() + PRESET_READY_TIMEOUT_MS;
+        while (!Module._preset_switch_failed() && performance.now() < failDeadline) {
+          await sleep(16);
+        }
+        if (!Module._preset_switch_failed()) {
+          throw new Error('known-bad preset: preset_switch_failed() never reported the thrown load error');
+        }
+        if (globalThis.projectMPresetSwitchFailed !== true) {
+          throw new Error('known-bad preset: js_report_preset_switch_failed did not reach globalThis');
+        }
+        Module._render_frame(); // the engine survived the throw
+        mark('known-bad preset exception caught (preset_switch_failed=1, host notified)');
+      }
+
       finish(true);
     }
 

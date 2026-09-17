@@ -436,8 +436,11 @@ GitHub Actions workflows are in `.github/workflows/`:
 ### Upstream maintenance (fork)
 
 This tree tracks [projectM-visualizer/projectm](https://github.com/projectM-visualizer/projectm).
-Run `./scripts/upstream_sync_check.sh` before large refactors or when upstream ships a release.
-Deliberate divergences (WASM glue, OpenMP, AI presets) are documented in `docs/UPSTREAM_SYNC.md`.
+`main` is the fork (develop here). `master` is a read-only mirror of upstream `master`;
+refresh it with `./scripts/sync_upstream_master.sh` and do not commit on it or merge it
+into `main`. Run `./scripts/upstream_sync_check.sh` before large refactors or when
+upstream ships a release. Deliberate divergences (WASM glue, OpenMP, AI presets) are
+documented in `docs/UPSTREAM_SYNC.md`.
 
 ### Packaging Outputs
 - CMake config files: `projectM4Config.cmake`, `projectM4Targets.cmake`

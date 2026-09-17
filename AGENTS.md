@@ -268,6 +268,17 @@ Third-party code that is compiled as part of the project:
   check list and the directory coverage together, gradually, same reasoning
   as `check_cpp_format.sh`'s PATHS list.
 
+### Sanitizers
+- `build_linux.yml`'s `sanitizers` job builds Debug with
+  `-fsanitize=undefined,address` (static libs) and runs the full `ctest`
+  suite, including `PresetCompat` over `presets/tests/`, with
+  `UBSAN_OPTIONS=halt_on_error=1` and leak detection on. Reproduce locally by
+  passing the same `CMAKE_{C,CXX}_FLAGS` / `CMAKE_{EXE,SHARED}_LINKER_FLAGS`
+  as that job. `*BenchTest.*` is filtered out there (wall-clock budgets).
+  LSan suppressions live in `tests/sanitizers/lsan.supp`; do not add one
+  without a comment naming the third-party library and why.
+  TSAN is not wired up yet (OpenMP needs suppressions).
+
 ### Naming Conventions (enforced by `.clang-tidy`)
 | Entity | Style | Example |
 |--------|-------|---------|

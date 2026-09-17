@@ -194,7 +194,8 @@ test('start() calls set_context_config before create_host with mapped args', asy
 
     assert.deepEqual(calls.map((c) => c[0]), ['set_context_config', 'create_host']);
     // Args: antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo.
-    assert.deepEqual(calls[0][1], [1, 1, 1, 1, 1, 1, 1]);
+    // depth/stencil default off (#246).
+    assert.deepEqual(calls[0][1], [1, 1, 0, 0, 1, 1, 1]);
     assert.equal(errors[0]?.code, 4);
 });
 

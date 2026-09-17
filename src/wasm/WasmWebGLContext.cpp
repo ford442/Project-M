@@ -10,30 +10,51 @@ using namespace emscripten;
 // Per-instance host state (#168 Phase B). The WebGL context handle and the
 // canvas CSS selectors were process-global, so a second engine could not own a
 // distinct canvas. They are now WasmHost members; mapping the former names to
-// the active host's members keeps the create/destroy/resize bodies unchanged.
-// The selector defaults ("#mcanvas" / "#scanvas") live on the WasmHost member
-// initialisers. None of the EM_ASM/EM_JS bodies below reference these
-// identifiers, so these object-like macros do not rewrite the embedded JS.
-#define g_glCtx (Host().glCtx)
-#define g_mainCanvasSelector (Host().primarySelector)
-#define g_secondaryCanvasSelector (Host().secondarySelector)
-#define g_canvasSelectorsExplicit (Host().canvasSelectorsExplicit)
+// the active host's members (same-named local references) keeps the
+// create/destroy/resize bodies unchanged. The selector defaults ("#mcanvas" /
+// "#scanvas") live on the WasmHost member initialisers.
 
 // WebGL context attributes + dual-FBO precision, set from the JS host layer via
 // set_context_config() and read at context creation (#128 / #84 / #179 A5).
-// Process-global "current" config: create_host() calls are sequential and JS
-// sets this immediately before each one, so a context created here always sees
-// the config intended for it. Defaults live on the struct.
-static WasmContextConfig g_contextConfig;
+//
+// Per host (#246): each WasmHost owns the config its context was (or will be)
+// created with, so two engines in one Module can differ in antialias /
+// fboPrecision / powerPreference. Attributes are baked at create time, so a
+// host's config is never rewritten once its context exists — the struct always
+// describes the live context.
+//
+// JS calls set_context_config() immediately before create_host(), i.e. while
+// the *previous* host is still active and already has a context. That request
+// cannot land on the previous host, and the new host does not exist yet, so it
+// is parked as the pending request and snapshotted onto whichever host creates
+// a context next (create_host() / legacy init() / rebind_canvases() /
+// context-loss re-init). The same applies before any host exists at all.
+// This is a one-shot hand-off slot, not a shared config: it is cleared as soon
+// as a host consumes it.
+static WasmContextConfig g_pendingContextConfig;
+static bool g_hasPendingContextConfig = false;
 
 void WasmWebGLSetContextConfig(const WasmContextConfig& cfg)
 {
-    g_contextConfig = cfg;
+    // Deliberately not Host(): that would lazily allocate the compat default
+    // host and spend one of the kMaxHosts slots before the page's first
+    // create_host().
+    WasmHost* active = ActiveHostOrNull();
+    if (active != nullptr && active->glCtx == 0)
+    {
+        // Active host has no context yet (a host between teardown and re-init):
+        // configure it directly.
+        active->contextConfig = cfg;
+        g_hasPendingContextConfig = false;
+        return;
+    }
+    g_pendingContextConfig = cfg;
+    g_hasPendingContextConfig = true;
 }
 
 const WasmContextConfig& WasmWebGLGetContextConfig()
 {
-    return g_contextConfig;
+    return Host().contextConfig;
 }
 
 extern "C" {
@@ -66,6 +87,10 @@ static void CopyCanvasSelector(char* dest, size_t destSize, const char* src, con
 
 void WasmWebGLSetCanvasSelectors(const char* primary, const char* secondary)
 {
+    WasmHost& H = Host();
+    auto& g_mainCanvasSelector = H.primarySelector;
+    auto& g_secondaryCanvasSelector = H.secondarySelector;
+    auto& g_canvasSelectorsExplicit = H.canvasSelectorsExplicit;
     if (primary != nullptr && primary[0] != '\0')
     {
         CopyCanvasSelector(g_mainCanvasSelector, sizeof(g_mainCanvasSelector), primary, "#mcanvas");
@@ -80,6 +105,10 @@ void WasmWebGLSetCanvasSelectors(const char* primary, const char* secondary)
 
 void WasmWebGLApplyModuleCanvasSelectorsIfPresent()
 {
+    WasmHost& H = Host();
+    auto& g_mainCanvasSelector = H.primarySelector;
+    auto& g_secondaryCanvasSelector = H.secondarySelector;
+    auto& g_canvasSelectorsExplicit = H.canvasSelectorsExplicit;
     if (g_canvasSelectorsExplicit)
     {
         return;
@@ -108,11 +137,15 @@ void WasmWebGLApplyModuleCanvasSelectorsIfPresent()
 
 const char* WasmWebGLGetMainCanvasSelector()
 {
+    WasmHost& H = Host();
+    auto& g_mainCanvasSelector = H.primarySelector;
     return g_mainCanvasSelector;
 }
 
 const char* WasmWebGLGetSecondaryCanvasSelector()
 {
+    WasmHost& H = Host();
+    auto& g_secondaryCanvasSelector = H.secondarySelector;
     return g_secondaryCanvasSelector;
 }
 
@@ -158,6 +191,10 @@ bool WasmWebGLCanvasElementExists(const char* selector)
 // host opts in with `antialias: true` (e.g. `?aa=1` parsed in host JS). The
 // former `?aa=` / `?capture=` / `localStorage.canvasAA` scraping that lived here
 // moved to the host JS layer per #128.
+//
+// Canvas depth/stencil (#246) default OFF for the same reason: Milkdrop's depth
+// and stencil use lives on the preset FBOs, not the canvas. Hosts that draw
+// sprites needing a depth buffer opt in with `depth: true` (`?depth=1`).
 static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
 {
     const WasmContextConfig& cfg = WasmWebGLGetContextConfig();
@@ -236,12 +273,25 @@ static void ProjectMApplySrgbCanvasColorSpace()
 
 EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext()
 {
+    WasmHost& H = Host();
+    auto& g_glCtx = H.glCtx;
     return g_glCtx;
 }
 
 bool WasmWebGLCreateAndActivateContext()
 {
+    WasmHost& H = Host();
+    auto& g_glCtx = H.glCtx;
+    auto& g_mainCanvasSelector = H.primarySelector;
     WasmWebGLDestroyContext();
+
+    // Snapshot a pending set_context_config() request onto this host before the
+    // attributes are baked (see g_pendingContextConfig above).
+    if (g_hasPendingContextConfig)
+    {
+        H.contextConfig = g_pendingContextConfig;
+        g_hasPendingContextConfig = false;
+    }
 
     EmscriptenWebGLContextAttributes webgl_attrs = ProjectMDefaultWebGLAttributes();
     if (!WasmWebGLCanvasElementExists(g_mainCanvasSelector))
@@ -279,6 +329,8 @@ bool WasmWebGLCreateAndActivateContext()
 
 void WasmWebGLDestroyContext()
 {
+    WasmHost& H = Host();
+    auto& g_glCtx = H.glCtx;
     if (g_glCtx)
     {
         emscripten_webgl_destroy_context(g_glCtx);
@@ -288,6 +340,9 @@ void WasmWebGLDestroyContext()
 
 void WasmWebGLResizeCanvases(int width, int height)
 {
+    WasmHost& H = Host();
+    auto& g_mainCanvasSelector = H.primarySelector;
+    auto& g_secondaryCanvasSelector = H.secondarySelector;
     emscripten_set_canvas_element_size(g_mainCanvasSelector, width, height);
     if (WasmWebGLCanvasElementExists(g_secondaryCanvasSelector))
     {

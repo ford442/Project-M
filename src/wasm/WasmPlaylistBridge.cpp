@@ -10,16 +10,12 @@ using namespace emscripten;
 // and the preset-readiness gate were process-global; they are now members of
 // the active WasmHost. These callbacks fire synchronously from inside the
 // active host's render/load, and the exports run after set_active_host(), so
-// mapping the former global names to Host() members keeps the bodies unchanged.
-#define pm (Host().appData.projectm_engine)
-#define app_data (Host().appData)
-#define g_presetBReady (Host().presetBReady)
-#define g_renderedFrameCount (Host().renderedFrameCount)
-#define g_presetReadyFrame (Host().presetReadyFrame)
-#define g_presetSwitchFailed (Host().presetSwitchFailed)
+// each body binds same-named local references to the active host's members.
 
 void load_preset_callback_example(bool is_hard_cut, unsigned int index, void* user_data)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     // AppData* app_data = (AppData*)user_data;
     projectm_playlist_handle playlist = app_data.playlist;
     uint32_t indx = projectm_playlist_play_next(playlist, false);
@@ -28,6 +24,11 @@ void load_preset_callback_example(bool is_hard_cut, unsigned int index, void* us
 
 void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_data)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
+    auto& g_presetBReady = H.presetBReady;
+    auto& g_renderedFrameCount = H.renderedFrameCount;
+    auto& g_presetReadyFrame = H.presetReadyFrame;
     float randomDelay = (emscripten_random() * 30.0) + 27.0;
     projectm_set_preset_duration(app_data.projectm_engine, randomDelay);
     app_data.loading = EM_FALSE;
@@ -50,6 +51,9 @@ void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_
 
 void _on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
+    auto& g_presetSwitchFailed = H.presetSwitchFailed;
     printf("Preset switch failed (%s): %s\n", preset_filename, message);
     g_presetSwitchFailed = true;
     app_data.loading = EM_FALSE;
@@ -59,6 +63,8 @@ void _on_preset_switch_failed(const char* preset_filename, const char* message, 
 
 void on_preset_switch_requested(bool is_hard_cut, void* user_data)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     // Ignore timer-driven switches while a manual preset load is compiling.
     // Without this, clicking "custom preset" can load the pick and then immediately
     // play_next() from an expired preset timer within the same frame.
@@ -75,6 +81,8 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void add_preset_path()
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     const char* loc = "/presets/";
     char preset_file[256];
     for (int i = 0; i <= 100; ++i)
@@ -88,6 +96,8 @@ void add_preset_path()
 EMSCRIPTEN_KEEPALIVE
 void add_existing_vfs_presets()
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     char preset_file[256];
     int added = 0;
     for (int i = 0; i <= 100; ++i)
@@ -106,6 +116,8 @@ void add_existing_vfs_presets()
 EMSCRIPTEN_KEEPALIVE
 void add_preset_file(const char* path)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     if (!app_data.playlist)
         return;
     projectm_playlist_add_preset(app_data.playlist, path, false);
@@ -115,6 +127,8 @@ void add_preset_file(const char* path)
 EMSCRIPTEN_KEEPALIVE
 void add_custom_milk_paths(int count)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     char preset_file[256];
     int added = 0;
     for (int i = 0; i < count; ++i)
@@ -133,6 +147,8 @@ void add_custom_milk_paths(int count)
 EMSCRIPTEN_KEEPALIVE
 void switch_preset()
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     if (!app_data.playlist)
         return;
     projectm_playlist_play_next(app_data.playlist, false);
@@ -142,6 +158,13 @@ void switch_preset()
 
 static void load_preset_file_impl(const char* filename, bool hard_cut)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& app_data = H.appData;
+    auto& g_presetBReady = H.presetBReady;
+    auto& g_renderedFrameCount = H.renderedFrameCount;
+    auto& g_presetReadyFrame = H.presetReadyFrame;
+    auto& g_presetSwitchFailed = H.presetSwitchFailed;
     if (!pm)
     {
         return;
@@ -235,18 +258,29 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 int get_rendered_frame_count()
 {
+    WasmHost& H = Host();
+    auto& g_renderedFrameCount = H.renderedFrameCount;
     return static_cast<int>(g_renderedFrameCount);
 }
 
 EMSCRIPTEN_KEEPALIVE
 int preset_switch_failed()
 {
+    WasmHost& H = Host();
+    auto& g_presetSwitchFailed = H.presetSwitchFailed;
     return g_presetSwitchFailed ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
 int is_preset_ready(int min_frames_since_ready)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& app_data = H.appData;
+    auto& g_presetBReady = H.presetBReady;
+    auto& g_renderedFrameCount = H.renderedFrameCount;
+    auto& g_presetReadyFrame = H.presetReadyFrame;
+    auto& g_presetSwitchFailed = H.presetSwitchFailed;
     if (!pm)
         return 0;
     if (app_data.loading == EM_TRUE)

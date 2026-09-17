@@ -17,18 +17,12 @@
 
 using namespace emscripten;
 
-// Per-instance host state (#168 Phase B). The audio-source flag is now a
-// WasmHost member. Informational only: every source writes into the one PCM
-// ring in WasmPcmRing.cpp. The worklet itself is still process-global, so in a
-// two-instance Module the second engine is visual-only unless the host routes
-// PCM to it via _projectm_pcm_add_float_wrapper(handle, ...).
-//
-// None of the EM_JS bodies below contain a bare `pm` / `app_data` /
-// `g_is_streaming_audio` token, so these object-like macros do not rewrite the
-// embedded JavaScript.
-#define pm (Host().appData.projectm_engine)
-#define app_data (Host().appData)
-#define g_is_streaming_audio (Host().isStreamingAudio)
+// Per-instance host state (#168 Phase B / #246). The audio-source flag and the
+// PCM ring are WasmHost members; C++ bodies reach them through
+// `WasmHost& H = Host();` plus same-named local references. The Web Audio
+// worklet node is still one per Module: it receives one ring descriptor per
+// host (tagged with the host handle) and fans each quantum out to every
+// attached ring, so one AudioContext feeds N engines.
 
 void projectm_pcm_add_float_from_js_array_wrapper(
     uintptr_t pm_handle_value,
@@ -36,6 +30,8 @@ void projectm_pcm_add_float_from_js_array_wrapper(
     unsigned int num_samples_per_channel,
     int channels_enum_value)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     // Honor an explicit engine handle (multi-instance PCM routing); fall back to
     // the active host's engine when 0 is passed (legacy single-instance callers).
     projectm_handle current_pm_handle = pm_handle_value
@@ -67,44 +63,95 @@ void projectm_pcm_add_float_from_js_array_wrapper(
     return;
 }
 
-// Ring descriptor handed to the AudioWorkletProcessor so it can write each
-// 128-sample quantum straight into the WASM-owned PCM ring, at audio rate,
-// without a postMessage round trip. Returns null when the ring has not been
-// allocated yet (init() allocates it before this runs) or when the module's
-// memory is not shared (no COOP/COEP), in which case the processor falls back
-// to posting `pcmData` messages that land in the same ring one hop later.
+// Per-host ring registry + worklet hand-off (#246).
+//
+// Every host's ring is recorded in `Module.__pmPcmRings` (a Map keyed by host
+// handle) when it is allocated, and removed when it is released. The registry
+// is what lets one AudioWorklet feed N engines without calling back into WASM
+// or switching the active host:
+//
+//   * cross-origin isolated: each descriptor is posted to the processor as a
+//     `pcmRing` message tagged with `hostHandle`; the processor writes every
+//     quantum into every attached ring (projectm_audio_processor.js). A
+//     released ring is withdrawn with `pcmRingDetach`.
+//   * not isolated: the processor posts `pcmData`, and the handler installed
+//     below writes it into every registered ring, one hop later.
+//
+// Either way it is one ingest per engine, fed from one AudioContext.
 // clang-format off
-EM_JS(void, js_post_pcm_ring_to_worklet, (), {
+EM_JS(void, js_register_pcm_ring, (uintptr_t hostHandle, uintptr_t headerPtr, uintptr_t dataPtr, int capacityFrames, int indexModulus), {
+    const rings = Module.__pmPcmRings || (Module.__pmPcmRings = new Map());
+    const descriptor = {
+        hostHandle: hostHandle >>> 0,
+        headerPtr: headerPtr >>> 0,
+        dataPtr: dataPtr >>> 0,
+        capacityFrames: capacityFrames,
+        indexModulus: indexModulus
+    };
+    rings.set(descriptor.hostHandle, descriptor);
     const node = globalThis.projectMWorkletNode_Global_Cpp;
-    if (!node || typeof _get_pcm_ring_data_ptr !== 'function') { return; }
-    const dataPtr = _get_pcm_ring_data_ptr();
-    const headerPtr = _get_pcm_ring_header_ptr();
-    const capacityFrames = _get_pcm_ring_capacity_frames();
-    if (!dataPtr || !headerPtr || capacityFrames <= 0) { return; }
     const memory = wasmMemory && wasmMemory.buffer;
-    if (typeof SharedArrayBuffer === 'undefined' || !(memory instanceof SharedArrayBuffer)) {
-        // Not cross-origin isolated: the processor keeps postMessage'ing PCM.
+    if (!node || typeof SharedArrayBuffer === 'undefined' || !(memory instanceof SharedArrayBuffer)) {
+        // No worklet yet (attach_worklet_ingest() posts the registry once it
+        // exists), or not cross-origin isolated (the postMessage fallback
+        // handler fans out over the registry instead).
         return;
     }
-    node.port.postMessage({
-        type: 'pcmRing',
-        memory: memory,
-        headerPtr: headerPtr,
-        dataPtr: dataPtr,
-        capacityFrames: capacityFrames,
-        indexModulus: _get_pcm_ring_index_modulus()
-    });
+    node.port.postMessage(Object.assign({ type: 'pcmRing', memory: memory }, descriptor));
 });
 // clang-format on
 
+// clang-format off
+EM_JS(void, js_unregister_pcm_ring, (uintptr_t hostHandle), {
+    const handle = hostHandle >>> 0;
+    if (Module.__pmPcmRings) {
+        Module.__pmPcmRings.delete(handle);
+    }
+    const node = globalThis.projectMWorkletNode_Global_Cpp;
+    if (node) {
+        node.port.postMessage({ type: 'pcmRingDetach', hostHandle: handle });
+    }
+});
+// clang-format on
+
+// Posts every registered ring to a (new or repaired) worklet node. Returns
+// silently when the module's memory is not shared, in which case the processor
+// keeps postMessage'ing PCM to the fallback handler.
+// clang-format off
+EM_JS(void, js_post_pcm_rings_to_worklet, (), {
+    const node = globalThis.projectMWorkletNode_Global_Cpp;
+    const rings = Module.__pmPcmRings;
+    if (!node || !rings) { return; }
+    const memory = wasmMemory && wasmMemory.buffer;
+    if (typeof SharedArrayBuffer === 'undefined' || !(memory instanceof SharedArrayBuffer)) {
+        return;
+    }
+    for (const descriptor of rings.values()) {
+        node.port.postMessage(Object.assign({ type: 'pcmRing', memory: memory }, descriptor));
+    }
+});
+// clang-format on
+
+void PublishPcmRingToWorklet(uintptr_t hostHandle, uintptr_t headerPtr, uintptr_t dataPtr,
+                             int capacityFrames, int indexModulus)
+{
+    js_register_pcm_ring(hostHandle, headerPtr, dataPtr, capacityFrames, indexModulus);
+}
+
+void WithdrawPcmRingFromWorklet(uintptr_t hostHandle)
+{
+    js_unregister_pcm_ring(hostHandle);
+}
+
 // Fallback ingest for the non-isolated case: the processor posts PCM, and this
-// writes it into the same ring the drain reads, so there is one ingest path with
-// one overrun policy either way -- the transport differs, the architecture does
-// not. Prefers the host writer from html/projectm-pcm-ring.js when the page has
-// loaded it (one implementation), and otherwise writes the ring inline.
+// writes it into every registered ring, so there is one ingest path with one
+// overrun policy either way -- the transport differs, the architecture does
+// not. With a single ring it prefers the host writer from
+// html/projectm-pcm-ring.js when the page has loaded it (one implementation),
+// and otherwise writes the rings inline.
 //
-// Note there is no _malloc here, and no per-message scratch buffer: the ring is
-// allocated once by pcm_ring_init() and owned by WasmPcmRing.cpp.
+// Note there is no _malloc here, and no per-message scratch buffer: the rings
+// are allocated by pcm_ring_init() and owned by WasmPcmRing.cpp.
 // clang-format off
 EM_JS(void, js_install_worklet_pcm_handler, (), {
     const node = globalThis.projectMWorkletNode_Global_Cpp;
@@ -113,38 +160,37 @@ EM_JS(void, js_install_worklet_pcm_handler, (), {
         const data = event.data;
         if (!data || data.type !== 'pcmData' || !data.audioData) { return; }
         const channels = data.channelsForPM === 2 ? 2 : 1;
+        const rings = Module.__pmPcmRings;
         const hostWrite = globalThis.projectMWritePcmRing;
-        if (typeof hostWrite === 'function') {
+        if (typeof hostWrite === 'function' && (!rings || rings.size <= 1)) {
             hostWrite(data.audioData, channels);
             return;
         }
-        if (typeof _get_pcm_ring_data_ptr !== 'function') { return; }
-        const dataPtr = _get_pcm_ring_data_ptr();
-        const headerPtr = _get_pcm_ring_header_ptr();
-        const capacityFrames = _get_pcm_ring_capacity_frames();
-        const indexModulus = _get_pcm_ring_index_modulus();
-        if (!dataPtr || !headerPtr || capacityFrames <= 0) { return; }
+        if (!rings || rings.size === 0) { return; }
 
         const heap = wasmMemory.buffer;
-        const header = new Int32Array(heap, headerPtr, 4);
-        const ring = new Float32Array(heap, dataPtr, capacityFrames * 2);
         const src = data.audioData;
         const frames = channels === 2 ? (src.length >> 1) : src.length;
         if (frames <= 0) { return; }
 
-        let writeIndex = Atomics.load(header, 0);
-        for (let i = 0; i < frames; i++) {
-            const slot = ((writeIndex + i) % capacityFrames) * 2;
-            if (channels === 2) {
-                ring[slot] = src[i * 2];
-                ring[slot + 1] = src[i * 2 + 1];
-            } else {
-                ring[slot] = src[i];
-                ring[slot + 1] = src[i];
+        for (const d of rings.values()) {
+            if (!d.dataPtr || !d.headerPtr || d.capacityFrames <= 0) { continue; }
+            const header = new Int32Array(heap, d.headerPtr, 4);
+            const ring = new Float32Array(heap, d.dataPtr, d.capacityFrames * 2);
+            let writeIndex = Atomics.load(header, 0);
+            for (let i = 0; i < frames; i++) {
+                const slot = ((writeIndex + i) % d.capacityFrames) * 2;
+                if (channels === 2) {
+                    ring[slot] = src[i * 2];
+                    ring[slot + 1] = src[i * 2 + 1];
+                } else {
+                    ring[slot] = src[i];
+                    ring[slot + 1] = src[i];
+                }
             }
+            writeIndex = (writeIndex + frames) % d.indexModulus;
+            Atomics.store(header, 0, writeIndex);
         }
-        writeIndex = (writeIndex + frames) % indexModulus;
-        Atomics.store(header, 0, writeIndex);
     };
 });
 // clang-format on
@@ -339,14 +385,15 @@ EM_JS(int, js_connect_media_element_source, (const char* selector), {
 });
 // clang-format on
 
-// Hands the worklet its ring descriptor and installs the postMessage fallback.
-// Exported because html/projectm-worklet-playback.js repairs a failed worklet
-// setup on a later user gesture and must re-attach ingest to the new node.
+// Hands the worklet every live host's ring descriptor and installs the
+// postMessage fallback. Exported because html/projectm-worklet-playback.js
+// repairs a failed worklet setup on a later user gesture and must re-attach
+// ingest to the new node.
 EMSCRIPTEN_KEEPALIVE
 void attach_worklet_ingest()
 {
     js_install_worklet_pcm_handler();
-    js_post_pcm_ring_to_worklet();
+    js_post_pcm_rings_to_worklet();
 }
 
 // Connects a media element (CSS selector) to the worklet. Returns 1 on success.
@@ -366,6 +413,8 @@ void pl(const char* song_path_in_vfs)
 EMSCRIPTEN_KEEPALIVE
 void set_audio_source_to_stream(bool is_streaming)
 {
+    WasmHost& H = Host();
+    auto& g_is_streaming_audio = H.isStreamingAudio;
     g_is_streaming_audio = is_streaming;
     printf("C++: Audio source set to stream: %s\n", is_streaming ? "true" : "false");
 }
@@ -391,6 +440,8 @@ extern "C" {
 
 void add_audio_data(uint8_t* data, int len)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     projectm_pcm_add_uint8(pm, data, len, PROJECTM_MONO);
     return;
 }
@@ -400,6 +451,8 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data, unsigned int num_samples_per_channel, int channels_enum_value)
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     // Honor an explicit engine handle so a host can feed a specific instance
     // (multi-instance A/B). 0 falls back to the active host's engine, preserving
     // the legacy single-instance contract where the argument was ignored.

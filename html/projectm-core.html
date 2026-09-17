@@ -581,7 +581,9 @@ const weeksOnFireMode = isWeeksOnFireMode(urlParams);
 // the WASM host as ProjectMContext options (the C++ side no longer scrapes the
 // URL — see #128 / docs/EMSCRIPTEN.md "WebGL context attributes"). `?aa=1` or
 // localStorage.canvasAA opt into MSAA; `?capture=1` (or window.__projectMCaptureMode)
-// keeps a readable back-buffer; `?fboPrecision=high|byte` picks the dual-FBO format.
+// keeps a readable back-buffer; `?fboPrecision=high|byte` picks the dual-FBO format;
+// `?depth=1` restores a canvas depth+stencil attachment (off by default, #246 —
+// ablation for sprites that depth-test against the canvas).
 function resolveCanvasAntialias(params) {
     const q = params.get('aa');
     if (q === '1' || q === 'true') return true;
@@ -605,6 +607,7 @@ function resolveFboPrecision(params) {
 const contextAntialias = resolveCanvasAntialias(urlParams);
 const contextPreserveDrawingBuffer = resolveCapture(urlParams);
 const contextFboPrecision = resolveFboPrecision(urlParams);
+const contextDepth = urlParams.get('depth') === '1' || urlParams.get('depth') === 'true';
 wireFlacDecoderBridge(document);
 if (weeksOnFireMode) {
     applyWeeksOnFireDomConfig(document);
@@ -1336,6 +1339,8 @@ async function attemptInit() {
                 antialias: contextAntialias,
                 preserveDrawingBuffer: contextPreserveDrawingBuffer,
                 fboPrecision: contextFboPrecision,
+                depth: contextDepth,
+                stencil: contextDepth,
                 audioSource: 'none',
                 audioRouter: audioSourceRouter,
                 targetFps: workerConfig.targetFps,

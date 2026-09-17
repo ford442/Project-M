@@ -151,6 +151,70 @@
       };
     }
 
+    /**
+     * #246 (multi-instance Phase C): context config and PCM ring are per host.
+     * `hostB` was created with preserveDrawingBuffer + depth + RGBA8 dual FBOs;
+     * `hostA` kept the defaults.
+     */
+    async function checkPerHostState(Module, { hostA, hostB }) {
+      const select = (h) => Module.ccall('set_active_host', null, ['number'], [h]);
+
+      // 1. Context attributes / FBO precision were baked per host.
+      const attrsA = document.getElementById('pm-smoke-main').getContext('webgl2').getContextAttributes();
+      const attrsB = document.getElementById('pm-smoke-main-2').getContext('webgl2').getContextAttributes();
+      if (attrsA.preserveDrawingBuffer || attrsA.depth || attrsA.stencil) {
+        throw new Error('host A context attrs changed by host B config: ' + JSON.stringify(attrsA));
+      }
+      if (!attrsB.preserveDrawingBuffer || !attrsB.depth) {
+        throw new Error('host B context not created with its own config: ' + JSON.stringify(attrsB));
+      }
+      if (typeof Module._dual_fbo_get_format === 'function') {
+        select(hostA);
+        const fmtA = Module._dual_fbo_get_format();
+        select(hostB);
+        const fmtB = Module._dual_fbo_get_format();
+        if (fmtB !== 2 || fmtA === 2) {
+          throw new Error('dual-FBO precision not per host (A=' + fmtA + ', B=' + fmtB + ')');
+        }
+      }
+      mark('per-host context config (A depth=0 pdb=0, B depth=1 pdb=1 fbo=RGBA8)');
+
+      // 2. Independent PCM rings: a write to B is drained by B only.
+      if (typeof Module._pcm_ring_drain === 'function') {
+        const heap = Module.HEAPF32.buffer;
+        select(hostA);
+        const headerA = Module._get_pcm_ring_header_ptr();
+        Module._pcm_ring_drain();
+        select(hostB);
+        const headerB = Module._get_pcm_ring_header_ptr();
+        const dataB = Module._get_pcm_ring_data_ptr();
+        Module._pcm_ring_drain();
+        if (!headerA || !headerB || headerA === headerB) {
+          throw new Error('hosts share a PCM ring (A=' + headerA + ', B=' + headerB + ')');
+        }
+        const frames = 100;
+        const hdrB = new Int32Array(heap, headerB, 4);
+        const ringB = new Float32Array(heap, dataB, frames * 2);
+        const start = Atomics.load(hdrB, 0);
+        ringB.fill(0.25);
+        Atomics.store(hdrB, 0, start + frames);
+        select(hostA);
+        const drainedA = Module._pcm_ring_drain();
+        select(hostB);
+        const drainedB = Module._pcm_ring_drain();
+        if (drainedA !== 0 || drainedB !== frames) {
+          throw new Error('PCM ring drain crossed hosts (A drained ' + drainedA + ', B drained ' + drainedB + ')');
+        }
+        const registry = Module.__pmPcmRings;
+        if (registry && registry.size !== 2) {
+          throw new Error('worklet ring registry has ' + registry.size + ' rings, expected 2');
+        }
+        mark('per-host PCM rings (B wrote ' + frames + ', A drained 0, B drained ' + drainedB + ')');
+      }
+
+      select(hostA);
+    }
+
     async function runSmoke() {
       const params = new URLSearchParams(window.location.search);
       const moduleSrc = params.get('module');
@@ -267,6 +331,16 @@
           document.body.appendChild(s2);
 
           const before = Module._host_count();
+          const defaultHandle = Module._get_active_host();
+          // #246: per-host context config. Issued while the default host is
+          // active (and already has a context), exactly like ProjectMContext
+          // does before create_host(); it must land on the new host only.
+          // Args: antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo (2 = byte).
+          if (typeof Module._set_context_config === 'function') {
+            Module.ccall('set_context_config', null,
+              ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
+              [0, 1, 1, 0, 1, 2, 2]);
+          }
           const handle = Module.ccall('create_host', 'number', ['string', 'string'],
             ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
           if (!handle) throw new Error('create_host() returned 0 (init failed or at cap)');
@@ -284,7 +358,12 @@
 
           // Switch back to the default host and confirm both engines coexist.
           Module.ccall('set_active_host', null, ['number'], [0]);
+          if (Module._get_active_host() !== defaultHandle) {
+            throw new Error('set_active_host(0) did not select the default host');
+          }
           Module._render_frame();
+
+          await checkPerHostState(Module, { hostA: defaultHandle, hostB: handle });
 
           // Tear the second engine down; the first must survive.
           Module.ccall('destroy_host', null, ['number'], [handle]);

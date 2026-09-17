@@ -59,14 +59,26 @@ void SetActiveHost(WasmHost* host)
     if (host == nullptr)
     {
         // Fall back to the default/first live host so exports never operate on
-        // a null active pointer.
-        host = &Host();
+        // a null active pointer. (Not Host(): that returns the *current* active
+        // host, so set_active_host(0) used to be a silent no-op.)
+        for (int i = 0; i < kMaxHosts && host == nullptr; ++i)
+        {
+            host = g_hosts[i];
+        }
+        if (host == nullptr)
+        {
+            g_activeHost = nullptr;
+            host = &Host();
+        }
     }
     g_activeHost = host;
     if (host->glCtx != 0)
     {
         emscripten_webgl_make_context_current(host->glCtx);
     }
+    // libprojectM's transpiled-GLSL cache key is process-wide; keep it on the
+    // active host's in-flight load so a compile never sees a sibling's key.
+    ArmShaderCacheKeyForHost(*host);
 }
 
 void ReleaseHost(WasmHost* host)
@@ -80,6 +92,11 @@ void ReleaseHost(WasmHost* host)
     // destroy calls hit the right canvas. destruct() operates on the active
     // host.
     SetActiveHost(host);
+    // Abandon any in-flight shader-cache load so libprojectM's process-wide key
+    // is not left naming a dead host (a later compile would otherwise store its
+    // GLSL under this host's preset key).
+    host->shaderCache = ShaderCacheLoadState{};
+    ArmShaderCacheKeyForHost(*host);
     destruct();
 
     int freedSlot = -1;
@@ -133,6 +150,32 @@ WasmHost* HostSlot(int index)
     return g_hosts[index];
 }
 
+WasmHost* ActiveHostOrNull()
+{
+    return g_activeHost;
+}
+
+uintptr_t HostHandle(const WasmHost& host)
+{
+    return reinterpret_cast<uintptr_t>(&host);
+}
+
+WasmHost* HostFromHandle(uintptr_t handle)
+{
+    if (handle == 0)
+    {
+        return nullptr;
+    }
+    for (int i = 0; i < kMaxHosts; ++i)
+    {
+        if (g_hosts[i] != nullptr && HostHandle(*g_hosts[i]) == handle)
+        {
+            return g_hosts[i];
+        }
+    }
+    return nullptr;
+}
+
 int LiveHostCount()
 {
     int n = 0;
@@ -168,6 +211,16 @@ uintptr_t create_host(const char* primary, const char* secondary)
         fprintf(stderr, "create_host: refused – already at kMaxHosts (%d) instances.\n", kMaxHosts);
         js_report_init_error(4, "Maximum projectM instances per Module reached");
         return 0;
+    }
+
+    // Start from the previous host's context config so a Module configured once
+    // keeps that config for every engine. A set_context_config() issued just
+    // before this call (while `previous` was active and already had a context)
+    // is pending and overrides this snapshot inside init(), right before the
+    // context is created — see WasmWebGLContext.cpp.
+    if (previous != nullptr)
+    {
+        host->contextConfig = previous->contextConfig;
     }
 
     SetActiveHost(host);
@@ -210,22 +263,9 @@ uintptr_t get_active_host()
 EMSCRIPTEN_KEEPALIVE
 void destroy_host(uintptr_t handle)
 {
-    WasmHost* host = reinterpret_cast<WasmHost*>(handle);
+    // Ignore handles that are not in the registry (0 / double-free / stale).
+    WasmHost* host = HostFromHandle(handle);
     if (host == nullptr)
-    {
-        return;
-    }
-    // Ignore handles that are not in the registry (double-free / stale).
-    bool known = false;
-    for (int i = 0; i < kMaxHosts; ++i)
-    {
-        if (g_hosts[i] == host)
-        {
-            known = true;
-            break;
-        }
-    }
-    if (!known)
     {
         return;
     }

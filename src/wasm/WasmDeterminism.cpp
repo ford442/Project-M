@@ -30,8 +30,6 @@
 
 #include "WasmHost.hpp"
 
-#define pm (Host().appData.projectm_engine)
-
 #include <projectM-4/debug.h>
 
 namespace {
@@ -51,6 +49,8 @@ double WasmNow()
 
 void DeterministicFrameTick()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     if (!g_deterministicClock)
     {
         return;
@@ -100,6 +100,8 @@ int is_deterministic_seed()
 EMSCRIPTEN_KEEPALIVE
 void set_deterministic_clock(int enabled, double fps)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     g_deterministicClock = (enabled != 0);
     g_deterministicFrameIndex = 0;
     g_virtualNowMs = 0.0;

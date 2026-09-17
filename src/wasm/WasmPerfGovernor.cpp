@@ -18,20 +18,10 @@
 // adaptive-quality governor (enabled flag, target FPS, current tier, hysteresis
 // counters, post-load grace) were process-global; they are now WasmHost members
 // so each engine governs its own quality independently (acceptance: "governor v2
-// works per instance, not process-wide"). The former global names map to the
-// active host's members so the governor bodies below stay unchanged. Governor
-// entry points (UpdateQualityGovernor / ResetGovernorCounters / renderLoop) run
-// under the active host.
-#define pm (Host().appData.projectm_engine)
-#define g_perfHudEnabled (Host().perfHudEnabled)
-#define g_wasLoading (Host().wasLoading)
-#define g_postLoadGraceFrames (Host().postLoadGraceFrames)
-#define g_governorEnabled (Host().governorEnabled)
-#define g_targetFps (Host().targetFps)
-#define g_qualityTier (Host().qualityTier)
-#define g_qualityTierInitialized (Host().qualityTierInitialized)
-#define g_overBudgetFrames (Host().overBudgetFrames)
-#define g_underBudgetFrames (Host().underBudgetFrames)
+// works per instance, not process-wide"). Each body binds same-named local
+// references to the active host's members (`auto& g_qualityTier =
+// H.qualityTier;`). Governor entry points (UpdateQualityGovernor /
+// ResetGovernorCounters / renderLoop) run under the active host.
 
 // Begins a GPU timer query for the upcoming render_frame() call, if the
 // EXT_disjoint_timer_query_webgl2 extension is available. No-op otherwise.
@@ -223,6 +213,9 @@ EM_JS(void, js_governor_report_blur_cap, (int cap), {
 
 static void ApplyQualityTier(int tier)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_qualityTier = H.qualityTier;
     tier = std::max(0, std::min(kMaxQualityTier, tier));
     g_qualityTier = tier;
     const QualityTierSettings& settings = kQualityTiers[tier];
@@ -239,6 +232,9 @@ static void ApplyQualityTier(int tier)
 // single step doesn't immediately trigger another one based on stale counts.
 void ResetGovernorCounters()
 {
+    WasmHost& H = Host();
+    auto& g_overBudgetFrames = H.overBudgetFrames;
+    auto& g_underBudgetFrames = H.underBudgetFrames;
     g_overBudgetFrames = 0;
     g_underBudgetFrames = 0;
 }
@@ -248,6 +244,15 @@ void ResetGovernorCounters()
 // the frame falls within the post-load grace period.
 void UpdateQualityGovernor(double frameMs)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_postLoadGraceFrames = H.postLoadGraceFrames;
+    auto& g_governorEnabled = H.governorEnabled;
+    auto& g_targetFps = H.targetFps;
+    auto& g_qualityTier = H.qualityTier;
+    auto& g_qualityTierInitialized = H.qualityTierInitialized;
+    auto& g_overBudgetFrames = H.overBudgetFrames;
+    auto& g_underBudgetFrames = H.underBudgetFrames;
     if (!g_qualityTierInitialized)
     {
         size_t width = 0;
@@ -316,6 +321,9 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void set_target_fps(int fps)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_targetFps = H.targetFps;
     if (fps <= 0)
     {
         fps = 60;
@@ -335,6 +343,8 @@ void set_target_fps(int fps)
 EMSCRIPTEN_KEEPALIVE
 void set_quality_governor(int enabled)
 {
+    WasmHost& H = Host();
+    auto& g_governorEnabled = H.governorEnabled;
     g_governorEnabled = enabled != 0;
     ResetGovernorCounters();
     return;
@@ -345,6 +355,8 @@ void set_quality_governor(int enabled)
 EMSCRIPTEN_KEEPALIVE
 int get_quality_tier()
 {
+    WasmHost& H = Host();
+    auto& g_qualityTier = H.qualityTier;
     return g_qualityTier;
 }
 
@@ -355,6 +367,8 @@ int get_quality_tier()
 EMSCRIPTEN_KEEPALIVE
 double get_governor_render_scale()
 {
+    WasmHost& H = Host();
+    auto& g_qualityTier = H.qualityTier;
     return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].renderScale;
 }
 
@@ -363,6 +377,8 @@ double get_governor_render_scale()
 EMSCRIPTEN_KEEPALIVE
 int get_governor_blur_cap()
 {
+    WasmHost& H = Host();
+    auto& g_qualityTier = H.qualityTier;
     return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].maxBlurLevel;
 }
 
@@ -374,6 +390,8 @@ int get_governor_blur_cap()
 EMSCRIPTEN_KEEPALIVE
 void set_perf_hud(int enabled)
 {
+    WasmHost& H = Host();
+    auto& g_perfHudEnabled = H.perfHudEnabled;
     g_perfHudEnabled = enabled != 0;
     projectm_perf_set_enabled(g_perfHudEnabled);
     js_perf_hud_set_enabled(enabled);

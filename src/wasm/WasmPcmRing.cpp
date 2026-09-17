@@ -2,6 +2,13 @@
 //
 // The single PCM ingest path into libprojectM on the web.
 //
+// One ring per engine (#246). Every export below operates on the active
+// host's ring (PcmRingState in WasmHost.hpp), so two engines in one Module
+// ingest independently: draining host A never consumes host B's writes. JS
+// producers pick a host's ring by activating it before reading the descriptor
+// (html/projectm-pcm-ring.js), or receive a descriptor tagged with the host
+// handle (the AudioWorklet, see WasmAudioBridge.cpp).
+//
 // The ring lives in the WASM heap and is owned here, in C++. JavaScript
 // producers (the AudioWorklet, external postMessage PCM, synthetic test
 // feeds, the render-worker host) map a Float32Array/Int32Array view over
@@ -36,8 +43,6 @@
 // computed modulo it.
 #include "WasmHost.hpp"
 
-#define app_data (Host().appData)
-
 #include <cstdlib>
 
 namespace {
@@ -60,29 +65,62 @@ constexpr int kHeaderInts = 4;
 // two drains, small enough to stay far below INT32_MAX for every capacity.
 constexpr int kIndexWrapMultiple = 1024;
 
-int32_t* g_header = nullptr;
-float* g_data = nullptr;
-int g_capacityFrames = 0;
-int g_readIndex = 0;
-int g_indexModulus = 0;
+// Retired ring allocations.
+//
+// A ring's descriptor lives on in producers that hold views over it (the
+// AudioWorklet in particular, which learns about a withdrawal only through an
+// asynchronous port message). Freeing the storage the moment a host shuts its
+// ring down would let one more quantum land in memory the allocator may already
+// have handed to something else. Released rings are parked here instead and
+// reused by the next pcm_ring_init() of the same capacity, so a late write can
+// at worst bleed a few milliseconds of audio into a new ring — never corrupt
+// the heap. Bounded by kMaxHosts: the oldest entry is freed when a newer one
+// needs the slot.
+struct RetiredRing {
+    int32_t* header = nullptr;
+    float* data = nullptr;
+    int capacityFrames = 0;
+};
+RetiredRing g_retiredRings[kMaxHosts];
+int g_nextRetiredSlot = 0;
 
-// Reused across drains so the per-frame ingest does not allocate. Sized to the
-// ring capacity, which is also the most a single drain can yield.
-std::vector<float> g_drainScratch;
-
-int32_t LoadWriteIndex()
+void RetireRing(int32_t* header, float* data, int capacityFrames)
 {
-    return __atomic_load_n(&g_header[kHeaderWriteIndex], __ATOMIC_SEQ_CST);
+    RetiredRing& slot = g_retiredRings[g_nextRetiredSlot];
+    free(slot.header);
+    free(slot.data);
+    slot = RetiredRing{header, data, capacityFrames};
+    g_nextRetiredSlot = (g_nextRetiredSlot + 1) % kMaxHosts;
 }
 
-void PublishReadIndex(int32_t value)
+bool TakeRetiredRing(int capacityFrames, int32_t*& header, float*& data)
 {
-    __atomic_store_n(&g_header[kHeaderReadIndex], value, __ATOMIC_SEQ_CST);
+    for (RetiredRing& slot : g_retiredRings)
+    {
+        if (slot.header != nullptr && slot.capacityFrames == capacityFrames)
+        {
+            header = slot.header;
+            data = slot.data;
+            slot = RetiredRing{};
+            return true;
+        }
+    }
+    return false;
 }
 
-void BumpOverruns()
+int32_t LoadWriteIndex(const PcmRingState& ring)
 {
-    __atomic_fetch_add(&g_header[kHeaderOverruns], 1, __ATOMIC_SEQ_CST);
+    return __atomic_load_n(&ring.header[kHeaderWriteIndex], __ATOMIC_SEQ_CST);
+}
+
+void PublishReadIndex(const PcmRingState& ring, int32_t value)
+{
+    __atomic_store_n(&ring.header[kHeaderReadIndex], value, __ATOMIC_SEQ_CST);
+}
+
+void BumpOverruns(const PcmRingState& ring)
+{
+    __atomic_fetch_add(&ring.header[kHeaderOverruns], 1, __ATOMIC_SEQ_CST);
 }
 
 } // namespace
@@ -92,13 +130,17 @@ extern "C" {
 // Defined below; pcm_ring_init() reuses it to release a previous allocation.
 EMSCRIPTEN_KEEPALIVE void pcm_ring_shutdown();
 
-// Allocates the ring. Idempotent: a second call with the same capacity is a
-// no-op so hosts can call it defensively before every producer hookup, and a
-// call with a different capacity reallocates (dropping buffered audio, which is
-// correct — the producers must remap their views anyway).
+// Allocates the active host's ring. Idempotent: a second call with the same
+// capacity is a no-op so hosts can call it defensively before every producer
+// hookup, and a call with a different capacity reallocates (dropping buffered
+// audio, which is correct — the producers must remap their views anyway, and
+// the worklet is sent the new descriptor).
 EMSCRIPTEN_KEEPALIVE
 int pcm_ring_init(int capacity_frames)
 {
+    WasmHost& H = Host();
+    PcmRingState& ring = H.pcmRing;
+
     if (capacity_frames <= 0)
     {
         capacity_frames = kDefaultCapacityFrames;
@@ -108,58 +150,83 @@ int pcm_ring_init(int capacity_frames)
         capacity_frames = kMaxCapacityFrames;
     }
 
-    if (g_header && g_capacityFrames == capacity_frames)
+    if (ring.header && ring.capacityFrames == capacity_frames)
     {
         return 1;
     }
 
     pcm_ring_shutdown();
 
-    g_header = static_cast<int32_t*>(calloc(kHeaderInts, sizeof(int32_t)));
-    g_data = static_cast<float*>(calloc(static_cast<size_t>(capacity_frames) * 2, sizeof(float)));
-    if (!g_header || !g_data)
+    if (!TakeRetiredRing(capacity_frames, ring.header, ring.data))
     {
-        fprintf(stderr, "pcm_ring_init: allocation failed for %d frames\n", capacity_frames);
-        pcm_ring_shutdown();
-        return 0;
+        ring.header = static_cast<int32_t*>(calloc(kHeaderInts, sizeof(int32_t)));
+        ring.data = static_cast<float*>(calloc(static_cast<size_t>(capacity_frames) * 2, sizeof(float)));
+        if (!ring.header || !ring.data)
+        {
+            fprintf(stderr, "pcm_ring_init: allocation failed for %d frames\n", capacity_frames);
+            free(ring.header);
+            free(ring.data);
+            ring.header = nullptr;
+            ring.data = nullptr;
+            return 0;
+        }
     }
 
-    g_capacityFrames = capacity_frames;
-    g_indexModulus = capacity_frames * kIndexWrapMultiple;
-    g_readIndex = 0;
-    g_header[kHeaderCapacity] = capacity_frames;
-    g_drainScratch.assign(static_cast<size_t>(capacity_frames) * 2, 0.0f);
+    // A reused allocation carries its previous owner's indices; start clean.
+    // Producers only publish after they have this ring's descriptor, and that
+    // is posted below, after the reset.
+    for (int i = 0; i < kHeaderInts; ++i)
+    {
+        __atomic_store_n(&ring.header[i], 0, __ATOMIC_SEQ_CST);
+    }
+
+    ring.capacityFrames = capacity_frames;
+    ring.indexModulus = capacity_frames * kIndexWrapMultiple;
+    ring.readIndex = 0;
+    ring.header[kHeaderCapacity] = capacity_frames;
+    ring.drainScratch.assign(static_cast<size_t>(capacity_frames) * 2, 0.0f);
+
+    PublishPcmRingToWorklet(HostHandle(H), reinterpret_cast<uintptr_t>(ring.header),
+                            reinterpret_cast<uintptr_t>(ring.data), ring.capacityFrames,
+                            ring.indexModulus);
     return 1;
 }
 
-// Releases the ring. Called from destruct() and from rebind_canvases() teardown
-// so the scratch buffer does not leak across re-inits the way the old
-// per-call `projectMAudioBufferPtr` malloc did.
+// Releases the active host's ring. Called from destruct() (and so from
+// destroy_host()) so the scratch buffer does not leak across re-inits the way
+// the old per-call `projectMAudioBufferPtr` malloc did. The storage itself is
+// retired rather than freed; see RetireRing().
 EMSCRIPTEN_KEEPALIVE
 void pcm_ring_shutdown()
 {
-    free(g_header);
-    free(g_data);
-    g_header = nullptr;
-    g_data = nullptr;
-    g_capacityFrames = 0;
-    g_indexModulus = 0;
-    g_readIndex = 0;
-    std::vector<float>().swap(g_drainScratch);
+    WasmHost& H = Host();
+    PcmRingState& ring = H.pcmRing;
+    if (ring.header != nullptr)
+    {
+        WithdrawPcmRingFromWorklet(HostHandle(H));
+        RetireRing(ring.header, ring.data, ring.capacityFrames);
+    }
+    ring.header = nullptr;
+    ring.data = nullptr;
+    ring.capacityFrames = 0;
+    ring.indexModulus = 0;
+    ring.readIndex = 0;
+    std::vector<float>().swap(ring.drainScratch);
 }
 
-// Byte offset of the int32 header within the WASM heap, or 0 when uninitialized.
+// Byte offset of the active host's int32 header within the WASM heap, or 0
+// when uninitialized.
 EMSCRIPTEN_KEEPALIVE
 uintptr_t get_pcm_ring_header_ptr()
 {
-    return reinterpret_cast<uintptr_t>(g_header);
+    return reinterpret_cast<uintptr_t>(Host().pcmRing.header);
 }
 
-// Byte offset of the interleaved float storage within the WASM heap.
+// Byte offset of the active host's interleaved float storage within the WASM heap.
 EMSCRIPTEN_KEEPALIVE
 uintptr_t get_pcm_ring_data_ptr()
 {
-    return reinterpret_cast<uintptr_t>(g_data);
+    return reinterpret_cast<uintptr_t>(Host().pcmRing.data);
 }
 
 // Modulus the frame indices wrap at. Producers must apply the same wrap when
@@ -167,25 +234,26 @@ uintptr_t get_pcm_ring_data_ptr()
 EMSCRIPTEN_KEEPALIVE
 int get_pcm_ring_index_modulus()
 {
-    return g_indexModulus;
+    return Host().pcmRing.indexModulus;
 }
 
 EMSCRIPTEN_KEEPALIVE
 int get_pcm_ring_capacity_frames()
 {
-    return g_capacityFrames;
+    return Host().pcmRing.capacityFrames;
 }
 
 EMSCRIPTEN_KEEPALIVE
 int get_pcm_ring_write_index()
 {
-    return g_header ? LoadWriteIndex() : 0;
+    const PcmRingState& ring = Host().pcmRing;
+    return ring.header ? LoadWriteIndex(ring) : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
 int get_pcm_ring_read_index()
 {
-    return g_readIndex;
+    return Host().pcmRing.readIndex;
 }
 
 // Drains have skipped unread audio this many times since init. Non-zero means
@@ -194,11 +262,13 @@ int get_pcm_ring_read_index()
 EMSCRIPTEN_KEEPALIVE
 int get_pcm_ring_overruns()
 {
-    return g_header ? __atomic_load_n(&g_header[kHeaderOverruns], __ATOMIC_SEQ_CST) : 0;
+    const PcmRingState& ring = Host().pcmRing;
+    return ring.header ? __atomic_load_n(&ring.header[kHeaderOverruns], __ATOMIC_SEQ_CST) : 0;
 }
 
-// Feeds every frame written since the last drain to the engine in one stereo
-// projectm_pcm_add_float() call. Returns the number of frames fed.
+// Feeds every frame written to the active host's ring since the last drain to
+// that host's engine in one stereo projectm_pcm_add_float() call. Returns the
+// number of frames fed.
 //
 // Overrun policy: when producers have lapped the ring, skip forward to the
 // newest `capacity` frames rather than reading a torn mix of old and new
@@ -207,61 +277,63 @@ int get_pcm_ring_overruns()
 EMSCRIPTEN_KEEPALIVE
 int pcm_ring_drain()
 {
-    if (!g_header || !g_data || g_capacityFrames <= 0)
+    WasmHost& H = Host();
+    PcmRingState& ring = H.pcmRing;
+    if (!ring.header || !ring.data || ring.capacityFrames <= 0)
     {
         return 0;
     }
 
-    projectm_handle handle = app_data.projectm_engine;
+    projectm_handle handle = H.appData.projectm_engine;
     if (!handle)
     {
         return 0;
     }
 
-    const int32_t writeIndex = LoadWriteIndex();
-    if (writeIndex < 0 || writeIndex >= g_indexModulus)
+    const int32_t writeIndex = LoadWriteIndex(ring);
+    if (writeIndex < 0 || writeIndex >= ring.indexModulus)
     {
         // A producer published an index outside the agreed modulus; resynchronise
         // rather than indexing out of the ring.
-        g_readIndex = writeIndex % g_indexModulus;
-        if (g_readIndex < 0)
+        ring.readIndex = writeIndex % ring.indexModulus;
+        if (ring.readIndex < 0)
         {
-            g_readIndex = 0;
+            ring.readIndex = 0;
         }
-        PublishReadIndex(g_readIndex);
+        PublishReadIndex(ring, ring.readIndex);
         return 0;
     }
 
-    int available = (writeIndex - g_readIndex + g_indexModulus) % g_indexModulus;
+    int available = (writeIndex - ring.readIndex + ring.indexModulus) % ring.indexModulus;
     if (available == 0)
     {
         return 0;
     }
 
-    if (available > g_capacityFrames)
+    if (available > ring.capacityFrames)
     {
-        g_readIndex = (writeIndex - g_capacityFrames + g_indexModulus) % g_indexModulus;
-        available = g_capacityFrames;
-        BumpOverruns();
+        ring.readIndex = (writeIndex - ring.capacityFrames + ring.indexModulus) % ring.indexModulus;
+        available = ring.capacityFrames;
+        BumpOverruns(ring);
     }
 
-    const int start = g_readIndex % g_capacityFrames;
-    const int firstFrames = std::min(available, g_capacityFrames - start);
-    std::copy(g_data + static_cast<size_t>(start) * 2,
-              g_data + static_cast<size_t>(start + firstFrames) * 2,
-              g_drainScratch.begin());
+    const int start = ring.readIndex % ring.capacityFrames;
+    const int firstFrames = std::min(available, ring.capacityFrames - start);
+    std::copy(ring.data + static_cast<size_t>(start) * 2,
+              ring.data + static_cast<size_t>(start + firstFrames) * 2,
+              ring.drainScratch.begin());
     if (firstFrames < available)
     {
         const int remaining = available - firstFrames;
-        std::copy(g_data,
-                  g_data + static_cast<size_t>(remaining) * 2,
-                  g_drainScratch.begin() + static_cast<size_t>(firstFrames) * 2);
+        std::copy(ring.data,
+                  ring.data + static_cast<size_t>(remaining) * 2,
+                  ring.drainScratch.begin() + static_cast<size_t>(firstFrames) * 2);
     }
 
-    g_readIndex = writeIndex;
-    PublishReadIndex(g_readIndex);
+    ring.readIndex = writeIndex;
+    PublishReadIndex(ring, ring.readIndex);
 
-    projectm_pcm_add_float(handle, g_drainScratch.data(),
+    projectm_pcm_add_float(handle, ring.drainScratch.data(),
                            static_cast<unsigned int>(available), PROJECTM_STEREO);
     return available;
 }

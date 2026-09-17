@@ -96,14 +96,21 @@ typedef struct {
 // ---- PCM ring (defined in WasmPcmRing.cpp) --------------------------------
 // The single audio ingest path. render_frame() drains it once per frame; JS
 // producers write into it at audio rate. See WasmPcmRing.cpp for the layout.
-// Process-global on purpose: every source writes into one ring, and the active
-// host's engine drains it. Per-host rings are a follow-up if two engines need
-// independent audio.
+// One ring per WasmHost (#246): every export operates on the active host's
+// ring, so draining host A never consumes host B's writes.
 extern "C" {
 int pcm_ring_init(int capacity_frames);
 void pcm_ring_shutdown();
 int pcm_ring_drain();
 }
+
+// ---- Worklet ring hand-off (defined in WasmAudioBridge.cpp) ---------------
+// Publishes / withdraws one host's ring descriptor, tagged with its host
+// handle, to the shared AudioWorklet and to the Module-side ring registry the
+// postMessage fallback fans out over. Safe to call before the worklet exists.
+void PublishPcmRingToWorklet(uintptr_t hostHandle, uintptr_t headerPtr, uintptr_t dataPtr,
+                             int capacityFrames, int indexModulus);
+void WithdrawPcmRingFromWorklet(uintptr_t hostHandle);
 
 // Frames to ignore right after a preset finishes loading. Shared between the
 // render loop (projectM_emscripten.cpp) and the governor (WasmPerfGovernor.cpp).

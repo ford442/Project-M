@@ -224,3 +224,62 @@ test('empty and zero-frame writes are no-ops', () => {
     assert.equal(writer.write(new Float32Array([1]), 2), 0, 'one sample is not a stereo frame');
     assert.equal(Atomics.load(module.header, 0), 0);
 });
+
+/**
+ * A two-engine module (#246): one heap, one ring per host, and descriptor
+ * exports that report whichever host is active — as create_host() /
+ * set_active_host() behave in the real Module.
+ */
+function fakeMultiHostModule({ capacityFrames = 4 } = {}) {
+    const HOST_A = 1000;
+    const HOST_B = 2000;
+    const ringBytes = 16 + capacityFrames * 2 * 4;
+    const memory = new ArrayBuffer(64 + ringBytes * 2);
+    const layout = {
+        [HOST_A]: { headerPtr: 64, dataPtr: 80 },
+        [HOST_B]: { headerPtr: 64 + ringBytes, dataPtr: 80 + ringBytes },
+    };
+    let active = HOST_A;
+    const activations = [];
+    const module = {
+        HEAPF32: new Float32Array(memory),
+        _get_active_host: () => active,
+        ccall: (name, _ret, _types, args) => {
+            assert.equal(name, 'set_active_host');
+            active = args[0];
+            activations.push(args[0]);
+        },
+        _get_pcm_ring_header_ptr: () => layout[active].headerPtr,
+        _get_pcm_ring_data_ptr: () => layout[active].dataPtr,
+        _get_pcm_ring_capacity_frames: () => capacityFrames,
+        _get_pcm_ring_index_modulus: () => capacityFrames * 1024,
+    };
+    const ringOf = (handle) => ({
+        header: new Int32Array(memory, layout[handle].headerPtr, 4),
+        data: new Float32Array(memory, layout[handle].dataPtr, capacityFrames * 2),
+    });
+    return { module, HOST_A, HOST_B, ringOf, activations, getActive: () => active };
+}
+
+test('hostHandle reads and writes that engine\'s ring and restores the active host', () => {
+    const { module, HOST_A, HOST_B, ringOf, activations, getActive } = fakeMultiHostModule();
+
+    assert.ok(feedPcmThroughRing(module, new Float32Array([0.5, -0.5]), { hostHandle: HOST_B }));
+    assert.equal(getActive(), HOST_A, 'the previously active host is restored');
+    assert.deepEqual(activations, [HOST_B, HOST_A]);
+
+    assert.equal(Atomics.load(ringOf(HOST_B).header, 0), 1, 'host B received the frame');
+    assert.equal(Atomics.load(ringOf(HOST_A).header, 0), 0, 'host A ring untouched');
+    assert.deepEqual(Array.from(ringOf(HOST_B).data.subarray(0, 2)), [0.5, -0.5]);
+
+    feedPcmThroughRing(module, new Float32Array([0.25, 0.25, 0.75, 0.75]), { hostHandle: HOST_A });
+    assert.equal(Atomics.load(ringOf(HOST_A).header, 0), 2);
+    assert.equal(Atomics.load(ringOf(HOST_B).header, 0), 1, 'draining/writing A never touches B');
+
+    assert.notEqual(
+        getPcmRingWriter(module, HOST_A),
+        getPcmRingWriter(module, HOST_B),
+        'writers are cached per host'
+    );
+    assert.equal(readPcmRingDescriptor(module, HOST_B)?.headerPtr, ringOf(HOST_B).header.byteOffset);
+});

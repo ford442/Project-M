@@ -15,6 +15,13 @@
 // cannot be shared into the worklet) — and even then the message lands in the
 // same ring on the other side. One ingest, two transports.
 //
+// One processor, N rings (#246). Each engine in the Module owns its own ring;
+// the main thread posts one `pcmRing` descriptor per engine, tagged with its
+// `hostHandle`, and `pcmRingDetach` when that engine goes away. Every quantum is
+// written into every attached ring, so a second engine is fed by the same
+// AudioContext instead of being visual-only. Descriptors without a hostHandle
+// (older bundles) attach under handle 0.
+//
 // Ring layout (mirrors WasmPcmRing.cpp):
 //   header  Int32Array(4)  [0] write index (frames)  [1] capacity  [2] read index  [3] overruns
 //   data    Float32Array(capacityFrames * 2)  interleaved stereo
@@ -35,12 +42,11 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
         this.isPlaying = false;
 
         // --- Ring transport (preferred) ---
-        /** @type {Int32Array | null} */
-        this.ringHeader = null;
-        /** @type {Float32Array | null} */
-        this.ringData = null;
-        this.ringCapacityFrames = 0;
-        this.ringIndexModulus = 0;
+        /**
+         * Attached rings keyed by host handle.
+         * @type {Map<number, { header: Int32Array, data: Float32Array, capacityFrames: number, indexModulus: number }>}
+         */
+        this.rings = new Map();
 
         // Staging for one render quantum, so the ring's write index is published
         // once per quantum rather than once per sample. Sized for the largest
@@ -60,6 +66,8 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
 
             if (data.type === 'pcmRing') {
                 this.attachRing(data);
+            } else if (data.type === 'pcmRingDetach') {
+                this.rings.delete(data.hostHandle ?? 0);
             } else if (data.type === 'loadWavData') {
                 // Sender posts raw channel data as an Array of Float32Arrays (not an AudioBuffer
                 // object, since AudioBuffer cannot be reliably transferred across the worklet boundary).
@@ -94,21 +102,21 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
      * Maps the WASM-owned ring into this worklet. Only possible when the module's
      * memory is a SharedArrayBuffer, i.e. the page is cross-origin isolated.
      */
-    attachRing({ memory, headerPtr, dataPtr, capacityFrames, indexModulus }) {
+    attachRing({ memory, headerPtr, dataPtr, capacityFrames, indexModulus, hostHandle = 0 }) {
         try {
-            this.ringHeader = new Int32Array(memory, headerPtr, 4);
-            this.ringData = new Float32Array(memory, dataPtr, capacityFrames * 2);
-            this.ringCapacityFrames = capacityFrames;
-            this.ringIndexModulus = indexModulus;
+            this.rings.set(hostHandle, {
+                header: new Int32Array(memory, headerPtr, 4),
+                data: new Float32Array(memory, dataPtr, capacityFrames * 2),
+                capacityFrames,
+                indexModulus,
+            });
             // Anything buffered for the message transport would now arrive twice.
             this.fallbackFrames = 0;
             this.quantumFrames = 0;
-            console.log(`[Worklet] PCM ring attached (${capacityFrames} frames).`);
+            console.log(`[Worklet] PCM ring attached for host ${hostHandle} (${capacityFrames} frames).`);
         } catch (err) {
             console.error('[Worklet] Failed to map PCM ring:', err);
-            this.ringHeader = null;
-            this.ringData = null;
-            this.ringCapacityFrames = 0;
+            this.rings.delete(hostHandle);
         }
     }
 
@@ -135,14 +143,16 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
         this.quantumFrames = 0;
         if (frames === 0) return;
 
-        if (this.ringData && this.ringHeader) {
-            const writeIndex = Atomics.load(this.ringHeader, 0);
-            for (let i = 0; i < frames; i += 1) {
-                const slot = ((writeIndex + i) % this.ringCapacityFrames) * 2;
-                this.ringData[slot] = this.quantum[i * 2];
-                this.ringData[slot + 1] = this.quantum[i * 2 + 1];
+        if (this.rings.size > 0) {
+            for (const ring of this.rings.values()) {
+                const writeIndex = Atomics.load(ring.header, 0);
+                for (let i = 0; i < frames; i += 1) {
+                    const slot = ((writeIndex + i) % ring.capacityFrames) * 2;
+                    ring.data[slot] = this.quantum[i * 2];
+                    ring.data[slot + 1] = this.quantum[i * 2 + 1];
+                }
+                Atomics.store(ring.header, 0, (writeIndex + frames) % ring.indexModulus);
             }
-            Atomics.store(this.ringHeader, 0, (writeIndex + frames) % this.ringIndexModulus);
             return;
         }
 

@@ -841,9 +841,11 @@ this._externalReceiverClose = null;
 
     /**
      * Forward WebGL context attributes + dual-FBO precision to the WASM host
-     * before it creates the context. Options default to the historical behavior
-     * (MSAA off, preserveDrawingBuffer off, depth/stencil on, high-performance
-     * GPU, RGBA16F precision), so a host that sets none keeps the old defaults.
+     * before it creates the context. Options default to MSAA off,
+     * preserveDrawingBuffer off, depth/stencil off (#246 — the canvas only
+     * receives a fullscreen quad + sprites), high-performance GPU and RGBA16F
+     * precision. The WASM host applies this to the engine create_host() makes
+     * next, so each context in a shared Module keeps its own attributes.
      */
     #applyContextConfig() {
         if (!this.module || typeof setContextConfig !== 'function') {
@@ -856,8 +858,8 @@ this._externalReceiverClose = null;
             this.module,
             o.antialias ? 1 : 0,
             o.preserveDrawingBuffer ? 1 : 0,
-            (o.depth ?? true) ? 1 : 0,
-            (o.stencil ?? true) ? 1 : 0,
+            o.depth ? 1 : 0,
+            o.stencil ? 1 : 0,
             // Context alpha stays on (transparency overlays); the `alpha` option
             // is a separate canvas-CSS hint, not the WebGL alpha attribute.
             1,

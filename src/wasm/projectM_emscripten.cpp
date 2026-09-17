@@ -24,17 +24,9 @@
 using namespace emscripten;
 
 // Per-instance host state (#168 Phase B). Former process-global engine /
-// playlist / dual-FBO / transition fields are WasmHost members; these aliases
-// keep the lifecycle bodies reading the same as before.
-#define pm (Host().appData.projectm_engine)
-#define app_data (Host().appData)
-#define playlist (Host().appData.playlist)
-#define g_presetBReady (Host().presetBReady)
-#define g_dualFbo (Host().dualFbo)
-#define g_transitionActive (Host().transitionActive)
-#define g_transitionBlend (Host().transitionBlend)
-#define g_transitionStartTime (Host().transitionStartTime)
-#define g_transitionEndTime (Host().transitionEndTime)
+// playlist / dual-FBO / transition fields are WasmHost members; each body binds
+// same-named local references (`auto& pm = H.appData.projectm_engine;`) so the
+// lifecycle code reads the same as before.
 
 // kWasmPthreadPoolSize comes from cmake/generated/ProjectMWasmBuildConfig.hpp
 // (generated from PROJECTM_WASM_PTHREAD_POOL_SIZE in EmscriptenWasmFlags.cmake).
@@ -92,6 +84,12 @@ static void ConfigureWasmOpenMPThreadCount()
 // allocation resume a blend against a stale g_transitionStartTime.
 static void ResetTransitionState()
 {
+    WasmHost& H = Host();
+    auto& g_presetBReady = H.presetBReady;
+    auto& g_transitionActive = H.transitionActive;
+    auto& g_transitionBlend = H.transitionBlend;
+    auto& g_transitionStartTime = H.transitionStartTime;
+    auto& g_transitionEndTime = H.transitionEndTime;
     g_transitionActive = false;
     g_transitionBlend = 0.0f;
     g_transitionStartTime = 0.0;
@@ -101,12 +99,17 @@ static void ResetTransitionState()
 
 static void TearDownEngineForRebind()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& app_data = H.appData;
+    auto& playlist = H.appData.playlist;
+    auto& g_dualFbo = H.dualFbo;
     // Cancel the Emscripten main loop if one is running so rebind can restart it
     // via start_render() after a fresh init(). The loop is process-global, so
     // clear the registration flag too. Single-instance rebind only (documented).
     emscripten_cancel_main_loop();
     g_mainLoopRegistered = false;
-    Host().renderLoopStarted = false;
+    H.renderLoopStarted = false;
 
     if (playlist)
     {
@@ -130,6 +133,8 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void create_sprite()
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     const char* new_sprite_code =
         "[preset01]"
         "img='textures/rv_IP_20250421_060250.png';"
@@ -150,6 +155,8 @@ void create_sprite()
 EMSCRIPTEN_KEEPALIVE
 uintptr_t get_projectm_handle()
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
     return reinterpret_cast<uintptr_t>(app_data.projectm_engine);
 }
 } // extern "C"
@@ -173,6 +180,8 @@ int init_with_canvases(const char* primary, const char* secondary)
 EMSCRIPTEN_KEEPALIVE
 int rebind_canvases(const char* primary, const char* secondary)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     // Single-instance rebind: tear down the active engine/GL context and re-init
     // against new canvas selectors. Does not support two simultaneous engines in
     // one Module (INITIAL_MEMORY ≈ 1 GiB per Module instance).
@@ -187,6 +196,11 @@ int rebind_canvases(const char* primary, const char* secondary)
 EMSCRIPTEN_KEEPALIVE
 int init()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& app_data = H.appData;
+    auto& playlist = H.appData.playlist;
+    auto& g_dualFbo = H.dualFbo;
     if (pm)
     {
         js_report_init_success();
@@ -237,8 +251,10 @@ int init()
     InstallShaderTranspileCacheHooks();
     // projectm_playlist_connect(app_data.playlist,app_data.projectm_engine);
     printf("  --==  projectM initialized!  ==--\n");
-    // Allocate the PCM ring before any producer can look for it: the worklet
-    // bootstrap below reads the descriptor as soon as its module resolves.
+    // Allocate this host's PCM ring before any producer can look for it: the
+    // worklet bootstrap below reads the ring registry as soon as its module
+    // resolves, and an already-running worklet (a second create_host()) is sent
+    // the new host's descriptor by pcm_ring_init() itself.
     pcm_ring_init(0);
     js_initialize_worklet_system_once();
     js_report_init_success();
@@ -250,6 +266,8 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void set_mesh(int w, int h)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     projectm_set_mesh_size(pm, w, h);
     return;
 }
@@ -257,18 +275,17 @@ void set_mesh(int w, int h)
 EMSCRIPTEN_KEEPALIVE
 void destruct()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_dualFbo = H.dualFbo;
     if (pm)
     {
         projectm_destroy(pm);
     }
     pm = NULL;
-    // Release the PCM ring only when this is the last live host. The ring is
-    // process-global (one ingest for the Module); rebind_canvases() and
-    // destroy_host() of a sibling must not free it under a live producer.
-    if (LiveHostCount() <= 1)
-    {
-        pcm_ring_shutdown();
-    }
+    // Release this host's PCM ring (#246: one ring per host, so a sibling's
+    // ring and producers are untouched). The worklet is told to detach it.
+    pcm_ring_shutdown();
     // Phase 2: Release dual FBO resources before destroying the WebGL context
     // to avoid calling OpenGL functions with an invalid context.
     g_dualFbo.ReleaseAll();
@@ -288,6 +305,11 @@ void destruct()
 EMSCRIPTEN_KEEPALIVE
 void pm_handle_context_loss()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& app_data = H.appData;
+    auto& playlist = H.appData.playlist;
+    auto& g_dualFbo = H.dualFbo;
     if (pm)
     {
         projectm_destroy(pm);
@@ -304,6 +326,8 @@ void pm_handle_context_loss()
 EMSCRIPTEN_KEEPALIVE
 void set_aspect_correction(bool enabled)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_aspect_correction(pm, enabled);
@@ -313,6 +337,8 @@ void set_aspect_correction(bool enabled)
 EMSCRIPTEN_KEEPALIVE
 void set_preset_locked(bool locked)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_preset_locked(pm, locked);
@@ -323,6 +349,8 @@ void set_preset_locked(bool locked)
 EMSCRIPTEN_KEEPALIVE
 void set_transparency_mode(bool enabled)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_transparency_mode(pm, enabled);
@@ -332,6 +360,8 @@ void set_transparency_mode(bool enabled)
 EMSCRIPTEN_KEEPALIVE
 bool get_transparency_mode()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     if (!pm)
         return false;
     return projectm_get_transparency_mode(pm);
@@ -340,6 +370,8 @@ bool get_transparency_mode()
 EMSCRIPTEN_KEEPALIVE
 void set_transparency_threshold(float threshold)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     if (!pm)
         return;
     projectm_set_transparency_threshold(pm, threshold);
@@ -349,6 +381,8 @@ void set_transparency_threshold(float threshold)
 EMSCRIPTEN_KEEPALIVE
 float get_transparency_threshold()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
     if (!pm)
         return 0.01f;
     return projectm_get_transparency_threshold(pm);

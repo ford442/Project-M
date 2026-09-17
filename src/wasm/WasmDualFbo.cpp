@@ -33,16 +33,6 @@
 //   > 0  release after that many idle seconds (default)
 //   == 0 release on the first idle frame after a transition
 //   <  0 never release; keep the pair resident once allocated
-#define pm (Host().appData.projectm_engine)
-#define g_dualFbo (Host().dualFbo)
-#define g_compositorShader (Host().compositorShader)
-#define g_transitionDuration (Host().transitionDuration)
-#define g_transitionActive (Host().transitionActive)
-#define g_transitionBlend (Host().transitionBlend)
-#define g_transitionStartTime (Host().transitionStartTime)
-#define g_transitionEndTime (Host().transitionEndTime)
-#define g_dualFboIdleReleaseSec (Host().dualFboIdleReleaseSec)
-#define g_presetBReady (Host().presetBReady)
 
 // =============================================================================
 // Phase 2 + Phase 3: Dual ping-pong FBO lifecycle C API (EMSCRIPTEN_KEEPALIVE exports)
@@ -87,6 +77,8 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 bool dual_fbo_begin_transition()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     int w = g_dualFbo.Width();
     int h = g_dualFbo.Height();
     if (w <= 0 || h <= 0)
@@ -125,6 +117,9 @@ bool dual_fbo_begin_transition()
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_end_transition()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_transitionEndTime = H.transitionEndTime;
     g_dualFbo.PromoteBtoA();
     // Preset A is idle again from here; render_frame() reclaims it once the
     // grace period set by dual_fbo_set_idle_release_seconds() elapses.
@@ -142,6 +137,9 @@ void dual_fbo_end_transition()
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_cancel_transition()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_transitionEndTime = H.transitionEndTime;
     g_dualFbo.ReleasePresetB();
     g_transitionEndTime = WasmNow();
 }
@@ -155,6 +153,8 @@ void dual_fbo_cancel_transition()
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_swap_preset_a()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     g_dualFbo.SwapPresetA();
 }
 
@@ -164,6 +164,8 @@ void dual_fbo_swap_preset_a()
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_swap_preset_b()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     g_dualFbo.SwapPresetB();
 }
 
@@ -173,6 +175,8 @@ void dual_fbo_swap_preset_b()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_a_read_fbo()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAReadFBO();
 }
 
@@ -180,6 +184,8 @@ GLuint dual_fbo_get_a_read_fbo()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_a_write_fbo()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAWriteFBO();
 }
 
@@ -187,6 +193,8 @@ GLuint dual_fbo_get_a_write_fbo()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_a_read_tex()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAReadTex();
 }
 
@@ -194,6 +202,8 @@ GLuint dual_fbo_get_a_read_tex()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_a_write_tex()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAWriteTex();
 }
 
@@ -201,6 +211,8 @@ GLuint dual_fbo_get_a_write_tex()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_b_read_fbo()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBReadFBO();
 }
 
@@ -208,6 +220,8 @@ GLuint dual_fbo_get_b_read_fbo()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_b_write_fbo()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBWriteFBO();
 }
 
@@ -215,6 +229,8 @@ GLuint dual_fbo_get_b_write_fbo()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_b_read_tex()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBReadTex();
 }
 
@@ -222,6 +238,8 @@ GLuint dual_fbo_get_b_read_tex()
 EMSCRIPTEN_KEEPALIVE
 GLuint dual_fbo_get_b_write_tex()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBWriteTex();
 }
 
@@ -232,6 +250,8 @@ GLuint dual_fbo_get_b_write_tex()
 EMSCRIPTEN_KEEPALIVE
 bool dual_fbo_is_preset_b_allocated()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.IsPresetBAllocated();
 }
 
@@ -246,6 +266,8 @@ bool dual_fbo_is_preset_b_allocated()
 EMSCRIPTEN_KEEPALIVE
 bool dual_fbo_is_preset_a_allocated()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.IsPresetAAllocated();
 }
 
@@ -258,6 +280,8 @@ bool dual_fbo_is_preset_a_allocated()
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_set_idle_release_seconds(float seconds)
 {
+    WasmHost& H = Host();
+    auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
     g_dualFboIdleReleaseSec = seconds;
     fprintf(stderr, "DualFBO: Preset A idle release set to %.2f s.\n",
             static_cast<double>(seconds));
@@ -269,6 +293,8 @@ void dual_fbo_set_idle_release_seconds(float seconds)
 EMSCRIPTEN_KEEPALIVE
 float dual_fbo_get_idle_release_seconds()
 {
+    WasmHost& H = Host();
+    auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
     return g_dualFboIdleReleaseSec;
 }
 
@@ -292,6 +318,8 @@ float dual_fbo_get_idle_release_seconds()
 EMSCRIPTEN_KEEPALIVE
 bool dual_fbo_is_preset_b_ready()
 {
+    WasmHost& H = Host();
+    auto& g_presetBReady = H.presetBReady;
     return g_presetBReady;
 }
 
@@ -306,6 +334,8 @@ bool dual_fbo_is_preset_b_ready()
 EMSCRIPTEN_KEEPALIVE
 int dual_fbo_get_format()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
     return static_cast<int>(g_dualFbo.GetFormat());
 }
 
@@ -325,6 +355,9 @@ int dual_fbo_get_format()
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_render_preset_a()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_dualFbo = H.dualFbo;
     if (!pm || !g_dualFbo.IsPresetAAllocated())
     {
         fprintf(stderr, "dual_fbo_render_preset_a: not ready (pm=%p, presetAAllocated=%d)\n",
@@ -349,6 +382,9 @@ void dual_fbo_render_preset_a()
 EMSCRIPTEN_KEEPALIVE
 void dual_fbo_render_preset_b()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_dualFbo = H.dualFbo;
     if (!pm || !g_dualFbo.IsPresetBAllocated())
     {
         fprintf(stderr, "dual_fbo_render_preset_b: not ready (pm=%p, presetBAllocated=%d)\n",
@@ -392,6 +428,15 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void transition_start()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_compositorShader = H.compositorShader;
+    auto& g_transitionDuration = H.transitionDuration;
+    auto& g_transitionActive = H.transitionActive;
+    auto& g_transitionBlend = H.transitionBlend;
+    auto& g_transitionStartTime = H.transitionStartTime;
+    auto& g_transitionEndTime = H.transitionEndTime;
+    auto& g_presetBReady = H.presetBReady;
     if (!g_dualFbo.IsPresetAAllocated() || !g_dualFbo.IsPresetBAllocated())
     {
         fprintf(stderr, "transition_start: dual FBOs not allocated (A=%d, B=%d) – call dual_fbo_begin_transition() first.\n",
@@ -430,6 +475,12 @@ void transition_start()
 EMSCRIPTEN_KEEPALIVE
 void transition_cancel()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_transitionActive = H.transitionActive;
+    auto& g_transitionBlend = H.transitionBlend;
+    auto& g_transitionEndTime = H.transitionEndTime;
+    auto& g_presetBReady = H.presetBReady;
     if (!g_transitionActive)
     {
         return;
@@ -450,6 +501,8 @@ void transition_cancel()
 EMSCRIPTEN_KEEPALIVE
 bool transition_is_active()
 {
+    WasmHost& H = Host();
+    auto& g_transitionActive = H.transitionActive;
     return g_transitionActive;
 }
 
@@ -461,6 +514,8 @@ bool transition_is_active()
 EMSCRIPTEN_KEEPALIVE
 float transition_get_blend()
 {
+    WasmHost& H = Host();
+    auto& g_transitionBlend = H.transitionBlend;
     return g_transitionBlend;
 }
 
@@ -474,6 +529,8 @@ float transition_get_blend()
 EMSCRIPTEN_KEEPALIVE
 void transition_set_duration(float seconds)
 {
+    WasmHost& H = Host();
+    auto& g_transitionDuration = H.transitionDuration;
     g_transitionDuration = seconds >= 0.0f ? seconds : 0.0f;
     fprintf(stderr, "Phase5: Transition duration set to %.2f s.\n",
             static_cast<double>(g_transitionDuration));
@@ -485,6 +542,8 @@ void transition_set_duration(float seconds)
 EMSCRIPTEN_KEEPALIVE
 float transition_get_duration()
 {
+    WasmHost& H = Host();
+    auto& g_transitionDuration = H.transitionDuration;
     return g_transitionDuration;
 }
 

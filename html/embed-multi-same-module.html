@@ -57,9 +57,13 @@
     two ProjectMContext instances that each call create_host() in it.
 
     Requires COOP/COEP on the page (SharedArrayBuffer). WASM glue resolves from
-    ./pm/ (see projectm-init.js). Audio worklet/analyser is process-global, so
-    this demo runs both engines visual-only (audioSource: 'none'); a host can
-    route PCM to a specific engine with _projectm_pcm_add_float_wrapper(handle,…).
+    ./pm/ (see projectm-init.js).
+
+    #246: each engine owns its own WebGL context config and PCM ring. Engine B
+    asks for a different dual-FBO precision than A, and each engine is fed its
+    own synthetic signal through feedPcmThroughRing(…, { hostHandle }) — writes
+    to one ring are never drained by the other engine. (The shared AudioWorklet,
+    when a page uses one, fans out to every engine's ring.)
   -->
   <div id="grid">
     <div class="cell">
@@ -75,6 +79,34 @@
   <script type="module">
     import { bootProjectMSharedModule, ProjectMContext } from './projectm-context.js';
     import { hostCount, maxHostCount } from './generated/projectm-wasm-api.js';
+    import { feedPcmThroughRing } from './projectm-pcm-ring.js';
+
+    // Synthetic per-engine audio: a pulsing tone with a different pitch and
+    // tempo per engine, so the two visualizers visibly react independently.
+    const SAMPLE_RATE = 48000;
+    function startSyntheticFeed(module, hostHandle, { freq, bpm }) {
+        let phase = 0;
+        let t = 0;
+        let last = performance.now();
+        const timer = setInterval(() => {
+            const now = performance.now();
+            const frames = Math.min(4096, Math.round(((now - last) / 1000) * SAMPLE_RATE));
+            last = now;
+            if (frames <= 0) return;
+            const buffer = new Float32Array(frames * 2);
+            for (let i = 0; i < frames; i++) {
+                const beat = (t * bpm / 60) % 1;
+                const env = Math.exp(-beat * 6);
+                const s = Math.sin(phase) * env * 0.8;
+                buffer[i * 2] = s;
+                buffer[i * 2 + 1] = s;
+                phase += (2 * Math.PI * freq) / SAMPLE_RATE;
+                t += 1 / SAMPLE_RATE;
+            }
+            feedPcmThroughRing(module, buffer, { channels: 2, hostHandle });
+        }, 20);
+        return () => clearInterval(timer);
+    }
 
     const status = document.getElementById('status');
     const setStatus = (t) => { status.textContent = t; };
@@ -94,11 +126,13 @@
         }
 
         // 3. Create two engine instances inside that one Module.
+        //    Each engine carries its own context config (#246): B renders its
+        //    crossfades through RGBA8 FBOs while A keeps RGBA16F.
         const contexts = await Promise.all(
           [
-            { canvas: document.getElementById('canvasA'), preset: './presets/tests/000-empty.milk' },
-            { canvas: document.getElementById('canvasB'), preset: './presets/tests/000-empty.milk' },
-          ].map(({ canvas, preset }) =>
+            { canvas: document.getElementById('canvasA'), preset: './presets/tests/000-empty.milk', fboPrecision: 'half' },
+            { canvas: document.getElementById('canvasB'), preset: './presets/tests/000-empty.milk', fboPrecision: 'byte' },
+          ].map(({ canvas, preset, fboPrecision }) =>
             new ProjectMContext({
               canvas,
               container: canvas.parentElement,
@@ -108,14 +142,22 @@
               meshQuality: 'auto',
               targetFps: 60,
               presetUrl: preset,
+              fboPrecision,
             }).start()
           )
         );
 
-        setStatus(`Ready — ${hostCount(module)} engines live in one Module.`);
+        // 4. Feed each engine its own ring.
+        const stopFeeds = [
+          startSyntheticFeed(module, contexts[0].hostHandle, { freq: 110, bpm: 120 }),
+          startSyntheticFeed(module, contexts[1].hostHandle, { freq: 220, bpm: 90 }),
+        ];
+
+        setStatus(`Ready — ${hostCount(module)} engines live in one Module, each fed its own PCM ring.`);
 
         // Clean up both engines (frees each host; the Module persists).
         window.addEventListener('pagehide', () => {
+          for (const stop of stopFeeds) stop();
           for (const ctx of contexts) ctx.destroy();
         });
       } catch (err) {

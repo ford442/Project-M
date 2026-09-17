@@ -27,7 +27,38 @@
 // presets). Each host owns an engine + dual-FBO pair, so this is bounded by
 // VRAM, not INITIAL_MEMORY. A create_host() past the cap fails with a typed
 // error rather than silently sharing GL state.
+//
+// Do not raise this on the strength of #226 alone. #246 (Phase C) made the
+// context config, PCM ring and shader-cache key per-host, but the Web Audio
+// worklet is still one per Module (it fans out to every host's ring) and the
+// in-page audio engine (#228) has not landed. Revisit the audio story there
+// before going past 2.
 constexpr int kMaxHosts = 2;
+
+// =============================================================================
+// PcmRingState – one host's WASM-owned PCM ring (#246). Layout and threading
+// contract are documented in WasmPcmRing.cpp.
+// =============================================================================
+struct PcmRingState {
+    int32_t* header = nullptr;
+    float* data = nullptr;
+    int capacityFrames = 0;
+    int readIndex = 0;
+    int indexModulus = 0;
+    // Reused across drains so the per-frame ingest does not allocate.
+    std::vector<float> drainScratch;
+};
+
+// =============================================================================
+// ShaderCacheLoadState – one host's in-flight transpiled-GLSL cache load
+// (#246). See WasmShaderCache.cpp.
+// =============================================================================
+struct ShaderCacheLoadState {
+    std::string key;                     //!< Host-supplied key ("" = not loading).
+    std::string namespacedKey;           //!< key prefixed with the host handle.
+    std::optional<std::string> warpGlsl; //!< Imported cached warp shader.
+    std::optional<std::string> compGlsl; //!< Imported cached composite shader.
+};
 
 // =============================================================================
 // WasmHost – ownership record for one projectM engine instance.
@@ -73,6 +104,16 @@ struct WasmHost {
     DualPingPongFramebuffer dualFbo;
     CompositingBlendShader compositorShader;
 
+    // ---- WebGL context attributes + dual-FBO precision (#246) ----
+    // Baked into glCtx at create time; never rewritten while glCtx is live.
+    WasmContextConfig contextConfig;
+
+    // ---- Audio ingest (#246) ----
+    PcmRingState pcmRing;
+
+    // ---- Transpiled-GLSL cache load (#246) ----
+    ShaderCacheLoadState shaderCache;
+
     // ---- Canvas CSS selectors (Phase A, now per-host) ----
     char primarySelector[kCanvasSelectorMax] = "#mcanvas";
     char secondarySelector[kCanvasSelectorMax] = "#scanvas";
@@ -85,7 +126,9 @@ struct WasmHost {
 };
 
 // Process-global Emscripten main-loop registration flag. The loop services
-// every started host; start_render() registers it once.
+// every started host; start_render() registers it once. This is the one
+// documented process-global left in the host layer (see
+// scripts/check_wasm_host_globals.sh).
 extern bool g_mainLoopRegistered;
 
 // ---- Active-host accessor -----------------------------------------------------
@@ -112,3 +155,18 @@ void ReleaseHost(WasmHost* host);
 int HostSlotCount();           //!< kMaxHosts (fixed-size slot array).
 WasmHost* HostSlot(int index); //!< Live host in slot, or nullptr.
 int LiveHostCount();           //!< Number of currently-allocated hosts.
+
+// The active host without lazily creating the default (nullptr if none), for
+// callers that need to restore the selection after iterating hosts.
+WasmHost* ActiveHostOrNull();
+
+// Opaque handle for a host (the value create_host() returns / JS tags ring
+// descriptors with), and the registry-checked reverse lookup (nullptr for a
+// stale or unknown handle).
+uintptr_t HostHandle(const WasmHost& host);
+WasmHost* HostFromHandle(uintptr_t handle);
+
+// Points libprojectM's process-wide transpiled-GLSL cache key at `host`'s
+// in-flight load (or clears it). SetActiveHost() calls this so the key always
+// belongs to the active host. Defined in WasmShaderCache.cpp.
+void ArmShaderCacheKeyForHost(const WasmHost& host);

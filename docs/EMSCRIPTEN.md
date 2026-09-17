@@ -62,14 +62,14 @@ no parallel EGL config path. `ProjectMDefaultWebGLAttributes()` builds the attri
 longer scrapes `window.location` / `localStorage` for context attributes — query-string parsing (`?aa=1`,
 `?capture=1`, `?fboPrecision=high`) lives in the host JS layer (`projectm-core.html`) and is forwarded through
 `ProjectMContextOptions`. Defaults (used when a host calls neither `set_context_config()` nor `ProjectMContext`)
-match the historical behavior:
+are below (MSAA and canvas depth/stencil are off by default — #178, #246):
 
 | Attribute | `ProjectMContext` option | Default | Rationale |
 |-----------|--------------------------|---------|-----------|
 | `majorVersion` / `minorVersion` | — (fixed 2 / 0) | 2 / 0 | WebGL 2 required for GLES 3 emulation |
 | `alpha` | (fixed on; the `alpha` option is a separate CSS hint) | `true` | Transparency overlays (`#135`) |
-| `depth` | `depth` | `true` | Preset shaders may use depth |
-| `stencil` | `stencil` | `true` | Preset shaders may use stencil |
+| `depth` | `depth` | `false` | FBO 0 only receives a fullscreen quad + sprites; Milkdrop's depth use lives on preset FBOs (#246). Sprites that depth-test against the canvas opt in (`projectm-core.html`: `?depth=1`) |
+| `stencil` | `stencil` | `false` | Same reasoning as `depth` (#246); `?depth=1` restores both |
 | `antialias` | `antialias` | `false` | Everything hitting the canvas (FBO 0) is a fullscreen quad + optional sprites; a fullscreen quad has no interior edges, so MSAA is invisible on it — only sprite geometry benefits (`docs/GRAPHICS_PERF_RECOVERY_PLAN.md` §5, #178). Host opts in (`projectm-core.html` reads `?aa=1` / `localStorage.canvasAA`). |
 | `premultipliedAlpha` | (fixed on) | `true` | Matches browser compositing defaults |
 | `preserveDrawingBuffer` | `preserveDrawingBuffer` | `false` | Screenshot/capture hosts set `true` (e.g. `?capture=1` in host JS, or `capture.html` calling `set_context_config`) for a stable back-buffer |
@@ -79,7 +79,9 @@ match the historical behavior:
 
 `set_context_config(antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision)` is read
 at context creation, so call it **before** `init()` / `init_with_canvases()` / `create_host()`. Attributes are baked
-into the WebGL context and cannot change afterward.
+into the WebGL context and cannot change afterward. The config is per host (#246): in a shared Module each
+`create_host()` gets the config set immediately before it — see
+[Multi-instance host state](#multi-instance-host-state).
 
 Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, half-float samplers) are enabled
 explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
@@ -122,7 +124,8 @@ backward compatibility. Hosts can override the CSS selectors used for WebGL cont
 
 Two engines in **one** Module are now supported (#168 Phase B). Per-instance host state
 (`AppData`, the dual-FBO manager, transition timeline, quality governor, audio-source flag,
-WebGL context, and canvas selectors) lives in a heap-allocated `WasmHost` — see
+WebGL context + its attribute config, canvas selectors, PCM ring, and in-flight shader-cache
+key) lives in a heap-allocated `WasmHost` — see
 [Multi-instance host state](#multi-instance-host-state) below. The instance count is capped at
 `max_host_count()` (**2** for v1: A/B, compare-two-presets).
 
@@ -162,17 +165,47 @@ main loop renders each started host in turn, making each one current for its fra
 no-handle callers keep working against a lazily-created compat **default** host (slot 0), so a
 single-instance page needs no changes.
 
-**Per-instance vs. still process-global.** Rendering, transitions, the idle-FBO release
-(#199), and the quality governor (#178) are per-host. Two things remain process-global in v1
-and are documented limitations, not bugs:
+The shared main loop restores the host that was active before each tick, so a JS sequence that
+selects a host and then yields (e.g. `shader_cache_begin_load` → await IndexedDB →
+`shader_cache_import_glsl`) still lands on that host. `set_active_host(0)` selects the first
+live host (the default host on single-instance pages).
 
-- **Audio.** The Web Audio worklet / analyser plumbing (`window.projectMAudioContext_Global_Cpp`,
-  one worklet node) is shared. The second engine is visual-only unless the host routes PCM to it
-  explicitly via `_projectm_pcm_add_float_wrapper(handle, …)` (the wrapper now honors a non-zero
-  engine handle; 0 still means "active host").
-- **Transpiled-GLSL shader cache.** `shader_cache_*` install a libprojectM-global hook, so
-  concurrent preset loads on both engines would share the cache key. Fine for the A/B case,
-  where one preset loads at a time.
+**Per-instance vs. still process-global.** Rendering, transitions, the idle-FBO release
+(#199), the quality governor (#178), and — since #246 (Phase C) — the context config, the PCM
+ring and the shader-cache key are per-host:
+
+- **WebGL context config.** `set_context_config()` applies to the active host if it has no
+  context yet; otherwise (the usual "configure, then `create_host()`" order, where the previous
+  host is still active) it is held as a one-shot pending request and snapshotted onto the next
+  host that creates a context, right before `emscripten_webgl_create_context`. A host's config
+  is never rewritten once its context exists. `create_host()` without a preceding
+  `set_context_config()` inherits the previous host's config.
+- **PCM ring.** Each host owns its ring; `pcm_ring_*` / `get_pcm_ring_*` and the per-frame
+  drain operate on the active host, so draining host A never consumes host B's writes. JS picks
+  a ring with `feedPcmThroughRing(module, buf, { hostHandle })` / `getPcmRingWriter(module,
+  hostHandle)` (`html/projectm-pcm-ring.js`). Released rings are retired and reused rather than
+  freed immediately, so a producer that has not yet processed the detach cannot write into
+  reallocated heap.
+- **Transpiled-GLSL shader cache.** Load state is per host, and the key handed to libprojectM is
+  namespaced with the host handle (`host<handle>|<key>`). `set_active_host()` re-arms
+  libprojectM's single process-wide key for the newly active host, so concurrent loads cannot
+  serve host A's GLSL to host B. The store hook strips the namespace, so the IndexedDB store
+  still shares compiled GLSL across hosts by preset key.
+
+Still shared, by design:
+
+- **Web Audio worklet.** One `AudioContext` + one worklet node per Module
+  (`projectMAudioContext_Global_Cpp` / `projectMWorkletNode_Global_Cpp`). It is sent one
+  `pcmRing` descriptor per host (tagged `hostHandle`, withdrawn with `pcmRingDetach`) and writes
+  each quantum into every attached ring; without cross-origin isolation the `pcmData` fallback
+  handler fans out over `Module.__pmPcmRings` instead. Every engine therefore hears the same
+  worklet source; per-engine sources are the host's job (`feedPcmThroughRing(…, { hostHandle })`)
+  until the in-page audio engine (#228) lands.
+- **Emscripten main loop** (`g_mainLoopRegistered`): one loop services every started host.
+
+`kMaxHosts` stays **2** until #228 settles the audio story. `scripts/check_wasm_host_globals.sh`
+(run by the C++ format gate) rejects object-like `#define` aliases of `WasmHost` state in
+`src/wasm/`.
 
 ## Emscripten flag single source of truth
 
@@ -236,10 +269,12 @@ To add a new `EMSCRIPTEN_KEEPALIVE` C export:
    Wrap it in `extern "C" { ... }` and mark it
    `EMSCRIPTEN_KEEPALIVE`. If it needs **per-instance** state, add a field to
    `struct WasmHost` (`WasmHost.hpp`) and reach it through `Host()` — never a new
-   process-global, which would silently be shared across instances. Each TU maps
-   the field to the active host with the object-like macros / `auto&` aliases at
-   the top of the file (e.g. `#define g_dualFbo (Host().dualFbo)`), so export
-   bodies stay handle-free; make your export run under the caller's host by
+   process-global, which would silently be shared across instances. Open the
+   function body with `WasmHost& H = Host();` plus local references where that
+   reads better (e.g. `auto& g_dualFbo = H.dualFbo;`), so export bodies stay
+   handle-free. Do **not** add object-like `#define` aliases for host state —
+   `scripts/check_wasm_host_globals.sh` rejects them (#246). Bind the references
+   *after* any host switch in the same body. Make your export run under the caller's host by
    having the JS side call `set_active_host()` first (`ProjectMContext` already
    does this before every control op).
 2. **Register the symbol** in `cmake/EmscriptenWasmFlags.cmake`

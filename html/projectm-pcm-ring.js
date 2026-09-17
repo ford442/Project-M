@@ -27,6 +27,11 @@
 //
 // Frame indices wrap at `indexModulus` (a multiple of the capacity) rather than
 // growing forever, so neither side overflows int32 during a long session.
+//
+// One ring per engine (#246). In a Module running several engines
+// (create_host()), the descriptor exports report the *active* host's ring. Pass
+// `hostHandle` to read / write a specific engine's ring: the host is activated
+// for the synchronous descriptor read and the previous selection restored.
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
@@ -58,8 +63,41 @@ const RING_EXPORTS = [
     '_get_pcm_ring_index_modulus',
 ];
 
-/** Modules whose ring writer we have already built, keyed by module instance. */
+/**
+ * Ring writers already built, keyed by module instance, then by host handle
+ * (0 = whichever host is active, the single-instance default).
+ * @type {WeakMap<object, Map<number, PcmRingWriter>>}
+ */
 const writerCache = new WeakMap();
+
+/**
+ * Runs `fn` with `hostHandle` as the module's active host, restoring the
+ * previous selection. A handle of 0, or a module without the multi-instance
+ * exports, runs `fn` against whatever host is active.
+ *
+ * @template T
+ * @param {any} m
+ * @param {number} hostHandle
+ * @param {() => T} fn
+ * @returns {T}
+ */
+function withActiveHost(m, hostHandle, fn) {
+    if (!hostHandle || typeof m._get_active_host !== 'function' || typeof m.ccall !== 'function') {
+        return fn();
+    }
+    const previous = m._get_active_host();
+    if (previous === hostHandle) {
+        return fn();
+    }
+    m.ccall('set_active_host', null, ['number'], [hostHandle]);
+    try {
+        return fn();
+    } finally {
+        if (previous) {
+            m.ccall('set_active_host', null, ['number'], [previous]);
+        }
+    }
+}
 
 /**
  * Whether `module` exposes the WASM-owned PCM ring. Older bundles (and the test
@@ -79,21 +117,29 @@ export function moduleHasPcmRing(module) {
  * engine has not done so yet (`_pcm_ring_init` is idempotent).
  *
  * @param {ProjectMModuleLike | null | undefined} module
+ * @param {number} [hostHandle] Engine whose ring to read (create_host() handle);
+ *   0 reads the active host's ring.
  * @returns {PcmRingDescriptor | null} null when the module has no ring, or the
  *   ring is not allocated and cannot be.
  */
-export function readPcmRingDescriptor(module) {
+export function readPcmRingDescriptor(module, hostHandle = 0) {
     if (!moduleHasPcmRing(module)) return null;
     const m = /** @type {any} */ (module);
 
-    let dataPtr = m._get_pcm_ring_data_ptr();
-    if (!dataPtr && typeof m._pcm_ring_init === 'function') {
-        m._pcm_ring_init(0);
-        dataPtr = m._get_pcm_ring_data_ptr();
-    }
-    const headerPtr = m._get_pcm_ring_header_ptr();
-    const capacityFrames = m._get_pcm_ring_capacity_frames();
-    const indexModulus = m._get_pcm_ring_index_modulus();
+    const raw = withActiveHost(m, hostHandle, () => {
+        let dataPtr = m._get_pcm_ring_data_ptr();
+        if (!dataPtr && typeof m._pcm_ring_init === 'function') {
+            m._pcm_ring_init(0);
+            dataPtr = m._get_pcm_ring_data_ptr();
+        }
+        return {
+            dataPtr,
+            headerPtr: m._get_pcm_ring_header_ptr(),
+            capacityFrames: m._get_pcm_ring_capacity_frames(),
+            indexModulus: m._get_pcm_ring_index_modulus(),
+        };
+    });
+    const { dataPtr, headerPtr, capacityFrames, indexModulus } = raw;
     if (!dataPtr || !headerPtr || capacityFrames <= 0 || indexModulus <= 0) {
         return null;
     }
@@ -169,18 +215,26 @@ export function createPcmRingWriter(descriptor) {
 }
 
 /**
- * The writer for `module`'s ring, cached per module. Re-derived when the WASM
- * heap has grown (which detaches the old views) or the ring was reallocated.
+ * The writer for `module`'s ring, cached per module and host handle. Re-derived
+ * when the WASM heap has grown (which detaches the old views) or the ring was
+ * reallocated (or, for handle 0, a different host became active).
  *
  * @param {ProjectMModuleLike | null | undefined} module
+ * @param {number} [hostHandle] Engine to write to (create_host() handle); 0
+ *   writes to the active host.
  * @returns {PcmRingWriter | null}
  */
-export function getPcmRingWriter(module) {
+export function getPcmRingWriter(module, hostHandle = 0) {
     if (!module) return null;
-    const descriptor = readPcmRingDescriptor(module);
+    const descriptor = readPcmRingDescriptor(module, hostHandle);
     if (!descriptor) return null;
 
-    const cached = writerCache.get(module);
+    let perHost = writerCache.get(module);
+    if (!perHost) {
+        perHost = new Map();
+        writerCache.set(module, perHost);
+    }
+    const cached = perHost.get(hostHandle);
     if (cached
         && cached.descriptor.memory === descriptor.memory
         && cached.descriptor.dataPtr === descriptor.dataPtr
@@ -189,7 +243,7 @@ export function getPcmRingWriter(module) {
     }
 
     const writer = createPcmRingWriter(descriptor);
-    writerCache.set(module, writer);
+    perHost.set(hostHandle, writer);
     return writer;
 }
 
@@ -207,10 +261,12 @@ export function getPcmRingWriter(module) {
  * @param {number} [options.channels]
  * @param {(() => boolean) | null} [options.fallback] Invoked when there is no
  *   ring; should feed the engine directly and report whether it did.
+ * @param {number} [options.hostHandle] Engine to feed (create_host() handle);
+ *   0 feeds the active host.
  * @returns {boolean} true when the audio reached the engine.
  */
-export function feedPcmThroughRing(module, buffer, { channels = 2, fallback = null } = {}) {
-    const writer = getPcmRingWriter(module);
+export function feedPcmThroughRing(module, buffer, { channels = 2, fallback = null, hostHandle = 0 } = {}) {
+    const writer = getPcmRingWriter(module, hostHandle);
     if (writer) {
         return writer.write(buffer, channels) > 0;
     }

@@ -13,6 +13,7 @@ on:
       - 'tests/cxx-interface/**'
       - '.clang-format'
       - 'scripts/check_cpp_format.sh'
+      - 'scripts/check_wasm_host_globals.sh'
       - '.github/workflows/cpp_format_gate.yml'
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - 'tests/cxx-interface/**'
       - '.clang-format'
       - 'scripts/check_cpp_format.sh'
+      - 'scripts/check_wasm_host_globals.sh'
       - '.github/workflows/cpp_format_gate.yml'
   workflow_dispatch: {}
 
@@ -34,3 +36,7 @@ jobs:
 
       - name: clang-format check
         run: scripts/check_cpp_format.sh
+
+      # #246: no object-like macros aliasing per-host WasmHost state.
+      - name: WASM host alias-macro gate
+        run: scripts/check_wasm_host_globals.sh

@@ -20,26 +20,15 @@
 #include "WasmHost.hpp"
 #include "WasmWebGLContext.hpp"
 
-#define pm (Host().appData.projectm_engine)
-#define app_data (Host().appData)
-#define g_wasLoading (Host().wasLoading)
-#define g_postLoadGraceFrames (Host().postLoadGraceFrames)
-#define g_perfHudEnabled (Host().perfHudEnabled)
-#define g_dualFbo (Host().dualFbo)
-#define g_compositorShader (Host().compositorShader)
-#define g_transitionActive (Host().transitionActive)
-#define g_transitionBlend (Host().transitionBlend)
-#define g_transitionDuration (Host().transitionDuration)
-#define g_transitionStartTime (Host().transitionStartTime)
-#define g_transitionEndTime (Host().transitionEndTime)
-#define g_dualFboIdleReleaseSec (Host().dualFboIdleReleaseSec)
-#define g_presetBReady (Host().presetBReady)
-#define g_renderedFrameCount (Host().renderedFrameCount)
-
 // Renders one frame for the currently-active host. renderLoop() makes each
 // started host active in turn and calls this.
 static void RenderActiveHostFrame()
 {
+    WasmHost& H = Host();
+    auto& app_data = H.appData;
+    auto& g_wasLoading = H.wasLoading;
+    auto& g_postLoadGraceFrames = H.postLoadGraceFrames;
+    auto& g_perfHudEnabled = H.perfHudEnabled;
     if (app_data.loading == EM_TRUE)
     {
         g_wasLoading = true;
@@ -85,8 +74,15 @@ static void RenderActiveHostFrame()
 // (the compat/default path) this is exactly the old single-instance loop; with
 // two (#168 Phase B) each is made active — which makes its own WebGL context
 // current — and rendered in turn within the same rAF tick.
+//
+// The host that was active before the tick is restored afterwards. JS selects a
+// host with set_active_host() and may then yield (e.g. awaiting IndexedDB
+// between shader_cache_begin_load() and shader_cache_import_glsl()); without the
+// restore, a rAF tick in between would leave the last-rendered host active and
+// the follow-up call would land on the wrong engine.
 static void renderLoop()
 {
+    WasmHost* const previous = ActiveHostOrNull();
     const int slots = HostSlotCount();
     for (int i = 0; i < slots; ++i)
     {
@@ -98,12 +94,21 @@ static void renderLoop()
         SetActiveHost(h);
         RenderActiveHostFrame();
     }
+    if (previous != nullptr && ActiveHostOrNull() != previous)
+    {
+        SetActiveHost(previous);
+    }
 }
 
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void start_render(int width, int height)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& app_data = H.appData;
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_compositorShader = H.compositorShader;
     // glClearColor( 1.0, 1.0, 1.0, 0.0 );
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     printf("Setting window size: %i x %i\n", width, height);
@@ -159,6 +164,10 @@ void start_render(int width, int height)
 // preset crossfade is active.
 static bool ShouldUseDualFboCompositor()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_compositorShader = H.compositorShader;
+    auto& g_transitionActive = H.transitionActive;
     return g_transitionActive &&
            g_dualFbo.IsPresetAAllocated() &&
            g_dualFbo.IsPresetBAllocated() &&
@@ -175,6 +184,11 @@ static bool ShouldUseDualFboCompositor()
 // or disable it via dual_fbo_set_idle_release_seconds().
 static void ReleaseDualFboIfIdle()
 {
+    WasmHost& H = Host();
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_transitionActive = H.transitionActive;
+    auto& g_transitionEndTime = H.transitionEndTime;
+    auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
     if (g_dualFboIdleReleaseSec < 0.0f || g_transitionActive || !g_dualFbo.IsPresetAAllocated())
     {
         return;
@@ -204,6 +218,17 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void render_frame()
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_dualFbo = H.dualFbo;
+    auto& g_compositorShader = H.compositorShader;
+    auto& g_transitionActive = H.transitionActive;
+    auto& g_transitionBlend = H.transitionBlend;
+    auto& g_transitionDuration = H.transitionDuration;
+    auto& g_transitionStartTime = H.transitionStartTime;
+    auto& g_transitionEndTime = H.transitionEndTime;
+    auto& g_presetBReady = H.presetBReady;
+    auto& g_renderedFrameCount = H.renderedFrameCount;
     if (!pm)
         return;
 
@@ -306,6 +331,9 @@ void render_frame()
 EMSCRIPTEN_KEEPALIVE
 void set_window_size(int width, int height)
 {
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    auto& g_dualFbo = H.dualFbo;
     if (!pm)
         return;
     WasmWebGLResizeCanvases(width, height);

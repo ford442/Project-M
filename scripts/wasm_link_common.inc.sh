@@ -146,6 +146,8 @@ projectm_wasm_simd_compile_args() {
 #   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link (link-time only)
 #   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default 4)
 #   ENABLE_WASM_TRANSITIONS=ON       (default) adds ASYNCIFY_STACK_SIZE
+#   PROJECTM_WASM_EXCEPTIONS=js|wasm C++ exception ABI (default wasm); must match the
+#                                    PROJECTM_WASM_EXCEPTIONS the static libs were configured with
 # ASYNCIFY_ONLY always points at cmake/wasm_asyncify_only.txt (absolute path required).
 projectm_wasm_pthread_pool_size() {
     echo "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-4}"
@@ -180,6 +182,16 @@ projectm_wasm_common_link_args() {
         transition_args+=("-s" "ASYNCIFY_STACK_SIZE=65536")
     fi
 
+    local exception_args=()
+    case "${PROJECTM_WASM_EXCEPTIONS:-wasm}" in
+        js) exception_args=(-s NO_DISABLE_EXCEPTION_CATCHING=1) ;;
+        wasm) exception_args=(-fwasm-exceptions) ;;
+        *)
+            echo "PROJECTM_WASM_EXCEPTIONS must be js or wasm" >&2
+            return 1
+            ;;
+    esac
+
     local lto_args=()
     if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
         lto_args+=("-flto")
@@ -194,18 +206,17 @@ projectm_wasm_common_link_args() {
         -pthread
         -fopenmp=libomp
         -fno-math-errno
+        "${exception_args[@]}"
         -s SHARED_MEMORY=1
         -s WASM_WORKERS=1
         -s MIN_WEBGL_VERSION=2
         -s MAX_WEBGL_VERSION=2
         -s USE_WEBGL2=1
         -s FULL_ES2=0
-        -s FULL_ES3=1
+        -s FULL_ES3=0
         -s GL_POOL_TEMP_BUFFERS=0
-        -s GL_MAX_TEMP_BUFFER_SIZE=33177600
         -s GL_TRACK_ERRORS=0
         -s GL_ENABLE_GET_PROC_ADDRESS=1
-        -s NO_DISABLE_EXCEPTION_CATCHING=1
         -s ALLOW_MEMORY_GROWTH=1
         -s MALLOC=mimalloc
         -s MAXIMUM_MEMORY=4gb

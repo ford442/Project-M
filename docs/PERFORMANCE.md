@@ -570,24 +570,24 @@ shell include.
 
 ### Measured, but deferred pending in-browser verification
 
-These two showed real size wins but touch code paths (GL emulation, JS minification of pthread /
-audio-worklet glue) that cannot be regression-tested without a browser. Per "keep only measurable
-wins", they are **not** adopted in this pass — flagged here so a follow-up with display access can
-verify and land them.
+Both rows below were measured under Emscripten 5.0.4 and left out pending a browser run. They
+have now had that run: see "Toolchain and flag verification (emsdk 6.0.6)" below. `FULL_ES3=0`
+**landed**. `--closure 1` was **rejected** (it breaks the host contract), and a gate now enforces
+that decision.
 
-| Flag change | `.wasm` size | `.js` size | Link time | Risk / what to verify |
+| Flag change | `.wasm` size | `.js` size | Link time | Outcome |
 |---|---|---|---|---|
-| `-s FULL_ES3=0` (was `=1`), combined with `-flto` | 2,024,444 B (-104 B vs. `-flto` alone) | 222,926 B (**-10,365 B / -4.4%**) | 30.6 s | With `MIN_WEBGL_VERSION=2`/`MAX_WEBGL_VERSION=2` (native WebGL2), `FULL_ES3=1`'s additional ES3-emulation-on-top-of-WebGL2 code may be largely redundant — build links cleanly with no undefined-symbol errors. **Needs verification**: render a frame in-browser (dual-FBO ping-pong, blur chain, transitions) to confirm no GL call relies on `FULL_ES3`-only emulation paths. If confirmed safe, re-check whether `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` are still needed (per the original issue's note) — both are currently sized for the `FULL_ES3=1` temp-buffer emulation path. |
-| `--closure 1`, combined with `-flto` | 2,024,548 B (unchanged) | 96,042 B (**-137,249 B / -58.8%**) | 47.8 s (+22.4 s vs. baseline) | Largest single win measured, but Closure Compiler's advanced renaming/minification is the highest-risk change here: must verify `MODULARIZE=1`/`EXPORT_NAME=createModule`, all `EXPORTED_FUNCTIONS`/`EXPORTED_RUNTIME_METHODS`, the `EM_JS`/`EM_ASM` glue (e.g. `window.pmOnPerfFrame`, `window.pmGetFboFormat`, etc. from `html/projectm-*.js`), `AUDIO_WORKLET=1`, and the pthread Worker bootstrap all still function in-browser. **Needs verification**: full smoke test of audio playback, preset transitions, and all `window.pm*` hooks with `--closure 1` enabled. |
+| `-s FULL_ES3=0` (was `=1`), combined with `-flto` | 2,024,444 B (-104 B vs. `-flto` alone) | 222,926 B (**-10,365 B / -4.4%**) | 30.6 s | **Landed** (2026-09-17). No libprojectM GL call needed the emulation layer. |
+| `--closure 1`, combined with `-flto` | 2,024,548 B (unchanged) | 96,042 B (**-137,249 B / -58.8%**) | 47.8 s (+22.4 s vs. baseline) | **Rejected** (2026-09-17). Renames 33 of the 41 names that EM_JS shares with `html/`, silently. |
 
 ### Analyzed, not changed (high risk / needs dedicated effort)
 
 | Candidate | Finding |
 |---|---|
 | `-s ASYNCIFY=1` | Removing or restructuring this is **not** a flag flip — `ENABLE_WASM_TRANSITIONS` (`ASYNCIFY_STACK_SIZE=65536`) depends on ASYNCIFY for non-blocking shader compilation and concurrent preset loading during transitions (see "Phase 4/5" comments in `projectM_emscripten.cpp`). Replacing it with `-s JSPI=1` for preset loading only, while keeping the render loop ASYNCIFY-free, is a real refactor (separate render vs. load call graphs) requiring its own design + in-browser testing of transitions. Deferred as its own follow-up, not bundled into this flag-audit pass. |
-| `NO_DISABLE_EXCEPTION_CATCHING` → `-fwasm-exceptions` | Changes the exception-handling ABI for **every** translation unit, including the prebuilt static libraries — this requires a full rebuild of `libprojectM-4.a`/`libprojectM-4-playlist.a` with the new flag (not a link-only change like the items above), plus in-browser verification that thrown `MilkdropPresetLoadException`/parser errors during preset loading are still caught correctly by `projectM_emscripten.cpp`'s error-surfacing path. All evergreen browsers now support native WASM exceptions, so this is likely a real win, but the rebuild + verification cost puts it out of scope for this pass. |
+| `NO_DISABLE_EXCEPTION_CATCHING` → `-fwasm-exceptions` | **Done (2026-09-17)**, with a full lib + wrapper rebuild. It is the default now, selectable through `PROJECTM_WASM_EXCEPTIONS`. See "Toolchain and flag verification (emsdk 6.0.6)" below. |
 | `-sINITIAL_MEMORY=1024mb` | **Done (epic #163):** reduced to `256mb` — see "WASM heap right-sizing" below. Re-measure with `tests/wasm-smoke/measure-heap.mjs` after deploy. |
-| `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` | Tied to the `FULL_ES3` decision above — re-evaluate together once `FULL_ES3=0` is verified in-browser. |
+| `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` | **Re-evaluated with `FULL_ES3=0` (2026-09-17).** `GL_MAX_TEMP_BUFFER_SIZE` was removed; with `FULL_ES2`/`FULL_ES3` off it has no effect, and its value no longer appears in the glue. `GL_POOL_TEMP_BUFFERS=0` was kept (see below). |
 
 ### Verification performed
 
@@ -601,6 +601,132 @@ verify and land them.
   browser/display). The `?benchmark=1` harness from the "Headless benchmark mode" section above
   should be used to confirm the adopted changes are neutral-to-positive on real frame timing, and
   to evaluate the deferred candidates once a display is available.
+
+### Toolchain and flag verification (emsdk 6.0.6)
+
+This session (2026-09-17) worked through the deferred rows above with one toolchain and one
+browser. It has a known limit: **no GPU was available.** Every browser run used Chromium on
+SwiftShader, the same software GL that the golden gate uses in CI. That makes the pixels
+deterministic and exact to compare. It also means no frame times were measured, so none are
+recorded here.
+
+**Setup.** Emscripten 6.0.6, `ENABLE_WASM_TRANSITIONS=ON`, smoke wrapper (no `-flto`), and
+`libomp.a` from `omp/omp.zip`. Each variant came from one commit and one browser, and changed only
+the setting shown.
+
+| Build | `.wasm` | `.js` glue | Smoke | Goldens (26) | Host contract |
+|---|---|---|---|---|---|
+| Baseline (`FULL_ES3=1`, `GL_MAX_TEMP_BUFFER_SIZE=33177600`, `NO_DISABLE_EXCEPTION_CATCHING`) | 1,591,413 B | 240,483 B | pass | 26/26 ssim 1.00000 | 41/41 |
+| `FULL_ES3=0` | 1,591,309 B | 230,347 B (-4.2%) | pass | 26/26 ssim 1.00000 | 41/41 |
+| `FULL_ES3=0` + `GL_POOL_TEMP_BUFFERS=1`, `GL_MAX_TEMP_BUFFER_SIZE` default | 1,591,309 B | 234,042 B | pass | 26/26 ssim 1.00000 | — |
+| `-fwasm-exceptions` (libs + wrapper rebuilt) | 1,485,386 B (-6.7%) | 225,996 B (-6.0%) | pass | 26/26 ssim 1.00000 | — |
+| `--closure 1` (FS methods pinned in externs) | 1,591,413 B | 106,126 B (-55.9%) | pass | not run | **8/41** |
+| **Landed:** `FULL_ES3=0` + `-fwasm-exceptions`, clean rebuild with no overrides | **1,485,282 B (-6.7%)** | **215,860 B (-10.2%)** | pass | 26/26 ssim 1.00000 | 41/41 |
+
+"Smoke" means `tests/wasm-smoke/run.mjs`: init, OpenMP (4 threads, blocktime 0), Asyncify cold
+load, dual-FBO soft cut, two engine instances, and (new) a known-bad preset.
+
+**`FULL_ES3=0`: landed.** Emscripten's `tools/link.py` turns on `FULL_ES2` whenever `FULL_ES3` is
+set. The two layers add client-side vertex-array emulation (`clientBuffers`, `getTempVertexBuffer`)
+and `glMapBufferRange`/`glGetBufferSubData` shims. libprojectM has no use for either: every
+`glVertexAttribPointer`/`glDrawElements` passes a `nullptr` offset into a bound VBO/EBO, and it
+calls neither mapping function. `GLResolver`/GLAD do not require the ES 3.0 entry points that
+`emscripten_webgl2_get_proc_address()` stops returning. The issue flagged the Y-inverted
+`glBlitFramebuffer` in `CopyTexture::TryBlit()` as the likeliest difference, but that call is a
+direct passthrough (`libwebgl2.js`) with or without emulation. Evidence gathered:
+
+- All 26 goldens are byte-identical. They cover the clear and blit, the per-pixel warp mesh, the
+  composite shaders, noise textures, beat detection, and the heavy multi-pass warp + blur preset.
+- The smoke dual-FBO soft cut passes.
+- A pixel A/B against baseline covered two presets:
+  - a blur3 + warp + composite preset (`weeks_presets/total hack do try and fight it.milk`);
+  - a warp-without-composite preset (`weeks_presets/Jc - Driven by the Wind.milk`), which pays
+    every remaining Y-flip.
+
+  Each ran on baseline, on `FULL_ES3=0` and on `-fwasm-exceptions`, with default blit and with
+  `?copyPath=shader`, at frames 60 and 300. All 24 captures had **0 differing pixels** against
+  baseline/blit (threshold 0). They were 31-56% non-black, so this is not black-on-black agreement.
+
+There is no GL call that still needs the emulation layer.
+
+**`GL_MAX_TEMP_BUFFER_SIZE` / `GL_POOL_TEMP_BUFFERS`.**
+- `GL_MAX_TEMP_BUFFER_SIZE` only sizes the `FULL_ES2` temp-VBO rings, so it was removed. The value
+  `33177600` no longer appears in the glue.
+- `GL_POOL_TEMP_BUFFERS` is still live, but not because of ES3. `MAXIMUM_MEMORY=4gb` with the
+  default `MIN_FIREFOX_VERSION` switches off WebGL2's garbage-free upload APIs, so the pooled
+  upload path is compiled in. With the pool at 0, `glUniform*v` passes a `HEAPF32` subarray view.
+  With it at 1, small arrays are copied into pooled typed arrays.
+- Both settings render identically. The faster one can only be picked by a GPU `?benchmark=1` run,
+  so the value stays at 0.
+
+**`-fwasm-exceptions`: landed as the default.** `PROJECTM_WASM_EXCEPTIONS` (`wasm` | `js`) is one
+switch read by the CMake lib build and by the wrapper link, so the two cannot drift. A mismatch
+fails at link time in both directions (`undefined symbol: __resumeException`, or `__cpp_exception`
+/ `__gxx_wasm_personality_v0`), never at runtime.
+- **Catch path.** The new smoke step loads a missing preset. `MilkdropPreset::Load` throws
+  `MilkdropPresetLoadException`, `PresetFactoryManager` rethrows it, and `ProjectM::LoadPresetFile`
+  catches it. The step requires `preset_switch_failed()` and `globalThis.projectMPresetSwitchFailed`.
+- **Control.** The step was checked against a build linked with `DISABLE_EXCEPTION_CATCHING=1`.
+  There the module aborts and the step fails.
+- **Browser support.** Emscripten 6.0.6 emits the legacy EH encoding (1,995 `try`, 0 `try_table`):
+  Chrome 95, Firefox 100, Safari 15.2. That is at or below the floor SharedArrayBuffer + COOP/COEP
+  already sets, so Safari is not a blocker.
+- **Asyncify.** emcc warns that `ASYNCIFY=1` is incompatible with `-fwasm-exceptions`. A function
+  that is both Asyncify-instrumented and has a `try` fails to *compile*. `ASYNCIFY_ONLY` covers only
+  the three `load_preset_file*` frames, none of which has a `try`, and the cold-load smoke passes.
+
+**`--closure 1`: rejected.** Two problems:
+1. **Link.** `src/wasm/pthread_script_url.pre.js` shadows `Worker` on purpose, and Closure rejected
+   it against its own externs (`JSC_VAR_MULTIPLY_DECLARED_ERROR`). A `@suppress {duplicate}` fixes
+   that.
+2. **Host contract.** ADVANCED renaming then breaks the host through two kinds of names:
+   - `Module.FS.writeFile`, `mkdir`, `mkdirTree` (smoke fails immediately; fixable with an externs
+     file);
+   - 33 of the 41 names that EM_JS/pre-js code shares with `html/`, which no browser test catches.
+
+   The renamed names include `projectMWritePcmRing` (external PCM), `projectMPresetSwitchFailed`,
+   `pmReportInitError`, `pmOnPerfFrame`, all three `pmOnGovernor*Change` hooks, `Module.__pmPerfGpu`,
+   and the worklet's `audioData`/`channelsForPM` message fields. The module still boots, renders and
+   passes the smoke test.
+
+To adopt Closure, a hand-maintained externs file would have to track every EM_JS body. The failing
+check is committed instead: `tests/wasm-smoke/host_contract_names.mjs` runs in CI on every build,
+passes 41/41 on the landed flags, and fails listing 33 names on a `--closure 1` build.
+
+**Wrapper `-flto` (`PROJECTM_WASM_LTO=1`) is broken on 6.0.6.** The link fails with undefined
+`EM_JS` symbols (`js_report_init_success`, `js_init_projectm_dom`, and eight more). The -2.8%
+figure above predates the host-wrapper split and was measured on 5.0.4. It is not investigated here.
+
+**CI.** The Emscripten workflow had not passed since 2026-04-24, and each break was hidden behind
+the one before it:
+1. libomp would not build on 3.1.53.
+2. `tests/libprojectM` required a host SDL2 package under Emscripten.
+3. The CMake link exported the wrapper's `EXPORTED_FUNCTIONS` into unit-test executables that do
+   not define them.
+4. `build-gtest` compiled GoogleTest without atomics or a matching exception ABI.
+5. `ctest` cannot launch the tests under Emscripten.
+
+All five are addressed in `build_emscripten.yml` and the CMake files. The job was then re-run
+locally step for step on 6.0.6: from-source libomp, configure, build including the unit-test link,
+install, wrapper link, artifact checks, host contract, browser smoke, screenshot smoke, and golden
+self-check. The unit tests are built but no longer run there; `build_linux.yml` runs them natively.
+
+**What is still open** before `PROJECTM_WASM_DEFAULT_VERSION` can move off `032`:
+- a GPU `?benchmark=1` p95 run of a bundle cut from these flags, measured against 032 on the same
+  machine;
+- a real-browser audio-reactivity session.
+
+Neither can be run on software GL. On SwiftShader the headless audio-reactivity harness
+(`scripts/test_audio_reactivity_wasm.mjs`, preset `300-beatdetect-bassmidtreb.milk`) gives the
+landed build the same pass/fail profile as the pre-change build, with zero PCM ring overruns in
+both:
+- the worker topology passes;
+- on the main thread, treble, bands and stereo pass;
+- the main-thread bass assertion fails (the known issue noted in `build_emscripten.yml`).
+
+Main-thread red means (r) differ a little: silence 3.69 / bass 4.86 / treble 12.88 before, and
+3.69 / 4.58 / 13.35 after. This harness depends on timing, and the second run shared the CPU with
+two capture jobs.
 
 ## Dual-FBO VRAM residency and lazy preset-A allocation (issue #199)
 

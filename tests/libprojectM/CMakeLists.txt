@@ -81,7 +81,7 @@ target_link_libraries(projectM-unittest
         GTest::gtest_main
         )
 
-if(UNIX AND NOT APPLE AND NOT ANDROID)
+if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
     find_package(SDL2 REQUIRED)
     target_link_libraries(projectM-unittest PRIVATE SDL2::SDL2 glad)
 endif()

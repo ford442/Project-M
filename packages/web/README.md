@@ -33,10 +33,10 @@ JS modules do **not** include the `.wasm` blob. Host one of:
 
 | Layout | Glue script | Binary |
 |--------|-------------|--------|
-| Canonical (recommended) | `./pm/projectm-v.036-thread.js` | `./pm/projectm-v.036-thread.wasm` |
-| Legacy root mirror | `./projectm-v.036-thread.js` | `./projectm-v.036-thread.wasm` |
+| Canonical (recommended) | `./pm/projectm-v.037-thread.js` | `./pm/projectm-v.037-thread.wasm` |
+| Legacy root mirror | `./projectm-v.037-thread.js` | `./projectm-v.037-thread.wasm` |
 
-Pin the bundle version with `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-version.js` (currently **`036`**). Override per element with `wasm-base-url` or `wasm-script-url`.
+Pin the bundle version with `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-version.js` (currently **`037`**). Override per element with `wasm-base-url` or `wasm-script-url`.
 
 First-party CDN default: `https://projectm.1ink.us` (see `buildProjectMWasmUrls()`).
 
@@ -62,10 +62,12 @@ that directory is all the wiring needed:
 <!-- with files served from /pm/ -->
 ```
 
-> **Version note.** `--version` defaults to `036`, the tag the runtime resolver
-> asks for. The first-party hosts currently default to `032`
-> (`PROJECTM_WASM_DEFAULT_VERSION`) because 036 has open audio and framerate
-> regressions. If you hit those, `--version 032` fetches the older bundle — it
+> **Version note.** `--version` defaults to `037`, the tag the runtime resolver
+> asks for. The first-party hosts still default to `032`
+> (`PROJECTM_WASM_DEFAULT_VERSION`) until 037 passes an audio-reactivity check and a
+> GPU `?benchmark=1` p95 no worse than 032 on the same machine; 036's audio and
+> framerate regressions are fixed in 037 but that promotion run has not happened
+> yet. If you need the older bundle, `--version 032` fetches it — it
 > lives at the site root as a UTF-16 `.1ijs` glue script rather than under `pm/`,
 > and the tool handles that layout difference for you. This split is the one
 > thing an embedder has to make a decision about today.

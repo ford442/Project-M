@@ -33,7 +33,6 @@ Results land in `benchmark-results/` (gitignored except `.gitkeep`).
 ```bash
 cmake -G "Ninja Multi-Config" -S . -B cmake-build \
   -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc \
-  -DCMAKE_CXX_FLAGS="-include atomic" \
   -DBUILD_TESTING=ON -DENABLE_OPENMP=ON
 cmake --build cmake-build --config Release --target projectM-unittest
 ./optimize.sh --bench native --build-dir cmake-build

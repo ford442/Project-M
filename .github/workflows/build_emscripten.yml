@@ -18,15 +18,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # emsdk 6.0.6: the SDK the committed goldens, omp/omp.zip and bundle 037
+        # were produced with. 3.1.53 is gone on purpose, with no canary leg: it
+        # could no longer build libomp from source (z_Linux_util.cpp "use of
+        # undeclared identifier 'PAGESIZE'"), so every run on it stopped before
+        # the smoke/golden/audio steps. Why this version: docs/EMSCRIPTEN.md
+        # "Emscripten SDK version". Keep graphics_perf_bench.yml and
+        # nightly_preset_screenshots.yml on the same pin.
         include:
           - libs: static
             fslib: stl
-            emsdk-version: 3.1.53
+            emsdk-version: 6.0.6
             wasm-transitions: OFF
             runs-on: ubuntu-24.04
           - libs: static
             fslib: stl
-            emsdk-version: 3.1.53
+            emsdk-version: 6.0.6
             wasm-transitions: ON
             runs-on: ubuntu-24.04
 
@@ -53,7 +60,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev mesa-common-dev libsdl2-dev libglm-dev ninja-build
 
+      # GoogleTest is linked into the same shared-memory, native-EH executables as
+      # libprojectM, so it must be compiled with matching wasm features and the
+      # same exception ABI (PROJECTM_WASM_EXCEPTIONS in
+      # cmake/EmscriptenWasmFlags.cmake, default wasm). build-gtest's plain
+      # configure yields "--shared-memory is disallowed by gtest-all.cc.o" and
+      # "undefined symbol: __resumeException" at link time otherwise.
       - name: Build GoogleTest From Source
+        env:
+          CFLAGS: -pthread -matomics -mbulk-memory -fwasm-exceptions
+          CXXFLAGS: -pthread -matomics -mbulk-memory -fwasm-exceptions
         run: |
           git clone https://github.com/projectM-visualizer/build-gtest.git ${{ github.workspace }}/build-gtest
           cd ${{ github.workspace }}/build-gtest && ./setup.sh && ./build-emscripten.sh
@@ -86,11 +102,13 @@ jobs:
       - name: Build Debug
         run: emmake cmake --build "${{ github.workspace }}/cmake-build" --parallel
 
-      - name: Run Unit Tests
-        env:
-          EMTEST_BROWSER: 0
-          CTEST_OUTPUT_ON_FAILURE: 1
-        run: ctest --test-dir "${{ github.workspace }}/cmake-build" --verbose --build-config "Debug"
+      # The unit tests are *built* here (the link is the gate for the wasm ABI
+      # choices above) but not *run*: they need a native GL context and the host
+      # filesystem, and under Emscripten ctest cannot even launch them (xvfb-run
+      # executes the .js directly, "Permission denied"; the playlist test cannot
+      # see tests/playlist/data). build_linux.yml runs the same ctest suite
+      # natively. Browser-side behaviour is covered by the smoke, golden and
+      # audio steps below.
 
       # - name: Build Release
       #   run: emcmake cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --parallel
@@ -126,6 +144,12 @@ jobs:
           INSTALL_DIR: ${{ github.workspace }}/install
           OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke
         run: scripts/build_wasm_smoke_wrapper.sh
+
+      # A JS minifier that renames properties (--closure 1) breaks the names the
+      # engine's EM_JS code shares with html/ without failing any browser test
+      # below — the module still boots and renders. See docs/PERFORMANCE.md.
+      - name: WASM host contract names survive the link
+        run: node tests/wasm-smoke/host_contract_names.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
 
       - name: Validate WASM Artifacts
         run: |

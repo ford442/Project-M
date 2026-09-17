@@ -217,7 +217,7 @@ the capture is marked `ok: false` and the script exits non-zero — unless
 > before trusting captures:
 >
 > ```bash
-> source /path/to/emsdk/emsdk_env.sh   # must be emsdk 3.1.53 — newer SDKs render all-black
+> source /path/to/emsdk/emsdk_env.sh   # emsdk 6.0.6, the version CI pins (docs/EMSCRIPTEN.md)
 > scripts/build_wasm_smoke_wrapper.sh   # -> cmake-build/wasm-smoke/projectm-v.030-thread.{js,wasm,worker.js}
 > # then either copy to the repo root (js/wasm/worker.js, plus iconv'd .1ijs/.3ijs),
 > # or point the script at the build dir:

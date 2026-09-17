@@ -26,6 +26,9 @@ BUILD_TESTING="${BUILD_TESTING:-OFF}"
 ENABLE_WASM_TRANSITIONS="${ENABLE_WASM_TRANSITIONS:-ON}"
 ENABLE_OPENMP="${ENABLE_OPENMP:-ON}"
 GTEST_DIR="${GTEST_DIR:-}"
+# C++ exception ABI (js | wasm). Must match what scripts/build_wasm_smoke_wrapper.sh
+# links with — both read the same variable; see cmake/EmscriptenWasmFlags.cmake.
+PROJECTM_WASM_EXCEPTIONS="${PROJECTM_WASM_EXCEPTIONS:-wasm}"
 
 if ! command -v emcc >/dev/null 2>&1; then
     cat >&2 <<'EOF'
@@ -34,7 +37,7 @@ ERROR: emcc not found. Activate the Emscripten SDK first, e.g.:
   source /path/to/emsdk/emsdk_env.sh
   emcc -v
 
-Recommended SDK: 3.1.53 (see docs/EMSCRIPTEN.md).
+Recommended SDK: 6.0.6, the version CI pins (see docs/EMSCRIPTEN.md).
 EOF
     exit 1
 fi
@@ -78,6 +81,7 @@ cmake_args=(
     -DBUILD_TESTING="$BUILD_TESTING"
     -DENABLE_OPENMP="$ENABLE_OPENMP"
     -DENABLE_WASM_TRANSITIONS="$ENABLE_WASM_TRANSITIONS"
+    -DPROJECTM_WASM_EXCEPTIONS="$PROJECTM_WASM_EXCEPTIONS"
 )
 
 if [[ -n "$GTEST_DIR" ]]; then

@@ -17,6 +17,11 @@
 // shadow the constructor instead, which is order-independent. `var` hoists to
 // the factory scope, so every unqualified `Worker` in the module body resolves
 // here; nothing else in the page or the worker is affected.
+//
+// @suppress {duplicate}: the shadow is the point. Without it `--closure 1`
+// rejects the declaration against its own html5 externs
+// (JSC_VAR_MULTIPLY_DECLARED_ERROR "Variable Worker declared more than once").
+/** @suppress {duplicate} */
 var Worker = (function () {
     var NativeWorker = globalThis.Worker;
     var target = Module['mainScriptUrlOrBlob'];

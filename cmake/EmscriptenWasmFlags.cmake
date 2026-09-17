@@ -16,6 +16,39 @@ include("${CMAKE_CURRENT_LIST_DIR}/WasmApiManifest.cmake")
 set(PROJECTM_WASM_PTHREAD_POOL_SIZE "4" CACHE STRING
     "Pre-spawned pthread Workers (PTHREAD_POOL_SIZE). Drives kWasmPthreadPoolSize in cmake/generated/ProjectMWasmBuildConfig.hpp.")
 
+# C++ exception ABI. It is baked into every object file, so libprojectM-4.a, the
+# playlist lib and the wrapper TUs must all be built with the same value — a
+# link-only switch is not possible. The shell wrapper link reads the same choice
+# from the PROJECTM_WASM_EXCEPTIONS environment variable.
+#   wasm  -fwasm-exceptions (native Wasm exception handling). Default. Emscripten
+#         6.0.6 emits the legacy EH encoding (try/catch, not try_table): Chrome 95,
+#         Firefox 100, Safari 15.2 — below the SharedArrayBuffer floor this build
+#         already has. -6.7% .wasm / -6.0% JS glue vs js, and no invoke_* JS
+#         trampoline around every call that may throw.
+#         emcc warns "ASYNCIFY=1 is not compatible with -fwasm-exceptions": a
+#         function that is both Asyncify-instrumented and contains a try/catch
+#         fails to *compile*. It is fine here because ASYNCIFY_ONLY
+#         (cmake/wasm_asyncify_only.txt) instruments only the three
+#         load_preset_file* frames, none of which has a try — keep it that way.
+#   js    -s NO_DISABLE_EXCEPTION_CATCHING=1 (JS-based invoke_* trampolines). The
+#         previous default ABI; kept selectable for bisecting.
+# A mismatch between libs and wrapper fails at link time, not at runtime
+# (undefined __resumeException, or __cpp_exception / __gxx_wasm_personality_v0).
+# Verification: tests/wasm-smoke/index.html "known-bad preset" step, which fails
+# when a thrown MilkdropPresetLoadException is not caught.
+set(PROJECTM_WASM_EXCEPTIONS "wasm" CACHE STRING
+    "C++ exception ABI for every WASM TU: js (NO_DISABLE_EXCEPTION_CATCHING) or wasm (-fwasm-exceptions).")
+set_property(CACHE PROJECTM_WASM_EXCEPTIONS PROPERTY STRINGS js wasm)
+set(PROJECTM_WASM_EXCEPTION_ARGS_JS -s NO_DISABLE_EXCEPTION_CATCHING=1)
+set(PROJECTM_WASM_EXCEPTION_ARGS_WASM -fwasm-exceptions)
+if(PROJECTM_WASM_EXCEPTIONS STREQUAL "js")
+    set(PROJECTM_WASM_EXCEPTION_ARGS ${PROJECTM_WASM_EXCEPTION_ARGS_JS})
+elseif(PROJECTM_WASM_EXCEPTIONS STREQUAL "wasm")
+    set(PROJECTM_WASM_EXCEPTION_ARGS ${PROJECTM_WASM_EXCEPTION_ARGS_WASM})
+else()
+    message(FATAL_ERROR "PROJECTM_WASM_EXCEPTIONS must be js or wasm, got '${PROJECTM_WASM_EXCEPTIONS}'")
+endif()
+
 # Browser wrapper exports (projectM_emscripten.cpp final emcc link).
 # Every EMSCRIPTEN_KEEPALIVE symbol plus legacy add_audio_data and runtime helpers.
 set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
@@ -187,10 +220,24 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "MIN_WEBGL_VERSION=2"
         "MAX_WEBGL_VERSION=2"
         "USE_WEBGL2=1"
+        # No GL emulation layer. FULL_ES3=1 forced FULL_ES2=1 (tools/link.py),
+        # which only adds client-side vertex-array emulation and the
+        # glMapBufferRange / glGetBufferSubData shims; libprojectM draws from
+        # bound VBOs/EBOs only and calls neither. glBlitFramebuffer
+        # (CopyTexture::TryBlit's Y-flip) is a plain passthrough either way.
+        # Verified with FULL_ES3=0: all 26 goldens byte-identical, smoke incl.
+        # dual-FBO soft cut, blur3 + warp/no-composite A/B with ?copyPath=shader.
         "FULL_ES2=0"
-        "FULL_ES3=1"
+        "FULL_ES3=0"
+        # GL_MAX_TEMP_BUFFER_SIZE is gone: it only sizes the FULL_ES2 temp-VBO
+        # rings for client-side arrays, and the value no longer appears in the
+        # glue. GL_POOL_TEMP_BUFFERS is still live, because MAXIMUM_MEMORY=4gb
+        # with the default MIN_FIREFOX_VERSION turns off WebGL2's garbage-free
+        # upload APIs (tools/link.py). 0 = glUniform*v passes a HEAPF32 subarray
+        # view; 1 (Emscripten default) copies small arrays into pooled typed
+        # arrays. Both render identically; which is faster needs a GPU
+        # ?benchmark=1 run, so this stays at its previous value.
         "GL_POOL_TEMP_BUFFERS=0"
-        "GL_MAX_TEMP_BUFFER_SIZE=33177600"
         "GL_TRACK_ERRORS=0"
         # libprojectM's GLResolver (Renderer/Platform/GLResolver.cpp) resolves GL
         # entry points through emscripten_webgl{,2}_get_proc_address() on the
@@ -198,7 +245,6 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         # set, and the link fails with "Undefined symbol:
         # emscripten_webgl2_get_proc_address()".
         "GL_ENABLE_GET_PROC_ADDRESS=1"
-        "NO_DISABLE_EXCEPTION_CATCHING=1"
         "ALLOW_MEMORY_GROWTH=1"
         "MALLOC=mimalloc"
         "MAXIMUM_MEMORY=4gb"
@@ -237,9 +283,10 @@ endfunction()
 
 # Applies compile flags for building libprojectM static libraries with emcc.
 function(projectm_apply_emscripten_lib_compile_flags)
+    string(JOIN " " _exception_args ${PROJECTM_WASM_EXCEPTION_ARGS})
     add_compile_options(
             "SHELL:-O3 -mtune=wasm32 "
-            "SHELL:-s NO_DISABLE_EXCEPTION_CATCHING -s SHARED_MEMORY=1 -s WASM_WORKERS=1 "
+            "SHELL:${_exception_args} -s SHARED_MEMORY=1 -s WASM_WORKERS=1 "
             "SHELL:-msimd128 -mrelaxed-simd -fopenmp=libomp -mmutable-globals -mbulk-memory -matomics -mnontrapping-fptoint -msign-ext -fno-strict-aliasing -fno-math-errno -pthread"
             )
 endfunction()
@@ -249,11 +296,15 @@ function(projectm_apply_emscripten_lib_link_flags)
     _projectm_wasm_expand_s_link_settings(PROJECTM_WASM_SHARED_S_LINK_SETTINGS _shared_s_args)
     _projectm_wasm_expand_s_link_settings(PROJECTM_WASM_LIB_ONLY_S_LINK_SETTINGS _lib_s_args)
 
-    set(_all_link_args ${PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS} ${_shared_s_args} ${_lib_s_args} ${PROJECTM_WASM_SIMD_COMPILE_FLAGS})
+    set(_all_link_args ${PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS} ${PROJECTM_WASM_EXCEPTION_ARGS} ${_shared_s_args} ${_lib_s_args} ${PROJECTM_WASM_SIMD_COMPILE_FLAGS})
     string(JOIN " " _shell_args ${_all_link_args})
     string(APPEND _shell_args " -s PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE}")
     string(APPEND _shell_args " -s EXPORTED_RUNTIME_METHODS='${PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_STR}'")
-    string(APPEND _shell_args " -s EXPORTED_FUNCTIONS='${PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS_STR}'")
+    # No EXPORTED_FUNCTIONS here. CMake never links the browser bundle (that is
+    # scripts/build_wasm_smoke_wrapper.sh); the only executables these options
+    # reach are the unit tests, which do not contain the wrapper's
+    # EMSCRIPTEN_KEEPALIVE symbols. Emscripten 6.x rejects the link with
+    # "symbol exported via --export not found: init" for every missing name.
     string(APPEND _shell_args " --pre-js ${PROJECTM_WASM_PTHREAD_SCRIPT_URL_PRE_JS}")
     add_link_options("SHELL:${_shell_args}")
 endfunction()

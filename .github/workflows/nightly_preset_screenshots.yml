@@ -20,7 +20,8 @@ jobs:
       - name: Setup emsdk
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 3.1.53
+          # Same pin as build_emscripten.yml (see the note on its matrix).
+          version: 6.0.6
           actions-cache-folder: 'emsdk-cache'
 
       - name: Install Packages

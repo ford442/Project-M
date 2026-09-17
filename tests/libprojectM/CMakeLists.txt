@@ -27,6 +27,7 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
+        FramebufferTest.cpp
         HeadlessGlContext.cpp
         GlOffscreenContext.cpp
         HLSLParserTest.cpp

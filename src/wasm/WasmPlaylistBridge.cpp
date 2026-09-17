@@ -29,7 +29,7 @@ void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_
     auto& g_presetBReady = H.presetBReady;
     auto& g_renderedFrameCount = H.renderedFrameCount;
     auto& g_presetReadyFrame = H.presetReadyFrame;
-    float randomDelay = (emscripten_random() * 30.0) + 27.0;
+    const double randomDelay = (emscripten_random() * 30.0) + 27.0;
     projectm_set_preset_duration(app_data.projectm_engine, randomDelay);
     app_data.loading = EM_FALSE;
 
@@ -49,7 +49,7 @@ void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_
     return;
 }
 
-void _on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data)
+void on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data)
 {
     WasmHost& H = Host();
     auto& app_data = H.appData;
@@ -119,7 +119,9 @@ void add_preset_file(const char* path)
     WasmHost& H = Host();
     auto& app_data = H.appData;
     if (!app_data.playlist)
+    {
         return;
+    }
     projectm_playlist_add_preset(app_data.playlist, path, false);
     return;
 }
@@ -150,7 +152,9 @@ void switch_preset()
     WasmHost& H = Host();
     auto& app_data = H.appData;
     if (!app_data.playlist)
+    {
         return;
+    }
     projectm_playlist_play_next(app_data.playlist, false);
     return;
 }
@@ -282,13 +286,21 @@ int is_preset_ready(int min_frames_since_ready)
     auto& g_presetReadyFrame = H.presetReadyFrame;
     auto& g_presetSwitchFailed = H.presetSwitchFailed;
     if (!pm)
+    {
         return 0;
+    }
     if (app_data.loading == EM_TRUE)
+    {
         return 0;
+    }
     if (!g_presetBReady)
+    {
         return 0;
+    }
     if (g_presetSwitchFailed)
+    {
         return 0;
+    }
     const uint32_t requiredFrames = min_frames_since_ready > 0
                                         ? static_cast<uint32_t>(min_frames_since_ready)
                                         : 0u;

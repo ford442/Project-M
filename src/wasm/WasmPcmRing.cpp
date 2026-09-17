@@ -43,6 +43,7 @@
 // computed modulo it.
 #include "WasmHost.hpp"
 
+#include <cstddef>
 #include <cstdlib>
 
 namespace {
@@ -327,7 +328,7 @@ int pcm_ring_drain()
         const int remaining = available - firstFrames;
         std::copy(ring.data,
                   ring.data + static_cast<size_t>(remaining) * 2,
-                  ring.drainScratch.begin() + static_cast<size_t>(firstFrames) * 2);
+                  ring.drainScratch.begin() + static_cast<std::ptrdiff_t>(firstFrames) * 2);
     }
 
     ring.readIndex = writeIndex;

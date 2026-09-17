@@ -254,16 +254,19 @@ Third-party code that is compiled as part of the project:
   - `misc-*`
 - Disabled checks include `magic-numbers`, `owning-memory`, `pro-bounds-pointer-arithmetic`, and `easily-swappable-parameters`.
 - `scripts/check_cpp_tidy.sh` runs a narrower check list
-  (`bugprone-*`, `performance-*`, `modernize-use-nullptr`,
-  `readability-braces-around-statements`) over `src/wasm/` only, against a
-  `compile_commands.json` produced by an Emscripten build configured with
-  `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` (native builds never compile
-  `src/wasm/`, so there is no non-Emscripten path for this). It runs as a
-  `continue-on-error: true` step in `build_emscripten.yml` — non-blocking
-  until a real CI run confirms the narrow check list is clean, at which
-  point drop `continue-on-error` to make it a hard gate. Widen the check
-  list and the directory coverage together, gradually, same reasoning as
-  `check_cpp_format.sh`'s PATHS list.
+  (`bugprone-*` minus `easily-swappable-parameters`, `performance-*` minus
+  `no-int-to-ptr`/`enum-size`, `modernize-use-nullptr`,
+  `readability-braces-around-statements`) over `src/wasm/` only. It is a
+  **hard gate** in `build_emscripten.yml`. It does not read
+  `compile_commands.json` — CMake never compiles `src/wasm/` (the smoke
+  wrapper script does), so the script spells out the wasm32 target, emsdk
+  sysroot and wrapper include list itself. It needs clang-tidy >= 22
+  (Ubuntu's clang-tidy-18 cannot parse emsdk's libc++; CI pins
+  `clang-tidy==22.1.8` from PyPI via `pipx`), `em++` on PATH, a built
+  Emscripten CMake dir and `INSTALL_DIR`. Locally it skips when a
+  prerequisite is missing; `CPP_TIDY_REQUIRED=1` makes that fatal. Widen the
+  check list and the directory coverage together, gradually, same reasoning
+  as `check_cpp_format.sh`'s PATHS list.
 
 ### Naming Conventions (enforced by `.clang-tidy`)
 | Entity | Style | Example |

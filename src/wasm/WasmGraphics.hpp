@@ -608,9 +608,13 @@ public:
 
         // --- Blend state ---
         if (m_blendEnabled)
+        {
             glEnable(GL_BLEND);
+        }
         else
+        {
             glDisable(GL_BLEND);
+        }
         glBlendFuncSeparate(static_cast<GLenum>(m_blendSrcRGB),
                             static_cast<GLenum>(m_blendDstRGB),
                             static_cast<GLenum>(m_blendSrcAlpha),
@@ -624,9 +628,13 @@ public:
 
         // --- Scissor ---
         if (m_scissorEnabled)
+        {
             glEnable(GL_SCISSOR_TEST);
+        }
         else
+        {
             glDisable(GL_SCISSOR_TEST);
+        }
         glScissor(m_scissorBox[0], m_scissorBox[1], m_scissorBox[2], m_scissorBox[3]);
 
         // --- Texture unit 0 binding ---

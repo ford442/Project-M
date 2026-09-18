@@ -64,7 +64,8 @@ static void RenderActiveHostFrame()
         js_perf_report_frame(
             timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
             timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
-            timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps);
+            timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps,
+            timings.per_pixel_eval_path);
     }
     UpdateQualityGovernor(emscripten_get_now() - frameStartMs);
     return;

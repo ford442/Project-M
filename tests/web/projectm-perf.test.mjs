@@ -97,6 +97,65 @@ test('the HUD renders per-stage bars, throttles DOM writes, and hides on demand'
     }
 });
 
+test('the HUD names the per-pixel path, and the benchmark records it', () => {
+    // perPixelEvalMs covers the evaluator loop on the CPU path but only the draw
+    // submission on the GPU path, so both readouts have to say which one they are.
+    // updateHud() only repaints once per 200 ms of performance.now(), and that
+    // deadline is module state shared with the tests above, so this one starts its
+    // clock well past whatever they left behind.
+    const dom = installFakeDom({ search: '?benchmark=1&perfhud=1&frames=2', now: 1_000_000 });
+    const module = fakeModule();
+    try {
+        setupPerfTools(module);
+        globalThis.window.pmSetPerfHudEnabled(true);
+        const hud = dom.document.getElementById('pm-perf-hud');
+        const label = () => hud
+            .querySelector('.pm-perf-hud-row[data-key="perPixelEvalMs"]')
+            .querySelector('.pm-perf-hud-label').textContent;
+
+        globalThis.window.pmOnPerfFrame(frame({ perPixelEvalPath: 'gpu' }));
+        assert.equal(label(), 'Per-pixel/warp [gpu]');
+
+        globalThis.window.pmOnPerfFrame(frame({ perPixelEvalPath: 'gpu' }));
+        assert.equal(dom.posted.length, 1);
+        assert.equal(dom.posted[0].result.perPixelEvalPath, 'gpu');
+    } finally {
+        setHudVisible(false);
+        dom.restore();
+    }
+});
+
+test('a benchmark that saw both per-pixel paths reports them as mixed', () => {
+    // Two runs are only comparable when the path matches, so a run that changed
+    // preset mid-flight must not claim either one.
+    const dom = installFakeDom({ search: '?benchmark=1&frames=2' });
+    const module = fakeModule();
+    try {
+        setupPerfTools(module);
+        globalThis.window.pmOnPerfFrame(frame({ perPixelEvalPath: 'cpu' }));
+        globalThis.window.pmOnPerfFrame(frame({ perPixelEvalPath: 'gpu' }));
+
+        assert.equal(dom.posted.length, 1);
+        assert.equal(dom.posted[0].result.perPixelEvalPath, 'mixed');
+    } finally {
+        dom.restore();
+    }
+});
+
+test('a benchmark from a build that reports no per-pixel path records null', () => {
+    const dom = installFakeDom({ search: '?benchmark=1&frames=1' });
+    const module = fakeModule();
+    try {
+        setupPerfTools(module);
+        globalThis.window.pmOnPerfFrame(frame());
+
+        assert.equal(dom.posted.length, 1);
+        assert.equal(dom.posted[0].result.perPixelEvalPath, null);
+    } finally {
+        dom.restore();
+    }
+});
+
 test('?benchmark=1 collects `frames` samples then reports mean/median/p95', () => {
     const dom = installFakeDom({ search: '?benchmark=1&frames=2&preset=/presets/x.milk' });
     const module = fakeModule();

@@ -114,6 +114,13 @@ declare global {
             compositeMs: number;
             gpuMs: number;
             fps: number;
+            /**
+             * How the per-pixel equations were evaluated for this frame. `'gpu'` means
+             * they were compiled into the warp vertex shader and `perPixelEvalMs`
+             * covers only the draw submission; `'cpu'` means the evaluator ran once
+             * per warp mesh vertex. See docs/GPU_PERPIXEL_EVAL.md.
+             */
+            perPixelEvalPath?: 'gpu' | 'cpu';
         }) => void;
     }
 

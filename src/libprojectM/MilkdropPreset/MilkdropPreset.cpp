@@ -139,6 +139,11 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // Draw previous frame image warped via per-pixel mesh and warp shader
     {
         PROJECTM_PERF_SCOPE(PerPixelEval);
+        // On the GPU path the bucket below covers only the draw submission, not the
+        // equations, so the reader has to know which path produced the number.
+        libprojectM::Perf::SetPerPixelPath(m_state.perPixelGpuGlsl.empty()
+                                               ? libprojectM::Perf::PerPixelPath::Cpu
+                                               : libprojectM::Perf::PerPixelPath::Gpu);
         m_perPixelMesh.Draw(m_state, m_perFrameContext, m_perPixelContext, m_perPixelContextPool);
     }
 

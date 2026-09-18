@@ -95,7 +95,8 @@ EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
 // clang-format off
 EM_JS(void, js_perf_report_frame, (
     double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
-    double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps
+    double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps,
+    int perPixelEvalPath
 ), {
     if (typeof globalThis.pmOnPerfFrame === 'function') {
         globalThis.pmOnPerfFrame({
@@ -108,6 +109,11 @@ EM_JS(void, js_perf_report_frame, (
             compositeMs: compositeMs,
             gpuMs: gpuMs,
             fps: fps,
+            // 'gpu' when the preset's per_pixel_* code was compiled into the warp
+            // vertex shader, 'cpu' when the evaluator ran per vertex. perPixelEvalMs
+            // covers different work in the two cases, so an A/B is only meaningful
+            // between runs with the same value here.
+            perPixelEvalPath: perPixelEvalPath ? 'gpu' : 'cpu',
         });
     }
 });

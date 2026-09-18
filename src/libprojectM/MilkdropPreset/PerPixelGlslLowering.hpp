@@ -97,6 +97,27 @@ public:
      */
     static auto Lower(const projectm_eval_code* code) -> Result;
 
+    /**
+     * @brief Builds the warp mesh vertex shader for one preset.
+     *
+     * The static shader carries two marker lines. This fills them in with either the
+     * warp mesh vertex attributes (CPU path, @p generatedGlsl empty) or the generated
+     * per-pixel function, its uniforms and the call that seeds and runs it (GPU path).
+     *
+     * @param generatedGlsl The @c Result::glsl of a successful lowering, or an empty
+     *                      string to build the CPU-path shader.
+     */
+    static auto ComposeWarpVertexShader(const std::string& generatedGlsl) -> std::string;
+
+    /**
+     * @brief True when the environment forces every preset onto the CPU path.
+     *
+     * Set by @c PROJECTM_PER_PIXEL_EVAL=cpu, which the WASM host maps from
+     * @c ?perPixelEval=cpu. Mirrors the @c ?blurPath / @c ?copyPath ablation switches
+     * so one build can be A/B'd against itself.
+     */
+    static auto ForcedToCpu() -> bool;
+
     /** @brief True if this build can inspect the evaluator's expression tree at all. */
     static auto Available() -> bool;
 };

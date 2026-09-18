@@ -1,12 +1,14 @@
 #include "PerPixelGlslLowering.hpp"
 
 #include "Constants.hpp"
+#include "MilkdropStaticShaders.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <set>
 #include <string>
@@ -22,6 +24,78 @@ extern "C" {
 
 namespace libprojectM {
 namespace MilkdropPreset {
+
+namespace {
+
+/** @brief Marker lines PerPixelGlslLowering::ComposeWarpVertexShader() fills in. */
+constexpr const char* kDeclarationsMarker = "//PRJM_PER_PIXEL_DECLARATIONS";
+constexpr const char* kSetupMarker = "//PRJM_PER_PIXEL_SETUP";
+
+/** @brief The warp mesh attributes the CPU evaluation loop fills in. */
+constexpr const char* kCpuDeclarations =
+    "layout(location = 4) in vec4 transforms;\n"
+    "layout(location = 5) in vec2 warp_center;\n"
+    "layout(location = 6) in vec2 warp_distance;\n"
+    "layout(location = 7) in vec2 stretch;\n";
+
+/** @brief The four per-frame seeds the equations start from on the GPU path. */
+constexpr const char* kGpuSeedUniforms =
+    "uniform vec4 u_pp_seed_transforms;\n"
+    "uniform vec2 u_pp_seed_center;\n"
+    "uniform vec2 u_pp_seed_distance;\n"
+    "uniform vec2 u_pp_seed_stretch;\n";
+
+/**
+ * @brief Seeds the ten channels and runs the generated code, once per vertex.
+ *
+ * x, y, rad and ang are derived exactly as PerPixelMesh::CalculateMesh() derives them
+ * for the CPU evaluator, including the negated angle. Spelled with the raw attribute
+ * names rather than the shader's pos/radius/angle macros, because this block is
+ * substituted after those macros are defined.
+ */
+constexpr const char* kGpuSetup =
+    "    vec4 transforms = u_pp_seed_transforms;\n"
+    "    vec2 warp_center = u_pp_seed_center;\n"
+    "    vec2 warp_distance = u_pp_seed_distance;\n"
+    "    vec2 stretch = u_pp_seed_stretch;\n"
+    "    prjm_per_pixel(vertex_position.x * 0.5 * aspect.x + 0.5,\n"
+    "                   vertex_position.y * 0.5 * aspect.y + 0.5,\n"
+    "                   rad_ang.x, -rad_ang.y,\n"
+    "                   transforms, warp_center, warp_distance, stretch);\n";
+
+void ReplaceMarker(std::string& source, const char* marker, const std::string& replacement)
+{
+    const auto position = source.find(marker);
+    if (position == std::string::npos)
+    {
+        return;
+    }
+    source.replace(position, std::strlen(marker), replacement);
+}
+
+} // namespace
+
+auto PerPixelGlslLowering::ComposeWarpVertexShader(const std::string& generatedGlsl) -> std::string
+{
+    std::string source = MilkdropStaticShaders::Get()->GetPresetWarpVertexShader();
+
+    if (generatedGlsl.empty())
+    {
+        ReplaceMarker(source, kDeclarationsMarker, kCpuDeclarations);
+        ReplaceMarker(source, kSetupMarker, "");
+        return source;
+    }
+
+    ReplaceMarker(source, kDeclarationsMarker, generatedGlsl + kGpuSeedUniforms);
+    ReplaceMarker(source, kSetupMarker, kGpuSetup);
+    return source;
+}
+
+auto PerPixelGlslLowering::ForcedToCpu() -> bool
+{
+    const char* const setting = std::getenv("PROJECTM_PER_PIXEL_EVAL");
+    return setting != nullptr && std::string(setting) == "cpu";
+}
 
 #ifndef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
 

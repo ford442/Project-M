@@ -41,6 +41,7 @@ add_executable(projectM-unittest
         PCMAudioReactivityTest.cpp
         PCMAudioBenchTest.cpp
         PerPixelGlslLoweringTest.cpp
+        PerPixelGpuRenderTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>
@@ -108,6 +109,16 @@ if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
 else()
     add_test(NAME PerPixelGlslLowering
             COMMAND projectM-unittest --gtest_filter=*PerPixelGlslLowering*)
+endif()
+
+# End-to-end: the same preset rendered on the CPU and GPU per-pixel paths.
+if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+    add_test(NAME PerPixelGpuRender
+            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+            --gtest_filter=*PerPixelGpuRender*)
+else()
+    add_test(NAME PerPixelGpuRender
+            COMMAND projectM-unittest --gtest_filter=*PerPixelGpuRender*)
 endif()
 
 # Multi-pass transition tests (subset of projectM-unittest).

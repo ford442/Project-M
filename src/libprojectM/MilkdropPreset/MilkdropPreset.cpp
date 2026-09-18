@@ -23,6 +23,7 @@
 
 #include "Factory.hpp"
 #include "MilkdropPresetExceptions.hpp"
+#include "PerPixelGlslLowering.hpp"
 #include "PresetFileParser.hpp"
 
 #include <Logging.hpp>
@@ -359,6 +360,41 @@ void MilkdropPreset::InitializePreset(PresetFileParser& parsedFile)
     LoadShaderCode();
 }
 
+void MilkdropPreset::LowerPerPixelCodeToGlsl()
+{
+    m_state.perPixelGpuGlsl.clear();
+    m_state.perPixelGpuReason.clear();
+    m_state.perPixelGpuUniforms = 0;
+    m_state.perPixelGpuQVectors = 0;
+
+    if (m_state.perPixelCode.empty())
+    {
+        // No equations at all: CalculateMesh() already broadcasts the per-frame values
+        // without running the evaluator, so there is nothing for the GPU path to win.
+        m_state.perPixelGpuReason = "preset has no per-pixel code";
+        return;
+    }
+
+    if (PerPixelGlslLowering::ForcedToCpu())
+    {
+        m_state.perPixelGpuReason = "forced to the CPU path by PROJECTM_PER_PIXEL_EVAL=cpu";
+        return;
+    }
+
+    const auto lowering = PerPixelGlslLowering::Lower(m_perPixelContext.perPixelCodeHandle);
+    if (!lowering.lowered)
+    {
+        m_state.perPixelGpuReason = lowering.reason;
+        LOG_DEBUG("[MilkdropPreset] Per-pixel code stays on the CPU: " + lowering.reason);
+        return;
+    }
+
+    m_state.perPixelGpuGlsl = lowering.glsl;
+    m_state.perPixelGpuUniforms = lowering.uniforms;
+    m_state.perPixelGpuQVectors = lowering.qVectors;
+    LOG_DEBUG("[MilkdropPreset] Per-pixel code compiled to GLSL, running on the GPU.");
+}
+
 void MilkdropPreset::CompileCodeAndRunInitExpressions()
 {
     // Per-frame init and code
@@ -372,6 +408,8 @@ void MilkdropPreset::CompileCodeAndRunInitExpressions()
     {
         perPixelContext->CompilePerPixelCode(m_state.perPixelCode);
     }
+
+    LowerPerPixelCodeToGlsl();
 
     for (int i = 0; i < CustomWaveformCount; i++)
     {

@@ -4,6 +4,7 @@
 #include <Renderer/Shader.hpp>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace libprojectM {
@@ -131,6 +132,29 @@ private:
      */
     auto GetDefaultWarpShader(const PresetState& presetState) -> std::shared_ptr<Renderer::Shader>;
 
+    /**
+     * @brief True when this preset's per-pixel equations were compiled into the shader.
+     * @param presetState The preset state holding the lowering result.
+     */
+    static auto UsesGpuPerPixel(const PresetState& presetState) -> bool;
+
+    /**
+     * @brief Shader cache key for the warp program this preset needs.
+     *
+     * On the GPU path the vertex shader carries the preset's own generated code, so it
+     * cannot share the cache entry of the default warp shader.
+     */
+    static auto WarpShaderCacheKey(const PresetState& presetState) -> std::string;
+
+    /**
+     * @brief Uploads the per-frame values the generated per-pixel code reads.
+     *
+     * A no-op on the CPU path, where the same values arrive as vertex attributes.
+     */
+    static void SetPerPixelUniforms(const Renderer::Shader& shader,
+                                    const PresetState& presetState,
+                                    const PerFrameContext& perFrameContext);
+
     int m_gridSizeX{}; //!< Warp mesh X resolution.
     int m_gridSizeY{}; //!< Warp mesh Y resolution.
 
@@ -145,6 +169,7 @@ private:
     Renderer::VertexBuffer<Renderer::Point> m_stretchBuffer{Renderer::VertexBufferUsage::StreamDraw};  //!< Vertex attribute buffer for stretch values.
 
     std::weak_ptr<Renderer::Shader> m_perPixelMeshShader;             //!< Special shader which calculates the per-pixel UV coordinates.
+    std::string m_perPixelMeshShaderKey;                              //!< Cache key the above was built for, so a preset switch cannot reuse the wrong program.
     std::unique_ptr<MilkdropShader> m_warpShader;                     //!< The warp shader. Either preset-defined or a default shader.
     Renderer::Sampler m_perPixelSampler{GL_CLAMP_TO_EDGE, GL_LINEAR}; //!< The main texture sampler.
 };

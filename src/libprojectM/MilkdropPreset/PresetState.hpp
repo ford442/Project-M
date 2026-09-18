@@ -17,6 +17,7 @@
 
 #include <projectm-eval.h>
 
+#include <cstdint>
 #include <string>
 
 namespace libprojectM {
@@ -152,6 +153,14 @@ public:
 
     std::string warpShader;      //!< Warp shader code.
     std::string compositeShader; //!< Composite shader code.
+
+    //! Per-pixel equations compiled to GLSL, injected into the warp vertex shader.
+    //! Empty when the preset stays on the CPU evaluation path. See PerPixelGlslLowering.
+    std::string perPixelGpuGlsl;
+    //! Why the GPU per-pixel path was not used. Reported by the HUD and the logs.
+    std::string perPixelGpuReason;
+    std::uint32_t perPixelGpuUniforms{}; //!< PerPixelGlslLowering::UniformFlags actually read.
+    std::uint32_t perPixelGpuQVectors{}; //!< Bit N set if the emitted code reads q[4N..4N+3].
 
     std::weak_ptr<Renderer::Shader> untexturedShader; //!< Shader used to draw untextured primitives, e.g. waveforms.
     std::weak_ptr<Renderer::Shader> texturedShader;   //!< Shader used to draw textured primitives, e.g. textured shapes and the warp mesh.

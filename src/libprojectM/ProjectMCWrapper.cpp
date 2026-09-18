@@ -268,6 +268,7 @@ void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
     out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
     out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
     out_timings->fps = timings.fps;
+    out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
 }
 
 void projectm_perf_get_openmp_info(projectm_perf_openmp_info* out_info)

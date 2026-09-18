@@ -40,6 +40,8 @@ add_executable(projectM-unittest
         PresetTransitionStressTest.cpp
         PCMAudioReactivityTest.cpp
         PCMAudioBenchTest.cpp
+        PerPixelGlslLoweringTest.cpp
+        PerPixelGpuRenderTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>
@@ -57,6 +59,7 @@ target_compile_definitions(projectM-unittest
         PROJECTM_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data"
         PROJECTM_PRESET_TESTS_DIR="${PROJECTM_SOURCE_DIR}/presets/tests"
         PROJECTM_CUSTOM_MILK_FIXED_DIR="${PROJECTM_SOURCE_DIR}/custom_milk_fixed"
+        PROJECTM_WEEKS_PRESETS_DIR="${PROJECTM_SOURCE_DIR}/weeks_presets"
         )
 
 # Test includes a header file from libprojectM with its full path in the source dir.
@@ -96,6 +99,27 @@ endif()
 
 # Allows running just the preset compatibility harness via "ctest -R PresetCompat".
 add_test(NAME PresetCompat COMMAND projectM-unittest --gtest_filter=*PresetCompat*)
+
+# GPU per-pixel compiler: CPU evaluator vs. the generated shader (see
+# docs/GPU_PERPIXEL_EVAL.md). Needs a GL context, so it follows the xvfb pattern.
+if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+    add_test(NAME PerPixelGlslLowering
+            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+            --gtest_filter=*PerPixelGlslLowering*)
+else()
+    add_test(NAME PerPixelGlslLowering
+            COMMAND projectM-unittest --gtest_filter=*PerPixelGlslLowering*)
+endif()
+
+# End-to-end: the same preset rendered on the CPU and GPU per-pixel paths.
+if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+    add_test(NAME PerPixelGpuRender
+            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+            --gtest_filter=*PerPixelGpuRender*)
+else()
+    add_test(NAME PerPixelGpuRender
+            COMMAND projectM-unittest --gtest_filter=*PerPixelGpuRender*)
+endif()
 
 # Multi-pass transition tests (subset of projectM-unittest).
 if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})

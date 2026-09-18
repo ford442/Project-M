@@ -59,6 +59,15 @@ typedef struct {
     double total_ms;
     /** 1000 / total_ms, or 0 if total_ms is 0. */
     double fps;
+    /**
+     * How the per-pixel equations were evaluated: 0 = CPU (the projectM-EvalLib loop
+     * over every warp mesh vertex), 1 = GPU (compiled into the warp vertex shader).
+     *
+     * per_pixel_eval_ms means different things in the two cases -- on the GPU path it
+     * is only the draw submission -- so a measurement is only comparable against
+     * another with the same value here.
+     */
+    int per_pixel_eval_path;
 } projectm_perf_frame_timings;
 
 /**

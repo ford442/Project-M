@@ -101,6 +101,14 @@ private:
     void CompileCodeAndRunInitExpressions();
 
     /**
+     * @brief Compiles the per-pixel equations into the warp vertex shader, if possible.
+     *
+     * Fills in the perPixelGpu* fields of the preset state. On refusal the state keeps
+     * an empty GLSL string and a reason, and the CPU evaluation path is used unchanged.
+     */
+    void LowerPerPixelCodeToGlsl();
+
+    /**
      * @brief Compiles the warp and composite shaders.
      */
     void LoadShaderCode();

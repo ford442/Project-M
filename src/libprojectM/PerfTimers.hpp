@@ -49,12 +49,25 @@ enum class Field
 };
 
 /**
+ * @brief Which path evaluated the per-pixel equations for a frame.
+ *
+ * Not a timing bucket: it says how the PerPixelEval milliseconds were spent, which is
+ * what makes two measurements comparable. See docs/GPU_PERPIXEL_EVAL.md.
+ */
+enum class PerPixelPath
+{
+    Cpu = 0, //!< The projectM-EvalLib loop ran once per warp mesh vertex.
+    Gpu = 1, //!< The equations were compiled into the warp vertex shader.
+};
+
+/**
  * @brief One frame's worth of CPU timings plus the derived FPS.
  */
 struct FrameTimings
 {
     std::array<double, static_cast<std::size_t>(Field::Count)> values{};
     double fps{0.0};
+    PerPixelPath perPixelPath{PerPixelPath::Cpu};
 
     double operator[](Field field) const
     {
@@ -103,6 +116,16 @@ inline void BeginFrame()
     }
     detail::g_current = FrameTimings{};
     detail::g_frameStart = std::chrono::steady_clock::now();
+}
+
+/// Records which path evaluated the per-pixel equations for the current frame.
+inline void SetPerPixelPath(PerPixelPath path)
+{
+    if (!detail::g_enabled)
+    {
+        return;
+    }
+    detail::g_current.perPixelPath = path;
 }
 
 /// Adds `ms` milliseconds to the given bucket for the current frame.

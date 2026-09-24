@@ -112,6 +112,35 @@ void PerPixelMesh::CompileWarpShader(PresetState& presetState)
     }
 }
 
+auto PerPixelMesh::IsWarpShaderCompilePending() const -> bool
+{
+    return m_warpShader && m_warpShader->IsCompilePending();
+}
+
+auto PerPixelMesh::IsWarpShaderCompileComplete() const -> bool
+{
+    return !m_warpShader || m_warpShader->IsCompileComplete();
+}
+
+void PerPixelMesh::FinishWarpShader(PresetState& presetState)
+{
+    if (!IsWarpShaderCompilePending())
+    {
+        return;
+    }
+
+    try
+    {
+        m_warpShader->FinishCompile(presetState);
+        LOG_DEBUG("[PerPixelMesh] Successfully compiled warp shader code.");
+    }
+    catch (Renderer::ShaderException&)
+    {
+        LOG_ERROR("[PerPixelMesh] Error compiling warp shader code.");
+        m_warpShader.reset();
+    }
+}
+
 void PerPixelMesh::Draw(const PresetState& presetState,
                         const PerFrameContext& perFrameContext,
                         PerPixelContext& perPixelContext,

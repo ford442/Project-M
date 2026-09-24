@@ -123,6 +123,7 @@ static void DestroyEngineAndPlaylist()
         H.presetPrepare->DiscardAll();
     }
     H.switchRequestDeferred = false;
+    H.pendingSwitch.reset();
     if (playlist)
     {
         projectm_playlist_destroy(playlist);

@@ -19,8 +19,8 @@
 // The queue holds one pending request and one completed result; a newer request
 // replaces a pending one, and a result is only activated if nothing newer has
 // been posted since (latest wins). Nothing on the prepare thread touches GL, the
-// engine, the playlist, or JS: the job reads the preset through the Emscripten
-// FS (proxied to the main runtime thread under -pthread) and nothing else.
+// engine, the playlist, JS or the file system: the preset file is read on the
+// main runtime thread when the request is made.
 //
 // See docs/EMSCRIPTEN.md ("Preset loading").
 #pragma once
@@ -41,6 +41,14 @@ struct PresetPrepareRequest {
     std::string path;                                 //!< Preset path, for failure reports.
     bool hardCut = false;                             //!< Hard cut instead of a soft transition.
     std::optional<uint32_t> playlistIndex;            //!< Playlist index the load was for, if any.
+};
+
+// A switch the engine has accepted but not made yet: with KHR_parallel_shader_compile,
+// projectm_load_prepared_preset() leaves the new preset's programs linking and the
+// engine keeps rendering the current one until they are done.
+struct PendingPresetSwitch {
+    bool hardCut = false;
+    std::optional<uint32_t> playlistIndex;
 };
 
 // One host's prepare thread and its single-slot inbox/outbox.
@@ -83,6 +91,7 @@ private:
 void RequestPresetPrepare(WasmHost& host, const char* path, bool hardCut, std::optional<uint32_t> playlistIndex);
 
 // Main runtime thread: if the host's latest preparation has finished, loads it
-// into the engine (under the host's own GL context) and completes the switch.
-// Cheap when nothing is ready; render_frame() calls it every frame.
+// into the engine (under the host's own GL context), and completes the switch
+// once the engine has made it (after its shader links, where those run in the
+// background). Cheap when nothing is ready; render_frame() calls it every frame.
 void ActivatePreparedPreset(WasmHost& host);

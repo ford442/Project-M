@@ -98,18 +98,54 @@ void FinalComposite::CompileCompositeShader(PresetState& presetState)
         try
         {
             m_compositeShader->LoadTexturesAndCompile(presetState);
-            LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
+            if (!m_compositeShader->IsCompilePending())
+            {
+                LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
+            }
         }
-        catch (Renderer::ShaderException& ex)
+        catch (Renderer::ShaderException&)
         {
-            LOG_WARN("[FinalComposite] Error compiling composite warp shader code - Using fallback shader.");
-
-            // Fall back to default shader
-            m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
-            m_compositeShader->LoadCode(defaultCompositeShader);
-            m_compositeShader->LoadTexturesAndCompile(presetState);
+            FallBackToDefaultCompositeShader(presetState);
         }
     }
+}
+
+auto FinalComposite::IsCompositeShaderCompilePending() const -> bool
+{
+    return m_compositeShader && m_compositeShader->IsCompilePending();
+}
+
+auto FinalComposite::IsCompositeShaderCompileComplete() const -> bool
+{
+    return !m_compositeShader || m_compositeShader->IsCompileComplete();
+}
+
+void FinalComposite::FinishCompositeShader(PresetState& presetState)
+{
+    if (!IsCompositeShaderCompilePending())
+    {
+        return;
+    }
+
+    try
+    {
+        m_compositeShader->FinishCompile(presetState);
+        LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
+    }
+    catch (Renderer::ShaderException&)
+    {
+        FallBackToDefaultCompositeShader(presetState);
+    }
+}
+
+void FinalComposite::FallBackToDefaultCompositeShader(PresetState& presetState)
+{
+    LOG_WARN("[FinalComposite] Error compiling composite warp shader code - Using fallback shader.");
+
+    // Fall back to default shader
+    m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
+    m_compositeShader->LoadCode(defaultCompositeShader);
+    m_compositeShader->LoadTexturesAndCompile(presetState);
 }
 
 void FinalComposite::Draw(const PresetState& presetState, const PerFrameContext& perFrameContext)

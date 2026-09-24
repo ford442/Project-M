@@ -12,6 +12,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -42,6 +43,14 @@ struct PresetPrepareContext {
      * the render thread will compile the cached GLSL and preparation skips the transpile.
      */
     std::array<bool, 2> cachedGlsl{};
+
+    /**
+     * The preset file's bytes, read by the caller. A file preparation parses these instead of
+     * opening the file; everything else (filename, errors) is as for the file. For hosts where file
+     * access off the render thread is expensive: under Emscripten pthreads every FS call from the
+     * preparing thread waits for the main thread to finish its current frame.
+     */
+    std::optional<std::string> fileContents;
 };
 
 /**

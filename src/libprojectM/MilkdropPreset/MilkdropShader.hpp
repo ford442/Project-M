@@ -139,6 +139,27 @@ public:
     void LoadTexturesAndCompile(PresetState& presetState);
 
     /**
+     * @brief Whether LoadTexturesAndCompile() left the program linking in the background
+     *        (RenderContext::deferShaderLink).
+     */
+    auto IsCompilePending() const -> bool;
+
+    /**
+     * @brief Whether a background link has finished. Does not block.
+     */
+    auto IsCompileComplete() const -> bool;
+
+    /**
+     * @brief Finishes a background link, as LoadTexturesAndCompile() would have without deferral.
+     *
+     * If the program was cached GLSL that turns out not to compile, the shader is transpiled
+     * again and compiled synchronously, as on the non-deferred path.
+     * @throws Renderer::ShaderException if the shader does not compile or link.
+     * @param presetState The preset state.
+     */
+    void FinishCompile(PresetState& presetState);
+
+    /**
      * @brief Loads all required shader variables into the uniforms.
      * Binds the underlying shader program.
      * @param presetState The preset state to pull the values from.
@@ -181,8 +202,10 @@ private:
      * @brief Translates the HLSL shader into GLSL.
      * @param presetState The preset state to pull the blur textures from.
      * @param program The shader to transpile.
+     * @param deferLink Start the program link without waiting for it (see FinishCompile()).
+     * @param useTranspileCache Try the transpiled-GLSL cache first.
      */
-    void TranspileHLSLShader(const PresetState& presetState, std::string& program);
+    void TranspileHLSLShader(const PresetState& presetState, std::string& program, bool deferLink, bool useTranspileCache);
 
     /**
      * @brief Updates the requested blur level if higher than before.
@@ -196,6 +219,7 @@ private:
     MilkdropShaderSource m_source;             //!< The analysed shader code.
 
     std::unique_ptr<PreparedMilkdropShader> m_prepared; //!< Speculative transpile from background preparation, until compiled.
+    bool m_deferredLinkUsesCachedGlsl{false};           //!< The pending link is of cached GLSL, which may be stale.
 
     std::vector<Renderer::TextureSamplerDescriptor> m_mainTextureDescriptors;    //!< Descriptors for all main texture references.
     std::vector<Renderer::TextureSamplerDescriptor> m_textureSamplerDescriptors; //!< Descriptors of all referenced samplers in the shader code.

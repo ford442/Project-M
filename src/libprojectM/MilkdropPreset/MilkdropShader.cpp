@@ -343,9 +343,49 @@ void MilkdropShader::LoadTexturesAndCompile(PresetState& presetState)
     }
 
     // Now that we have the textures, transpile the code.
-    TranspileHLSLShader(presetState, m_source.preprocessedCode);
+    TranspileHLSLShader(presetState, m_source.preprocessedCode, presetState.renderContext.deferShaderLink, true);
 
     // Update blur texture level if shader was compiled successfully.
+    if (!m_shader.IsCompilePending())
+    {
+        presetState.blurTexture.SetRequiredBlurLevel(m_source.maxBlurLevelRequired);
+    }
+}
+
+auto MilkdropShader::IsCompilePending() const -> bool
+{
+    return m_shader.IsCompilePending();
+}
+
+auto MilkdropShader::IsCompileComplete() const -> bool
+{
+    return m_shader.IsCompileComplete();
+}
+
+void MilkdropShader::FinishCompile(PresetState& presetState)
+{
+    if (!m_shader.IsCompilePending())
+    {
+        return;
+    }
+
+    try
+    {
+        m_shader.FinishCompileProgram();
+    }
+    catch (const Renderer::ShaderException&)
+    {
+        if (!m_deferredLinkUsesCachedGlsl)
+        {
+            throw;
+        }
+        // What the non-deferred path does when cached GLSL fails to compile.
+        LOG_WARN("[MilkdropShader] Cached transpiled GLSL failed to compile; re-transpiling "
+                 + std::string(m_type == ShaderType::WarpShader ? "warp" : "composite") + " shader");
+        TranspileHLSLShader(presetState, m_source.preprocessedCode, false, false);
+    }
+
+    // Update blur texture level now the shader is known to have compiled.
     presetState.blurTexture.SetRequiredBlurLevel(m_source.maxBlurLevelRequired);
 }
 
@@ -637,7 +677,7 @@ void MilkdropShader::GetReferencedSamplers(const std::string& program, MilkdropS
     }
 }
 
-void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::string& program)
+void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::string& program, bool deferLink, bool useTranspileCache)
 {
     // Consumed here whichever path compiles the shader, so the prepared GLSL is not kept alive.
     const std::unique_ptr<PreparedMilkdropShader> prepared = std::move(m_prepared);
@@ -671,17 +711,22 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
     const int shaderTypeInt = static_cast<int>(m_type);
 
     auto compileGlsl = [&](const std::string& glslCode) {
-        if (m_type == ShaderType::WarpShader)
+        const std::string vertexShader = m_type == ShaderType::WarpShader
+                                             ? MilkdropStaticShaders::Get()->GetPresetWarpVertexShader()
+                                             : MilkdropStaticShaders::Get()->GetPresetCompVertexShader();
+        if (deferLink)
         {
-            m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetWarpVertexShader(), glslCode);
+            // Errors surface in FinishCompile().
+            m_shader.BeginCompileProgram(vertexShader, glslCode);
         }
         else
         {
-            m_shader.CompileProgram(MilkdropStaticShaders::Get()->GetPresetCompVertexShader(), glslCode);
+            m_shader.CompileProgram(vertexShader, glslCode);
         }
     };
 
-    if (!cacheKey.empty())
+    m_deferredLinkUsesCachedGlsl = false;
+    if (useTranspileCache && !cacheKey.empty())
     {
         if (auto cachedGlsl = Renderer::LookupTranspiledGlsl(cacheKey, shaderTypeInt))
         {
@@ -689,6 +734,7 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
             {
                 LOG_TRACE("[MilkdropShader] Using cached transpiled GLSL " + shaderTypeString + " shader");
                 compileGlsl(*cachedGlsl);
+                m_deferredLinkUsesCachedGlsl = deferLink;
                 return;
             }
             catch (const Renderer::ShaderException&)

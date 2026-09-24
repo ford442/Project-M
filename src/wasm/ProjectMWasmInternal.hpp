@@ -176,7 +176,7 @@ double js_perf_gpu_get_last_ms();
 void js_perf_hud_set_enabled(int enabled);
 void js_perf_report_frame(double totalMs, double audioMs, double perFrameEvalMs,
                           double perPixelEvalMs, double blurMs, double waveformsShapesMs,
-                          double compositeMs, double gpuMs, double fps);
+                          double compositeMs, double gpuMs, double fps, int shaderLinkPending);
 
 // JS bindings / DOM + host-page notifications (WasmJsBindings.cpp)
 void js_update_preset_name(const char* name);

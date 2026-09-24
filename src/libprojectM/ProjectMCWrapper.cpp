@@ -142,6 +142,13 @@ projectm_preset_prepare_job_handle projectm_preset_prepare_begin_file(projectm_h
     return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(filename)};
 }
 
+projectm_preset_prepare_job_handle projectm_preset_prepare_begin_file_contents(projectm_handle instance, const char* filename,
+                                                                               const char* data, size_t length)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(filename, std::string(data, length))};
+}
+
 projectm_preset_prepare_job_handle projectm_preset_prepare_begin_data(projectm_handle instance, const char* data)
 {
     auto projectMInstance = handle_to_instance(instance);
@@ -171,6 +178,24 @@ void projectm_load_prepared_preset(projectm_handle instance, projectm_preset_pre
     std::unique_ptr<projectm_preset_prepare_job> owned(job);
     auto projectMInstance = handle_to_instance(instance);
     projectMInstance->LoadPreparedPreset(std::move(owned->job), smooth_transition);
+}
+
+bool projectm_poll_pending_preset(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->PollPendingPreset();
+}
+
+void projectm_set_parallel_shader_compile(projectm_handle instance, bool enabled)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetParallelShaderCompile(enabled);
+}
+
+bool projectm_get_parallel_shader_compile(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->ParallelShaderCompile();
 }
 
 void projectm_preset_prepare_free(projectm_preset_prepare_job_handle job)
@@ -315,6 +340,7 @@ void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
     out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
     out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
     out_timings->fps = timings.fps;
+    out_timings->shader_link_pending = timings.shaderLinkPending ? 1 : 0;
 }
 
 void projectm_perf_get_openmp_info(projectm_perf_openmp_info* out_info)

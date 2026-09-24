@@ -70,6 +70,33 @@ public:
      */
     virtual void BindOutputForRead() {}
 
+    /**
+     * @brief Whether Initialize() left shader programs linking in the background.
+     *
+     * Only when it was called with RenderContext::deferShaderLink. The preset must not be
+     * rendered until FinishShaderCompile() has run.
+     */
+    virtual auto ShaderCompilePending() const -> bool
+    {
+        return false;
+    }
+
+    /**
+     * @brief Whether the background shader links have finished. Does not block.
+     */
+    virtual auto ShaderCompileComplete() const -> bool
+    {
+        return true;
+    }
+
+    /**
+     * @brief Checks the deferred shader programs and applies the same fallbacks Initialize()
+     *        applies to shaders that fail to compile. Blocks if they are not complete yet.
+     */
+    virtual void FinishShaderCompile()
+    {
+    }
+
     inline void SetFilename(const std::string& filename)
     {
         m_filename = filename;

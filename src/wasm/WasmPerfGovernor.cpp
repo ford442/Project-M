@@ -95,7 +95,8 @@ EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
 // clang-format off
 EM_JS(void, js_perf_report_frame, (
     double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
-    double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps
+    double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps,
+    int shaderLinkPending
 ), {
     if (typeof globalThis.pmOnPerfFrame === 'function') {
         globalThis.pmOnPerfFrame({
@@ -108,6 +109,7 @@ EM_JS(void, js_perf_report_frame, (
             compositeMs: compositeMs,
             gpuMs: gpuMs,
             fps: fps,
+            shaderLinkPending: shaderLinkPending !== 0,
         });
     }
 });

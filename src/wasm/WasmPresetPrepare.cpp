@@ -12,6 +12,7 @@
 #include <emscripten/threading.h>
 
 #include <condition_variable>
+#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -84,7 +85,7 @@ void PrepareThreadMain(const std::shared_ptr<PresetPrepareQueue::Shared>& shared
         shared->pending.reset();
         lock.unlock();
 
-        // The expensive part: file read, parse, HLSL-to-GLSL transpile.
+        // The expensive part: parse and HLSL-to-GLSL transpile.
         projectm_preset_prepare_run(request.job);
 
         lock.lock();
@@ -176,6 +177,25 @@ void PresetPrepareQueue::DiscardAll()
 // Host side
 // =============================================================================
 
+// Reads a (MEMFS) file into `contents`. False if it cannot be opened or read.
+static bool ReadWholeFile(const char* path, std::string& contents)
+{
+    FILE* file = fopen(path, "rb");
+    if (file == nullptr)
+    {
+        return false;
+    }
+    char buffer[16384];
+    size_t read = 0;
+    while ((read = fread(buffer, 1, sizeof(buffer), file)) > 0)
+    {
+        contents.append(buffer, read);
+    }
+    const bool ok = ferror(file) == 0;
+    fclose(file);
+    return ok;
+}
+
 void RequestPresetPrepare(WasmHost& host, const char* path, bool hardCut, std::optional<uint32_t> playlistIndex)
 {
     auto& pm = host.appData.projectm_engine;
@@ -193,11 +213,27 @@ void RequestPresetPrepare(WasmHost& host, const char* path, bool hardCut, std::o
     // "A preparation is in flight": gates is_preset_ready() and timer-driven
     // switches, but no longer pauses rendering.
     host.appData.loading = EM_TRUE;
+    // Readiness is reported for the latest request only. An older switch still
+    // waiting on its shader links may complete in the engine before this one is
+    // activated, but must not mark the host ready while this one is in flight.
+    host.pendingSwitch.reset();
 
     PresetPrepareRequest request;
     // Captures the render-thread state the preparation needs (texture snapshot,
-    // which shaders the transpiled-GLSL cache holds for the armed key).
-    request.job = projectm_preset_prepare_begin_file(pm, path);
+    // which shaders the transpiled-GLSL cache holds for the armed key). The file
+    // is read here, from MEMFS, which takes microseconds: on the prepare thread
+    // every FS call is proxied to this thread and waits for its current frame
+    // to end, which made a switch take several frames longer. If the read fails
+    // the prepare thread opens the file itself and reports the load error.
+    std::string contents;
+    if (ReadWholeFile(path, contents))
+    {
+        request.job = projectm_preset_prepare_begin_file_contents(pm, path, contents.data(), contents.size());
+    }
+    else
+    {
+        request.job = projectm_preset_prepare_begin_file(pm, path);
+    }
     request.path = path;
     request.hardCut = hardCut;
     request.playlistIndex = playlistIndex;
@@ -213,6 +249,73 @@ static void MarkPresetReady(WasmHost& host)
     host.presetReadyFrame = host.renderedFrameCount;
 }
 
+// Finishes the host side of a switch the engine has made (or failed to make).
+static void CompletePresetSwitch(WasmHost& host, const PendingPresetSwitch& presetSwitch)
+{
+    const bool deferredSwitch = host.switchRequestDeferred;
+    const bool deferredHardCut = host.deferredSwitchHardCut;
+    host.switchRequestDeferred = false;
+
+    if (!host.presetSwitchFailed)
+    {
+        if (presetSwitch.playlistIndex && host.appData.playlist != nullptr)
+        {
+            load_preset_callback_done(presetSwitch.hardCut, *presetSwitch.playlistIndex, &host.appData);
+        }
+        else
+        {
+            MarkPresetReady(host);
+        }
+        // The switch (GL compile, or the link result) lands in this frame's cost;
+        // keep the quality governor from reacting to it.
+        host.postLoadGraceFrames = kPostLoadGraceFrames;
+        ResetGovernorCounters();
+    }
+    else if (deferredSwitch && host.appData.playlist != nullptr)
+    {
+        // The engine asked for a switch while this load was in flight and was
+        // told to wait. The load failed, so nothing reset its switch timer:
+        // honour the request now or automatic switching stops for good.
+        projectm_playlist_play_next(host.appData.playlist, deferredHardCut);
+    }
+}
+
+static void PollPendingSwitchFromEventLoop(void* hostHandle)
+{
+    if (WasmHost* host = HostFromHandle(reinterpret_cast<uintptr_t>(hostHandle)))
+    {
+        host->linkPollScheduled = false;
+        ActivatePreparedPreset(*host);
+    }
+}
+
+// Completes host.pendingSwitch once the engine has made the switch. The host
+// must be active. While the engine is still waiting on the driver, a short timer
+// keeps polling, so a page that waits for is_preset_ready() without rendering
+// frames (the golden capture) still sees the switch complete.
+static void PollPendingSwitch(WasmHost& host)
+{
+    if (!host.pendingSwitch)
+    {
+        return;
+    }
+
+    auto& pm = host.appData.projectm_engine;
+    if (pm != nullptr && !host.presetSwitchFailed && projectm_poll_pending_preset(pm))
+    {
+        if (!host.linkPollScheduled)
+        {
+            host.linkPollScheduled = true;
+            emscripten_set_timeout(&PollPendingSwitchFromEventLoop, 1.0, reinterpret_cast<void*>(HostHandle(host)));
+        }
+        return;
+    }
+
+    const PendingPresetSwitch presetSwitch = *host.pendingSwitch;
+    host.pendingSwitch.reset();
+    CompletePresetSwitch(host, presetSwitch);
+}
+
 void ActivatePreparedPreset(WasmHost& host)
 {
     if (host.presetPrepare == nullptr)
@@ -220,7 +323,7 @@ void ActivatePreparedPreset(WasmHost& host)
         return;
     }
     std::optional<PresetPrepareRequest> prepared = host.presetPrepare->TakeCompleted();
-    if (!prepared)
+    if (!prepared && !host.pendingSwitch)
     {
         return;
     }
@@ -234,46 +337,23 @@ void ActivatePreparedPreset(WasmHost& host)
     }
 
     auto& pm = host.appData.projectm_engine;
-    if (pm == nullptr)
+    if (prepared && pm == nullptr)
     {
         projectm_preset_prepare_free(prepared->job);
         host.appData.loading = EM_FALSE;
     }
-    else
+    else if (prepared)
     {
         host.presetSwitchFailed = false;
-        // Instantiates and initializes the preset (GL objects, shader compile
-        // and link) and starts the transition; on failure the engine raises
+        // Instantiates and initializes the preset (GL objects, shader compile)
+        // and starts the switch; on failure the engine raises
         // on_preset_switch_failed(), which clears `loading` and tells the page.
+        // A switch still pending from an older load is superseded, in the engine
+        // and here.
         projectm_load_prepared_preset(pm, prepared->job, !prepared->hardCut);
-
-        const bool deferredSwitch = host.switchRequestDeferred;
-        const bool deferredHardCut = host.deferredSwitchHardCut;
-        host.switchRequestDeferred = false;
-
-        if (!host.presetSwitchFailed)
-        {
-            if (prepared->playlistIndex && host.appData.playlist != nullptr)
-            {
-                load_preset_callback_done(prepared->hardCut, *prepared->playlistIndex, &host.appData);
-            }
-            else
-            {
-                MarkPresetReady(host);
-            }
-            // The load itself (GL compile and link) lands in this frame's cost;
-            // keep the quality governor from reacting to it.
-            host.postLoadGraceFrames = kPostLoadGraceFrames;
-            ResetGovernorCounters();
-        }
-        else if (deferredSwitch && host.appData.playlist != nullptr)
-        {
-            // The engine asked for a switch while this load was in flight and was
-            // told to wait. The load failed, so nothing reset its switch timer:
-            // honour the request now or automatic switching stops for good.
-            projectm_playlist_play_next(host.appData.playlist, deferredHardCut);
-        }
+        host.pendingSwitch = PendingPresetSwitch{prepared->hardCut, prepared->playlistIndex};
     }
+    PollPendingSwitch(host);
 
     if (previous != nullptr && previous != &host)
     {

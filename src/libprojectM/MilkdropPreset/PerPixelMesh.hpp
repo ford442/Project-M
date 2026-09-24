@@ -64,6 +64,22 @@ public:
     void CompileWarpShader(PresetState& presetState);
 
     /**
+     * @brief Whether the warp shader program is still linking (RenderContext::deferShaderLink).
+     */
+    auto IsWarpShaderCompilePending() const -> bool;
+
+    /**
+     * @brief Whether a deferred warp shader link has finished. Does not block.
+     */
+    auto IsWarpShaderCompileComplete() const -> bool;
+
+    /**
+     * @brief Finishes a deferred warp shader link; drops the warp shader if it failed, as CompileWarpShader() does.
+     * @param presetState The preset state.
+     */
+    void FinishWarpShader(PresetState& presetState);
+
+    /**
      * @brief Renders the transformation mesh.
      * @param presetState The preset state to retrieve the configuration values from.
      * @param presetPerFrameContext The per-frame context to retrieve the initial vars from.

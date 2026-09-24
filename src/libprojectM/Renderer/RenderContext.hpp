@@ -41,6 +41,13 @@ public:
     //! overall internal render scale. (0, 1.0]; 1.0 = no extra downscale.
     float blurResolutionScale{1.0f};
 
+    /**
+     * If true, preset shader programs are linked without waiting for the result
+     * (KHR_parallel_shader_compile); Preset::ShaderCompilePending() then reports it
+     * and Preset::FinishShaderCompile() completes it. Only set for Preset::Initialize().
+     */
+    bool deferShaderLink{false};
+
     float texelOffsetX{0.0f}; //!< Horizontal texel offset in the warp shader.
     float texelOffsetY{0.0f}; //!< Vertical texel offset in the warp shader.
 

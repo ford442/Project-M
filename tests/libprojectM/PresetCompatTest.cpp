@@ -6,9 +6,11 @@
 #include <MilkdropPreset/PresetFileParser.hpp>
 #include <MilkdropPreset/ShaderTranspiler.hpp>
 #include <MilkdropStaticShaders.hpp>
+#include <Renderer/Shader.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
 
 #include <projectM-4/projectM.h>
+#include <projectM-4/projectm_perf.h>
 
 #include <algorithm>
 #include <cctype>
@@ -298,7 +300,33 @@ public:
             } while (!done);
             worker.join();
             projectm_load_prepared_preset(m_projectM, job, false);
+            // With KHR_parallel_shader_compile the switch waits for the driver's links;
+            // finish it so failures reported at that point are part of the result.
+            m_lastLoadDeferred = projectm_poll_pending_preset(m_projectM);
+            if (m_waitForDeferredLink)
+            {
+                while (projectm_poll_pending_preset(m_projectM))
+                {
+                    std::this_thread::yield();
+                }
+            }
         });
+    }
+
+    /**
+     * @brief Whether the last LoadJob() left the switch waiting for shader links.
+     */
+    auto LastLoadDeferred() const -> bool
+    {
+        return m_lastLoadDeferred;
+    }
+
+    /**
+     * @brief If false, LoadJob() returns with a deferred switch still pending.
+     */
+    void SetWaitForDeferredLink(bool wait)
+    {
+        m_waitForDeferredLink = wait;
     }
 
     /**
@@ -408,6 +436,8 @@ private:
     std::map<std::string, std::map<int, std::string>> m_stored; //!< GLSL passed to the store hook, by cache key and shader type.
     std::map<std::string, std::map<int, std::string>> m_cached; //!< GLSL the lookup hook serves, by cache key and shader type.
     std::string m_failure;                                      //!< Last preset switch failed message.
+    bool m_lastLoadDeferred{false};                             //!< See LastLoadDeferred().
+    bool m_waitForDeferredLink{true};                           //!< See SetWaitForDeferredLink().
 };
 
 } // namespace
@@ -697,4 +727,208 @@ TEST(PresetCompatPreparedJobs, JobOutlivesTheInstanceThatBeganIt)
     });
     EXPECT_TRUE(load.failure.empty()) << load.failure;
     EXPECT_EQ(load.glsl.size(), 2u);
+}
+
+// KHR_parallel_shader_compile: projectm_load_prepared_preset() starts the new preset's links
+// without waiting, the current preset keeps rendering, and the switch happens once they are
+// done. Mesa's llvmpipe supports the extension; the tests skip where the context does not.
+
+namespace {
+
+/**
+ * @brief Forces Shader::IsCompileComplete() for the lifetime of the object.
+ */
+class ForcedCompileStatus
+{
+public:
+    explicit ForcedCompileStatus(bool complete)
+    {
+        libprojectM::Renderer::Shader::OverrideCompileCompleteForTesting(complete);
+    }
+
+    ~ForcedCompileStatus()
+    {
+        libprojectM::Renderer::Shader::OverrideCompileCompleteForTesting(std::nullopt);
+    }
+
+    ForcedCompileStatus(const ForcedCompileStatus&) = delete;
+    auto operator=(const ForcedCompileStatus&) -> ForcedCompileStatus& = delete;
+};
+
+/**
+ * @brief Restores the harness's defaults when a test is done with them.
+ */
+class HarnessSettings
+{
+public:
+    explicit HarnessSettings(PreparedGlslHarness& harness)
+        : m_harness(harness)
+    {
+    }
+
+    ~HarnessSettings()
+    {
+        m_harness.SetWaitForDeferredLink(true);
+        projectm_set_parallel_shader_compile(m_harness.Instance(), true);
+        projectm_perf_set_enabled(false);
+    }
+
+    HarnessSettings(const HarnessSettings&) = delete;
+    auto operator=(const HarnessSettings&) -> HarnessSettings& = delete;
+
+private:
+    PreparedGlslHarness& m_harness;
+};
+
+} // namespace
+
+TEST(PresetCompatPreparedLink, SwitchWaitsForTheLinkWhileTheCurrentPresetRenders)
+{
+    auto* harness = PreparedGlslHarness::Get();
+    if (harness == nullptr)
+    {
+        GTEST_SKIP() << "No OpenGL context available.";
+    }
+    if (!projectm_get_parallel_shader_compile(harness->Instance()))
+    {
+        GTEST_SKIP() << "The GL context does not support KHR_parallel_shader_compile.";
+    }
+    HarnessSettings restore(*harness);
+    harness->SetWaitForDeferredLink(false);
+    projectm_perf_set_enabled(true);
+
+    const auto preset = PrepareFixture("prepare-named-textures.milk");
+    const auto inlineLoad = harness->LoadInline(preset);
+
+    {
+        ForcedCompileStatus stillLinking(false);
+        const auto load = harness->LoadPrepared(preset);
+        ASSERT_TRUE(harness->LastLoadDeferred()) << "The switch did not wait for the shader links.";
+        EXPECT_TRUE(load.failure.empty()) << load.failure;
+
+        // Frames keep rendering (the previous preset) and report the pending link.
+        for (int frame = 0; frame < 3; frame++)
+        {
+            projectm_opengl_render_frame(harness->Instance());
+            projectm_perf_frame_timings timings{};
+            projectm_perf_get_frame_timings(&timings);
+            EXPECT_EQ(timings.shader_link_pending, 1) << "frame " << frame;
+        }
+        EXPECT_TRUE(projectm_poll_pending_preset(harness->Instance()));
+    }
+
+    // Once the driver reports the links complete, the next poll makes the switch.
+    EXPECT_FALSE(projectm_poll_pending_preset(harness->Instance()));
+    projectm_opengl_render_frame(harness->Instance());
+    projectm_perf_frame_timings timings{};
+    projectm_perf_get_frame_timings(&timings);
+    EXPECT_EQ(timings.shader_link_pending, 0);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+    (void) inlineLoad;
+}
+
+TEST(PresetCompatPreparedLink, NewerLoadSupersedesAPendingSwitch)
+{
+    auto* harness = PreparedGlslHarness::Get();
+    if (harness == nullptr)
+    {
+        GTEST_SKIP() << "No OpenGL context available.";
+    }
+    if (!projectm_get_parallel_shader_compile(harness->Instance()))
+    {
+        GTEST_SKIP() << "The GL context does not support KHR_parallel_shader_compile.";
+    }
+    HarnessSettings restore(*harness);
+    harness->SetWaitForDeferredLink(false);
+
+    {
+        ForcedCompileStatus stillLinking(false);
+        harness->LoadPrepared(PrepareFixture("prepare-random-textures.milk"));
+        ASSERT_TRUE(harness->LastLoadDeferred());
+    }
+    // A synchronous load replaces the pending one outright; nothing is left waiting.
+    const auto load = harness->LoadInline(PrepareFixture("prepare-named-textures.milk"));
+    EXPECT_TRUE(load.failure.empty()) << load.failure;
+    EXPECT_FALSE(projectm_poll_pending_preset(harness->Instance()));
+}
+
+TEST(PresetCompatPreparedLink, DisabledOrUnsupportedLinksBeforeReturning)
+{
+    auto* harness = PreparedGlslHarness::Get();
+    if (harness == nullptr)
+    {
+        GTEST_SKIP() << "No OpenGL context available.";
+    }
+    HarnessSettings restore(*harness);
+    harness->SetWaitForDeferredLink(false);
+
+    // Without the extension (or with it switched off) the load links synchronously, as
+    // projectm_load_preset_file() does, even if the driver would claim to be still linking.
+    projectm_set_parallel_shader_compile(harness->Instance(), false);
+    EXPECT_FALSE(projectm_get_parallel_shader_compile(harness->Instance()));
+    ForcedCompileStatus stillLinking(false);
+
+    const auto preset = PrepareFixture("prepare-named-textures.milk");
+    const auto load = harness->LoadPrepared(preset);
+    EXPECT_FALSE(harness->LastLoadDeferred());
+    EXPECT_TRUE(load.failure.empty()) << load.failure;
+    EXPECT_EQ(load.glsl.size(), 2u);
+    EXPECT_FALSE(projectm_poll_pending_preset(harness->Instance()));
+}
+
+TEST(PresetCompatPreparedLink, StaleCachedGlslIsTranspiledAgainAfterADeferredLink)
+{
+    auto* harness = PreparedGlslHarness::Get();
+    if (harness == nullptr)
+    {
+        GTEST_SKIP() << "No OpenGL context available.";
+    }
+    if (!projectm_get_parallel_shader_compile(harness->Instance()))
+    {
+        GTEST_SKIP() << "The GL context does not support KHR_parallel_shader_compile.";
+    }
+
+    const auto preset = PrepareFixture("prepare-named-textures.milk");
+    const auto inlineLoad = harness->LoadInline(preset);
+    ASSERT_EQ(inlineLoad.glsl.count(0), 1u);
+
+    // Cached GLSL that no longer compiles is only discovered when the deferred link is
+    // checked; the shader is then transpiled again, as on the synchronous path.
+    harness->SetCachedGlsl("stale-warp", 0, "#version 330\nthis is not GLSL;\n");
+    const auto load = harness->LoadJob("stale-warp", [&]() {
+        return projectm_preset_prepare_begin_file(harness->Instance(), preset.c_str());
+    });
+    EXPECT_TRUE(load.failure.empty()) << load.failure;
+    ASSERT_EQ(load.glsl.count(0), 1u) << "The warp shader was not transpiled again.";
+    EXPECT_EQ(load.glsl.at(0), inlineLoad.glsl.at(0));
+}
+
+TEST(PresetCompatPreparedJobs, FileContentsJobMatchesFileJob)
+{
+    auto* harness = PreparedGlslHarness::Get();
+    if (harness == nullptr)
+    {
+        GTEST_SKIP() << "No OpenGL context available.";
+    }
+
+    const auto preset = PrepareFixture("prepare-random-textures.milk");
+    std::ifstream file(preset, std::ios::binary);
+    const std::string contents{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+
+    const auto fileLoad = harness->LoadPrepared(preset);
+    const auto contentsLoad = harness->LoadJob("contents", [&]() {
+        return projectm_preset_prepare_begin_file_contents(harness->Instance(), preset.c_str(),
+                                                           contents.data(), contents.size());
+    });
+    EXPECT_TRUE(contentsLoad.failure.empty()) << contentsLoad.failure;
+    EXPECT_EQ(contentsLoad.glsl.size(), 2u);
+    EXPECT_EQ(contentsLoad.glsl, fileLoad.glsl);
+
+    // Unparseable contents fail like an unreadable file, naming the file.
+    const auto missing = PrepareFixture("does-not-exist.milk");
+    const auto inlineFailure = harness->LoadInline(missing);
+    const auto contentsFailure = harness->LoadJob("contents-bad", [&]() {
+        return projectm_preset_prepare_begin_file_contents(harness->Instance(), missing.c_str(), "", 0);
+    });
+    EXPECT_EQ(contentsFailure.failure, inlineFailure.failure);
 }

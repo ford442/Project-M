@@ -87,6 +87,10 @@ struct WasmHost {
     // was told to wait; replayed if that load fails.
     bool switchRequestDeferred = false;
     bool deferredSwitchHardCut = false;
+    // A prepared preset the engine has accepted and is linking in the background.
+    std::optional<PendingPresetSwitch> pendingSwitch;
+    // A timer is armed to poll pendingSwitch without waiting for a frame.
+    bool linkPollScheduled = false;
 
     // ---- Transition controller (Phase 5) ----
     float transitionDuration = 3.0f;

@@ -9,6 +9,8 @@
 
 #include <Logging.hpp>
 
+#include <sstream>
+
 namespace libprojectM {
 namespace MilkdropPreset {
 
@@ -18,7 +20,19 @@ MilkdropPreparedPreset::MilkdropPreparedPreset(const std::string& absoluteFilePa
 {
     LOG_DEBUG("[MilkdropPreset] Loading preset from file \"" + absoluteFilePath + "\".")
 
-    if (!m_parser->Read(absoluteFilePath))
+    bool parsed{false};
+    if (context.fileContents)
+    {
+        // PresetFileParser::Read(path) is this stream over the opened file.
+        std::istringstream contents(*context.fileContents, std::ios_base::in | std::ios_base::binary);
+        parsed = m_parser->Read(contents);
+    }
+    else
+    {
+        parsed = m_parser->Read(absoluteFilePath);
+    }
+
+    if (!parsed)
     {
         const std::string error = "[MilkdropPreset] Could not parse preset file \"" + absoluteFilePath + "\".";
         LOG_ERROR(error)

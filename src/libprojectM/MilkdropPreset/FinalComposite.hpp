@@ -52,6 +52,23 @@ public:
     void CompileCompositeShader(PresetState& presetState);
 
     /**
+     * @brief Whether the composite shader program is still linking (RenderContext::deferShaderLink).
+     */
+    auto IsCompositeShaderCompilePending() const -> bool;
+
+    /**
+     * @brief Whether a deferred composite shader link has finished. Does not block.
+     */
+    auto IsCompositeShaderCompileComplete() const -> bool;
+
+    /**
+     * @brief Finishes a deferred composite shader link; falls back to the default composite
+     *        shader if it failed, as CompileCompositeShader() does.
+     * @param presetState The preset state. Its render context must not defer shader links.
+     */
+    void FinishCompositeShader(PresetState& presetState);
+
+    /**
      * @brief Renders the composite quad with the appropriate effects or shaders.
      * @param presetState The preset state to retrieve the configuration values from.
      * @param presetPerFrameContext The per-frame context to retrieve the initial vars from.
@@ -66,6 +83,12 @@ public:
     auto HasCompositeShader() const -> bool;
 
 private:
+    /**
+     * @brief Replaces the composite shader with the default one and compiles it.
+     * @param presetState The preset state.
+     */
+    void FallBackToDefaultCompositeShader(PresetState& presetState);
+
     /**
      * Composite mesh vertex with all required attributes.
      */

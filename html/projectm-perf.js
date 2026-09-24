@@ -46,6 +46,9 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
  * @property {number} compositeMs
  * @property {number} gpuMs Negative when EXT_disjoint_timer_query is unavailable.
  * @property {number} fps
+ * @property {boolean} [shaderLinkPending] A preset switch was waiting for its shaders to link
+ *   (KHR_parallel_shader_compile) while this frame drew the previous preset. Absent from
+ *   bundles that predate it.
  */
 
 /** The {@link PerfFrameStats} keys the HUD renders as bars. */
@@ -175,7 +178,7 @@ function ensureHud() {
     `).join('');
 
     hudEl.innerHTML = `
-        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms</h3>
+        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms<span data-key="linkPending"></span></h3>
         ${rows}
     `;
     document.body.appendChild(hudEl);
@@ -211,8 +214,10 @@ function updateHud(stats) {
     const el = ensureHud();
     const fpsEl = el.querySelector('[data-key="fps"]');
     const totalEl = el.querySelector('[data-key="totalMs"]');
+    const linkEl = el.querySelector('[data-key="linkPending"]');
     if (fpsEl) fpsEl.textContent = stats.fps.toFixed(0);
     if (totalEl) totalEl.textContent = stats.totalMs.toFixed(2);
+    if (linkEl) linkEl.textContent = stats.shaderLinkPending ? ' · linking shaders' : '';
 
     BARS.forEach((bar) => {
         const row = el.querySelector(`.pm-perf-hud-row[data-key="${bar.key}"]`);
@@ -307,6 +312,7 @@ export function setupPerfTools(Module) {
      *   totalMs: number[],
      *   fps: number[],
      *   breakdown: Record<PerfBarKey, number[]>,
+     *   shaderLinkPendingFrames: number,
      * } | null}
      */
     let samples = null;
@@ -332,6 +338,9 @@ export function setupPerfTools(Module) {
             const collected = samples;
             collected.totalMs.push(stats.totalMs);
             collected.fps.push(stats.fps);
+            if (stats.shaderLinkPending) {
+                collected.shaderLinkPendingFrames += 1;
+            }
             BARS.forEach((bar) => {
                 const value = stats[bar.key];
                 if (typeof value === 'number' && value >= 0) {
@@ -365,6 +374,8 @@ export function setupPerfTools(Module) {
             totalMs: summarize(samples.totalMs),
             fps: summarize(samples.fps),
             breakdownMs: breakdownMs,
+            // Frames that drew the previous preset while the next one's shaders linked.
+            shaderLinkPendingFrames: samples.shaderLinkPendingFrames,
         };
 
         console.log('[projectM benchmark] ' + JSON.stringify(result, null, 2));
@@ -386,6 +397,7 @@ export function setupPerfTools(Module) {
         samples = {
             totalMs: [],
             fps: [],
+            shaderLinkPendingFrames: 0,
             breakdown: BARS.reduce((acc, bar) => {
                 acc[bar.key] = [];
                 return acc;

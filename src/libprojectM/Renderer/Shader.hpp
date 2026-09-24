@@ -13,7 +13,13 @@
 #include <glm/mat4x4.hpp>
 
 #include <map>
+#include <memory>
+#include <optional>
 #include <string>
+
+#ifndef GL_COMPLETION_STATUS_KHR
+#define GL_COMPLETION_STATUS_KHR 0x91B1
+#endif
 
 namespace libprojectM {
 namespace Renderer {
@@ -78,6 +84,55 @@ public:
      */
     void CompileProgram(const std::string& vertexShaderSource,
                         const std::string& fragmentShaderSource);
+
+    /**
+     * @brief Starts compiling and linking a program without waiting for the result.
+     *
+     * With KHR_parallel_shader_compile the driver does the work on its own threads; poll
+     * IsCompileComplete() and then call FinishCompileProgram() before using the program.
+     * Without the extension, FinishCompileProgram() simply waits, as CompileProgram() does.
+     * CompileProgram() is BeginCompileProgram() followed by FinishCompileProgram().
+     * @param vertexShaderSource The vertex shader source.
+     * @param fragmentShaderSource The fragment shader source.
+     */
+    void BeginCompileProgram(const std::string& vertexShaderSource,
+                             const std::string& fragmentShaderSource);
+
+    /**
+     * @brief Whether a compile started with BeginCompileProgram() has not been finished yet.
+     */
+    [[nodiscard]] auto IsCompilePending() const -> bool;
+
+    /**
+     * @brief Whether the driver has finished a pending compile and link (GL_COMPLETION_STATUS_KHR).
+     *
+     * Does not block. Only call with KHR_parallel_shader_compile available (see
+     * ParallelCompileSupported()); true if nothing is pending.
+     */
+    [[nodiscard]] auto IsCompileComplete() const -> bool;
+
+    /**
+     * @brief Checks the result of a pending compile and link. Blocks until the driver is done.
+     * @throws ShaderException Thrown if compilation of a shader or program linking failed,
+     *                         with the same message CompileProgram() would have thrown.
+     */
+    void FinishCompileProgram();
+
+    /**
+     * @brief Whether the current GL context supports KHR_parallel_shader_compile.
+     *
+     * The GL context must be current.
+     */
+    [[nodiscard]] static auto ParallelCompileSupported() -> bool;
+
+    /**
+     * @brief Test seam: makes IsCompileComplete() report @a complete instead of asking the driver.
+     *
+     * A driver may finish a link before it is first polled, which leaves the "still linking"
+     * path untestable. std::nullopt restores the driver's answer. Not thread-safe; tests only.
+     * @param complete The status to report, or std::nullopt.
+     */
+    static void OverrideCompileCompleteForTesting(std::optional<bool> complete);
 
     /**
      * @brief Validates that the program can run in the current state.
@@ -186,14 +241,34 @@ public:
 
 private:
     /**
-     * @brief Compiles a single shader.
-     * @throws ShaderException Thrown if compilation of the shader failed.
+     * @brief Shader objects of a compile started with BeginCompileProgram().
+     */
+    struct PendingCompile {
+        GLuint vertexShader{};            //!< Vertex shader object.
+        GLuint fragmentShader{};          //!< Fragment shader object.
+        std::string vertexShaderSource;   //!< For error reports.
+        std::string fragmentShaderSource; //!< For error reports.
+    };
+
+    /**
+     * @brief Creates a shader object and starts compiling it, without checking the result.
      * @param source The shader source.
      * @param type The shader type, e.g. GL_VERTEX_SHADER.
      * @return The shader ID.
      */
-    auto CompileShader(const std::string& source, GLenum type) -> GLuint;
+    static auto BeginCompileShader(const std::string& source, GLenum type) -> GLuint;
 
+    /**
+     * @brief Detaches and deletes a pending compile's shader objects.
+     */
+    void DeleteShaders(const PendingCompile& pending);
+
+    /**
+     * @brief Abandons a pending compile, if any.
+     */
+    void ReleasePendingCompile();
+
+    std::unique_ptr<PendingCompile> m_pending; //!< Compile started but not finished, if any.
     GLuint m_shaderProgram{}; //!< The program ID.
 };
 

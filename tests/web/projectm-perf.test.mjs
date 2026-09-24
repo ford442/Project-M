@@ -89,6 +89,17 @@ test('the HUD renders per-stage bars, throttles DOM writes, and hides on demand'
         globalThis.window.pmOnPerfFrame(frame({ fps: 12, totalMs: 83 }));
         assert.equal(hud.querySelector('[data-key="fps"]').textContent, '12');
 
+        // Frames drawn while the next preset's shaders link are flagged; bundles
+        // that predate the flag leave it absent, which reads as not linking.
+        const linkEl = hud.querySelector('[data-key="linkPending"]');
+        assert.equal(linkEl.textContent, '');
+        dom.advanceClock(250);
+        globalThis.window.pmOnPerfFrame(frame({ shaderLinkPending: true }));
+        assert.equal(linkEl.textContent, ' · linking shaders');
+        dom.advanceClock(250);
+        globalThis.window.pmOnPerfFrame(frame({ shaderLinkPending: false }));
+        assert.equal(linkEl.textContent, '');
+
         globalThis.window.pmSetPerfHudEnabled(false);
         assert.equal(hud.classList.contains('visible'), false);
     } finally {
@@ -134,6 +145,20 @@ test('?benchmark=1 collects `frames` samples then reports mean/median/p95', () =
         assert.deepEqual(module.perfHudCalls, [1, 0]);
         globalThis.window.pmOnPerfFrame(frame());
         assert.equal(dom.posted.length, 1);
+    } finally {
+        dom.restore();
+    }
+});
+
+test('the benchmark counts frames rendered while shaders were linking', () => {
+    const dom = installFakeDom({ search: '?benchmark=1&frames=3' });
+    const module = fakeModule();
+    try {
+        setupPerfTools(module);
+        globalThis.window.pmOnPerfFrame(frame({ shaderLinkPending: true }));
+        globalThis.window.pmOnPerfFrame(frame({ shaderLinkPending: true }));
+        globalThis.window.pmOnPerfFrame(frame());
+        assert.equal(dom.posted[0].result.shaderLinkPendingFrames, 2);
     } finally {
         dom.restore();
     }

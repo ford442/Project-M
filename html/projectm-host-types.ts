@@ -114,6 +114,8 @@ declare global {
             compositeMs: number;
             gpuMs: number;
             fps: number;
+            /** Absent from bundles that predate KHR_parallel_shader_compile support. */
+            shaderLinkPending?: boolean;
         }) => void;
     }
 

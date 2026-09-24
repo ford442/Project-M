@@ -14,7 +14,8 @@
  *    transpiling. It touches neither OpenGL nor the projectM instance.
  * 3. projectm_load_prepared_preset(), on the render thread, creates and initializes the preset and
  *    starts the transition exactly as projectm_load_preset_file() would, or raises the preset
- *    switch failed event.
+ *    switch failed event. With KHR_parallel_shader_compile the switch itself waits until the
+ *    driver has linked the new shaders (see projectm_poll_pending_preset()).
  *
  * The current preset keeps rendering between steps 1 and 3. A job may be freed at any point with
  * projectm_preset_prepare_free() instead of being loaded, but not while step 2 is running on it.
@@ -66,6 +67,27 @@ PROJECTM_EXPORT projectm_preset_prepare_job_handle projectm_preset_prepare_begin
                                                                                       const char* filename);
 
 /**
+ * @brief Starts loading a preset file in steps, with its contents already read by the caller.
+ *
+ * Render thread only. projectm_preset_prepare_run() then parses @a data instead of opening the file;
+ * the filename, preset name and any error message are as for projectm_preset_prepare_begin_file().
+ * For hosts where file access from the preparing thread is expensive: under Emscripten pthreads,
+ * every file system call from a worker thread waits for the main thread's current frame to end.
+ * The data is copied.
+ *
+ * @param instance The projectM instance handle.
+ * @param filename The preset filename (a plain path, not a URL).
+ * @param data The file's contents.
+ * @param length The length of @a data in bytes.
+ * @return The job. Pass it to projectm_load_prepared_preset() or projectm_preset_prepare_free().
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT projectm_preset_prepare_job_handle projectm_preset_prepare_begin_file_contents(projectm_handle instance,
+                                                                                               const char* filename,
+                                                                                               const char* data,
+                                                                                               size_t length);
+
+/**
  * @brief Starts loading preset data (Milkdrop format) in steps.
  *
  * Render thread only. The data is copied.
@@ -114,6 +136,41 @@ PROJECTM_EXPORT bool projectm_preset_prepare_failed(projectm_preset_prepare_job_
 PROJECTM_EXPORT void projectm_load_prepared_preset(projectm_handle instance,
                                                    projectm_preset_prepare_job_handle job,
                                                    bool smooth_transition);
+
+/**
+ * @brief Completes a preset switch that is waiting for its shader programs to link, if they have.
+ *
+ * Where the OpenGL context supports KHR_parallel_shader_compile, projectm_load_prepared_preset()
+ * starts the new preset's shader links without waiting for them: the current preset keeps
+ * rendering and the switch happens once the driver reports them complete. Rendering a frame does
+ * this check; call this on the render thread to make progress without rendering one.
+ *
+ * @param instance The projectM instance handle.
+ * @return True if a preset switch is still waiting afterwards.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT bool projectm_poll_pending_preset(projectm_handle instance);
+
+/**
+ * @brief Enables or disables background shader linking for projectm_load_prepared_preset().
+ *
+ * Enabled by default. Has no effect where the OpenGL context lacks KHR_parallel_shader_compile;
+ * disabled, projectm_load_prepared_preset() waits for the links as projectm_load_preset_file() does.
+ *
+ * @param instance The projectM instance handle.
+ * @param enabled Whether to link prepared presets' shaders in the background.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_parallel_shader_compile(projectm_handle instance, bool enabled);
+
+/**
+ * @brief Returns whether prepared presets' shaders are linked in the background.
+ *
+ * @param instance The projectM instance handle.
+ * @return True if enabled and supported by the OpenGL context.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT bool projectm_get_parallel_shader_compile(projectm_handle instance);
 
 /**
  * @brief Frees a job without loading it.

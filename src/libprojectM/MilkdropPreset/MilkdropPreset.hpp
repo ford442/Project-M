@@ -98,6 +98,12 @@ public:
 
     void BindOutputForRead() override;
 
+    auto ShaderCompilePending() const -> bool override;
+
+    auto ShaderCompileComplete() const -> bool override;
+
+    void FinishShaderCompile() override;
+
 private:
     void PerFrameUpdate();
 

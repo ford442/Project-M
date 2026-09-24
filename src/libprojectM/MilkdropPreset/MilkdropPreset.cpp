@@ -99,6 +99,25 @@ void MilkdropPreset::Initialize(const Renderer::RenderContext& renderContext)
     m_finalComposite.CompileCompositeShader(m_state);
 }
 
+auto MilkdropPreset::ShaderCompilePending() const -> bool
+{
+    return m_perPixelMesh.IsWarpShaderCompilePending() || m_finalComposite.IsCompositeShaderCompilePending();
+}
+
+auto MilkdropPreset::ShaderCompileComplete() const -> bool
+{
+    return m_perPixelMesh.IsWarpShaderCompileComplete() && m_finalComposite.IsCompositeShaderCompileComplete();
+}
+
+void MilkdropPreset::FinishShaderCompile()
+{
+    // Any fallback compiled from here on (default composite, re-transpiled cached GLSL) is
+    // compiled synchronously, as it would have been in Initialize().
+    m_state.renderContext.deferShaderLink = false;
+    m_perPixelMesh.FinishWarpShader(m_state);
+    m_finalComposite.FinishCompositeShader(m_state);
+}
+
 void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audioData, const Renderer::RenderContext& renderContext)
 {
     m_state.audioData = audioData;

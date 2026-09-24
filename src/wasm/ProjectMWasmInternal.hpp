@@ -90,7 +90,7 @@
 typedef struct {
     projectm_handle projectm_engine;
     projectm_playlist_handle playlist;
-    EM_BOOL loading;
+    EM_BOOL loading; //!< A preset preparation is in flight (rendering continues).
 } AppData;
 
 // ---- PCM ring (defined in WasmPcmRing.cpp) --------------------------------
@@ -112,8 +112,8 @@ void PublishPcmRingToWorklet(uintptr_t hostHandle, uintptr_t headerPtr, uintptr_
                              int capacityFrames, int indexModulus);
 void WithdrawPcmRingFromWorklet(uintptr_t hostHandle);
 
-// Frames to ignore right after a preset finishes loading. Shared between the
-// render loop (projectM_emscripten.cpp) and the governor (WasmPerfGovernor.cpp).
+// Frames to ignore right after a preset finishes loading. Shared between preset
+// activation (WasmPresetPrepare.cpp) and the governor (WasmPerfGovernor.cpp).
 constexpr int kPostLoadGraceFrames = 10;
 
 // ---- Deterministic clock (defined in WasmDeterminism.cpp) -----------------
@@ -158,6 +158,7 @@ void UpdateQualityGovernor(double frameMs);
 // projectM_emscripten.cpp. Kept at C++ linkage to match the historical
 // signatures passed to the projectM callback setters.
 void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_data);
+bool on_playlist_preset_load(unsigned int index, const char* filename, bool hard_cut, void* user_data);
 void on_preset_switch_requested(bool is_hard_cut, void* user_data);
 void on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data);
 

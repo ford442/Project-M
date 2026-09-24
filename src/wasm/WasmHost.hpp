@@ -21,7 +21,10 @@
 
 #include "ProjectMWasmInternal.hpp"
 #include "WasmGraphics.hpp"
+#include "WasmPresetPrepare.hpp"
 #include "WasmWebGLContext.hpp"
+
+#include <memory>
 
 // Maximum simultaneous engines in one Module. v1 targets 2 (A/B, compare-two-
 // presets). Each host owns an engine + dual-FBO pair, so this is bounded by
@@ -77,6 +80,14 @@ struct WasmHost {
     uint32_t presetReadyFrame = 0;
     bool presetSwitchFailed = false;
 
+    // ---- Background preset preparation (WasmPresetPrepare.cpp) ----
+    // Created by init(); lives as long as the host, across context loss.
+    std::unique_ptr<PresetPrepareQueue> presetPrepare;
+    // The engine asked for a timer-driven switch while a load was in flight and
+    // was told to wait; replayed if that load fails.
+    bool switchRequestDeferred = false;
+    bool deferredSwitchHardCut = false;
+
     // ---- Transition controller (Phase 5) ----
     float transitionDuration = 3.0f;
     bool transitionActive = false;
@@ -90,7 +101,6 @@ struct WasmHost {
 
     // ---- Perf HUD / adaptive quality governor ----
     bool perfHudEnabled = false;
-    bool wasLoading = false;
     int postLoadGraceFrames = 0;
     bool governorEnabled = true;
     int targetFps = 60;

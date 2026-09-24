@@ -30,7 +30,8 @@
       error: null
     };
 
-    // Missing ASYNCIFY_ONLY entries hang on resume rather than crash — fail loud.
+    // A preset load is prepared on the host's prepare thread and activated from
+    // the render loop or the event loop; a load that never completes fails loud.
     const PRESET_READY_TIMEOUT_MS = 30000;
 
     function mark(step) {
@@ -72,8 +73,8 @@
     }
 
     /**
-     * Poll readiness after load_preset_file. ccall may return on the first
-     * Asyncify unwind; a hang here means ASYNCIFY_ONLY missed a stack frame.
+     * Poll readiness after load_preset_file, which returns as soon as the load
+     * is queued. A hang here means the prepared preset was never activated.
      */
     async function waitForPresetReady(Module, label) {
       const deadline = performance.now() + PRESET_READY_TIMEOUT_MS;
@@ -88,8 +89,7 @@
         await sleep(16);
       }
       throw new Error(
-        label + ': timed out waiting for preset ready after ' + PRESET_READY_TIMEOUT_MS + 'ms' +
-        ' (possible missing ASYNCIFY_ONLY entry)'
+        label + ': timed out waiting for preset ready after ' + PRESET_READY_TIMEOUT_MS + 'ms'
       );
     }
 
@@ -380,17 +380,25 @@
       await writePresetToMemfs(Module, presetSrc, '/presets/tests/000-empty.milk');
       mark('preset copied to MEMFS');
 
-      // Cold-cache load: hang on resume = missing ASYNCIFY_ONLY entry.
+      // load_preset_callback_done() reports the playlist item it switched to,
+      // which only happens once a load has really been activated.
+      const switchedTo = [];
+      globalThis.updatePresetDisplay = (name) => switchedTo.push(name);
+
+      // The load is prepared on the host's prepare thread; the ccall returns at once.
       Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
       mark('load_preset_file ccall returned');
       await waitForPresetReady(Module, 'cold preset');
+      if (!switchedTo.includes('/presets/tests/000-empty.milk')) {
+        throw new Error('cold preset reported ready but never switched (switched to: ' + JSON.stringify(switchedTo) + ')');
+      }
 
       const gl = document.getElementById('pm-smoke-main').getContext('webgl2');
       if (!gl) throw new Error('webgl2 context is unavailable after init');
       assertNoGlError(gl, 'after cold preset load');
       mark('webgl error check passed');
 
-      // Soft-cut / dual-FBO path: second load yields again, then transition while live.
+      // Soft-cut / dual-FBO path: second load prepared while live, then transition.
       const hasDualFbo =
         typeof Module._dual_fbo_begin_transition === 'function' &&
         typeof Module._transition_start === 'function' &&
@@ -433,6 +441,29 @@
           Module._dual_fbo_end_transition();
         }
         mark('dual-FBO soft-cut path passed');
+
+        // A heavy preset is prepared (parsed, HLSL transpiled) off the render
+        // thread: the running main loop must keep drawing the current preset
+        // until the new one is activated.
+        const heavySrc = params.get('heavy') || '/custom_milk_fixed/milk011.milk';
+        await writePresetToMemfs(Module, heavySrc, '/presets/heavy.milk');
+        const framesAtRequest = Module._get_rendered_frame_count();
+        Module.ccall('load_preset_file', null, ['string'], ['/presets/heavy.milk']);
+        let framesWhileLoading = 0;
+        const heavyDeadline = performance.now() + PRESET_READY_TIMEOUT_MS;
+        while (Module._is_preset_ready(0) === 0) {
+          if (Module._preset_switch_failed()) throw new Error('heavy preset: preset_switch_failed');
+          if (performance.now() > heavyDeadline) throw new Error('heavy preset: timed out waiting for ready');
+          framesWhileLoading = Module._get_rendered_frame_count() - framesAtRequest;
+          await sleep(4);
+        }
+        if (!switchedTo.includes('/presets/heavy.milk')) {
+          throw new Error('heavy preset reported ready but never switched');
+        }
+        if (framesWhileLoading < 1) {
+          throw new Error('render loop produced no frames while the heavy preset was prepared');
+        }
+        mark('heavy preset prepared off-thread; ' + framesWhileLoading + ' frame(s) rendered meanwhile');
       } else {
         mark('dual-FBO exports absent; skipped soft-cut path');
       }

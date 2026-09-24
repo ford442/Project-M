@@ -237,7 +237,7 @@ export function setupInitErrorHandling(onRetry) {
 
 /**
  * Checks `window.crossOriginIsolated` and shows the init-error overlay (code 4) if it is
- * false. This build is compiled with `-s SHARED_MEMORY=1 -pthread -s WASM_WORKERS=1`
+ * false. This build is compiled with `-s SHARED_MEMORY=1 -pthread`
  * (see CMakeLists.txt and docs/DEPLOYMENT.md), which requires the page to be served with
  * `Cross-Origin-Opener-Policy: same-origin` and a `Cross-Origin-Embedder-Policy` header —
  * without them, `SharedArrayBuffer` is unavailable and the WASM module's pthread runtime

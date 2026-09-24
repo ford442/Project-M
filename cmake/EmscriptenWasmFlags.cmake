@@ -13,41 +13,51 @@
 
 include("${CMAKE_CURRENT_LIST_DIR}/WasmApiManifest.cmake")
 
-set(PROJECTM_WASM_PTHREAD_POOL_SIZE "4" CACHE STRING
-    "Pre-spawned pthread Workers (PTHREAD_POOL_SIZE). Drives kWasmPthreadPoolSize in cmake/generated/ProjectMWasmBuildConfig.hpp.")
+# Threads the wasm module runs besides the main runtime thread, all pthreads (no
+# emscripten_wasm_worker_* API is used):
+#   - the OpenMP team: omp_set_num_threads(kWasmOpenMpThreads) in
+#     projectM_emscripten.cpp, i.e. kWasmOpenMpThreads - 1 helper threads;
+#   - one preset prepare thread per WasmHost (src/wasm/WasmPresetPrepare.cpp),
+#     at most kMaxHosts of them.
+# PTHREAD_POOL_SIZE pre-spawns a Worker for each. A pthread_create() with the
+# pool empty still works, but its Worker is created lazily and the thread only
+# starts once the creating thread yields; OpenMP barriers waiting on such a
+# thread from the main thread hung the 033/034 bundles (docs/PERFORMANCE.md),
+# so the pool must cover everything that can run at once.
+set(PROJECTM_WASM_OPENMP_THREADS "4" CACHE STRING
+    "OpenMP team size (omp_set_num_threads). Drives kWasmOpenMpThreads in cmake/generated/ProjectMWasmBuildConfig.hpp.")
+set(PROJECTM_WASM_PRESET_PREPARE_THREADS "2" CACHE STRING
+    "Preset prepare threads, one per WasmHost: must be >= kMaxHosts in src/wasm/WasmHost.hpp.")
+math(EXPR _projectm_wasm_default_pool_size "${PROJECTM_WASM_OPENMP_THREADS} - 1 + ${PROJECTM_WASM_PRESET_PREPARE_THREADS}")
+set(PROJECTM_WASM_PTHREAD_POOL_SIZE "${_projectm_wasm_default_pool_size}" CACHE STRING
+    "Pre-spawned pthread Workers (PTHREAD_POOL_SIZE): OpenMP helpers plus preset prepare threads. Drives kWasmPthreadPoolSize in cmake/generated/ProjectMWasmBuildConfig.hpp.")
 
-# C++ exception ABI. It is baked into every object file, so libprojectM-4.a, the
-# playlist lib and the wrapper TUs must all be built with the same value — a
-# link-only switch is not possible. The shell wrapper link reads the same choice
-# from the PROJECTM_WASM_EXCEPTIONS environment variable.
-#   wasm  -fwasm-exceptions (native Wasm exception handling). Default. Emscripten
-#         6.0.6 emits the legacy EH encoding (try/catch, not try_table): Chrome 95,
-#         Firefox 100, Safari 15.2 — below the SharedArrayBuffer floor this build
-#         already has. -6.7% .wasm / -6.0% JS glue vs js, and no invoke_* JS
-#         trampoline around every call that may throw.
-#         emcc warns "ASYNCIFY=1 is not compatible with -fwasm-exceptions": a
-#         function that is both Asyncify-instrumented and contains a try/catch
-#         fails to *compile*. It is fine here because ASYNCIFY_ONLY
-#         (cmake/wasm_asyncify_only.txt) instruments only the three
-#         load_preset_file* frames, none of which has a try — keep it that way.
-#   js    -s NO_DISABLE_EXCEPTION_CATCHING=1 (JS-based invoke_* trampolines). The
-#         previous default ABI; kept selectable for bisecting.
-# A mismatch between libs and wrapper fails at link time, not at runtime
-# (undefined __resumeException, or __cpp_exception / __gxx_wasm_personality_v0).
+# C++ exception ABI: native Wasm exception handling (-fwasm-exceptions), for
+# every TU (libprojectM-4.a, the playlist lib, the wrapper) — the ABI is baked
+# into each object file, so libs and wrapper must agree or the link fails
+# (undefined __cpp_exception / __gxx_wasm_personality_v0). Emscripten 6.0.6
+# emits the legacy EH encoding (try/catch, not try_table): Chrome 95, Firefox
+# 100, Safari 15.2 — below the SharedArrayBuffer floor this build already has.
+# -6.7% .wasm / -6.0% JS glue against the JS-trampoline ABI
+# (NO_DISABLE_EXCEPTION_CATCHING), which is no longer selectable: it only
+# existed because ASYNCIFY cannot instrument a function containing a native
+# try/catch, and the build has no ASYNCIFY since preset loading moved to a
+# prepare thread (src/wasm/WasmPresetPrepare.cpp).
 # Verification: tests/wasm-smoke/index.html "known-bad preset" step, which fails
 # when a thrown MilkdropPresetLoadException is not caught.
-set(PROJECTM_WASM_EXCEPTIONS "wasm" CACHE STRING
-    "C++ exception ABI for every WASM TU: js (NO_DISABLE_EXCEPTION_CATCHING) or wasm (-fwasm-exceptions).")
-set_property(CACHE PROJECTM_WASM_EXCEPTIONS PROPERTY STRINGS js wasm)
-set(PROJECTM_WASM_EXCEPTION_ARGS_JS -s NO_DISABLE_EXCEPTION_CATCHING=1)
-set(PROJECTM_WASM_EXCEPTION_ARGS_WASM -fwasm-exceptions)
-if(PROJECTM_WASM_EXCEPTIONS STREQUAL "js")
-    set(PROJECTM_WASM_EXCEPTION_ARGS ${PROJECTM_WASM_EXCEPTION_ARGS_JS})
-elseif(PROJECTM_WASM_EXCEPTIONS STREQUAL "wasm")
-    set(PROJECTM_WASM_EXCEPTION_ARGS ${PROJECTM_WASM_EXCEPTION_ARGS_WASM})
-else()
-    message(FATAL_ERROR "PROJECTM_WASM_EXCEPTIONS must be js or wasm, got '${PROJECTM_WASM_EXCEPTIONS}'")
+if(DEFINED PROJECTM_WASM_EXCEPTIONS AND NOT PROJECTM_WASM_EXCEPTIONS STREQUAL "wasm")
+    message(FATAL_ERROR "PROJECTM_WASM_EXCEPTIONS=${PROJECTM_WASM_EXCEPTIONS} is no longer supported: "
+            "every WASM TU is built with -fwasm-exceptions.")
 endif()
+set(PROJECTM_WASM_EXCEPTION_ARGS -fwasm-exceptions)
+
+# Link-time optimisation for the whole program: libprojectM-4.a and the
+# playlist lib are compiled to LLVM bitcode (-flto) and the final wrapper link
+# optimises across them and the wrapper TUs. The static libs and the wrapper
+# link must use the same setting (a bitcode archive only links with -flto).
+# The wrapper link reads the same choice from the PROJECTM_WASM_LTO environment
+# variable. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
+set(PROJECTM_WASM_LTO OFF CACHE BOOL "Compile the WASM static libraries to LLVM bitcode (-flto); link the bundle with PROJECTM_WASM_LTO=1.")
 
 # Browser wrapper exports (projectM_emscripten.cpp final emcc link).
 # Every EMSCRIPTEN_KEEPALIVE symbol plus legacy add_audio_data and runtime helpers.
@@ -215,9 +225,13 @@ set(PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS
         )
 
 # -s settings shared by lib link and wrapper link.
+# No WASM_WORKERS: every thread is a pthread (OpenMP, the preset prepare
+# threads); nothing calls the emscripten_wasm_worker_* API.
+# No ASYNCIFY: nothing suspends the wasm stack any more. The one yield it was
+# for (emscripten_sleep(0) before a preset compile) is gone; preset loads are
+# prepared on a pthread while the render loop keeps running.
 set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "SHARED_MEMORY=1"
-        "WASM_WORKERS=1"
         "MIN_WEBGL_VERSION=2"
         "MAX_WEBGL_VERSION=2"
         "USE_WEBGL2=1"
@@ -251,14 +265,14 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "MAXIMUM_MEMORY=4gb"
         "INITIAL_MEMORY=256mb"
         "FORCE_FILESYSTEM=1"
-        "ASYNCIFY=1"
         )
 
-# -s settings applied only when linking libprojectM via CMake (not the shell wrapper).
+# -s settings applied only when linking libprojectM via CMake (not the shell
+# wrapper), i.e. to the unit-test executables. The shipped bundle never sees
+# them, so they carry nothing it depends on (TRUSTED_TYPES / AUDIO_WORKLET used
+# to be here; the page's AudioWorklet is plain JS, not Emscripten's API).
 set(PROJECTM_WASM_LIB_ONLY_S_LINK_SETTINGS
-        "TRUSTED_TYPES=1"
         "WASM_BIGINT=1"
-        "AUDIO_WORKLET=1"
         )
 
 # -s settings applied only on the final projectM_emscripten.cpp wrapper link (shell).
@@ -287,9 +301,12 @@ function(projectm_apply_emscripten_lib_compile_flags)
     string(JOIN " " _exception_args ${PROJECTM_WASM_EXCEPTION_ARGS})
     add_compile_options(
             "SHELL:-O3 -mtune=wasm32 "
-            "SHELL:${_exception_args} -s SHARED_MEMORY=1 -s WASM_WORKERS=1 "
+            "SHELL:${_exception_args} -s SHARED_MEMORY=1 "
             "SHELL:-msimd128 -mrelaxed-simd -fopenmp=libomp -mmutable-globals -mbulk-memory -matomics -mnontrapping-fptoint -msign-ext -fno-strict-aliasing -fno-math-errno -pthread"
             )
+    if(PROJECTM_WASM_LTO)
+        add_compile_options(-flto)
+    endif()
 endfunction()
 
 # Applies link flags for building libprojectM static libraries with emcc.
@@ -298,6 +315,9 @@ function(projectm_apply_emscripten_lib_link_flags)
     _projectm_wasm_expand_s_link_settings(PROJECTM_WASM_LIB_ONLY_S_LINK_SETTINGS _lib_s_args)
 
     set(_all_link_args ${PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS} ${PROJECTM_WASM_EXCEPTION_ARGS} ${_shared_s_args} ${_lib_s_args} ${PROJECTM_WASM_SIMD_COMPILE_FLAGS})
+    if(PROJECTM_WASM_LTO)
+        list(APPEND _all_link_args -flto)
+    endif()
     string(JOIN " " _shell_args ${_all_link_args})
     string(APPEND _shell_args " -s PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE}")
     string(APPEND _shell_args " -s EXPORTED_RUNTIME_METHODS='${PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_STR}'")
@@ -314,19 +334,3 @@ endfunction()
 # OffscreenCanvas render worker can tell the pthread pool which script to load.
 # See src/wasm/pthread_script_url.pre.js.
 set(PROJECTM_WASM_PTHREAD_SCRIPT_URL_PRE_JS "${CMAKE_CURRENT_LIST_DIR}/../src/wasm/pthread_script_url.pre.js")
-
-# Absolute path to the ASYNCIFY_ONLY symbol list (one name per line).
-# Sleep in load_preset_file_impl is unconditional, so this applies whenever
-# ASYNCIFY=1 is on (shared WASM link settings) — not only when transitions are ON.
-set(PROJECTM_WASM_ASYNCIFY_ONLY_FILE "${CMAKE_CURRENT_LIST_DIR}/wasm_asyncify_only.txt")
-
-# Applies ASYNCIFY_ONLY (always) and ASYNCIFY_STACK_SIZE when dual-pipeline
-# transitions are enabled.
-function(projectm_apply_emscripten_wasm_transition_flags)
-    # Restrict Asyncify instrumentation to the preset-load yield stack (Option B).
-    # emcc requires an absolute path for @file list inputs.
-    add_link_options("SHELL:-s ASYNCIFY_ONLY=@${PROJECTM_WASM_ASYNCIFY_ONLY_FILE}")
-    if(ENABLE_WASM_TRANSITIONS)
-        add_link_options("SHELL:-s ASYNCIFY_STACK_SIZE=65536")
-    endif()
-endfunction()

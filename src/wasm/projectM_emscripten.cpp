@@ -28,8 +28,10 @@ using namespace emscripten;
 // same-named local references (`auto& pm = H.appData.projectm_engine;`) so the
 // lifecycle code reads the same as before.
 
-// kWasmPthreadPoolSize comes from cmake/generated/ProjectMWasmBuildConfig.hpp
-// (generated from PROJECTM_WASM_PTHREAD_POOL_SIZE in EmscriptenWasmFlags.cmake).
+// kWasmOpenMpThreads comes from cmake/generated/ProjectMWasmBuildConfig.hpp
+// (generated from PROJECTM_WASM_OPENMP_THREADS in EmscriptenWasmFlags.cmake);
+// PTHREAD_POOL_SIZE pre-spawns a Worker for each of its helper threads plus
+// one per host's preset prepare thread.
 //
 // The blocktime call is what keeps the browser's audio thread alive. LLVM
 // libomp parks a team's helper threads in a *spin* wait after every parallel
@@ -55,7 +57,7 @@ static void ConfigureWasmOpenMPThreadCount()
 {
 #ifdef _OPENMP
     omp_set_dynamic(0);
-    omp_set_num_threads(kWasmPthreadPoolSize);
+    omp_set_num_threads(kWasmOpenMpThreads);
     // Sleep helpers immediately instead of spinning between frames. Costs a
     // futex wake per parallel region; buys back three idle cores.
     //
@@ -114,6 +116,13 @@ static void DestroyEngineAndPlaylist()
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& playlist = H.appData.playlist;
+    // A preparation still running is for this engine; its result must not be
+    // loaded into the next one init() creates.
+    if (H.presetPrepare)
+    {
+        H.presetPrepare->DiscardAll();
+    }
+    H.switchRequestDeferred = false;
     if (playlist)
     {
         projectm_playlist_destroy(playlist);
@@ -265,6 +274,13 @@ int init()
     const char* loc = "/presets/";
     projectm_playlist_add_path(playlist, loc, true, true);
     projectm_playlist_set_preset_switched_event_callback(playlist, &load_preset_callback_done, &app_data);
+    // Every playlist-driven load (manual, timer, switch_preset) is prepared on
+    // this host's prepare thread instead of loading synchronously.
+    projectm_playlist_set_preset_load_event_callback(playlist, &on_playlist_preset_load, &app_data);
+    if (!H.presetPrepare)
+    {
+        H.presetPrepare = std::make_unique<PresetPrepareQueue>(HostHandle(H));
+    }
     const char* texture_search_paths[] = {"textures"};
     projectm_set_texture_search_paths(pm, texture_search_paths, 1);
     projectm_set_fps(pm, 60);

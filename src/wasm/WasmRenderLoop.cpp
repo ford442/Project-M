@@ -22,24 +22,14 @@
 
 // Renders one frame for the currently-active host. renderLoop() makes each
 // started host active in turn and calls this.
+//
+// A preset load no longer pauses this: the preset is prepared on the host's
+// prepare thread while the current one keeps rendering, and render_frame()
+// switches to it once it is ready (see WasmPresetPrepare.cpp).
 static void RenderActiveHostFrame()
 {
     WasmHost& H = Host();
-    auto& app_data = H.appData;
-    auto& g_wasLoading = H.wasLoading;
-    auto& g_postLoadGraceFrames = H.postLoadGraceFrames;
     auto& g_perfHudEnabled = H.perfHudEnabled;
-    if (app_data.loading == EM_TRUE)
-    {
-        g_wasLoading = true;
-        return;
-    }
-    if (g_wasLoading)
-    {
-        g_wasLoading = false;
-        g_postLoadGraceFrames = kPostLoadGraceFrames;
-        ResetGovernorCounters();
-    }
     // Real clock, deliberately: this measures how long the frame actually took,
     // which is what the governor steps quality on. WasmNow() may be virtual.
     const double frameStartMs = emscripten_get_now();
@@ -106,7 +96,6 @@ void start_render(int width, int height)
 {
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
-    auto& app_data = H.appData;
     auto& g_dualFbo = H.dualFbo;
     auto& g_compositorShader = H.compositorShader;
     // glClearColor( 1.0, 1.0, 1.0, 0.0 );
@@ -132,7 +121,8 @@ void start_render(int width, int height)
     }
     glFrontFace(GL_CW);
     glCullFace(GL_BACK);
-    app_data.loading = EM_FALSE;
+    // app_data.loading is left alone: it means "a preset preparation is in
+    // flight", and starting the render loop does not change that.
     projectm_set_window_size(pm, width, height);
     // Phase 2: Persist dual-FBO dimensions now that the viewport is known.
     // Preset A/B textures are lazily allocated on first transition request.
@@ -229,6 +219,15 @@ void render_frame()
     auto& g_transitionEndTime = H.transitionEndTime;
     auto& g_presetBReady = H.presetBReady;
     auto& g_renderedFrameCount = H.renderedFrameCount;
+    if (!pm)
+    {
+        return;
+    }
+
+    // Switch to a preset the prepare thread has finished, if any. Its GL half
+    // (preset objects, shader compile + link) runs here, on this host's context,
+    // between frames of the current preset rather than in place of them.
+    ActivatePreparedPreset(H);
     if (!pm)
     {
         return;

@@ -137,15 +137,17 @@ EM_JS(void, js_perf_report_frame, (
 //     that take longer than kOverBudgetRatio * budget.
 //   - Step UP a tier after kUnderBudgetFrameThreshold consecutive frames
 //     that take less than kUnderBudgetRatio * budget.
-//   - Frames rendered while a preset is loading (app_data.loading) are
-//     skipped entirely (renderLoop returns early), and the
-//     kPostLoadGraceFrames frames immediately after a load completes are
-//     excluded from the over/under-budget counters, so a single slow
-//     ASYNCIFY preset compile cannot trigger a permanent downgrade.
+//   - Frames rendered while a preset is being prepared count normally: the
+//     preparation runs on the host's prepare thread and the render loop keeps
+//     going. The frame that activates the new preset carries its GL compile
+//     and link, so it and the kPostLoadGraceFrames frames after it are
+//     excluded from the over/under-budget counters (ActivatePreparedPreset()
+//     starts the grace), and a single slow preset compile cannot trigger a
+//     permanent downgrade.
 // =============================================================================
 
 // (g_governorEnabled / g_targetFps / g_qualityTier / g_qualityTierInitialized /
-// g_overBudgetFrames / g_underBudgetFrames / g_wasLoading / g_postLoadGraceFrames
+// g_overBudgetFrames / g_underBudgetFrames / g_postLoadGraceFrames
 // are now per-host WasmHost members mapped to macros at the top of this file.)
 
 constexpr double kOverBudgetRatio = 1.3;       //!< Step down once frame time exceeds 1.3x budget...

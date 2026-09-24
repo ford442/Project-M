@@ -204,11 +204,6 @@ add_compile_definitions(
         $<$<OR:$<CONFIG:Debug>,$<BOOL:${ENABLE_VERBOSE_LOGGING}>>:ENABLE_DEBUG_LOGGING>
         )
 
-# Disable trace/debug logging in release builds unless explicitly requested
-add_compile_definitions(
-        $<$<OR:$<CONFIG:Debug>,$<BOOL:${ENABLE_VERBOSE_LOGGING}>>:ENABLE_DEBUG_LOGGING>
-        )
-
 if(BUILD_DOCS)
     find_package(Doxygen REQUIRED)
     find_package(Sphinx REQUIRED breathe exhale)

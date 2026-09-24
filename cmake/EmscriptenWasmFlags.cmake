@@ -112,6 +112,7 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _is_preset_ready
         _get_rendered_frame_count
         _preset_switch_failed
+        _live_playlist_count
         _get_omp_enabled
         _get_omp_max_threads
         _get_omp_thread_count_in_parallel

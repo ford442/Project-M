@@ -60,6 +60,7 @@ export type ProjectMModule = EmscriptenModule & {
     _is_preset_ready: (minFramesSinceReady: number) => number;
     _get_rendered_frame_count: () => number;
     _preset_switch_failed: () => number;
+    _live_playlist_count: () => number;
     _get_omp_enabled: () => number;
     _get_omp_max_threads: () => number;
     _get_omp_thread_count_in_parallel: () => number;
@@ -162,6 +163,7 @@ export const WASM_API_SYMBOLS = {
     isPresetReady: 'is_preset_ready',
     getRenderedFrameCount: 'get_rendered_frame_count',
     presetSwitchFailed: 'preset_switch_failed',
+    livePlaylistCount: 'live_playlist_count',
     getOmpEnabled: 'get_omp_enabled',
     getOmpMaxThreads: 'get_omp_max_threads',
     getOmpThreadCountInParallel: 'get_omp_thread_count_in_parallel',
@@ -282,6 +284,7 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     isPresetReady: { symbol: 'is_preset_ready', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
     getRenderedFrameCount: { symbol: 'get_rendered_frame_count', returnType: 'number', argTypes: [], paramTypes: [] },
     presetSwitchFailed: { symbol: 'preset_switch_failed', returnType: 'number', argTypes: [], paramTypes: [] },
+    livePlaylistCount: { symbol: 'live_playlist_count', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpEnabled: { symbol: 'get_omp_enabled', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpMaxThreads: { symbol: 'get_omp_max_threads', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpThreadCountInParallel: { symbol: 'get_omp_thread_count_in_parallel', returnType: 'number', argTypes: [], paramTypes: [] },
@@ -655,6 +658,11 @@ export function getRenderedFrameCount(module: ProjectMModule): number {
 /** Whether last preset switch failed (0/1) */
 export function presetSwitchFailed(module: ProjectMModule): number {
     return module._preset_switch_failed();
+}
+
+/** Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook) */
+export function livePlaylistCount(module: ProjectMModule): number {
+    return module._live_playlist_count();
 }
 
 /** Whether OpenMP was compiled in (0/1) */

@@ -73,6 +73,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "is_preset_ready|internal|direct|number|minFramesSinceReady:number|Whether preset shaders are ready"
     "get_rendered_frame_count|internal|direct|number||Total frames rendered since init"
     "preset_switch_failed|internal|direct|number||Whether last preset switch failed (0/1)"
+    "live_playlist_count|internal|direct|number||Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook)"
     "get_omp_enabled|internal|direct|number||Whether OpenMP was compiled in (0/1)"
     "get_omp_max_threads|internal|direct|number||Configured OpenMP max thread count"
     "get_omp_thread_count_in_parallel|internal|direct|number||OpenMP threads observed in parallel region"

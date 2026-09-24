@@ -728,12 +728,30 @@ static void gl_reset_state_between_pipelines()
 class CompositingBlendShader
 {
 public:
+    CompositingBlendShader() = default;
+    CompositingBlendShader(const CompositingBlendShader&) = delete;
+    CompositingBlendShader& operator=(const CompositingBlendShader&) = delete;
+
+    // Owners call Release() while the GL context is still current (see
+    // destruct() in projectM_emscripten.cpp); by then this is a no-op. It is
+    // only a backstop for a host freed without going through destruct().
+    ~CompositingBlendShader()
+    {
+        Release();
+    }
+
     /**
      * @brief Compiles shaders, links program, and uploads the fullscreen quad geometry.
+     *
+     * Safe to call again (start_render() runs once per render start): the
+     * previous program, VAO and VBO are released first rather than leaked.
+     *
      * @return true on success; false if any GL call failed (program stays uninitialised).
      */
     bool Init()
     {
+        Release();
+
         // GLSL ES 3.00 vertex shader: maps NDC positions and derives UV coords.
         static const char* kVertSrc = R"(#version 300 es
 in vec2 aPosition;
@@ -937,6 +955,40 @@ void main() {
     bool IsInitialized() const
     {
         return m_initialized;
+    }
+
+    /**
+     * @brief Deletes the program, VAO and VBO and returns to the uninitialised state.
+     *
+     * Must run while the context that created them is current: GL object ids
+     * are global to the Emscripten GL layer, so deleting a stale id under
+     * another context raises GL_INVALID_OPERATION there. Idempotent.
+     */
+    void Release()
+    {
+        if (m_program != 0)
+        {
+            glDeleteProgram(m_program);
+            m_program = 0;
+        }
+        if (m_vbo != 0)
+        {
+            glDeleteBuffers(1, &m_vbo);
+            m_vbo = 0;
+        }
+        if (m_vao != 0)
+        {
+            glDeleteVertexArrays(1, &m_vao);
+            m_vao = 0;
+        }
+        m_initialized = false;
+        m_locTexA = -1;
+        m_locTexB = -1;
+        m_locBlend = -1;
+        m_locDither = -1;
+        m_locTransparencyEnabled = -1;
+        m_locTransparencyThreshold = -1;
+        m_locPos = -1;
     }
 
 private:

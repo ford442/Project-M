@@ -49,9 +49,21 @@ WasmHost& Host()
         // un-inited here; the legacy init() path (which calls Host()) does the
         // engine/GL setup.
         WasmHost* def = AllocateHost();
+        def->implicitDefault = true;
         g_activeHost = def; // AllocateHost() cannot fail for the first slot.
     }
     return *g_activeHost;
+}
+
+// A host Host() conjured for a legacy export that has never been brought up
+// (or has been torn down since): no engine, no WebGL context. create_host()
+// adopts such a host instead of allocating past it, so a stray legacy call
+// before the first create_host() — set_canvas_selectors(), set_context_config()
+// — does not permanently occupy one of the kMaxHosts slots.
+static bool IsUnusedImplicitDefault(const WasmHost* host)
+{
+    return host != nullptr && host->implicitDefault &&
+           host->appData.projectm_engine == nullptr && host->glCtx == 0;
 }
 
 void SetActiveHost(WasmHost* host)
@@ -115,9 +127,9 @@ void ReleaseHost(WasmHost* host)
         g_activeHost = nullptr;
     }
 
-    // The dual-FBO / compositor destructors issue GL calls; the context is
-    // already gone (destruct() destroyed it), so per the WebGL spec they are
-    // no-ops — safe.
+    // destruct() released the dual FBOs and the compositor under this host's
+    // own context before destroying it, so their destructors find nothing left
+    // to delete and issue no GL calls.
     delete host;
     (void) freedSlot;
 
@@ -205,20 +217,25 @@ uintptr_t create_host(const char* primary, const char* secondary)
 {
     WasmHost* previous = g_activeHost;
 
-    WasmHost* host = AllocateHost();
+    // Reuse the unused compat default rather than allocating a second slot
+    // behind it. Whatever the legacy exports configured on it (context config,
+    // selectors) carries over; the selectors are overwritten below anyway.
+    const bool adopted = IsUnusedImplicitDefault(previous);
+    WasmHost* host = adopted ? previous : AllocateHost();
     if (host == nullptr)
     {
         fprintf(stderr, "create_host: refused – already at kMaxHosts (%d) instances.\n", kMaxHosts);
         js_report_init_error(4, "Maximum projectM instances per Module reached");
         return 0;
     }
+    host->implicitDefault = false;
 
     // Start from the previous host's context config so a Module configured once
     // keeps that config for every engine. A set_context_config() issued just
     // before this call (while `previous` was active and already had a context)
     // is pending and overrides this snapshot inside init(), right before the
     // context is created — see WasmWebGLContext.cpp.
-    if (previous != nullptr)
+    if (previous != nullptr && !adopted)
     {
         host->contextConfig = previous->contextConfig;
     }
@@ -233,29 +250,44 @@ uintptr_t create_host(const char* primary, const char* secondary)
     {
         fprintf(stderr, "create_host: init() failed (rc=%d); rolling back.\n", rc);
         ReleaseHost(host);
-        if (previous != nullptr)
+        if (previous != nullptr && !adopted)
         {
             SetActiveHost(previous);
         }
         return 0;
     }
 
-    return reinterpret_cast<uintptr_t>(host);
+    return HostHandle(*host);
 }
 
 // Selects which host subsequent no-handle exports operate on and makes its
-// WebGL context current. A handle of 0 selects the default/first live host.
+// WebGL context current. A handle of 0 selects the default/first live host. A
+// handle that is not a live host (already destroyed, or never issued) is
+// ignored and the active host is left unchanged: dereferencing it would read
+// freed memory.
 EMSCRIPTEN_KEEPALIVE
 void set_active_host(uintptr_t handle)
 {
-    SetActiveHost(reinterpret_cast<WasmHost*>(handle));
+    if (handle == 0)
+    {
+        SetActiveHost(nullptr);
+        return;
+    }
+    WasmHost* host = HostFromHandle(handle);
+    if (host == nullptr)
+    {
+        fprintf(stderr, "set_active_host: ignoring unknown or destroyed host handle %lu.\n",
+                static_cast<unsigned long>(handle));
+        return;
+    }
+    SetActiveHost(host);
 }
 
 // Returns the active host handle (a WasmHost* as an integer), or 0 if none.
 EMSCRIPTEN_KEEPALIVE
 uintptr_t get_active_host()
 {
-    return reinterpret_cast<uintptr_t>(g_activeHost);
+    return g_activeHost != nullptr ? HostHandle(*g_activeHost) : 0;
 }
 
 // Tears down and frees a host created with create_host(). Safe to call with 0

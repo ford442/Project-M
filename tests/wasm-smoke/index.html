@@ -215,6 +215,125 @@
       select(hostA);
     }
 
+    /**
+     * Counts live WebGL programs on `gl` from here on by wrapping its
+     * createProgram/deleteProgram. Emscripten's GL layer calls those methods on
+     * the context object it created, which is the one getContext() returns.
+     */
+    function trackProgramCount(gl) {
+      const counter = { live: 0 };
+      const create = gl.createProgram.bind(gl);
+      const destroy = gl.deleteProgram.bind(gl);
+      gl.createProgram = () => { counter.live += 1; return create(); };
+      gl.deleteProgram = (program) => { if (program) counter.live -= 1; return destroy(program); };
+      return counter;
+    }
+
+    /**
+     * Section 0 lifecycle regressions (preset prepare queue issue): compositor program leak, playlist
+     * leak on context loss / destroy_host, stale handle in set_active_host, and a
+     * legacy export before create_host() halving the host budget. Bundles that
+     * predate live_playlist_count() still run every check except the playlist
+     * counts, so an old bundle shows which of these bugs it has.
+     */
+    async function checkHostLifecycle(Module) {
+      const gl = document.getElementById('pm-smoke-main').getContext('webgl2');
+      const handleA = Module._get_active_host();
+      const countsPlaylists = typeof Module._live_playlist_count === 'function';
+      const expectPlaylists = (expected, what) => {
+        if (countsPlaylists && Module._live_playlist_count() !== expected) {
+          throw new Error(what + ': ' + Module._live_playlist_count() + ' live playlist(s), expected ' + expected);
+        }
+      };
+
+      // 1. start_render() recompiles the compositor; it must not leak a program.
+      const programs = trackProgramCount(gl);
+      for (let i = 0; i < 10; ++i) Module._start_render(64, 64);
+      if (programs.live !== 0) {
+        throw new Error('start_render x10 leaked ' + programs.live + ' compositor program(s)');
+      }
+      assertNoGlError(gl, 'after start_render x10');
+      mark('start_render x10: compositor program count stable');
+
+      // 2. Context loss frees the playlist along with the engine; init() makes
+      // one. pm_handle_context_loss() is what html/projectm-context-loss.js calls
+      // from "webglcontextlost"; it is driven directly on a live context here
+      // because headless Chromium refuses restoreContext() after a synthetic
+      // WEBGL_lose_context loss, and the C++ bookkeeping is the same either way.
+      const playlists = countsPlaylists ? Module._live_playlist_count() : 0;
+      Module._pm_handle_context_loss();
+      expectPlaylists(playlists - 1, 'after pm_handle_context_loss');
+      if (Module._init() !== 0) throw new Error('init() after context loss failed');
+      Module._start_render(64, 64);
+      Module._render_frame();
+      expectPlaylists(playlists, 'after re-init');
+      mark('context loss: engine re-initialised' + (countsPlaylists ? ', old playlist freed' : ''));
+
+      // 3. destroy_host frees the playlist; a stale handle is then ignored
+      // instead of dereferenced.
+      const handleB = Module.ccall('create_host', 'number', ['string', 'string'],
+        ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
+      if (!handleB) throw new Error('create_host() for the lifecycle check failed');
+      expectPlaylists(playlists + 1, 'after create_host');
+      Module.ccall('destroy_host', null, ['number'], [handleB]);
+      expectPlaylists(playlists, 'after destroy_host');
+      Module.ccall('set_active_host', null, ['number'], [handleA]);
+      Module.ccall('set_active_host', null, ['number'], [handleB]);
+      if (Module._get_active_host() !== handleA) {
+        throw new Error('set_active_host(stale handle) changed the active host');
+      }
+      Module._render_frame();
+      mark('destroy_host freed its host; stale set_active_host handle ignored');
+
+      // 4. A legacy export before any create_host() must not take a slot. Tear
+      // every host down, touch the compat default, then create kMaxHosts hosts.
+      Module.ccall('destroy_host', null, ['number'], [handleA]);
+      if (Module._host_count() !== 0) throw new Error('hosts left after destroying all');
+      Module.ccall('set_canvas_selectors', null, ['string', 'string'],
+        ['#pm-smoke-main', '#pm-smoke-secondary']);
+      const created = [];
+      for (let i = 0; i < Module._max_host_count(); ++i) {
+        const suffix = i === 0 ? '' : '-2';
+        const h = Module.ccall('create_host', 'number', ['string', 'string'],
+          ['#pm-smoke-main' + suffix, '#pm-smoke-secondary' + suffix]);
+        if (!h) {
+          throw new Error('create_host #' + (i + 1) + ' failed after a legacy export '
+            + '(host_count=' + Module._host_count() + ')');
+        }
+        created.push(h);
+      }
+      mark('legacy export then create_host x' + created.length + ' (host_count ' + Module._host_count() + ')');
+
+      // 5. rebind_canvases() on one host must not stop a sibling's render loop:
+      // the Emscripten main loop is shared, so cancelling it (as the rebind
+      // teardown used to) freezes every host.
+      if (created.length >= 2) {
+        const [first, second] = created;
+        for (const h of created) {
+          Module.ccall('set_active_host', null, ['number'], [h]);
+          Module._start_render(64, 64);
+        }
+        const framesOf = (h) => {
+          Module.ccall('set_active_host', null, ['number'], [h]);
+          return Module._get_rendered_frame_count();
+        };
+        Module.ccall('set_active_host', null, ['number'], [second]);
+        if (Module.ccall('rebind_canvases', 'number', ['string', 'string'],
+          ['#pm-smoke-main-2', '#pm-smoke-secondary-2']) !== 0) {
+          throw new Error('rebind_canvases failed');
+        }
+        const before = framesOf(first);
+        await sleep(200);
+        const after = framesOf(first);
+        if (after <= before) {
+          throw new Error('host A stopped rendering after host B was rebound (' + before + ' -> ' + after + ' frames)');
+        }
+        mark('rebind of host B left host A\'s loop running (' + before + ' -> ' + after + ' frames)');
+      }
+      for (const h of created) Module.ccall('destroy_host', null, ['number'], [h]);
+      expectPlaylists(0, 'after destroying every host');
+    }
+
     async function runSmoke() {
       const params = new URLSearchParams(window.location.search);
       const moduleSrc = params.get('module');
@@ -400,6 +519,12 @@
         }
         Module._render_frame(); // the engine survived the throw
         mark('known-bad preset exception caught (preset_switch_failed=1, host notified)');
+      }
+
+      if (document.getElementById('pm-smoke-main-2')) {
+        await checkHostLifecycle(Module);
+      } else {
+        mark('host lifecycle exports absent; skipped');
       }
 
       finish(true);

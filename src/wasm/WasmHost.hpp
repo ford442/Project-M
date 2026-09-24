@@ -119,6 +119,11 @@ struct WasmHost {
     char secondarySelector[kCanvasSelectorMax] = "#scanvas";
     bool canvasSelectorsExplicit = false;
 
+    // Allocated lazily by Host() for a legacy no-handle export rather than by
+    // create_host(). While it has no engine and no context, the next
+    // create_host() adopts it instead of taking another slot.
+    bool implicitDefault = false;
+
     // Whether start_render() has run for this host (so the shared Emscripten
     // main loop renders it). The loop itself is process-global; each host opts
     // in individually.

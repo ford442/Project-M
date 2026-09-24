@@ -97,36 +97,63 @@ static void ResetTransitionState()
     g_presetBReady = false;
 }
 
-static void TearDownEngineForRebind()
+// Playlists created by init() and not yet destroyed, across every host. Only
+// read by live_playlist_count(), which the smoke test uses to prove that
+// destroy_host / context loss / rebind free the playlist along with the engine.
+static int g_livePlaylistCount = 0;
+
+// Destroys the active host's playlist and engine, in that order: the playlist
+// holds the engine handle and unregisters its callbacks from it.
+//
+// Every teardown path (destruct, context loss, rebind) goes through here.
+// destruct() and pm_handle_context_loss() used to destroy only the engine, and
+// the latter nulled the playlist pointer outright, so each destroy_host() and
+// each lost context leaked a playlist still pointing at a freed engine.
+static void DestroyEngineAndPlaylist()
 {
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
-    auto& app_data = H.appData;
     auto& playlist = H.appData.playlist;
-    auto& g_dualFbo = H.dualFbo;
-    // Cancel the Emscripten main loop if one is running so rebind can restart it
-    // via start_render() after a fresh init(). The loop is process-global, so
-    // clear the registration flag too. Single-instance rebind only (documented).
-    emscripten_cancel_main_loop();
-    g_mainLoopRegistered = false;
-    H.renderLoopStarted = false;
-
     if (playlist)
     {
         projectm_playlist_destroy(playlist);
         playlist = nullptr;
+        --g_livePlaylistCount;
     }
     if (pm)
     {
         projectm_destroy(pm);
         pm = nullptr;
     }
-    app_data.projectm_engine = nullptr;
-    app_data.loading = EM_FALSE;
+    H.appData.loading = EM_FALSE;
+}
 
-    g_dualFbo.ReleaseAll();
+// Releases the host's GL-side resources and destroys its WebGL context. The
+// compositor program and dual-FBO textures are deleted first, while their own
+// context is still current: GL object ids are global to the Emscripten GL
+// layer, so a stale id deleted later under a different context would raise
+// GL_INVALID_OPERATION there (or delete a sibling's object).
+static void ReleaseGraphicsAndContext()
+{
+    WasmHost& H = Host();
+    H.compositorShader.Release();
+    H.dualFbo.ReleaseAll();
     ResetTransitionState();
     WasmWebGLDestroyContext();
+}
+
+static void TearDownEngineForRebind()
+{
+    WasmHost& H = Host();
+    // Take this host out of the shared render loop until start_render() opts it
+    // back in. The Emscripten main loop itself is process-global and services
+    // every started host, so it is left running: cancelling it here used to stop
+    // a sibling host's rendering too (and dropped a paused loop's pause, e.g. the
+    // render worker's).
+    H.renderLoopStarted = false;
+
+    DestroyEngineAndPlaylist();
+    ReleaseGraphicsAndContext();
 }
 
 extern "C" {
@@ -234,6 +261,7 @@ int init()
     }
     app_data.projectm_engine = pm;
     playlist = projectm_playlist_create(pm);
+    ++g_livePlaylistCount;
     const char* loc = "/presets/";
     projectm_playlist_add_path(playlist, loc, true, true);
     projectm_playlist_set_preset_switched_event_callback(playlist, &load_preset_callback_done, &app_data);
@@ -275,52 +303,39 @@ void set_mesh(int w, int h)
 EMSCRIPTEN_KEEPALIVE
 void destruct()
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& g_dualFbo = H.dualFbo;
-    if (pm)
-    {
-        projectm_destroy(pm);
-    }
-    pm = nullptr;
+    DestroyEngineAndPlaylist();
     // Release this host's PCM ring (#246: one ring per host, so a sibling's
     // ring and producers are untouched). The worklet is told to detach it.
     pcm_ring_shutdown();
     // Phase 2: Release dual FBO resources before destroying the WebGL context
     // to avoid calling OpenGL functions with an invalid context.
-    g_dualFbo.ReleaseAll();
-    ResetTransitionState();
-    WasmWebGLDestroyContext();
+    ReleaseGraphicsAndContext();
     return;
 }
 
 // Called from the host page's "webglcontextlost" handler (see
 // html/projectm-context-loss.js), before the browser's "webglcontextrestored"
 // event fires. At this point the WebGL context is already gone, so every GL
-// call below (inside projectm_destroy() and g_dualFbo.ReleaseAll()) is a
-// no-op per the WebGL spec; they only exist to reset projectM's bookkeeping
-// (pm, playlist, gl_ctx, dual-FBO allocation flags) so that a subsequent
-// init() call takes the full re-initialization path instead of the
-// "already initialized" early return.
+// call below (inside projectm_destroy(), the compositor release and
+// g_dualFbo.ReleaseAll()) is a no-op per the WebGL spec; they only exist to
+// reset projectM's bookkeeping (pm, playlist, gl_ctx, dual-FBO allocation
+// flags) so that a subsequent init() call takes the full re-initialization
+// path instead of the "already initialized" early return. init() creates a
+// fresh playlist, so the old one is destroyed here rather than dropped.
 EMSCRIPTEN_KEEPALIVE
 void pm_handle_context_loss()
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& app_data = H.appData;
-    auto& playlist = H.appData.playlist;
-    auto& g_dualFbo = H.dualFbo;
-    if (pm)
-    {
-        projectm_destroy(pm);
-    }
-    pm = nullptr;
-    app_data.projectm_engine = nullptr;
-    playlist = nullptr;
-    g_dualFbo.ReleaseAll();
-    ResetTransitionState();
-    WasmWebGLDestroyContext();
+    DestroyEngineAndPlaylist();
+    ReleaseGraphicsAndContext();
     return;
+}
+
+// Playlists created by init() that no teardown path has destroyed yet, summed
+// over every host. Test hook for the playlist lifecycle (see g_livePlaylistCount).
+EMSCRIPTEN_KEEPALIVE
+int live_playlist_count()
+{
+    return g_livePlaylistCount;
 }
 
 EMSCRIPTEN_KEEPALIVE

@@ -128,15 +128,18 @@ jobs:
       - name: Type-check WASM JS API
         run: bash scripts/check_html_types.sh
 
-      # Non-blocking until a CI run confirms the narrow check list (see
-      # scripts/check_cpp_tidy.sh) is clean against real src/wasm/ findings
-      # from this exact compile_commands.json — remove continue-on-error
-      # once verified.
+      # Hard gate. clang-tidy is pinned from PyPI because Ubuntu's
+      # clang-tidy-18 cannot parse emsdk's libc++ headers (see the header of
+      # scripts/check_cpp_tidy.sh). CPP_TIDY_REQUIRED=1 turns a missing
+      # prerequisite into a failure instead of a silent skip.
       - name: clang-tidy (src/wasm/, narrow check list)
-        continue-on-error: true
+        env:
+          CPP_TIDY_REQUIRED: '1'
+          INSTALL_DIR: ${{ github.workspace }}/install
         run: |
-          sudo apt-get install -y clang-tidy
-          scripts/check_cpp_tidy.sh "${{ github.workspace }}/cmake-build"
+          pipx install clang-tidy==22.1.8
+          CLANG_TIDY="$(pipx environment --value PIPX_BIN_DIR)/clang-tidy" \
+            scripts/check_cpp_tidy.sh "${{ github.workspace }}/cmake-build"
 
       - name: Build WASM Smoke Wrapper
         env:

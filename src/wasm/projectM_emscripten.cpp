@@ -248,7 +248,7 @@ int init()
     // projectm_set_hard_cut_enabled(pm, true);
     projectm_set_beat_sensitivity(pm, 1.50);
     projectm_playlist_set_shuffle(playlist, true);
-    projectm_set_preset_switch_failed_event_callback(pm, &_on_preset_switch_failed, nullptr);
+    projectm_set_preset_switch_failed_event_callback(pm, &on_preset_switch_failed, nullptr);
     projectm_set_preset_switch_requested_event_callback(pm, &on_preset_switch_requested, &app_data);
     InstallShaderTranspileCacheHooks();
     // projectm_playlist_connect(app_data.playlist,app_data.projectm_engine);
@@ -284,7 +284,7 @@ void destruct()
     {
         projectm_destroy(pm);
     }
-    pm = NULL;
+    pm = nullptr;
     // Release this host's PCM ring (#246: one ring per host, so a sibling's
     // ring and producers are untouched). The worklet is told to detach it.
     pcm_ring_shutdown();
@@ -316,9 +316,9 @@ void pm_handle_context_loss()
     {
         projectm_destroy(pm);
     }
-    pm = NULL;
-    app_data.projectm_engine = NULL;
-    playlist = NULL;
+    pm = nullptr;
+    app_data.projectm_engine = nullptr;
+    playlist = nullptr;
     g_dualFbo.ReleaseAll();
     ResetTransitionState();
     WasmWebGLDestroyContext();
@@ -331,7 +331,9 @@ void set_aspect_correction(bool enabled)
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
+    {
         return;
+    }
     projectm_set_aspect_correction(pm, enabled);
     return;
 }
@@ -342,7 +344,9 @@ void set_preset_locked(bool locked)
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
+    {
         return;
+    }
     projectm_set_preset_locked(pm, locked);
     printf("Preset lock set to: %s\n", locked ? "true" : "false");
     return;
@@ -354,7 +358,9 @@ void set_transparency_mode(bool enabled)
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
+    {
         return;
+    }
     projectm_set_transparency_mode(pm, enabled);
     return;
 }
@@ -365,7 +371,9 @@ bool get_transparency_mode()
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
+    {
         return false;
+    }
     return projectm_get_transparency_mode(pm);
 }
 
@@ -375,7 +383,9 @@ void set_transparency_threshold(float threshold)
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
+    {
         return;
+    }
     projectm_set_transparency_threshold(pm, threshold);
     return;
 }
@@ -386,7 +396,9 @@ float get_transparency_threshold()
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
+    {
         return 0.01f;
+    }
     return projectm_get_transparency_threshold(pm);
 }
 } // extern "C"

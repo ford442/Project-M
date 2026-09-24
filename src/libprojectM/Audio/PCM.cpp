@@ -76,7 +76,6 @@ void PCM::UpdateFrameAudioData(double secondsSinceLastFrame, uint32_t frame)
     m_bass.Update(m_spectrumL, secondsSinceLastFrame, frame);
     m_middles.Update(m_spectrumL, secondsSinceLastFrame, frame);
     m_treble.Update(m_spectrumL, secondsSinceLastFrame, frame);
-
 }
 
 auto PCM::GetFrameAudioData() const -> FrameAudioData

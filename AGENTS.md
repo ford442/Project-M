@@ -224,7 +224,7 @@ Third-party code that is compiled as part of the project:
   - Pointer alignment: left (`int* ptr`)
   - Short functions/lambdas: allowed on single line; other blocks: never
 - `scripts/check_cpp_format.sh` runs `clang-format --dry-run -Werror` over a
-  fixed, growing list of directories (currently `src/wasm/`,
+  fixed, growing list of directories (currently `src/wasm/`, `src/libprojectM/Audio/`,
   `src/libprojectM/Renderer/Platform/`, `tests/cxx-interface/`) and runs in
   its own `cpp_format_gate.yml` workflow. It is deliberately not
   repo-wide yet: most of `src/libprojectM/` and `src/playlist/` are not
@@ -254,16 +254,30 @@ Third-party code that is compiled as part of the project:
   - `misc-*`
 - Disabled checks include `magic-numbers`, `owning-memory`, `pro-bounds-pointer-arithmetic`, and `easily-swappable-parameters`.
 - `scripts/check_cpp_tidy.sh` runs a narrower check list
-  (`bugprone-*`, `performance-*`, `modernize-use-nullptr`,
-  `readability-braces-around-statements`) over `src/wasm/` only, against a
-  `compile_commands.json` produced by an Emscripten build configured with
-  `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` (native builds never compile
-  `src/wasm/`, so there is no non-Emscripten path for this). It runs as a
-  `continue-on-error: true` step in `build_emscripten.yml` — non-blocking
-  until a real CI run confirms the narrow check list is clean, at which
-  point drop `continue-on-error` to make it a hard gate. Widen the check
-  list and the directory coverage together, gradually, same reasoning as
-  `check_cpp_format.sh`'s PATHS list.
+  (`bugprone-*` minus `easily-swappable-parameters`, `performance-*` minus
+  `no-int-to-ptr`/`enum-size`, `modernize-use-nullptr`,
+  `readability-braces-around-statements`) over `src/wasm/` only. It is a
+  **hard gate** in `build_emscripten.yml`. It does not read
+  `compile_commands.json` — CMake never compiles `src/wasm/` (the smoke
+  wrapper script does), so the script spells out the wasm32 target, emsdk
+  sysroot and wrapper include list itself. It needs clang-tidy >= 22
+  (Ubuntu's clang-tidy-18 cannot parse emsdk's libc++; CI pins
+  `clang-tidy==22.1.8` from PyPI via `pipx`), `em++` on PATH, a built
+  Emscripten CMake dir and `INSTALL_DIR`. Locally it skips when a
+  prerequisite is missing; `CPP_TIDY_REQUIRED=1` makes that fatal. Widen the
+  check list and the directory coverage together, gradually, same reasoning
+  as `check_cpp_format.sh`'s PATHS list.
+
+### Sanitizers
+- `build_linux.yml`'s `sanitizers` job builds Debug with
+  `-fsanitize=undefined,address` (static libs) and runs the full `ctest`
+  suite, including `PresetCompat` over `presets/tests/`, with
+  `UBSAN_OPTIONS=halt_on_error=1` and leak detection on. Reproduce locally by
+  passing the same `CMAKE_{C,CXX}_FLAGS` / `CMAKE_{EXE,SHARED}_LINKER_FLAGS`
+  as that job. `*BenchTest.*` is filtered out there (wall-clock budgets).
+  LSan suppressions live in `tests/sanitizers/lsan.supp`; do not add one
+  without a comment naming the third-party library and why.
+  TSAN is not wired up yet (OpenMP needs suppressions).
 
 ### Naming Conventions (enforced by `.clang-tidy`)
 | Entity | Style | Example |

@@ -1,0 +1,6 @@
+# LeakSanitizer suppressions for build_linux.yml's `sanitizers` job.
+# Every entry must name a third-party library and say why it is not ours.
+
+# SDL_Init(SDL_INIT_VIDEO) in tests/libprojectM/HeadlessGlContext.cpp connects
+# to D-Bus; libdbus keeps a ~1 KB read buffer alive until process exit.
+leak:libdbus-1.so

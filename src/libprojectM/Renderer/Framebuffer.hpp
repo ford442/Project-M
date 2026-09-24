@@ -7,6 +7,8 @@
 #include "Renderer/TextureAttachment.hpp"
 
 #include <map>
+#include <memory>
+#include <set>
 #include <atomic>
 #include <vector>
 
@@ -37,6 +39,15 @@ namespace Renderer {
 class Framebuffer
 {
 public:
+    /**
+     * @brief Who owns the storage of an attachment set via SetAttachment().
+     */
+    enum class AttachmentStorage
+    {
+        Owned,   //!< The framebuffer owns the texture; SetSize() reallocates it.
+        External //!< The caller owns the texture; SetSize() never reallocates or re-points it.
+    };
+
     /**
      * @brief Creates a new framebuffer object with one framebuffer.
      */
@@ -85,8 +96,12 @@ public:
     /**
      * @brief Sets the framebuffer texture size.
      *
-     * This will bind the framebuffers and reallocate all attachment textures, creating new
-     * textures with the given size. The default framebuffer is bound after the call is finished.
+     * This will bind the framebuffers and reallocate all owned attachment textures, creating new
+     * textures with the given size. Attachments set with AttachmentStorage::External are left
+     * untouched: their texture object, size and GL attachment binding stay exactly as the caller
+     * set them, so a caller holding that texture (e.g. as a named sampler or render target) keeps
+     * a valid handle. The caller is responsible for resizing and re-attaching external textures.
+     * The default framebuffer is bound after the call is finished.
      * If either width or height is zero or both equal the the current size, the framebuffer contents
      * won't be changed.
      * @param width The width of the framebuffer.
@@ -119,14 +134,21 @@ public:
 
     /**
      * @brief Sets a texture attachment slot to the given object.
+     * Insert-or-assign: re-attaching to an occupied slot replaces the tracked attachment, so
+     * GetAttachment() / GetColorAttachmentTexture() always match what GL has bound.
      * Sets the read/write FBOs to the previously used ones in this instance. If a different
      * Framebuffer instance was used to read or draw, it must be bound again explicitly after this call.
+     * @note The GL attachment is only bound while the framebuffer has a non-zero size.
      * @param framebufferIndex The framebuffer index.
      * @param attachmentIndex The index of the color attachment, at least indices 0-7 are guaranteed
      *                        to be available. Ignored for non-color attachments.
      * @param attachment The attachment to add to the framebuffer.
+     * @param storage Owned (default) lets SetSize() reallocate the texture. External marks it as
+     *                caller-managed so SetSize() skips it. The flag is per slot and is reset by
+     *                the next SetAttachment(), Create*Attachment() or Remove*Attachment() call.
      */
-    void SetAttachment(int framebufferIndex, int attachmentIndex, const std::shared_ptr<TextureAttachment>& attachment);
+    void SetAttachment(int framebufferIndex, int attachmentIndex, const std::shared_ptr<TextureAttachment>& attachment,
+                       AttachmentStorage storage = AttachmentStorage::Owned);
 
     /**
      * @brief Adds a new color attachment to the framebuffer.
@@ -241,6 +263,7 @@ private:
     using AttachmentsPerSlot = std::map<GLenum, std::shared_ptr<TextureAttachment>>;
     std::vector<unsigned int> m_framebufferIds{}; //!< The framebuffer IDs returned by OpenGL
     std::map<int, AttachmentsPerSlot> m_attachments; //!< Framebuffer texture attachments.
+    std::map<int, std::set<GLenum>> m_externalAttachments; //!< Slots set with AttachmentStorage::External, skipped by SetSize().
 
     int m_width{}; //!< Framebuffers texture width
     int m_height{}; //!< Framebuffers texture height.

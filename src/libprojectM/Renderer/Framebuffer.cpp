@@ -111,8 +111,14 @@ bool Framebuffer::SetSize(int width, int height)
     for (auto& attachments : m_attachments)
     {
         Bind(attachments.first);
+        const auto& externalSlots = m_externalAttachments[attachments.first];
         for (auto& texture : attachments.second)
         {
+            if (externalSlots.count(texture.first) != 0)
+            {
+                // Caller-managed storage: never reallocate or re-point it here.
+                continue;
+            }
             // Detach old texture, resize (destroys old and creates new), reattach new.
             glFramebufferTexture2D(GL_FRAMEBUFFER, texture.first, GL_TEXTURE_2D, 0, 0);
             texture.second->SetSize(width, height);
@@ -167,7 +173,8 @@ auto Framebuffer::GetAttachment(int framebufferIndex, TextureAttachment::Attachm
     return framebufferAttachments.at(textureType);
 }
 
-void Framebuffer::SetAttachment(int framebufferIndex, int attachmentIndex, const std::shared_ptr<TextureAttachment>& attachment)
+void Framebuffer::SetAttachment(int framebufferIndex, int attachmentIndex, const std::shared_ptr<TextureAttachment>& attachment,
+                                AttachmentStorage storage)
 {
     if (!attachment)
     {
@@ -200,6 +207,14 @@ void Framebuffer::SetAttachment(int framebufferIndex, int attachmentIndex, const
     // tracked attachment, otherwise GL state and m_attachments disagree and
     // GetColorAttachmentTexture() keeps returning the previous texture.
     m_attachments.at(framebufferIndex).insert_or_assign(textureType, attachment);
+    if (storage == AttachmentStorage::External)
+    {
+        m_externalAttachments[framebufferIndex].insert(textureType);
+    }
+    else
+    {
+        m_externalAttachments[framebufferIndex].erase(textureType);
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, m_framebufferIds.at(framebufferIndex));
 
@@ -229,6 +244,7 @@ void Framebuffer::CreateColorAttachment(int framebufferIndex, int attachmentInde
     auto textureAttachment = std::make_shared<TextureAttachment>(internalFormat, format, type, m_width, m_height);
     const auto texture = textureAttachment->Texture();
     m_attachments.at(framebufferIndex).insert_or_assign(GL_COLOR_ATTACHMENT0 + attachmentIndex, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_COLOR_ATTACHMENT0 + attachmentIndex);
 
     Bind(framebufferIndex);
     if (m_width > 0 && m_height > 0)
@@ -270,6 +286,7 @@ void Framebuffer::CreateDepthAttachment(int framebufferIndex)
     auto textureAttachment = std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::Depth, m_width, m_height);
     const auto texture = textureAttachment->Texture();
     m_attachments.at(framebufferIndex).insert_or_assign(GL_DEPTH_ATTACHMENT, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_DEPTH_ATTACHMENT);
 
     Bind(framebufferIndex);
     if (m_width > 0 && m_height > 0)
@@ -295,6 +312,7 @@ void Framebuffer::CreateStencilAttachment(int framebufferIndex)
     auto textureAttachment = std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::Stencil, m_width, m_height);
     const auto texture = textureAttachment->Texture();
     m_attachments.at(framebufferIndex).insert_or_assign(GL_STENCIL_ATTACHMENT, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_STENCIL_ATTACHMENT);
 
     Bind(framebufferIndex);
     if (m_width > 0 && m_height > 0)
@@ -320,6 +338,7 @@ void Framebuffer::CreateDepthStencilAttachment(int framebufferIndex)
     auto textureAttachment = std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::DepthStencil, m_width, m_height);
     const auto texture = textureAttachment->Texture();
     m_attachments.at(framebufferIndex).insert_or_assign(GL_DEPTH_STENCIL_ATTACHMENT, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_DEPTH_STENCIL_ATTACHMENT);
 
     Bind(framebufferIndex);
     if (m_width > 0 && m_height > 0)
@@ -417,6 +436,7 @@ void Framebuffer::RemoveAttachment(int framebufferIndex, GLenum attachmentType)
     UpdateDrawBuffers(framebufferIndex);
 
     m_attachments.at(framebufferIndex).erase(attachmentType);
+    m_externalAttachments[framebufferIndex].erase(attachmentType);
 
     // Reset to previous read/draw buffers
     glBindFramebuffer(GL_READ_FRAMEBUFFER, m_framebufferIds.at(m_readFramebuffer));

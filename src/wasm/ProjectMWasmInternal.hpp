@@ -160,7 +160,7 @@ void UpdateQualityGovernor(double frameMs);
 // signatures passed to the projectM callback setters.
 void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_data);
 void on_preset_switch_requested(bool is_hard_cut, void* user_data);
-void _on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data);
+void on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data);
 
 // ---- EM_JS host-page hooks called across TU boundaries ---------------------
 // Each is implemented via EM_JS (C linkage) in the TU noted; declared here so

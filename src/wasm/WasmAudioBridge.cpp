@@ -26,7 +26,7 @@ using namespace emscripten;
 
 void projectm_pcm_add_float_from_js_array_wrapper(
     uintptr_t pm_handle_value,
-    emscripten::val js_audio_array_val,
+    const emscripten::val& js_audio_array_val,
     unsigned int num_samples_per_channel,
     int channels_enum_value)
 {

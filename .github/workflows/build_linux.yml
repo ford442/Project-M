@@ -98,6 +98,58 @@ jobs:
             name: projectm-linux-${{ matrix.libs }}-${{ matrix.fslib }}-${{ matrix.runs-on }}
             path: install/*
 
+  sanitizers:
+    name: "Debug + ASan/UBSan: unit tests, PresetCompat"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: 'recursive'
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install  --yes --no-install-recommends \
+            libgl1-mesa-dev \
+            mesa-common-dev \
+            libsdl2-dev \
+            libglm-dev \
+            libgtest-dev \
+            libgmock-dev \
+            ninja-build \
+            xvfb
+
+      # Static libs so the sanitizer runtime instruments everything the tests
+      # link, without LD_PRELOAD games for a shared libprojectM.
+      - name: Configure Build
+        run: |
+          cmake -G "Ninja Multi-Config" \
+            -S "${{ github.workspace }}" \
+            -B "${{ github.workspace }}/cmake-build" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_TESTING=YES \
+            -DCMAKE_C_FLAGS="-fsanitize=undefined,address -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=undefined,address -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined,address" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=undefined,address"
+
+      - name: Build Debug
+        run: cmake --build "${{ github.workspace }}/cmake-build" --config "Debug" --parallel
+
+      # halt_on_error makes any UBSan report fail the test binary instead of
+      # just printing. LSan suppressions live in tests/sanitizers/lsan.supp,
+      # one commented third-party entry each. *BenchTest.* assert wall-clock
+      # budgets that sanitizer overhead blows by design, so they are skipped
+      # here (they still run in the regular matrix above).
+      - name: Run Unit Tests (ASan + UBSan)
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/sanitizers/lsan.supp:print_suppressions=0
+          GTEST_FILTER: '-*BenchTest.*'
+        run: ctest --test-dir "${{ github.workspace }}/cmake-build" --output-on-failure --build-config "Debug"
+
   transition-shaders:
     name: Transition shader GLSL/GLES validation
     runs-on: ubuntu-24.04

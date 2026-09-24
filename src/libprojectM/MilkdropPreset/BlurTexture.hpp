@@ -176,6 +176,11 @@ private:
     float m_appliedResolutionScale{1.0f};  //!< Scale actually baked into the currently allocated textures.
 
     Renderer::Framebuffer m_blurFramebuffer;                                        //!< Scratch framebuffer, only used by the legacy copy path.
+    // TEMPORARY: raw GL FBO instead of Renderer::Framebuffer. It predates
+    // Framebuffer::AttachmentStorage::External, which now lets a Framebuffer hold
+    // caller-owned textures without SetSize() reallocating them (see FramebufferTest).
+    // Migrating also needs SetAttachment() to bind while the FBO has no size of its own,
+    // because each pass targets a differently sized blur texture.
     GLuint m_directFramebufferId{};                                                 //!< FBO used to render blur passes straight into the blur textures.
     RenderPath m_renderPath{RenderPath::Undecided};                                 //!< How blur results reach the blur textures.
     std::shared_ptr<Renderer::Sampler> m_blurSampler;                               //!< The blur sampler.

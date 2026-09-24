@@ -10,7 +10,8 @@
 //   WasmDualFbo.cpp       dual_fbo_* / transition_* exports
 //   WasmRenderLoop.cpp    Emscripten main loop + start_render/render_frame/set_window_size
 //   WasmShaderCache.cpp   transpiled-GLSL cache hooks + shader_cache_* exports
-//   WasmRenderPathOverrides.cpp  ?blurPath / ?copyPath / ?fboPrecision ablation switches
+//   WasmRenderPathOverrides.cpp  ?blurPath / ?copyPath / ?fboPrecision / ?perPixelEval
+//                                ablation switches
 //   WasmAudioBridge.cpp   audio worklet + stream analyser + PCM feed
 //   WasmPerfGovernor.cpp  perf HUD + adaptive quality governor + OpenMP info
 //   WasmPlaylistBridge.cpp preset callbacks + playlist path helpers
@@ -261,6 +262,7 @@ int init()
     // Must happen before the first preset renders, since both paths are decided once.
     ApplyBlurPathOverride();
     ApplyCopyPathOverride();
+    ApplyPerPixelEvalOverride();
 
     pm = projectm_create();
     if (!pm)

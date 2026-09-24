@@ -49,6 +49,10 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
  * @property {boolean} [shaderLinkPending] A preset switch was waiting for its shaders to link
  *   (KHR_parallel_shader_compile) while this frame drew the previous preset. Absent from
  *   bundles that predate it.
+ * @property {'gpu' | 'cpu'} [perPixelEvalPath] How the per-pixel equations were
+ *   evaluated. 'gpu' means they were compiled into the warp vertex shader, so
+ *   perPixelEvalMs covers only the draw submission; 'cpu' means the evaluator ran
+ *   once per warp mesh vertex. Only comparable against a run with the same value.
  */
 
 /** The {@link PerfFrameStats} keys the HUD renders as bars. */
@@ -155,16 +159,15 @@ function injectStyles() {
 }
 
 function ensureHud() {
+    // The cached element is only good while it is still the one in the document.
+    // Checking identity rather than just non-null keeps the HUD from writing into a
+    // detached node after the page it was built for is gone.
+    hudEl = /** @type {HTMLDivElement | null} */ (document.getElementById(HUD_ID));
     if (hudEl) {
         return hudEl;
     }
 
     injectStyles();
-
-    hudEl = /** @type {HTMLDivElement | null} */ (document.getElementById(HUD_ID));
-    if (hudEl) {
-        return hudEl;
-    }
 
     hudEl = document.createElement('div');
     hudEl.id = HUD_ID;
@@ -218,6 +221,15 @@ function updateHud(stats) {
     if (fpsEl) fpsEl.textContent = stats.fps.toFixed(0);
     if (totalEl) totalEl.textContent = stats.totalMs.toFixed(2);
     if (linkEl) linkEl.textContent = stats.shaderLinkPending ? ' · linking shaders' : '';
+
+    // perPixelEvalMs means different work on the two paths, so the row says which one
+    // produced it rather than leaving two incomparable numbers looking alike.
+    const perPixelRow = el.querySelector('.pm-perf-hud-row[data-key="perPixelEvalMs"]');
+    const perPixelLabel = perPixelRow && perPixelRow.querySelector('.pm-perf-hud-label');
+    if (perPixelLabel) {
+        const path = stats.perPixelEvalPath === 'gpu' ? 'gpu' : 'cpu';
+        perPixelLabel.textContent = 'Per-pixel/warp [' + path + ']';
+    }
 
     BARS.forEach((bar) => {
         const row = el.querySelector(`.pm-perf-hud-row[data-key="${bar.key}"]`);
@@ -313,6 +325,7 @@ export function setupPerfTools(Module) {
      *   fps: number[],
      *   breakdown: Record<PerfBarKey, number[]>,
      *   shaderLinkPendingFrames: number,
+     *   perPixelEvalPaths: Set<string>,
      * } | null}
      */
     let samples = null;
@@ -341,6 +354,9 @@ export function setupPerfTools(Module) {
             if (stats.shaderLinkPending) {
                 collected.shaderLinkPendingFrames += 1;
             }
+            if (stats.perPixelEvalPath === 'gpu' || stats.perPixelEvalPath === 'cpu') {
+                collected.perPixelEvalPaths.add(stats.perPixelEvalPath);
+            }
             BARS.forEach((bar) => {
                 const value = stats[bar.key];
                 if (typeof value === 'number' && value >= 0) {
@@ -354,6 +370,17 @@ export function setupPerfTools(Module) {
             }
         }
     };
+
+    /**
+     * @param {Set<string>} paths
+     * @returns {'gpu' | 'cpu' | 'mixed' | null}
+     */
+    function summarizePerPixelPath(paths) {
+        if (paths.size === 1) {
+            return /** @type {'gpu' | 'cpu'} */ ([...paths][0]);
+        }
+        return paths.size > 1 ? 'mixed' : null;
+    }
 
     /** @param {NonNullable<typeof samples>} samples */
     function finishBenchmark(samples) {
@@ -369,6 +396,12 @@ export function setupPerfTools(Module) {
             // Recorded so before/after runs can be told apart: the dual-FBO
             // color format is what `?fboPrecision=high` switches.
             fboFormat: (typeof window.pmGetFboFormat === 'function') ? window.pmGetFboFormat() : null,
+            // Which per-pixel path produced breakdownMs.perPixelEvalMs. 'gpu' or 'cpu'
+            // for a run that stayed on one, 'mixed' if the preset changed under the
+            // benchmark. Two runs are only comparable when this matches, because the
+            // bucket covers different work on the two paths -- `?perPixelEval=cpu`
+            // forces the CPU side of that A/B.
+            perPixelEvalPath: summarizePerPixelPath(samples.perPixelEvalPaths),
             crossfade: crossfadeBench ? { active: true, durationSec: crossfadeSec } : null,
             openmp: collectOpenmpInfo(Module),
             totalMs: summarize(samples.totalMs),
@@ -398,6 +431,7 @@ export function setupPerfTools(Module) {
             totalMs: [],
             fps: [],
             shaderLinkPendingFrames: 0,
+            perPixelEvalPaths: new Set(),
             breakdown: BARS.reduce((acc, bar) => {
                 acc[bar.key] = [];
                 return acc;

@@ -4,6 +4,7 @@
 #include "MilkdropStaticShaders.hpp"
 #include "PerFrameContext.hpp"
 #include "PerPixelContext.hpp"
+#include "PerPixelGlslLowering.hpp"
 #include "PresetState.hpp"
 
 #include <Logging.hpp>
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
@@ -286,6 +288,16 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
     // Can't make this multithreaded as per-pixel code may use gmegabuf or regXX vars.
     auto& vertices = m_warpMesh.Vertices();
 
+    if (UsesGpuPerPixel(presetState))
+    {
+        // The equations were compiled into the warp vertex shader, so the ten transform
+        // channels are produced per vertex on the GPU. Nothing per-vertex is left to
+        // compute or upload here; WarpedBlit() passes the per-frame seeds as uniforms.
+        m_warpMesh.Update();
+        m_radiusAngleBuffer.Update();
+        return;
+    }
+
     // When no per-pixel code is active, we can safely parallelize the mesh calculation
     if (!perPixelContext.perPixelCodeHandle)
     {
@@ -430,6 +442,7 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
         // main texture is supplied un-flipped.  Signal the fragment shader to
         // fold the V-flip into the sample coordinate instead.
         perPixelMeshShader->SetUniformInt("u_flipMainTex", 1);
+        SetPerPixelUniforms(*perPixelMeshShader, presetState, perFrameContext);
     }
     else
     {
@@ -444,6 +457,7 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
         shader.SetUniformFloat4("warpFactors", warpFactors);
         shader.SetUniformFloat2("texelOffset", texelOffsets);
         shader.SetUniformFloat("decay", decay);
+        SetPerPixelUniforms(shader, presetState, perFrameContext);
     }
 
     assert(!presetState.mainTexture.expired());
@@ -472,30 +486,129 @@ auto PerPixelMesh::HasCustomWarpShader() const -> bool
     return m_warpShader != nullptr;
 }
 
+auto PerPixelMesh::UsesGpuPerPixel(const PresetState& presetState) -> bool
+{
+    return !presetState.perPixelGpuGlsl.empty();
+}
+
+auto PerPixelMesh::WarpShaderCacheKey(const PresetState& presetState) -> std::string
+{
+    if (!UsesGpuPerPixel(presetState))
+    {
+        return "milkdrop_default_warp_shader";
+    }
+
+    // Every preset on the GPU path has its own vertex shader, so the program cache must
+    // be keyed by the generated code and not by the name of the default warp shader.
+    const auto hash = std::hash<std::string>{}(presetState.perPixelGpuGlsl);
+    return "milkdrop_default_warp_shader_gpu_" + std::to_string(hash);
+}
+
 auto PerPixelMesh::GetDefaultWarpShader(const PresetState& presetState) -> std::shared_ptr<Renderer::Shader>
 {
+    const auto cacheKey = WarpShaderCacheKey(presetState);
+
     auto perPixelMeshShader = m_perPixelMeshShader.lock();
-    if (perPixelMeshShader)
+    if (perPixelMeshShader && cacheKey == m_perPixelMeshShaderKey)
     {
         return perPixelMeshShader;
     }
 
-    perPixelMeshShader = presetState.renderContext.shaderCache->Get("milkdrop_default_warp_shader");
+    perPixelMeshShader = presetState.renderContext.shaderCache->Get(cacheKey);
     if (perPixelMeshShader)
     {
+        m_perPixelMeshShader = perPixelMeshShader;
+        m_perPixelMeshShaderKey = cacheKey;
         return perPixelMeshShader;
     }
 
     auto staticShaders = libprojectM::MilkdropPreset::MilkdropStaticShaders::Get();
 
     perPixelMeshShader = std::make_shared<Renderer::Shader>();
-    perPixelMeshShader->CompileProgram(staticShaders->GetPresetWarpVertexShader(),
-                                       staticShaders->GetPresetWarpFragmentShader());
+    perPixelMeshShader->CompileProgram(
+        PerPixelGlslLowering::ComposeWarpVertexShader(presetState.perPixelGpuGlsl),
+        staticShaders->GetPresetWarpFragmentShader());
 
-    presetState.renderContext.shaderCache->Insert("milkdrop_default_warp_shader", perPixelMeshShader);
+    presetState.renderContext.shaderCache->Insert(cacheKey, perPixelMeshShader);
     m_perPixelMeshShader = perPixelMeshShader;
+    m_perPixelMeshShaderKey = cacheKey;
 
     return perPixelMeshShader;
+}
+
+void PerPixelMesh::SetPerPixelUniforms(const Renderer::Shader& shader,
+                                       const PresetState& presetState,
+                                       const PerFrameContext& perFrameContext)
+{
+    if (!UsesGpuPerPixel(presetState))
+    {
+        return;
+    }
+
+    shader.SetUniformFloat4("u_pp_seed_transforms",
+                            {static_cast<float>(*perFrameContext.zoom),
+                             static_cast<float>(*perFrameContext.zoomexp),
+                             static_cast<float>(*perFrameContext.rot),
+                             static_cast<float>(*perFrameContext.warp)});
+    shader.SetUniformFloat2("u_pp_seed_center",
+                            {static_cast<float>(*perFrameContext.cx),
+                             static_cast<float>(*perFrameContext.cy)});
+    shader.SetUniformFloat2("u_pp_seed_distance",
+                            {static_cast<float>(*perFrameContext.dx),
+                             static_cast<float>(*perFrameContext.dy)});
+    shader.SetUniformFloat2("u_pp_seed_stretch",
+                            {static_cast<float>(*perFrameContext.sx),
+                             static_cast<float>(*perFrameContext.sy)});
+
+    // Only the scalars the generated code actually reads were declared, so anything
+    // not in the mask has no uniform to set. SetUniformFloat() tolerates a missing
+    // location anyway; the mask just avoids the lookups.
+    const auto uniforms = presetState.perPixelGpuUniforms;
+    const struct
+    {
+        std::uint32_t flag;
+        const char* name;
+        float value;
+    } scalars[] = {
+        {PerPixelGlslLowering::UniformTime, "u_pp_time", static_cast<float>(*perFrameContext.time)},
+        {PerPixelGlslLowering::UniformFps, "u_pp_fps", static_cast<float>(*perFrameContext.fps)},
+        {PerPixelGlslLowering::UniformFrame, "u_pp_frame", static_cast<float>(*perFrameContext.frame)},
+        {PerPixelGlslLowering::UniformProgress, "u_pp_progress", static_cast<float>(*perFrameContext.progress)},
+        {PerPixelGlslLowering::UniformBass, "u_pp_bass", static_cast<float>(*perFrameContext.bass)},
+        {PerPixelGlslLowering::UniformMid, "u_pp_mid", static_cast<float>(*perFrameContext.mid)},
+        {PerPixelGlslLowering::UniformTreb, "u_pp_treb", static_cast<float>(*perFrameContext.treb)},
+        {PerPixelGlslLowering::UniformBassAtt, "u_pp_bass_att", static_cast<float>(*perFrameContext.bass_att)},
+        {PerPixelGlslLowering::UniformMidAtt, "u_pp_mid_att", static_cast<float>(*perFrameContext.mid_att)},
+        {PerPixelGlslLowering::UniformTrebAtt, "u_pp_treb_att", static_cast<float>(*perFrameContext.treb_att)},
+        {PerPixelGlslLowering::UniformMeshX, "u_pp_meshx", static_cast<float>(presetState.renderContext.perPixelMeshX)},
+        {PerPixelGlslLowering::UniformMeshY, "u_pp_meshy", static_cast<float>(presetState.renderContext.perPixelMeshY)},
+        {PerPixelGlslLowering::UniformPixelsX, "u_pp_pixelsx", static_cast<float>(presetState.renderContext.viewportSizeX)},
+        {PerPixelGlslLowering::UniformPixelsY, "u_pp_pixelsy", static_cast<float>(presetState.renderContext.viewportSizeY)},
+        {PerPixelGlslLowering::UniformAspectX, "u_pp_aspectx", presetState.renderContext.aspectX},
+        {PerPixelGlslLowering::UniformAspectY, "u_pp_aspecty", presetState.renderContext.aspectY},
+    };
+
+    for (const auto& scalar : scalars)
+    {
+        if ((uniforms & scalar.flag) != 0u)
+        {
+            shader.SetUniformFloat(scalar.name, scalar.value);
+        }
+    }
+
+    for (int vector = 0; vector < QVarCount / 4; vector++)
+    {
+        if ((presetState.perPixelGpuQVectors & (1u << static_cast<std::uint32_t>(vector))) == 0u)
+        {
+            continue;
+        }
+        const std::string name = "u_pp_q[" + std::to_string(vector) + "]";
+        shader.SetUniformFloat4(name.c_str(),
+                                {static_cast<float>(*perFrameContext.q_vars[vector * 4 + 0]),
+                                 static_cast<float>(*perFrameContext.q_vars[vector * 4 + 1]),
+                                 static_cast<float>(*perFrameContext.q_vars[vector * 4 + 2]),
+                                 static_cast<float>(*perFrameContext.q_vars[vector * 4 + 3])});
+    }
 }
 
 } // namespace MilkdropPreset

@@ -146,7 +146,7 @@ back into the dual-source problem this migration started from:
 
 ### Coverage
 
-**All 33 `html/projectm-*.js` modules are checkJs-clean and in the `include` of
+**All 36 `html/projectm-*.js` modules are checkJs-clean and in the `include` of
 one of the two tsconfigs** — there is no unconverted backlog. Add new modules to
 `tsconfig.json` in the same commit that creates them; a module left out is not
 checked, and (as `projectm-worklet-playback.js` and then

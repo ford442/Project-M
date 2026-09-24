@@ -8,7 +8,7 @@
 // own alternative render paths in the browser without a rebuild — see
 // docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
 //
-// init() (projectM_emscripten.cpp) calls all three exactly once, before the
+// init() (projectM_emscripten.cpp) calls them all exactly once, before the
 // first preset renders: every path below is decided once at startup and never
 // re-read.
 #include "ProjectMWasmInternal.hpp"
@@ -68,6 +68,36 @@ EM_JS(int, js_copy_force_shader_path, (), {
     }
 });
 // clang-format on
+
+// clang-format off
+EM_JS(int, js_per_pixel_force_cpu_path, (), {
+    if (!globalThis.location || !globalThis.location.search)
+    {
+        return 0;
+    }
+    try
+    {
+        const value = new URLSearchParams(globalThis.location.search).get('perPixelEval');
+        return (value && value.toLowerCase() === 'cpu') ? 1 : 0;
+    }
+    catch (e)
+    {
+        return 0;
+    }
+});
+// clang-format on
+
+// Ablation switch for the GPU per-pixel path: ?perPixelEval=cpu keeps every preset on
+// the projectM-EvalLib loop even when its equations compiled to GLSL, so the two paths
+// can be A/B'd on one build. Consumed by PerPixelGlslLowering::ForcedToCpu(); see
+// docs/GPU_PERPIXEL_EVAL.md.
+void ApplyPerPixelEvalOverride()
+{
+    if (js_per_pixel_force_cpu_path() != 0)
+    {
+        setenv("PROJECTM_PER_PIXEL_EVAL", "cpu", 1);
+    }
+}
 
 // Ablation switch for benchmarking the texture-copy path: ?copyPath=shader restores the
 // pre-#179 fullscreen-quad copy so it can be A/B'd against the default glBlitFramebuffer

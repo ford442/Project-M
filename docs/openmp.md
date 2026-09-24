@@ -19,10 +19,12 @@ cost exceeds gain; the aligner reduction also conflicted with wasm `libomp` link
 
 The per-pixel mesh loop is the largest remaining CPU cost at 80×60. Compiling those
 equations to a warp vertex shader (so OpenMP is no longer load-bearing for lowerable
-presets) is [#227](https://github.com/ford442/Project-M/issues/227); design in
-[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). **Not implemented.** A GPU path must not
-reintroduce a 4-thread libomp spin. The CPU path already uses `kmp_set_blocktime(0)`
-to suppress that spin (#220).
+presets) is [#227](https://github.com/ford442/Project-M/issues/227) Phase 1; see
+[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). **It has landed**, and it does not touch
+this path: presets it refuses — carry-state locals, `rand`, `megabuf`, `invsqrt` — still
+run the OpenMP loop, and no thread pool is spun for the ones it accepts. The CPU path
+keeps `kmp_set_blocktime(0)` to suppress the 4-thread libomp spin (#220), and a GPU path
+must not reintroduce one.
 
 Tune thresholds with:
 

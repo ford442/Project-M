@@ -1,3 +1,16 @@
+// PerPixelMesh::BuildWarpVertexShader() replaces the marker line below with one of two
+// blocks, depending on whether this preset's per_pixel_* code was compiled to GLSL
+// (docs/GPU_PERPIXEL_EVAL.md):
+//
+//   CPU path - the warp mesh attributes the CPU evaluation loop fills in:
+//       layout(location = 4) in vec4 transforms;  ... and locations 5, 6, 7.
+//   GPU path - the generated prjm_per_pixel() function plus the per-frame uniforms it
+//       reads and the four seed uniforms the equations start from.
+//
+// It must come before the #defines below, so that none of the generated identifiers
+// can be caught by them.
+//PRJM_PER_PIXEL_DECLARATIONS
+
 #define pos vertex_position
 #define radius rad_ang.x
 #define angle rad_ang.y
@@ -13,10 +26,6 @@
 
 layout(location = 0) in vec2 vertex_position;
 layout(location = 3) in vec2 rad_ang;
-layout(location = 4) in vec4 transforms;
-layout(location = 5) in vec2 warp_center;
-layout(location = 6) in vec2 warp_distance;
-layout(location = 7) in vec2 stretch;
 
 uniform mat4 vertex_transformation;
 uniform vec4 aspect;
@@ -31,6 +40,11 @@ out vec4 frag_TEXCOORD0;
 out vec2 frag_TEXCOORD1;
 
 void main() {
+    // Replaced with nothing on the CPU path, where transforms/warp_center/
+    // warp_distance/stretch are the vertex attributes declared above, or with the
+    // seed-and-evaluate block on the GPU path.
+    //PRJM_PER_PIXEL_SETUP
+
     gl_Position = vertex_transformation * vec4(pos, 0.0, 1.0);
 
     float zoom2 = pow(zoom, pow(zoomExp, radius * 2.0 - 1.0));

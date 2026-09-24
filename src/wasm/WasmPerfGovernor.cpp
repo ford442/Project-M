@@ -96,7 +96,8 @@ EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
 EM_JS(void, js_perf_report_frame, (
     double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
     double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps,
-    int shaderLinkPending
+    int shaderLinkPending,
+    int perPixelEvalPath
 ), {
     if (typeof globalThis.pmOnPerfFrame === 'function') {
         globalThis.pmOnPerfFrame({
@@ -110,6 +111,11 @@ EM_JS(void, js_perf_report_frame, (
             gpuMs: gpuMs,
             fps: fps,
             shaderLinkPending: shaderLinkPending !== 0,
+            // 'gpu' when the preset's per_pixel_* code was compiled into the warp
+            // vertex shader, 'cpu' when the evaluator ran per vertex. perPixelEvalMs
+            // covers different work in the two cases, so an A/B is only meaningful
+            // between runs with the same value here.
+            perPixelEvalPath: perPixelEvalPath ? 'gpu' : 'cpu',
         });
     }
 });

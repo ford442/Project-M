@@ -67,8 +67,11 @@ No presets in the `heavy` tier. 🎉
   frame. Moving the zoom/warp math into a `warp_*` shader body hands it to the GPU and
   is usually the single biggest win (**#170**, by rewriting the preset). Compiling
   `per_pixel_*` to a generated warp vertex snippet so the next 400 presets do not need
-  a human is **#227** Phase 1 — design only, see
-  [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md); not in the engine yet.
+  a human is **#227** Phase 1, which has landed — see
+  [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). It covers 186 of the 241 presets here
+  with per-pixel code, but it refuses the ones whose equations carry state between
+  vertices (a local read before it is assigned), which is exactly the mashup pattern at
+  the top of this list. Those still need #170.
 - **tex2D fetches dominant** — bandwidth bound. Look for repeated fetches of the same
   coordinate that can be hoisted into a local, or blur taps that can drop an octave.
 - **shader body length dominant** — long per-fragment programs. Check for math that is

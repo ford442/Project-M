@@ -65,6 +65,15 @@ typedef struct {
      * Fork extension; appended so existing field offsets are unchanged.
      */
     int shader_link_pending;
+    /**
+     * How the per-pixel equations were evaluated: 0 = CPU (the projectM-EvalLib loop
+     * over every warp mesh vertex), 1 = GPU (compiled into the warp vertex shader).
+     *
+     * per_pixel_eval_ms means different things in the two cases -- on the GPU path it
+     * is only the draw submission -- so a measurement is only comparable against
+     * another with the same value here.
+     */
+    int per_pixel_eval_path;
 } projectm_perf_frame_timings;
 
 /**

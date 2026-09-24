@@ -72,6 +72,8 @@ add_library(MilkdropPreset OBJECT
         PerFrameContext.hpp
         PerPixelContext.cpp
         PerPixelContext.hpp
+        PerPixelGlslLowering.cpp
+        PerPixelGlslLowering.hpp
         PerPixelMesh.cpp
         PerPixelMesh.hpp
         PresetFileParser.cpp
@@ -145,6 +147,11 @@ target_link_libraries(MilkdropPreset
         hlslparser
         GLM::GLM
         )
+
+get_property(PROJECTM_EVAL_INTERNAL_TREE GLOBAL PROPERTY PROJECTM_EVAL_INTERNAL_TREE)
+if(PROJECTM_EVAL_INTERNAL_TREE)
+    target_compile_definitions(MilkdropPreset PUBLIC PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE)
+endif()
 
 if(ENABLE_OPENMP AND OpenMP_CXX_FOUND)
     target_link_libraries(MilkdropPreset PUBLIC OpenMP::OpenMP_CXX)

@@ -26,7 +26,7 @@ frame, broken down into:
 |---|---|
 | `audio_analysis_ms` | `PCM::UpdateFrameAudioData()` — FFT (`MilkdropFFT.cpp`) + loudness (`Loudness.cpp`) analysis. |
 | `per_frame_eval_ms` | Per-frame equation evaluation (`PerFrameUpdate()`, projectm-eval). |
-| `per_pixel_eval_ms` | Per-pixel mesh evaluation and warp draw (`PerPixelMesh::Draw`, `PerPixelContext`). Today this is CPU `projectm-eval` over the warp mesh (OpenMP in WASM). A later GPU path (`perPixelEval=gpu` / `perPixelEval=cpu`) is designed in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) (#227) and is **not in the tree yet**. |
+| `per_pixel_eval_ms` | Per-pixel mesh evaluation and warp draw (`PerPixelMesh::Draw`, `PerPixelContext`). **This bucket covers two different kinds of work,** so always read `per_pixel_eval_path` (`perPixelEvalPath` in the benchmark JSON, `Per-pixel/warp [gpu\|cpu]` in the HUD) beside it. On the CPU path it is `projectm-eval` over every warp mesh vertex (OpenMP in WASM); on the GPU path the equations were compiled into the warp vertex shader (#227 Phase 1, [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md)) and only the uniform upload and draw submit remain. Two measurements are comparable only when the path matches — `?perPixelEval=cpu` forces the CPU side of that A/B. |
 | `blur_ms` | Blur texture chain update. |
 | `waveforms_shapes_ms` | Custom shapes, custom waveforms, built-in waveform, darken center, border. |
 | `composite_ms` | Final compositing pass and associated texture flips. |
@@ -223,10 +223,13 @@ warp/zoom/rotation fidelity. The adaptive governor's regular tier is **64×48**
 
 To keep this affordable on the additional ~2.3x vertices, `PerPixelMesh::CalculateMesh()` runs the
 per-pixel evaluation loop with `#pragma omp parallel for` when built with `ENABLE_OPENMP=ON`.
-The later-on replacement for that loop — compiling `per_pixel_*` to a GLSL vertex snippet on
-WebGL2, with a CPU fallback — is [#227](https://github.com/ford442/Project-M/issues/227);
-design in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). **Not coded yet.** Governor v2 and
-OpenMP remain the shipping levers.
+The replacement for that loop — compiling `per_pixel_*` to a GLSL vertex snippet on WebGL2,
+with a CPU fallback — is [#227](https://github.com/ford442/Project-M/issues/227) Phase 1;
+see [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). **It has landed**: 186 of the 241 presets
+in this tree with per-pixel code now evaluate their equations in the warp vertex shader, and
+the rest keep the OpenMP loop with a recorded reason. Its speed has **not** been measured — the
+verification ran on a software rasterizer — so until a `?benchmark=1` session on a real device
+says otherwise, governor v2 and OpenMP are still the levers you can quote numbers for.
 Since `projectm-eval` contexts are not re-entrant (see
 `vendor/projectm-eval/docs/Memory-Handling.md`), `MilkdropPreset` maintains a pool of one
 `PerPixelContext` per extra OpenMP worker thread (`m_perPixelContextPool`), each compiled with the

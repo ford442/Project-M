@@ -21,7 +21,11 @@ Two open projects — [#227](https://github.com/ford442/Project-M/issues/227)
 keep it looking the same"*. Without a golden-image gate the only regression
 detector is somebody noticing a preset looks off, weeks later. And the rest of
 #174's backlog is blocked on being able to measure at all. Phase 1 of #227
-explicitly uses this harness as its screenshot-similarity gate.
+has since landed, and it verifies parity with two headless suites of its own
+(`PerPixelGlslLoweringTest`, `PerPixelGpuRenderTest`) rather than through this
+harness — the warp mesh is a feedback system, so comparing a long frame sequence
+pixel-wise diverges on chaotic presets for reasons that are not regressions. It
+still owes this harness the frame-time half of its acceptance.
 
 ---
 

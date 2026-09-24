@@ -1,5 +1,6 @@
 #include "MilkdropShader.hpp"
 
+#include "PerPixelGlslLowering.hpp"
 #include "PresetState.hpp"
 #include "ShaderTranspiler.hpp"
 #include "Utils.hpp"
@@ -711,8 +712,10 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
     const int shaderTypeInt = static_cast<int>(m_type);
 
     auto compileGlsl = [&](const std::string& glslCode) {
+        // The warp vertex shader carries this preset's per-pixel code when it was
+        // compiled to GLSL, so it has to be composed rather than taken as-is.
         const std::string vertexShader = m_type == ShaderType::WarpShader
-                                             ? MilkdropStaticShaders::Get()->GetPresetWarpVertexShader()
+                                             ? PerPixelGlslLowering::ComposeWarpVertexShader(presetState.perPixelGpuGlsl)
                                              : MilkdropStaticShaders::Get()->GetPresetCompVertexShader();
         if (deferLink)
         {

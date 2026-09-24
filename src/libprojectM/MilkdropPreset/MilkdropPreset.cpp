@@ -22,6 +22,7 @@
 #include "MilkdropPreset.hpp"
 
 #include "Factory.hpp"
+#include "MilkdropPreparedPreset.hpp"
 #include "MilkdropPresetExceptions.hpp"
 #include "PresetFileParser.hpp"
 
@@ -58,6 +59,22 @@ MilkdropPreset::MilkdropPreset(std::istream& presetData)
     , m_border(m_state)
 {
     Load(presetData);
+}
+
+MilkdropPreset::MilkdropPreset(MilkdropPreparedPreset&& prepared)
+    : m_absoluteFilePath(prepared.m_absoluteFilePath)
+    , m_perFrameContext(m_state.globalMemory, &m_state.globalRegisters)
+    , m_perPixelContext(m_state.globalMemory, &m_state.globalRegisters)
+    , m_motionVectors(m_state)
+    , m_waveform(m_state)
+    , m_darkenCenter(m_state)
+    , m_border(m_state)
+{
+    if (!m_absoluteFilePath.empty())
+    {
+        SetFilename(ParseFilename(m_absoluteFilePath));
+    }
+    InitializePreset(*prepared.m_parser, &prepared);
 }
 
 void MilkdropPreset::Initialize(const Renderer::RenderContext& renderContext)
@@ -300,7 +317,7 @@ void MilkdropPreset::Load(std::istream& stream)
     InitializePreset(parser);
 }
 
-void MilkdropPreset::InitializePreset(PresetFileParser& parsedFile)
+void MilkdropPreset::InitializePreset(PresetFileParser& parsedFile, MilkdropPreparedPreset* prepared)
 {
     // Create the offscreen rendering surfaces.
     // MilkdropPreset uses a ping-pong framebuffer pair:
@@ -356,7 +373,7 @@ void MilkdropPreset::InitializePreset(PresetFileParser& parsedFile)
     }
 
     // Preload shaders
-    LoadShaderCode();
+    LoadShaderCode(prepared);
 }
 
 void MilkdropPreset::CompileCodeAndRunInitExpressions()
@@ -386,8 +403,15 @@ void MilkdropPreset::CompileCodeAndRunInitExpressions()
     }
 }
 
-void MilkdropPreset::LoadShaderCode()
+void MilkdropPreset::LoadShaderCode(MilkdropPreparedPreset* prepared)
 {
+    if (prepared != nullptr)
+    {
+        m_perPixelMesh.LoadWarpShader(std::move(prepared->m_warpShader));
+        m_finalComposite.LoadCompositeShader(m_state, std::move(prepared->m_compositeShader));
+        return;
+    }
+
     m_perPixelMesh.LoadWarpShader(m_state);
     m_finalComposite.LoadCompositeShader(m_state);
 }

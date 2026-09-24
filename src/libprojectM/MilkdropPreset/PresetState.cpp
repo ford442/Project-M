@@ -114,24 +114,7 @@ void PresetState::Initialize(PresetFileParser& parsedFile)
     innerBorderA = parsedFile.GetFloat("ib_a", innerBorderA);
 
     // Versions:
-    presetVersion = parsedFile.GetInt("MILKDROP_PRESET_VERSION", presetVersion);
-    if (presetVersion < 200)
-    {
-        // Milkdrop 1.x did not use shaders.
-        warpShaderVersion = 0;
-        compositeShaderVersion = 0;
-    }
-    else if (presetVersion == 200)
-    {
-        // Milkdrop 2.0 only supported a single shader language level variable.
-        warpShaderVersion = parsedFile.GetInt("PSVERSION", warpShaderVersion);
-        compositeShaderVersion = parsedFile.GetInt("PSVERSION", compositeShaderVersion);
-    }
-    else
-    {
-        warpShaderVersion = parsedFile.GetInt("PSVERSION_WARP", warpShaderVersion);
-        compositeShaderVersion = parsedFile.GetInt("PSVERSION_COMP", compositeShaderVersion);
-    }
+    ReadShaderVersions(parsedFile, presetVersion, warpShaderVersion, compositeShaderVersion);
 
     // Code:
     perFrameInitCode = parsedFile.GetCode("per_frame_init_");
@@ -158,6 +141,29 @@ void PresetState::Initialize(PresetFileParser& parsedFile)
     // Shader code:
     warpShader = parsedFile.GetCode("warp_");
     compositeShader = parsedFile.GetCode("comp_");
+}
+
+void PresetState::ReadShaderVersions(PresetFileParser& parsedFile, int& presetVersion,
+                                     int& warpShaderVersion, int& compositeShaderVersion)
+{
+    presetVersion = parsedFile.GetInt("MILKDROP_PRESET_VERSION", presetVersion);
+    if (presetVersion < 200)
+    {
+        // Milkdrop 1.x did not use shaders.
+        warpShaderVersion = 0;
+        compositeShaderVersion = 0;
+    }
+    else if (presetVersion == 200)
+    {
+        // Milkdrop 2.0 only supported a single shader language level variable.
+        warpShaderVersion = parsedFile.GetInt("PSVERSION", warpShaderVersion);
+        compositeShaderVersion = parsedFile.GetInt("PSVERSION", compositeShaderVersion);
+    }
+    else
+    {
+        warpShaderVersion = parsedFile.GetInt("PSVERSION_WARP", warpShaderVersion);
+        compositeShaderVersion = parsedFile.GetInt("PSVERSION_COMP", compositeShaderVersion);
+    }
 }
 
 void PresetState::LoadShaders()

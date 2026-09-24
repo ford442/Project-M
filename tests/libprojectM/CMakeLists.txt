@@ -10,6 +10,7 @@ set(INCLUDE_FILES
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/debug.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/memory.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/parameters.h
+        ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/preset_prepare.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/render_opengl.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/touch.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/user_sprites.h

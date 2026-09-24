@@ -17,20 +17,24 @@ constexpr int kSurfaceHeight = 64;
 
 } // namespace
 
+// The video subsystem is initialised and released with SDL_InitSubSystem() / SDL_QuitSubSystem(),
+// which are reference counted, rather than SDL_Init() / SDL_Quit(): SDL_Quit() tears down every
+// window and GL context in the process, including those of other contexts still alive in the same
+// test run (e.g. the shared one in PresetCompatTest.cpp).
 auto HeadlessGlContext::IsAvailable() -> bool
 {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
     {
         return false;
     }
 
-    SDL_Quit();
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
     return true;
 }
 
 HeadlessGlContext::HeadlessGlContext()
 {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
     {
         return;
     }
@@ -48,7 +52,7 @@ HeadlessGlContext::HeadlessGlContext()
                                 SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
     if (m_window == nullptr)
     {
-        SDL_Quit();
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
         return;
     }
 
@@ -57,7 +61,7 @@ HeadlessGlContext::HeadlessGlContext()
     {
         SDL_DestroyWindow(m_window);
         m_window = nullptr;
-        SDL_Quit();
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
         return;
     }
 
@@ -67,7 +71,7 @@ HeadlessGlContext::HeadlessGlContext()
         m_context = nullptr;
         SDL_DestroyWindow(m_window);
         m_window = nullptr;
-        SDL_Quit();
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
         return;
     }
 
@@ -86,14 +90,18 @@ HeadlessGlContext::~HeadlessGlContext()
     {
         SDL_DestroyWindow(m_window);
         m_window = nullptr;
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
     }
-
-    SDL_Quit();
 }
 
 auto HeadlessGlContext::Valid() const -> bool
 {
     return m_valid;
+}
+
+auto HeadlessGlContext::MakeCurrent() -> bool
+{
+    return m_valid && SDL_GL_MakeCurrent(m_window, m_context) == 0;
 }
 
 auto HeadlessGlContext::InitializeGlad() -> bool
@@ -124,6 +132,11 @@ HeadlessGlContext::HeadlessGlContext() = default;
 HeadlessGlContext::~HeadlessGlContext() = default;
 
 auto HeadlessGlContext::Valid() const -> bool
+{
+    return false;
+}
+
+auto HeadlessGlContext::MakeCurrent() -> bool
 {
     return false;
 }

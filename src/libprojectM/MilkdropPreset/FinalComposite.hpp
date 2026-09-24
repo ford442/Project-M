@@ -7,6 +7,8 @@
 #include <Renderer/Mesh.hpp>
 
 #include <memory>
+#include <optional>
+#include <string>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -24,6 +26,24 @@ public:
      * @param presetState The preset state to retrieve the shader from.
      */
     void LoadCompositeShader(const PresetState& presetState);
+
+    /**
+     * @brief Loads the composite shader, using one prepared off the render thread if given.
+     * @param presetState The preset state to retrieve the shader version and code from.
+     * @param prepared The prepared composite shader (see MilkdropPreparedPreset). Used only if the
+     *                 preset uses a composite shader; nullopt analyses presetState's code instead.
+     */
+    void LoadCompositeShader(const PresetState& presetState, std::optional<PreparedMilkdropShader> prepared);
+
+    /**
+     * @brief Analyses the composite shader code the way LoadCompositeShader() does, without GL. Any thread.
+     *
+     * Only meaningful if the preset uses a composite shader (compositeShaderVersion > 0).
+     * @param compositeShader The preset's composite shader code (PresetState::compositeShader).
+     * @return The analysed source: the preset's own code, or the default composite shader if it
+     *         has none or its code fails to preprocess.
+     */
+    static auto SelectCompositeShaderSource(const std::string& compositeShader) -> MilkdropShaderSource;
 
     /**
      * @brief Loads the required textures and compiles the composite shader.

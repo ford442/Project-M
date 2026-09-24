@@ -50,6 +50,8 @@ class SpriteManager;
 
 class Preset;
 class PresetFactoryManager;
+class PresetPrepareJob;
+struct PresetPrepareContext;
 class TimeKeeper;
 
 class PROJECTM_CXX_EXPORT ProjectM
@@ -99,6 +101,39 @@ public:
      *                         If set to false, the new preset will be rendered immediately.
      */
     void LoadPresetData(std::istream& presetData, bool smoothTransition);
+
+    /**
+     * @brief Starts loading a preset file in steps, so the CPU-heavy part can run on another thread.
+     *
+     * Call on the render thread. Run the returned job's PresetPrepareJob::Run() on any thread (it
+     * reads and parses the file and transpiles the preset shaders, and touches neither GL nor this
+     * instance), then pass it to LoadPreparedPreset() on the render thread. The current preset keeps
+     * rendering in the meantime. Equivalent to LoadPresetFile() once loaded.
+     *
+     * @param presetFilename The preset filename or URL to load.
+     * @return The job.
+     */
+    auto BeginPreparePresetFile(const std::string& presetFilename) -> std::unique_ptr<PresetPrepareJob>;
+
+    /**
+     * @brief Starts loading preset data in steps. See BeginPreparePresetFile().
+     * @param presetData The preset data, in Milkdrop format.
+     * @return The job.
+     */
+    auto BeginPreparePresetData(std::string presetData) -> std::unique_ptr<PresetPrepareJob>;
+
+    /**
+     * @brief Finishes a load started with BeginPreparePresetFile() / BeginPreparePresetData().
+     *
+     * Call on the render thread. Runs the job first if nobody has. On success the new preset is
+     * initialized and blended in exactly as LoadPresetFile() would; on failure the preset switch
+     * failed event is raised with the job's error and the current preset stays.
+     *
+     * @param job The job. Consumed.
+     * @param smoothTransition If set to true, old and new presets will be blended over smoothly.
+     *                         If set to false, the new preset will be rendered immediately.
+     */
+    void LoadPreparedPreset(std::unique_ptr<PresetPrepareJob> job, bool smoothTransition);
 
     void SetWindowSize(uint32_t width, uint32_t height);
 
@@ -346,6 +381,16 @@ private:
 
     void StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hardCut);
 
+    /**
+     * @brief Captures the render-thread state a background preparation needs.
+     */
+    auto CapturePresetPrepareContext() -> PresetPrepareContext;
+
+    /**
+     * @brief Runs @a job if needed and switches to its preset, or reports its failure.
+     */
+    void FinishPresetLoad(PresetPrepareJob& job, bool smoothTransition);
+
     void LoadIdlePreset();
 
     auto GetRenderContext() -> Renderer::RenderContext;
@@ -398,7 +443,7 @@ private:
     bool m_transparencyMode{false};       //!< If true, near-black final-output pixels are written with alpha = 0.
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
-    std::unique_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories.
+    std::shared_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories. Shared with in-flight PresetPrepareJobs.
 
     Audio::PCM m_audioStorage;                                                    //!< Audio data buffer and analyzer instance.
     std::unique_ptr<Renderer::TextureManager> m_textureManager;                   //!< The texture manager.

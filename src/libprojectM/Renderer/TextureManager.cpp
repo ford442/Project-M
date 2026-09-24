@@ -352,6 +352,41 @@ void TextureManager::AddTextureFile(const std::string& fileName, const std::stri
     m_scannedTextureFiles.push_back(std::move(file));
 }
 
+auto TextureManager::ScannedTextureFileNames() -> std::vector<std::string>
+{
+    ScanTextures();
+
+    std::vector<std::string> names;
+    names.reserve(m_scannedTextureFiles.size());
+    for (const auto& file : m_scannedTextureFiles)
+    {
+        names.push_back(file.lowerCaseBaseName);
+    }
+    return names;
+}
+
+auto TextureManager::VolumeTextureNames() const -> std::set<std::string>
+{
+    std::set<std::string> names;
+    for (const auto& texture : m_textures)
+    {
+        if (texture.second && texture.second->Type() == GL_TEXTURE_3D)
+        {
+            names.insert(texture.first);
+        }
+    }
+    return names;
+}
+
+auto TextureManager::UnqualifiedTextureName(const std::string& qualifiedName) -> std::string
+{
+    GLint wrapMode{};
+    GLint filterMode{};
+    std::string name;
+    ExtractTextureSettings(qualifiedName, wrapMode, filterMode, name);
+    return name;
+}
+
 void TextureManager::ExtractTextureSettings(const std::string& qualifiedName, GLint& wrapMode, GLint& filterMode, std::string& name)
 {
     if (qualifiedName.length() <= 3 || qualifiedName.at(2) != '_')

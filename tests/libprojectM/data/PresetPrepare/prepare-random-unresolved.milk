@@ -1,0 +1,17 @@
+[preset00]
+MILKDROP_PRESET_VERSION=201
+PSVERSION=2
+PSVERSION_WARP=2
+PSVERSION_COMP=2
+fDecay=0.9
+// A random texture prefix no texture file matches: the descriptor is empty, the sampler is
+// never declared, and the warp shader fails to transpile (the preset runs without it).
+warp_1=`shader_body
+warp_2=`{
+warp_3=`  ret = tex2D(sampler_main, uv).xyz * 0.5;
+warp_4=`  ret += tex2D(sampler_rand02_nomatch, uv).xyz * 0.1;
+warp_5=`}
+comp_1=`shader_body
+comp_2=`{
+comp_3=`  ret = tex2D(sampler_main, uv).xyz;
+comp_4=`}

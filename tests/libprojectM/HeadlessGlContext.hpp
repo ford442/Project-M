@@ -25,6 +25,11 @@ public:
     auto Valid() const -> bool;
 
     /**
+     * @brief Makes this context current again, e.g. after another test made its own current.
+     */
+    auto MakeCurrent() -> bool;
+
+    /**
      * @brief Loads GL entry points via GLAD after the context is current.
      */
     auto InitializeGlad() -> bool;

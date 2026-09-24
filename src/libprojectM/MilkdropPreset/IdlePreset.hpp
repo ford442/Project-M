@@ -26,7 +26,10 @@ public:
      */
     static std::unique_ptr<::libprojectM::Preset> allocate();
 
-private:
+    /**
+     * @brief The idle preset's Milkdrop source, which allocate() parses.
+     * @return The preset text.
+     */
     static std::string presetText();
 };
 

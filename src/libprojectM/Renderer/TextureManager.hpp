@@ -4,6 +4,7 @@
 #include "Renderer/TextureTypes.hpp"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,30 @@ public:
      * @param callback The callback function, or nullptr to disable.
      */
     void SetTextureLoadCallback(TextureLoadCallback callback);
+
+    /**
+     * @brief Lower-case base names of the texture files found in the search paths.
+     *
+     * The same list GetRandomTexture() picks from. Scans the search paths if they were not scanned
+     * since the last PurgeTextures(). Used to snapshot texture state for background preset preparation.
+     * @return The base names, in scan order.
+     */
+    auto ScannedTextureFileNames() -> std::vector<std::string>;
+
+    /**
+     * @brief Names of the currently known textures that are volume (GL_TEXTURE_3D) textures.
+     *
+     * GetTexture() returns a stored texture with its own type; every texture it has to load is 2D.
+     * @return The texture names, as GetTexture() looks them up.
+     */
+    auto VolumeTextureNames() const -> std::set<std::string>;
+
+    /**
+     * @brief The texture name GetTexture() looks up for a qualified sampler name, i.e. without the wrap/filter prefix.
+     * @param qualifiedName The sampler name as used in the preset, e.g. "fw_clouds".
+     * @return The unqualified texture name, e.g. "clouds".
+     */
+    static auto UnqualifiedTextureName(const std::string& qualifiedName) -> std::string;
 
 private:
     /**

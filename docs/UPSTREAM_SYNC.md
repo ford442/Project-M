@@ -115,6 +115,7 @@ Prefer **cherry-pick** for isolated fixes in `src/libprojectM/`. Avoid merging u
 | Area | Fork behavior | Upstream |
 |------|---------------|----------|
 | **WASM host** | `projectM_emscripten.cpp`, `html/projectm-*.js`, dual-FBO transitions, perf HUD, quality governor | Minimal / different Emscripten entry |
+| **Staged preset loading** | `projectM-4/preset_prepare.h` (`projectm_preset_prepare_*`, `projectm_load_prepared_preset`, `projectm_poll_pending_preset`), `PresetPrepareJob`, `MilkdropPreparedPreset`, speculative transpile in `MilkdropShader`, deferred link via `KHR_parallel_shader_compile`; `LoadPresetFile()` runs through the same job | Single synchronous `LoadPresetFile()` |
 | **OpenMP + SIMD** | `ENABLE_OPENMP`, `cmake/EmscriptenOpenMP.cmake`, wasm `-msimd128`, parallel per-pixel / PCM | Typically off / not wasm-tuned |
 | **Preset corpus** | `custom_milk_fixed/`, `weeks_presets/`, Signature Series, `grok_agent/` | Upstream preset packs are separate repos |
 | **Demo UI** | B3HD panel, preset library, FLAC/MOD PCM bridge, `?audioTest=1`, featured pack | SDL test UI only in tree |

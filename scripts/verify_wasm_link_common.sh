@@ -48,6 +48,14 @@ fi
 
 rm -f "$TMP_INC" "$TMP_HEADER" "$TMP_TS" "$TMP_JS"
 
+# ASYNCIFY is gone from every link (preset loading runs on a prepare thread);
+# the settings must not be reintroduced in the canonical flags or the generated
+# wrapper link. scripts/check_no_asyncify.sh checks a built bundle.
+if grep -nE 'ASYNCIFY' "$PROJECT_ROOT/cmake/EmscriptenWasmFlags.cmake" "$INC" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#'; then
+    echo "ERROR: an ASYNCIFY setting is back in cmake/EmscriptenWasmFlags.cmake or $INC" >&2
+    failed=1
+fi
+
 if [[ "$failed" -ne 0 ]]; then
     echo "Run: scripts/sync_wasm_link_common.sh" >&2
     exit 1

@@ -106,7 +106,7 @@ using the `-D` switch.
 | `ENABLE_PLAYLIST`   | `ON`    |                       | Builds and installs the playlist library.                                                   |
 | `ENABLE_EMSCRIPTEN` | `OFF`   | `Emscripten`          | Build for the web using Emscripten. Only supports build as a static library and using GLES. |
 | `ENABLE_GLES`       | `OFF`   | `GLES`                | Use OpenGL ES 3 profile for rendering instead of the Core profile.                          |
-| `ENABLE_WASM_TRANSITIONS` | `OFF` | `Emscripten`      | Enable dual-pipeline preset transition support for WebAssembly builds (Phase 1). When `ON`, adds `-s ASYNCIFY_STACK_SIZE=65536` to tune the ASYNCIFY stack for non-blocking shader compilation. Only effective when `ENABLE_EMSCRIPTEN` is `ON`. Leave `OFF` until the full 5-phase transition implementation is complete. |
+| `ENABLE_WASM_TRANSITIONS` | `ON` | `Emscripten`      | Enable dual-pipeline preset transition support for WebAssembly builds. Only gates the dual pipeline; it no longer affects link settings (the build has no ASYNCIFY). Only effective when `ENABLE_EMSCRIPTEN` is `ON`. |
 
 Note that `ENABLE_GLES` will be forcibly set to `ON` for Emscripten and Android builds, making it mandatory.
 

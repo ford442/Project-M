@@ -154,6 +154,11 @@ jobs:
       - name: WASM host contract names survive the link
         run: node tests/wasm-smoke/host_contract_names.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
 
+      # Preset loads are prepared on a pthread; nothing may suspend the wasm
+      # stack, so the Asyncify runtime must not creep back into the bundle.
+      - name: No Asyncify in the bundle
+        run: scripts/check_no_asyncify.sh "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
+
       - name: Validate WASM Artifacts
         run: |
           test -s "${{ github.workspace }}/install/lib/libprojectM-4.a"
@@ -172,6 +177,13 @@ jobs:
       #   node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk
       - name: Run WASM Browser Smoke Test
         run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
+
+      # The render loop must keep drawing the current preset while the next one
+      # is prepared (it used to stop for the whole load). Frame count is the gate;
+      # the stall ratio is only reported, as SwiftShader frame times are too
+      # noisy to gate on (see the script header).
+      - name: Preset switch keeps rendering
+        run: node tests/wasm-smoke/preset_switch_stall.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" --max-ratio 0
 
       # Smoke subset only (not all of custom_milk_fixed/) to keep PR runtime
       # down; see docs/kimi_preset_authoring_plan.md section 9 for the full

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM preset-switch stall</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <!--
+    Measures what a preset switch costs the render loop.
+
+    The engine runs its own Emscripten main loop (start_render), exactly as a
+    page does. Every rendered frame reports through globalThis.pmOnPerfFrame
+    (set_perf_hud(1)), which stamps it with performance.now(). A light preset is
+    loaded and left to settle, then a heavy one is requested with a hard cut:
+
+      - framesWhileLoading: frames the loop rendered between the request and the
+        frame that switched to the new preset. Before presets were prepared off
+        the render thread this was 0 by construction: renderLoop() skipped every
+        frame while app_data.loading was set.
+      - worstSwitchIntervalMs vs. baselineP95Ms: the longest gap between two
+        frames from the request until shortly after ready, against the 95th
+        percentile of the settled frames before it.
+
+    Timer-driven switches and the quality governor are switched off so nothing
+    but the measured switch changes the frame cost.
+  -->
+  <canvas id="pm-stall-main"></canvas>
+  <canvas id="pm-stall-secondary" hidden></canvas>
+  <div id="preset-name" hidden></div>
+  <div id="stat" hidden></div>
+  <script>
+    const result = { ok: false, error: null };
+
+    function finish(ok, error, extra) {
+      Object.assign(result, extra || {});
+      result.ok = ok;
+      result.error = error ? String(error && error.stack ? error.stack : error) : null;
+      window.__projectMStallResult = result;
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    async function writePreset(Module, url, vfsPath) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch ' + url + ': ' + response.status);
+      try { Module.FS.mkdir('/presets'); } catch (_) {}
+      Module.FS.writeFile(vfsPath, new Uint8Array(await response.arrayBuffer()));
+    }
+
+    function percentile(values, p) {
+      if (values.length === 0) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+    }
+
+    async function run() {
+      const params = new URLSearchParams(location.search);
+      const width = parseInt(params.get('width') || '1280', 10);
+      const height = parseInt(params.get('height') || '720', 10);
+      const baselineFrames = parseInt(params.get('baselineFrames') || '40', 10);
+      const afterFrames = parseInt(params.get('afterFrames') || '10', 10);
+      const timeoutMs = parseInt(params.get('timeoutMs') || '120000', 10);
+
+      const canvas = document.getElementById('pm-stall-main');
+      canvas.width = width;
+      canvas.height = height;
+
+      await loadScript(params.get('module'));
+      const Module = await createModule({
+        noInitialRun: true,
+        primaryCanvasSelector: '#pm-stall-main',
+        secondaryCanvasSelector: '#pm-stall-secondary',
+        locateFile: (path, prefix) => prefix + path,
+      });
+      if (Module.ccall('init_with_canvases', 'number', ['string', 'string'],
+        ['#pm-stall-main', '#pm-stall-secondary']) !== 0) {
+        throw new Error('init_with_canvases failed');
+      }
+
+      /** @type {{ t: number, linkPending: boolean }[]} */
+      const frames = [];
+      globalThis.pmOnPerfFrame = (stats) => {
+        frames.push({ t: performance.now(), linkPending: !!stats.shaderLinkPending });
+      };
+      Module._set_perf_hud(1);
+      Module._set_quality_governor(0);
+      Module._set_preset_locked(1);
+      Module._start_render(width, height);
+
+      const deadline = performance.now() + timeoutMs;
+      const waitFor = async (label, predicate) => {
+        while (!predicate()) {
+          if (Module._preset_switch_failed()) throw new Error(label + ': preset switch failed');
+          if (performance.now() > deadline) throw new Error(label + ': timed out');
+          await sleep(2);
+        }
+      };
+
+      await writePreset(Module, params.get('presetA'), '/presets/stall-a.milk');
+      await writePreset(Module, params.get('presetB'), '/presets/stall-b.milk');
+
+      Module.ccall('load_preset_file_hard', null, ['string'], ['/presets/stall-a.milk']);
+      await waitFor('preset A', () => Module._is_preset_ready(0) === 1);
+      // Settle past the activation frame and its post-load grace.
+      const settledFrom = frames.length + 5;
+      await waitFor('baseline', () => frames.length >= settledFrom + baselineFrames);
+
+      const requestIndex = frames.length;
+      const requestTime = performance.now();
+      Module.ccall('load_preset_file_hard', null, ['string'], ['/presets/stall-b.milk']);
+      await waitFor('preset B', () => Module._is_preset_ready(0) === 1);
+      const readyIndex = frames.length;
+      const readyTime = performance.now();
+      await waitFor('after', () => frames.length >= readyIndex + afterFrames);
+
+      const intervals = frames.map((frame, i) => (i === 0 ? 0 : frame.t - frames[i - 1].t));
+      const baseline = intervals.slice(settledFrom + 1, requestIndex);
+      // From the first frame after the request to two frames after ready: the
+      // activation (GL compile + link) lands in one of these.
+      const switchWindow = intervals.slice(requestIndex, Math.min(intervals.length, readyIndex + 3));
+      const baselineP95Ms = percentile(baseline, 0.95);
+      const worstSwitchIntervalMs = Math.max(0, ...switchWindow);
+
+      finish(true, null, {
+        canvas: { width, height },
+        renderer: (() => {
+          const gl = canvas.getContext('webgl2');
+          const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+          return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null;
+        })(),
+        parallelShaderCompile: !!(canvas.getContext('webgl2') || {}).getExtension?.('KHR_parallel_shader_compile'),
+        baselineFrames: baseline.length,
+        baselineMedianMs: percentile(baseline, 0.5),
+        baselineP95Ms,
+        // The last frame before ready is the one that switched to the new preset
+        // (and, on the old blocking path, the one rendered after the load
+        // finished); only the frames before it prove the loop kept running.
+        framesWhileLoading: Math.max(0, readyIndex - requestIndex - 1),
+        linkPendingFrames: frames.slice(requestIndex, readyIndex).filter((f) => f.linkPending).length,
+        switchReadyMs: readyTime - requestTime,
+        worstSwitchIntervalMs,
+        worstToP95: baselineP95Ms > 0 ? worstSwitchIntervalMs / baselineP95Ms : null,
+      });
+    }
+
+    run().catch((error) => finish(false, error));
+  </script>
+</body>
+</html>

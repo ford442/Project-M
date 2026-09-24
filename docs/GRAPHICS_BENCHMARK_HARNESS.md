@@ -234,13 +234,14 @@ The determinism claims above were written against the code; capturing the set
 found four things that reading could not, all of which produced a
 plausible-looking image rather than an error:
 
-1. **The preset never loaded.** `load_preset_file()` yields to the browser
-   (`emscripten_sleep(0)`) before it compiles shaders, so under ASYNCIFY the
-   `ccall` returns with the load only started. The settle loop pumped frames
-   synchronously and never let the continuation run, so every capture died at
-   "Preset not ready after 30 settle frames". The page now waits for the load to
-   complete — in event-loop turns, rendering nothing, so the settle count stays
-   fixed.
+1. **The preset never loaded.** `load_preset_file()` returns with the load only
+   started. At the time it yielded to the browser (`emscripten_sleep(0)`, under
+   ASYNCIFY); today it queues the load on the host's prepare thread and the
+   preset is activated from a zero-delay timer. Either way, the settle loop
+   pumped frames synchronously and never let the load finish, so every capture
+   died at "Preset not ready after 30 settle frames". The page now waits for
+   the load to complete — in event-loop turns, rendering nothing, so the settle
+   count stays fixed.
 2. **No audio reached the engine.** The host-side ring writer reads
    `Module.HEAPF32.buffer`, and `HEAPF32` was not in `EXPORTED_RUNTIME_METHODS`;
    `readPcmRingDescriptor()` returned null, the direct fallback needed the same

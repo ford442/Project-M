@@ -42,7 +42,7 @@ cmake --build cmake-build --config Release --target projectM-unittest
 
 ```bash
 # Emscripten smoke wrapper (see scripts/build_wasm_smoke_wrapper.sh)
-ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR="$PWD/install" \
+INSTALL_DIR="$PWD/install" \
   OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
 
 npm install --no-save playwright   # once

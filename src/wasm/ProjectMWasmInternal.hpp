@@ -16,10 +16,8 @@
 #include "ProjectMWasmBuildConfig.hpp"
 #include "omp.h"
 #include <emscripten.h>
-#include <emscripten/bind.h>
 #include <emscripten/html5.h>
 #include <emscripten/html5_webgl.h>
-#include <emscripten/val.h>
 #include <projectM-4/playlist.h>
 #include <projectM-4/projectM.h>
 #include <projectM-4/projectm_perf.h>

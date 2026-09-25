@@ -9,7 +9,7 @@ set -euo pipefail
 #
 # Optional env:
 #   PROJECT_ROOT, EMSDK_ROOT, REPO_URL, INSTALL_DIR, CMAKE_BUILD_DIR,
-#   PROJECTM_WASM_VERSION, ENABLE_WASM_TRANSITIONS, ENABLE_OPENMP,
+#   PROJECTM_WASM_VERSION, ENABLE_OPENMP,
 #   BUILD_JOBS, JVM_HEAP_SIZE, RUN_OPTIMIZE (1 to run optimize.sh)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,7 +23,6 @@ CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-${PROJECT_ROOT}/cmake-build-wasm}"
 OUT_DIR="${OUT_DIR:-${PROJECT_ROOT}/cmake-build/wasm-smoke}"
 BUILD_JOBS="${BUILD_JOBS:-8}"
 JVM_HEAP_SIZE="${JVM_HEAP_SIZE:-8g}"
-ENABLE_WASM_TRANSITIONS="${ENABLE_WASM_TRANSITIONS:-ON}"
 ENABLE_OPENMP="${ENABLE_OPENMP:-ON}"
 RUN_OPTIMIZE="${RUN_OPTIMIZE:-0}"
 
@@ -133,7 +132,6 @@ echo "=== Building libprojectM static libraries (install -> $INSTALL_DIR) ==="
 PROJECT_ROOT="$PROJECT_ROOT" \
     INSTALL_DIR="$INSTALL_DIR" \
     CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
-    ENABLE_WASM_TRANSITIONS="$ENABLE_WASM_TRANSITIONS" \
     ENABLE_OPENMP="$ENABLE_OPENMP" \
     BUILD_TESTING=OFF \
     bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
@@ -143,13 +141,15 @@ PROJECT_ROOT="$PROJECT_ROOT" \
     INSTALL_DIR="$INSTALL_DIR" \
     CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
     OUT_DIR="$OUT_DIR" \
-    ENABLE_WASM_TRANSITIONS="$ENABLE_WASM_TRANSITIONS" \
     bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
 
 echo "=== Staging deploy artifacts (${bundle}) ==="
+# Just built above; the fingerprint check confirms it instead of relinking.
 PROJECT_ROOT="$PROJECT_ROOT" \
     INSTALL_DIR="$INSTALL_DIR" \
+    CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
     OUT_DIR="$OUT_DIR" \
+    PROJECTM_DEPLOY_REUSE_BUILD=1 \
     PROJECTM_WASM_VERSION="$PROJECTM_WASM_VERSION" \
     bash "$PROJECT_ROOT/scripts/prepare_deploy_bundle.sh"
 

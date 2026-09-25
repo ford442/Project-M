@@ -15,8 +15,6 @@
 // `globalThis.document` once and bail when it is absent.
 #include "WasmHost.hpp"
 
-using namespace emscripten;
-
 // Per-instance host state (#168 Phase B / #246). The audio-source flag and the
 // PCM ring are WasmHost members; C++ bodies reach them through
 // `WasmHost& H = Host();` plus same-named local references. The Web Audio
@@ -35,40 +33,6 @@ static projectm_handle ResolvePcmTargetEngine(uintptr_t pm_handle_value)
         return EngineFromHandle(pm_handle_value);
     }
     return Host().appData.projectm_engine;
-}
-
-void projectm_pcm_add_float_from_js_array_wrapper(
-    uintptr_t pm_handle_value,
-    const emscripten::val& js_audio_array_val,
-    unsigned int num_samples_per_channel,
-    int channels_enum_value)
-{
-    projectm_handle current_pm_handle = ResolvePcmTargetEngine(pm_handle_value);
-    if (!current_pm_handle)
-    {
-        fprintf(stderr, "Error: no live projectM engine for handle %lu in from_js_array_wrapper.\n",
-                static_cast<unsigned long>(pm_handle_value));
-        return;
-    }
-
-    std::vector<float> cpp_audio_buffer = emscripten::vecFromJSArray<float>(js_audio_array_val);
-    if (channels_enum_value <= 0 || num_samples_per_channel == 0)
-    {
-        fprintf(stderr, "Error: Invalid channel count (%d) or samples_per_channel (%u).\n",
-                channels_enum_value, num_samples_per_channel);
-        return;
-    }
-
-    size_t expected_total_elements = static_cast<size_t>(num_samples_per_channel) * static_cast<size_t>(channels_enum_value);
-    if (cpp_audio_buffer.size() != expected_total_elements)
-    {
-        fprintf(stderr, "Error: Audio data size mismatch. Expected %zu elements, got %zu elements from JS array.\n",
-                expected_total_elements, cpp_audio_buffer.size());
-        return;
-    }
-
-    projectm_pcm_add_float(current_pm_handle, cpp_audio_buffer.data(), num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));
-    return;
 }
 
 // Per-host ring registry + worklet hand-off (#246).

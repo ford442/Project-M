@@ -717,7 +717,7 @@ private:
  *   - FBO unbound (default framebuffer)
  *   - Depth mask enabled (default)
  */
-static void gl_reset_state_between_pipelines()
+inline void gl_reset_state_between_pipelines()
 {
     // Covers all texture units accessed by projectM shaders (warp, composite, blur, etc.).
     static constexpr int kMaxProjectMTextureUnits = 8;

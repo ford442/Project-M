@@ -110,7 +110,10 @@ void PlaylistCWrapper::SetPresetLoadCallback(projectm_playlist_preset_load_event
 }
 
 
-void PlaylistCWrapper::PlayPresetIndex(uint32_t index, bool hardCut, bool resetFailureCount)
+// resetFailureCount is vestigial: failedCount below is a local, so every call
+// starts from zero whatever it says. Kept for the virtual signature (the API
+// tests mock it).
+void PlaylistCWrapper::PlayPresetIndex(uint32_t index, bool hardCut, [[maybe_unused]] bool resetFailureCount)
 {
     m_hardCutRequested = hardCut;
 

@@ -42,7 +42,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
             -DCMAKE_VERBOSE_MAKEFILE=YES \
             -DBUILD_TESTING=NO \
-            -DENABLE_WASM_TRANSITIONS=ON \
+            -DCMAKE_BUILD_TYPE=Release \
             -DGTest_DIR="${{ github.workspace }}/build-gtest/dist/emscripten/lib/lib/cmake/GTest"
 
       - name: Build
@@ -53,7 +53,6 @@ jobs:
 
       - name: Build WASM Smoke Wrapper
         env:
-          ENABLE_WASM_TRANSITIONS: "ON"
           INSTALL_DIR: ${{ github.workspace }}/install
           OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke
         run: scripts/build_wasm_smoke_wrapper.sh
@@ -78,7 +77,7 @@ jobs:
 
       - name: Upload Nightly Screenshot Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
             name: preset-screenshots-nightly
             if-no-files-found: warn

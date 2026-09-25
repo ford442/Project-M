@@ -232,7 +232,14 @@ export function hideInitError() {
 export function setupInitErrorHandling(onRetry) {
     retryCallback = onRetry;
     const unsubscribers = [
-        subscribeWasmCallback('pmReportInitError', showInitError),
+        // The engine reports every non-zero init() code through this callback,
+        // including 5 (the context is still lost). That one is not an error to
+        // show: the context-loss overlay is up and "webglcontextrestored" retries.
+        subscribeWasmCallback('pmReportInitError', (/** @type {number} */ code, /** @type {string} */ detail) => {
+            if (code !== INIT_CONTEXT_LOST) {
+                showInitError(code, detail);
+            }
+        }),
         subscribeWasmCallback('pmHideInitError', hideInitError),
     ];
     ensureOverlay();

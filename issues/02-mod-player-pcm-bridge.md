@@ -1,7 +1,7 @@
 # Web / Emscripten demo: Integrate projectM audio bridge into the MOD/XM player
 
 **Status**: Needs implementation (currently has zero bridge)  
-**Related**: `diagnose-mod-flac` worktree + DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
+**Related**: `diagnose-mod-flac` worktree + docs/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
 
 ## Problem
 

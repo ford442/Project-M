@@ -14,7 +14,7 @@
 #     scripts/build_wasm_install.sh
 #
 # Then:
-#   PROJECTM_WASM_VERSION=034 INSTALL_DIR=install \
+#   PROJECTM_WASM_VERSION=038 INSTALL_DIR=install \
 #     OUT_DIR=cmake-build/wasm-smoke scripts/prepare_deploy_bundle.sh
 
 set -euo pipefail
@@ -23,7 +23,6 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 INSTALL_DIR="${INSTALL_DIR:-"$PROJECT_ROOT/install"}"
 CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-"$PROJECT_ROOT/cmake-build-wasm"}"
 BUILD_TESTING="${BUILD_TESTING:-OFF}"
-ENABLE_WASM_TRANSITIONS="${ENABLE_WASM_TRANSITIONS:-ON}"
 ENABLE_OPENMP="${ENABLE_OPENMP:-ON}"
 GTEST_DIR="${GTEST_DIR:-}"
 # Release defines NDEBUG, so assert() is compiled out of the shipped wasm (the
@@ -46,13 +45,11 @@ EOF
     exit 1
 fi
 
+# No "libs already present, skip" shortcut: that is how a deploy shipped
+# libraries older than the sources. The configure + build below is incremental,
+# so re-running it on an up-to-date tree costs seconds, not a rebuild.
 projectm_lib="$INSTALL_DIR/lib/libprojectM-4.a"
 playlist_lib="$INSTALL_DIR/lib/libprojectM-4-playlist.a"
-if [[ -s "$projectm_lib" && -s "$playlist_lib" ]]; then
-    echo "WASM static libraries already present:"
-    ls -lh "$projectm_lib" "$playlist_lib"
-    exit 0
-fi
 
 cd "$PROJECT_ROOT"
 git submodule update --init --recursive
@@ -84,7 +81,6 @@ cmake_args=(
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR"
     -DBUILD_TESTING="$BUILD_TESTING"
     -DENABLE_OPENMP="$ENABLE_OPENMP"
-    -DENABLE_WASM_TRANSITIONS="$ENABLE_WASM_TRANSITIONS"
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
 )
 if [[ "$PROJECTM_WASM_LTO" == "1" ]]; then

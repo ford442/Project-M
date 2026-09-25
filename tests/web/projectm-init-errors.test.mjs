@@ -183,6 +183,11 @@ test('setupInitErrorHandling listens for the engine callbacks without writing to
         globalThis.pmHideInitError();
         assert.equal(overlay().classList.contains('visible'), false);
 
+        // The engine reports code 5 through the same callback while a tap on the
+        // context-loss overlay races the browser's restore. Not an error.
+        globalThis.pmReportInitError(INIT_CONTEXT_LOST, 'WebGL context is lost');
+        assert.equal(overlay().classList.contains('visible'), false);
+
         handling.dispose();
         assert.equal(countWasmCallbackSubscribers('pmReportInitError'), 0);
         assert.equal('pmReportInitError' in globalThis, false, 'the last listener gives the hook back');

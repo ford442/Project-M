@@ -608,11 +608,13 @@ export class ProjectMContext {
             // The worklet runs on this thread in both topologies; this is what
             // decides where its PCM goes.
             this.#own(installTransportPcmWriter(transport));
-            if (this.module) {
-                this.#own(setupContextLossRecovery(this.module, {
-                    canvasSelector: this.primaryCanvasSelector,
-                }));
-            }
+            // Both topologies: on the main thread the canvas is heard here, in
+            // the worker the loss is relayed through the transport.
+            this.#own(setupContextLossRecovery(this, {
+                canvas: this.canvas,
+                documentRef,
+                windowRef,
+            }));
 
             // Everything from here drives the engine; make this context's host
             // active first (no-op for the single-instance default host). The
@@ -1095,6 +1097,24 @@ export class ProjectMContext {
      */
     setAudioSource(source) {
         this.audioRouter?.setActiveSource(source);
+    }
+
+    /**
+     * Rebuild the engine after the browser restored a lost WebGL context.
+     * Called by html/projectm-context-loss.js; hosts have no reason to call it
+     * themselves. Activates this context's own host first, so a context sharing
+     * a Module with others recovers its own engine and not a sibling's.
+     *
+     * @returns {Promise<number>} `init()`'s status: 0 recovered, 5 the context is
+     *   still lost, anything else an init failure (-1 when not started).
+     */
+    async recoverContext() {
+        const transport = this.transport;
+        if (!transport) {
+            return -1;
+        }
+        this.#activate();
+        return transport.recoverContext(this.canvas.width, this.canvas.height);
     }
 
     resize() {

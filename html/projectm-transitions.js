@@ -54,7 +54,7 @@ function currentProjectMModule() {
 /**
  * Narrows the defensively-optional module handle to the full type the generated
  * wrappers require, by feature-detecting every dual-FBO export this module
- * calls. Builds without ENABLE_WASM_TRANSITIONS export none of them.
+ * calls. Bundles older than the dual-FBO exports have none of them.
  *
  * @param {ProjectMModuleLike | null | undefined} moduleInstance
  * @returns {moduleInstance is ProjectMModule}

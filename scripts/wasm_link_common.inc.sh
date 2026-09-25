@@ -135,7 +135,6 @@ projectm_wasm_simd_compile_args() {
     local -n _out=$1
     _out=(
         -msimd128
-        -mrelaxed-simd
         -mmutable-globals
         -mbulk-memory
         -matomics
@@ -186,11 +185,8 @@ projectm_wasm_common_link_args() {
         "${lto_args[@]}"
         -std=c++20
         -O3
-        -rtlib=compiler-rt-mt
-        -mtune=wasm32
         -pthread
         -fopenmp=libomp
-        -fno-math-errno
         "${exception_args[@]}"
         -s SHARED_MEMORY=1
         -s MIN_WEBGL_VERSION=2
@@ -198,23 +194,24 @@ projectm_wasm_common_link_args() {
         -s USE_WEBGL2=1
         -s FULL_ES2=0
         -s FULL_ES3=0
-        -s GL_POOL_TEMP_BUFFERS=0
         -s GL_TRACK_ERRORS=0
         -s GL_ENABLE_GET_PROC_ADDRESS=1
-        -s ALLOW_MEMORY_GROWTH=1
-        -s MALLOC=mimalloc
-        -s MAXIMUM_MEMORY=4gb
+        -s ALLOW_MEMORY_GROWTH=0
         -s INITIAL_MEMORY=256mb
+        -s MALLOC=mimalloc
         -s FORCE_FILESYSTEM=1
         -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"
         -s ENVIRONMENT=web,worker
         -s EXPORT_NAME=createModule
         -s MODULARIZE=1
         -s DEFAULT_TO_CXX=1
-        -l embind
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"
         --pre-js "${pthread_script_url_pre_js}"
+        # <out>.js.symbols: wasm function index -> name, so a production
+        # "wasm-function[1234]" stack frame can be symbolized. The .wasm is
+        # byte-identical with or without it (no name section is kept).
+        --emit-symbol-map
     )
 }
 

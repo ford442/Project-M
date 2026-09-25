@@ -349,3 +349,58 @@ test('a malformed pcm-ring descriptor surfaces through onError and leaves the ri
 
     clearMockWorkerEnv();
 });
+
+test('setupRenderWorker relays context-lost / context-restored to every subscriber until they unsubscribe', () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({
+        canvas: makeCanvas({ offscreen: {} }),
+        scriptSrc: 'projectm.js',
+        width: 1,
+        height: 1,
+    });
+
+    const first = [];
+    const second = [];
+    const offFirst = handle.onContextEvent((event) => first.push(event));
+    handle.onContextEvent((event) => second.push(event));
+
+    handle.worker.emit({ type: 'context-lost' });
+    handle.worker.emit({ type: 'context-restored' });
+    assert.deepEqual(first, ['lost', 'restored']);
+    assert.deepEqual(second, ['lost', 'restored']);
+
+    offFirst();
+    handle.worker.emit({ type: 'context-lost' });
+    assert.deepEqual(first, ['lost', 'restored'], 'an unsubscribed listener must not hear more events');
+    assert.deepEqual(second, ['lost', 'restored', 'lost']);
+
+    clearMockWorkerEnv();
+});
+
+test('recoverContext posts recover-context once and resolves with the init status the worker reports', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({
+        canvas: makeCanvas({ offscreen: {} }),
+        scriptSrc: 'projectm.js',
+        width: 1,
+        height: 1,
+    });
+    const initial = handle.worker.posted.length;
+
+    const first = handle.recoverContext();
+    const second = handle.recoverContext();
+    assert.equal(first, second, 'overlapping requests share one round trip');
+    assert.deepEqual(handle.worker.posted.slice(initial).map((p) => p.msg), [{ type: 'recover-context' }]);
+
+    handle.worker.emit({ type: 'context-recovered', status: 5 });
+    assert.equal(await first, 5);
+
+    // Settled: the next request is a fresh round trip.
+    const third = handle.recoverContext();
+    assert.notEqual(third, first);
+    assert.equal(handle.worker.posted.length, initial + 2);
+    handle.worker.emit({ type: 'context-recovered', status: 0 });
+    assert.equal(await third, 0);
+
+    clearMockWorkerEnv();
+});

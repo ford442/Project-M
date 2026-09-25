@@ -55,9 +55,9 @@ fi
 # every version. packages/** is excluded for the same reason: the package test
 # imports the minified bundle, and letting a 44 kB generated artifact into the
 # "all files" row would make the floor measure the bundler.
-COVERAGE_LINES_MIN=83.5
-COVERAGE_BRANCHES_MIN=82.0
-COVERAGE_FUNCTIONS_MIN=73.5
+COVERAGE_LINES_MIN=84.0
+COVERAGE_BRANCHES_MIN=82.9
+COVERAGE_FUNCTIONS_MIN=75.5
 
 # Modules the run is expected NOT to load; see the file's header.
 UNTESTED_LEDGER="tests/web/untested-modules.txt"

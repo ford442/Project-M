@@ -49,6 +49,9 @@ function fakeModule({ ring = true, capacityFrames = 4 } = {}) {
         _set_aspect_correction: record('set_aspect_correction'),
         _get_quality_tier: () => 2,
         _destruct: record('destruct'),
+        _init: (...args) => { calls.push({ name: 'init', args }); return module.initStatus; },
+        _start_render: record('start_render'),
+        initStatus: 0,
         _malloc: () => 0,
         _free: () => {},
         ccall: (name, _returnType, _argTypes, args) => {
@@ -77,6 +80,17 @@ function fakeHandle() {
         posted,
         worker: { terminated: false, terminate() { this.terminated = true; } },
         getPcmRing: () => null,
+        /** @type {Array<(event: 'lost' | 'restored') => void>} */
+        contextListeners: [],
+        onContextEvent(listener) {
+            this.contextListeners.push(listener);
+            return () => { this.contextListeners = this.contextListeners.filter((l) => l !== listener); };
+        },
+        recoverStatus: 0,
+        recoverContext() {
+            posted.push({ kind: 'recover' });
+            return Promise.resolve(this.recoverStatus);
+        },
         feedPcm: (buffer, channels) => posted.push({ kind: 'pcm', buffer, channels }),
         postResize: (width, height) => posted.push({ kind: 'resize', width, height }),
         postPcm: () => {},
@@ -331,4 +345,49 @@ test('selectRenderTopology falls back, with a reason, when the platform cannot h
     assert.equal(transport, null);
     assert.equal(reasons.length, 1);
     assert.match(reasons[0], /OffscreenCanvas, Worker, or cross-origin isolation unavailable/);
+});
+
+test('the module transport recovers a lost context with init() then start_render() at the given size', async () => {
+    const module = fakeModule();
+    const transport = createModuleTransport(module);
+
+    assert.equal(await transport.recoverContext(1024, 768), 0);
+    assert.deepEqual(module.calls, [
+        { name: 'init', args: [] },
+        { name: 'start_render', args: [1024, 768] },
+    ]);
+});
+
+test('the module transport builds nothing while init() says the context is still lost', async () => {
+    const module = fakeModule();
+    module.initStatus = 5;
+    const transport = createModuleTransport(module);
+
+    assert.equal(await transport.recoverContext(1024, 768), 5);
+    assert.deepEqual(module.calls, [{ name: 'init', args: [] }], 'start_render on a dead context would build on it');
+});
+
+test('the module transport never reports context events itself: the canvas is on this thread', () => {
+    const transport = createModuleTransport(fakeModule());
+    const heard = [];
+    const off = transport.onContextEvent((event) => heard.push(event));
+    assert.equal(typeof off, 'function');
+    off();
+    assert.deepEqual(heard, []);
+});
+
+test('the worker transport relays context events and recovery through the handle', async () => {
+    const handle = fakeHandle();
+    handle.recoverStatus = 5;
+    const transport = createWorkerTransport(handle);
+
+    const heard = [];
+    const off = transport.onContextEvent((event) => heard.push(event));
+    handle.contextListeners.forEach((listener) => listener('lost'));
+    assert.deepEqual(heard, ['lost']);
+    off();
+    assert.equal(handle.contextListeners.length, 0, 'the returned function unsubscribes from the handle');
+
+    assert.equal(await transport.recoverContext(1, 1), 5);
+    assert.deepEqual(handle.posted, [{ kind: 'recover' }]);
 });

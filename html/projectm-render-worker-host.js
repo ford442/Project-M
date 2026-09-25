@@ -19,6 +19,7 @@ import { createPcmRingWriter } from './projectm-pcm-ring.js';
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerStatsMessage} RenderWorkerStatsMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} RenderWorkerContextConfig
  * @typedef {import('./projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextEvent} RenderWorkerContextEvent
  */
 
 /**
@@ -155,6 +156,20 @@ export function setupRenderWorker({
     /** @type {Map<number, (result: unknown) => void>} */
     const pendingCcalls = new Map();
 
+    /** @type {Set<(event: RenderWorkerContextEvent) => void>} */
+    const contextListeners = new Set();
+    /** @type {Promise<number> | null} */
+    let pendingRecovery = null;
+    /** @type {((status: number) => void) | null} */
+    let settleRecovery = null;
+
+    /** @param {RenderWorkerContextEvent} event */
+    const emitContextEvent = (event) => {
+        for (const listener of [...contextListeners]) {
+            listener(event);
+        }
+    };
+
     worker.onmessage = (event) => {
         const msg = /** @type {RenderWorkerMessage} */ (event.data);
         switch (msg.type) {
@@ -176,6 +191,17 @@ export function setupRenderWorker({
                 } catch (error) {
                     if (onError) onError(`PCM ring map failed: ${error}`);
                     pcmRing = null;
+                }
+                break;
+            case 'context-lost':
+                emitContextEvent('lost');
+                break;
+            case 'context-restored':
+                emitContextEvent('restored');
+                break;
+            case 'context-recovered':
+                if (settleRecovery) {
+                    settleRecovery(msg.status);
                 }
                 break;
             case 'ccall-result': {
@@ -210,6 +236,32 @@ export function setupRenderWorker({
 
     return {
         worker,
+
+        /**
+         * @param {(event: RenderWorkerContextEvent) => void} listener
+         * @returns {() => void}
+         */
+        onContextEvent(listener) {
+            contextListeners.add(listener);
+            return () => {
+                contextListeners.delete(listener);
+            };
+        },
+
+        /** @returns {Promise<number>} */
+        recoverContext() {
+            if (!pendingRecovery) {
+                pendingRecovery = new Promise((resolve) => {
+                    settleRecovery = (status) => {
+                        pendingRecovery = null;
+                        settleRecovery = null;
+                        resolve(status);
+                    };
+                });
+                worker.postMessage({ type: 'recover-context' });
+            }
+            return pendingRecovery;
+        },
 
         /** @returns {PcmRingWriter | null} */
         getPcmRing() {

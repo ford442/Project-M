@@ -240,15 +240,22 @@ if [[ "$SKIP_OPT" -eq 0 && -f "$PROJECTM_WASM_WASM" ]]; then
     elif command -v wasm-opt >/dev/null 2>&1; then
         WASM_OPT="$(command -v wasm-opt)"
     fi
-    # --all-features is required: emcc builds with -mrelaxed-simd (opcode 261 =
-    # f32x4.relaxed_madd) plus sign-ext / atomics / bulk-memory. Classic
-    # --enable-simd alone cannot parse that binary.
+    # Exactly the browser feature floor (cmake/EmscriptenWasmFlags.cmake,
+    # docs/EMSCRIPTEN.md "Wasm feature floor"), not --all-features: that would
+    # let Binaryen emit instructions from features the floor excludes, which an
+    # engine without them rejects wholesale. The link already ran wasm-opt -O3;
+    # measured on the 2026-09-25 bundle this second pass saves 604 B (0.04%,
+    # 1.1 KB gzipped), which is why the deploy path does not run it: it would
+    # ship a binary the smoke and golden gates never saw.
     if [[ "${PROJECTM_SKIP_WASM_OPT:-0}" != "1" && -n "$WASM_OPT" ]]; then
         TMP_WASM="${PROJECTM_WASM_WASM}.opt.tmp"
-        echo "Running $WASM_OPT -O3 --all-features ..."
-        if ! "$WASM_OPT" -O3 --all-features \
+        WASM_FEATURES=(--enable-threads --enable-simd --enable-bulk-memory --enable-bulk-memory-opt
+            --enable-mutable-globals --enable-nontrapping-float-to-int --enable-sign-ext
+            --enable-exception-handling --enable-call-indirect-overlong)
+        echo "Running $WASM_OPT -O3 ${WASM_FEATURES[*]} ..."
+        if ! "$WASM_OPT" -O3 "${WASM_FEATURES[@]}" \
             "$PROJECTM_WASM_WASM" -o "$TMP_WASM"; then
-            echo "wasm-opt failed (need Binaryen that supports --all-features / relaxed SIMD). Leaving original binary." >&2
+            echo "wasm-opt failed. Leaving original binary." >&2
             rm -f "$TMP_WASM"
         else
             mv "$TMP_WASM" "$PROJECTM_WASM_WASM"

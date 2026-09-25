@@ -12,20 +12,15 @@ import {
 
 // Host-side registry for the active router.
 //
-// This deliberately lives here and NOT in `generated/projectm-wasm-api.js`:
-// that file is regenerated from `cmake/WasmApiManifest.cmake` by
-// `scripts/sync_wasm_link_common.sh`, and an earlier hand-edit that added
-// `setHostAudioSourceRouter()` there was silently wiped by the next
-// regeneration — leaving this module importing an export that no longer
-// existed, which throws at ESM link time and took `projectm-context.js` down
-// with it. Exclusive-source policy is host policy, not a WASM symbol, so it
-// belongs in a hand-written module.
-//
-// `generated/projectm-wasm-api.js` still carries a registry of its own, and its
-// `pl()` wrapper notifies *that* one. Nothing in html/ writes to it, so it stays
-// empty; every host-side caller goes through `playSong()` below or through
-// html/projectm-worklet-playback.js, both of which read THIS registry. Do not
-// import `getHostAudioSourceRouter` from the generated module.
+// This is the one place the host's audio-source policy lives. It deliberately
+// is NOT in `generated/projectm-wasm-api.js`: that file is regenerated from
+// `cmake/WasmApiManifest.cmake` by `scripts/sync_wasm_link_common.sh`, and an
+// earlier hand-edit that added `setHostAudioSourceRouter()` there was silently
+// wiped by the next regeneration — leaving this module importing an export that
+// no longer existed, which throws at ESM link time and took
+// `projectm-context.js` down with it. Exclusive-source policy is host policy,
+// not a WASM symbol; the generated wrappers are ccall/direct only, and
+// `playSong()` below is the gate in front of the generated `pl()`.
 
 /**
  * Readiness check narrowing the defensively-optional {@link ProjectMModuleLike}
@@ -131,32 +126,31 @@ export function playSong(module, songPath) {
 }
 
 /** @typedef {'none' | 'element' | 'external' | 'worklet'} ProjectMAudioSourceActive */
-/** @typedef {'exclusive' | 'mix'} ProjectMAudioRouterMode */
 
 /**
  * @typedef {object} ProjectMAudioSourceStatus
  * @property {ProjectMAudioSourceActive} activeSource
- * @property {ProjectMAudioRouterMode} mode
  * @property {boolean} streamEnabled
  * @property {boolean} externalEnabled
  * @property {boolean} workletAllowed
  */
 
 /**
- * Host-layer router that enforces a single active PCM ingress path by default.
+ * Host-layer router that enforces a single active PCM ingress path.
  *
- * **Exclusive mode (default):** only one of element/stream, external PCM, or
- * worklet may feed libprojectM at a time. Switching sources stops the worklet
- * and toggles the stream-analyser gate (`set_audio_source_to_stream`).
+ * Only one of element/stream, external PCM, or worklet may feed libprojectM at
+ * a time. Switching sources stops the worklet and toggles the stream-analyser
+ * gate (`set_audio_source_to_stream`).
  *
- * **Mix mode:** documented for future use; not implemented yet — `canFeed()`
- * still mirrors exclusive behaviour until mixing is designed.
+ * There is deliberately no "mix" mode. Blending sources has to happen in the
+ * Web Audio graph, before the single PCM ring producer, never inside the
+ * engine; until that graph exists a `mode` option would only promise something
+ * the router cannot do.
  */
 export class AudioSourceRouter {
     /**
      * @param {object} [options]
      * @param {ProjectMModuleLike | null} [options.module]
-     * @param {ProjectMAudioRouterMode} [options.mode]
      * @param {ProjectMAudioSourceActive} [options.initialSource]
      * @param {boolean} [options.autoSwitchOnFeed] When true, the first external
      *   PCM chunk or `pl()` call promotes that path to active (used by legacy
@@ -170,7 +164,6 @@ export class AudioSourceRouter {
      */
     constructor({
         module = null,
-        mode = 'exclusive',
         initialSource = 'none',
         autoSwitchOnFeed = false,
         onStatusChange,
@@ -180,7 +173,6 @@ export class AudioSourceRouter {
         this.module = module;
         /** @type {import('./projectm-transport-types.ts').RenderTransport | null} */
         this.transport = transport;
-        this.mode = mode;
         this.autoSwitchOnFeed = autoSwitchOnFeed;
         /** @type {ProjectMAudioSourceActive} */
         this.activeSource = initialSource;
@@ -230,9 +222,7 @@ export class AudioSourceRouter {
             return;
         }
         this.activeSource = normalized;
-        if (this.mode === 'exclusive') {
-            this._applyExclusivePolicy(normalized);
-        }
+        this._applyExclusivePolicy(normalized);
         this._emitStatus();
     }
 
@@ -245,7 +235,6 @@ export class AudioSourceRouter {
     getStatus() {
         return {
             activeSource: this.activeSource,
-            mode: this.mode,
             streamEnabled: this.activeSource === 'element',
             externalEnabled: this.activeSource === 'external',
             workletAllowed: this.activeSource === 'worklet',
@@ -257,10 +246,6 @@ export class AudioSourceRouter {
      * @returns {boolean}
      */
     canFeed(source) {
-        if (this.mode === 'mix') {
-            // Mix mode is reserved; treat as exclusive until implemented.
-            return this.activeSource === 'none' ? false : this.activeSource === source;
-        }
         if (this.activeSource === 'none') {
             return this.autoSwitchOnFeed;
         }

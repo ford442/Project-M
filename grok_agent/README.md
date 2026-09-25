@@ -16,11 +16,11 @@ This directory contains files and templates to help collaborate with Grok (and o
 - `plan_template.md` — Template for new feature plans
 - `diff_template.md` — Template for clean unified diffs
 - `code_review_checklist.md` — Checklist for reviewing AI-generated code
-- `kimi_prompt_short.md` — Short copy-paste prompts for quick tasks
+- `docs/authoring/kimi_prompt_short.md` — Short copy-paste prompts for quick tasks
 
 ## Agent onboarding docs
 
-`claude.md` (repo root) now has a "Which doc should I read first?" table pointing to
+`claude.md` (repo root) is a short pointer to `AGENTS.md` with a "Which doc should I read first?" table pointing to
 `AGENTS.md`, `html/README.md`, and `docs/kimi_preset_authoring_plan.md` depending on the
 task. Start there if you're unsure which doc applies.
 

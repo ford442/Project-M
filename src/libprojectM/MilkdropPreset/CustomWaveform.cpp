@@ -318,7 +318,6 @@ void CustomWaveform::SmoothWave(const std::vector<Renderer::Point>& points, cons
     constexpr float c4{-0.15f};
     constexpr float inverseSum{1.0f / (c1 + c2 + c3 + c4)};
 
-    size_t outputIndex = 0;
     size_t vertexCount = points.size();
 
     auto& outVertices = m_mesh.Vertices();
@@ -343,8 +342,8 @@ void CustomWaveform::SmoothWave(const std::vector<Renderer::Point>& points, cons
         smoothedPoint.SetY((c1 * points[iBelow].Y() + c2 * points[inputIndex].Y() + c3 * points[iAbove].Y() + c4 * points[iAbove2].Y()) * inverseSum);
     }
 
-    // Set outputIndex to the end for the final point assignment
-    outputIndex = (vertexCount - 1) * 2;
+    // The final point, after the pairs written above.
+    size_t const outputIndex = (vertexCount - 1) * 2;
 
     outVertices[outputIndex] = points[vertexCount - 1];
     outColors[outputIndex] = colors[vertexCount - 1];

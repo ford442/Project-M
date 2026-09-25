@@ -181,3 +181,8 @@ endif()
 set_target_properties(MilkdropPreset PROPERTIES
         FOLDER libprojectM
         )
+
+# Warning ratchet (see ENABLE_WERROR_RATCHET in the root CMakeLists.txt).
+if(ENABLE_WERROR_RATCHET AND NOT MSVC)
+    target_compile_options(MilkdropPreset PRIVATE -Werror)
+endif()

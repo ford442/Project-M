@@ -16,11 +16,8 @@ export type ProjectMAudioSource = 'element' | 'external' | 'none';
 
 export type ProjectMAudioSourceActive = 'none' | 'element' | 'external' | 'worklet';
 
-export type ProjectMAudioRouterMode = 'exclusive' | 'mix';
-
 export interface ProjectMAudioSourceStatus {
     activeSource: ProjectMAudioSourceActive;
-    mode: ProjectMAudioRouterMode;
     streamEnabled: boolean;
     externalEnabled: boolean;
     workletAllowed: boolean;

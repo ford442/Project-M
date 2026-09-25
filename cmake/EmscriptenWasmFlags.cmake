@@ -203,10 +203,21 @@ set(_PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_ALL ${PROJECTM_WASM_EXPORTED_RUNTIME
 list(JOIN PROJECTM_WASM_EXPORTED_RUNTIME_METHODS "," PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_STR)
 list(JOIN _PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_ALL "," PROJECTM_WASM_WRAPPER_EXPORTED_RUNTIME_METHODS_STR)
 
-# SIMD + atomics flags shared by the lib build and the wrapper TU link.
+# Wasm feature flags shared by the lib build and the wrapper TU link.
+#
+# The feature floor is what every target browser compiles, because an engine
+# that lacks one feature used anywhere in the module rejects the whole module
+# (it surfaces as an init failure, not a missing code path). Fixed-width SIMD
+# (-msimd128): Chrome 91, Firefox 89, Safari 16.4. No -mrelaxed-simd: Safari
+# still ships Relaxed SIMD only behind a JavaScriptCore flag, and all it bought
+# was 34 compiler-contracted f32x4/f64x2.relaxed_madd sites, none of them in
+# the per-pixel mesh loop (preset per-frame bookkeeping, one-off noise-texture
+# generation, stb_image decode). Keeping it would have meant a second bundle
+# tier plus a probing loader for no measurable win; see docs/EMSCRIPTEN.md
+# "Wasm feature floor". scripts/check_wasm_bundle_features.sh gates the built
+# bundle against it.
 set(PROJECTM_WASM_SIMD_COMPILE_FLAGS
         -msimd128
-        -mrelaxed-simd
         -mmutable-globals
         -mbulk-memory
         -matomics
@@ -217,14 +228,16 @@ set(PROJECTM_WASM_SIMD_COMPILE_FLAGS
         )
 
 # Plain emcc arguments shared by lib link (CMake) and wrapper link (shell).
+# The wrapper TUs are compiled and linked in one em++ call, so -O3 here is also
+# their compile optimisation level. Not here, because they did nothing:
+# -mtune=wasm32 (clang ignores it for wasm; 114 "argument unused" warnings per
+# lib build) and -rtlib=compiler-rt-mt (emcc picks libcompiler_rt-mt from
+# -pthread itself and never reads -rtlib).
 set(PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS
         -std=c++20
         -O3
-        -rtlib=compiler-rt-mt
-        -mtune=wasm32
         -pthread
         -fopenmp=libomp
-        -fno-math-errno
         )
 
 # -s settings shared by lib link and wrapper link.
@@ -247,15 +260,10 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         # dual-FBO soft cut, blur3 + warp/no-composite A/B with ?copyPath=shader.
         "FULL_ES2=0"
         "FULL_ES3=0"
-        # GL_MAX_TEMP_BUFFER_SIZE is gone: it only sizes the FULL_ES2 temp-VBO
-        # rings for client-side arrays, and the value no longer appears in the
-        # glue. GL_POOL_TEMP_BUFFERS is still live, because MAXIMUM_MEMORY=4gb
-        # with the default MIN_FIREFOX_VERSION turns off WebGL2's garbage-free
-        # upload APIs (tools/link.py). 0 = glUniform*v passes a HEAPF32 subarray
-        # view; 1 (Emscripten default) copies small arrays into pooled typed
-        # arrays. Both render identically; which is faster needs a GPU
-        # ?benchmark=1 run, so this stays at its previous value.
-        "GL_POOL_TEMP_BUFFERS=0"
+        # No GL_POOL_TEMP_BUFFERS / GL_MAX_TEMP_BUFFER_SIZE: with the fixed heap
+        # below (maximum under 2 GB) the WebGL2 garbage-free upload APIs are on,
+        # glUniform*v reads HEAPF32 by offset, and neither setting reaches the
+        # glue any more (linked both ways: byte-identical .js and .wasm).
         "GL_TRACK_ERRORS=0"
         # libprojectM's GLResolver (Renderer/Platform/GLResolver.cpp) resolves GL
         # entry points through emscripten_webgl{,2}_get_proc_address() on the
@@ -263,19 +271,26 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         # set, and the link fails with "Undefined symbol:
         # emscripten_webgl2_get_proc_address()".
         "GL_ENABLE_GET_PROC_ADDRESS=1"
-        "ALLOW_MEMORY_GROWTH=1"
-        "MALLOC=mimalloc"
-        "MAXIMUM_MEMORY=4gb"
+        # Fixed heap. Measured high-water (tests/wasm-smoke/measure-heap.mjs on
+        # a -sINITIAL_MEMORY=16mb relink, 2026-09-25): 19.25 MiB including the
+        # runtime and pthread stacks, identical at 1920x1080 and 3840x2160, for
+        # the empty preset, per-pixel, composite-shader and the heaviest
+        # custom_milk_fixed presets, across a dual-FBO transition. Framebuffers
+        # and textures are GPU memory, not heap. 256 MB is ~13x that and the
+        # same initial reservation as before, so nothing that fit then fails now.
+        # What growth cost (docs/EMSCRIPTEN.md "Heap model"):
+        #  - MAXIMUM_MEMORY=4gb made the browser reserve 4 GB of address space
+        #    for the shared memory up front, which low-memory mobile refuses;
+        #  - with pthreads, every JS access to the heap went through a
+        #    growMemViews() check (303 call sites in the glue, GL calls
+        #    included; emcc -Wpthreads-mem-growth);
+        #  - a maximum over 2 GB turned off WebGL2's garbage-free upload APIs
+        #    (tools/link.py, Firefox < 151), so glUniform*v allocated a
+        #    subarray per call.
+        "ALLOW_MEMORY_GROWTH=0"
         "INITIAL_MEMORY=256mb"
+        "MALLOC=mimalloc"
         "FORCE_FILESYSTEM=1"
-        )
-
-# -s settings applied only when linking libprojectM via CMake (not the shell
-# wrapper), i.e. to the unit-test executables. The shipped bundle never sees
-# them, so they carry nothing it depends on (TRUSTED_TYPES / AUDIO_WORKLET used
-# to be here; the page's AudioWorklet is plain JS, not Emscripten's API).
-set(PROJECTM_WASM_LIB_ONLY_S_LINK_SETTINGS
-        "WASM_BIGINT=1"
         )
 
 # -s settings applied only on the final projectM_emscripten.cpp wrapper link (shell).
@@ -300,12 +315,16 @@ function(_projectm_wasm_expand_s_link_settings settings_list out_var)
 endfunction()
 
 # Applies compile flags for building libprojectM static libraries with emcc.
+# The optimisation level comes from CMAKE_BUILD_TYPE (the root CMakeLists.txt
+# defaults it to Release for Emscripten): forcing -O3 here used to override
+# Debug's -O0. No -s SHARED_MEMORY=1 either: -s settings are link settings, and
+# -pthread already selects the shared-memory compile (-matomics -mbulk-memory).
 function(projectm_apply_emscripten_lib_compile_flags)
-    string(JOIN " " _exception_args ${PROJECTM_WASM_EXCEPTION_ARGS})
     add_compile_options(
-            "SHELL:-O3 -mtune=wasm32 "
-            "SHELL:${_exception_args} -s SHARED_MEMORY=1 "
-            "SHELL:-msimd128 -mrelaxed-simd -fopenmp=libomp -mmutable-globals -mbulk-memory -matomics -mnontrapping-fptoint -msign-ext -fno-strict-aliasing -fno-math-errno -pthread"
+            ${PROJECTM_WASM_EXCEPTION_ARGS}
+            ${PROJECTM_WASM_SIMD_COMPILE_FLAGS}
+            -fopenmp=libomp
+            -pthread
             )
     if(PROJECTM_WASM_LTO)
         add_compile_options(-flto)
@@ -315,9 +334,8 @@ endfunction()
 # Applies link flags for building libprojectM static libraries with emcc.
 function(projectm_apply_emscripten_lib_link_flags)
     _projectm_wasm_expand_s_link_settings(PROJECTM_WASM_SHARED_S_LINK_SETTINGS _shared_s_args)
-    _projectm_wasm_expand_s_link_settings(PROJECTM_WASM_LIB_ONLY_S_LINK_SETTINGS _lib_s_args)
 
-    set(_all_link_args ${PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS} ${PROJECTM_WASM_EXCEPTION_ARGS} ${_shared_s_args} ${_lib_s_args} ${PROJECTM_WASM_SIMD_COMPILE_FLAGS})
+    set(_all_link_args ${PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS} ${PROJECTM_WASM_EXCEPTION_ARGS} ${_shared_s_args} ${PROJECTM_WASM_SIMD_COMPILE_FLAGS})
     if(PROJECTM_WASM_LTO)
         list(APPEND _all_link_args -flto)
     endif()

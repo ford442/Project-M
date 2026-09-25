@@ -2,45 +2,35 @@
 # Prepare WASM + iconv artifacts at the repo root (and pm/ mirror) before deploy.py.
 #
 # Usage:
-#   # First-time / after C++ changes: build and install Emscripten static libs
 #   source /path/to/emsdk/emsdk_env.sh
-#   INSTALL_DIR=install scripts/build_wasm_install.sh
-#
-#   # Then stage deploy artifacts
-#   PROJECTM_WASM_VERSION=034 \
-#     INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
-#     scripts/prepare_deploy_bundle.sh
+#   PROJECTM_WASM_VERSION=038 scripts/prepare_deploy_bundle.sh
 #
 # Then:
 #   export DEPLOY_TOKEN=...
 #   python deploy.py
 #   scripts/verify_deploy_urls.sh https://projectm.1ink.us/
+#
+# By default this rebuilds before staging: scripts/build_wasm_install.sh
+# (incremental configure + build + install of the static libs) and then
+# scripts/build_wasm_smoke_wrapper.sh (the final link). Both are cheap when
+# nothing changed, and together they make "deployed a bundle older than its
+# sources" impossible, which is the point: the golden gate runs in CI, not on
+# the machine that runs deploy.py.
+#
+# PROJECTM_DEPLOY_REUSE_BUILD=1 skips the rebuild (no emsdk needed) and stages
+# the existing $OUT_DIR outputs, but only if the source fingerprint recorded
+# next to them (projectm-v.030-thread.build-id) matches this tree; see
+# scripts/wasm_source_fingerprint.sh.
 
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 INSTALL_DIR="${INSTALL_DIR:-"$PROJECT_ROOT/install"}"
+CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-"$PROJECT_ROOT/cmake-build-wasm"}"
 OUT_DIR="${OUT_DIR:-"$PROJECT_ROOT/cmake-build/wasm-smoke"}"
 PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-037}"
 # Must match scripts/build_wasm_smoke_wrapper.sh output and PROJECTM_WASM_SMOKE_BUNDLE.
 SMOKE_BUNDLE="projectm-v.030-thread"
-
-projectm_lib="$INSTALL_DIR/lib/libprojectM-4.a"
-playlist_lib="$INSTALL_DIR/lib/libprojectM-4-playlist.a"
-
-if [[ ! -s "$projectm_lib" || ! -s "$playlist_lib" ]]; then
-    echo "Missing Emscripten static libraries under $INSTALL_DIR/lib/" >&2
-    echo "Run the WASM install step first (requires emcc):" >&2
-    echo "  source /path/to/emsdk/emsdk_env.sh" >&2
-    echo "  INSTALL_DIR=$INSTALL_DIR scripts/build_wasm_install.sh" >&2
-    echo >&2
-    echo "Or, if you already built elsewhere, point INSTALL_DIR at that prefix." >&2
-    if [[ "${PROJECTM_AUTO_BUILD_WASM:-0}" == "1" ]]; then
-        INSTALL_DIR="$INSTALL_DIR" bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
-    else
-        exit 1
-    fi
-fi
 
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
 # Always stage from the smoke-tag outputs produced by build_wasm_smoke_wrapper.sh.
@@ -49,23 +39,35 @@ bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
 src_js="$OUT_DIR/${SMOKE_BUNDLE}.js"
 src_wasm="$OUT_DIR/${SMOKE_BUNDLE}.wasm"
 src_worker="$OUT_DIR/${SMOKE_BUNDLE}.worker.js"
+src_symbols="$OUT_DIR/${SMOKE_BUNDLE}.js.symbols"
+src_build_id="$OUT_DIR/${SMOKE_BUNDLE}.build-id"
 
-if [[ ! -s "$src_js" || ! -s "$src_wasm" ]]; then
-    echo "Missing smoke build outputs in $OUT_DIR — running build_wasm_smoke_wrapper.sh" >&2
-    if ! command -v em++ >/dev/null 2>&1 && ! command -v emcc >/dev/null 2>&1; then
-        echo "ERROR: em++/emcc not on PATH; cannot rebuild the smoke wrapper." >&2
-        echo "Activate emsdk first, then re-run, e.g.:" >&2
-        echo "  source /path/to/emsdk/emsdk_env.sh" >&2
-        echo "  INSTALL_DIR=$INSTALL_DIR OUT_DIR=$OUT_DIR scripts/build_wasm_smoke_wrapper.sh" >&2
-        echo "  PROJECTM_WASM_VERSION=$PROJECTM_WASM_VERSION scripts/prepare_deploy_bundle.sh" >&2
+if [[ "${PROJECTM_DEPLOY_REUSE_BUILD:-0}" == "1" ]]; then
+    expected_id="$("$PROJECT_ROOT/scripts/wasm_source_fingerprint.sh")"
+    recorded_id="$(cat "$src_build_id" 2>/dev/null || true)"
+    if [[ "$recorded_id" != "$expected_id" ]]; then
+        echo "ERROR: $OUT_DIR was not built from this tree; refusing to deploy it." >&2
+        echo "  recorded build-id: ${recorded_id:-<none>}" >&2
+        echo "  this tree:         $expected_id" >&2
+        echo "Rebuild (drop PROJECTM_DEPLOY_REUSE_BUILD=1, with emsdk activated) and re-run." >&2
         exit 1
     fi
-    INSTALL_DIR="$INSTALL_DIR" OUT_DIR="$OUT_DIR" \
+    echo "Reusing $OUT_DIR (build-id $recorded_id matches this tree)" >&2
+else
+    if ! command -v em++ >/dev/null 2>&1 && ! command -v emcc >/dev/null 2>&1; then
+        echo "ERROR: em++/emcc not on PATH; cannot rebuild before staging." >&2
+        echo "Activate emsdk first (source /path/to/emsdk/emsdk_env.sh), or set" >&2
+        echo "PROJECTM_DEPLOY_REUSE_BUILD=1 to stage an up-to-date existing build." >&2
+        exit 1
+    fi
+    INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
+        bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
+    INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" OUT_DIR="$OUT_DIR" \
         bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
 fi
 
-if [[ ! -s "$src_js" || ! -s "$src_wasm" ]]; then
-    echo "ERROR: expected $src_js and $src_wasm after smoke build" >&2
+if [[ ! -s "$src_js" || ! -s "$src_wasm" || ! -s "$src_build_id" ]]; then
+    echo "ERROR: expected $src_js, $src_wasm and $src_build_id" >&2
     exit 1
 fi
 
@@ -78,6 +80,14 @@ dest_pm="$PROJECT_ROOT/pm"
 
 cp -f "$src_js" "$dest_js"
 cp -f "$src_wasm" "$dest_wasm"
+# Function-index -> name map for symbolizing "wasm-function[N]" frames from
+# this exact .wasm. Not uploaded (deploy.py's globs do not match it) and not in
+# git (.gitignore): keep it with the release notes for the version you deploy.
+if [[ -s "$src_symbols" ]]; then
+    cp -f "$src_symbols" "$PROJECT_ROOT/${bundle}.symbols"
+fi
+# deploy.py compares this with the tree it deploys from (same fingerprint).
+cp -f "$src_build_id" "$PROJECT_ROOT/${bundle}.build-id"
 if [[ -s "$src_worker" ]]; then
     cp -f "$src_worker" "$dest_worker"
 fi

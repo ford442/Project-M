@@ -3,26 +3,43 @@
 // Recovers from WebGL context loss (GPU driver reset, mobile tab
 // backgrounding, etc.) without requiring a page reload.
 //
-// On "webglcontextlost":
-//   - calls event.preventDefault() so the browser attempts recovery
-//   - calls Module._pm_handle_context_loss() to tear down projectM's GL
-//     state (see projectM_emscripten.cpp)
-//   - shows a "Graphics paused — tap to restore" overlay
+// This module never touches the Emscripten Module. It talks to a
+// RenderTransport (see projectm-transport-types.ts), so the same recovery runs
+// whichever topology the engine is in:
 //
-// On "webglcontextrestored" (or a tap on the overlay):
-//   - re-runs checkInit(Module), which calls Module._init() and performs a
-//     full re-initialization (new WebGL context, new projectM/playlist
-//     instance, the page's mesh/transparency/fps/governor settings re-applied).
-//     While the context is still lost init() refuses with code 5 and the
-//     overlay stays up.
-//   - calls Module._start_render() to recreate the dual-FBO pipeline
-//   - reloads the last-displayed preset via window.currentPresetPath (set by
-//     updatePresetDisplay() in projectm-presets.js)
+//   main thread   the canvas is on this page, so the DOM events are heard here.
+//                 On "webglcontextlost" this calls preventDefault() and the
+//                 transport's pmHandleContextLoss(); on "webglcontextrestored"
+//                 it asks the transport to recover.
+//   render worker the canvas was transferred, so the events fire in the worker.
+//                 The worker does the preventDefault()/pm_handle_context_loss()
+//                 half itself and relays 'context-lost' / 'context-restored'
+//                 (projectm-render-worker-types.ts); this module hears them
+//                 through transport.onContextEvent() and asks the transport to
+//                 recover, which posts 'recover-context'.
+//
+// Either way, recovery is transport.recoverContext(): init() rebuilds the engine
+// on the restored context (it refuses with code 5 while the context is still
+// lost, and the overlay stays up), start_render() recreates the dual-FBO
+// pipeline, and the last-displayed preset is reloaded through the same
+// transport from windowRef.currentPresetPath (set by updatePresetDisplay() in
+// projectm-presets.js).
+//
+// The overlay ("Graphics paused — tap to restore") is page UI and needs a
+// document; without one (headless, tests) recovery still runs, just silently.
 //
 // See docs/EMSCRIPTEN.md for details and the Chrome DevTools test procedure.
 
-import { checkInit } from './projectm-init-errors.js';
-import { loadPresetFile, pmHandleContextLoss, startRender } from './generated/projectm-wasm-api.js';
+import { INIT_CONTEXT_LOST } from './projectm-init-errors.js';
+
+/**
+ * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
+ *
+ * The one thing recovery needs from a ProjectMContext: which transport it is
+ * driving right now, and (optionally) a recovery entry point that activates
+ * the context's own host first.
+ * @typedef {{ transport: RenderTransport | null, recoverContext?: () => Promise<number> }} ContextLossTarget
+ */
 
 const STYLE_ID = 'pm-context-lost-style';
 const OVERLAY_ID = 'pm-context-lost';
@@ -65,140 +82,199 @@ const STYLE_CSS = `
 }
 `;
 
-/** @type {HTMLElement | null} */
-let overlayEl = null;
-
-function injectStyles() {
-    if (document.getElementById(STYLE_ID)) {
-        return;
-    }
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.textContent = STYLE_CSS;
-    document.head.appendChild(style);
-}
-
-/** @returns {HTMLElement} */
-function ensureOverlay() {
-    if (overlayEl) {
-        return overlayEl;
+/**
+ * @param {Document} doc
+ * @returns {HTMLElement}
+ */
+function ensureOverlay(doc) {
+    const existing = doc.getElementById(OVERLAY_ID);
+    if (existing) {
+        return existing;
     }
 
-    injectStyles();
-
-    overlayEl = document.getElementById(OVERLAY_ID);
-    if (overlayEl) {
-        return overlayEl;
+    if (!doc.getElementById(STYLE_ID)) {
+        const style = doc.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = STYLE_CSS;
+        doc.head.appendChild(style);
     }
 
-    overlayEl = document.createElement('div');
-    overlayEl.id = OVERLAY_ID;
-    overlayEl.innerHTML = `
+    const overlay = doc.createElement('div');
+    overlay.id = OVERLAY_ID;
+    overlay.innerHTML = `
         <div class="pm-context-lost-box">
             <h2 class="pm-context-lost-title">Graphics paused — tap to restore</h2>
             <p class="pm-context-lost-message">The browser reclaimed projectM's graphics context (this can happen after a long session or when the tab is backgrounded). Tap anywhere to restart the visualizer.</p>
         </div>
     `;
-    document.body.appendChild(overlayEl);
-
-    return overlayEl;
-}
-
-function showOverlay() {
-    ensureOverlay().classList.add('visible');
-}
-
-function hideOverlay() {
-    if (overlayEl) {
-        overlayEl.classList.remove('visible');
-    }
+    doc.body.appendChild(overlay);
+    return overlay;
 }
 
 /**
- * Registers WebGL context-loss/restore handling for the given canvas.
- *
- * @param {*} Module The Emscripten module instance.
- * @param {{ canvasSelector?: string }} [options]
- * @returns {() => void} Removes the three listeners this call added (two on the
- *   canvas, one on the shared overlay). They used to stay attached for the life
- *   of the page, holding the destroyed module and canvas alive and, after a
- *   destroy(), still able to call `checkInit()` on a torn-down engine.
+ * @param {ContextLossTarget | RenderTransport} target
+ * @returns {target is RenderTransport}
  */
-export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' } = {}) {
-    const canvas = document.querySelector(canvasSelector);
-    if (!canvas) {
+function isTransport(target) {
+    return typeof (/** @type {RenderTransport} */ (target)).topology === 'string';
+}
+
+/**
+ * Registers WebGL context-loss/restore handling for an engine.
+ *
+ * @param {ContextLossTarget | RenderTransport} target A ProjectMContext (its
+ *   transport is looked up when needed, so a context that restarts is followed)
+ *   or a bare RenderTransport.
+ * @param {object} [options]
+ * @param {HTMLCanvasElement | null} [options.canvas] The render canvas. Only
+ *   listened to on the main thread; in the worker topology it has been
+ *   transferred and the worker reports the events instead.
+ * @param {Document | null} [options.documentRef] Where the overlay lives.
+ *   Defaults to the global document, if there is one.
+ * @param {(Window & typeof globalThis) | null} [options.windowRef] Where
+ *   `currentPresetPath` is read from. Defaults to the global window.
+ * @returns {() => void} Removes every listener this call added (on the canvas,
+ *   the overlay and the transport). They used to stay attached for the life of
+ *   the page, holding the destroyed module and canvas alive and, after a
+ *   destroy(), still able to re-init a torn-down engine.
+ */
+export function setupContextLossRecovery(target, {
+    canvas = null,
+    documentRef = globalThis.document ?? null,
+    windowRef = globalThis.window ?? null,
+} = {}) {
+    /** @returns {RenderTransport | null} */
+    const getTransport = () => (isTransport(target) ? target : target.transport);
+
+    const transport = getTransport();
+    if (!transport) {
         return () => {};
     }
 
+    /** @type {Array<() => void>} */
+    const disposers = [];
+    let disposed = false;
+    let lost = false;
     let restoring = false;
 
-    function restore() {
-        if (restoring) {
+    const showOverlay = () => {
+        if (documentRef) ensureOverlay(documentRef).classList.add('visible');
+    };
+    const hideOverlay = () => {
+        documentRef?.getElementById(OVERLAY_ID)?.classList.remove('visible');
+    };
+
+    /** @returns {Promise<number>} init()'s status. */
+    const recover = () => {
+        const current = getTransport();
+        if (!current) {
+            return Promise.resolve(-1);
+        }
+        // A context's own recoverContext() activates its host first, which
+        // matters when several engines share one Module.
+        if (!isTransport(target) && typeof target.recoverContext === 'function') {
+            return target.recoverContext();
+        }
+        return current.recoverContext(canvas?.width, canvas?.height);
+    };
+
+    const reloadPreset = () => {
+        const path = /** @type {{ currentPresetPath?: string } | null} */ (windowRef)?.currentPresetPath;
+        if (!path) {
+            return;
+        }
+        try {
+            getTransport()?.callVoid('loadPresetFile', path);
+        } catch (err) {
+            console.warn('[projectM] Failed to reload preset after context restore:', err);
+        }
+    };
+
+    const restore = async () => {
+        // Only a context that actually lost its engine is rebuilt: init() on a
+        // healthy one would tear down a working engine, and the overlay is
+        // shared by every context on the page.
+        if (disposed || !lost || restoring) {
             return;
         }
         restoring = true;
         try {
-            if (!checkInit(Module)) {
-                // Either the context is still lost (init() returns 5 until the
-                // browser restores it — a tap on this overlay can come first),
-                // and this overlay stays up for "webglcontextrestored" to retry;
-                // or init failed for real, and the init-error overlay's own
-                // Retry button re-runs it.
+            const status = await recover();
+            if (disposed || status === INIT_CONTEXT_LOST) {
+                // The browser has not restored the context yet (a tap on the
+                // overlay can come first): the overlay stays up and the
+                // restored notification retries.
                 return;
             }
-
-            const mcanvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector(canvasSelector));
-            if (!mcanvas) {
+            if (status !== 0) {
+                // A real init failure. The engine reports it to the page's
+                // init-error overlay, whose Retry button re-runs init.
+                console.error(`[projectM] Context restore failed: init() returned ${status}`);
                 return;
             }
-            startRender(Module, mcanvas.width, mcanvas.height);
-
-            if (window.currentPresetPath) {
-                try {
-                    loadPresetFile(Module, window.currentPresetPath);
-                } catch (err) {
-                    console.warn('[projectM] Failed to reload preset after context restore:', err);
-                }
-            }
-
+            lost = false;
+            reloadPreset();
             hideOverlay();
+        } catch (err) {
+            console.error('[projectM] Context restore failed:', err);
         } finally {
             restoring = false;
         }
-    }
+    };
 
-    const onContextLost = (/** @type {Event} */ event) => {
-        event.preventDefault();
+    const handleLost = () => {
         console.warn('[projectM] WebGL context lost.');
-        if (Module && Module._pm_handle_context_loss) {
-            pmHandleContextLoss(Module);
-        }
+        lost = true;
         showOverlay();
     };
-    const onContextRestored = () => {
+    const handleRestored = () => {
         console.warn('[projectM] WebGL context restored.');
-        restore();
+        void restore();
     };
 
-    canvas.addEventListener('webglcontextlost', onContextLost, false);
-    canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+    if (transport.topology === 'worker') {
+        disposers.push(transport.onContextEvent((event) => {
+            if (event === 'lost') {
+                handleLost();
+            } else {
+                handleRestored();
+            }
+        }));
+    } else if (canvas) {
+        const onContextLost = (/** @type {Event} */ event) => {
+            // Required for the browser to consider restoring the context.
+            event.preventDefault();
+            // Resets projectM's GL bookkeeping; every GL call it would make on
+            // a lost context is a no-op, so this only tears down state.
+            if (transport.supports('pmHandleContextLoss')) {
+                transport.callVoid('pmHandleContextLoss');
+            }
+            handleLost();
+        };
+        canvas.addEventListener('webglcontextlost', onContextLost, false);
+        canvas.addEventListener('webglcontextrestored', handleRestored, false);
+        disposers.push(() => {
+            canvas.removeEventListener('webglcontextlost', onContextLost, false);
+            canvas.removeEventListener('webglcontextrestored', handleRestored, false);
+        });
+    }
 
-    const overlay = ensureOverlay();
-    const onOverlayClick = () => {
-        if (overlay.classList.contains('visible')) {
-            restore();
-        }
-    };
-    overlay.addEventListener('click', onOverlayClick);
+    if (documentRef) {
+        const overlay = ensureOverlay(documentRef);
+        const onOverlayClick = () => {
+            void restore();
+        };
+        overlay.addEventListener('click', onOverlayClick);
+        disposers.push(() => overlay.removeEventListener('click', onOverlayClick));
+    }
 
-    let disposed = false;
     return () => {
         if (disposed) {
             return;
         }
         disposed = true;
-        canvas.removeEventListener('webglcontextlost', onContextLost, false);
-        canvas.removeEventListener('webglcontextrestored', onContextRestored, false);
-        overlay.removeEventListener('click', onOverlayClick);
+        for (const dispose of disposers) {
+            dispose();
+        }
     };
 }

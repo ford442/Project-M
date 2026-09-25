@@ -4,7 +4,7 @@
 // ships PCM to projectM over a BroadcastChannel("projectm-audio"). BroadcastChannel
 // is *same-origin only*, so when the player is opened as a cross-origin popup
 // (https://go.1ink.us/flac-player/) from the projectM host, the audio never arrives — see
-// DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md. The host receiver
+// docs/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md. The host receiver
 // (html/projectm-external-pcm.js) already accepts the cross-origin-safe
 // `window.postMessage` path; this module supplies the matching sender without
 // needing to rebuild the player bundle.

@@ -29,6 +29,8 @@ from __future__ import annotations
 import argparse
 import io
 import os
+import re
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -306,6 +308,44 @@ def deploy_bundle(zip_bytes: bytes, target_site: str) -> bool:
     return False
 
 
+def check_staged_bundle_is_current() -> str | None:
+    """Return an error if the canonical staged bundle was not built from this tree.
+
+    scripts/prepare_deploy_bundle.sh stages ``<bundle>.build-id`` next to the
+    bundle: the source fingerprint (scripts/wasm_source_fingerprint.sh) the
+    link was made from. Uploading a bundle older than its sources is the worst
+    failure this repo has, because the golden-image gate runs in CI, not here.
+    """
+    version_js = (HERE / "html" / "projectm-wasm-version.js").read_text(encoding="utf-8")
+    match = re.search(r"PROJECTM_WASM_VERSION\s*=\s*'([^']+)'", version_js)
+    if not match:
+        return "could not read PROJECTM_WASM_VERSION from html/projectm-wasm-version.js"
+    bundle = f"projectm-v.{match.group(1)}-thread"
+    if not (HERE / f"{bundle}.wasm").exists():
+        return None  # nothing staged for the canonical version; host files only
+    stamp = HERE / f"{bundle}.build-id"
+    if not stamp.exists():
+        return f"{stamp.name} is missing: stage with scripts/prepare_deploy_bundle.sh"
+    try:
+        current = subprocess.run(
+            ["bash", str(HERE / "scripts" / "wasm_source_fingerprint.sh")],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        detail = getattr(error, "stderr", "") or str(error)
+        return f"could not fingerprint this tree (needs bash + git): {detail.strip()}"
+    recorded = stamp.read_text(encoding="utf-8").strip()
+    if recorded != current:
+        return (
+            f"{bundle}.wasm was built from a different tree "
+            f"(build-id {recorded}, this tree {current}); "
+            "re-run scripts/prepare_deploy_bundle.sh"
+        )
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy projectM WASM + host assets")
     parser.add_argument(
@@ -319,8 +359,20 @@ def main():
         help="Deploy target site(s): test|go|prod (comma-separated). "
         "Overrides DEPLOY_TARGET_SITE. Default: test.",
     )
+    parser.add_argument(
+        "--allow-stale-wasm",
+        action="store_true",
+        help="Upload even if the staged canonical bundle's build-id does not match this tree",
+    )
     args = parser.parse_args()
     targets = _parse_targets(args.target)
+
+    stale = check_staged_bundle_is_current()
+    if stale:
+        if not args.allow_stale_wasm and not args.dry_run:
+            print(f"ERROR: {stale}\n(--allow-stale-wasm overrides)", file=sys.stderr)
+            sys.exit(1)
+        print(f"WARNING: {stale}", file=sys.stderr)
 
     print(f"\n=== Deploying '{PROJECT_NAME}' via Contabo -> {', '.join(targets)} ===\n")
 

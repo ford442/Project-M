@@ -152,6 +152,21 @@ export function createModuleTransport(module) {
             }
         },
 
+        onContextEvent() {
+            // The canvas is on this thread and dispatches the DOM events itself.
+            return () => {};
+        },
+
+        async recoverContext(width = 0, height = 0) {
+            // init() replaces whatever engine is left and refuses with 5 while
+            // the context is still lost; nothing is built in that case.
+            const status = wasmApi.init(module);
+            if (status === 0 && width > 0 && height > 0) {
+                wasmApi.startRender(module, width, height);
+            }
+            return status;
+        },
+
         destroy() {
             if (module._destruct) {
                 module._destruct();
@@ -213,6 +228,14 @@ export function createWorkerTransport(handle) {
             // The worker owns the OffscreenCanvas, so it must resize the canvas
             // itself before telling the engine — postResize does both.
             handle.postResize(width, height);
+        },
+
+        onContextEvent(listener) {
+            return handle.onContextEvent(listener);
+        },
+
+        recoverContext() {
+            return handle.recoverContext();
         },
 
         destroy() {

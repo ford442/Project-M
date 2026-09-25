@@ -91,13 +91,9 @@ test('ProjectMContext destroy() clears module state and rejects subsequent start
     await assert.rejects(() => context.start(), /destroyed/);
 });
 
-// The four tests below previously asserted the API of html/projectm-audio-router.js
-// (`activate()` / `shouldFeedExternal()` / `reset()`, exposed as
-// `context.audioSourceRouter`). That module was superseded by
-// projectm-audio-source-router.js and now has no importers; ProjectMContext
-// wires the replacement as `this.audioRouter` and surfaces it through
-// getAudioSourceStatus() / setAudioSource(). These were never re-pointed, and
-// were masked because projectm-context.js threw at import time.
+// ProjectMContext wires the one router module, projectm-audio-source-router.js,
+// as `this.audioRouter` and surfaces it through getAudioSourceStatus() /
+// setAudioSource().
 
 test('ProjectMContext has no audio router before start()', () => {
     const canvas = makeCanvas('router-canvas');
@@ -347,3 +343,20 @@ test('ProjectMContext reports router status changes through onStatusChange', () 
     assert.deepEqual(seen, ['external', 'none']);
 });
 
+
+test('recoverContext() reports -1 before start and otherwise rebuilds through the transport at the canvas size', async () => {
+    const canvas = makeCanvas('recover-canvas');
+    canvas.width = 1024;
+    canvas.height = 576;
+    const context = new ProjectMContext({ canvas });
+
+    assert.equal(await context.recoverContext(), -1, 'no transport, nothing to rebuild');
+
+    /** @type {Array<[number | undefined, number | undefined]>} */
+    const recovered = [];
+    context.transport = /** @type {any} */ ({
+        recoverContext: async (width, height) => { recovered.push([width, height]); return 5; },
+    });
+    assert.equal(await context.recoverContext(), 5, 'the init() status reaches the caller unchanged');
+    assert.deepEqual(recovered, [[1024, 576]]);
+});

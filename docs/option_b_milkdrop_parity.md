@@ -240,8 +240,8 @@ All pragmas use the existing `#ifdef PRJM_ENABLE_OPENMP` guard with `schedule(st
 look and a "star wipe" are the remaining obvious gaps), and/or capture
 side-by-side screenshots/GIFs of the shipped Burn / RadialWipe / LiquidMelt /
 Tunnel transitions for the docs — the nightly screenshot workflow
-(`.github/workflows/nightly_preset_screenshots.yml`) already builds with
-`ENABLE_WASM_TRANSITIONS=ON` and is the natural place to hang capture from.
+(`.github/workflows/nightly_preset_screenshots.yml`) already builds the
+dual-pipeline bundle and is the natural place to hang capture from.
 
 **Blend-mode stretch (optional):** the `Masked` dissolve currently uses a
 procedural noise field. Feeding it from a user-supplied grayscale mask texture

@@ -110,10 +110,10 @@ reported and **never gates**.
 Everything below assumes an Emscripten build has produced a smoke bundle:
 
 ```bash
-emcmake cmake -S . -B cmake-build -DCMAKE_INSTALL_PREFIX="$PWD/install" -DENABLE_WASM_TRANSITIONS=ON
+emcmake cmake -S . -B cmake-build -DCMAKE_INSTALL_PREFIX="$PWD/install"
 emmake cmake --build cmake-build --parallel
 (cd cmake-build && emmake make install)
-ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR="$PWD/install" OUT_DIR="$PWD/cmake-build/wasm-smoke" \
+INSTALL_DIR="$PWD/install" OUT_DIR="$PWD/cmake-build/wasm-smoke" \
   scripts/build_wasm_smoke_wrapper.sh
 ```
 

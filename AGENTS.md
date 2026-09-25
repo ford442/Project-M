@@ -126,7 +126,10 @@ Keep the repo root source-focused. Policy for binary/build artifacts:
 Optional:
 - `ninja-build` (recommended over Make)
 - `libsdl2-dev` (for the test UI)
-- `libgtest-dev`, `libgmock-dev` (for tests)
+- `libgtest-dev`, `libgmock-dev` (for tests). On Linux `tests/libprojectM` also needs
+  `libsdl2-dev` and EGL (`libegl-dev`, usually pulled in by Mesa): the GPU per-pixel tests
+  (`PerPixelGlslLowering`) open a real GL context, and CMake requires SDL2 when
+  `BUILD_TESTING=ON`.
 - `libglm-dev` (if `ENABLE_SYSTEM_GLM=ON`)
 
 ### Quick Build (Linux)
@@ -164,7 +167,7 @@ sudo cmake --build . --target install
 | `ENABLE_DEBUG_POSTFIX` | `ON` | Append `d` to debug binary names. |
 | `ENABLE_MACOS_FRAMEWORK` | `OFF` | Build macOS Framework bundles instead of plain dylibs. |
 | `ENABLE_INSTALL` | `OFF` | Enable install targets when built as a CMake sub-project. |
-| `ENABLE_WASM_TRANSITIONS` | `ON` | **Emscripten only.** Enable dual-pipeline preset transition support. (No longer tied to any link setting: the build has no ASYNCIFY.) |
+| `ENABLE_WERROR_RATCHET` | `OFF` | Warnings as errors in the warning-clean directories (today `src/libprojectM/MilkdropPreset`). CI turns it on. |
 | `PROJECTM_WASM_LTO` | `OFF` | **Emscripten only.** Build the static libs as LLVM bitcode for whole-program LTO; link the bundle with `PROJECTM_WASM_LTO=1`. |
 
 ### Using vcpkg (especially on Windows)
@@ -248,6 +251,15 @@ Third-party code that is compiled as part of the project:
   `git config blame.ignoreRevsFile .git-blame-ignore-revs` (or pass
   `--ignore-revs-file` to `git blame` directly) so that commit doesn't
   attribute unrelated lines to the reformat.
+
+### Warnings ratchet
+- `-DENABLE_WERROR_RATCHET=ON` (set by `build_linux.yml`) adds `-Werror` to the
+  directories that build warning-free under the project's `-Wall -Wextra -Wshadow`
+  set: today `src/libprojectM/MilkdropPreset`. `src/wasm/` gets `-Wall -Wextra`
+  on every wrapper build and `-Werror` with `PROJECTM_WASM_WERROR=1` (set by
+  `build_emscripten.yml`); `-Winvalid-pp-token` is off there because it only
+  fires on JavaScript literals inside `EM_JS` bodies. Widen one clean directory at
+  a time, like `check_cpp_format.sh`.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:
@@ -473,6 +485,16 @@ documented in `docs/UPSTREAM_SYNC.md`.
 `projectm.1ink.us/`. It requires `DEPLOY_TOKEN` as an environment variable (no default —
 see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for usage and token rotation).
 
+**It refuses a stale bundle.** `scripts/prepare_deploy_bundle.sh` rebuilds before staging (both
+steps are incremental) and stages a source fingerprint as `<bundle>.build-id`; `deploy.py` fails
+if that does not match the tree it runs from (`--allow-stale-wasm` overrides). It also stages
+`<bundle>.symbols` (not uploaded, gitignored) for symbolizing production stack traces; keep it
+per deployed version. See `docs/EMSCRIPTEN.md` "Deploy staleness guard".
+
+**Browser floor: Safari 16.4 / Chrome 91 / Firefox 89.** The bundle uses SIMD128 but not Relaxed
+SIMD (which Safari cannot compile); `scripts/check_wasm_bundle_features.sh` gates that in CI.
+See `docs/EMSCRIPTEN.md` "Wasm feature floor".
+
 **Cross-origin isolation headers are required.** This build is compiled with
 `-s SHARED_MEMORY=1 -pthread`, so the hosting server *must* send
 `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`
@@ -559,7 +581,7 @@ cmake --build cmake-build-cxx-api --config Debug
 After an Emscripten configure/build/install, run the same wrapper and browser smoke used by `.github/workflows/build_emscripten.yml`:
 
 ```bash
-ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR="$PWD/install" OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
+INSTALL_DIR="$PWD/install" OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
 npm install --no-save --no-package-lock playwright
 npx playwright install chromium
 node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk

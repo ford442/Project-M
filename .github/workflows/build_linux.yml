@@ -66,6 +66,7 @@ jobs:
             -DBUILD_SHARED_LIBS="${shared_libs}" \
             -DENABLE_BOOST_FILESYSTEM="${use_boost}" \
             -DENABLE_CXX_INTERFACE=YES \
+            -DENABLE_WERROR_RATCHET=ON \
             -DBUILD_TESTING=YES
 
       - name: Build Debug

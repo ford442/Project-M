@@ -13,7 +13,7 @@ on:
 
 jobs:
   build:
-    name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, SDK: ${{ matrix.emsdk-version }}, Transitions: ${{ matrix.wasm-transitions }}, Arch: WASM, Build OS: ${{ matrix.runs-on }}"
+    name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, SDK: ${{ matrix.emsdk-version }}, Arch: WASM, Build OS: ${{ matrix.runs-on }}"
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -25,16 +25,14 @@ jobs:
         # the smoke/golden/audio steps. Why this version: docs/EMSCRIPTEN.md
         # "Emscripten SDK version". Keep graphics_perf_bench.yml and
         # nightly_preset_screenshots.yml on the same pin.
+        #
+        # One leg. There used to be a second, ENABLE_WASM_TRANSITIONS=OFF, which
+        # built and tested everything twice: that option stopped changing any
+        # compile or link setting when ASYNCIFY went, and has been removed.
         include:
           - libs: static
             fslib: stl
             emsdk-version: 6.0.6
-            wasm-transitions: OFF
-            runs-on: ubuntu-24.04
-          - libs: static
-            fslib: stl
-            emsdk-version: 6.0.6
-            wasm-transitions: ON
             runs-on: ubuntu-24.04
 
     steps:
@@ -92,14 +90,18 @@ jobs:
             -S "${{ github.workspace }}" \
             -B "${{ github.workspace }}/cmake-build" \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
+            -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_VERBOSE_MAKEFILE=YES \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DBUILD_TESTING=YES \
             -DENABLE_OPENMP=ON \
-            -DENABLE_WASM_TRANSITIONS=${{ matrix.wasm-transitions }} \
             -DGTest_DIR="${{ github.workspace }}/build-gtest/dist/emscripten/lib/lib/cmake/GTest"
 
-      - name: Build Debug
+      # Release, the flavour scripts/build_wasm_install.sh deploys: the smoke,
+      # golden and audio gates below should measure what ships. (This step used
+      # to be called "Build Debug" while EmscriptenWasmFlags.cmake forced -O3
+      # over whatever the build type said.)
+      - name: Build
         run: emmake cmake --build "${{ github.workspace }}/cmake-build" --parallel
 
       # The unit tests are *built* here (the link is the gate for the wasm ABI
@@ -141,9 +143,11 @@ jobs:
           CLANG_TIDY="$(pipx environment --value PIPX_BIN_DIR)/clang-tidy" \
             scripts/check_cpp_tidy.sh "${{ github.workspace }}/cmake-build"
 
+      # PROJECTM_WASM_WERROR=1: src/wasm's -Wall -Wextra warning ratchet
+      # (scripts/build_wasm_smoke_wrapper.sh).
       - name: Build WASM Smoke Wrapper
         env:
-          ENABLE_WASM_TRANSITIONS: ${{ matrix.wasm-transitions }}
+          PROJECTM_WASM_WERROR: '1'
           INSTALL_DIR: ${{ github.workspace }}/install
           OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke
         run: scripts/build_wasm_smoke_wrapper.sh
@@ -159,6 +163,13 @@ jobs:
       - name: No Asyncify in the bundle
         run: scripts/check_no_asyncify.sh "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
 
+      # Chromium runs every gate below and supports Relaxed SIMD; Safari does
+      # not, and rejects the whole module over one such instruction. Static
+      # check against the documented floor (docs/EMSCRIPTEN.md "Wasm feature
+      # floor"). setup-emsdk exports EMSDK, where wasm-dis lives.
+      - name: Bundle stays inside the browser feature floor
+        run: scripts/check_wasm_bundle_features.sh "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.wasm"
+
       - name: Validate WASM Artifacts
         run: |
           test -s "${{ github.workspace }}/install/lib/libprojectM-4.a"
@@ -173,10 +184,18 @@ jobs:
           npx playwright install --with-deps chromium
 
       # Local equivalent after an Emscripten configure/build/install:
-      #   ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR=$PWD/install OUT_DIR=$PWD/cmake-build/wasm-smoke scripts/build_wasm_smoke_wrapper.sh
+      #   INSTALL_DIR=$PWD/install OUT_DIR=$PWD/cmake-build/wasm-smoke scripts/build_wasm_smoke_wrapper.sh
       #   node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk
       - name: Run WASM Browser Smoke Test
         run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
+
+      # Real WEBGL_lose_context on both render topologies: the overlay appears,
+      # the engine is torn down, and it is rebuilt when the context is restored
+      # (a tap in between must not break that). Exits 2 if the browser detects
+      # the loss but will not restore a synthetic one; that fails here too, since
+      # recovery would then be unexercised.
+      - name: Run WebGL Context-Loss Recovery Test
+        run: node scripts/test_context_loss_playwright.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
 
       # Debug leg: the same wrapper relinked with Emscripten's runtime checks.
       # SAFE_HEAP traps on a null or wild pointer the release build would
@@ -185,7 +204,7 @@ jobs:
       # unnoticed. The smoke's lifecycle section drives exactly those paths.
       - name: Build WASM Smoke Wrapper (SAFE_HEAP debug)
         env:
-          ENABLE_WASM_TRANSITIONS: ${{ matrix.wasm-transitions }}
+          PROJECTM_WASM_WERROR: '1'
           INSTALL_DIR: ${{ github.workspace }}/install
           OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke-debug
           PROJECTM_WASM_EXTRA_LINK_FLAGS: -sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2
@@ -242,9 +261,7 @@ jobs:
       # (ANGLE/SwiftShader) on purpose: deterministic pixels, free runner. Its
       # frame times are meaningless and are not recorded; perf lives in
       # .github/workflows/graphics_perf_bench.yml on a GPU runner.
-      # Only the transitions=ON leg, so goldens have exactly one producer.
       - name: Golden images — determinism self-check
-        if: matrix.wasm-transitions == 'ON'
         env:
           PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js
         # Captures a subset twice in one browser and requires byte-identical
@@ -261,7 +278,6 @@ jobs:
             --preset presets/tests/300-beatdetect-bassmidtreb.milk
 
       - name: Golden images — compare against committed goldens
-        if: matrix.wasm-transitions == 'ON'
         env:
           PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js
         # Bootstrap path: with no goldens committed yet there is nothing to
@@ -279,8 +295,8 @@ jobs:
           fi
 
       - name: Upload golden image artifacts
-        if: always() && matrix.wasm-transitions == 'ON'
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
             name: golden-images-bootstrap
             if-no-files-found: warn
@@ -293,16 +309,16 @@ jobs:
 
       - name: Upload Preset Screenshot Report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-            name: preset-screenshot-smoke-${{ matrix.libs }}-transitions-${{ matrix.wasm-transitions }}-emsdk-${{ matrix.emsdk-version }}
+            name: preset-screenshot-smoke-${{ matrix.libs }}-emsdk-${{ matrix.emsdk-version }}
             if-no-files-found: warn
             path: screenshots/ci/**
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
-            name: projectm-emscripten-${{ matrix.libs }}-transitions-${{ matrix.wasm-transitions }}-emsdk-${{ matrix.emsdk-version }}
+            name: projectm-emscripten-${{ matrix.libs }}-emsdk-${{ matrix.emsdk-version }}
             if-no-files-found: error
             path: |
               install/**

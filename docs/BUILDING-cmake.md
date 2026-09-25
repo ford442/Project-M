@@ -106,7 +106,7 @@ using the `-D` switch.
 | `ENABLE_PLAYLIST`   | `ON`    |                       | Builds and installs the playlist library.                                                   |
 | `ENABLE_EMSCRIPTEN` | `OFF`   | `Emscripten`          | Build for the web using Emscripten. Only supports build as a static library and using GLES. |
 | `ENABLE_GLES`       | `OFF`   | `GLES`                | Use OpenGL ES 3 profile for rendering instead of the Core profile.                          |
-| `ENABLE_WASM_TRANSITIONS` | `ON` | `Emscripten`      | Enable dual-pipeline preset transition support for WebAssembly builds. Only gates the dual pipeline; it no longer affects link settings (the build has no ASYNCIFY). Only effective when `ENABLE_EMSCRIPTEN` is `ON`. |
+| `ENABLE_WERROR_RATCHET` | `OFF` | all (not MSVC)    | Warnings as errors in the warning-clean directories (today `src/libprojectM/MilkdropPreset`). CI turns it on; off by default so a newer compiler's new warning never breaks a downstream build. |
 
 Note that `ENABLE_GLES` will be forcibly set to `ON` for Emscripten and Android builds, making it mandatory.
 

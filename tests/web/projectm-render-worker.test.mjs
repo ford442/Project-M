@@ -609,10 +609,16 @@ test('both implementations cover every message type declared in the wire protoco
 
     // Guards the parsing itself: a types file that stopped declaring unions
     // would otherwise make this test vacuously pass.
-    assert.deepEqual(hostToWorker.slice().sort(), ['ccall', 'init', 'pcm', 'preset', 'resize']);
+    assert.deepEqual(
+        hostToWorker.slice().sort(),
+        ['ccall', 'init', 'pcm', 'preset', 'recover-context', 'resize'],
+    );
     assert.deepEqual(
         workerToHost.slice().sort(),
-        ['ccall-result', 'error', 'pcm-ring', 'ready', 'stats', 'unsupported'],
+        [
+            'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
+            'error', 'pcm-ring', 'ready', 'stats', 'unsupported',
+        ],
     );
 
     for (const type of hostToWorker) {
@@ -636,4 +642,120 @@ test('both implementations cover every message type declared in the wire protoco
             `projectm-render-worker.js never posts a '${type}' message`,
         );
     }
+});
+
+// ---- WebGL context loss ------------------------------------------------------
+//
+// The webglcontextlost/-restored events fire on the transferred OffscreenCanvas,
+// so the worker is the only place they can be heard. It does the
+// preventDefault() + pm_handle_context_loss() half itself and relays the rest.
+
+/** A canvas that records listeners and lets a test fire the DOM events. */
+function fakeEventCanvas(width = 640, height = 360) {
+    /** @type {Record<string, Array<(event: any) => void>>} */
+    const listeners = {};
+    return {
+        width,
+        height,
+        addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); },
+        /** @returns {{ defaultPrevented: boolean }} */
+        fire(type) {
+            const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+            (listeners[type] || []).forEach((fn) => fn(event));
+            return event;
+        },
+    };
+}
+
+/** @param {ReturnType<typeof fakeRingModule>} module */
+function instrumentRecovery(module) {
+    /** @type {string[]} */
+    const calls = [];
+    let initStatus = 0;
+    module._pm_handle_context_loss = () => calls.push('pm_handle_context_loss');
+    module._init = () => { calls.push('init'); return initStatus; };
+    module._start_render = (w, h) => calls.push(`start_render ${w}x${h}`);
+    return { calls, setInitStatus: (status) => { initStatus = status; } };
+}
+
+test('context loss: the worker prevents default, tears down the engine and tells the host', async () => {
+    const module = fakeRingModule();
+    const { calls } = instrumentRecovery(module);
+    const worker = loadWorker({ createModule: async () => module });
+    const canvas = fakeEventCanvas();
+    await worker.send(initMessage({ canvas }));
+    worker.posted.length = 0;
+    calls.length = 0;
+
+    const event = canvas.fire('webglcontextlost');
+
+    assert.equal(event.defaultPrevented, true, 'without preventDefault the browser never restores the context');
+    assert.deepEqual(calls, ['pm_handle_context_loss']);
+    assert.deepEqual(worker.posted, [{ type: 'context-lost' }]);
+});
+
+test('context restore: the worker only notifies — the host drives the re-init', async () => {
+    const module = fakeRingModule();
+    const { calls } = instrumentRecovery(module);
+    const worker = loadWorker({ createModule: async () => module });
+    const canvas = fakeEventCanvas();
+    await worker.send(initMessage({ canvas }));
+    worker.posted.length = 0;
+    calls.length = 0;
+
+    canvas.fire('webglcontextrestored');
+
+    assert.deepEqual(worker.posted, [{ type: 'context-restored' }]);
+    assert.deepEqual(calls, [], 'recovery is requested by the host, not started by the worker');
+});
+
+test('recover-context re-inits, restarts rendering at the surface size and republishes the ring', async () => {
+    const module = fakeRingModule();
+    const { calls } = instrumentRecovery(module);
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({ canvas: fakeEventCanvas(800, 450) }));
+    worker.posted.length = 0;
+    calls.length = 0;
+
+    await worker.send({ type: 'recover-context' });
+
+    assert.deepEqual(calls, ['init', 'start_render 800x450']);
+    assert.deepEqual(worker.posted.map((m) => m.type), ['pcm-ring', 'context-recovered']);
+    assert.equal(worker.posted[1].status, 0);
+});
+
+test('recover-context while the context is still lost reports code 5 and builds nothing', async () => {
+    const module = fakeRingModule();
+    const { calls, setInitStatus } = instrumentRecovery(module);
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({ canvas: fakeEventCanvas() }));
+    worker.posted.length = 0;
+    calls.length = 0;
+    setInitStatus(5);
+
+    await worker.send({ type: 'recover-context' });
+
+    assert.deepEqual(calls, ['init'], 'no start_render on a context that is still lost');
+    assert.deepEqual(worker.posted, [{ type: 'context-recovered', status: 5 }]);
+});
+
+test('recover-context before the module booted answers -1 instead of throwing', async () => {
+    const worker = loadWorker({ createModule: async () => fakeRingModule() });
+    await worker.send({ type: 'recover-context' });
+    assert.deepEqual(worker.posted, [{ type: 'context-recovered', status: -1 }]);
+});
+
+test('an init() that throws during recovery is reported and answered -1', async () => {
+    const module = fakeRingModule();
+    instrumentRecovery(module);
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({ canvas: fakeEventCanvas() }));
+    worker.posted.length = 0;
+    module._init = () => { throw new Error('boom'); };
+
+    await worker.send({ type: 'recover-context' });
+
+    assert.equal(worker.posted[0].type, 'error');
+    assert.match(worker.posted[0].message, /context recovery failed: Error: boom/);
+    assert.deepEqual(worker.posted[1], { type: 'context-recovered', status: -1 });
 });

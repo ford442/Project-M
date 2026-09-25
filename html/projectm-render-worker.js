@@ -14,6 +14,7 @@
 //   { type: 'pcm', buffer, channels }                 // only when the ring cannot be shared
 //   { type: 'preset', vfsPath, bytes, mode }
 //   { type: 'ccall', name, returnType, argTypes, args, requestId }
+//   { type: 'recover-context' }                       // rebuild the engine after a context loss
 //
 // Message protocol (worker -> host):
 //   { type: 'ready' }
@@ -22,6 +23,9 @@
 //   { type: 'stats', fps, fboFormat, qualityTier, renderScale, renderPathOverrides }
 //   { type: 'pcm-ring', descriptor }
 //   { type: 'ccall-result', requestId, result }
+//   { type: 'context-lost' }                          // webglcontextlost on the OffscreenCanvas
+//   { type: 'context-restored' }                      // webglcontextrestored; engine not rebuilt yet
+//   { type: 'context-recovered', status }             // outcome of 'recover-context' (init() code)
 //
 // Audio: the module owns its PCM ring (src/wasm/WasmPcmRing.cpp) and drains it
 // in render_frame(), exactly as on the main thread. This worker's only jobs are
@@ -215,6 +219,63 @@ function writePcmToRing(buffer, channels) {
         }
     }
     Atomics.store(header, 0, (writeIndex + frames) % indexModulus);
+}
+
+/**
+ * `webglcontextlost` / `webglcontextrestored` fire on the OffscreenCanvas, which
+ * lives in this scope — the page gave the canvas away and cannot hear them. So
+ * this side does what the main-thread path does in the page (preventDefault so
+ * the browser may restore the context, then tear down projectM's GL state with
+ * pm_handle_context_loss()) and only *tells* the host; the host drives the
+ * re-init with 'recover-context', exactly as it does on the main thread.
+ *
+ * @param {OffscreenCanvas} canvas
+ */
+function installContextLossHandlers(canvas) {
+    if (typeof canvas.addEventListener !== 'function') return;
+
+    canvas.addEventListener('webglcontextlost', (event) => {
+        // Required for the browser to consider restoring the context at all.
+        event.preventDefault();
+        const module = /** @type {any} */ (Module);
+        if (module && typeof module._pm_handle_context_loss === 'function') {
+            module._pm_handle_context_loss();
+        }
+        postToHost({ type: 'context-lost' });
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+        postToHost({ type: 'context-restored' });
+    });
+}
+
+/**
+ * Rebuilds the engine on the restored context: `init()` is the re-init export
+ * (it replaces whatever engine is left and refuses with code 5 while the
+ * context is still lost), and `start_render()` re-creates the dual-FBO pipeline
+ * at the surface's current size. The PCM ring is re-published because a host
+ * that lost its ring writer with the engine must be able to map it again.
+ */
+function recoverContext() {
+    if (!Module || !surface) {
+        postToHost({ type: 'context-recovered', status: -1 });
+        return;
+    }
+
+    let status;
+    try {
+        status = Module._init();
+        if (status === 0) {
+            Module._start_render(surface.width, surface.height);
+        }
+    } catch (error) {
+        postToHost({ type: 'error', message: `context recovery failed: ${error}` });
+        postToHost({ type: 'context-recovered', status: -1 });
+        return;
+    }
+    if (status === 0) {
+        publishPcmRing();
+    }
+    postToHost({ type: 'context-recovered', status });
 }
 
 function postStats() {
@@ -412,6 +473,7 @@ async function init(msg) {
     }
 
     surface = msg.canvas;
+    installContextLossHandlers(msg.canvas);
     surfaceWidth = msg.width;
     surfaceHeight = msg.height;
 
@@ -466,6 +528,9 @@ self.onmessage = (event) => {
             if (Module) {
                 handleCcall(Module, msg);
             }
+            break;
+        case 'recover-context':
+            recoverContext();
             break;
         default:
             break;

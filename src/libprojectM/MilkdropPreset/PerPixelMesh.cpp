@@ -319,11 +319,6 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
 #endif
         for (int vertex = 0; vertex < vertexCount; vertex++)
         {
-            int y = vertex / (m_gridSizeX + 1);
-            int x = vertex % (m_gridSizeX + 1);
-
-            auto& curVertex = vertices[vertex];
-            auto& curRadiusAngle = m_radiusAngleBuffer[vertex];
             auto& curZoomRotWarp = m_zoomRotWarpBuffer[vertex];
             auto& curCenter = m_centerBuffer[vertex];
             auto& curDistance = m_distanceBuffer[vertex];

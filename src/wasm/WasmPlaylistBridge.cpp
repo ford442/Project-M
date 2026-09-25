@@ -4,8 +4,6 @@
 // preset add helpers, load_preset_file(), and preset-readiness queries.
 #include "WasmHost.hpp"
 
-using namespace emscripten;
-
 // Per-instance host state (#168 Phase B). The engine/playlist/loading triple
 // and the preset-readiness gate are members of the WasmHost that owns them.
 //
@@ -22,7 +20,7 @@ static WasmHost& CallbackHost(void* user_data)
     return user_data != nullptr ? *static_cast<WasmHost*>(user_data) : Host();
 }
 
-void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_data)
+void load_preset_callback_done([[maybe_unused]] bool is_hard_cut, [[maybe_unused]] unsigned int index, void* user_data)
 {
     WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;

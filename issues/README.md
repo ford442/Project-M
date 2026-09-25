@@ -21,7 +21,7 @@ These two files contain fully formatted, ready-to-paste GitHub issue content.
 
 - `patches/flac-player-bridge-upgrade-to-postmessage.diff`
 - `patches/mod-player-projectm-audio-bridge-recommendation.md`
-- `DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md` (full root cause + live bundle analysis)
+- `docs/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md` (full root cause + live bundle analysis)
 - `html/projectm-core.html` (already contains the improved receiver + test helpers)
 
 These were produced during the `diagnose-mod-flac` investigation.

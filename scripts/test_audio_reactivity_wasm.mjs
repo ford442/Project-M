@@ -32,7 +32,7 @@ const presetPath = resolve(process.argv[3] || join(repoRoot, 'presets', 'tests',
 
 if (!existsSync(wasmPath)) {
     console.error(`WASM bundle not found: ${wasmPath}`);
-    console.error('Build first: ENABLE_WASM_TRANSITIONS=ON scripts/build_wasm_smoke_wrapper.sh');
+    console.error('Build first: scripts/build_wasm_smoke_wrapper.sh');
     process.exit(2);
 }
 

@@ -10,7 +10,7 @@ the Emscripten linker:
 
 - `-sUSE_SDL=2`: Recommended if you use Emscripten's built-in SDL2 port to set up the rendering context. This
   flag will link the appropriate library. (Not used by this fork's `projectM_emscripten.cpp` wrapper, which sets up
-  its own EGL/WebGL context — see `claude.md`.)
+  its own WebGL context — see `src/wasm/WasmWebGLContext.cpp`.)
 - `-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2`: Forces native WebGL 2, which maps directly onto OpenGL ES 3.0.
 - `-sFULL_ES3=1` / `-sFULL_ES2=1`: Emulation layers for client-side vertex arrays and buffer mapping on top of WebGL.
   libprojectM needs neither (it draws from bound VBOs/EBOs only), and this fork builds with both **off** — see
@@ -18,10 +18,12 @@ the Emscripten linker:
 - `-sALLOW_MEMORY_GROWTH=1`: Allows allocating additional memory if necessary. This may be required to load additional
   textures etc. in projectM.
 
-## Dual-Pipeline Preset Transitions (ENABLE_WASM_TRANSITIONS)
+## Dual-Pipeline Preset Transitions
 
-Phase 1 of the dual-pipeline preset transition feature introduces dedicated CMake and linker flags for the WASM build
-that are prerequisites for smooth preset cross-fading in the browser.
+The dual pipeline (two preset FBO sets cross-faded by `transition_*`) is always compiled into the
+WASM host. It used to sit behind an `ENABLE_WASM_TRANSITIONS` CMake option; once ASYNCIFY went,
+that option no longer changed a single compile or link setting, CI was building and testing
+everything twice for it, and it has been removed.
 
 ### Required flags (all set automatically under `if(EMSCRIPTEN)` in CMakeLists.txt)
 
@@ -30,28 +32,14 @@ that are prerequisites for smooth preset cross-fading in the browser.
 | `-s USE_WEBGL2=1` | Target WebGL 2.0 — required for MRTs and float texture support |
 | `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2` | Strictly target WebGL 2.0 and avoid fallback to WebGL 1.0 |
 | `-s FULL_ES2=0 -s FULL_ES3=0` | Native WebGL 2 only; no GL emulation layer (libprojectM uses no client-side arrays or buffer mapping) |
-| `-O3` | Maximum optimization — needed to handle dual-preset CPU load |
-| `-s ALLOW_MEMORY_GROWTH=1` | Allow WASM heap to grow dynamically — prevents OOM crash when loading a second preset |
+| `-O3` | Wrapper link; the static libs take their level from `CMAKE_BUILD_TYPE` (Release by default) |
+| `-s INITIAL_MEMORY=256mb -s ALLOW_MEMORY_GROWTH=0` | Fixed heap, sized from a measured high-water mark — see [Heap model](#heap-model) |
 | `-pthread`, `PTHREAD_POOL_SIZE` | Presets are prepared (parsed, shaders transpiled) on a per-host pthread while the render loop keeps running — see [Preset loading](#preset-loading) |
 
 There is no `-s ASYNCIFY`: nothing suspends the wasm stack. The build used ASYNCIFY for a single
 `emscripten_sleep(0)` before each preset compile; that yield is gone now the compile's CPU half
 runs on a prepare thread. `scripts/check_no_asyncify.sh` fails CI if the Asyncify runtime comes
 back into the bundle.
-
-### CMake option: `ENABLE_WASM_TRANSITIONS`
-
-Dual-pipeline transitions are enabled by default for Emscripten builds:
-
-```shell
-emcmake cmake -B build-wasm
-```
-
-The option only gates the dual pipeline. It used to add `-s ASYNCIFY_STACK_SIZE=65536` too; that
-coupling was an accident of history and went away with ASYNCIFY itself.
-
-Set `-DENABLE_WASM_TRANSITIONS=OFF` only when explicitly debugging the legacy hard-cut path or comparing transition
-overhead.
 
 ## Preset loading
 
@@ -262,6 +250,88 @@ CI runs `scripts/verify_wasm_link_common.sh` to ensure generated files are commi
 
 Typed JavaScript wrappers are generated into `html/generated/projectm-wasm-api.{ts,js}` from `cmake/WasmApiManifest.cmake`. See [WASM_JS_API.md](WASM_JS_API.md).
 
+## Wasm feature floor
+
+An engine that lacks a feature used by any one instruction rejects the **whole** module at
+`WebAssembly.compile` time, and the page reports it as a generic init failure, not as a missing code
+path. So the bundle is built for exactly one feature set, the one every target browser compiles:
+
+| Feature (flag) | Chrome | Firefox | Safari |
+|---|---|---|---|
+| Threads + shared memory (`-pthread`) | 74 | 79 | 14.1 (iOS 14.5) |
+| Fixed-width SIMD (`-msimd128`) | 91 | 89 | 16.4 |
+| Exception handling, legacy encoding (`-fwasm-exceptions`, emsdk 6.0.6) | 95 | 100 | 15.2 |
+| Bulk memory, sign-ext, non-trapping float-to-int, mutable globals | older than all of the above | | |
+
+Safari 16.4 is therefore the floor. What is deliberately **not** used:
+
+- **Relaxed SIMD** (`-mrelaxed-simd`): Safari ships it only behind a JavaScriptCore flag, so the
+  bundle used to fail to compile there at all. It was worth 34 compiler-contracted
+  `f32x4`/`f64x2.relaxed_madd` instructions, none in the per-pixel mesh loop (preset per-frame
+  bookkeeping, one-off noise-texture generation, `stb_image` decode). Dropping it moved a few
+  `000-empty` pixels by up to 7/255 on one channel, under the golden gate's per-pixel threshold
+  (all 26 goldens still pass). A second, relaxed bundle tier plus a probing loader would have
+  doubled CI and the deploy for no measurable win. Revisit only with a benchmark that shows one.
+- **Memory64**: not in Safari.
+- **JSPI** (`-sJSPI`): nothing suspends the wasm stack since presets are prepared on a pthread
+  (see [Preset loading](#preset-loading)), so there is nothing for it to replace. ASYNCIFY is gone,
+  not waiting for JSPI.
+
+`scripts/check_wasm_bundle_features.sh <bundle>.wasm` disassembles the linked bundle and fails on
+relaxed-SIMD or Memory64 instructions; `build_emscripten.yml` runs it because Chromium, which runs
+every browser gate, supports all of them and would never notice. It also covers prebuilt archives
+the link pulls in (`omp/libomp.a`). Browser minimums above are from
+[webassembly.org/features](https://webassembly.org/features/) as of 2026-09.
+
+## Heap model
+
+The heap is fixed: `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0`. The measured high-water mark is
+**19.25 MiB**, runtime and pthread stacks included. It was measured with
+`tests/wasm-smoke/measure-heap.mjs` on a relink with `-sINITIAL_MEMORY=16mb`, so any allocation past
+16 MiB shows up as growth, and it was the same at 1920x1080 and 3840x2160 for `000-empty`,
+`110-per_pixel`, `261-compshader-noisevol_lq`, `270-compshader-solid-color`, and the heavy
+`custom_milk_fixed/` presets `milk001_variant`, `milk011` and `fractal_tunnel_grok`, across a
+dual-FBO transition. Framebuffers and textures live in GPU memory, not the heap. A forced 64 MB
+`malloc` did show up (19.25 to 89.5 MiB), so the probe does see growth. 256 MB is about 13x the
+high-water mark and the same initial reservation as before, so nothing that fit before can fail now.
+
+The old `ALLOW_MEMORY_GROWTH=1` + `MAXIMUM_MEMORY=4gb` cost three things:
+
+1. The browser reserved **4 GB** of address space for the shared memory up front, which low-memory
+   mobile refuses (init error `3`).
+2. With pthreads, every heap access from JS went through a `growMemViews()` check: 303 call sites in
+   the glue, GL calls included (`emcc -Wpthreads-mem-growth`).
+3. A maximum over 2 GB turned off WebGL2's garbage-free upload APIs (`tools/link.py`, for
+   Firefox < 151), so every `glUniform*v` allocated a subarray view.
+
+Together with dropping embind, the JS glue went from 208,899 to 187,681 bytes (-10%).
+`-sGROWABLE_ARRAYBUFFERS` is not needed now that nothing grows.
+
+To re-measure after a change that could allocate much more (bigger meshes, image textures, more
+hosts), relink with `PROJECTM_WASM_EXTRA_LINK_FLAGS=-sINITIAL_MEMORY=16mb` and run
+`measure-heap.mjs` with `PROJECTM_HEAP_WIDTH`/`PROJECTM_HEAP_HEIGHT`. Raise `INITIAL_MEMORY` if the
+high-water mark gets within 4x of it; turn growth back on only if a real workload cannot be bounded.
+
+## Symbolizing a production stack trace
+
+The link passes `--emit-symbol-map`, which writes `<bundle>.js.symbols` (`index:name` per line)
+next to the glue; the `.wasm` is byte-identical with or without it. `prepare_deploy_bundle.sh`
+stages it as `projectm-v.<version>-thread.symbols` at the repo root. It is gitignored and
+`deploy.py` does not upload it, so keep the file for every version you deploy. A frame such as
+`wasm-function[1234]` resolves with `grep '^1234:' projectm-v.038-thread.symbols | c++filt`.
+The index includes imports, so use the number exactly as the browser printed it.
+
+## Deploy staleness guard
+
+`scripts/build_wasm_smoke_wrapper.sh` records a source fingerprint
+(`scripts/wasm_source_fingerprint.sh`: working-tree contents of `src/`, `vendor/`, `cmake/`, the
+build scripts, submodule commits and link env knobs) as `projectm-v.030-thread.build-id` next to
+its outputs. `scripts/prepare_deploy_bundle.sh` rebuilds by default (incremental libs + relink) and
+stages the id as `<bundle>.build-id`; `deploy.py` refuses to upload a canonical bundle whose id does
+not match the tree it runs from (`--allow-stale-wasm` overrides). `PROJECTM_DEPLOY_REUSE_BUILD=1`
+lets `prepare_deploy_bundle.sh` skip the rebuild, but only for outputs whose id matches.
+`scripts/build_wasm_install.sh` no longer skips when the libs already exist.
+
 ## WASM host source layout
 
 The Emscripten host wrapper was historically a single ~3100-line
@@ -332,23 +402,25 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 |---------|:--------------:|:------------------:|-------|
 | `SHARED_MEMORY=1`, `-pthread` | yes | yes | Required for the pthread pool + SharedArrayBuffer. No `WASM_WORKERS`: every thread is a pthread |
 | `PTHREAD_POOL_SIZE` | yes (`5`) | yes (`5`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 2) |
-| `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `MAXIMUM_MEMORY=4gb`, `ALLOW_MEMORY_GROWTH=1` | yes | yes | See `docs/PERFORMANCE.md` for right-sizing |
+| `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0` | yes | yes | Fixed heap; see [Heap model](#heap-model) |
 | `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
-| `GL_POOL_TEMP_BUFFERS=0`, `GL_TRACK_ERRORS=0` | yes | yes | Uniform-upload pooling (live because `MAXIMUM_MEMORY=4gb` disables the garbage-free WebGL2 APIs) and error tracking |
+| `GL_TRACK_ERRORS=0` | yes | yes | No per-call GL error tracking. (`GL_POOL_TEMP_BUFFERS` is gone: with the heap under 2 GB the garbage-free WebGL2 upload APIs are on and it no longer reaches the glue) |
+| `-msimd128`, no `-mrelaxed-simd` | compile + link | compile + link | The [feature floor](#wasm-feature-floor) |
 | `-fwasm-exceptions` | compile + link | compile + link | C++ exception ABI, unconditional. The JS-trampoline fallback (`PROJECTM_WASM_EXCEPTIONS=js`) only existed because of ASYNCIFY and is rejected now |
 | `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`) | link (`PROJECTM_WASM_LTO=1`) | Opt-in whole-program LTO: the static libs become bitcode. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
 | `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | no | yes | Single list in `EmscriptenWasmFlags.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
 | `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
-| `WASM_BIGINT=1` | yes | no | Unit-test executables only; the shipped bundle never sees lib-only settings |
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
-| `-l embind` | no | yes | Wrapper TU uses embind |
-| OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(kWasmOpenMpThreads)` from generated header |
+| `--emit-symbol-map` | no | yes | Writes `<bundle>.js.symbols` for symbolizing production stack traces; see [Symbolizing a production stack trace](#symbolizing-a-production-stack-trace) |
+| OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(min(kWasmOpenMpThreads, hardwareConcurrency - 1))`; see below |
 | OpenMP blocktime in `projectM_emscripten.cpp` | — | — | `kmp_set_blocktime(0)` — see "OpenMP blocktime" below |
 
 **OpenMP / pthread pool:** libomp's default `omp_get_max_threads()` on wasm follows
 `navigator.hardwareConcurrency`, but only `PTHREAD_POOL_SIZE` Workers are pre-spawned.
-`projectM_emscripten.cpp::ConfigureWasmOpenMPThreadCount()` calls `omp_set_num_threads(kWasmOpenMpThreads)`
-so OpenMP never requests more threads than Workers exist (fixes 033/034 main-thread freeze).
+`projectM_emscripten.cpp::ConfigureWasmOpenMPThreadCount()` calls `omp_set_num_threads()` with
+`kWasmOpenMpThreads`, clamped at runtime to `navigator.hardwareConcurrency - 1` (at least 1), so
+OpenMP never requests more threads than Workers exist (fixes 033/034 main-thread freeze) and a 2- or
+4-core phone keeps a core for the page's AudioWorklet instead of oversubscribing it.
 The pool also holds one preset prepare thread per host. The generated header `static_assert`s that
 `PTHREAD_POOL_SIZE` covers both. Change the team size (`PROJECTM_WASM_OPENMP_THREADS`) or the
 prepare-thread count (`PROJECTM_WASM_PRESET_PREPARE_THREADS`) in `EmscriptenWasmFlags.cmake`, then
@@ -909,13 +981,13 @@ To rebuild after changing `projectM_emscripten.cpp` (or projectM itself):
 # 1. Build + install projectM static libs for wasm (BUILD_TESTING off keeps
 #    this fast; Release defines NDEBUG, as scripts/build_wasm_install.sh does).
 emcmake cmake -S . -B cmake-build-wasm -DBUILD_TESTING=NO -DCMAKE_BUILD_TYPE=Release \
-  -DENABLE_WASM_TRANSITIONS=ON -DCMAKE_INSTALL_PREFIX=install-wasm
+  -DCMAKE_INSTALL_PREFIX=install-wasm
 cmake --build cmake-build-wasm -j"$(nproc)"
 cmake --install cmake-build-wasm
 
 # 2. Build the smoke wrapper against the installed libs.
 INSTALL_DIR=$PWD/install-wasm OUT_DIR=$PWD/cmake-build-wasm/wasm-smoke \
-  ENABLE_WASM_TRANSITIONS=ON scripts/build_wasm_smoke_wrapper.sh
+  scripts/build_wasm_smoke_wrapper.sh
 # -> writes cmake-build-wasm/wasm-smoke/projectm-v.030-thread.{js,wasm,worker.js}
 ```
 

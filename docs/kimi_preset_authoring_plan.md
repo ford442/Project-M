@@ -25,7 +25,7 @@
 |---|---|
 | `docs/WRITING_NEW_MILK_PRESETS_GUIDE.md` | Canonical syntax, pitfalls, quick-start |
 | `docs/milk011_creative_brief.md` | Example creative brief → preset breakdown |
-| `docs/milk_kimi_swarm.md` | Multi-agent role prompts (Designer, Validator, etc.) |
+| `docs/authoring/milk_kimi_swarm.md` | Multi-agent role prompts (Designer, Validator, etc.) |
 | `presets/tests/` | Small fixtures for parser tests |
 | `custom_milk_fixed/` | Curated AI/community presets (regression set) |
 | `weeks_presets/` | Large preset corpus |
@@ -124,7 +124,7 @@ scripts/kimi_validate_preset.sh custom_milk_fixed/milk011.milk
 
 ---
 
-## 5. Kimi agent roles (from `milk_kimi_swarm.md`)
+## 5. Kimi agent roles (from `authoring/milk_kimi_swarm.md`)
 
 Run narrow agents sequentially:
 

@@ -92,6 +92,15 @@ projectm_wasm_simd_compile_args simd_compile_args
 wrapper_include_args=()
 projectm_wasm_wrapper_include_args wrapper_include_args
 
+# src/wasm warning ratchet: -Wall -Wextra always, -Werror when
+# PROJECTM_WASM_WERROR=1 (CI; the wasm counterpart of ENABLE_WERROR_RATCHET).
+# -Winvalid-pp-token is off because it only ever fires on JavaScript: a '' or
+# "" literal inside an EM_JS/EM_ASM body tokenizes as an empty C char constant.
+wrapper_warning_args=(-Wall -Wextra -Wno-invalid-pp-token)
+if [[ "${PROJECTM_WASM_WERROR:-0}" == "1" ]]; then
+    wrapper_warning_args+=(-Werror)
+fi
+
 # WASM host wrapper translation units. projectM_emscripten.cpp was split into
 # focused TUs (see docs/EMSCRIPTEN.md "Where to add a WASM export"); all of them
 # must be passed to the final em++ link. Header-only pieces (WasmGraphics.hpp,
@@ -144,16 +153,22 @@ if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
         [[ "$arg" == "-flto" ]] || compile_args+=("$arg")
     done
     wrapper_inputs=()
+    compile_pids=()
     for src in "${wrapper_sources[@]}"; do
         obj="$obj_dir/$(basename "${src%.cpp}").o"
         "${emxx_cmd[@]}" -c "$src" \
             "${wrapper_include_args[@]}" \
+            "${wrapper_warning_args[@]}" \
             "${simd_compile_args[@]}" \
             "${compile_args[@]}" \
             -o "$obj" &
+        compile_pids+=("$!")
         wrapper_inputs+=("$obj")
     done
-    wait
+    # A bare `wait` returns 0 whatever the jobs did; check each one.
+    for pid in "${compile_pids[@]}"; do
+        wait "$pid"
+    done
 fi
 
 # Extra em++ link flags, whitespace-separated — e.g. the debug CI leg's
@@ -163,6 +178,7 @@ read -r -a extra_link_args <<< "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}"
 
 "${emxx_cmd[@]}" "${wrapper_inputs[@]}" \
     "${wrapper_include_args[@]}" \
+    "${wrapper_warning_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \
     "${extra_link_args[@]}" \
@@ -174,3 +190,8 @@ read -r -a extra_link_args <<< "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}"
 
 test -s "$OUT_DIR/projectm-v.030-thread.js"
 test -s "$OUT_DIR/projectm-v.030-thread.wasm"
+
+# What this bundle was built from; scripts/prepare_deploy_bundle.sh compares it
+# with the tree it is about to deploy. Written last, so a failed link leaves the
+# previous (now mismatching) id behind rather than a fresh one.
+"$PROJECT_ROOT/scripts/wasm_source_fingerprint.sh" > "$OUT_DIR/projectm-v.030-thread.build-id"

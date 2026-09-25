@@ -26,6 +26,12 @@ option(ENABLE_PLAYLIST "Enable building the playlist management library" ON)
 option(ENABLE_BOOST_FILESYSTEM "Force the use of boost::filesystem, even if the compiler supports C++17." OFF)
 option(ENABLE_SDL_UI "Build the SDL2-based developer test UI. Ignored when building with Emscripten or for Android." OFF)
 option(ENABLE_VERBOSE_LOGGING "Enables TRACE and DEBUG logging even in release builds, negatively affecting the performance." OFF)
+# Warnings-as-errors for the directories that are warning-clean, widened one
+# directory at a time (the same ratchet as scripts/check_cpp_format.sh). Off by
+# default so a newer compiler's new warning never breaks a downstream build; CI
+# turns it on. Covered today: src/libprojectM/MilkdropPreset. src/wasm is ratcheted
+# separately in scripts/build_wasm_smoke_wrapper.sh (CMake never compiles it).
+option(ENABLE_WERROR_RATCHET "Treat warnings as errors in the warning-clean directories (CI)." OFF)
 
 option(BUILD_TESTING "Build the libprojectM test suite" OFF)
 option(BUILD_DOCS "Build documentation" OFF)
@@ -159,10 +165,13 @@ if(ENABLE_EMSCRIPTEN)
         message(FATAL_ERROR "You are not using an emscripten compiler.")
     endif()
 
-    # Option to enable dual-pipeline preset transition support (all 5 phases now implemented).
-    # It no longer affects any link setting: preset loading is non-blocking because presets are
-    # prepared on a pthread (src/wasm/WasmPresetPrepare.cpp), not because of ASYNCIFY.
-    option(ENABLE_WASM_TRANSITIONS "Enable dual-pipeline preset transition support for WebAssembly builds. Only effective when ENABLE_EMSCRIPTEN is ON." ON)
+    # The Emscripten lib flags take their optimisation level from the build type
+    # (cmake/EmscriptenWasmFlags.cmake no longer forces -O3). With no build type
+    # CMake would compile at -O0 with assert() live, which is neither what ships
+    # nor what CI's smoke/golden gates should measure, so default to Release.
+    if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+        set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Emscripten defaults to Release)." FORCE)
+    endif()
 
     # emscripten uses different options to compile and link libraries, so we can't use find_package().
     # Instead, specifying the required options directly to emcc is the way to go.
@@ -271,7 +280,7 @@ message(STATUS "    macOS Framework:             ${ENABLE_MACOS_FRAMEWORK}")
 message(STATUS "    Emscripten:                  ${ENABLE_EMSCRIPTEN}")
 if(CMAKE_SYSTEM_NAME STREQUAL Emscripten)
     message(STATUS "    - PThreads:              ${USE_PTHREADS}")
-    message(STATUS "    - WASM Transitions:      ${ENABLE_WASM_TRANSITIONS}")
+    message(STATUS "    - Build type:            ${CMAKE_BUILD_TYPE}")
 endif()
 message(STATUS "    Use system GLM:              ${ENABLE_SYSTEM_GLM}")
 message(STATUS "    Use system projectM-eval:    ${ENABLE_SYSTEM_PROJECTM_EVAL}")

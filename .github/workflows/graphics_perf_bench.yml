@@ -61,11 +61,11 @@ jobs:
           emcmake cmake -G "Unix Makefiles" -S "$PWD" -B "$PWD/cmake-build" \
             -DCMAKE_INSTALL_PREFIX="$PWD/install" \
             -DBUILD_TESTING=NO \
-            -DENABLE_OPENMP=ON \
-            -DENABLE_WASM_TRANSITIONS=ON
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_OPENMP=ON
           emmake cmake --build "$PWD/cmake-build" --parallel
           (cd "$PWD/cmake-build" && emmake make install)
-          ENABLE_WASM_TRANSITIONS=ON INSTALL_DIR="$PWD/install" \
+          INSTALL_DIR="$PWD/install" \
             OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
 
       - name: Install harness dependencies
@@ -138,7 +138,7 @@ jobs:
 
       - name: Upload benchmark records
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frame-budget-${{ github.sha }}
           if-no-files-found: warn

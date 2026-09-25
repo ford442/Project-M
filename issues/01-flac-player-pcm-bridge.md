@@ -1,7 +1,7 @@
 # Web / Emscripten demo: Upgrade external FLAC player to postMessage PCM bridge
 
 **Status**: Ready to implement on the player side  
-**Related**: `diagnose-mod-flac` worktree + DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
+**Related**: `diagnose-mod-flac` worktree + docs/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
 
 ## Problem
 

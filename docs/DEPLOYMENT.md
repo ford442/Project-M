@@ -64,14 +64,15 @@ and may temporarily lag the latest bundle when that tag has known regressions.
 ## Usage
 
 ```bash
-# 0. Activate Emscripten (once per shell). SDK 3.1.74 recommended.
+# 0. Activate Emscripten (once per shell). SDK 6.0.6, the version CI pins.
 source /path/to/emsdk/emsdk_env.sh
 
-# 1. Build + install libprojectM static libs for wasm (required before staging)
-INSTALL_DIR=install scripts/build_wasm_install.sh
-
-# 2. Build wrapper + stage artifacts at repo root and pm/
-PROJECTM_WASM_VERSION=036 \
+# 1+2. Rebuild (incremental libs + wrapper link) and stage artifacts at the
+#      repo root and pm/. Always rebuilds: a staged bundle carries a
+#      <bundle>.build-id source fingerprint, and deploy.py refuses one that
+#      does not match this tree (docs/EMSCRIPTEN.md "Deploy staleness guard").
+#      PROJECTM_DEPLOY_REUSE_BUILD=1 skips the rebuild if the outputs match.
+PROJECTM_WASM_VERSION=038 \
   INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
   scripts/prepare_deploy_bundle.sh
 

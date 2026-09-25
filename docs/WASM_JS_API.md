@@ -180,7 +180,7 @@ Legacy hosts (`.1ink` shells, inline `<script type="module">` in `projectm-core.
 
 ## Future: embind `ProjectMHost` (Option A / C)
 
-`-l embind` is already linked on the wrapper TU. A future phase may expose a small `ProjectMHost` class (handle, PCM, presets, transitions) while keeping these flat exports for backward compatibility.
+Not linked today: the bundle had `-l embind` on the wrapper link but no `EMSCRIPTEN_BINDINGS` at all (its only use was a dead, unexported PCM helper), so it was dropped along with ~10 KB of glue (#260). A future phase may expose a small `ProjectMHost` class (handle, PCM, presets, transitions) while keeping these flat exports for backward compatibility; that phase adds `-l embind` back in `cmake/GenerateWasmLinkCommon.cmake` together with its first binding.
 
 ## Related
 

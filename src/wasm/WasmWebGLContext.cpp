@@ -5,8 +5,6 @@
 #include "WasmWebGLContext.hpp"
 #include "WasmHost.hpp"
 
-using namespace emscripten;
-
 // Per-instance host state (#168 Phase B). The WebGL context handle and the
 // canvas CSS selectors were process-global, so a second engine could not own a
 // distinct canvas. They are now WasmHost members; mapping the former names to

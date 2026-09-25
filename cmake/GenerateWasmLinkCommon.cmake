@@ -220,10 +220,13 @@ projectm_wasm_common_link_args() {
         \"\${lto_args[@]}\"
 ${_shared_plain_lines}        \"\${exception_args[@]}\"
 ${_shared_s_block}        -s \"PTHREAD_POOL_SIZE=\${pthread_pool_size}\"
-${_wrapper_s_block}        -l embind
-        -s EXPORTED_FUNCTIONS=\"\$(projectm_wasm_join_exported_functions)\"
+${_wrapper_s_block}        -s EXPORTED_FUNCTIONS=\"\$(projectm_wasm_join_exported_functions)\"
         -s EXPORTED_RUNTIME_METHODS=\"\$(projectm_wasm_exported_runtime_methods)\"
         --pre-js \"\${pthread_script_url_pre_js}\"
+        # <out>.js.symbols: wasm function index -> name, so a production
+        # \"wasm-function[1234]\" stack frame can be symbolized. The .wasm is
+        # byte-identical with or without it (no name section is kept).
+        --emit-symbol-map
     )
 }
 

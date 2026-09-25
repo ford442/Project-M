@@ -21,7 +21,7 @@
 #include "WasmHost.hpp"
 #include "WasmWebGLContext.hpp"
 
-using namespace emscripten;
+#include <emscripten/threading.h>
 
 // Per-instance host state (#168 Phase B). Former process-global engine /
 // playlist / dual-FBO / transition fields are WasmHost members; each body binds
@@ -53,11 +53,24 @@ using namespace emscripten;
 // during its own init, and a wasm module has no environment to inherit one
 // from. kmp_set_blocktime() is the programmatic equivalent and must run before
 // the first parallel region, which init() guarantees.
+//
+// kWasmOpenMpThreads is only a ceiling. The team is clamped to one less than
+// navigator.hardwareConcurrency so a 2- or 4-core phone keeps a core free for
+// the page's AudioWorklet and the browser; PTHREAD_POOL_SIZE still pre-spawns
+// kWasmOpenMpThreads - 1 Workers, the surplus just stays parked.
+#ifdef _OPENMP
+static int WasmOpenMpTeamSize()
+{
+    const int cores = emscripten_num_logical_cores();
+    return std::clamp(cores - 1, 1, kWasmOpenMpThreads);
+}
+#endif
+
 static void ConfigureWasmOpenMPThreadCount()
 {
 #ifdef _OPENMP
     omp_set_dynamic(0);
-    omp_set_num_threads(kWasmOpenMpThreads);
+    omp_set_num_threads(WasmOpenMpTeamSize());
     // Sleep helpers immediately instead of spinning between frames. Costs a
     // futex wake per parallel region; buys back three idle cores.
     //

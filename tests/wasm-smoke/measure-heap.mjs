@@ -84,8 +84,12 @@ async function measurePreset(page, presetAbsPath, presetIndex) {
 
   return page.evaluate(async ({ presetBytes, vfsPath, frames, canvasW, canvasH }) => {
     const peaks = { coldStart: 0, postInit: 0, postPresetLoad: 0, postSteadyState: 0, postTransition: 0 };
+    // HEAPF32 is the one heap view the glue exports (HEAP8 no longer is).
+    // With growth + pthreads the main thread refreshes it on its next heap
+    // access after a grow, which every render_frame() GL call makes.
+    const heapBytes = () => Module.HEAPF32.buffer.byteLength;
     const mark = (key) => {
-      peaks[key] = Module.HEAP8.length;
+      peaks[key] = heapBytes();
     };
 
     mark('coldStart');
@@ -103,9 +107,6 @@ async function measurePreset(page, presetAbsPath, presetIndex) {
     try { Module.FS.mkdir('/presets/tests'); } catch (_) {}
     Module.FS.writeFile(vfsPath, new Uint8Array(presetBytes));
 
-    Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
-    mark('postPresetLoad');
-
     if (typeof Module._set_window_size === 'function') {
       Module._set_window_size(canvasW, canvasH);
     }
@@ -113,14 +114,26 @@ async function measurePreset(page, presetAbsPath, presetIndex) {
       Module._set_mesh(80, 60);
     }
 
+    // Presets are prepared on a pthread; render until the switch lands so the
+    // steady-state frames below run the preset, not the idle one.
+    Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+    const readyDeadline = performance.now() + 60000;
+    while (Module._is_preset_ready(0) === 0) {
+      if (Module._preset_switch_failed()) throw new Error('preset_switch_failed: ' + vfsPath);
+      if (performance.now() > readyDeadline) throw new Error('timed out waiting for ' + vfsPath);
+      Module._render_frame();
+      await new Promise((r) => setTimeout(r, 4));
+    }
+    mark('postPresetLoad');
+
     for (let i = 0; i < frames; i++) {
       if (typeof Module._render_frame === 'function') {
         Module._render_frame();
       }
-      const used = Module.HEAP8.length;
+      const used = heapBytes();
       if (used > peaks.postSteadyState) peaks.postSteadyState = used;
     }
-    if (peaks.postSteadyState === 0) peaks.postSteadyState = Module.HEAP8.length;
+    if (peaks.postSteadyState === 0) peaks.postSteadyState = heapBytes();
 
     if (typeof Module._dual_fbo_begin_transition === 'function' &&
         typeof Module._dual_fbo_render_preset_a === 'function' &&
@@ -131,7 +144,7 @@ async function measurePreset(page, presetAbsPath, presetIndex) {
       if (typeof Module._dual_fbo_end_transition === 'function') {
         Module._dual_fbo_end_transition();
       }
-      peaks.postTransition = Module.HEAP8.length;
+      peaks.postTransition = heapBytes();
     }
 
     return peaks;

@@ -11,11 +11,14 @@
 #include <OpenMpConfig.hpp>
 #include <Renderer/BlendMode.hpp>
 #include <Renderer/ShaderCache.hpp>
+#include <Utils.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cinttypes>
 #include <cmath>
 #include <cstddef>
-#include <functional>
+#include <cstdio>
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
@@ -193,6 +196,10 @@ void PerPixelMesh::InitializeMesh(const PresetState& presetState)
         return;
     }
 
+    m_viewportWidth = presetState.renderContext.viewportSizeX;
+    m_viewportHeight = presetState.renderContext.viewportSizeY;
+    m_staticDataDirty = true;
+
     const float aspectX = presetState.renderContext.aspectX;
     const float aspectY = presetState.renderContext.aspectY;
 
@@ -291,10 +298,14 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
     if (UsesGpuPerPixel(presetState))
     {
         // The equations were compiled into the warp vertex shader, so the ten transform
-        // channels are produced per vertex on the GPU. Nothing per-vertex is left to
-        // compute or upload here; WarpedBlit() passes the per-frame seeds as uniforms.
-        m_warpMesh.Update();
-        m_radiusAngleBuffer.Update();
+        // channels are produced per vertex on the GPU; WarpedBlit() passes the per-frame
+        // seeds as uniforms. What is left here is the part that has to run in vertex order
+        // on the CPU, if the preset has one, and the static grid after a resize.
+        if (presetState.perPixelGpuCpuSlice)
+        {
+            RunCpuSlice(*presetState.perPixelGpuCpuSlice, presetState, perFrameContext, perPixelContext);
+        }
+        UploadStaticData();
         return;
     }
 
@@ -392,12 +403,98 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
         }
     }
 
-    m_warpMesh.Update();
-    m_radiusAngleBuffer.Update();
+    UploadStaticData();
     m_zoomRotWarpBuffer.Update();
     m_centerBuffer.Update();
     m_distanceBuffer.Update();
     m_stretchBuffer.Update();
+}
+
+void PerPixelMesh::RunCpuSlice(const PerPixelGlslLowering::CpuSlice& slice,
+                               const PresetState& presetState,
+                               const PerFrameContext& perFrameContext,
+                               PerPixelContext& perPixelContext)
+{
+    // One thread, vertex order, on the context the slice was lowered from: that is what
+    // makes carried locals and rand() match single-threaded CPU evaluation exactly.
+    const auto& vertices = m_warpMesh.Vertices();
+    const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
+    const int valueCount = slice.ValueCount();
+    std::array<float, PerPixelGlslLowering::MaxCpuValues> values{};
+
+    for (int vertex = 0; vertex < vertexCount; vertex++)
+    {
+        const auto& curVertex = vertices[vertex];
+        const auto& curRadiusAngle = m_radiusAngleBuffer[vertex];
+
+        // Seeded exactly as CalculateMesh() seeds the full program.
+        *perPixelContext.x = static_cast<double>(curVertex.X() * 0.5f * presetState.renderContext.aspectX + 0.5f);
+        *perPixelContext.y = static_cast<double>(curVertex.Y() * 0.5f * presetState.renderContext.aspectY + 0.5f);
+        *perPixelContext.rad = static_cast<double>(curRadiusAngle.radius);
+        *perPixelContext.ang = static_cast<double>(-curRadiusAngle.angle);
+        *perPixelContext.zoom = static_cast<double>(*perFrameContext.zoom);
+        *perPixelContext.zoomexp = static_cast<double>(*perFrameContext.zoomexp);
+        *perPixelContext.rot = static_cast<double>(*perFrameContext.rot);
+        *perPixelContext.warp = static_cast<double>(*perFrameContext.warp);
+        *perPixelContext.cx = static_cast<double>(*perFrameContext.cx);
+        *perPixelContext.cy = static_cast<double>(*perFrameContext.cy);
+        *perPixelContext.dx = static_cast<double>(*perFrameContext.dx);
+        *perPixelContext.dy = static_cast<double>(*perFrameContext.dy);
+        *perPixelContext.sx = static_cast<double>(*perFrameContext.sx);
+        *perPixelContext.sy = static_cast<double>(*perFrameContext.sy);
+
+        slice.Execute(values.data());
+
+        // The values travel in the attributes the CPU path fills with its transform
+        // channels; see PerPixelGlslLowering::CpuValueAttributeLocation().
+        if (valueCount > 0)
+        {
+            m_centerBuffer[vertex] = {values[0], values[1]};
+        }
+        if (valueCount > 2)
+        {
+            m_distanceBuffer[vertex] = {values[2], values[3]};
+        }
+        if (valueCount > 4)
+        {
+            m_stretchBuffer[vertex] = {values[4], values[5]};
+        }
+        if (valueCount > 6)
+        {
+            m_zoomRotWarpBuffer[vertex] = {values[6], values[7], values[8], values[9]};
+        }
+    }
+
+    if (valueCount > 0)
+    {
+        m_centerBuffer.Update();
+    }
+    if (valueCount > 2)
+    {
+        m_distanceBuffer.Update();
+    }
+    if (valueCount > 4)
+    {
+        m_stretchBuffer.Update();
+    }
+    if (valueCount > 6)
+    {
+        m_zoomRotWarpBuffer.Update();
+    }
+}
+
+void PerPixelMesh::UploadStaticData()
+{
+    // The grid positions, radius/angle and indices only change in InitializeMesh(), on a
+    // resize or a mesh size change. Uploading them every frame was 100-400 KB of buffer
+    // traffic per frame at high mesh quality, for data the GPU already had.
+    if (!m_staticDataDirty)
+    {
+        return;
+    }
+    m_warpMesh.Update();
+    m_radiusAngleBuffer.Update();
+    m_staticDataDirty = false;
 }
 
 void PerPixelMesh::WarpedBlit(const PresetState& presetState,
@@ -500,36 +597,47 @@ auto PerPixelMesh::WarpShaderCacheKey(const PresetState& presetState) -> std::st
 
     // Every preset on the GPU path has its own vertex shader, so the program cache must
     // be keyed by the generated code and not by the name of the default warp shader.
-    const auto hash = std::hash<std::string>{}(presetState.perPixelGpuGlsl);
-    return "milkdrop_default_warp_shader_gpu_" + std::to_string(hash);
+    // std::hash is 32 bits on wasm32, where a collision would silently draw another
+    // preset's warp; a 64-bit FNV-1a plus the length makes that a non-event.
+    char key[80];
+    std::snprintf(key, sizeof(key), "milkdrop_default_warp_shader_gpu_%016" PRIx64 "_%zu",
+                  Utils::Fnv1a64(presetState.perPixelGpuGlsl), presetState.perPixelGpuGlsl.size());
+    return key;
 }
 
 auto PerPixelMesh::GetDefaultWarpShader(const PresetState& presetState) -> std::shared_ptr<Renderer::Shader>
 {
     const auto cacheKey = WarpShaderCacheKey(presetState);
 
-    auto perPixelMeshShader = m_perPixelMeshShader.lock();
-    if (perPixelMeshShader && cacheKey == m_perPixelMeshShaderKey)
+    if (m_perPixelMeshShader && cacheKey == m_perPixelMeshShaderKey)
     {
-        return perPixelMeshShader;
+        return m_perPixelMeshShader;
     }
 
-    perPixelMeshShader = presetState.renderContext.shaderCache->Get(cacheKey);
-    if (perPixelMeshShader)
+    auto& shaderCache = *presetState.renderContext.shaderCache;
+    auto perPixelMeshShader = shaderCache.Get(cacheKey);
+    if (!perPixelMeshShader)
     {
-        m_perPixelMeshShader = perPixelMeshShader;
-        m_perPixelMeshShaderKey = cacheKey;
-        return perPixelMeshShader;
+        auto staticShaders = libprojectM::MilkdropPreset::MilkdropStaticShaders::Get();
+
+        perPixelMeshShader = std::make_shared<Renderer::Shader>();
+        perPixelMeshShader->CompileProgram(
+            PerPixelGlslLowering::ComposeWarpVertexShader(presetState.perPixelGpuGlsl),
+            staticShaders->GetPresetWarpFragmentShader());
+
+        if (UsesGpuPerPixel(presetState))
+        {
+            // One program per GPU-path preset: bounded, least recently used goes first.
+            shaderCache.InsertEvictable(cacheKey, perPixelMeshShader);
+        }
+        else
+        {
+            shaderCache.Insert(cacheKey, perPixelMeshShader);
+        }
     }
 
-    auto staticShaders = libprojectM::MilkdropPreset::MilkdropStaticShaders::Get();
-
-    perPixelMeshShader = std::make_shared<Renderer::Shader>();
-    perPixelMeshShader->CompileProgram(
-        PerPixelGlslLowering::ComposeWarpVertexShader(presetState.perPixelGpuGlsl),
-        staticShaders->GetPresetWarpFragmentShader());
-
-    presetState.renderContext.shaderCache->Insert(cacheKey, perPixelMeshShader);
+    // Held strongly: eviction from the cache must not delete a program this preset is
+    // still drawing with. It is released when the preset (and this mesh) goes away.
     m_perPixelMeshShader = perPixelMeshShader;
     m_perPixelMeshShaderKey = cacheKey;
 
@@ -562,7 +670,7 @@ void PerPixelMesh::SetPerPixelUniforms(const Renderer::Shader& shader,
 
     // Only the scalars the generated code actually reads were declared, so anything
     // not in the mask has no uniform to set. SetUniformFloat() tolerates a missing
-    // location anyway; the mask just avoids the lookups.
+    // location anyway, and caches the lookups; the mask just skips the calls.
     const auto uniforms = presetState.perPixelGpuUniforms;
     const struct
     {
@@ -596,18 +704,18 @@ void PerPixelMesh::SetPerPixelUniforms(const Renderer::Shader& shader,
         }
     }
 
-    for (int vector = 0; vector < QVarCount / 4; vector++)
+    if (presetState.perPixelGpuQVectors != 0u)
     {
-        if ((presetState.perPixelGpuQVectors & (1u << static_cast<std::uint32_t>(vector))) == 0u)
+        // All eight vectors in one call; the ones the shader does not read cost nothing.
+        std::array<glm::vec4, QVarCount / 4> qVectors;
+        for (int vector = 0; vector < QVarCount / 4; vector++)
         {
-            continue;
+            qVectors[vector] = {static_cast<float>(*perFrameContext.q_vars[vector * 4 + 0]),
+                                static_cast<float>(*perFrameContext.q_vars[vector * 4 + 1]),
+                                static_cast<float>(*perFrameContext.q_vars[vector * 4 + 2]),
+                                static_cast<float>(*perFrameContext.q_vars[vector * 4 + 3])};
         }
-        const std::string name = "u_pp_q[" + std::to_string(vector) + "]";
-        shader.SetUniformFloat4(name.c_str(),
-                                {static_cast<float>(*perFrameContext.q_vars[vector * 4 + 0]),
-                                 static_cast<float>(*perFrameContext.q_vars[vector * 4 + 1]),
-                                 static_cast<float>(*perFrameContext.q_vars[vector * 4 + 2]),
-                                 static_cast<float>(*perFrameContext.q_vars[vector * 4 + 3])});
+        shader.SetUniformFloat4Array("u_pp_q", qVectors.data(), static_cast<int>(qVectors.size()));
     }
 }
 

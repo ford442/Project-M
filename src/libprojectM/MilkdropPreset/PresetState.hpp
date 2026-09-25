@@ -8,6 +8,7 @@
 #include "Constants.hpp"
 
 #include "BlurTexture.hpp"
+#include "PerPixelGlslLowering.hpp"
 
 #include <Audio/FrameAudioData.hpp>
 
@@ -177,6 +178,9 @@ public:
     std::string perPixelGpuReason;
     std::uint32_t perPixelGpuUniforms{}; //!< PerPixelGlslLowering::UniformFlags actually read.
     std::uint32_t perPixelGpuQVectors{}; //!< Bit N set if the emitted code reads q[4N..4N+3].
+    //! Statements of the GPU-path program the CPU still runs, in vertex order. Null when every
+    //! vertex is independent. Points into the per-pixel context's compiled program.
+    std::shared_ptr<const PerPixelGlslLowering::CpuSlice> perPixelGpuCpuSlice;
 
     std::weak_ptr<Renderer::Shader> untexturedShader; //!< Shader used to draw untextured primitives, e.g. waveforms.
     std::weak_ptr<Renderer::Shader> texturedShader;   //!< Shader used to draw textured primitives, e.g. textured shapes and the warp mesh.

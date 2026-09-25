@@ -3,6 +3,7 @@
 #include <Logging.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <string_view>
 #include <vector>
 
 namespace libprojectM {
@@ -37,6 +38,9 @@ void Shader::BeginCompileProgram(const std::string& vertexShaderSource,
                                  const std::string& fragmentShaderSource)
 {
     ReleasePendingCompile();
+
+    // Relinking may move every uniform.
+    m_uniformLocations.clear();
 
     m_pending = std::make_unique<PendingCompile>();
     m_pending->vertexShaderSource = vertexShaderSource;
@@ -184,7 +188,7 @@ void Shader::Unbind()
 
 void Shader::SetUniformFloat(const char* uniform, float value) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -194,7 +198,7 @@ void Shader::SetUniformFloat(const char* uniform, float value) const
 
 void Shader::SetUniformInt(const char* uniform, int value) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -204,7 +208,7 @@ void Shader::SetUniformInt(const char* uniform, int value) const
 
 void Shader::SetUniformFloat2(const char* uniform, const glm::vec2& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -214,7 +218,7 @@ void Shader::SetUniformFloat2(const char* uniform, const glm::vec2& values) cons
 
 void Shader::SetUniformInt2(const char* uniform, const glm::ivec2& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -224,7 +228,7 @@ void Shader::SetUniformInt2(const char* uniform, const glm::ivec2& values) const
 
 void Shader::SetUniformFloat3(const char* uniform, const glm::vec3& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -234,7 +238,7 @@ void Shader::SetUniformFloat3(const char* uniform, const glm::vec3& values) cons
 
 void Shader::SetUniformInt3(const char* uniform, const glm::ivec3& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -244,7 +248,7 @@ void Shader::SetUniformInt3(const char* uniform, const glm::ivec3& values) const
 
 void Shader::SetUniformFloat4(const char* uniform, const glm::vec4& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -254,7 +258,7 @@ void Shader::SetUniformFloat4(const char* uniform, const glm::vec4& values) cons
 
 void Shader::SetUniformInt4(const char* uniform, const glm::ivec4& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -262,9 +266,19 @@ void Shader::SetUniformInt4(const char* uniform, const glm::ivec4& values) const
     glUniform4iv(location, 1, glm::value_ptr(values));
 }
 
+void Shader::SetUniformFloat4Array(const char* uniform, const glm::vec4* values, int count) const
+{
+    const auto location = UniformLocation(uniform);
+    if (location < 0 || count <= 0)
+    {
+        return;
+    }
+    glUniform4fv(location, count, glm::value_ptr(values[0]));
+}
+
 void Shader::SetUniformMat3x4(const char* uniform, const glm::mat3x4& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
@@ -274,12 +288,29 @@ void Shader::SetUniformMat3x4(const char* uniform, const glm::mat3x4& values) co
 
 void Shader::SetUniformMat4x4(const char* uniform, const glm::mat4x4& values) const
 {
-    auto location = glGetUniformLocation(m_shaderProgram, uniform);
+    const auto location = UniformLocation(uniform);
     if (location < 0)
     {
         return;
     }
     glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(values));
+}
+
+auto Shader::UniformLocation(const char* uniform) const -> GLint
+{
+    const std::string_view name(uniform);
+    const auto cached = m_uniformLocations.find(name);
+    if (cached != m_uniformLocations.end())
+    {
+        return cached->second;
+    }
+
+    // Asking the driver is a JavaScript call and a string decode on WebGL, and the renderer
+    // sets dozens of uniforms per frame. A location never changes until the next link, so
+    // each name is asked for once, including the names that turn out to be inactive (-1).
+    const GLint location = glGetUniformLocation(m_shaderProgram, uniform);
+    m_uniformLocations.emplace(name, location);
+    return location;
 }
 
 GLuint Shader::BeginCompileShader(const std::string& source, GLenum type)

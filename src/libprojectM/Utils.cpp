@@ -5,6 +5,17 @@
 namespace libprojectM {
 namespace Utils {
 
+auto Fnv1a64(std::string_view text) -> std::uint64_t
+{
+    std::uint64_t hash{0xcbf29ce484222325ull};
+    for (const char character : text)
+    {
+        hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(character));
+        hash *= 0x100000001b3ull;
+    }
+    return hash;
+}
+
 auto ToLower(const std::string& str) -> std::string
 {
     std::string lowerStr(str);

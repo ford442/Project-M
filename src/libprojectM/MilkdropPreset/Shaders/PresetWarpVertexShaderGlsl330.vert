@@ -1,11 +1,13 @@
-// PerPixelMesh::BuildWarpVertexShader() replaces the marker line below with one of two
+// PerPixelGlslLowering::ComposeWarpVertexShader() replaces the marker line below with one of two
 // blocks, depending on whether this preset's per_pixel_* code was compiled to GLSL
 // (docs/GPU_PERPIXEL_EVAL.md):
 //
 //   CPU path - the warp mesh attributes the CPU evaluation loop fills in:
 //       layout(location = 4) in vec4 transforms;  ... and locations 5, 6, 7.
 //   GPU path - the generated prjm_per_pixel() function plus the per-frame uniforms it
-//       reads and the four seed uniforms the equations start from.
+//       reads and the four seed uniforms the equations start from. When some statements
+//       stay on the CPU (PerPixelGlslLowering::CpuSlice), their per-vertex results arrive
+//       in the same locations 4-7, declared as a_pp_cpu0..3.
 //
 // It must come before the #defines below, so that none of the generated identifiers
 // can be caught by them.

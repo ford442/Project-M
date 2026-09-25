@@ -407,6 +407,7 @@ void MilkdropPreset::LowerPerPixelCodeToGlsl()
     m_state.perPixelGpuReason.clear();
     m_state.perPixelGpuUniforms = 0;
     m_state.perPixelGpuQVectors = 0;
+    m_state.perPixelGpuCpuSlice.reset();
 
     if (m_state.perPixelCode.empty())
     {
@@ -433,7 +434,16 @@ void MilkdropPreset::LowerPerPixelCodeToGlsl()
     m_state.perPixelGpuGlsl = lowering.glsl;
     m_state.perPixelGpuUniforms = lowering.uniforms;
     m_state.perPixelGpuQVectors = lowering.qVectors;
-    LOG_DEBUG("[MilkdropPreset] Per-pixel code compiled to GLSL, running on the GPU.");
+    // The slice runs on m_perPixelContext, whose program it was lowered from.
+    m_state.perPixelGpuCpuSlice = lowering.cpuSlice;
+    if (lowering.cpuSlice)
+    {
+        LOG_DEBUG("[MilkdropPreset] Per-pixel code compiled to GLSL, running on the GPU; " + lowering.cpuSliceReason);
+    }
+    else
+    {
+        LOG_DEBUG("[MilkdropPreset] Per-pixel code compiled to GLSL, running on the GPU.");
+    }
 }
 
 void MilkdropPreset::CompileCodeAndRunInitExpressions()

@@ -11,6 +11,14 @@
  * A semantic mistake in the lowering table (integer mod, the divide-by-zero guard,
  * short-circuit operators, the two different comparison epsilons, ...) shows up here
  * as a numeric mismatch rather than as a preset that silently looks wrong.
+ *
+ * Programs with a CPU slice (carried locals, rand(), ...) are run the way PerPixelMesh
+ * runs them: the slice on the lowered program's own context, one vertex at a time in
+ * vertex order, handing its values to the shader as vertex attributes. The reference is
+ * the evaluator on one context, also in vertex order. That is the single-threaded CPU
+ * path: with PRJM_ENABLE_OPENMP the CPU path splits the vertices across per-thread
+ * contexts, each carrying its own copy of the state, so its output depends on the thread
+ * count and there is no exact multi-threaded reference to compare against.
  */
 
 #include "HeadlessGlContext.hpp"
@@ -25,13 +33,22 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <memory>
 #include <random>
 #include <string>
 #include <vector>
+
+#ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
+extern "C" {
+#include <projectm-eval/CompilerTypes.h>
+#include <projectm-eval/TreeFunctions.h>
+}
+#endif
 
 using libprojectM::MilkdropPreset::PerPixelContext;
 using libprojectM::MilkdropPreset::PerPixelGlslLowering;
@@ -148,26 +165,28 @@ auto MakeVertices(std::mt19937& rng) -> std::vector<VertexInput>
     return vertices;
 }
 
-/** @brief Runs the per-pixel program on the CPU exactly the way CalculateMesh() does. */
-auto EvaluateOnCpu(const std::string& code,
-                   const FrameState& frame,
-                   const std::vector<VertexInput>& vertices,
-                   std::vector<double>& results,
-                   std::string& error) -> bool
+
+/** @brief Compiles @p code on a fresh context, the way PerPixelContext does for a preset. */
+auto CompileProgram(const std::string& code, std::unique_ptr<PerPixelContext>& context, std::string& error) -> bool
 {
-    PerPixelContext context(nullptr, nullptr);
-    context.RegisterBuiltinVariables();
+    context = std::make_unique<PerPixelContext>(nullptr, nullptr);
+    context->RegisterBuiltinVariables();
 
     try
     {
-        context.CompilePerPixelCode(code);
+        context->CompilePerPixelCode(code);
     }
     catch (const std::exception& exception)
     {
         error = exception.what();
         return false;
     }
+    return true;
+}
 
+/** @brief Loads one frame's read-only values and q variables, as PerFrameUpdate() does. */
+void LoadFrame(PerPixelContext& context, const FrameState& frame)
+{
     PRJM_EVAL_F* const readOnly[16] = {
         context.time, context.fps, context.frame, context.progress,
         context.bass, context.mid, context.treb,
@@ -183,26 +202,50 @@ auto EvaluateOnCpu(const std::string& code,
     {
         *context.q_vars[i] = frame.q[i];
     }
+}
 
-    PRJM_EVAL_F* const channels[kChannelCount] = {
-        context.zoom, context.zoomexp, context.rot, context.warp,
-        context.cx, context.cy, context.dx, context.dy,
-        context.sx, context.sy};
+auto Channels(PerPixelContext& context) -> std::array<PRJM_EVAL_F*, kChannelCount>
+{
+    return {context.zoom, context.zoomexp, context.rot, context.warp,
+            context.cx, context.cy, context.dx, context.dy,
+            context.sx, context.sy};
+}
+
+/** @brief Seeds one vertex, as CalculateMesh() does before running the program. */
+void SeedVertex(PerPixelContext& context, const FrameState& frame, const VertexInput& vertex)
+{
+    *context.x = vertex.x;
+    *context.y = vertex.y;
+    *context.rad = vertex.rad;
+    *context.ang = vertex.ang;
+    const auto channels = Channels(context);
+    for (int i = 0; i < kChannelCount; i++)
+    {
+        *channels[i] = frame.seeds[i];
+    }
+}
+
+/**
+ * @brief Runs the per-pixel program on the CPU exactly the way CalculateMesh() does
+ *        without OpenMP: one context, every vertex in order.
+ *
+ * The context keeps its variables between calls, so calling this again evaluates the next
+ * frame, with whatever the program carried over from the last vertex of this one.
+ */
+void EvaluateOnCpu(PerPixelContext& context,
+                   const FrameState& frame,
+                   const std::vector<VertexInput>& vertices,
+                   std::vector<double>& results)
+{
+    LoadFrame(context, frame);
+    const auto channels = Channels(context);
 
     results.clear();
     results.reserve(vertices.size() * kChannelCount);
 
     for (const auto& vertex : vertices)
     {
-        *context.x = vertex.x;
-        *context.y = vertex.y;
-        *context.rad = vertex.rad;
-        *context.ang = vertex.ang;
-        for (int i = 0; i < kChannelCount; i++)
-        {
-            *channels[i] = frame.seeds[i];
-        }
-
+        SeedVertex(context, frame, vertex);
         context.ExecutePerPixelCode();
 
         for (auto* channel : channels)
@@ -210,9 +253,103 @@ auto EvaluateOnCpu(const std::string& code,
             results.push_back(static_cast<double>(*channel));
         }
     }
-
-    return true;
 }
+
+// --- A resettable rand() --------------------------------------------------------------
+
+#ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
+
+std::mt19937 g_standInRandom;
+std::uint64_t g_standInDraws{};
+
+/** @brief prjm_eval_func_rand's scaling, drawing from a generator the test can rewind. */
+void StandInRand(prjm_eval_exptreenode* ctx, PRJM_EVAL_F** ret_val)
+{
+    PRJM_EVAL_F argument{};
+    PRJM_EVAL_F* argumentPointer = &argument;
+    ctx->args[0]->func(ctx->args[0], &argumentPointer);
+
+    PRJM_EVAL_F randMax = std::floor(*argumentPointer);
+    if (randMax < 1.0)
+    {
+        randMax = 1.0;
+    }
+
+    g_standInDraws++;
+    **ret_val = static_cast<PRJM_EVAL_F>(static_cast<double>(g_standInRandom()) * (1.0 / static_cast<double>(0xFFFFFFFFu)) * randMax);
+}
+
+void ReplaceRand(prjm_eval_exptreenode* node)
+{
+    if (node == nullptr || node->func == nullptr ||
+        node->func == prjm_eval_func_const || node->func == prjm_eval_func_var)
+    {
+        return;
+    }
+    if (node->func == prjm_eval_func_rand)
+    {
+        node->func = StandInRand;
+    }
+    if (node->func == prjm_eval_func_execute_list)
+    {
+        for (auto* item = node->list; item != nullptr; item = item->next)
+        {
+            ReplaceRand(item->expr);
+        }
+    }
+    if (node->args != nullptr)
+    {
+        for (auto** argument = node->args; *argument != nullptr; argument++)
+        {
+            ReplaceRand(*argument);
+        }
+    }
+}
+
+#endif
+
+/**
+ * @brief Makes rand() in this context's program draw from a generator ResetRand() rewinds.
+ *
+ * The real rand() is Milkdrop's process-wide Mersenne Twister, which nothing can rewind, so
+ * two runs of the same program would otherwise never see the same numbers. Call it after
+ * lowering: the lowering recognises rand() by its function pointer.
+ */
+void UseResettableRand(PerPixelContext& context)
+{
+#ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
+    auto* program = reinterpret_cast<prjm_eval_program_t*>(context.perPixelCodeHandle);
+    if (program != nullptr)
+    {
+        ReplaceRand(program->program);
+    }
+#else
+    (void) context;
+#endif
+}
+
+/** @brief Rewinds the stand-in rand() to @p seed and zeroes its draw counter. */
+void ResetRand(unsigned seed)
+{
+#ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
+    g_standInRandom.seed(seed);
+    g_standInDraws = 0;
+#else
+    (void) seed;
+#endif
+}
+
+/** @brief How many numbers the stand-in rand() has handed out since ResetRand(). */
+auto RandDraws() -> std::uint64_t
+{
+#ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
+    return g_standInDraws;
+#else
+    return 0;
+#endif
+}
+
+// --- The GPU side ---------------------------------------------------------------------
 
 auto CompileShader(GLenum type, const std::string& source, std::string& log) -> GLuint
 {
@@ -236,18 +373,43 @@ auto CompileShader(GLenum type, const std::string& source, std::string& log) -> 
     return shader;
 }
 
+/** @brief A lowered program, and the context whose compiled tree its CPU slice runs. */
+struct LoweredProgram
+{
+    std::unique_ptr<PerPixelContext> context;
+    PerPixelGlslLowering::Result lowering;
+};
+
 /**
- * @brief Compiles the generated function into a vertex shader and evaluates it with
- *        transform feedback, one point per vertex.
+ * @brief Runs the program the way the GPU path does: the CPU slice, if any, on the lowered
+ *        context in vertex order; then the generated function in a vertex shader, evaluated
+ *        with transform feedback, one point per vertex, with the slice's values as the
+ *        vertex attributes PerPixelMesh uploads.
  */
-auto EvaluateOnGpu(const std::string& generatedGlsl,
+auto EvaluateOnGpu(LoweredProgram& lowered,
                    const FrameState& frame,
                    const std::vector<VertexInput>& vertices,
                    std::vector<double>& results,
                    std::string& error) -> bool
 {
+    const auto& lowering = lowered.lowering;
+
+    // The CPU slice first, exactly as PerPixelMesh::RunCpuSlice() runs it.
+    const int valueCount = lowering.cpuSlice ? lowering.cpuSlice->ValueCount() : 0;
+    std::vector<float> sliceValues;
+    if (lowering.cpuSlice)
+    {
+        LoadFrame(*lowered.context, frame);
+        sliceValues.resize(vertices.size() * PerPixelGlslLowering::MaxCpuValues);
+        for (std::size_t index = 0; index < vertices.size(); index++)
+        {
+            SeedVertex(*lowered.context, frame, vertices[index]);
+            lowering.cpuSlice->Execute(&sliceValues[index * PerPixelGlslLowering::MaxCpuValues]);
+        }
+    }
+
     std::string source = "#version 330\n";
-    source += generatedGlsl;
+    source += lowering.glsl;
     source += R"(
 layout(location = 0) in vec4 a_vertex;
 
@@ -330,18 +492,16 @@ void main()
             glUniform1f(location, static_cast<float>(frame.readOnly[i]));
         }
     }
-    for (int vector = 0; vector < QVarCount / 4; vector++)
+    const GLint qLocation = glGetUniformLocation(program, "u_pp_q");
+    if (qLocation >= 0)
     {
-        const std::string name = "u_pp_q[" + std::to_string(vector) + "]";
-        const GLint location = glGetUniformLocation(program, name.c_str());
-        if (location >= 0)
+        // One call for the whole array, as PerPixelMesh::SetPerPixelUniforms() does.
+        std::array<float, QVarCount> q{};
+        for (int i = 0; i < QVarCount; i++)
         {
-            glUniform4f(location,
-                        static_cast<float>(frame.q[vector * 4 + 0]),
-                        static_cast<float>(frame.q[vector * 4 + 1]),
-                        static_cast<float>(frame.q[vector * 4 + 2]),
-                        static_cast<float>(frame.q[vector * 4 + 3]));
+            q[static_cast<std::size_t>(i)] = static_cast<float>(frame.q[i]);
         }
+        glUniform4fv(qLocation, QVarCount / 4, q.data());
     }
     glUniform4f(glGetUniformLocation(program, "u_seed_transforms"),
                 static_cast<float>(frame.seeds[0]), static_cast<float>(frame.seeds[1]),
@@ -376,6 +536,36 @@ void main()
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
 
+    // The slice's values, one buffer per attribute location, laid out the way the lowering
+    // says: CpuValueAttributeLocation() for each value, filling each attribute in order.
+    std::map<int, std::vector<int>> valuesByLocation;
+    for (int value = 0; value < valueCount; value++)
+    {
+        valuesByLocation[PerPixelGlslLowering::CpuValueAttributeLocation(value)].push_back(value);
+    }
+    std::vector<GLuint> sliceBuffers;
+    for (const auto& entry : valuesByLocation)
+    {
+        const int location = entry.first;
+        const int width = location == 4 ? 4 : 2;
+        std::vector<float> data(vertices.size() * static_cast<std::size_t>(width), 0.0f);
+        for (std::size_t vertex = 0; vertex < vertices.size(); vertex++)
+        {
+            for (std::size_t component = 0; component < entry.second.size(); component++)
+            {
+                data[vertex * static_cast<std::size_t>(width) + component] =
+                    sliceValues[vertex * PerPixelGlslLowering::MaxCpuValues + static_cast<std::size_t>(entry.second[component])];
+            }
+        }
+        GLuint buffer = 0;
+        glGenBuffers(1, &buffer);
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.size() * sizeof(float)), data.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(static_cast<GLuint>(location));
+        glVertexAttribPointer(static_cast<GLuint>(location), width, GL_FLOAT, GL_FALSE, 0, nullptr);
+        sliceBuffers.push_back(buffer);
+    }
+
     const std::size_t outputCount = vertices.size() * kChannelCount;
     glGenBuffers(1, &feedbackBuffer);
     glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER, feedbackBuffer);
@@ -399,6 +589,10 @@ void main()
     glBindVertexArray(0);
     glDeleteBuffers(1, &feedbackBuffer);
     glDeleteBuffers(1, &vertexBuffer);
+    if (!sliceBuffers.empty())
+    {
+        glDeleteBuffers(static_cast<GLsizei>(sliceBuffers.size()), sliceBuffers.data());
+    }
     glDeleteVertexArrays(1, &vertexArray);
     glDeleteProgram(program);
     glDeleteShader(vertexShader);
@@ -476,6 +670,25 @@ auto CompareResults(const std::vector<double>& cpu,
     return true;
 }
 
+/**
+ * @brief Per-vertex work with no carried state.
+ *
+ * Appended to the fixtures whose point is a small carried part, so they have a realistic
+ * ratio of GPU work to the part that must stay on the CPU (real presets are mostly this).
+ * Without it the carried part alone is more than PerPixelGlslLowering::MaxCpuShare of the
+ * program, and the lowering rightly refuses.
+ */
+const std::string kIndependentWork =
+    "p1 = sin(x*3.1 + time)*cos(y*2.7 - time*0.5) + sin(rad*5.3)*0.2;"
+    "p2 = pow(abs(p1) + 0.5, 1.3)*atan2(y - 0.5, x - 0.5) + cos(ang*3 + bass);"
+    "p3 = sqrt(x*x + y*y)*sin(ang*4 + p2) + cos(p1*p2*2.1) - sin(rad*rad*7 + treb);"
+    "p4 = if(above(p3, 0.2), sin(p3*x*9 + mid), cos(p3*y*8 - time)) + min(p1, p2)*max(p2, p3);"
+    "p5 = sigmoid(p4 - 0.1, 5)*exp(-rad*2) + log(abs(p3) + 1)*0.3 + sqr(p1 - p2)*0.1;"
+    "p6 = sin(p5*q1 + p4*q2)*cos(p3*q3 - p2*q4) + atan(p1*q5 + p2*q6)*0.25 + q7*p5*p4;"
+    "zoom = zoom + 0.01*p5 + 0.005*p4 + 0.002*p6; rot = rot + 0.01*p2 - 0.004*p3;"
+    "warp = warp + 0.1*p1; cx = cx + 0.01*sin(p4*3); cy = cy + 0.01*cos(p5*2);"
+    "sx = sx + 0.01*p3 - 0.003*p6; sy = sy - 0.01*p2;";
+
 class PerPixelGlslLoweringTest : public testing::Test
 {
 protected:
@@ -497,46 +710,77 @@ protected:
     }
 
     /**
-     * @brief Asserts that the program lowers and that the GPU agrees with the CPU.
+     * @brief Asserts that the program lowers and that the GPU path agrees with the CPU.
+     *
+     * Runs @p frames consecutive frames on both sides, so state a program carries over
+     * from the last vertex of one frame into the next is compared too.
      */
-    void ExpectAgrees(const std::string& code, unsigned seed = 1234u)
+    void ExpectAgrees(const std::string& code, int frames = 2, unsigned seed = 1234u)
     {
-        const auto lowering = LowerOrFail(code);
-        ASSERT_TRUE(lowering.lowered) << "refused: " << lowering.reason << "\ncode: " << code;
+        LoweredProgram lowered;
+        LowerOrFail(code, lowered);
+        ASSERT_TRUE(lowered.lowering.lowered) << "refused: " << lowered.lowering.reason << "\ncode: " << code;
+
+        std::unique_ptr<PerPixelContext> reference;
+        std::string error;
+        ASSERT_TRUE(CompileProgram(code, reference, error)) << error;
+
+        UseResettableRand(*lowered.context);
+        UseResettableRand(*reference);
 
         std::mt19937 rng(seed);
-        const auto frame = MakeFrameState(rng);
         const auto vertices = MakeVertices(rng);
 
-        std::vector<double> cpu;
-        std::string error;
-        ASSERT_TRUE(EvaluateOnCpu(code, frame, vertices, cpu, error)) << error;
+        for (int frame = 0; frame < frames; frame++)
+        {
+            const auto frameState = MakeFrameState(rng);
 
-        std::vector<double> gpu;
-        ASSERT_TRUE(EvaluateOnGpu(lowering.glsl, frame, vertices, gpu, error))
-            << error << "\ncode: " << code;
+            ResetRand(seed + static_cast<unsigned>(frame));
+            std::vector<double> cpu;
+            EvaluateOnCpu(*reference, frameState, vertices, cpu);
+            const auto cpuDraws = RandDraws();
 
-        std::string mismatch;
-        double worstDrift = 0.0;
-        EXPECT_TRUE(CompareResults(cpu, gpu, 1e-4, 1e-4, mismatch, worstDrift))
-            << mismatch << "\ncode: " << code << "\n--- generated ---\n" << lowering.glsl;
+            ResetRand(seed + static_cast<unsigned>(frame));
+            std::vector<double> gpu;
+            ASSERT_TRUE(EvaluateOnGpu(lowered, frameState, vertices, gpu, error))
+                << error << "\ncode: " << code;
+            const auto gpuDraws = RandDraws();
+
+            // rand() advances one generator shared with every other evaluation context, so
+            // the GPU path must consume exactly as many numbers as the CPU would.
+            EXPECT_EQ(cpuDraws, gpuDraws) << "frame " << frame << "\ncode: " << code;
+
+            std::string mismatch;
+            double worstDrift = 0.0;
+            EXPECT_TRUE(CompareResults(cpu, gpu, 1e-4, 1e-4, mismatch, worstDrift))
+                << "frame " << frame << ": " << mismatch << "\ncode: " << code
+                << "\n--- generated ---\n"
+                << lowered.lowering.glsl;
+        }
     }
 
     /** @brief Asserts that the program is refused, with a reason mentioning @p needle. */
     void ExpectRefused(const std::string& code, const std::string& needle)
     {
-        const auto lowering = LowerOrFail(code);
-        EXPECT_FALSE(lowering.lowered) << "expected a refusal for: " << code;
-        EXPECT_NE(lowering.reason.find(needle), std::string::npos)
-            << "reason was: " << lowering.reason;
+        LoweredProgram lowered;
+        LowerOrFail(code, lowered);
+        EXPECT_FALSE(lowered.lowering.lowered) << "expected a refusal for: " << code;
+        EXPECT_NE(lowered.lowering.reason.find(needle), std::string::npos)
+            << "reason was: " << lowered.lowering.reason;
     }
 
-    static auto LowerOrFail(const std::string& code) -> PerPixelGlslLowering::Result
+    static void LowerOrFail(const std::string& code, LoweredProgram& lowered)
     {
-        PerPixelContext compileContext(nullptr, nullptr);
-        compileContext.RegisterBuiltinVariables();
-        compileContext.CompilePerPixelCode(code);
-        return PerPixelGlslLowering::Lower(compileContext.perPixelCodeHandle);
+        std::string error;
+        ASSERT_TRUE(CompileProgram(code, lowered.context, error)) << error;
+        lowered.lowering = PerPixelGlslLowering::Lower(lowered.context->perPixelCodeHandle);
+    }
+
+    /** @brief The CPU slice the program lowers with, or null (also when it is refused). */
+    static auto SliceOf(const std::string& code, LoweredProgram& lowered) -> const PerPixelGlslLowering::CpuSlice*
+    {
+        LowerOrFail(code, lowered);
+        return lowered.lowering.cpuSlice.get();
     }
 
     std::unique_ptr<libprojectM::Test::HeadlessGlContext> m_context;
@@ -597,6 +841,22 @@ TEST_F(PerPixelGlslLoweringTest, TrigonometryMatches)
                  "warp = atan(x)*0.5 + exp(-rad)*0.1;");
 }
 
+TEST_F(PerPixelGlslLoweringTest, FloatLiteralsBeyondTheFloatRangeAreClamped)
+{
+    // 1e300 is an ordinary double on the CPU but has no float representation. Emitted
+    // as-is, ANGLE rejects the shader or turns the literal into an infinity (and then
+    // 0 * inf is NaN); clamped to +/-FLT_MAX it behaves like the CPU wherever the result
+    // fits in a float at all.
+    ExpectAgrees("zoom = 1 + min(1e300, x)*0.1; rot = max(-1e300, y)*0.1;"
+                 "warp = below(x, 1e300) + above(-1e300, y); sx = 1 + (x*0)*1e300;");
+
+    LoweredProgram lowered;
+    LowerOrFail("zoom = 1 + min(1e300, x);", lowered);
+    ASSERT_TRUE(lowered.lowering.lowered) << lowered.lowering.reason;
+    EXPECT_EQ(lowered.lowering.glsl.find("e+300"), std::string::npos) << lowered.lowering.glsl;
+    EXPECT_NE(lowered.lowering.glsl.find("3.40282347e+38"), std::string::npos) << lowered.lowering.glsl;
+}
+
 // --- Control flow -------------------------------------------------------------------
 
 TEST_F(PerPixelGlslLoweringTest, IfEvaluatesOnlyTheTakenBranch)
@@ -606,6 +866,16 @@ TEST_F(PerPixelGlslLoweringTest, IfEvaluatesOnlyTheTakenBranch)
     ExpectAgrees("a = 0; b = 0;"
                  "zoom = if(above(x, 0.5), exec2(a = 2, a), exec2(b = 3, b));"
                  "rot = a*0.1 - b*0.1;");
+}
+
+TEST_F(PerPixelGlslLoweringTest, AssignedOnBothBranchesCountsAsAssigned)
+{
+    // Neither branch alone makes 'a' definitely assigned; both together do, so the read
+    // afterwards sees this vertex's value and nothing has to stay on the CPU.
+    const std::string code = "if(above(x, 0.5), a = 2, a = 3); zoom = 1 + a*0.1;";
+    ExpectAgrees(code);
+    LoweredProgram lowered;
+    EXPECT_EQ(SliceOf(code, lowered), nullptr);
 }
 
 TEST_F(PerPixelGlslLoweringTest, ShortCircuitOperatorsSkipTheirRightHandSide)
@@ -639,6 +909,22 @@ TEST_F(PerPixelGlslLoweringTest, ZeroIterationLoopReturnsTheLoopCount)
     ExpectAgrees("a = 1; zoom = 1 + loop(0, a = a + 1)*0.01; rot = a*0.1;");
 }
 
+TEST_F(PerPixelGlslLoweringTest, NegativeLoopBoundRunsNoIteration)
+{
+    ExpectAgrees("a = 1; b = loop(-3.5, a = a + 1); zoom = 1 + a*0.1 + b*0.01 + x*0.01;");
+}
+
+TEST_F(PerPixelGlslLoweringTest, HugeNegativeLoopBoundIsNotConvertedToAnInteger)
+{
+    // Converting -1e300 to an integer is undefined behaviour, so the bound must be range
+    // checked as a double first (the sanitizer build traps otherwise). Only the lowering
+    // is checked here: the evaluator's own loop() performs that very conversion.
+    LoweredProgram lowered;
+    LowerOrFail("a = 1; loop(-1e300, a = a + 1); zoom = 1 + a*0.1 + x*0.01;", lowered);
+    ASSERT_TRUE(lowered.lowering.lowered) << lowered.lowering.reason;
+    EXPECT_EQ(lowered.lowering.glsl.find("for ("), std::string::npos) << lowered.lowering.glsl;
+}
+
 TEST_F(PerPixelGlslLoweringTest, CompoundAssignmentsReadTheTargetAfterTheRightHandSide)
 {
     // The divisor avoids landing exactly on an integer before %=: truncation is the one
@@ -653,6 +939,8 @@ TEST_F(PerPixelGlslLoweringTest, ExecutionListsReturnTheirLastValue)
     ExpectAgrees("zoom = exec3(1, 2, 1 + x*0.1); rot = exec2(5, y*0.1);");
 }
 
+// --- Variables ------------------------------------------------------------------------
+
 TEST_F(PerPixelGlslLoweringTest, PerVertexBuiltinsMayBeOverwritten)
 {
     // x, y, rad and ang are re-seeded on every vertex, so writing them is local.
@@ -664,6 +952,137 @@ TEST_F(PerPixelGlslLoweringTest, ReadOnlyBuiltinsAndQVariablesAreReadable)
     ExpectAgrees("zoom = 1 + q1*0.1 + q32*0.1 + bass*0.01;"
                  "rot = time*0.001 + treb_att*0.01 + progress*0.1;"
                  "warp = meshx*0.001 + aspectx*0.1 + pixelsx*0.0001;");
+}
+
+TEST_F(PerPixelGlslLoweringTest, EmptyProgramPassesTheSeedsThrough)
+{
+    // A per-pixel block that is only comments compiles to no program. It does nothing on
+    // the CPU, so on the GPU it is the empty function, not a reason to stay on the CPU.
+    const std::string code = "// zoom = 1 + cos(16*x)*.03;";
+    ExpectAgrees(code);
+    LoweredProgram lowered;
+    EXPECT_EQ(SliceOf(code, lowered), nullptr);
+}
+
+TEST_F(PerPixelGlslLoweringTest, LocalsNothingAssignsReadAsZero)
+{
+    // 'dir' is never written, so it keeps the zero it was registered with on every vertex;
+    // there is nothing to carry.
+    const std::string code = "dx = cos(dir)*0.01 + x*0.01; dy = -sin(dir)*0.01 + pi*y;";
+    ExpectAgrees(code);
+    LoweredProgram lowered;
+    EXPECT_EQ(SliceOf(code, lowered), nullptr);
+}
+
+TEST_F(PerPixelGlslLoweringTest, QWrittenBeforeItIsReadIsAPlainLocal)
+{
+    // q1 is reloaded from the per-frame value every frame, and this program assigns it
+    // before reading it on every vertex, so no vertex sees another vertex's q1.
+    const std::string code = "q1 = 4.05 + (sin(x + 0.237*time) - cos(y + 0.513*time));"
+                             "zoom = if(above(x, 0.5), q1*0.1, zoom*0.95); rot = q1*0.01 + q2;";
+    ExpectAgrees(code);
+    LoweredProgram lowered;
+    EXPECT_EQ(SliceOf(code, lowered), nullptr);
+}
+
+TEST_F(PerPixelGlslLoweringTest, ReadOnlyBuiltinWrittenBeforeItIsReadIsAPlainLocal)
+{
+    ExpectAgrees("time = 0; zoom = 1 + time + x*0.1;");
+}
+
+TEST_F(PerPixelGlslLoweringTest, NonCanonicalQNamesAreOrdinaryLocals)
+{
+    // The evaluator registers exactly q1..q32. 'q01' is a different variable, a preset
+    // local that starts at zero -- not q1.
+    ExpectAgrees("zoom = 1 + q01*0.1 + q1*0.1; rot = q001*0.1 + q3*0.01;");
+    ExpectAgrees("q01 = x; zoom = 1 + q01*0.1 + q1*0.1;");
+}
+
+// --- Statements that stay on the CPU --------------------------------------------------
+
+TEST_F(PerPixelGlslLoweringTest, CarriedThresholdRunsOnTheCpuAndAgrees)
+{
+    // The canonical mashup IIR. thresh, dx_r and dy_r carry over from vertex to vertex
+    // (and frame to frame), so those three statements run on the CPU in vertex order and
+    // everything else runs in the shader.
+    const std::string code =
+        "thresh = above(bass_att,thresh)*2+(1-above(bass_att,thresh))*((thresh-1.3)*0.96+1.3);"
+        "dx_r = equal(thresh,2)*0.015*sin(5*time)+(1-equal(thresh,2))*dx_r;"
+        "dy_r = equal(thresh,2)*0.015*sin(6*time)+(1-equal(thresh,2))*dy_r;" +
+        kIndependentWork +
+        "dx = dx + dx_r*sin(x*12); dy = dy + dy_r*cos(y*9);";
+    ExpectAgrees(code, 3);
+
+    LoweredProgram lowered;
+    const auto* slice = SliceOf(code, lowered);
+    ASSERT_NE(slice, nullptr) << lowered.lowering.reason;
+    EXPECT_EQ(slice->StatementCount(), 3);
+    EXPECT_EQ(slice->ValueCount(), 2) << "only dx_r and dy_r are read by the shader";
+    EXPECT_LE(slice->CostShare(), PerPixelGlslLowering::MaxCpuShare);
+    EXPECT_NE(lowered.lowering.cpuSliceReason.find("thresh"), std::string::npos) << lowered.lowering.cpuSliceReason;
+}
+
+TEST_F(PerPixelGlslLoweringTest, PreviousVertexValuesCarryOver)
+{
+    // 'oy' is last vertex's y: only the CPU, going in vertex order, knows it.
+    ExpectAgrees("dy = dy + (y - oy)*0.5;" + kIndependentWork + "oy = y;", 2);
+}
+
+TEST_F(PerPixelGlslLoweringTest, CompoundAssignmentOfACarriedLocalIsNotReadAsZero)
+{
+    // 'a += ...' reads 'a' first. Before it is assigned on this vertex that is the value
+    // the previous vertex left, which the GPU cannot know.
+    const std::string code = "a += 0.001; zoom = zoom + a;" + kIndependentWork;
+    ExpectAgrees(code, 2);
+    LoweredProgram lowered;
+    EXPECT_NE(SliceOf(code, lowered), nullptr);
+}
+
+TEST_F(PerPixelGlslLoweringTest, QCarriedAcrossVerticesIsReloadedEveryFrame)
+{
+    // q9 is read before this vertex writes it, so it is last vertex's x -- except on the
+    // first vertex of a frame, which sees the per-frame value.
+    ExpectAgrees("zoom = zoom + q9*0.01;" + kIndependentWork + "q9 = x;", 3);
+}
+
+TEST_F(PerPixelGlslLoweringTest, RandRunsOnTheCpuInVertexOrder)
+{
+    ExpectAgrees("rot = rot + (rand(10) - 5)*0.001; rot = rot + rad*0.01;" + kIndependentWork, 2);
+}
+
+TEST_F(PerPixelGlslLoweringTest, UnconditionalRandIsTheOnlyThingTheCpuRuns)
+{
+    // Only the call runs on the CPU; the statement around it, and the argument's
+    // per-frame inputs, stay in the shader. Even a program this small goes to the GPU.
+    const std::string code = "rot = rot + ((rand(10) - 5)*.001); rot = rot + (rad*.01);"
+                             "zoom = zoom + rand(int(fps*5))*0.0001*sin(x*7);";
+    ExpectAgrees(code, 2);
+
+    LoweredProgram lowered;
+    const auto* slice = SliceOf(code, lowered);
+    ASSERT_NE(slice, nullptr) << lowered.lowering.reason;
+    EXPECT_EQ(slice->StatementCount(), 0);
+    EXPECT_EQ(slice->RandCallCount(), 2);
+    EXPECT_EQ(slice->ValueCount(), 2);
+}
+
+TEST_F(PerPixelGlslLoweringTest, RandInAStatementTheCpuAlsoNeedsIsDrawnOnce)
+{
+    // 'b' carries over, and its update reads 'a', so the CPU needs the statement holding
+    // rand() as a whole. Making the call separately as well would draw two numbers.
+    ExpectAgrees("a = rand(100)*0.01; b = b*0.9 + a;" + kIndependentWork + "zoom = zoom + b*0.001;", 2);
+}
+
+TEST_F(PerPixelGlslLoweringTest, ConditionalRandConsumesTheSameNumbers)
+{
+    // Whether rand() runs depends on this vertex; the CPU slice must take the same
+    // branches, or everything drawn after it -- here and in every other context -- shifts.
+    ExpectAgrees("mq = if(above(x, 0.6), rand(3), mq);" + kIndependentWork + "zoom = zoom + mq*0.01;", 2);
+}
+
+TEST_F(PerPixelGlslLoweringTest, MegabufInASmallSliceAgrees)
+{
+    ExpectAgrees("megabuf(3) = megabuf(3) + 1; zoom = zoom + megabuf(3)*0.00001;" + kIndependentWork, 2);
 }
 
 // --- Refusals -----------------------------------------------------------------------
@@ -678,9 +1097,11 @@ TEST_F(PerPixelGlslLoweringTest, RefusesWhileLoops)
     ExpectRefused("a = 0; while(exec2(a = a + 1, below(a, 10))); zoom = 1 + a*0.01;", "while");
 }
 
-TEST_F(PerPixelGlslLoweringTest, RefusesRand)
+TEST_F(PerPixelGlslLoweringTest, RefusesConditionalRandThatIsMostOfTheProgram)
 {
-    ExpectRefused("zoom = 1 + rand(10)*0.01;", "rand");
+    // Whether rand() runs depends on the vertex, so the whole statement stays on the CPU,
+    // and here that statement is the whole program.
+    ExpectRefused("zoom = if(above(x, 0.5), 1 + rand(10)*0.01, 1);", "rand");
 }
 
 TEST_F(PerPixelGlslLoweringTest, RefusesInvsqrt)
@@ -690,25 +1111,17 @@ TEST_F(PerPixelGlslLoweringTest, RefusesInvsqrt)
     ExpectRefused("zoom = 1 + invsqrt(rad)*0.01;", "invsqrt");
 }
 
-TEST_F(PerPixelGlslLoweringTest, RefusesWritesToQVariables)
+TEST_F(PerPixelGlslLoweringTest, RefusesCarryStateLocalsThatAreMostOfTheProgram)
 {
-    // On the CPU q1 keeps the written value for the next vertex on the same context.
-    ExpectRefused("q1 = x; zoom = 1 + q1*0.1;", "q1");
-}
-
-TEST_F(PerPixelGlslLoweringTest, RefusesWritesToReadOnlyBuiltins)
-{
-    ExpectRefused("time = 0; zoom = 1 + time;", "time");
-}
-
-TEST_F(PerPixelGlslLoweringTest, RefusesCarryStateLocals)
-{
-    // The canonical mashup IIR: thresh is read before it is ever assigned, so on the
-    // CPU it carries over from the previous vertex.
+    // Without other work, keeping the carried part on the CPU is the whole program.
     ExpectRefused("thresh = above(bass_att, thresh)*2 + "
                   "(1 - above(bass_att, thresh))*((thresh - 1.3)*0.96 + 1.3);"
                   "zoom = 1 + thresh*0.01;",
                   "thresh");
+    ExpectRefused("thresh = above(bass_att, thresh)*2 + "
+                  "(1 - above(bass_att, thresh))*((thresh - 1.3)*0.96 + 1.3);"
+                  "zoom = 1 + thresh*0.01;",
+                  "per-vertex work");
 }
 
 TEST_F(PerPixelGlslLoweringTest, RefusesLocalsAssignedOnlyInsideABranch)
@@ -730,6 +1143,29 @@ TEST_F(PerPixelGlslLoweringTest, RefusesLoopsWithNonConstantBounds)
 TEST_F(PerPixelGlslLoweringTest, RefusesOversizedLoops)
 {
     ExpectRefused("a = 0; loop(4096, a = a + 1); zoom = 1 + a*0.0001;", "cap");
+}
+
+TEST_F(PerPixelGlslLoweringTest, RefusesHugeLoopBoundsWithoutConvertingThem)
+{
+    // 1e300 does not fit any integer type; converting it first would be undefined
+    // behaviour (the sanitizer build traps on it). exp(1000)*0 folds to a NaN constant.
+    ExpectRefused("a = 0; loop(1e300, a = a + 1); zoom = 1 + a*0.0001;", "cap");
+    ExpectRefused("a = 0; loop(exp(1000)*0, a = a + 1); zoom = 1 + a*0.0001;", "NaN");
+}
+
+TEST_F(PerPixelGlslLoweringTest, RefusesSlicesThatHandOverTooManyValues)
+{
+    // Eleven carried locals, each read by the shader: one value more than the four
+    // warp-mesh attributes can carry.
+    std::string code;
+    for (int index = 0; index < 11; index++)
+    {
+        const auto n = std::to_string(index);
+        code += "v" + n + " = c" + n + "*1; c" + n + " = x*" + n + ";";
+    }
+    code += "zoom = zoom + (v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9 + v10)*0.001;";
+    code += kIndependentWork + kIndependentWork + kIndependentWork;
+    ExpectRefused(code, "cap of 10");
 }
 
 // --- Corpus -------------------------------------------------------------------------
@@ -761,6 +1197,17 @@ constexpr double kCorpusTightDrift = 1e-3;
 
 /** @brief Share of lowered presets allowed to exceed kCorpusTightDrift. */
 constexpr double kCorpusTightDriftBudget = 0.02;
+
+/**
+ * @brief Presets with per-pixel code that must reach the GPU path, of the 241 in the tree.
+ *
+ * #227 Phase 1 lowered 186. Phase 1.5 (docs/GPU_PERPIXEL_EVAL.md) set the bar at 220. The
+ * number is a floor: raise it when coverage grows, never lower it to make a change pass.
+ */
+constexpr int kCorpusLoweredFloor = 220;
+
+/** @brief Frames evaluated per preset, so state carried from one frame into the next is compared. */
+constexpr int kCorpusFrames = 2;
 
 /** @brief Collects every .milk file below @p directory, if it exists. */
 auto CollectPresets(const std::string& directory) -> std::vector<std::string>
@@ -807,16 +1254,24 @@ TEST_F(PerPixelGlslLoweringTest, PresetCorpusAgreesOrRefusesWithAReason)
     ASSERT_FALSE(presets.empty()) << "no presets found to check";
 
     std::mt19937 rng(9876u);
-    const auto frame = MakeFrameState(rng);
+    std::vector<FrameState> frames;
+    for (int frame = 0; frame < kCorpusFrames; frame++)
+    {
+        frames.push_back(MakeFrameState(rng));
+    }
     const auto vertices = MakeVertices(rng);
 
     int withCode = 0;
+    int notCompiling = 0;
     int lowered = 0;
+    int withSlice = 0;
     int refused = 0;
     double worstCorpusDrift = 0.0;
     std::string worstCorpusPreset;
     std::vector<std::string> driftingPresets;
     std::map<std::string, int> refusalReasons;
+    std::vector<std::string> refusals;
+    std::vector<std::string> slices;
 
     for (const auto& path : presets)
     {
@@ -832,43 +1287,59 @@ TEST_F(PerPixelGlslLoweringTest, PresetCorpusAgreesOrRefusesWithAReason)
         }
         withCode++;
 
-        PerPixelContext context(nullptr, nullptr);
-        context.RegisterBuiltinVariables();
-        try
-        {
-            context.CompilePerPixelCode(code);
-        }
-        catch (const std::exception&)
+        LoweredProgram program;
+        std::string error;
+        if (!CompileProgram(code, program.context, error))
         {
             // Presets the evaluator itself rejects stay on the CPU error path.
+            notCompiling++;
             continue;
         }
 
-        const auto lowering = PerPixelGlslLowering::Lower(context.perPixelCodeHandle);
-        if (!lowering.lowered)
+        program.lowering = PerPixelGlslLowering::Lower(program.context->perPixelCodeHandle);
+        if (!program.lowering.lowered)
         {
             refused++;
-            EXPECT_FALSE(lowering.reason.empty()) << "silent refusal for " << path;
+            EXPECT_FALSE(program.lowering.reason.empty()) << "silent refusal for " << path;
             // Group by the first few words so the summary stays readable.
-            const auto cut = lowering.reason.find(',');
-            refusalReasons[lowering.reason.substr(0, std::min(cut, std::size_t{60}))]++;
+            const auto cut = program.lowering.reason.find_first_of(",;");
+            refusalReasons[program.lowering.reason.substr(0, std::min(cut, std::size_t{60}))]++;
+            refusals.push_back(std::filesystem::path(path).filename().string() + ": " + program.lowering.reason);
             continue;
         }
         lowered++;
+        if (program.lowering.cpuSlice)
+        {
+            withSlice++;
+            slices.push_back(std::filesystem::path(path).filename().string() + ": " + program.lowering.cpuSliceReason);
+        }
 
-        std::vector<double> cpu;
-        std::string error;
-        ASSERT_TRUE(EvaluateOnCpu(code, frame, vertices, cpu, error)) << path << ": " << error;
+        std::unique_ptr<PerPixelContext> reference;
+        ASSERT_TRUE(CompileProgram(code, reference, error)) << path << ": " << error;
+        UseResettableRand(*program.context);
+        UseResettableRand(*reference);
 
-        std::vector<double> gpu;
-        ASSERT_TRUE(EvaluateOnGpu(lowering.glsl, frame, vertices, gpu, error))
-            << path << ": " << error;
-
-        std::string mismatch;
         double worstDrift = 0.0;
-        EXPECT_TRUE(CompareResults(cpu, gpu, kCorpusAbsoluteTolerance,
-                                   kCorpusRelativeTolerance, mismatch, worstDrift))
-            << path << ": " << mismatch << "\n--- per_pixel ---\n" << code;
+        for (int frame = 0; frame < kCorpusFrames; frame++)
+        {
+            ResetRand(4321u + static_cast<unsigned>(frame));
+            std::vector<double> cpu;
+            EvaluateOnCpu(*reference, frames[static_cast<std::size_t>(frame)], vertices, cpu);
+            const auto cpuDraws = RandDraws();
+
+            ResetRand(4321u + static_cast<unsigned>(frame));
+            std::vector<double> gpu;
+            ASSERT_TRUE(EvaluateOnGpu(program, frames[static_cast<std::size_t>(frame)], vertices, gpu, error))
+                << path << ": " << error;
+            EXPECT_EQ(cpuDraws, RandDraws()) << path << ": the GPU path consumed a different number of rand() draws";
+
+            std::string mismatch;
+            EXPECT_TRUE(CompareResults(cpu, gpu, kCorpusAbsoluteTolerance,
+                                       kCorpusRelativeTolerance, mismatch, worstDrift))
+                << path << " frame " << frame << ": " << mismatch << "\n--- per_pixel ---\n"
+                << code;
+        }
+
         if (worstDrift > worstCorpusDrift)
         {
             worstCorpusDrift = worstDrift;
@@ -881,8 +1352,9 @@ TEST_F(PerPixelGlslLoweringTest, PresetCorpusAgreesOrRefusesWithAReason)
     }
 
     std::cout << "[  CORPUS  ] " << presets.size() << " presets, " << withCode
-              << " with per-pixel code: " << lowered << " lowered to GPU, " << refused
-              << " kept on CPU\n";
+              << " with per-pixel code: " << lowered << " lowered to GPU (" << withSlice
+              << " of them with a CPU slice), " << refused << " kept on CPU, " << notCompiling
+              << " rejected by the evaluator\n";
     std::cout << "[  CORPUS  ] worst CPU-vs-GPU drift " << worstCorpusDrift << " in "
               << worstCorpusPreset << "\n";
     for (const auto& drifting : driftingPresets)
@@ -893,8 +1365,21 @@ TEST_F(PerPixelGlslLoweringTest, PresetCorpusAgreesOrRefusesWithAReason)
     {
         std::cout << "[  CORPUS  ]   " << reason.second << "x " << reason.first << "\n";
     }
+    for (const auto& refusal : refusals)
+    {
+        std::cout << "[  CORPUS  ]     " << refusal << "\n";
+    }
+    for (const auto& slice : slices)
+    {
+        std::cout << "[  CORPUS  ]   cpu slice: " << slice << "\n";
+    }
 
     EXPECT_GT(lowered, 0) << "no preset in the tree lowers to the GPU path";
+    if (std::filesystem::is_directory(PROJECTM_WEEKS_PRESETS_DIR))
+    {
+        EXPECT_GE(lowered, kCorpusLoweredFloor)
+            << "GPU per-pixel coverage regressed: " << lowered << " of " << withCode << " presets lower";
+    }
     EXPECT_LE(static_cast<double>(driftingPresets.size()),
               kCorpusTightDriftBudget * static_cast<double>(lowered))
         << driftingPresets.size() << " of " << lowered

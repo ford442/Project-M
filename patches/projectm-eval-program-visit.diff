@@ -1,0 +1,644 @@
+diff -ruN '--exclude=build' '--exclude=configure.log' pe-orig/projectm-eval/api/projectm-eval.c pe/projectm-eval/api/projectm-eval.c
+--- a/projectm-eval/api/projectm-eval.c	2026-02-01 22:59:52.000000000 +0100
++++ b/projectm-eval/api/projectm-eval.c	2026-09-25 11:00:55.272302841 +0200
+@@ -3,8 +3,11 @@
+ #include "projectm-eval/CompilerTypes.h"
+ #include "projectm-eval/MemoryBuffer.h"
+ #include "projectm-eval/CompileContext.h"
++#include "projectm-eval/TreeFunctions.h"
+ #include "projectm-eval/TreeVariables.h"
+ 
++#include <stddef.h>
++
+ projectm_eval_mem_buffer projectm_eval_memory_buffer_create()
+ {
+     return prjm_eval_memory_create_buffer();
+@@ -89,4 +92,276 @@
+         *column = ctx->error.column_start;
+     }
+     return ctx->error.error;
+-}
+\ No newline at end of file
++}
++/* Expression tree inspection */
++
++typedef struct
++{
++    prjm_eval_expr_func_t* func;
++    projectm_eval_operation operation;
++} prjm_eval_operation_entry_t;
++
++/* Keyed by implementation, so every spelling of an operation maps to the same value. */
++static const prjm_eval_operation_entry_t operation_table[] = {
++    { prjm_eval_func_const,            PROJECTM_EVAL_OP_CONSTANT },
++    { prjm_eval_func_var,              PROJECTM_EVAL_OP_VARIABLE },
++    { prjm_eval_func_execute_list,     PROJECTM_EVAL_OP_LIST },
++    { prjm_eval_func_if,               PROJECTM_EVAL_OP_IF },
++    { prjm_eval_func_boolean_and_op,   PROJECTM_EVAL_OP_AND },
++    { prjm_eval_func_boolean_or_op,    PROJECTM_EVAL_OP_OR },
++    { prjm_eval_func_execute_loop,     PROJECTM_EVAL_OP_LOOP },
++    { prjm_eval_func_execute_while,    PROJECTM_EVAL_OP_WHILE },
++    { prjm_eval_func_exec2,            PROJECTM_EVAL_OP_EXEC2 },
++    { prjm_eval_func_exec3,            PROJECTM_EVAL_OP_EXEC3 },
++    { prjm_eval_func_set,              PROJECTM_EVAL_OP_ASSIGN },
++    { prjm_eval_func_add_op,           PROJECTM_EVAL_OP_ADD_ASSIGN },
++    { prjm_eval_func_sub_op,           PROJECTM_EVAL_OP_SUB_ASSIGN },
++    { prjm_eval_func_mul_op,           PROJECTM_EVAL_OP_MUL_ASSIGN },
++    { prjm_eval_func_div_op,           PROJECTM_EVAL_OP_DIV_ASSIGN },
++    { prjm_eval_func_mod_op,           PROJECTM_EVAL_OP_MOD_ASSIGN },
++    { prjm_eval_func_pow_op,           PROJECTM_EVAL_OP_POW_ASSIGN },
++    { prjm_eval_func_bitwise_or_op,    PROJECTM_EVAL_OP_BITOR_ASSIGN },
++    { prjm_eval_func_bitwise_and_op,   PROJECTM_EVAL_OP_BITAND_ASSIGN },
++    { prjm_eval_func_mem,              PROJECTM_EVAL_OP_MEMORY },
++    { prjm_eval_func_freembuf,         PROJECTM_EVAL_OP_FREEMBUF },
++    { prjm_eval_func_memcpy,           PROJECTM_EVAL_OP_MEMCPY },
++    { prjm_eval_func_memset,           PROJECTM_EVAL_OP_MEMSET },
++    { prjm_eval_func_bnot,             PROJECTM_EVAL_OP_NOT },
++    { prjm_eval_func_equal,            PROJECTM_EVAL_OP_EQUAL },
++    { prjm_eval_func_notequal,         PROJECTM_EVAL_OP_NOT_EQUAL },
++    { prjm_eval_func_below,            PROJECTM_EVAL_OP_BELOW },
++    { prjm_eval_func_above,            PROJECTM_EVAL_OP_ABOVE },
++    { prjm_eval_func_beloweq,          PROJECTM_EVAL_OP_BELOW_EQUAL },
++    { prjm_eval_func_aboveeq,          PROJECTM_EVAL_OP_ABOVE_EQUAL },
++    { prjm_eval_func_add,              PROJECTM_EVAL_OP_ADD },
++    { prjm_eval_func_sub,              PROJECTM_EVAL_OP_SUB },
++    { prjm_eval_func_mul,              PROJECTM_EVAL_OP_MUL },
++    { prjm_eval_func_div,              PROJECTM_EVAL_OP_DIV },
++    { prjm_eval_func_mod,              PROJECTM_EVAL_OP_MOD },
++    { prjm_eval_func_bitwise_or,       PROJECTM_EVAL_OP_BITOR },
++    { prjm_eval_func_bitwise_and,      PROJECTM_EVAL_OP_BITAND },
++    { prjm_eval_func_boolean_and_func, PROJECTM_EVAL_OP_BAND },
++    { prjm_eval_func_boolean_or_func,  PROJECTM_EVAL_OP_BOR },
++    { prjm_eval_func_neg,              PROJECTM_EVAL_OP_NEGATE },
++    { prjm_eval_func_sin,              PROJECTM_EVAL_OP_SIN },
++    { prjm_eval_func_cos,              PROJECTM_EVAL_OP_COS },
++    { prjm_eval_func_tan,              PROJECTM_EVAL_OP_TAN },
++    { prjm_eval_func_asin,             PROJECTM_EVAL_OP_ASIN },
++    { prjm_eval_func_acos,             PROJECTM_EVAL_OP_ACOS },
++    { prjm_eval_func_atan,             PROJECTM_EVAL_OP_ATAN },
++    { prjm_eval_func_atan2,            PROJECTM_EVAL_OP_ATAN2 },
++    { prjm_eval_func_sqr,              PROJECTM_EVAL_OP_SQR },
++    { prjm_eval_func_sqrt,             PROJECTM_EVAL_OP_SQRT },
++    { prjm_eval_func_pow,              PROJECTM_EVAL_OP_POW },
++    { prjm_eval_func_exp,              PROJECTM_EVAL_OP_EXP },
++    { prjm_eval_func_log,              PROJECTM_EVAL_OP_LOG },
++    { prjm_eval_func_log10,            PROJECTM_EVAL_OP_LOG10 },
++    { prjm_eval_func_abs,              PROJECTM_EVAL_OP_ABS },
++    { prjm_eval_func_min,              PROJECTM_EVAL_OP_MIN },
++    { prjm_eval_func_max,              PROJECTM_EVAL_OP_MAX },
++    { prjm_eval_func_sign,             PROJECTM_EVAL_OP_SIGN },
++    { prjm_eval_func_rand,             PROJECTM_EVAL_OP_RAND },
++    { prjm_eval_func_floor,            PROJECTM_EVAL_OP_FLOOR },
++    { prjm_eval_func_ceil,             PROJECTM_EVAL_OP_CEIL },
++    { prjm_eval_func_invsqrt,          PROJECTM_EVAL_OP_INVSQRT },
++    { prjm_eval_func_sigmoid,          PROJECTM_EVAL_OP_SIGMOID },
++};
++
++#define TREE_NODE(node) ((const prjm_eval_exptreenode_t*) (node))
++
++const struct projectm_eval_node* projectm_eval_code_root(const struct projectm_eval_code* code_handle)
++{
++    if (!code_handle)
++    {
++        return NULL;
++    }
++    return (const struct projectm_eval_node*) ((const prjm_eval_program_t*) code_handle)->program;
++}
++
++projectm_eval_operation projectm_eval_node_operation(const struct projectm_eval_node* node)
++{
++    if (!node)
++    {
++        return PROJECTM_EVAL_OP_UNKNOWN;
++    }
++
++    for (size_t index = 0; index < sizeof(operation_table) / sizeof(operation_table[0]); index++)
++    {
++        if (operation_table[index].func == TREE_NODE(node)->func)
++        {
++            return operation_table[index].operation;
++        }
++    }
++    return PROJECTM_EVAL_OP_UNKNOWN;
++}
++
++int projectm_eval_node_child_count(const struct projectm_eval_node* node)
++{
++    int count = 0;
++
++    if (!node)
++    {
++        return 0;
++    }
++
++    if (TREE_NODE(node)->func == prjm_eval_func_execute_list)
++    {
++        for (const prjm_eval_exptreenode_list_item_t* item = TREE_NODE(node)->list; item; item = item->next)
++        {
++            count++;
++        }
++        return count;
++    }
++
++    /* Constants and variables use the union member instead of arguments. */
++    if (TREE_NODE(node)->func == prjm_eval_func_const || TREE_NODE(node)->func == prjm_eval_func_var ||
++        !TREE_NODE(node)->args)
++    {
++        return 0;
++    }
++
++    while (TREE_NODE(node)->args[count])
++    {
++        count++;
++    }
++    return count;
++}
++
++const struct projectm_eval_node* projectm_eval_node_child(const struct projectm_eval_node* node, int index)
++{
++    if (!node || index < 0 || index >= projectm_eval_node_child_count(node))
++    {
++        return NULL;
++    }
++
++    if (TREE_NODE(node)->func == prjm_eval_func_execute_list)
++    {
++        const prjm_eval_exptreenode_list_item_t* item = TREE_NODE(node)->list;
++        while (index-- > 0)
++        {
++            item = item->next;
++        }
++        return (const struct projectm_eval_node*) item->expr;
++    }
++
++    return (const struct projectm_eval_node*) TREE_NODE(node)->args[index];
++}
++
++PRJM_EVAL_F projectm_eval_node_constant(const struct projectm_eval_node* node)
++{
++    if (!node || TREE_NODE(node)->func != prjm_eval_func_const)
++    {
++        return .0;
++    }
++    return TREE_NODE(node)->value;
++}
++
++const PRJM_EVAL_F* projectm_eval_node_variable(const struct projectm_eval_node* node)
++{
++    if (!node || TREE_NODE(node)->func != prjm_eval_func_var)
++    {
++        return NULL;
++    }
++    return TREE_NODE(node)->var;
++}
++
++const char* projectm_eval_code_variable_name(const struct projectm_eval_code* code_handle, const PRJM_EVAL_F* variable)
++{
++    static const char register_names[100][6] = {
++        "reg00", "reg01", "reg02", "reg03", "reg04", "reg05", "reg06", "reg07", "reg08", "reg09",
++        "reg10", "reg11", "reg12", "reg13", "reg14", "reg15", "reg16", "reg17", "reg18", "reg19",
++        "reg20", "reg21", "reg22", "reg23", "reg24", "reg25", "reg26", "reg27", "reg28", "reg29",
++        "reg30", "reg31", "reg32", "reg33", "reg34", "reg35", "reg36", "reg37", "reg38", "reg39",
++        "reg40", "reg41", "reg42", "reg43", "reg44", "reg45", "reg46", "reg47", "reg48", "reg49",
++        "reg50", "reg51", "reg52", "reg53", "reg54", "reg55", "reg56", "reg57", "reg58", "reg59",
++        "reg60", "reg61", "reg62", "reg63", "reg64", "reg65", "reg66", "reg67", "reg68", "reg69",
++        "reg70", "reg71", "reg72", "reg73", "reg74", "reg75", "reg76", "reg77", "reg78", "reg79",
++        "reg80", "reg81", "reg82", "reg83", "reg84", "reg85", "reg86", "reg87", "reg88", "reg89",
++        "reg90", "reg91", "reg92", "reg93", "reg94", "reg95", "reg96", "reg97", "reg98", "reg99"};
++
++    const prjm_eval_compiler_context_t* cctx;
++
++    if (!code_handle || !variable)
++    {
++        return NULL;
++    }
++
++    cctx = ((const prjm_eval_program_t*) code_handle)->cctx;
++    if (!cctx)
++    {
++        return NULL;
++    }
++
++    for (const prjm_eval_variable_entry_t* entry = cctx->variables.first; entry; entry = entry->next)
++    {
++        if (&entry->variable->value == variable)
++        {
++            return entry->variable->name;
++        }
++    }
++
++    if (cctx->global_variables &&
++        variable >= &(*cctx->global_variables)[0] && variable < &(*cctx->global_variables)[100])
++    {
++        return register_names[variable - &(*cctx->global_variables)[0]];
++    }
++
++    return NULL;
++}
++
++int projectm_eval_node_is_global_memory(const struct projectm_eval_code* code_handle, const struct projectm_eval_node* node)
++{
++    const prjm_eval_compiler_context_t* cctx;
++
++    if (!code_handle || !node || TREE_NODE(node)->func != prjm_eval_func_mem)
++    {
++        return 0;
++    }
++
++    cctx = ((const prjm_eval_program_t*) code_handle)->cctx;
++    return cctx && TREE_NODE(node)->memory_buffer == cctx->global_memory;
++}
++
++PRJM_EVAL_F projectm_eval_node_execute(const struct projectm_eval_node* node)
++{
++    PRJM_EVAL_F result = .0;
++    PRJM_EVAL_F* result_ptr = &result;
++    prjm_eval_exptreenode_t* tree_node = (prjm_eval_exptreenode_t*) node;
++
++    if (!tree_node || !tree_node->func)
++    {
++        return .0;
++    }
++
++    /* Execution uses the node's temporary storage, as when the whole program runs. */
++    tree_node->func(tree_node, &result_ptr);
++    return *result_ptr;
++}
++
++static void visit_node(const struct projectm_eval_node* node, int depth, projectm_eval_node_visitor visitor, void* user_data)
++{
++    int child_count;
++
++    if (!visitor(node, depth, user_data))
++    {
++        return;
++    }
++
++    child_count = projectm_eval_node_child_count(node);
++    for (int index = 0; index < child_count; index++)
++    {
++        visit_node(projectm_eval_node_child(node, index), depth + 1, visitor, user_data);
++    }
++}
++
++void projectm_eval_code_visit(const struct projectm_eval_code* code_handle, projectm_eval_node_visitor visitor, void* user_data)
++{
++    const struct projectm_eval_node* root = projectm_eval_code_root(code_handle);
++
++    if (!root || !visitor)
++    {
++        return;
++    }
++
++    visit_node(root, 0, visitor, user_data);
++}
+diff -ruN '--exclude=build' '--exclude=configure.log' pe-orig/projectm-eval/api/projectm-eval.h pe/projectm-eval/api/projectm-eval.h
+--- a/projectm-eval/api/projectm-eval.h	2026-02-01 22:59:52.000000000 +0100
++++ b/projectm-eval/api/projectm-eval.h	2026-09-25 10:59:12.728485414 +0200
+@@ -161,6 +161,179 @@
+  */
+ const char* projectm_eval_get_error(struct projectm_eval_context* ctx, int* line, int* column);
+ 
++/*
++ * Expression tree inspection.
++ *
++ * A compiled program is a tree of nodes. These functions let a host walk it read-only, for
++ * example to translate a program into a shading language, analyse which variables it reads
++ * and writes, or lint presets, and run single nodes of it, for example to evaluate one
++ * statement of a program on its own. Nodes belong to their code handle and stay valid until
++ * it is destroyed.
++ */
++
++/**
++ * @brief Opaque node of a compiled program's expression tree.
++ */
++struct projectm_eval_node;
++
++/**
++ * @brief What a node does. One value per operation, whatever name the program spelled it with
++ *        ("if" and "_if", "megabuf" and "_mem" are the same operation).
++ *
++ * Values are only ever appended. A node this version cannot name reports
++ * PROJECTM_EVAL_OP_UNKNOWN, so a translator can refuse it instead of mistranslating it.
++ */
++typedef enum projectm_eval_operation
++{
++    PROJECTM_EVAL_OP_UNKNOWN = 0, /*!< An operation this API version does not name. */
++
++    PROJECTM_EVAL_OP_CONSTANT,    /*!< A number, see projectm_eval_node_constant(). No children. */
++    PROJECTM_EVAL_OP_VARIABLE,    /*!< A variable, see projectm_eval_node_variable(). No children. */
++    PROJECTM_EVAL_OP_LIST,        /*!< "a; b; c": children run in order, the value is the last one's. */
++
++    PROJECTM_EVAL_OP_IF,          /*!< if(condition, then, else). Only the taken branch runs. */
++    PROJECTM_EVAL_OP_AND,         /*!< a && b. b only runs if a is non-zero. */
++    PROJECTM_EVAL_OP_OR,          /*!< a || b. b only runs if a is zero. */
++    PROJECTM_EVAL_OP_LOOP,        /*!< loop(count, body). With zero iterations the value is the count. */
++    PROJECTM_EVAL_OP_WHILE,       /*!< while(body): runs body until it returns zero, at least once. */
++    PROJECTM_EVAL_OP_EXEC2,       /*!< exec2(a, b) */
++    PROJECTM_EVAL_OP_EXEC3,       /*!< exec3(a, b, c) */
++
++    PROJECTM_EVAL_OP_ASSIGN,      /*!< target = value. The first child is the target. */
++    PROJECTM_EVAL_OP_ADD_ASSIGN,  /*!< target += value */
++    PROJECTM_EVAL_OP_SUB_ASSIGN,  /*!< target -= value */
++    PROJECTM_EVAL_OP_MUL_ASSIGN,  /*!< target *= value */
++    PROJECTM_EVAL_OP_DIV_ASSIGN,  /*!< target /= value */
++    PROJECTM_EVAL_OP_MOD_ASSIGN,  /*!< target %= value */
++    PROJECTM_EVAL_OP_POW_ASSIGN,  /*!< target ^= value */
++    PROJECTM_EVAL_OP_BITOR_ASSIGN,  /*!< target |= value */
++    PROJECTM_EVAL_OP_BITAND_ASSIGN, /*!< target &= value */
++
++    PROJECTM_EVAL_OP_MEMORY,      /*!< megabuf(index) or gmegabuf(index). See projectm_eval_node_is_global_memory(). */
++    PROJECTM_EVAL_OP_FREEMBUF,
++    PROJECTM_EVAL_OP_MEMCPY,
++    PROJECTM_EVAL_OP_MEMSET,
++
++    PROJECTM_EVAL_OP_NOT,         /*!< !a, bnot(a) */
++    PROJECTM_EVAL_OP_EQUAL,
++    PROJECTM_EVAL_OP_NOT_EQUAL,
++    PROJECTM_EVAL_OP_BELOW,
++    PROJECTM_EVAL_OP_ABOVE,
++    PROJECTM_EVAL_OP_BELOW_EQUAL,
++    PROJECTM_EVAL_OP_ABOVE_EQUAL,
++    PROJECTM_EVAL_OP_ADD,
++    PROJECTM_EVAL_OP_SUB,
++    PROJECTM_EVAL_OP_MUL,
++    PROJECTM_EVAL_OP_DIV,
++    PROJECTM_EVAL_OP_MOD,
++    PROJECTM_EVAL_OP_BITOR,
++    PROJECTM_EVAL_OP_BITAND,
++    PROJECTM_EVAL_OP_BAND,        /*!< band(a, b): both run. */
++    PROJECTM_EVAL_OP_BOR,         /*!< bor(a, b): both run. */
++    PROJECTM_EVAL_OP_NEGATE,
++
++    PROJECTM_EVAL_OP_SIN,
++    PROJECTM_EVAL_OP_COS,
++    PROJECTM_EVAL_OP_TAN,
++    PROJECTM_EVAL_OP_ASIN,
++    PROJECTM_EVAL_OP_ACOS,
++    PROJECTM_EVAL_OP_ATAN,
++    PROJECTM_EVAL_OP_ATAN2,
++    PROJECTM_EVAL_OP_SQR,
++    PROJECTM_EVAL_OP_SQRT,
++    PROJECTM_EVAL_OP_POW,
++    PROJECTM_EVAL_OP_EXP,
++    PROJECTM_EVAL_OP_LOG,
++    PROJECTM_EVAL_OP_LOG10,
++    PROJECTM_EVAL_OP_ABS,
++    PROJECTM_EVAL_OP_MIN,
++    PROJECTM_EVAL_OP_MAX,
++    PROJECTM_EVAL_OP_SIGN,
++    PROJECTM_EVAL_OP_RAND,
++    PROJECTM_EVAL_OP_FLOOR,       /*!< floor(a), int(a) */
++    PROJECTM_EVAL_OP_CEIL,
++    PROJECTM_EVAL_OP_INVSQRT,
++    PROJECTM_EVAL_OP_SIGMOID
++} projectm_eval_operation;
++
++/**
++ * @brief Returns the root node of a compiled program.
++ * @param code_handle The compiled program.
++ * @return The root node, or NULL if the program is empty (for example only comments).
++ */
++const struct projectm_eval_node* projectm_eval_code_root(const struct projectm_eval_code* code_handle);
++
++/**
++ * @brief Returns what a node does.
++ */
++projectm_eval_operation projectm_eval_node_operation(const struct projectm_eval_node* node);
++
++/**
++ * @brief Returns the number of children of a node: the arguments of a function or operator,
++ *        or the items of an instruction list.
++ */
++int projectm_eval_node_child_count(const struct projectm_eval_node* node);
++
++/**
++ * @brief Returns a child of a node, in evaluation order.
++ * @return The child, or NULL if @a index is out of range.
++ */
++const struct projectm_eval_node* projectm_eval_node_child(const struct projectm_eval_node* node, int index);
++
++/**
++ * @brief Returns the value of a PROJECTM_EVAL_OP_CONSTANT node, or 0.
++ */
++PRJM_EVAL_F projectm_eval_node_constant(const struct projectm_eval_node* node);
++
++/**
++ * @brief Returns the storage of the variable a PROJECTM_EVAL_OP_VARIABLE node refers to, or NULL.
++ *
++ * The same pointer projectm_eval_context_register_variable() returns for that name, so a host
++ * can recognise its own variables by address. reg00..reg99 point into the global variable array
++ * passed to projectm_eval_context_create().
++ */
++const PRJM_EVAL_F* projectm_eval_node_variable(const struct projectm_eval_node* node);
++
++/**
++ * @brief Returns the name of a variable of a program's context, given its storage.
++ * @param code_handle The program the variable belongs to.
++ * @param variable A pointer returned by projectm_eval_node_variable().
++ * @return The lower-case name, "reg00".."reg99" for the global registers, or NULL if unknown.
++ *         Valid while the context lives.
++ */
++const char* projectm_eval_code_variable_name(const struct projectm_eval_code* code_handle, const PRJM_EVAL_F* variable);
++
++/**
++ * @brief Returns non-zero if a PROJECTM_EVAL_OP_MEMORY node addresses the global buffer (gmegabuf).
++ */
++int projectm_eval_node_is_global_memory(const struct projectm_eval_code* code_handle, const struct projectm_eval_node* node);
++
++/**
++ * @brief Runs one node, and everything below it, the way it runs as part of its program.
++ *
++ * Useful to evaluate one statement of a program on its own. Reads and writes the context's
++ * variables and memory exactly like projectm_eval_code_execute(), with the same threading rules.
++ * @return The node's value.
++ */
++PRJM_EVAL_F projectm_eval_node_execute(const struct projectm_eval_node* node);
++
++/**
++ * @brief Called for each node by projectm_eval_code_visit().
++ * @param node The node.
++ * @param depth 0 for the root, 1 for its children, and so on.
++ * @param user_data The pointer passed to projectm_eval_code_visit().
++ * @return Non-zero to visit the node's children, zero to skip them.
++ */
++typedef int (*projectm_eval_node_visitor)(const struct projectm_eval_node* node, int depth, void* user_data);
++
++/**
++ * @brief Visits every node of a program, parents before children, children in evaluation order.
++ * @param code_handle The compiled program. Nothing is visited for an empty program.
++ * @param visitor The function to call for each node.
++ * @param user_data Passed to @a visitor unchanged.
++ */
++void projectm_eval_code_visit(const struct projectm_eval_code* code_handle, projectm_eval_node_visitor visitor, void* user_data);
++
+ #ifdef __cplusplus
+ };
+ #endif
+diff -ruN '--exclude=build' '--exclude=configure.log' pe-orig/tests/CMakeLists.txt pe/tests/CMakeLists.txt
+--- a/tests/CMakeLists.txt	2026-02-01 22:59:52.000000000 +0100
++++ b/tests/CMakeLists.txt	2026-09-25 11:00:29.247602846 +0200
+@@ -10,6 +10,7 @@
+         SyntaxTest.cpp
+         SyntaxTest.hpp
+         TreeFunctionsTest.cpp
++        TreeInspectionTest.cpp
+         )
+ 
+ target_link_libraries(projectM_EvalLib_Test
+diff -ruN '--exclude=build' '--exclude=configure.log' pe-orig/tests/TreeInspectionTest.cpp pe/tests/TreeInspectionTest.cpp
+--- a/tests/TreeInspectionTest.cpp	1970-01-01 01:00:00.000000000 +0100
++++ b/tests/TreeInspectionTest.cpp	2026-09-25 11:00:55.272302841 +0200
+@@ -0,0 +1,152 @@
++#include <projectm-eval.h>
++
++#include <gtest/gtest.h>
++
++#include <string>
++#include <vector>
++
++namespace {
++
++/** @brief Compiles code on a fresh context and destroys both afterwards. */
++class TreeInspection : public testing::Test
++{
++protected:
++    void SetUp() override
++    {
++        m_context = projectm_eval_context_create(nullptr, &m_registers);
++        m_x = projectm_eval_context_register_variable(m_context, "x");
++    }
++
++    void TearDown() override
++    {
++        for (auto* code : m_code)
++        {
++            projectm_eval_code_destroy(code);
++        }
++        projectm_eval_context_destroy(m_context);
++    }
++
++    auto Compile(const char* source) -> projectm_eval_code*
++    {
++        auto* code = projectm_eval_code_compile(m_context, source);
++        EXPECT_NE(code, nullptr) << projectm_eval_get_error(m_context, nullptr, nullptr);
++        if (code != nullptr)
++        {
++            m_code.push_back(code);
++        }
++        return code;
++    }
++
++    PRJM_EVAL_F m_registers[100]{};
++    projectm_eval_context* m_context{};
++    PRJM_EVAL_F* m_x{};
++    std::vector<projectm_eval_code*> m_code;
++};
++
++} // namespace
++
++TEST_F(TreeInspection, EmptyProgramHasNoRoot)
++{
++    auto* code = Compile("// only a comment");
++    ASSERT_NE(code, nullptr);
++    EXPECT_EQ(projectm_eval_code_root(code), nullptr);
++
++    int visited = 0;
++    projectm_eval_code_visit(code, [](const projectm_eval_node*, int, void* count) {
++        (*static_cast<int*>(count))++;
++        return 1; }, &visited);
++    EXPECT_EQ(visited, 0);
++}
++
++TEST_F(TreeInspection, StatementsAreChildrenOfAList)
++{
++    auto* code = Compile("a = x + 1; b = sin(a) * 2;");
++    const auto* root = projectm_eval_code_root(code);
++    ASSERT_NE(root, nullptr);
++    ASSERT_EQ(projectm_eval_node_operation(root), PROJECTM_EVAL_OP_LIST);
++    ASSERT_EQ(projectm_eval_node_child_count(root), 2);
++    EXPECT_EQ(projectm_eval_node_child(root, 2), nullptr);
++
++    const auto* first = projectm_eval_node_child(root, 0);
++    ASSERT_EQ(projectm_eval_node_operation(first), PROJECTM_EVAL_OP_ASSIGN);
++    ASSERT_EQ(projectm_eval_node_child_count(first), 2);
++
++    const auto* target = projectm_eval_node_child(first, 0);
++    ASSERT_EQ(projectm_eval_node_operation(target), PROJECTM_EVAL_OP_VARIABLE);
++    EXPECT_STREQ(projectm_eval_code_variable_name(code, projectm_eval_node_variable(target)), "a");
++
++    const auto* sum = projectm_eval_node_child(first, 1);
++    ASSERT_EQ(projectm_eval_node_operation(sum), PROJECTM_EVAL_OP_ADD);
++    EXPECT_EQ(projectm_eval_node_variable(projectm_eval_node_child(sum, 0)), m_x)
++        << "a registered variable is recognisable by its address";
++    EXPECT_EQ(projectm_eval_node_operation(projectm_eval_node_child(sum, 1)), PROJECTM_EVAL_OP_CONSTANT);
++    EXPECT_EQ(projectm_eval_node_constant(projectm_eval_node_child(sum, 1)), 1.0);
++}
++
++TEST_F(TreeInspection, EverySpellingOfAnOperationIsTheSameOperation)
++{
++    auto* code = Compile("a = if(x, 1, 2); b = _if(x, 1, 2); c = int(x); d = floor(x);"
++                         "e = megabuf(1); f = _mem(2); g = gmegabuf(3);");
++    const auto* root = projectm_eval_code_root(code);
++    ASSERT_EQ(projectm_eval_node_child_count(root), 7);
++
++    const auto value = [root](int statement) {
++        return projectm_eval_node_child(projectm_eval_node_child(root, statement), 1);
++    };
++    EXPECT_EQ(projectm_eval_node_operation(value(0)), PROJECTM_EVAL_OP_IF);
++    EXPECT_EQ(projectm_eval_node_operation(value(1)), PROJECTM_EVAL_OP_IF);
++    EXPECT_EQ(projectm_eval_node_operation(value(2)), PROJECTM_EVAL_OP_FLOOR);
++    EXPECT_EQ(projectm_eval_node_operation(value(3)), PROJECTM_EVAL_OP_FLOOR);
++    EXPECT_EQ(projectm_eval_node_operation(value(4)), PROJECTM_EVAL_OP_MEMORY);
++    EXPECT_EQ(projectm_eval_node_operation(value(5)), PROJECTM_EVAL_OP_MEMORY);
++    EXPECT_EQ(projectm_eval_node_operation(value(6)), PROJECTM_EVAL_OP_MEMORY);
++    EXPECT_FALSE(projectm_eval_node_is_global_memory(code, value(4)));
++    EXPECT_TRUE(projectm_eval_node_is_global_memory(code, value(6)));
++}
++
++TEST_F(TreeInspection, RegistersAreNamed)
++{
++    auto* code = Compile("reg07 = x;");
++    const auto* target = projectm_eval_node_child(projectm_eval_code_root(code), 0);
++    ASSERT_EQ(projectm_eval_node_operation(target), PROJECTM_EVAL_OP_VARIABLE);
++    EXPECT_EQ(projectm_eval_node_variable(target), &m_registers[7]);
++    EXPECT_STREQ(projectm_eval_code_variable_name(code, &m_registers[7]), "reg07");
++}
++
++TEST_F(TreeInspection, OneStatementCanRunOnItsOwn)
++{
++    auto* code = Compile("a = x * 2; b = a + 1;");
++    const auto* root = projectm_eval_code_root(code);
++    *m_x = 5.0;
++
++    // Only the second statement: 'a' still holds whatever it held.
++    EXPECT_EQ(projectm_eval_node_execute(projectm_eval_node_child(root, 1)), 1.0);
++    EXPECT_EQ(projectm_eval_node_execute(projectm_eval_node_child(root, 0)), 10.0);
++    EXPECT_EQ(projectm_eval_node_execute(projectm_eval_node_child(root, 1)), 11.0);
++    EXPECT_EQ(projectm_eval_code_execute(code), 11.0);
++}
++
++TEST_F(TreeInspection, VisitIsPreOrderAndCanPrune)
++{
++    auto* code = Compile("a = sin(x); b = cos(x);");
++
++    struct Visit
++    {
++        std::vector<std::pair<projectm_eval_operation, int>> nodes;
++    } visit;
++    projectm_eval_code_visit(code, [](const projectm_eval_node* node, int depth, void* data) {
++        auto& nodes = static_cast<Visit*>(data)->nodes;
++        nodes.emplace_back(projectm_eval_node_operation(node), depth);
++        // Do not descend into the second statement.
++        return nodes.size() < 5 ? 1 : 0; }, &visit);
++
++    const std::vector<std::pair<projectm_eval_operation, int>> expected = {
++        {PROJECTM_EVAL_OP_LIST, 0},
++        {PROJECTM_EVAL_OP_ASSIGN, 1},
++        {PROJECTM_EVAL_OP_VARIABLE, 2},
++        {PROJECTM_EVAL_OP_SIN, 2},
++        {PROJECTM_EVAL_OP_VARIABLE, 3},
++        {PROJECTM_EVAL_OP_ASSIGN, 1},
++    };
++    EXPECT_EQ(visit.nodes, expected);
++}

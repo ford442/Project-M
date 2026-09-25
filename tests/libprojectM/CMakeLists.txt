@@ -44,6 +44,7 @@ add_executable(projectM-unittest
         PCMAudioBenchTest.cpp
         PerPixelGlslLoweringTest.cpp
         PerPixelGpuRenderTest.cpp
+        ShaderCacheTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>
@@ -72,6 +73,13 @@ target_include_directories(projectM-unittest
         "${PROJECTM_SOURCE_DIR}/vendor/hlslparser/src"
         "${PROJECTM_SOURCE_DIR}/vendor/glad/include"
         )
+
+# The GPU per-pixel tests swap the evaluator's rand() node for a resettable stand-in, which
+# needs the same internal tree headers the lowering itself uses (vendored projectM-Eval only).
+get_property(PROJECTM_EVAL_INTERNAL_TREE GLOBAL PROPERTY PROJECTM_EVAL_INTERNAL_TREE)
+if(PROJECTM_EVAL_INTERNAL_TREE)
+    target_compile_definitions(projectM-unittest PRIVATE PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE)
+endif()
 
 find_package(OpenGL REQUIRED)
 

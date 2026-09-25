@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PerPixelGlslLowering.hpp"
+
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Shader.hpp>
 
@@ -154,6 +156,25 @@ private:
                        const std::vector<std::unique_ptr<PerPixelContext>>& perPixelContextPool);
 
     /**
+     * @brief Runs the part of a GPU-path program that must stay on the CPU, for every vertex
+     *        in vertex order, and uploads the values it hands to the shader.
+     * @param slice The statements to run.
+     * @param presetState The preset state to retrieve the configuration values from.
+     * @param perFrameContext The per-frame context to retrieve the initial vars from.
+     * @param perPixelContext The per-pixel context the slice was lowered from.
+     */
+    void RunCpuSlice(const PerPixelGlslLowering::CpuSlice& slice,
+                     const PresetState& presetState,
+                     const PerFrameContext& perFrameContext,
+                     PerPixelContext& perPixelContext);
+
+    /**
+     * @brief Uploads the grid positions, radius/angle and indices if InitializeMesh()
+     *        changed them since the last upload.
+     */
+    void UploadStaticData();
+
+    /**
      * @brief Draws the warp mesh with or without a warp shader.
      * If the preset doesn't use a warp shader, a default textured shader is used.
      */
@@ -195,6 +216,8 @@ private:
     int m_viewportWidth{};  //!< Last known viewport width.
     int m_viewportHeight{}; //!< Last known viewport height.
 
+    bool m_staticDataDirty{true}; //!< Grid, radius/angle or indices changed since the last upload.
+
     Renderer::Mesh m_warpMesh;                                                                         //!< The Warp effect mesh
     Renderer::VertexBuffer<RadiusAngle> m_radiusAngleBuffer{Renderer::VertexBufferUsage::StreamDraw};  //!< Vertex attribute buffer for radius and angle values.
     Renderer::VertexBuffer<ZoomRotWarp> m_zoomRotWarpBuffer{Renderer::VertexBufferUsage::StreamDraw};  //!< Vertex attribute buffer for zoom, roation and warp values.
@@ -202,7 +225,7 @@ private:
     Renderer::VertexBuffer<Renderer::Point> m_distanceBuffer{Renderer::VertexBufferUsage::StreamDraw}; //!< Vertex attribute buffer for distance values.
     Renderer::VertexBuffer<Renderer::Point> m_stretchBuffer{Renderer::VertexBufferUsage::StreamDraw};  //!< Vertex attribute buffer for stretch values.
 
-    std::weak_ptr<Renderer::Shader> m_perPixelMeshShader;             //!< Special shader which calculates the per-pixel UV coordinates.
+    std::shared_ptr<Renderer::Shader> m_perPixelMeshShader;           //!< Special shader which calculates the per-pixel UV coordinates.
     std::string m_perPixelMeshShaderKey;                              //!< Cache key the above was built for, so a preset switch cannot reuse the wrong program.
     std::unique_ptr<MilkdropShader> m_warpShader;                     //!< The warp shader. Either preset-defined or a default shader.
     Renderer::Sampler m_perPixelSampler{GL_CLAMP_TO_EDGE, GL_LINEAR}; //!< The main texture sampler.

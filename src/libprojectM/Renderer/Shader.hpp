@@ -12,6 +12,7 @@
 #include <glm/mat3x4.hpp>
 #include <glm/mat4x4.hpp>
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -216,6 +217,16 @@ public:
     void SetUniformInt4(const char* uniform, const glm::ivec4& values) const;
 
     /**
+     * @brief Sets consecutive elements of a vec4 array uniform in one call.
+     * The program must be bound before calling this method!
+     * Elements past the highest one the program actually uses are ignored by GL.
+     * @param uniform The uniform name, e.g. "u_pp_q" (starts at element 0).
+     * @param values The first of @a count vectors to set.
+     * @param count The number of vectors to set.
+     */
+    void SetUniformFloat4Array(const char* uniform, const glm::vec4* values, int count) const;
+
+    /**
      * @brief Sets a float 3x4 matrix uniform.
      * The program must be bound before calling this method!
      * @param uniform The uniform name
@@ -268,8 +279,18 @@ private:
      */
     void ReleasePendingCompile();
 
+    /**
+     * @brief Returns a uniform's location, asking GL only the first time a name is used.
+     * @param uniform The uniform name.
+     * @return The location, or -1 if the program has no such active uniform.
+     */
+    auto UniformLocation(const char* uniform) const -> GLint;
+
     std::unique_ptr<PendingCompile> m_pending; //!< Compile started but not finished, if any.
     GLuint m_shaderProgram{}; //!< The program ID.
+
+    //! Uniform locations looked up since the last link, by name. Cleared on relink.
+    mutable std::map<std::string, GLint, std::less<>> m_uniformLocations;
 };
 
 } // namespace Renderer

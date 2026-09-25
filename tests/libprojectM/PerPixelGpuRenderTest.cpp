@@ -27,13 +27,20 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <projectM-4/projectM.h>
+
+#ifdef PRJM_ENABLE_OPENMP
+#include <omp.h>
+#endif
 
 using libprojectM::MilkdropPreset::PerPixelContext;
 using libprojectM::MilkdropPreset::PerPixelGlslLowering;
@@ -51,11 +58,12 @@ constexpr double kFrameStep = 1.0 / 60.0;
  * The warp mesh samples the previous frame, so a preset is a feedback system and most
  * of them are chaotic: any difference in the last bits of a UV -- between the double
  * CPU evaluator and the 32-bit shader, but equally between two GPUs -- is amplified
- * frame over frame. Measured on `390 threx no more warningsce amy-able.milk`, whose
- * per-pixel code steps on int() and equal() of a continuous angle, the mean channel
- * difference runs 0 at frame 1, 0.0004 at frame 2, 0.46 at frame 5, 4.1 at frame 15
- * and 10.8 at frame 40. Nothing there is a wiring fault; it is what a step function of
- * a rounded input does inside a feedback loop.
+ * frame over frame.
+ *
+ * (Phase 1 measured that growth on `390 threx no more warningsce amy-able.milk` -- mean
+ * channel difference 0 at frame 1, 0.0004 at frame 2, 0.46 at frame 5 -- and put it down
+ * to rounding. Two CPU-path renders of that preset diverge the same way, 0.0002 at frame 2
+ * and 0.29 at frame 4, so it was never a per-pixel measurement; see ReproducesItself().)
  *
  * So the assertion lives at the short horizon, where a real fault (a channel not
  * wired through, a uniform not uploaded, a seed missed) shows up immediately and
@@ -75,13 +83,13 @@ constexpr int kLongFrames = 40;
  * differs, double against float, so anything past the fault bar means a value never
  * arrived rather than a value rounded differently.
  *
- * Below the fault bar there is still a class of preset that diverges visibly:
- * per-pixel code whose output is a step function of a continuous input --
- * `seg = int(seg)`, `equal(seg, num)`, `above(seg, 0)` -- flips a whole segment when
- * rounding pushes the input across the step, and the boundary sweeps across the mesh
- * as `time` advances. `390 threx no more warningsce amy-able.milk` is that case. The
- * budget records how many such presets there are rather than pretending there are
- * none, so a change that adds one shows up here.
+ * Below the fault bar there can still be a preset that diverges visibly: per-pixel code
+ * whose output is a step function of a continuous input -- `seg = int(seg)`,
+ * `equal(seg, num)`, `above(seg, 0)` -- flips a whole segment when rounding pushes the
+ * input across the step, and the boundary sweeps across the mesh as `time` advances.
+ * None of the heavy presets that reproduce themselves does so today; the budget allows
+ * one rather than pretending the class cannot exist, and a change that adds more shows
+ * up here.
  */
 constexpr double kFaultDifferingShare = 0.02;
 constexpr double kFaultMeanAbsolute = 4.0;
@@ -136,7 +144,11 @@ struct FrameDifference
 };
 
 /** @brief Renders one preset into an offscreen framebuffer and returns its pixels. */
-auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, std::string& error)
+/** @brief Called before each frame is rendered, e.g. to resize the instance mid-run. */
+using FrameHook = std::function<void(projectm_handle instance, int frame)>;
+
+auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, std::string& error,
+                  const FrameHook& beforeFrame = {})
     -> std::vector<unsigned char>
 {
     // Read at preset-compile time by MilkdropPreset::LowerPerPixelCodeToGlsl(), so it
@@ -153,6 +165,19 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
     // A fixed seed pins the noise textures and every other random draw, so the only
     // thing left that could differ between the two runs is the per-pixel path itself.
     projectm_set_deterministic_seed(0x5eed1234u);
+
+#ifdef PRJM_ENABLE_OPENMP
+    // With OpenMP the CPU path gives every thread its own evaluation context, so state a
+    // preset carries from vertex to vertex is carried per thread, and the picture depends
+    // on the thread count. The GPU path's CPU slice reproduces single-threaded evaluation,
+    // which is the only exact reference, so the CPU side is rendered on one thread. (Set
+    // before projectm_create(): the preset sizes its per-thread context pool at load.)
+    const int threads = omp_get_max_threads();
+    if (forceCpuPerPixel)
+    {
+        omp_set_num_threads(1);
+    }
+#endif
 
     GLuint texture = 0;
     GLuint framebuffer = 0;
@@ -186,6 +211,10 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
 
             for (int frame = 0; frame < frames; frame++)
             {
+                if (beforeFrame)
+                {
+                    beforeFrame(instance, frame);
+                }
                 projectm_set_frame_time(instance, static_cast<double>(frame) * kFrameStep);
                 projectm_opengl_render_frame_fbo(instance, framebuffer);
             }
@@ -203,6 +232,9 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
     glDeleteTextures(1, &texture);
     projectm_clear_deterministic_seed();
     unsetenv("PROJECTM_PER_PIXEL_EVAL");
+#ifdef PRJM_ENABLE_OPENMP
+    omp_set_num_threads(threads);
+#endif
 
     return pixels;
 }
@@ -245,8 +277,9 @@ auto Compare(const std::vector<unsigned char>& first, const std::vector<unsigned
 }
 
 /** @brief True if this preset's per-pixel code is one the compiler accepts. */
-auto Lowers(const std::string& path, std::string& reason) -> bool
+auto Lowers(const std::string& path, std::string& reason, bool& cpuSlice) -> bool
 {
+    cpuSlice = false;
     PresetFileParser parser;
     if (!parser.Read(path))
     {
@@ -274,27 +307,73 @@ auto Lowers(const std::string& path, std::string& reason) -> bool
 
     const auto lowering = PerPixelGlslLowering::Lower(context.perPixelCodeHandle);
     reason = lowering.reason;
+    cpuSlice = lowering.cpuSlice != nullptr;
     return lowering.lowered;
 }
 
 class PerPixelGpuRenderTest : public testing::Test
 {
 protected:
+    /**
+     * @brief One GL context for the whole suite.
+     *
+     * projectM's GL resolver fixes its backend (EGL or GLX) at the first projectm_create()
+     * in the process and, with its strict context gate, refuses later instances unless a
+     * context of that kind is current. A fresh SDL context per test does not reliably come
+     * up as the same kind, which made the second test here fail projectm_create() in about
+     * half the runs, before and independently of anything this suite checks.
+     */
+    static void SetUpTestSuite()
+    {
+        if (!PerPixelGlslLowering::Available() || !libprojectM::Test::HeadlessGlContext::IsAvailable())
+        {
+            return;
+        }
+        s_context = std::make_unique<libprojectM::Test::HeadlessGlContext>();
+        if (!s_context->Valid() || !s_context->InitializeGlad())
+        {
+            s_context.reset();
+        }
+    }
+
+    static void TearDownTestSuite()
+    {
+        s_context.reset();
+    }
+
     void SetUp() override
     {
         if (!PerPixelGlslLowering::Available())
         {
             GTEST_SKIP() << "built without access to the projectM-Eval expression tree";
         }
-        if (!libprojectM::Test::HeadlessGlContext::IsAvailable())
-        {
-            GTEST_SKIP() << "no headless OpenGL context available";
-        }
-        m_context = std::make_unique<libprojectM::Test::HeadlessGlContext>();
-        if (!m_context->Valid() || !m_context->InitializeGlad())
+        if (s_context == nullptr || !s_context->MakeCurrent())
         {
             GTEST_SKIP() << "could not create a headless OpenGL context";
         }
+    }
+
+    /**
+     * @brief True if two CPU-path renders of @p path agree exactly.
+     *
+     * rand() in per-frame, wave or shape code draws from projectM-Eval's Mersenne Twister,
+     * which is process-wide and cannot be reseeded or rewound. A preset that draws from it
+     * every frame therefore renders differently each time it is loaded in the same process,
+     * whichever per-pixel path it takes, and comparing its two paths would measure the
+     * random numbers rather than the compiler. (Per-pixel rand() on the GPU path is checked
+     * exactly, against a resettable stand-in, in PerPixelGlslLoweringTest.)
+     */
+    auto ReproducesItself(const std::string& path, int frames) -> bool
+    {
+        std::string error;
+        const auto first = RenderPreset(path, true, frames, error);
+        if (first.empty())
+        {
+            ADD_FAILURE() << "CPU render of " << path << " failed: " << error;
+            return false;
+        }
+        const auto second = RenderPreset(path, true, frames, error);
+        return Compare(first, second).maxAbsolute == 0.0;
     }
 
     /**
@@ -325,8 +404,10 @@ protected:
         return true;
     }
 
-    std::unique_ptr<libprojectM::Test::HeadlessGlContext> m_context;
+    static std::unique_ptr<libprojectM::Test::HeadlessGlContext> s_context;
 };
+
+std::unique_ptr<libprojectM::Test::HeadlessGlContext> PerPixelGpuRenderTest::s_context;
 
 } // namespace
 
@@ -345,7 +426,8 @@ TEST_F(PerPixelGpuRenderTest, TrivialPerPixelFixtureRendersIdentically)
     }
 
     std::string reason;
-    ASSERT_TRUE(Lowers(path, reason)) << "fixture no longer lowers: " << reason;
+    bool cpuSlice = false;
+    ASSERT_TRUE(Lowers(path, reason, cpuSlice)) << "fixture no longer lowers: " << reason;
 
     FrameDifference difference;
     ASSERT_TRUE(CompareBothPaths(path, kLongFrames, difference));
@@ -362,6 +444,138 @@ TEST_F(PerPixelGpuRenderTest, TrivialPerPixelFixtureRendersIdentically)
 }
 
 /**
+ * @brief The static warp grid is re-uploaded when the viewport or the mesh size changes.
+ *
+ * Positions, radius/angle and indices are uploaded once, not every frame, so a resize
+ * must mark them dirty. The fixture preset renders identically on both paths, and the
+ * two paths use the uploaded radius/angle differently (the GPU path derives rad and ang
+ * from the attribute, the CPU path evaluates from its own copy and only draws with it), so
+ * a stale upload after the change shows up as a difference. The square viewport changes
+ * the aspect ratio, and with it every radius and angle.
+ */
+TEST_F(PerPixelGpuRenderTest, ResizeAndMeshChangeReuploadTheStaticGrid)
+{
+    const std::string path = std::string(PROJECTM_PRESET_TESTS_DIR) + kFixturePreset;
+    if (!std::filesystem::exists(path))
+    {
+        GTEST_SKIP() << "fixture preset not present: " << path;
+    }
+
+    const FrameHook resize = [](projectm_handle instance, int frame) {
+        if (frame == 4)
+        {
+            projectm_set_window_size(instance, kHeight, kHeight);
+        }
+        if (frame == 8)
+        {
+            projectm_set_mesh_size(instance, 32, 24);
+        }
+    };
+
+    std::string error;
+    const auto cpuPixels = RenderPreset(path, true, 12, error, resize);
+    ASSERT_FALSE(cpuPixels.empty()) << error;
+    const auto gpuPixels = RenderPreset(path, false, 12, error, resize);
+    ASSERT_FALSE(gpuPixels.empty()) << error;
+
+    const auto difference = Compare(cpuPixels, gpuPixels);
+    std::cout << "[  RENDER  ] resize + mesh change (12 frames): mean " << difference.meanAbsolute
+              << ", max " << difference.maxAbsolute << "\n";
+    EXPECT_LE(difference.maxAbsolute, 1.0);
+}
+
+/**
+ * @brief A preset with carried per-pixel state renders the same on both paths.
+ *
+ * `acc` carries over from vertex to vertex and frame to frame, so the GPU path runs that
+ * statement on the CPU (PerPixelMesh::RunCpuSlice()) and hands the value to the shader in
+ * a vertex attribute. It drives dx and dy strongly, so a value that arrives in the wrong
+ * attribute, component or vertex redraws the picture. The border gives the warp something
+ * to move: with silent audio most real presets render black here, which compares equal
+ * whether or not anything is wired up.
+ */
+TEST_F(PerPixelGpuRenderTest, CarriedStateRendersTheSameOnBothPaths)
+{
+    // Twice: with the default warp shader (PerPixelMesh composes the vertex shader) and with
+    // a preset warp shader (MilkdropShader composes it, and binds its own program).
+    for (const bool customWarpShader : {false, true})
+    {
+        SCOPED_TRACE(customWarpShader ? "custom warp shader" : "default warp shader");
+
+        const auto path = (std::filesystem::temp_directory_path() / "projectm-carried-per-pixel-test.milk").string();
+        {
+            std::ofstream preset(path);
+            preset << "[preset00]\n";
+            if (customWarpShader)
+            {
+                preset << "MILKDROP_PRESET_VERSION=201\n"
+                          "PSVERSION=2\n"
+                          "PSVERSION_WARP=2\n"
+                          "PSVERSION_COMP=0\n";
+            }
+            preset << "fDecay=0.97\n"
+                      "fWaveAlpha=0\n"
+                      "zoom=1.0\n"
+                      "warp=0\n"
+                      "ob_size=0.06\n"
+                      "ob_r=1\n"
+                      "ob_g=0.6\n"
+                      "ob_b=0.2\n"
+                      "ob_a=1\n"
+                      "ib_size=0.02\n"
+                      "ib_r=0.2\n"
+                      "ib_g=0.4\n"
+                      "ib_b=1\n"
+                      "ib_a=1\n"
+                      "per_pixel_1=acc = acc + 0.0137;\n"
+                      "per_pixel_2=wobble = sin(x*11 + time*1.7)*cos(y*7 - time*0.9) + sin(rad*13 + ang*3);\n"
+                      "per_pixel_3=swirl = atan2(y - 0.5, x - 0.5)*0.3 + pow(abs(wobble) + 0.2, 1.4)*0.1;\n"
+                      "per_pixel_4=dx = dx + 0.012*sin(acc*7 + y*3) + 0.004*wobble;\n"
+                      "per_pixel_5=dy = dy + 0.012*cos(acc*5 - x*4) - 0.004*swirl;\n"
+                      "per_pixel_6=zoom = zoom + 0.02*sin(rad*9 + time) + 0.01*swirl;\n"
+                      "per_pixel_7=rot = rot + 0.01*wobble*sin(time*0.5);\n";
+            if (customWarpShader)
+            {
+                preset << "warp_1=`shader_body\n"
+                          "warp_2=`{\n"
+                          "warp_3=`    ret = tex2D(sampler_main, uv).xyz * 0.98;\n"
+                          "warp_4=`}\n";
+            }
+        }
+
+        PerPixelContext context(nullptr, nullptr);
+        context.RegisterBuiltinVariables();
+        PresetFileParser parser;
+        ASSERT_TRUE(parser.Read(path));
+        context.CompilePerPixelCode(parser.GetCode("per_pixel_"));
+        const auto lowering = PerPixelGlslLowering::Lower(context.perPixelCodeHandle);
+        ASSERT_TRUE(lowering.lowered) << lowering.reason;
+        ASSERT_NE(lowering.cpuSlice, nullptr) << "the fixture no longer exercises the CPU slice";
+
+        std::string error;
+        const auto cpuPixels = RenderPreset(path, true, kShortFrames, error);
+        ASSERT_FALSE(cpuPixels.empty()) << error;
+        const auto lit = std::count_if(cpuPixels.begin(), cpuPixels.end(), [](unsigned char value) { return value > 16; });
+        ASSERT_GT(lit, static_cast<long>(cpuPixels.size() / 20)) << "the fixture renders (nearly) black; nothing is compared";
+
+        FrameDifference shortRun;
+        ASSERT_TRUE(CompareBothPaths(path, kShortFrames, shortRun));
+        FrameDifference longRun;
+        ASSERT_TRUE(CompareBothPaths(path, kLongFrames, longRun));
+        std::filesystem::remove(path);
+
+        std::cout << "[  RENDER  ] carried-state fixture, " << (customWarpShader ? "custom" : "default")
+                  << " warp shader: " << kShortFrames << " frames mean " << shortRun.meanAbsolute
+                  << " differing " << shortRun.differingShare * 100.0 << "%, " << kLongFrames
+                  << " frames mean " << longRun.meanAbsolute << " differing "
+                  << longRun.differingShare * 100.0 << "%\n";
+
+        EXPECT_LE(shortRun.differingShare, kCloseDifferingShare);
+        EXPECT_LE(shortRun.meanAbsolute, kCloseMeanAbsolute);
+    }
+}
+
+/**
  * @brief The heavy presets that lower must render the same picture on both paths.
  *
  * This is acceptance criterion 1 of #227, minus the frame-time half, which needs a GPU
@@ -371,7 +585,9 @@ TEST_F(PerPixelGpuRenderTest, TrivialPerPixelFixtureRendersIdentically)
 TEST_F(PerPixelGpuRenderTest, HeavyPresetsRenderTheSameOnBothPaths)
 {
     int checked = 0;
+    int withCpuSlice = 0;
     int refused = 0;
+    int notReproducible = 0;
     std::vector<std::string> visiblyDifferent;
 
     for (const auto* name : kHeavyPresets)
@@ -383,10 +599,19 @@ TEST_F(PerPixelGpuRenderTest, HeavyPresetsRenderTheSameOnBothPaths)
         }
 
         std::string reason;
-        if (!Lowers(path, reason))
+        bool cpuSlice = false;
+        if (!Lowers(path, reason, cpuSlice))
         {
             refused++;
             std::cout << "[  RENDER  ] " << name << ": stays on CPU (" << reason << ")\n";
+            continue;
+        }
+
+        if (!ReproducesItself(path, kShortFrames))
+        {
+            notReproducible++;
+            std::cout << "[  RENDER  ] " << name << ": not compared, two CPU renders already differ "
+                      << "(rand() outside the per-pixel code)\n";
             continue;
         }
 
@@ -401,8 +626,12 @@ TEST_F(PerPixelGpuRenderTest, HeavyPresetsRenderTheSameOnBothPaths)
             continue;
         }
         checked++;
+        if (cpuSlice)
+        {
+            withCpuSlice++;
+        }
 
-        std::cout << "[  RENDER  ] " << name << ": " << kShortFrames << " frames mean "
+        std::cout << "[  RENDER  ] " << name << (cpuSlice ? " [cpu slice]" : "") << ": " << kShortFrames << " frames mean "
                   << shortRun.meanAbsolute << " differing " << shortRun.differingShare * 100.0
                   << "%, " << kLongFrames << " frames mean " << longRun.meanAbsolute
                   << " differing " << longRun.differingShare * 100.0 << "%\n";
@@ -424,8 +653,9 @@ TEST_F(PerPixelGpuRenderTest, HeavyPresetsRenderTheSameOnBothPaths)
         }
     }
 
-    std::cout << "[  RENDER  ] " << checked << " heavy presets rendered on the GPU path, "
-              << refused << " stayed on the CPU\n";
+    std::cout << "[  RENDER  ] " << checked << " heavy presets rendered on the GPU path ("
+              << withCpuSlice << " with a CPU slice), " << refused << " stayed on the CPU, "
+              << notReproducible << " not reproducible within one process\n";
     for (const auto& name : visiblyDifferent)
     {
         std::cout << "[  RENDER  ]   visibly different at " << kShortFrames << " frames: "
@@ -433,6 +663,7 @@ TEST_F(PerPixelGpuRenderTest, HeavyPresetsRenderTheSameOnBothPaths)
     }
 
     EXPECT_GE(checked, 5) << "fewer than five heavy presets reach the GPU per-pixel path";
+    EXPECT_GE(withCpuSlice, 3) << "fewer than three heavy presets exercise the CPU slice end to end";
     EXPECT_LE(visiblyDifferent.size(), kVisiblyDifferentBudget)
         << visiblyDifferent.size() << " of " << checked
         << " presets differ visibly between the two paths; the budget is "

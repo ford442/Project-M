@@ -157,7 +157,7 @@ sudo cmake --build . --target install
 | `ENABLE_EMSCRIPTEN` | auto | Set automatically when using Emscripten toolchain. |
 | `ENABLE_CXX_INTERFACE` | `OFF` | **Experimental/unsupported.** Export C++ symbols for `ProjectM` and `PCM` classes. |
 | `ENABLE_SYSTEM_GLM` | `OFF` | Use system-installed GLM instead of bundled. |
-| `ENABLE_SYSTEM_PROJECTM_EVAL` | `ON` | Use system-installed projectM-eval instead of submodule. |
+| `ENABLE_SYSTEM_PROJECTM_EVAL` | `ON` | Use system-installed projectM-eval instead of submodule (falls back to the submodule when none is found). **An installed projectM-eval compiles the GPU per-pixel path out** (every preset evaluates per-pixel code on the CPU): the compiler walks the evaluator's internal expression tree, which only the vendored sources expose. On a machine with projectM-eval installed, pass `-DENABLE_SYSTEM_PROJECTM_EVAL=OFF` for a GPU-capable build and to run the `PerPixelGlslLowering`/`PerPixelGpuRender` tests (they skip otherwise). CI and Emscripten builds find no installed copy and use the submodule. See `docs/GPU_PERPIXEL_EVAL.md`. |
 | `ENABLE_BOOST_FILESYSTEM` | `OFF` | Force `boost::filesystem` even if `std::filesystem` is available. |
 | `ENABLE_OPENMP` | `OFF` | Enable OpenMP parallelization in performance-critical sections. |
 | `ENABLE_HDR_RENDERING` | `OFF` | Enable 16-bit float (GL_RGBA16F) framebuffer + Reinhard tone-mapping. |
@@ -338,7 +338,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 | Directory | Framework | Coverage |
 |-----------|-----------|----------|
-| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, GPU per-pixel lowering (needs SDL2 + EGL + a display or `xvfb-run` on Linux) |
+| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + EGL + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
 

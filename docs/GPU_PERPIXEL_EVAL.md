@@ -1,33 +1,45 @@
-# GPU per-pixel eval and the WGSL path (#227)
+# GPU per-pixel eval and the WGSL path (#227, #261)
 
-Living design for GitHub issue
-[#227 — GPU per-pixel mesh + HLSL→WGSL path toward a WebGPU backend](https://github.com/ford442/Project-M/issues/227).
+Living design for GitHub issues
+[#227 — GPU per-pixel mesh + HLSL→WGSL path toward a WebGPU backend](https://github.com/ford442/Project-M/issues/227)
+(Phase 1 and the design) and
+[#261 — Phase 1.5 and Phase 2](https://github.com/ford442/Project-M/issues/261).
 Companion to [`GRAPHICS_PERF_RECOVERY_PLAN.md`](GRAPHICS_PERF_RECOVERY_PLAN.md) §B
 (the WebGPU deferral from #179) and [`PERFORMANCE.md`](PERFORMANCE.md)
 (mesh / OpenMP / `perPixelEvalMs`).
 
-**Status (2026-09-18): Phase 1 shipped.** The per-pixel equations are compiled to
-GLSL and evaluated in the warp vertex shader, with the CPU evaluator kept as the
-fallback for everything the compiler refuses. Phases 2 (WGSL emitter) and 3
-(WebGPU renderer) remain design only — **no compiler or renderer code for those.**
+**Status (2026-09-25): Phase 1.5 implemented.** The per-pixel equations are compiled to
+GLSL and evaluated in the warp vertex shader. What the shader cannot reproduce exactly —
+state carried from one vertex to the next, `rand()`, `megabuf` — runs in a small CPU
+slice, in vertex order, that hands its values to the shader as vertex attributes
+([Phase 1.5](#phase-15--cheaper-correct-at-the-edges-more-presets)). The CPU evaluator
+stays authoritative for the 12 presets where that slice would not pay off. Phase 2 (WGSL
+emitter) waits for #260's toolchain work to merge (PR #265 is still open), and Phase 3
+(WebGPU renderer) after it; both remain design only — **no compiler or renderer code for
+those.**
 
 The #224 gate this document was written behind has opened: `FULL_ES3=0` landed on
 2026-09-17 with all 26 goldens byte-identical and the Y-inverted
 `glBlitFramebuffer` proven to be a direct passthrough, so no GL call still needs
 the emulation layer (`PERFORMANCE.md`, "Toolchain and flag verification").
 
-What Phase 1 measures, in this tree, today:
+What the GPU path covers, in this tree, today:
 
-| | |
-|---|---|
-| Presets with `per_pixel_*` code across `presets/tests`, `custom_milk_fixed` and `weeks_presets` | 241 of 497 |
-| Compiled to GLSL (`perPixelEval=gpu`) | **186** |
-| Kept on the CPU, each with a recorded reason | 55 |
-| Presets from the top of `PRESET_WORKLIST.md` now on the GPU path | **9** (#227 asked for 5) |
+| | Phase 1 | Phase 1.5 |
+|---|---|---|
+| Presets with `per_pixel_*` code across `presets/tests`, `custom_milk_fixed` and `weeks_presets` | 241 of 497 | 241 of 497 |
+| Compiled to GLSL (`perPixelEval=gpu`) | 186 | **227** (7 of them with a CPU slice) |
+| Kept on the CPU, each with a recorded reason | 53 | **12** |
+| Rejected by the evaluator itself (CPU error path either way) | 2 | 2 |
+| Presets from the top of `PRESET_WORKLIST.md` on the GPU path | 9 | **18** (#227 asked for 5) |
+
+`PerPixelGlslLoweringTest.PresetCorpusAgreesOrRefusesWithAReason` prints these counts and
+holds the 227 as a floor of 220 (#261's target).
 
 Frame times are **not** measured here: the authoring environment has no GPU, so
 every number above comes from llvmpipe. `?benchmark=1` on a real device is still
-owed, and is the remaining half of acceptance criterion 1.
+owed (#247), and is the remaining half of #227's acceptance criterion 1. The Phase 1.5
+upload fix below should land before that measurement.
 
 A fully-tuned WebGL2 Milkdrop is still the **current** product — Phase 1 is a
 WebGL2 change and needs no new GPU API. Phases 2 and 3 are what later looks like
@@ -86,7 +98,8 @@ plus one GPU-eval prototype; the backend comes last.
 | Phase | Ships on | New GPU API? | Closes |
 |-------|----------|--------------|--------|
 | **1** Eval IR → GLSL vertex displacement | WebGL2 | No | **Landed.** Keep #227 open as the epic |
-| **2** `WgslGenerator` next to `GLSLGenerator` | GLSL still ships | No | WGSL corpus test |
+| **1.5** Upload/uniform/cache fixes, edge fixes, CPU slice for carried state and `rand()` | WebGL2 | No | #261, first half. **Implemented** |
+| **2** `WgslGenerator` next to `GLSLGenerator` | GLSL still ships | No | #261, second half: WGSL corpus test. Waits for #260 (PR #265) |
 | **3** `RendererWgpu` / `ENABLE_WEBGPU` | Native wgpu + emdawnwebgpu | Yes | Only after Phase 2 is green |
 
 Do **not** merge WebGPU code (Phase 3) until Phase 2's WGSL corpus test is green.
@@ -130,10 +143,11 @@ vs. 4941 attribute writes); do it only if the attribute upload shows up in
 
 | Piece | Location |
 |-------|----------|
-| AST walk, feature detect, GLSL printer | `src/libprojectM/MilkdropPreset/PerPixelGlslLowering.{hpp,cpp}` |
+| AST walk, statement classification, liveness, GLSL printer | `src/libprojectM/MilkdropPreset/PerPixelGlslLowering.{hpp,cpp}` |
+| The CPU slice (Phase 1.5) | `PerPixelGlslLowering::CpuSlice`, run by `PerPixelMesh::RunCpuSlice()` |
 | Lowering at preset load | `MilkdropPreset::LowerPerPixelCodeToGlsl()`, straight after `CompilePerPixelCode` |
-| Result carried to the renderer | `PresetState::perPixelGpuGlsl` / `perPixelGpuReason` / `perPixelGpuUniforms` / `perPixelGpuQVectors` |
-| Generated VS injection | `PerPixelGlslLowering::ComposeWarpVertexShader()` fills two marker lines in `PresetWarpVertexShaderGlsl330.vert`; the shader-cache key hashes the generated code |
+| Result carried to the renderer | `PresetState::perPixelGpuGlsl` / `perPixelGpuReason` / `perPixelGpuUniforms` / `perPixelGpuQVectors` / `perPixelGpuCpuSlice` |
+| Generated VS injection | `PerPixelGlslLowering::ComposeWarpVertexShader()` fills two marker lines in `PresetWarpVertexShaderGlsl330.vert`; the shader-cache key is a 64-bit FNV-1a of the generated code |
 | Skipping the CPU loop, uploading the uniforms | `PerPixelMesh::CalculateMesh` / `SetPerPixelUniforms` |
 | HUD / timings | `projectm_perf_frame_timings` + `js_perf_report_frame` + `html/projectm-perf.js` |
 
@@ -151,22 +165,27 @@ restriction, and is the clean long-term home.
 
 ### Uniforms and attributes on the GPU path
 
-**Per-vertex:** `vertex_position` (location 0) and `rad_ang` (location 3), which the
-CPU path already uploads and which only change on a resize. The generated function is
+**Per-vertex:** `vertex_position` (location 0) and `rad_ang` (location 3), which only
+change on a resize and are uploaded only then (Phase 1.5). The generated function is
 handed `x`, `y`, `rad` and `ang` derived from them exactly as `CalculateMesh` derives
-them, including the negated angle. Locations 4–7 — the ten transform channels — are
-simply not read on the GPU path, and nothing is written to them.
+them, including the negated angle. Locations 4–7 — the ten transform channels on the CPU
+path — are not read on the GPU path unless the preset has a CPU slice, which hands its
+per-vertex values over in them instead (`a_pp_cpu0..3`, narrowest first: the vec2s at 5,
+6 and 7, then the vec4 at 4, so a one- or two-value slice uploads 8 bytes per vertex).
 
 **Per-frame uniforms:** `u_pp_time`, `u_pp_fps`, `u_pp_frame`, `u_pp_progress`,
 `u_pp_bass`, `u_pp_mid`, `u_pp_treb`, `u_pp_bass_att`, `u_pp_mid_att`,
 `u_pp_treb_att`, `u_pp_meshx`, `u_pp_meshy`, `u_pp_pixelsx`, `u_pp_pixelsy`,
 `u_pp_aspectx`, `u_pp_aspecty`, plus `u_pp_q[8]` (`q1..q32` packed as `vec4`s to stay
-inside WebGL2's uniform limits) and the four seed uniforms `u_pp_seed_transforms`,
-`u_pp_seed_center`, `u_pp_seed_distance` and `u_pp_seed_stretch`.
+inside WebGL2's uniform limits, uploaded with one `glUniform4fv` call) and the four seed
+uniforms `u_pp_seed_transforms`, `u_pp_seed_center`, `u_pp_seed_distance` and
+`u_pp_seed_stretch`.
 
 Only the uniforms the generated code actually reads are declared, and the lowering
 reports which ones those are, so a preset that touches `bass` alone costs one upload
-rather than fifty-eight. All of it is per frame, not per vertex.
+rather than fifty-eight. All of it is per frame, not per vertex. `Shader` caches uniform
+locations per program, so none of these is a `glGetUniformLocation` call after the first
+frame.
 
 **Outputs:** the same ten floats the CPU writes today, handed back through `inout`
 parameters. The existing vertex shader body then runs unchanged.
@@ -214,11 +233,13 @@ chosen epsilon.
 | `if` | `if (c != 0.0) { … } else { … }` writing a temp | Only the taken branch runs. A `mix()` lowering would execute both branches' assignments |
 | `exec2` `exec3`, `execute_list` | statement sequence, value of the last | |
 | `execute_loop` | `for` with a compile-time bound | With **zero** iterations the evaluator returns the loop-count value, not 0 |
-| `execute_while` | **CPU fallback** | Unbounded |
-| `rand` | **CPU fallback** | Milkdrop's Mersenne Twister. A GPU hash cannot match it |
-| `invsqrt` | **CPU fallback** | **Not `inversesqrt()`.** The evaluator uses the fast inverse square root bit hack with the 64-bit magic constant `0x5fe6eb50c7b537a9` and one Newton step. GLSL's `inversesqrt` is a different (more accurate) function, and the 64-bit hack has no 32-bit equivalent |
-| `mem` `freembuf` `memcpy` `memset` | **CPU fallback** | megabuf / gmegabuf |
-| `reg00`..`reg99` | **CPU fallback** | Not in the context's variable list; shared between evaluation contexts |
+| `execute_while` | **CPU slice** (statement) | Unbounded |
+| `rand` | **CPU slice** (the call alone, when it runs whenever its statement does; otherwise the statement) | Milkdrop's Mersenne Twister, one generator shared by every evaluation context. A GPU hash cannot match it; the CPU draws the same numbers in the same order and hands them over |
+| `invsqrt` | **CPU slice** (statement) | **Not `inversesqrt()`.** The evaluator uses the fast inverse square root bit hack with the 64-bit magic constant `0x5fe6eb50c7b537a9` and one Newton step. GLSL's `inversesqrt` is a different (more accurate) function, and the 64-bit hack has no 32-bit equivalent |
+| `mem` `freembuf` `memcpy` `memset` | **CPU slice** (statement) | megabuf / gmegabuf |
+| `reg00`..`reg99` | **CPU slice** (statement) | Not in the context's variable list; shared between evaluation contexts |
+| a variable nothing in the program assigns | `0.0` for a preset local, the uniform for a builtin or `q1`..`q32` | Never written means the value never changes: a local keeps the zero it was registered with |
+| a variable the program reads before assigning it on this vertex, and writes somewhere | **CPU slice** (statement) | The value is the previous vertex's (or, for `q*`, the per-frame value on the first vertex) |
 
 #### Precision, and the two places it is not just rounding
 
@@ -233,71 +254,83 @@ double against float. Two consequences are worth naming rather than discovering 
    the CPU and 1 on the GPU. Presets that step on `int()` or `equal()` of a continuous
    quantity therefore differ at whichever vertices sit on a step that frame.
 2. **Feedback amplification.** The warp mesh samples the previous frame, so a preset is
-   a feedback system and most are chaotic. On the step-function preset
-   `390 threx no more warningsce amy-able.milk` the mean channel difference runs 0 at
-   frame 1, 0.0004 at frame 2, 0.46 at frame 5, 4.1 at frame 15 and 10.8 at frame 40.
-   None of that is a wiring fault, and the same divergence would appear between two
-   different GPUs. **A long-sequence pixel comparison is not a valid equivalence test
-   for this renderer**; `PerPixelGpuRenderTest` asserts at a short horizon and budgets
-   the presets that still differ visibly there.
+   a feedback system and most are chaotic: any last-bit difference is amplified frame
+   over frame, and the same divergence would appear between two different GPUs. **A
+   long-sequence pixel comparison is not a valid equivalence test for this renderer**;
+   `PerPixelGpuRenderTest` asserts at a short horizon and budgets the presets that still
+   differ visibly there.
 
-### Feature detect (per preset, at load)
+   Phase 1 quoted `390 threx no more warningsce amy-able.milk` as the example (mean
+   channel difference 0 at frame 1, 0.0004 at frame 2, 0.46 at frame 5). Phase 1.5 found
+   that two **CPU-path** renders of that preset diverge the same way (0.0002 at frame 2,
+   0.29 at frame 4, 1.35 at frame 8), so that curve was never a per-pixel measurement.
+   The render test now checks that a preset reproduces itself before comparing its two
+   paths; see [How it is verified](#how-it-is-verified).
+
+### Classification (per top-level statement, at load)
 
 `MilkdropPreset::LowerPerPixelCodeToGlsl()` walks the compiled program once after
-`CompilePerPixelCode`. Every refusal carries a human-readable reason, which is what the
-HUD and the logs report. The rules:
+`CompilePerPixelCode`, one top-level statement at a time, in execution order. Phase 1
+refused the whole preset on the first construct it could not translate; Phase 1.5
+*hoists* that statement onto the CPU instead ([CPU slice](#coverage-the-cpu-slice)). A
+statement is hoisted when it:
 
-1. **Refuse an unlowerable function**: `mem` / `freembuf` / `memcpy` / `memset`,
-   `execute_while`, `rand`, `invsqrt`, an `execute_loop` whose bound is not a constant
-   or is above the GPU cap (64), or any `func` pointer the compiler does not know
-   (forward-compat).
-2. **Refuse an assignment whose target is not a plain variable** — an `if()` or
-   `megabuf()` used as an l-value.
-3. **Refuse `reg00`..`reg99`.** They live outside the evaluation context and are shared
-   between contexts, so they are neither per-vertex nor uniform.
-4. **Refuse a write to any variable that is not re-seeded per vertex.** `CalculateMesh`
-   re-seeds only `x`/`y`/`rad`/`ang` and the ten transform channels; everything else
-   (`q1`..`q32`, but equally `time`, `bass`, `progress`, `aspectx`, …) is loaded once
-   per frame and **persists across vertices on the CPU**, so a write is a cross-vertex
-   leak the GPU cannot reproduce. This generalises what earlier drafts of this document
-   said about `q*` alone. Do not warn-and-allow; loosen later only with a golden A/B
-   that shows the pixels match anyway.
-5. **Refuse a preset-local read before it is definitely assigned.** In original Milkdrop
-   (and in this tree's OpenMP pool) eval locals persist across vertices on the same
-   context. Mashups use that as an IIR:
+1. **Uses a function the shader cannot reproduce**: `mem` / `freembuf` / `memcpy` /
+   `memset`, `execute_while`, `invsqrt`, an `execute_loop` whose bound is not a constant
+   or is above the GPU cap (64), a `rand` whose call does not run every time the
+   statement does, or any `func` pointer the compiler does not know (forward-compat).
+2. **Assigns to something that is not a plain variable** — an `if()` or `megabuf()` used
+   as an l-value.
+3. **Touches `reg00`..`reg99`.** They live outside the evaluation context and are shared
+   between contexts.
+4. **Reads a variable before it is definitely assigned on this vertex, when the program
+   writes that variable somewhere.** On the CPU such a value persists from the previous
+   vertex on the same context (and, for `q1`..`q32`, `time`, `bass`, … starts each frame
+   at the per-frame value). Mashups use that as an IIR:
 
    ```
    thresh = above(bass_att,thresh)*2 + (1-above(bass_att,thresh))*((thresh-1.3)*0.96+1.3);
    dx_r   = equal(thresh,2)*0.015*sin(5*time) + (1-equal(thresh,2))*dx_r;
    ```
 
-   A GPU vertex starts from zero. Detection is a linear walk in execution order, and an
-   assignment inside an `if` branch, a loop body or a short-circuited operand does
-   **not** count as definite. That conservative reading is what keeps the check sound.
-6. **Accept** otherwise.
+   A GPU vertex has no previous vertex. Detection is a linear walk in execution order; an
+   assignment inside an `if` branch, a loop body or a short-circuited operand does **not**
+   count as definite unless both branches of an `if` make it (or the loop has a constant
+   bound of at least one). That conservative reading is what keeps the check sound.
 
-This is by far the biggest refusal class in practice, and it is why `sun fan phoets
-newborns of satan.milk` (#1 on the worklist, 143 lines) is still on the CPU: it carries
-`d`, and its siblings carry `thresh`, `sp`, `dy_mult`, `rd`. Across the whole tree, 55
-presets are refused: 14 for `thresh` alone, 13 because their per-pixel block compiles to
-an empty program, 5 for a `q1` write, 4 for `rand`, 3 for `megabuf`, and the rest for
-other carry-state locals.
+What Phase 1 refused but is simply translated now: a write to `q1`..`q32` or another
+per-frame builtin that is assigned before any read on the vertex (a GPU local; Phase 1's
+rule 4), a preset local that nothing assigns (always `0.0`), and a per-pixel block that is
+only comments (the empty function: the seeds pass through, as they do on the CPU).
 
-The HUD shows `perPixelEval=gpu` or `perPixelEval=cpu` from this classification.
+Then two backward liveness passes over the statements decide what each side needs: the
+shader starts from the ten output channels, the CPU slice from whatever the *next* vertex's
+slice reads (a fixpoint), plus every statement with an effect outside the variables
+(`rand()` advancing the shared generator, memory and register writes), which always runs.
+Statements neither side needs are dropped: several `thresh` presets compute a carried
+filter and then overwrite everything it feeds, and lower with no slice at all.
+
+A preset stays on the CPU when the slice would keep more than 25% of the per-vertex work
+or hand more than 10 values per vertex to the shader; see
+[the cost model](#the-cost-model-and-the-25-bar). Every refusal carries a human-readable
+reason, which is what the HUD and the logs report.
+
+The HUD shows `perPixelEval=gpu` or `perPixelEval=cpu` from this classification; a
+preset with a CPU slice reports `gpu`.
 
 ### Semantic forks the printer must not paper over
 
-| Topic | CPU today | GPU Phase 1 | Rule |
-|-------|-----------|-------------|------|
-| Carry-state locals (`thresh`, `dx_r`) | Persist on the eval context; OpenMP → persist **per thread** | Per-vertex zero | Fallback if read before definite assignment |
-| Writes to any non-per-vertex variable (`q*`, but also `time`, `bass`, …) | Loaded once per frame, then persist across vertices | Re-seeded from a uniform every vertex | **CPU fallback on any such write** |
-| `reg00`..`reg99` | Shared between evaluation contexts | No equivalent | Fallback |
-| `rand()` | Milkdrop's Mersenne Twister | Would need a hash | Fallback |
-| `invsqrt()` | 64-bit fast inverse square root, one Newton step | `inversesqrt()` is a different, more accurate function | Fallback |
+| Topic | CPU today | GPU path | Rule |
+|-------|-----------|----------|------|
+| Carry-state locals (`thresh`, `dx_r`) | Persist on the eval context; OpenMP → persist **per thread** | The statements that carry them run in the CPU slice, in vertex order | Exact against single-threaded CPU order |
+| Writes to a per-frame variable (`q*`, `time`, `bass`, …) | Loaded once per frame, then persist across vertices | A GPU local when assigned before every read; otherwise the CPU slice | Never "re-seed and hope" |
+| `reg00`..`reg99` | Shared between evaluation contexts | The touching statements run in the CPU slice | Exact against single-threaded CPU order |
+| `rand()` | Milkdrop's Mersenne Twister, shared by every context | Drawn by the CPU slice, same calls, same order | The number of draws per frame must match, or every later draw (shapes, waves) shifts |
+| `invsqrt()` | 64-bit fast inverse square root, one Newton step | `inversesqrt()` is a different, more accurate function | CPU slice |
 | Precision | `double` | `highp float` | Allowed, but see **Precision** above: truncation flips whole units, and feedback amplifies |
-| `if` as l-value | Eval returns a reference | No equivalent | Fallback |
+| `if` as l-value | Eval returns a reference | No equivalent | CPU slice |
 | `if` with a side-effecting dead branch | Only the taken branch runs | An `if` statement writing a temp preserves that; `mix()` would not | Emit the statement form, never `mix()` |
-| OpenMP | `kMinPerPixelMeshVerts=1000`, `kmp_set_blocktime(0)` | Not used on the GPU path | The CPU path is untouched; the pool is not spun "just in case" |
+| OpenMP | `kMinPerPixelMeshVerts=1000`, `kmp_set_blocktime(0)` | Not used on the GPU path; the CPU slice is one thread by construction | The CPU path is untouched; the pool is not spun "just in case" |
 
 ### HUD and `projectm_perf_frame_timings`
 
@@ -309,7 +342,8 @@ trustworthy per-stage bucket
 On the GPU path:
 
 - `per_pixel_eval_ms` stays where it is, but now covers only the uniform upload and
-  the draw submit. It should drop sharply — there are no 4941 evaluations left in it.
+  the draw submit — plus, for a preset with a CPU slice, running the slice and uploading
+  its values. It should drop sharply — there are no 4941 full evaluations left in it.
 - `projectm_perf_frame_timings::per_pixel_eval_path` (`0=cpu`, `1=gpu`) says which
   kind of number it is, and `js_perf_report_frame` passes it to `pmOnPerfFrame` as
   `perPixelEvalPath: 'gpu' | 'cpu'`.
@@ -320,30 +354,55 @@ On the GPU path:
   (`EXT_disjoint_timer_query_webgl2`) remains whole-frame. Ranking still
   uses A/B (`?perPixelEval=cpu` vs default) on `totalMs` / `gpuMs`.
 
-### How Phase 1 is verified
+### How it is verified
 
-Two test binaries, both headless, both in the normal `ctest` run.
+Three test files, all headless, all in the normal `ctest` run. The GPU per-pixel ones need
+a vendored projectM-eval (see `ENABLE_SYSTEM_PROJECTM_EVAL` in `AGENTS.md`); they skip
+otherwise.
 
-**`PerPixelGlslLoweringTest`** — does the generated GLSL compute what the evaluator
-computes? It does not inspect the emitted text; it compiles the generated function into
-a real vertex shader, evaluates it over a batch of vertices with transform feedback, and
-compares the ten channels against the CPU evaluator fed the same inputs. Cases cover
-each operator and control-flow form, each refusal rule, and then sweep the whole preset
-corpus: every preset either refuses with a reason or agrees numerically. One preset of
-186 drifts past 1e-3 (`pow()` with an exponent in the tens, ill-conditioned in 32 bits
-on any GPU); that count is budgeted so a less accurate translation shows up as a
-regression rather than as a preset that looks slightly wrong.
+**`PerPixelGlslLoweringTest`** — does the GPU path compute what the evaluator computes?
+It does not inspect the emitted text; it runs it. The CPU slice runs on the lowered
+program's own context, vertex by vertex, as `PerPixelMesh::RunCpuSlice()` runs it; the
+generated function is compiled into a real vertex shader and evaluated over a batch of
+vertices with transform feedback, with the slice's values as its vertex attributes; the
+ten channels are compared against the CPU evaluator fed the same inputs. Every case runs
+two or three consecutive frames, so state carried from one frame into the next is
+compared too. `rand()` is swapped, in both programs, for a stand-in with the evaluator's
+scaling that the test can rewind (the real generator is process-wide and cannot be), and
+the test also checks both sides drew the same number of values. Cases cover each operator
+and control-flow form, each hoisting rule and each refusal, and then sweep the whole
+preset corpus: every preset either refuses with a reason or agrees numerically, and at
+least 220 must lower. One preset drifts past 1e-3 (`pow()` with an exponent in the tens,
+ill-conditioned in 32 bits on any GPU); that count is budgeted so a less accurate
+translation shows up as a regression rather than as a preset that looks slightly wrong.
+
+The reference is **single-threaded** CPU evaluation. With `PRJM_ENABLE_OPENMP` the CPU
+path gives each thread its own context and carries state per thread, so its output
+depends on the thread count and has no exact counterpart; the render test renders its CPU
+side on one thread for the same reason.
 
 **`PerPixelGpuRenderTest`** — is it wired into the frame correctly? Each preset is
 rendered twice through the whole engine at a fixed seed and a fixed frame clock, once
 with `PROJECTM_PER_PIXEL_EVAL=cpu` and once on the default path, and the framebuffers
-are compared. `presets/tests/110-per_pixel.milk` is pixel-identical over 40 frames. Nine
-worklist-heavy presets reach the GPU path; one of them (`390 threx`) differs visibly for
-the step-function reason above, and that count is budgeted too.
+are compared. `presets/tests/110-per_pixel.milk` is pixel-identical over 40 frames, and
+across a mid-run resize and mesh-size change (the static grid is only re-uploaded then).
+A synthetic preset whose carried accumulator drives `dx`/`dy` over a visible border checks
+`RunCpuSlice()` and the attribute layout end to end (0% differing pixels at 8 and 40
+frames). Of the worklist-heavy presets, 18 reach the GPU path (5 of them with a CPU
+slice); 14 are compared, and 4 are skipped because two CPU renders of them already differ
+(`rand()` outside the per-pixel code, or the unexplained nondeterminism of `390 threx`
+noted above). None differs visibly. The suite shares one GL context: with a fresh SDL
+context per test, `projectm_create()` failed in about half the runs, before and
+independently of Phase 1.5, because the GL resolver's strict context gate pins the backend
+(EGL or GLX) of the first instance in the process.
 
-**Still owed:** frame times. Both suites run on llvmpipe, which measures correctness and
-nothing about speed. Acceptance criterion 1's second half — lower `per_pixel_eval_ms`
-under `?benchmark=1` on a real GPU — needs a browser session. The benchmark JSON now
+**`ShaderCacheTest`** — the evictable cache bound and order, that eviction deletes a
+program only once no preset holds it, the per-program uniform location cache (including
+across a relink), the one-call `u_pp_q` upload, and the FNV-1a reference vectors.
+
+**Still owed:** frame times. Every suite runs on llvmpipe, which measures correctness and
+nothing about speed. #227's acceptance criterion 1 second half — lower `per_pixel_eval_ms`
+under `?benchmark=1` on a real GPU — needs a browser session (#247). The benchmark JSON
 records `perPixelEvalPath` so the A/B cannot be run against the wrong baseline.
 
 ### Ablation
@@ -357,7 +416,165 @@ is already there.
 
 ---
 
+## Phase 1.5 — cheaper, correct at the edges, more presets
+
+[#261](https://github.com/ford442/Project-M/issues/261). Everything here is WebGL2 and
+C++; nothing depends on Phase 2.
+
+### Perf on the GPU path
+
+| | Before | After |
+|---|---|---|
+| Static grid (positions, radius/angle, indices) | Uploaded every frame on both paths — 100–400 KB of buffer traffic per frame at high mesh quality — and, worse, *recomputed* every frame: `InitializeMesh()` compared the viewport against `m_viewportWidth`/`m_viewportHeight` but never stored them (upstream has the same bug) | Recomputed and uploaded only when the viewport or mesh size changes (`m_staticDataDirty`). The CPU path still uploads its four transform buffers every frame; the GPU path uploads nothing per vertex unless it has a CPU slice |
+| Uniform locations | `glGetUniformLocation` for every uniform every frame (about 30 names on the GPU path, a JavaScript call plus a string decode each on WebGL), and a `"u_pp_q[N]"` string built per vector | `Shader` caches each name's location (including -1 for inactive ones) until the next link; `u_pp_q` goes up in one `glUniform4fv(loc, 8, …)` |
+| Per-preset warp programs | `milkdrop_default_warp_shader_gpu_<std::hash>` — 32 bits on wasm32, so a collision silently draws another preset's warp — and never evicted | 64-bit FNV-1a of the generated GLSL plus its length; `ShaderCache::InsertEvictable()` keeps the 32 most recently used. A preset holds its program strongly, so eviction never deletes one in use; an evicted program is `glDeleteProgram`med as soon as nothing holds it |
+
+The `Shader` location cache applies to every program, including the composite and custom
+warp shaders' dozens of per-frame uniforms, not just the per-pixel ones.
+
+### Correctness at the edges
+
+- **`q01` is not `q1`.** The evaluator registers exactly `q1`..`q32`; `q01` or `q001` is a
+  separate preset local. The lowering used to `atoi` the digits and read uniform `q1`.
+  Only the canonical spellings map to `u_pp_q` now.
+- **Float literals.** A finite double outside the float range (`1e300`) used to be
+  emitted as-is, which ANGLE rejects or turns into an infinity (and `0*inf` into NaN).
+  Literals now go through the same `static_cast<float>` every CPU value reaching the
+  shader does, with a finite value beyond the range clamped to ±`FLT_MAX`.
+- **`loop()` bounds** are range-checked as doubles before any integer conversion; a bound
+  of `1e300` or NaN used to hit `static_cast<long long>` first, which is undefined.
+- **A compound assignment of a carried local** (`a += 0.001` with `a` never assigned
+  earlier on the vertex) slipped past Phase 1's carry check, because the target of an
+  assignment was never checked as a read; the GPU started it at 0 where the CPU
+  accumulates. No preset in the tree did this; the check now covers it.
+- `PresetWarpVertexShaderGlsl330.vert` names `ComposeWarpVertexShader()`, which is what
+  fills its markers.
+
+### Coverage: the CPU slice
+
+The design above called carried state and `rand()` "cannot match on the GPU". That is
+true of an independent GPU vertex, not of the program: the part that must run in vertex
+order is usually a few statements, and the CPU can run just those and hand their results
+to the shader.
+
+Take the canonical mashup:
+
+```
+thresh = above(bass_att,thresh)*2+(1-above(bass_att,thresh))*((thresh-1.3)*0.96+1.3);
+dx_r = equal(thresh,2)*0.015*sin(5*time)+(1-equal(thresh,2))*dx_r;
+dy_r = equal(thresh,2)*0.015*sin(6*time)+(1-equal(thresh,2))*dy_r;
+... fifty statements of warp math ...
+dx = dx + dx_r;
+```
+
+The three recurrence statements are hoisted. For every vertex, in vertex order,
+`PerPixelMesh::RunCpuSlice()` seeds `x`/`y`/`rad`/`ang` and the ten channels exactly as the
+CPU loop does and runs those three statements with the evaluator's own nodes, on the same
+context — so `thresh` carries from vertex to vertex and frame to frame exactly as it does on
+the CPU. After each hoisted statement it reads the values the shader needs (`dx_r`, `dy_r`)
+and writes them into the vertex attributes at locations 4–7; the shader runs everything
+else and reads `a_pp_cpu0.x` where it would have computed `dx_r`. That is bit-exact with
+single-threaded CPU evaluation up to the conversion to float every value on the GPU path
+gets anyway.
+
+`rand()` is narrower still: when a call runs every time its statement does and its
+argument is side-effect free, the slice makes **just the call** — the same draws from the
+same shared generator, in the same order — and the statement stays in the shader. So a
+per-vertex noise term like `rot = rot + (rand(10)-5)*.001` costs one `rand()` per vertex on
+the CPU. A call under an `if` or a short-circuit operand hoists its whole statement,
+because only the CPU knows whether it runs; a statement whose `rand()` the slice would
+otherwise also need whole is hoisted whole, so no number is drawn twice.
+
+| Phase 1 refusal | Presets | Phase 1.5 |
+|---|---|---|
+| Empty per-pixel program (the block is only comments) | 13 | **13 on the GPU**: the empty function, seeds pass through |
+| `q1` write | 5 | **5 on the GPU**: `q1` is assigned before every read, so it is a GPU local (a dead store as far as other vertices go) |
+| Carried locals (`thresh` 14, others 14) | 28 | **22 on the GPU**: 7 read a local nothing assigns (`dir`, `pi`, `brdr`, …: always 0); 9 compute carried state and overwrite everything it feeds (the liveness pass drops it); 6 with a CPU slice. 6 stay on the CPU (below) |
+| `rand` | 4 | **1 on the GPU** with only the calls in the slice. 3 stay on the CPU |
+| `megabuf` / `gmegabuf` | 3 | 3 stay on the CPU (below) |
+| **Total** | **53** | **41 on the GPU, 12 on the CPU** |
+
+`sun fan phoets newborns of satan.milk`, #1 on the worklist, is one of the six: 12 of its
+121 statements (17% of the work) run in the slice — the `thresh` blocks, `d`/`r`, and
+`q2`, which it reads before writing `q2 = q1 + sy` further down, so every vertex after the
+first sees the previous vertex's value.
+
+#### The cost model and the 25% bar
+
+The slice runs on one thread. The OpenMP CPU path it replaces spreads the whole program
+over the worker pool — four threads in the WASM build — so a slice that keeps more than a
+quarter of the per-vertex work would not be faster than the path it replaces, only
+cheaper in total CPU time. `PerPixelGlslLowering::MaxCpuShare` is that quarter.
+
+The work is estimated per node, weighted by what the evaluator actually spends. Measured
+on the evaluator built `-O2 -DNDEBUG` (x86-64, two million executions per program):
+operators, comparisons, constants and variables about 4 ns; `sin`/`cos`/`exp`/`log` and
+the inverse trigonometric functions 20–40 ns; `tan` and `sigmoid` about 35 ns; `pow` and
+`atan2` about 50 ns. Without the weights, a `thresh` recurrence — all comparisons and
+multiplies — looks far more expensive next to a program full of `sin()` than it is.
+`loop()` multiplies its body by the constant count; `while()` and variable bounds count
+64 iterations.
+
+The slice may also hand the shader at most 10 values per vertex
+(`PerPixelGlslLowering::MaxCpuValues`), the capacity of the four attributes.
+
+#### What stays on the CPU (12)
+
+| Preset | Why the slice does not pay off |
+|---|---|
+| `AdamFX … pcynqo mbproduq hynek` | `vy`, read before its assignment, feeds most of the program: 79% |
+| `Martin - Mandelbox Explorer […]` ×2, `xtramartin (567)` | Every statement reads `gmegabuf()`: 91% |
+| `bdrv et.AL Aderrasi - Accelerator (…)` | `thresh`: 32% |
+| `bdrv et.AL Krash + Eo.s. - Photographic Sentinel (…)` | `thresh`: 25%, on the bar |
+| `fuckin' wench blew my wallet - phlenexiconal section` | `thresh`: 54% |
+| `suksma - platinum sulfur dope nz+ …` | `thresh`: 40% |
+| `suksma - reason dies with hate - dealt log 5.6a` | `thresh` plus a carried `tg3` in a short program: 54% |
+| `shifter - bronchiole (…) tethered web nz+ vhordesth` | Ten `rand()` calls under `if(above(chng,cthr), …)` plus carried `mq2x`/`atime`: 38% |
+| `shifter - plasmic fact - …` ×2 | `rand()` under a condition computed from `x`/`y`: 54% |
+
+The `gmegabuf()` three read the buffer only (the per-frame code writes it), so the value
+is the same for every vertex of a frame; evaluating those reads once per frame into a
+uniform would move them to the GPU. Not done here.
+
+#### OpenMP
+
+With `PRJM_ENABLE_OPENMP` the CPU path gives each thread its own evaluation context, so a
+carried local is carried **per thread**, over each thread's static chunk of vertices, and
+the picture depends on the thread count. Nothing on the GPU path reproduces that; the
+slice reproduces single-threaded order, which is also what original Milkdrop computes. The
+differential test compares against single-threaded evaluation, and the render test renders
+its CPU side on one thread (`omp_set_num_threads(1)`). Expect a slice preset to look
+slightly different from the multi-threaded CPU path; the GPU path is the faithful one.
+
+#### Upstream: a public tree API
+
+The compiler walks projectM-eval's internal tree (`CompilerTypes.h`, `TreeFunctions.h`),
+which only the vendored sources expose, so a build against an installed projectM-eval
+compiles the GPU path out (`AGENTS.md`, `ENABLE_SYSTEM_PROJECTM_EVAL`). The fix belongs
+upstream: a small public walk-and-execute API in `projectm-eval.h`. The proposal is in
+[`patches/projectm-eval-program-visit.md`](../patches/projectm-eval-program-visit.md). Until
+it lands, the vendored build is the only GPU-capable configuration.
+
+---
+
 ## Phase 2 spike — hlslparser WGSL emitter vs naga vs stay GLSL
+
+**Status (2026-09-25): not started.** #261 schedules Phase 2 after the toolchain tiering
+work of #260, because it adds a code generator that must stay out of the WebGL2 bundle;
+#260's PR (#265) is still open. The plan #261 fixes, following the decision below:
+
+1. `vendor/hlslparser/src/WGSLGenerator.{h,cpp}` next to `GLSLGenerator`, walking the same
+   `HLSLTree`, behind `ENABLE_WGSL_EMIT` (off in the WASM bundle, on for native and CI).
+2. The per-pixel lowering emits WGSL too. Phase 1.5 already splits it into a
+   language-neutral part (statement classification, liveness, the CPU slice) and the GLSL
+   printer; the WGSL backend is a second printer behind the same plan.
+3. `WgslCorpusTest.cpp` transpiles every `presets/tests/` and `custom_milk_fixed/` shader to
+   WGSL into the build dir, and a CI job runs a pinned `naga` (`cargo install naga-cli
+   --locked`) over each file, failing on parse or validation errors.
+4. WGSL twins of the ~40 built-in GLSL files under `Renderer/Shaders/wgsl/`, validated by a
+   `check_transition_shaders.sh` sibling.
+5. **Exit:** ≥95% of the corpus naga-valid, with the rest listed and explained in a
+   checked-in file, and the WASM bundle within ±1 KB. Only then the Phase 3 issue.
 
 This is the decision #227 asked to write into
 [`GRAPHICS_PERF_RECOVERY_PLAN.md`](GRAPHICS_PERF_RECOVERY_PLAN.md) §B.
@@ -483,7 +700,7 @@ is the same browser session Phase 1 still owes.
 
 | Library | Role | When |
 |---------|------|------|
-| **projectm-eval** (existing) | Equation AST, walked in place from `PerPixelGlslLowering` | Phase 1, done |
+| **projectm-eval** (existing) | Equation AST, walked in place from `PerPixelGlslLowering`; its nodes run the CPU slice | Phase 1 and 1.5, done |
 | **hlslparser** (existing) | HLSL tree; add `WgslGenerator` | Phase 2 |
 | **naga-cli** (CI only) | Validate WGSL | Phase 2 |
 | **wgpu** + Dawn/emdawnwebgpu | WebGPU backend | Phase 3 |
@@ -500,23 +717,29 @@ is the same browser session Phase 1 still owes.
 - Changing OpenMP blocktime or pool size. The CPU path is untouched.
 - Blur-as-compute: Phase 3.
 
-## What Phase 1 did not do, and what would move it
+## What is still open, and what would move it
 
 - **Frame times.** The whole verification ran on llvmpipe. A `?benchmark=1` session on
-  a real GPU, A/B'd against `?perPixelEval=cpu`, is the missing half of acceptance
-  criterion 1.
-- **The carry-state mashups.** 14 presets are refused for `thresh` alone, including the
-  two heaviest in the tree. Lowering them needs either a documented golden update (GPU
-  uses documented Milkdrop seeding, and the look changes) or a way to carry per-vertex
-  state, which independent vertices do not have. Do not silently change their look to
-  get a checkbox.
-- **`rand()`, `invsqrt()`, `megabuf`.** Each is a deliberate refusal with a reason, not
-  an oversight. A hash-based `rand` would not match the CPU and would fail goldens.
-- **A public tree-inspection API upstream.** Until projectM-Eval exposes the expression
-  tree, a build against an installed evaluator compiles the whole path out.
-- **The 13 presets whose per-pixel block compiles to an empty program.** They fall back
-  harmlessly, but they suggest the parser accepts something the tree drops; worth a look
-  on its own.
+  a real GPU, A/B'd against `?perPixelEval=cpu`, is the missing half of #227's acceptance
+  criterion 1 (#247). The per-frame upload fix of Phase 1.5 is in; measure after it.
+- **The 12 presets still on the CPU** (see [What stays on the CPU](#what-stays-on-the-cpu-12)).
+  Loosening `MaxCpuShare` for non-OpenMP builds, where the CPU path is single-threaded
+  too, or moving frame-invariant `gmegabuf()` reads into uniforms would move some.
+  Hand-porting (#170) remains the route for the rest. Do not silently change their look
+  to get a checkbox.
+- **A public tree API upstream.** The proposal is written
+  ([`patches/projectm-eval-program-visit.md`](../patches/projectm-eval-program-visit.md));
+  the upstream PR is not opened yet. Until projectM-Eval exposes the tree, a build against
+  an installed evaluator compiles the whole path out.
+- **The 13 comment-only per-pixel blocks** are really comments (`//zoom = …`), so the
+  empty program is right; they are on the GPU path now as the empty function.
+- **CPU-path nondeterminism.** Two CPU-path renders of `390 threx no more warningsce
+  amy-able.milk` in one process diverge from frame 2 although `rand()` never fires and
+  `time` is pinned. Not per-pixel related, and not investigated; `TimeKeeper` seeding its
+  first frame from the wall clock is one candidate.
+- **`FinalComposite::InitializeMesh()`** has the same never-stored viewport check that
+  made the warp grid rebuild every frame, so the composite mesh is rebuilt every frame
+  too. Not touched here.
 
 ---
 
@@ -525,7 +748,9 @@ is the same browser session Phase 1 still owes.
 - Closed: #179 (defer WebGPU), #112 (OpenMP/SIMD on eval — CPU), #178
   (governor v2), #220 (libomp spin), #224 (context config; `FULL_ES3=0`
   verified and landed 2026-09-17, which lifted this issue's gate).
-- Open: #170 (heavy→GPU by rewriting presets), #227 (this epic).
+- Open: #170 (heavy→GPU by rewriting presets), #227 (this epic), #261 (Phase 1.5 and
+  Phase 2), #247 (real-GPU A/B), #229 (pass authoring through hlslparser; coordinate the
+  Phase 2 generator refactor), #250 (HDR present on the eventual WebGPU path).
 - Upstream: #683 (Vulkan/Metal), #761 (libniceshade), #1004 (GL core vs
   ES at instance creation).
 - Code: `PerPixelGlslLowering.{hpp,cpp}`, `PerPixelMesh`, `PerPixelContext`,
@@ -534,6 +759,7 @@ is the same browser session Phase 1 still owes.
   lowering rule above is checked against),
   `vendor/hlslparser/src/GLSLGenerator.h`.
 - Tests: `tests/libprojectM/PerPixelGlslLoweringTest.cpp` (CPU evaluator vs. the
-  generated shader, run under transform feedback),
+  generated shader and CPU slice, run under transform feedback),
   `tests/libprojectM/PerPixelGpuRenderTest.cpp` (both paths rendered through the
-  whole engine), `tests/web/projectm-perf.test.mjs` (HUD and benchmark readouts).
+  whole engine), `tests/libprojectM/ShaderCacheTest.cpp` (evictable programs, uniform
+  location cache), `tests/web/projectm-perf.test.mjs` (HUD and benchmark readouts).

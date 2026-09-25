@@ -6,6 +6,8 @@
     "allowJs": true,
     "checkJs": true,
     "strict": true,
+    "noUnusedLocals": true,
+    "noImplicitOverride": true,
     "noEmit": true,
     "skipLibCheck": true,
     "lib": [
@@ -13,45 +15,21 @@
       "DOM"
     ]
   },
+  "//": [
+    "A glob, not a hand-kept list: a module missing from the old list was only",
+    "checked when something else happened to import it, and a new module was",
+    "unchecked until someone remembered to add it.",
+    "",
+    "projectm-render-worker.js is the one exclusion: it runs in a Worker scope, so",
+    "it is checked by tsconfig.worker.json against the WebWorker lib instead (the",
+    "two libs declare conflicting globals and cannot share a program)."
+  ],
   "include": [
     "generated/**/*.ts",
-    "projectm-host-types.ts",
-    "projectm-wasm-api-worker.ts",
-    "projectm-context-types.ts",
-    "projectm-context.js",
-    "projectm-context-loss.js",
-    "projectm-element.js",
-    "projectm-element-attributes.js",
-    "projectm-init.js",
-    "projectm-init-errors.js",
-    "projectm-external-pcm.js",
-    "projectm-pcm-ring.js",
-    "projectm-render-transport.js",
-    "projectm-audio-element-source.js",
-    "projectm-audio-source-router.js",
-    "projectm-presets.js",
-    "projectm-audio-bootstrap.js",
-    "projectm-fps-governor.js",
-    "projectm-mesh-quality.js",
-    "projectm-wasm-version.js",
-    "projectm-fbo-format.js",
-    "projectm-synthetic-audio.js",
-    "projectm-preset-favorites.js",
-    "projectm-transitions.js",
-    "projectm-perf.js",
-    "projectm-shader-cache.js",
-    "projectm-preset-cache.js",
-    "projectm-preset-library.js",
-    "projectm-preset-picker.js",
-    "projectm-preset-dev.js",
-    "projectm-preset-tweaker.js",
-    "projectm-render-worker-host.js",
-    "projectm-audio-player.js",
-    "projectm-audio-router.js",
-    "projectm-experimental-bridge.js",
-    "projectm-wasm-default-redirect.js",
-    "projectm-weeks-on-fire.js",
-    "projectm-worklet-playback.js",
-    "projectm-song-loader.js"
+    "projectm-*.ts",
+    "projectm-*.js"
+  ],
+  "exclude": [
+    "projectm-render-worker.js"
   ]
 }

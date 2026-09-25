@@ -50,7 +50,7 @@
 //   dual_fbo_get_b_write_fbo()   – FBO ID to bind as render target (Preset B)
 //   dual_fbo_get_b_read_tex()    – texture ID to sample as history (Preset B)
 //   dual_fbo_is_preset_b_allocated() – query whether transition is active
-//   dual_fbo_get_format()        – 0=RGBA32F, 1=RGBA16F, 2=RGBA8
+//   dual_fbo_get_format()        – 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (FboFloatFormat)
 //
 // Phase 3 isolated render helpers (save/restore full GL state):
 //   dual_fbo_render_preset_a()   – render Preset A into A_Write FBO w/ state guard
@@ -326,9 +326,10 @@ bool dual_fbo_is_preset_b_ready()
 /**
  * @brief Returns the active FBO colour format as an integer.
  *
- * Values:
- *   0 = RGBA32F (GL_RGBA32F, 32-bit float)
- *   1 = RGBA16F (GL_RGBA16F, 16-bit half-float)
+ * Values (FboFloatFormat — the same numbering set_context_config() takes for
+ * its fboPrecision preference):
+ *   0 = RGBA16F (GL_RGBA16F, 16-bit half-float)
+ *   1 = RGBA32F (GL_RGBA32F, 32-bit float)
  *   2 = RGBA8   (GL_RGBA8, 8-bit normalized – shaders should clamp output)
  */
 EMSCRIPTEN_KEEPALIVE
@@ -364,7 +365,7 @@ void dual_fbo_render_preset_a()
                 static_cast<void*>(pm), static_cast<int>(g_dualFbo.IsPresetAAllocated()));
         return;
     }
-    GLStateGuard guard;
+    GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
     projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
 }
 
@@ -393,7 +394,7 @@ void dual_fbo_render_preset_b()
     }
     // Force-reset GL state left by Preset A's draw before entering Preset B's pipeline.
     gl_reset_state_between_pipelines();
-    GLStateGuard guard;
+    GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
     projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
 }
 

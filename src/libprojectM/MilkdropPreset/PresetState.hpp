@@ -47,6 +47,22 @@ public:
     void Initialize(PresetFileParser& parsedFile);
 
     /**
+     * @brief Reads the preset and shader language versions the way Initialize() does.
+     *
+     * Static so background preset preparation can decide which shaders a preset uses without
+     * constructing a PresetState (which creates GL objects).
+     * @param parsedFile The file parser with the preset data.
+     * @param presetVersion In: the default preset version. Out: MILKDROP_PRESET_VERSION.
+     * @param warpShaderVersion In: the default. Out: the warp shader version, 0 if none.
+     * @param compositeShaderVersion In: the default. Out: the composite shader version, 0 if none.
+     */
+    static void ReadShaderVersions(PresetFileParser& parsedFile, int& presetVersion,
+                                   int& warpShaderVersion, int& compositeShaderVersion);
+
+    static constexpr int DefaultPresetVersion{100}; //!< Preset version if the file does not specify one.
+    static constexpr int DefaultShaderVersion{2};   //!< Shader version if the file does not specify one.
+
+    /**
      * @brief Loads or compiles the generic shaders.
      * Call after setting renderContext.
      */
@@ -127,9 +143,9 @@ public:
     BlendableFloat blur3Max{1.0f};
     BlendableFloat blur1EdgeDarken{0.25f};
 
-    int presetVersion{100};        //!< Value of MILKDROP_PRESET_VERSION in preset files.
-    int warpShaderVersion{2};      //!< PSVERSION or PSVERSION_WARP.
-    int compositeShaderVersion{2}; //!< PSVERSION or PSVERSION_COMP.
+    int presetVersion{DefaultPresetVersion};          //!< Value of MILKDROP_PRESET_VERSION in preset files.
+    int warpShaderVersion{DefaultShaderVersion};      //!< PSVERSION or PSVERSION_WARP.
+    int compositeShaderVersion{DefaultShaderVersion}; //!< PSVERSION or PSVERSION_COMP.
 
     std::array<float, 4> hueRandomOffsets; //!< Per-preset constant offsets for the hue animation
 

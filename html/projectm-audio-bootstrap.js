@@ -141,30 +141,47 @@ export async function ensureAudioRunning() {
  * (external-PCM-only mode) or if it is already running.
  *
  * Call once after `checkInit(Module)` succeeds.
+ *
+ * @returns {() => void} Removes the gesture and `statechange` listeners this call
+ *   added. Each call used to leave a `statechange` listener on the shared
+ *   AudioContext for good, and the gesture pair too whenever the context never
+ *   started running, so start()/destroy() cycles accumulated them.
  */
 export function setupAudioUnlock() {
     const ctx = getAudioContext();
     if (!ctx || ctx.state !== 'suspended') {
-        return;
+        return () => {};
     }
 
     showOverlay();
 
+    let active = true;
     const onGesture = () => {
         ensureAudioRunning().then((running) => {
             if (running) {
-                document.removeEventListener('pointerdown', onGesture);
-                document.removeEventListener('keydown', onGesture);
+                detach();
             }
         });
+    };
+    const onStateChange = () => {
+        if (ctx.state === 'running') {
+            hideOverlay();
+        }
+    };
+
+    const detach = () => {
+        if (!active) {
+            return;
+        }
+        active = false;
+        document.removeEventListener('pointerdown', onGesture);
+        document.removeEventListener('keydown', onGesture);
+        ctx.removeEventListener('statechange', onStateChange);
     };
 
     document.addEventListener('pointerdown', onGesture);
     document.addEventListener('keydown', onGesture);
+    ctx.addEventListener('statechange', onStateChange);
 
-    ctx.addEventListener('statechange', () => {
-        if (ctx.state === 'running') {
-            hideOverlay();
-        }
-    });
+    return detach;
 }

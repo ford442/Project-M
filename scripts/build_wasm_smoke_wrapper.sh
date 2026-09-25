@@ -108,6 +108,7 @@ wrapper_sources=(
     "$PROJECT_ROOT/src/wasm/WasmPcmRing.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPerfGovernor.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPlaylistBridge.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmPresetPrepare.cpp"
     "$PROJECT_ROOT/src/wasm/WasmJsBindings.cpp"
     "$PROJECT_ROOT/src/wasm/WasmDeterminism.cpp"
 )
@@ -129,13 +130,42 @@ else
     exit 1
 fi
 
-# Note: no -flto here by default. The wrapper TUs are the only LTO/bitcode TUs
-# in this link; libprojectM-4.a is built without LTO. Set PROJECTM_WASM_LTO=1 to try
-# link-time-only LTO (see docs/PERFORMANCE.md).
-"${emxx_cmd[@]}" "${wrapper_sources[@]}" \
+# LTO (PROJECTM_WASM_LTO=1, see cmake/EmscriptenWasmFlags.cmake): the static
+# libs are LLVM bitcode and the link optimises across them. The wrapper TUs are
+# still compiled to native wasm objects first: Emscripten 6.0.6 does not register
+# EM_JS functions defined in bitcode as JS imports, so an -flto compile of
+# WasmJsBindings.cpp & co. leaves every EM_JS call an undefined symbol at link.
+wrapper_inputs=("${wrapper_sources[@]}")
+if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
+    obj_dir="$OUT_DIR/obj"
+    mkdir -p "$obj_dir"
+    compile_args=()
+    for arg in "${common_args[@]}"; do
+        [[ "$arg" == "-flto" ]] || compile_args+=("$arg")
+    done
+    wrapper_inputs=()
+    for src in "${wrapper_sources[@]}"; do
+        obj="$obj_dir/$(basename "${src%.cpp}").o"
+        "${emxx_cmd[@]}" -c "$src" \
+            "${wrapper_include_args[@]}" \
+            "${simd_compile_args[@]}" \
+            "${compile_args[@]}" \
+            -o "$obj" &
+        wrapper_inputs+=("$obj")
+    done
+    wait
+fi
+
+# Extra em++ link flags, whitespace-separated — e.g. the debug CI leg's
+# "-sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2".
+extra_link_args=()
+read -r -a extra_link_args <<< "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}"
+
+"${emxx_cmd[@]}" "${wrapper_inputs[@]}" \
     "${wrapper_include_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \
+    "${extra_link_args[@]}" \
     -s INVOKE_RUN=0 \
     "${libomp_args[@]}" \
     -o "$OUT_DIR/projectm-v.030-thread.js" \

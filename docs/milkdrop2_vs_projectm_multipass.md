@@ -124,14 +124,16 @@ needed to the priority order itself.
 
 What was missing was **surfacing the selected/degraded format**:
 
-- `dual_fbo_get_format()` (0=RGBA32F, 1=RGBA16F, 2=RGBA8) was already exported
+- `dual_fbo_get_format()` (0=RGBA16F, 1=RGBA32F, 2=RGBA8 since #258) was already exported
   in `CMakeLists.txt`'s `PROJECTM_WASM_EXPORTED_FUNCTIONS` but missing from
   `scripts/build_wasm_smoke_wrapper.sh`'s `EXPORTED_FUNCTIONS` list — added.
 - Added `html/projectm-fbo-format.js` (`setupFboFormatIndicator(Module)`,
   wired into `projectm-core.html`'s `attemptInit()` after `_start_render()`).
   When the format is RGBA8, it shows an on-screen "Degraded rendering mode"
-  banner and exposes `window.pmGetFboFormat()` returning `'RGBA32F'`,
-  `'RGBA16F'`, or `'RGBA8'`.
+  banner and returns the format name (`'RGBA32F'`, `'RGBA16F'` or `'RGBA8'`;
+  `getFboFormatName(Module)` reads it without the banner). Pages that still
+  want `window.pmGetFboFormat()` opt in through `exposeFboFormatGlobals()` in
+  `html/projectm-legacy-globals.js`.
 - `DetectFormat()`'s RGBA8 branch log messages were extended to mention the
   degraded-mode query API and the dithering/clamping described below.
 - `start_render()` now conditionally re-enables `GL_DITHER` (previously

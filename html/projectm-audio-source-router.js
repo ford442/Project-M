@@ -20,6 +20,12 @@ import {
 // existed, which throws at ESM link time and took `projectm-context.js` down
 // with it. Exclusive-source policy is host policy, not a WASM symbol, so it
 // belongs in a hand-written module.
+//
+// `generated/projectm-wasm-api.js` still carries a registry of its own, and its
+// `pl()` wrapper notifies *that* one. Nothing in html/ writes to it, so it stays
+// empty; every host-side caller goes through `playSong()` below or through
+// html/projectm-worklet-playback.js, both of which read THIS registry. Do not
+// import `getHostAudioSourceRouter` from the generated module.
 
 /**
  * Readiness check narrowing the defensively-optional {@link ProjectMModuleLike}
@@ -38,21 +44,65 @@ function canRouteAudio(moduleInstance) {
     );
 }
 
-/** @type {AudioSourceRouter | null} */
-let hostAudioSourceRouter = null;
+/**
+ * Routers that are alive on this page, oldest first. The last entry is the one
+ * the process-wide worklet reports to.
+ *
+ * A list rather than a single slot: with two contexts on a page each has its
+ * own router, and the second one registering must not make the first one's
+ * destroy() unregister *it*. The worklet, and `pl()`, are process-global, so
+ * "the router" they consult is inherently the most recently active one.
+ *
+ * @type {AudioSourceRouter[]}
+ */
+const hostAudioSourceRouters = [];
 
 /**
- * Registers the host {@link AudioSourceRouter} consulted by {@link playSong}.
+ * Makes `router` the one the worklet path notifies. Registering a router that
+ * is already registered moves it to the front of the queue again, which is what
+ * a router does whenever it is handed a new module or transport.
+ *
+ * @param {AudioSourceRouter} router
+ */
+export function registerHostAudioSourceRouter(router) {
+    unregisterHostAudioSourceRouter(router);
+    hostAudioSourceRouters.push(router);
+}
+
+/**
+ * Removes one router from the registry. Whoever was registered before it takes
+ * over again; other routers are not affected.
+ *
+ * @param {AudioSourceRouter} router
+ */
+export function unregisterHostAudioSourceRouter(router) {
+    const index = hostAudioSourceRouters.indexOf(router);
+    if (index !== -1) {
+        hostAudioSourceRouters.splice(index, 1);
+    }
+}
+
+/**
+ * Registers the host {@link AudioSourceRouter} consulted by {@link playSong}
+ * and by the worklet playback path, or, with `null`, forgets every router.
+ *
+ * Prefer {@link registerHostAudioSourceRouter} / {@link unregisterHostAudioSourceRouter}
+ * from code that owns one router among several; `null` here is the blunt
+ * "reset the page" form kept for hosts and tests.
  *
  * @param {AudioSourceRouter | null} router
  */
 export function setHostAudioSourceRouter(router) {
-    hostAudioSourceRouter = router;
+    if (router) {
+        registerHostAudioSourceRouter(router);
+    } else {
+        hostAudioSourceRouters.length = 0;
+    }
 }
 
-/** @returns {AudioSourceRouter | null} The currently registered router, if any. */
+/** @returns {AudioSourceRouter | null} The most recently registered router, if any. */
 export function getHostAudioSourceRouter() {
-    return hostAudioSourceRouter;
+    return hostAudioSourceRouters[hostAudioSourceRouters.length - 1] ?? null;
 }
 
 /**
@@ -67,11 +117,12 @@ export function getHostAudioSourceRouter() {
  * @returns {boolean} true if the call was forwarded to the engine.
  */
 export function playSong(module, songPath) {
-    hostAudioSourceRouter?.notifyWorkletFeed();
-    if (hostAudioSourceRouter && !hostAudioSourceRouter.canFeed('worklet')) {
+    const router = getHostAudioSourceRouter();
+    router?.notifyWorkletFeed();
+    if (router && !router.canFeed('worklet')) {
         console.debug(
             '[projectM audio router] blocked pl() — active source is',
-            hostAudioSourceRouter.getActiveSource(),
+            router.getActiveSource(),
         );
         return false;
     }
@@ -137,8 +188,9 @@ export class AudioSourceRouter {
         // *return* type, making the property non-optional.
         /** @type {((status: ProjectMAudioSourceStatus) => void) | undefined} */
         this.onStatusChange = onStatusChange;
+        this.destroyed = false;
         this._applyExclusivePolicy(this.activeSource);
-        setHostAudioSourceRouter(this);
+        registerHostAudioSourceRouter(this);
     }
 
     /**
@@ -149,7 +201,9 @@ export class AudioSourceRouter {
             return;
         }
         this.transport = transport;
-        setHostAudioSourceRouter(this);
+        if (transport) {
+            this._registerUnlessDestroyed();
+        }
         this._applyExclusivePolicy(this.activeSource);
     }
 
@@ -159,7 +213,11 @@ export class AudioSourceRouter {
             return;
         }
         this.module = module;
-        setHostAudioSourceRouter(this);
+        if (module) {
+            // Attaching an engine makes this the active router; detaching one
+            // (a context letting go of a shared router) must not.
+            this._registerUnlessDestroyed();
+        }
         this._applyExclusivePolicy(this.activeSource);
     }
 
@@ -260,11 +318,24 @@ export class AudioSourceRouter {
         };
     }
 
+    /**
+     * Leaves the registry and lets go of the module and transport. Only THIS
+     * router is unregistered: another context's router, registered on the same
+     * page, keeps receiving the worklet's notifications.
+     */
     destroy() {
-        setHostAudioSourceRouter(null);
+        this.destroyed = true;
+        unregisterHostAudioSourceRouter(this);
         this.module = null;
         this.transport = null;
         this.onStatusChange = undefined;
+    }
+
+    /** A router that was torn down must not put itself back into the registry. */
+    _registerUnlessDestroyed() {
+        if (!this.destroyed) {
+            registerHostAudioSourceRouter(this);
+        }
     }
 
     /** @param {ProjectMAudioSourceActive} source */

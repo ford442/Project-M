@@ -5,11 +5,13 @@ import {
     BROWSER_DECODE_EXTENSIONS,
     MOD_EXTENSIONS,
     classifySongUrl,
+    createSongChannel,
     installSongLoaderInterceptor,
     isWorkletCatalogSong,
     parseSongDirectoryListing,
     routeSongUrl,
     songExtension,
+    wrapSongChannel,
 } from '../../html/projectm-song-loader.js';
 
 test('songExtension extracts extension from URLs', () => {
@@ -26,7 +28,7 @@ test('classifySongUrl buckets formats', () => {
     assert.equal(classifySongUrl('https://x/song'), 'unknown');
 });
 
-test('installSongLoaderInterceptor routes browser formats away from sng channel', async () => {
+test('createSongChannel routes browser formats away from the sng channel', async () => {
     const posts = [];
     let fetchCalled = false;
 
@@ -78,8 +80,13 @@ test('installSongLoaderInterceptor routes browser formats away from sng channel'
 
     delete globalThis.__projectMSongLoaderInstalled;
     installSongLoaderInterceptor();
+    assert.equal(
+        globalThis.BroadcastChannel,
+        FakeBroadcastChannel,
+        'installing the song loader must not replace the page\'s BroadcastChannel',
+    );
 
-    const sng = new globalThis.BroadcastChannel('sng');
+    const sng = createSongChannel('sng');
     sng.postMessage({ data: 'https://example.com/demo.mp3' });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -89,7 +96,7 @@ test('installSongLoaderInterceptor routes browser formats away from sng channel'
     assert.equal(decodeCalls.length, 1);
 
     fetchCalled = false;
-    const sngFlac = new globalThis.BroadcastChannel('sng');
+    const sngFlac = createSongChannel('sng');
     sngFlac.postMessage({ data: 'https://example.com/demo.flac' });
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(posts.length, 0, 'flac should play via worklet, not ./flac/ sng');
@@ -105,6 +112,38 @@ test('installSongLoaderInterceptor routes browser formats away from sng channel'
     }
     delete globalThis.__projectMSongLoaderInstalled;
     delete globalThis.projectMAudioContext_Global_Cpp;
+});
+
+test('wrapSongChannel leaves other channels, and non-URL payloads, alone', () => {
+    const posts = [];
+    const channel = (name) => ({
+        name,
+        postMessage(data) { posts.push({ channel: name, data }); },
+    });
+
+    const other = channel('projectm-audio');
+    const original = other.postMessage;
+    assert.equal(wrapSongChannel('projectm-audio', other), other);
+    assert.equal(other.postMessage, original, 'only the sng channel is wrapped');
+
+    // A post on 'sng' that carries no URL is not a song request: it goes straight through.
+    const sng = wrapSongChannel('sng', channel('sng'));
+    sng.postMessage({ data: 42 });
+    sng.postMessage({ note: 'hello' });
+    assert.deepEqual(posts, [
+        { channel: 'sng', data: { data: 42 } },
+        { channel: 'sng', data: { note: 'hello' } },
+    ]);
+});
+
+test('createSongChannel names its failure when there is no BroadcastChannel', () => {
+    const previous = globalThis.BroadcastChannel;
+    try {
+        delete globalThis.BroadcastChannel;
+        assert.throws(() => createSongChannel('sng'), /BroadcastChannel is not available/);
+    } finally {
+        globalThis.BroadcastChannel = previous;
+    }
 });
 
 test('routeSongUrl decodes flac via worklet fetch path', async () => {

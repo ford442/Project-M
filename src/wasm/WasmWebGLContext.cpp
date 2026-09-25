@@ -219,9 +219,9 @@ static EmscriptenWebGLContextAttributes ProjectMDefaultWebGLAttributes()
 
 static void ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx)
 {
-    emscripten_webgl_enable_extension(ctx, "OES_texture_float");
-    emscripten_webgl_enable_extension(ctx, "OES_texture_half_float");
-    emscripten_webgl_enable_extension(ctx, "OES_texture_half_float_linear");
+    // Float *textures* are core in WebGL 2; only rendering to them needs an
+    // extension. (OES_texture_float / OES_texture_half_float[_linear] are
+    // WebGL 1 names and do not exist on a WebGL 2 context.)
     if (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") != EM_TRUE)
     {
         fprintf(stderr, "Warning: EXT_color_buffer_float not supported; float FBO rendering will not be available\n");

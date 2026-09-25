@@ -48,6 +48,7 @@ class PresetFileParser;
 namespace MilkdropPreset {
 
 class Factory;
+class MilkdropPreparedPreset;
 
 class MilkdropPreset : public ::libprojectM::Preset
 {
@@ -66,6 +67,14 @@ public:
      * @param presetOutputs initialized and filled with data parsed from a MilkdropPreset
      */
     MilkdropPreset(std::istream& presetData);
+
+    /**
+     * @brief Creates a MilkdropPreset from data prepared off the render thread.
+     *
+     * Skips reading, parsing and analysing the preset, which MilkdropPreparedPreset already did.
+     * @param prepared The prepared preset. Consumed.
+     */
+    explicit MilkdropPreset(MilkdropPreparedPreset&& prepared);
 
     /**
      * @brief Initializes the preset with rendering-related data.
@@ -89,6 +98,12 @@ public:
 
     void BindOutputForRead() override;
 
+    auto ShaderCompilePending() const -> bool override;
+
+    auto ShaderCompileComplete() const -> bool override;
+
+    void FinishShaderCompile() override;
+
 private:
     void PerFrameUpdate();
 
@@ -96,7 +111,7 @@ private:
 
     void Load(std::istream& stream);
 
-    void InitializePreset(PresetFileParser& parsedFile);
+    void InitializePreset(PresetFileParser& parsedFile, MilkdropPreparedPreset* prepared = nullptr);
 
     void CompileCodeAndRunInitExpressions();
 
@@ -109,9 +124,10 @@ private:
     void LowerPerPixelCodeToGlsl();
 
     /**
-     * @brief Compiles the warp and composite shaders.
+     * @brief Loads the warp and composite shader code.
+     * @param prepared If not null, the prepared shaders to use instead of analysing the code again.
      */
-    void LoadShaderCode();
+    void LoadShaderCode(MilkdropPreparedPreset* prepared);
 
     auto ParseFilename(const std::string& filename) -> std::string;
 

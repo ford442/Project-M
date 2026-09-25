@@ -8,6 +8,10 @@
 namespace libprojectM {
 namespace Renderer {
 
+namespace {
+std::optional<bool> g_compileCompleteOverride; //!< See Shader::OverrideCompileCompleteForTesting().
+} // namespace
+
 Shader::Shader()
     : m_shaderProgram(glCreateProgram())
 {
@@ -15,6 +19,7 @@ Shader::Shader()
 
 Shader::~Shader()
 {
+    ReleasePendingCompile();
     if (m_shaderProgram)
     {
         glDeleteProgram(m_shaderProgram);
@@ -24,19 +29,90 @@ Shader::~Shader()
 void Shader::CompileProgram(const std::string& vertexShaderSource,
                             const std::string& fragmentShaderSource)
 {
-    auto vertexShader = CompileShader(vertexShaderSource, GL_VERTEX_SHADER);
-    auto fragmentShader = CompileShader(fragmentShaderSource, GL_FRAGMENT_SHADER);
+    BeginCompileProgram(vertexShaderSource, fragmentShaderSource);
+    FinishCompileProgram();
+}
 
-    glAttachShader(m_shaderProgram, vertexShader);
-    glAttachShader(m_shaderProgram, fragmentShader);
+void Shader::BeginCompileProgram(const std::string& vertexShaderSource,
+                                 const std::string& fragmentShaderSource)
+{
+    ReleasePendingCompile();
+
+    m_pending = std::make_unique<PendingCompile>();
+    m_pending->vertexShaderSource = vertexShaderSource;
+    m_pending->fragmentShaderSource = fragmentShaderSource;
+
+    // Issue everything without reading any status back: reading the compile or
+    // link status is what makes the driver finish the work. With
+    // KHR_parallel_shader_compile it then runs on driver threads, and
+    // IsCompileComplete() can poll for it without blocking.
+    m_pending->vertexShader = BeginCompileShader(vertexShaderSource, GL_VERTEX_SHADER);
+    m_pending->fragmentShader = BeginCompileShader(fragmentShaderSource, GL_FRAGMENT_SHADER);
+
+    glAttachShader(m_shaderProgram, m_pending->vertexShader);
+    glAttachShader(m_shaderProgram, m_pending->fragmentShader);
 
     glLinkProgram(m_shaderProgram);
+}
+
+auto Shader::IsCompilePending() const -> bool
+{
+    return m_pending != nullptr;
+}
+
+auto Shader::IsCompileComplete() const -> bool
+{
+    if (!m_pending)
+    {
+        return true;
+    }
+
+    if (g_compileCompleteOverride)
+    {
+        return *g_compileCompleteOverride;
+    }
+
+    // Only meaningful with KHR_parallel_shader_compile, whose callers are the only ones that poll.
+    GLint completed{GL_TRUE};
+    glGetProgramiv(m_shaderProgram, GL_COMPLETION_STATUS_KHR, &completed);
+    return completed == GL_TRUE;
+}
+
+void Shader::FinishCompileProgram()
+{
+    if (!m_pending)
+    {
+        return;
+    }
+
+    const auto pending = std::move(m_pending);
+
+    // Report a failed shader compile the way compiling it synchronously did,
+    // vertex shader first.
+    const auto checkCompiled = [this, &pending](GLuint shader, GLenum type, const std::string& source) {
+        GLint shaderCompiled{};
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &shaderCompiled);
+        if (shaderCompiled == GL_TRUE)
+        {
+            return;
+        }
+
+        GLint infoLogLength{};
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLogLength);
+        std::vector<char> message(infoLogLength + 1);
+        glGetShaderInfoLog(shader, infoLogLength, nullptr, message.data());
+        DeleteShaders(*pending);
+
+        std::string compileError = "[Shader] Error compiling " + std::string(type == GL_VERTEX_SHADER ? "vertex" : "fragment") + " shader: " + std::string(message.data());
+        LOG_ERROR(compileError);
+        LOG_DEBUG("[Shader] Failed source: " + source);
+        throw ShaderException(compileError);
+    };
+    checkCompiled(pending->vertexShader, GL_VERTEX_SHADER, pending->vertexShaderSource);
+    checkCompiled(pending->fragmentShader, GL_FRAGMENT_SHADER, pending->fragmentShaderSource);
 
     // Shader objects are no longer needed after linking, free the memory.
-    glDetachShader(m_shaderProgram, vertexShader);
-    glDetachShader(m_shaderProgram, fragmentShader);
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
+    DeleteShaders(*pending);
 
     GLint programLinked;
     glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &programLinked);
@@ -52,9 +128,26 @@ void Shader::CompileProgram(const std::string& vertexShaderSource,
 
     std::string linkError = "[Shader] Error linking compiled shader program: " + std::string(message.data());
     LOG_ERROR(linkError);
-    LOG_DEBUG("[Shader] Vertex shader source: " + vertexShaderSource);
-    LOG_DEBUG("[Shader] Fragment shader source: " + fragmentShaderSource);
+    LOG_DEBUG("[Shader] Vertex shader source: " + pending->vertexShaderSource);
+    LOG_DEBUG("[Shader] Fragment shader source: " + pending->fragmentShaderSource);
     throw ShaderException(linkError);
+}
+
+void Shader::DeleteShaders(const PendingCompile& pending)
+{
+    glDetachShader(m_shaderProgram, pending.vertexShader);
+    glDetachShader(m_shaderProgram, pending.fragmentShader);
+    glDeleteShader(pending.vertexShader);
+    glDeleteShader(pending.fragmentShader);
+}
+
+void Shader::ReleasePendingCompile()
+{
+    if (m_pending)
+    {
+        DeleteShaders(*m_pending);
+        m_pending.reset();
+    }
 }
 
 bool Shader::Validate(std::string& validationMessage) const
@@ -189,32 +282,42 @@ void Shader::SetUniformMat4x4(const char* uniform, const glm::mat4x4& values) co
     glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(values));
 }
 
-GLuint Shader::CompileShader(const std::string& source, GLenum type)
+GLuint Shader::BeginCompileShader(const std::string& source, GLenum type)
 {
-    GLint shaderCompiled{};
-
     auto shader = glCreateShader(type);
     const auto* shaderSourceCStr = source.c_str();
     glShaderSource(shader, 1, &shaderSourceCStr, nullptr);
 
     glCompileShader(shader);
 
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &shaderCompiled);
-    if (shaderCompiled == GL_TRUE)
+    return shader;
+}
+
+void Shader::OverrideCompileCompleteForTesting(std::optional<bool> complete)
+{
+    g_compileCompleteOverride = complete;
+}
+
+auto Shader::ParallelCompileSupported() -> bool
+{
+    GLint extensionCount{};
+    glGetIntegerv(GL_NUM_EXTENSIONS, &extensionCount);
+    for (GLint index = 0; index < extensionCount; index++)
     {
-        return shader;
+        const auto* extension = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(index)));
+        if (extension == nullptr)
+        {
+            continue;
+        }
+        // WebGL reports it without the GL_ prefix through some bindings.
+        const std::string name(extension);
+        if (name == "GL_KHR_parallel_shader_compile" || name == "KHR_parallel_shader_compile" ||
+            name == "GL_ARB_parallel_shader_compile")
+        {
+            return true;
+        }
     }
-
-    GLint infoLogLength{};
-    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLogLength);
-    std::vector<char> message(infoLogLength + 1);
-    glGetShaderInfoLog(shader, infoLogLength, nullptr, message.data());
-    glDeleteShader(shader);
-
-    std::string compileError = "[Shader] Error compiling " + std::string(type == GL_VERTEX_SHADER ? "vertex" : "fragment") + " shader: " + std::string(message.data());
-    LOG_ERROR(compileError);
-    LOG_DEBUG("[Shader] Failed source: " + source);
-    throw ShaderException(compileError);
+    return false;
 }
 
 auto Shader::GetShaderLanguageVersion() -> Shader::GlslVersion

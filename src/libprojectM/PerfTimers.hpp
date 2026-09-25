@@ -67,6 +67,7 @@ struct FrameTimings
 {
     std::array<double, static_cast<std::size_t>(Field::Count)> values{};
     double fps{0.0};
+    bool shaderLinkPending{false}; //!< A preset switch was waiting for its shader programs to link.
     PerPixelPath perPixelPath{PerPixelPath::Cpu};
 
     double operator[](Field field) const
@@ -136,6 +137,16 @@ inline void Add(Field field, double ms)
         return;
     }
     detail::g_current.values[static_cast<std::size_t>(field)] += ms;
+}
+
+/// Records that a preset switch is waiting for its shader programs this frame.
+inline void SetShaderLinkPending(bool pending)
+{
+    if (!detail::g_enabled)
+    {
+        return;
+    }
+    detail::g_current.shaderLinkPending = pending;
 }
 
 /// Call once at the end of ProjectM::RenderFrame(). Finalizes Total/fps and

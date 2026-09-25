@@ -357,9 +357,10 @@ export function setupExperimentalBridge(module, options = {}) {
         }
     };
 
-    // Published for host pages and console use. Internally the module refers to
-    // `api` directly rather than reading its own surface back off `window`.
-    window.pmExperimental = api;
+    // Returned to the host, which decides whether to publish it for console use
+    // (`exposeExperimentalGlobals()` in projectm-legacy-globals.js). Internally
+    // the module refers to `api` directly rather than reading its own surface
+    // back off `window`.
 
     // Inputs travel on imageChannel; only *results* (role=depth-result or explicit flag)
     // are auto-injected. Legacy posts without a role are treated as inputs.
@@ -403,8 +404,8 @@ export function setupExperimentalBridge(module, options = {}) {
     });
     observer.observe(resultImage, { attributes: true, attributeFilter: ['src'] });
 
-    window.addEventListener('pm:preset-loaded', async (event) => {
-        const { name, path, text: detailText } =
+    const onPresetLoaded = async (/** @type {Event} */ event) => {
+        const { path, text: detailText } =
             /** @type {CustomEvent<{ name?: string, path?: string, text?: string }>} */ (event).detail || {};
         let milkText = detailText || state.lastMilkText || '';
         if (!milkText && path && module?.FS) {
@@ -439,17 +440,30 @@ export function setupExperimentalBridge(module, options = {}) {
             api._gltfExportMode = meta['gltf-export'];
             setStatus(`glTF export mode: ${meta['gltf-export']}`);
         }
-    });
+    };
+    window.addEventListener('pm:preset-loaded', onPresetLoaded);
 
     // Remember milk text from local loads so depth:auto works without re-reading VFS races.
-    window.addEventListener('pm:preset-text', (event) => {
+    const onPresetText = (/** @type {Event} */ event) => {
         const detail = /** @type {CustomEvent<{ text?: string }>} */ (event).detail;
         if (detail?.text) state.lastMilkText = detail.text;
-    });
+    };
+    window.addEventListener('pm:preset-text', onPresetText);
 
     injectPanel(module, state, api);
     console.info('[pm:experimental] bridge active — see docs/EXPERIMENTAL_PRESET_HOOKS.md');
-    return { enabled: true, state };
+    return {
+        enabled: true,
+        state,
+        api,
+        /** Detaches the window listeners, the image channel and the result observer. */
+        dispose() {
+            window.removeEventListener('pm:preset-loaded', onPresetLoaded);
+            window.removeEventListener('pm:preset-text', onPresetText);
+            imageChannel.close();
+            observer.disconnect();
+        },
+    };
 }
 
 /**

@@ -26,9 +26,13 @@ BUILD_TESTING="${BUILD_TESTING:-OFF}"
 ENABLE_WASM_TRANSITIONS="${ENABLE_WASM_TRANSITIONS:-ON}"
 ENABLE_OPENMP="${ENABLE_OPENMP:-ON}"
 GTEST_DIR="${GTEST_DIR:-}"
-# C++ exception ABI (js | wasm). Must match what scripts/build_wasm_smoke_wrapper.sh
-# links with — both read the same variable; see cmake/EmscriptenWasmFlags.cmake.
-PROJECTM_WASM_EXCEPTIONS="${PROJECTM_WASM_EXCEPTIONS:-wasm}"
+# Release defines NDEBUG, so assert() is compiled out of the shipped wasm (the
+# build used to pass no build type at all, which left every assert live).
+CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
+# Whole-program LTO: the static libs become LLVM bitcode. The wrapper link must
+# then run with the same PROJECTM_WASM_LTO=1 (scripts/build_wasm_smoke_wrapper.sh
+# reads it). See cmake/EmscriptenWasmFlags.cmake.
+PROJECTM_WASM_LTO="${PROJECTM_WASM_LTO:-0}"
 
 if ! command -v emcc >/dev/null 2>&1; then
     cat >&2 <<'EOF'
@@ -81,8 +85,13 @@ cmake_args=(
     -DBUILD_TESTING="$BUILD_TESTING"
     -DENABLE_OPENMP="$ENABLE_OPENMP"
     -DENABLE_WASM_TRANSITIONS="$ENABLE_WASM_TRANSITIONS"
-    -DPROJECTM_WASM_EXCEPTIONS="$PROJECTM_WASM_EXCEPTIONS"
+    -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
 )
+if [[ "$PROJECTM_WASM_LTO" == "1" ]]; then
+    cmake_args+=(-DPROJECTM_WASM_LTO=ON)
+else
+    cmake_args+=(-DPROJECTM_WASM_LTO=OFF)
+fi
 
 if [[ -n "$GTEST_DIR" ]]; then
     cmake_args+=(-DGTest_DIR="$GTEST_DIR")

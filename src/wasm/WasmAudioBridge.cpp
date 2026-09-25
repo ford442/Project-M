@@ -24,22 +24,30 @@ using namespace emscripten;
 // host (tagged with the host handle) and fans each quantum out to every
 // attached ring, so one AudioContext feeds N engines.
 
+// The engine a PCM export should feed. An explicit handle (multi-instance PCM
+// routing) must name a live engine — JS can pass any integer, and one naming a
+// destroyed or never-created engine would otherwise be dereferenced as one.
+// 0 means the active host's engine (legacy single-instance callers).
+static projectm_handle ResolvePcmTargetEngine(uintptr_t pm_handle_value)
+{
+    if (pm_handle_value != 0)
+    {
+        return EngineFromHandle(pm_handle_value);
+    }
+    return Host().appData.projectm_engine;
+}
+
 void projectm_pcm_add_float_from_js_array_wrapper(
     uintptr_t pm_handle_value,
     const emscripten::val& js_audio_array_val,
     unsigned int num_samples_per_channel,
     int channels_enum_value)
 {
-    WasmHost& H = Host();
-    auto& app_data = H.appData;
-    // Honor an explicit engine handle (multi-instance PCM routing); fall back to
-    // the active host's engine when 0 is passed (legacy single-instance callers).
-    projectm_handle current_pm_handle = pm_handle_value
-                                            ? reinterpret_cast<projectm_handle>(pm_handle_value)
-                                            : app_data.projectm_engine;
+    projectm_handle current_pm_handle = ResolvePcmTargetEngine(pm_handle_value);
     if (!current_pm_handle)
     {
-        fprintf(stderr, "Error: projectM handle is null in from_js_array_wrapper.\n");
+        fprintf(stderr, "Error: no live projectM engine for handle %lu in from_js_array_wrapper.\n",
+                static_cast<unsigned long>(pm_handle_value));
         return;
     }
 
@@ -344,7 +352,6 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE
 // Routes an <audio>/<video> element into the worklet via a
 // MediaElementAudioSourceNode, so element playback is not a special case with
 // its own analyser and its own sampling behaviour -- it is the same producer
@@ -410,12 +417,12 @@ void pl(const char* song_path_in_vfs)
     return;
 }
 
+// Kept for the audio router's contract (html/projectm-audio-source-router.js).
+// Nothing reads the answer any more: every source writes the same PCM ring, so
+// which one is live is JS-side state only (docs/AUDIO_PIPELINE.md).
 EMSCRIPTEN_KEEPALIVE
 void set_audio_source_to_stream(bool is_streaming)
 {
-    WasmHost& H = Host();
-    auto& g_is_streaming_audio = H.isStreamingAudio;
-    g_is_streaming_audio = is_streaming;
     printf("C++: Audio source set to stream: %s\n", is_streaming ? "true" : "false");
 }
 
@@ -442,6 +449,10 @@ void add_audio_data(uint8_t* data, int len)
 {
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
+    if (!pm)
+    {
+        return;
+    }
     projectm_pcm_add_uint8(pm, data, len, PROJECTM_MONO);
     return;
 }
@@ -451,17 +462,13 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data, unsigned int num_samples_per_channel, int channels_enum_value)
 {
-    WasmHost& H = Host();
-    auto& app_data = H.appData;
-    // Honor an explicit engine handle so a host can feed a specific instance
-    // (multi-instance A/B). 0 falls back to the active host's engine, preserving
-    // the legacy single-instance contract where the argument was ignored.
-    projectm_handle current_pm_handle = pm_handle_value
-                                            ? reinterpret_cast<projectm_handle>(pm_handle_value)
-                                            : app_data.projectm_engine;
+    // An explicit handle feeds that instance (multi-instance A/B); 0 feeds the
+    // active host's engine, the legacy single-instance contract.
+    projectm_handle current_pm_handle = ResolvePcmTargetEngine(pm_handle_value);
     if (!current_pm_handle)
     {
-        fprintf(stderr, "Error: projectM handle is null in pcm_add_float_wrapper.\n");
+        fprintf(stderr, "Error: no live projectM engine for handle %lu in pcm_add_float_wrapper.\n",
+                static_cast<unsigned long>(pm_handle_value));
         return;
     }
     projectm_pcm_add_float(current_pm_handle, audio_data, num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));

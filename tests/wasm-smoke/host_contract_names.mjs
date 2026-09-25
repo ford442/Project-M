@@ -5,7 +5,7 @@
  * The EM_JS / EM_ASM bodies in src/wasm/ and its --pre-js talk to the host page
  * through plain property names: globalThis.pmOnPerfFrame,
  * globalThis.projectMWritePcmRing, globalThis.projectMPresetSwitchFailed,
- * Module.__pmPerfGpu, the worklet's { audioData, channelsForPM } message, ...
+ * Module.__pmPerfGpuByCtx, the worklet's { audioData, channelsForPM } message, ...
  * The host side (html/, packages/web/) is not part of the emcc link, so a JS
  * minifier that renames properties (Closure ADVANCED, `--closure 1`) breaks
  * that contract silently: the module still boots, renders and passes the

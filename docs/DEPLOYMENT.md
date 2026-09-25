@@ -118,8 +118,8 @@ the `X-Deploy-Token` header). To rotate it:
 
 ## Cross-Origin Isolation (COOP/COEP)
 
-The Emscripten build is compiled with `-s SHARED_MEMORY=1 -pthread -s WASM_WORKERS=1`
-(`CMakeLists.txt`, lines ~160–207) for multi-threaded audio/render workers and
+The Emscripten build is compiled with `-s SHARED_MEMORY=1 -pthread`
+(`cmake/EmscriptenWasmFlags.cmake`) for OpenMP, the preset prepare threads and
 `SharedArrayBuffer`-backed PCM ring buffers (`html/projectm-render-worker-host.js`).
 Browsers only enable `SharedArrayBuffer` and pthreads on pages that are **cross-origin
 isolated** — i.e. served with both:

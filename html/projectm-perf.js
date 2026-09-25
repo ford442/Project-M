@@ -12,9 +12,11 @@ import {
     setPerfHud,
     transitionIsActive,
 } from './generated/projectm-wasm-api.js';
+import { getFboFormatName } from './projectm-fbo-format.js';
 import { measurePresetSwitchTimings } from './projectm-shader-cache.js';
 import { fetchFeaturedManifest, loadPresetEntry } from './projectm-preset-library.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
+import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 // - HUD: toggled via setPerfHud(module, 1/0). Shows FPS, total frame time, and bars.
 // - Benchmark mode: append `?benchmark=1&frames=1000&preset=/presets/foo.milk` to
@@ -46,6 +48,9 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
  * @property {number} compositeMs
  * @property {number} gpuMs Negative when EXT_disjoint_timer_query is unavailable.
  * @property {number} fps
+ * @property {boolean} [shaderLinkPending] A preset switch was waiting for its shaders to link
+ *   (KHR_parallel_shader_compile) while this frame drew the previous preset. Absent from
+ *   bundles that predate it.
  * @property {'gpu' | 'cpu'} [perPixelEvalPath] How the per-pixel equations were
  *   evaluated. 'gpu' means they were compiled into the warp vertex shader, so
  *   perPixelEvalMs covers only the draw submission; 'cpu' means the evaluator ran
@@ -178,7 +183,7 @@ function ensureHud() {
     `).join('');
 
     hudEl.innerHTML = `
-        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms</h3>
+        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms<span data-key="linkPending"></span></h3>
         ${rows}
     `;
     document.body.appendChild(hudEl);
@@ -187,8 +192,9 @@ function ensureHud() {
 }
 
 /**
- * Shows or hides the on-screen perf HUD. Wired up as `window.pmSetPerfHudEnabled`
- * and called from C++ via js_perf_hud_set_enabled() when set_perf_hud() is toggled.
+ * Shows or hides the on-screen perf HUD. `setupPerfTools()` subscribes it to
+ * `pmSetPerfHudEnabled`, which C++ calls via js_perf_hud_set_enabled() when
+ * set_perf_hud() is toggled.
  * @param {boolean} enabled
  */
 export function setHudVisible(enabled) {
@@ -214,8 +220,10 @@ function updateHud(stats) {
     const el = ensureHud();
     const fpsEl = el.querySelector('[data-key="fps"]');
     const totalEl = el.querySelector('[data-key="totalMs"]');
+    const linkEl = el.querySelector('[data-key="linkPending"]');
     if (fpsEl) fpsEl.textContent = stats.fps.toFixed(0);
     if (totalEl) totalEl.textContent = stats.totalMs.toFixed(2);
+    if (linkEl) linkEl.textContent = stats.shaderLinkPending ? ' · linking shaders' : '';
 
     // perPixelEvalMs means different work on the two paths, so the row says which one
     // produced it rather than leaving two incomparable numbers looking alike.
@@ -298,14 +306,44 @@ function summarize(values) {
 }
 
 /**
- * Sets up the perf HUD hooks and, if `?benchmark=1` is present in the page URL,
+ * The dual-FBO format name for the benchmark record, or null when the bundle
+ * cannot say (older bundles, or a module that is not initialised yet).
+ *
+ * @param {ProjectMModule} Module
+ * @returns {string | null}
+ */
+function readFboFormat(Module) {
+    try {
+        return getFboFormatName(Module);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * One perf controller per Module: running setup again for the same module (a
+ * retried init) replaces the earlier subscription instead of stacking a second
+ * HUD updater and a second benchmark collector on the callback bus.
+ *
+ * @type {WeakMap<object, () => void>}
+ */
+const activePerfTools = new WeakMap();
+
+/**
+ * Sets up the perf HUD feed and, if `?benchmark=1` is present in the page URL,
  * runs a headless benchmark for `?frames=N` frames (default 500) on an optional
  * `?preset=<path>` and reports JSON results.
  *
+ * Both engine callbacks (`pmOnPerfFrame` for the per-frame stats and
+ * `pmSetPerfHudEnabled` for the HUD toggle) arrive through the WASM callback bus,
+ * so this module writes nothing to `window` and works without the legacy shim.
+ *
  * @param {ProjectMModule} Module The Emscripten module instance (must already be initialized).
- * @returns {{ benchmarkRequested: boolean, crossfadeBench: boolean, presetSwitchBench: boolean }}
+ * @returns {{ benchmarkRequested: boolean, crossfadeBench: boolean, presetSwitchBench: boolean, dispose: () => void }}
  */
 export function setupPerfTools(Module) {
+    activePerfTools.get(Module)?.();
+
     const params = new URLSearchParams(location.search);
     const benchmarkRequested = params.get('benchmark') === '1';
     const showHud = params.get('perfhud') === '1' || benchmarkRequested;
@@ -319,11 +357,13 @@ export function setupPerfTools(Module) {
      *   totalMs: number[],
      *   fps: number[],
      *   breakdown: Record<PerfBarKey, number[]>,
+     *   shaderLinkPendingFrames: number,
      *   perPixelEvalPaths: Set<string>,
      * } | null}
      */
     let samples = null;
     let benchmarkDone = false;
+    let disposed = false;
 
     // In crossfade mode only frames rendered while a blend is actually in
     // progress are representative — everything else is a steady-state frame
@@ -336,8 +376,8 @@ export function setupPerfTools(Module) {
         }
     }
 
-    window.pmSetPerfHudEnabled = setHudVisible;
-    window.pmOnPerfFrame = (stats) => {
+    const unsubscribeHudToggle = subscribeWasmCallback('pmSetPerfHudEnabled', setHudVisible);
+    const unsubscribeFrames = subscribeWasmCallback('pmOnPerfFrame', (/** @type {PerfFrameStats} */ stats) => {
         updateHud(stats);
 
         if (samples && !benchmarkDone && (!crossfadeBench || crossfadeActive())) {
@@ -345,6 +385,9 @@ export function setupPerfTools(Module) {
             const collected = samples;
             collected.totalMs.push(stats.totalMs);
             collected.fps.push(stats.fps);
+            if (stats.shaderLinkPending) {
+                collected.shaderLinkPendingFrames += 1;
+            }
             if (stats.perPixelEvalPath === 'gpu' || stats.perPixelEvalPath === 'cpu') {
                 collected.perPixelEvalPaths.add(stats.perPixelEvalPath);
             }
@@ -360,7 +403,17 @@ export function setupPerfTools(Module) {
                 finishBenchmark(collected);
             }
         }
+    });
+
+    const dispose = () => {
+        disposed = true;
+        unsubscribeFrames();
+        unsubscribeHudToggle();
+        if (activePerfTools.get(Module) === dispose) {
+            activePerfTools.delete(Module);
+        }
     };
+    activePerfTools.set(Module, dispose);
 
     /**
      * @param {Set<string>} paths
@@ -386,7 +439,7 @@ export function setupPerfTools(Module) {
             preset: presetPath || null,
             // Recorded so before/after runs can be told apart: the dual-FBO
             // color format is what `?fboPrecision=high` switches.
-            fboFormat: (typeof window.pmGetFboFormat === 'function') ? window.pmGetFboFormat() : null,
+            fboFormat: readFboFormat(Module),
             // Which per-pixel path produced breakdownMs.perPixelEvalMs. 'gpu' or 'cpu'
             // for a run that stayed on one, 'mixed' if the preset changed under the
             // benchmark. Two runs are only comparable when this matches, because the
@@ -398,6 +451,8 @@ export function setupPerfTools(Module) {
             totalMs: summarize(samples.totalMs),
             fps: summarize(samples.fps),
             breakdownMs: breakdownMs,
+            // Frames that drew the previous preset while the next one's shaders linked.
+            shaderLinkPendingFrames: samples.shaderLinkPendingFrames,
         };
 
         console.log('[projectM benchmark] ' + JSON.stringify(result, null, 2));
@@ -419,6 +474,7 @@ export function setupPerfTools(Module) {
         samples = {
             totalMs: [],
             fps: [],
+            shaderLinkPendingFrames: 0,
             perPixelEvalPaths: new Set(),
             breakdown: BARS.reduce((acc, bar) => {
                 acc[bar.key] = [];
@@ -444,7 +500,7 @@ export function setupPerfTools(Module) {
         }
 
         let index = 0;
-        while (!benchmarkDone) {
+        while (!benchmarkDone && !disposed) {
             if (!crossfadeActive()) {
                 const entry = playlist[index % playlist.length];
                 index += 1;
@@ -506,5 +562,5 @@ export function setupPerfTools(Module) {
             });
     }
 
-    return { benchmarkRequested, crossfadeBench, presetSwitchBench };
+    return { benchmarkRequested, crossfadeBench, presetSwitchBench, dispose };
 }

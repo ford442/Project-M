@@ -11,14 +11,24 @@
 // WASM rebuild.
 
 import { ensureAudioRunning, getAudioContext } from './projectm-audio-bootstrap.js';
-import { getHostAudioSourceRouter } from './generated/projectm-wasm-api.js';
+import { claimGlobal } from './projectm-globals.js';
+// The router registry lives in the hand-written router module — that is where
+// AudioSourceRouter registers itself. This used to import the same-named
+// function from generated/projectm-wasm-api.js, a second registry that nothing
+// writes to, so notifyWorkletFeed() below never reached a router.
+import { getHostAudioSourceRouter } from './projectm-audio-source-router.js';
 import {
     getPcmRingWriter,
     installHostPcmRingWriter,
     readPcmRingDescriptor,
 } from './projectm-pcm-ring.js';
 
-const PROCESSOR_URL = 'projectm_audio_processor.js';
+// Resolved against THIS module, not the page. A bare relative URL goes through
+// the page's base, so a bundle served from node_modules or a CDN asked the
+// embedding site for /projectm_audio_processor.js and got a 404. In the
+// first-party deploy the modules and the page share a directory, so the two
+// agree there; packages/web copies the processor next to its bundle to match.
+const PROCESSOR_URL = new URL('projectm_audio_processor.js', import.meta.url).href;
 const PROCESSOR_NAME = 'projectm-audio-processor';
 
 /** @type {Promise<boolean> | null} */
@@ -90,11 +100,55 @@ function notifyWorkletSourceActive() {
 }
 
 /**
+ * Let the engine's own worklet setup finish before this module starts one.
+ *
+ * `js_initialize_worklet_system_once` (WasmAudioBridge.cpp) begins loading the
+ * processor as soon as it creates the AudioContext and publishes the outcome as
+ * `globalThis.projectMWorkletReady`. If this module also called `addModule()`
+ * and built a node while that was in flight, the two would only be ordered by
+ * luck: the engine's failure path clears `projectMWorkletNode_Global_Cpp`
+ * *after* a node built here has been connected, orphaning it, and the next
+ * repair then connects a second node and doubles the PCM feed. Waiting for the
+ * engine's attempt to settle first means only one of the two ever runs.
+ *
+ * @param {number} deadline `Date.now()` value after which to stop waiting.
+ * @returns {Promise<'ready' | 'failed' | 'timeout'>} `ready` when the engine's
+ *   attempt produced the node, `failed` when it settled without one (or there
+ *   was no attempt to wait for), `timeout` when it was still pending at the deadline.
+ */
+async function settleEngineWorkletSetup(deadline) {
+    const pending = /** @type {any} */ (globalThis).projectMWorkletReady;
+    if (!pending || typeof pending.then !== 'function') {
+        return globalThis.projectMWorkletNode_Global_Cpp ? 'ready' : 'failed';
+    }
+
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    const timedOut = new Promise((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), Math.max(0, deadline - Date.now()));
+    });
+    try {
+        const outcome = await Promise.race([
+            Promise.resolve(pending).then(() => 'settled', () => 'settled'),
+            timedOut,
+        ]);
+        if (outcome === 'timeout') {
+            return 'timeout';
+        }
+    } finally {
+        clearTimeout(timer);
+    }
+    return globalThis.projectMWorkletNode_Global_Cpp ? 'ready' : 'failed';
+}
+
+/**
  * Completes AudioWorklet setup when the WASM async path left
  * `projectMWorkletNode_Global_Cpp` unset (failed or still racing).
+ *
+ * @param {number} deadline `Date.now()` value at which the caller gives up.
  * @returns {Promise<boolean>}
  */
-async function repairWorkletSetup() {
+async function repairWorkletSetup(deadline) {
     const ctx = getAudioContext();
     if (!ctx) {
         console.warn('[projectM] ensureWorkletReady: AudioContext not created yet');
@@ -103,6 +157,16 @@ async function repairWorkletSetup() {
 
     if (globalThis.projectMWorkletNode_Global_Cpp) {
         return true;
+    }
+
+    const engineSetup = await settleEngineWorkletSetup(deadline);
+    if (engineSetup === 'ready') {
+        return true;
+    }
+    if (engineSetup === 'timeout') {
+        // The engine's addModule() is still pending. Starting a second setup
+        // now is exactly the overlap this function exists to avoid.
+        return false;
     }
 
     if (ctx.state === 'suspended') {
@@ -116,15 +180,29 @@ async function repairWorkletSetup() {
     console.warn('[projectM] AudioWorklet missing after init; completing setup on user gesture');
     await ctx.audioWorklet.addModule(PROCESSOR_URL);
 
-    // WASM's in-flight setup may have won while we awaited addModule.
+    // Something else may have won while we awaited addModule.
     if (globalThis.projectMWorkletNode_Global_Cpp) {
         return true;
     }
 
     const workletNode = new AudioWorkletNode(ctx, PROCESSOR_NAME);
-    attachPcmHandler(workletNode);
-    workletNode.connect(ctx.destination);
+    // Publish the node BEFORE attaching the ingest: the engine's
+    // `_attach_worklet_ingest()` reads it from this global and returns without
+    // doing anything when it is still unset, which left a repaired node with no
+    // PCM handler at all.
     globalThis.projectMWorkletNode_Global_Cpp = workletNode;
+    try {
+        attachPcmHandler(workletNode);
+        workletNode.connect(ctx.destination);
+    } catch (err) {
+        globalThis.projectMWorkletNode_Global_Cpp = null;
+        try {
+            workletNode.disconnect();
+        } catch {
+            // Never connected; nothing to undo.
+        }
+        throw err;
+    }
     console.log('[projectM] AudioWorkletNode repaired and connected');
     return true;
 }
@@ -157,7 +235,7 @@ export async function ensureWorkletReady({
                 }
                 if (getAudioContext()) {
                     try {
-                        return await repairWorkletSetup();
+                        return await repairWorkletSetup(deadline);
                     } catch (err) {
                         console.error('[projectM] Worklet repair failed:', err);
                         // Keep polling in case WASM's original async path recovers.
@@ -315,23 +393,50 @@ export async function loadWavBytesIntoWorklet(wavBytes, loop = true, startPlayin
 }
 
 /**
- * Install a BroadcastChannel('file') safety-net that:
- * 1. Ensures the worklet is ready before WASM's 250ms `pl()` timer fires
- * 2. Retries host-side load from the BroadcastChannel payload if `pl()` no-op'd
+ * @typedef {object} SafetyNet
+ * @property {BroadcastChannel | null} channel
+ * @property {Set<ReturnType<typeof setTimeout>>} timers
+ * @property {() => void} releaseLoadHook
+ * @property {boolean} disposed
  */
-export function installWorkletPlaybackSafetyNet() {
-    if (globalThis.__projectMWorkletSafetyNetInstalled) {
-        return;
-    }
-    globalThis.__projectMWorkletSafetyNetInstalled = true;
 
-    // Prefer the host load path even after a WASM rebuild, so repair + logging
-    // stay in one place deployable with html/ alone.
-    globalThis.projectMLoadSongIntoWorklet = (path, loop, startPlaying) => {
-        loadSongIntoWorklet(path, loop !== false, startPlaying !== false);
+/** How many live callers hold the safety net; the last release tears it down. */
+let safetyNetRefs = 0;
+/** @type {SafetyNet | null} */
+let safetyNet = null;
+
+/**
+ * Build the BroadcastChannel('file') listener and the host load hook.
+ * @returns {SafetyNet}
+ */
+function createSafetyNet() {
+    /** @type {SafetyNet} */
+    const net = {
+        channel: null,
+        timers: new Set(),
+        // Prefer the host load path even after a WASM rebuild, so repair + logging
+        // stay in one place deployable with html/ alone. Returns the promise so a
+        // caller can await the load; loadSongIntoWorklet reports failure through
+        // its result rather than by rejecting.
+        releaseLoadHook: claimGlobal(
+            globalThis,
+            'projectMLoadSongIntoWorklet',
+            /**
+             * @param {string} path
+             * @param {boolean} [loop]
+             * @param {boolean} [startPlaying]
+             */
+            (path, loop, startPlaying) => loadSongIntoWorklet(path, loop !== false, startPlaying !== false)
+        ),
+        disposed: false,
     };
 
+    if (typeof BroadcastChannel === 'undefined') {
+        return net;
+    }
+
     const channel = new BroadcastChannel('file');
+    net.channel = channel;
     channel.addEventListener('message', (ea) => {
         const token = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         globalThis.__projectMSongLoadToken = token;
@@ -342,13 +447,14 @@ export function installWorkletPlaybackSafetyNet() {
             console.error('[projectM] worklet safety-net ensure failed:', err);
         });
 
-        setTimeout(async () => {
-            if (globalThis.__projectMSongLoadToken !== token) {
+        const timer = setTimeout(async () => {
+            net.timers.delete(timer);
+            if (net.disposed || globalThis.__projectMSongLoadToken !== token) {
                 return;
             }
             try {
                 const ready = await ensureWorkletReady();
-                if (!ready) {
+                if (!ready || net.disposed) {
                     return;
                 }
                 const state = globalThis.projectMSongLoadState;
@@ -371,5 +477,48 @@ export function installWorkletPlaybackSafetyNet() {
                 console.error('[projectM] worklet safety-net retry failed:', err);
             }
         }, 400);
+        net.timers.add(timer);
     });
+    return net;
+}
+
+/**
+ * Install a BroadcastChannel('file') safety-net that:
+ * 1. Ensures the worklet is ready before WASM's 250ms `pl()` timer fires
+ * 2. Retries host-side load from the BroadcastChannel payload if `pl()` no-op'd
+ *
+ * The net is shared: every caller gets the same channel, and it is closed —
+ * with its pending retry timers cancelled and the `projectMLoadSongIntoWorklet`
+ * hook released — when the last caller's disposer runs. Before this returned a
+ * disposer the channel stayed open for the life of the page after the context
+ * that asked for it was destroyed.
+ *
+ * @returns {() => void} Releases this caller's hold. Idempotent.
+ */
+export function installWorkletPlaybackSafetyNet() {
+    safetyNetRefs += 1;
+    if (!safetyNet) {
+        safetyNet = createSafetyNet();
+    }
+
+    let released = false;
+    return () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        safetyNetRefs -= 1;
+        if (safetyNetRefs > 0 || !safetyNet) {
+            return;
+        }
+        const net = safetyNet;
+        safetyNet = null;
+        net.disposed = true;
+        for (const timer of net.timers) {
+            clearTimeout(timer);
+        }
+        net.timers.clear();
+        net.releaseLoadHook();
+        net.channel?.close();
+    };
 }

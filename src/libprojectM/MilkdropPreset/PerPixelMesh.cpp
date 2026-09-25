@@ -53,24 +53,47 @@ PerPixelMesh::PerPixelMesh()
 
 void PerPixelMesh::LoadWarpShader(const PresetState& presetState)
 {
-    // Compile warp shader if preset specifies one.
-    if (presetState.warpShaderVersion > 0)
+    auto source = SelectWarpShaderSource(presetState.warpShaderVersion, presetState.warpShader);
+    if (!source)
     {
-        if (!presetState.warpShader.empty())
-        {
-            try
-            {
-                m_warpShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::WarpShader);
-                m_warpShader->LoadCode(presetState.warpShader);
-                LOG_DEBUG("[PerPixelMesh] Successfully loaded preset warp shader code.");
-            }
-            catch (Renderer::ShaderException& ex)
-            {
-                LOG_ERROR("[PerPixelMesh] Error loading warp shader code:" + ex.message());
-                LOG_DEBUG("[PerPixelMesh] Warp shader code:\n" + presetState.warpShader);
-                m_warpShader.reset();
-            }
-        }
+        LoadWarpShader(std::nullopt);
+        return;
+    }
+    PreparedMilkdropShader shader;
+    shader.source = std::move(*source);
+    LoadWarpShader(std::move(shader));
+}
+
+void PerPixelMesh::LoadWarpShader(std::optional<PreparedMilkdropShader> prepared)
+{
+    if (!prepared)
+    {
+        m_warpShader.reset();
+        return;
+    }
+    m_warpShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::WarpShader);
+    m_warpShader->LoadPrepared(std::move(*prepared));
+}
+
+auto PerPixelMesh::SelectWarpShaderSource(int warpShaderVersion, const std::string& warpShader) -> std::optional<MilkdropShaderSource>
+{
+    // Compile warp shader if preset specifies one.
+    if (warpShaderVersion <= 0 || warpShader.empty())
+    {
+        return std::nullopt;
+    }
+
+    try
+    {
+        auto source = MilkdropShader::AnalyzeCode(MilkdropShader::ShaderType::WarpShader, warpShader);
+        LOG_DEBUG("[PerPixelMesh] Successfully loaded preset warp shader code.");
+        return source;
+    }
+    catch (Renderer::ShaderException& ex)
+    {
+        LOG_ERROR("[PerPixelMesh] Error loading warp shader code:" + ex.message());
+        LOG_DEBUG("[PerPixelMesh] Warp shader code:\n" + warpShader);
+        return std::nullopt;
     }
 }
 
@@ -88,6 +111,35 @@ void PerPixelMesh::CompileWarpShader(PresetState& presetState)
             LOG_ERROR("[PerPixelMesh] Error compiling warp shader code.");
             m_warpShader.reset();
         }
+    }
+}
+
+auto PerPixelMesh::IsWarpShaderCompilePending() const -> bool
+{
+    return m_warpShader && m_warpShader->IsCompilePending();
+}
+
+auto PerPixelMesh::IsWarpShaderCompileComplete() const -> bool
+{
+    return !m_warpShader || m_warpShader->IsCompileComplete();
+}
+
+void PerPixelMesh::FinishWarpShader(PresetState& presetState)
+{
+    if (!IsWarpShaderCompilePending())
+    {
+        return;
+    }
+
+    try
+    {
+        m_warpShader->FinishCompile(presetState);
+        LOG_DEBUG("[PerPixelMesh] Successfully compiled warp shader code.");
+    }
+    catch (Renderer::ShaderException&)
+    {
+        LOG_ERROR("[PerPixelMesh] Error compiling warp shader code.");
+        m_warpShader.reset();
     }
 }
 

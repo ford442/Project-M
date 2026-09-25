@@ -90,7 +90,7 @@
 typedef struct {
     projectm_handle projectm_engine;
     projectm_playlist_handle playlist;
-    EM_BOOL loading;
+    EM_BOOL loading; //!< A preset preparation is in flight (rendering continues).
 } AppData;
 
 // ---- PCM ring (defined in WasmPcmRing.cpp) --------------------------------
@@ -112,8 +112,8 @@ void PublishPcmRingToWorklet(uintptr_t hostHandle, uintptr_t headerPtr, uintptr_
                              int capacityFrames, int indexModulus);
 void WithdrawPcmRingFromWorklet(uintptr_t hostHandle);
 
-// Frames to ignore right after a preset finishes loading. Shared between the
-// render loop (projectM_emscripten.cpp) and the governor (WasmPerfGovernor.cpp).
+// Frames to ignore right after a preset finishes loading. Shared between preset
+// activation (WasmPresetPrepare.cpp) and the governor (WasmPerfGovernor.cpp).
 constexpr int kPostLoadGraceFrames = 10;
 
 // ---- Deterministic clock (defined in WasmDeterminism.cpp) -----------------
@@ -143,22 +143,25 @@ void render_frame();
 void InstallShaderTranspileCacheHooks();
 
 // ---- Render-path ablation switches (defined in WasmRenderPathOverrides.cpp) -
-// URL query overrides applied once from init(), before the first preset
-// renders. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
-void ApplyBlurPathOverride();
-void ApplyCopyPathOverride();
-void ApplyPerPixelEvalOverride();
-bool WasmPreferHighPrecisionFbo();
+// Applied once from init(), before the first preset renders: whatever the host
+// set with set_render_path_overrides(), or else the page's own query string.
+// See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+void ApplyRenderPathOverrides();
 
 // ---- Quality governor entry points (defined in WasmPerfGovernor.cpp) -------
 void ResetGovernorCounters();
 void UpdateQualityGovernor(double frameMs);
+// Re-applies the active host's current tier's blur cap and blur resolution to a
+// freshly created engine (the tier's mesh travels in EngineSettings). No-op
+// until the governor has picked a tier.
+void ReapplyQualityTierLimits();
 
 // ---- Preset switch callbacks (defined in WasmPlaylistBridge.cpp) -----------
 // Registered with projectM/projectM-playlist from init() in
 // projectM_emscripten.cpp. Kept at C++ linkage to match the historical
 // signatures passed to the projectM callback setters.
 void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_data);
+bool on_playlist_preset_load(unsigned int index, const char* filename, bool hard_cut, void* user_data);
 void on_preset_switch_requested(bool is_hard_cut, void* user_data);
 void on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data);
 
@@ -176,7 +179,7 @@ double js_perf_gpu_get_last_ms();
 void js_perf_hud_set_enabled(int enabled);
 void js_perf_report_frame(double totalMs, double audioMs, double perFrameEvalMs,
                           double perPixelEvalMs, double blurMs, double waveformsShapesMs,
-                          double compositeMs, double gpuMs, double fps,
+                          double compositeMs, double gpuMs, double fps, int shaderLinkPending,
                           int perPixelEvalPath);
 
 // JS bindings / DOM + host-page notifications (WasmJsBindings.cpp)

@@ -100,6 +100,25 @@ public:
     auto TexSizeDeclaration() const -> std::string;
 
     /**
+     * @brief The sampler declaration a non-empty descriptor with this name would produce.
+     *
+     * SamplerDeclaration() is built from this, so code that has to predict a
+     * shader's declarations without a texture or GL context (background preset
+     * preparation) produces byte-identical text.
+     * @param samplerName The sampler name, without the "sampler_" prefix.
+     * @param volumeTexture True if the texture is a GL_TEXTURE_3D.
+     * @return The sampler declaration.
+     */
+    static auto SamplerDeclarationFor(const std::string& samplerName, bool volumeTexture) -> std::string;
+
+    /**
+     * @brief The texsize declaration a non-empty descriptor with this size name would produce.
+     * @param sizeName The size name, without the "texsize_" prefix. May be empty.
+     * @return The texsize declaration, or an empty string if sizeName is empty.
+     */
+    static auto TexSizeDeclarationFor(const std::string& sizeName) -> std::string;
+
+    /**
      * @brief Tries to update the texture and sampler from the given texture manager if invalid.
      * @param textureManager The texture manager to retrieve the new data from.
      */

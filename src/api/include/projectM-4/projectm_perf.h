@@ -60,6 +60,12 @@ typedef struct {
     /** 1000 / total_ms, or 0 if total_ms is 0. */
     double fps;
     /**
+     * Non-zero if a preset switch was waiting for its shader programs to link
+     * (KHR_parallel_shader_compile) while this frame rendered the previous preset.
+     * Fork extension; appended so existing field offsets are unchanged.
+     */
+    int shader_link_pending;
+    /**
      * How the per-pixel equations were evaluated: 0 = CPU (the projectM-EvalLib loop
      * over every warp mesh vertex), 1 = GPU (compiled into the warp vertex shader).
      *

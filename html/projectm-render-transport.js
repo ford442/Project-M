@@ -14,6 +14,7 @@ import {
     feedPcmFloat,
 } from './generated/projectm-wasm-api.js';
 import * as wasmApi from './generated/projectm-wasm-api.js';
+import { claimGlobal } from './projectm-globals.js';
 import { feedPcmThroughRing } from './projectm-pcm-ring.js';
 import { isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
 
@@ -234,12 +235,15 @@ export function createWorkerTransport(handle) {
  * @returns {() => void} Removes the writer again.
  */
 export function installTransportPcmWriter(transport) {
-    /** @type {any} */ (globalThis).projectMWritePcmRing =
+    // The engine's worklet ingest calls this global by name, so there is one per
+    // page. Claimed rather than assigned: destroying one context must not
+    // unhook the writer another context installed after it.
+    return claimGlobal(
+        globalThis,
+        'projectMWritePcmRing',
         /** @param {Float32Array} buffer @param {number} [channels] */
-        (buffer, channels = 2) => transport.feedPcm(buffer, channels);
-    return () => {
-        /** @type {any} */ (globalThis).projectMWritePcmRing = undefined;
-    };
+        (buffer, channels = 2) => transport.feedPcm(buffer, channels)
+    );
 }
 
 /**
@@ -283,9 +287,15 @@ export function canUseRenderWorker({
  * @param {number} [options.targetFps]
  * @param {boolean} [options.governor]
  * @param {string} [options.meshQuality]
+ * @param {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} [options.contextConfig]
+ * @param {import('./projectm-render-worker-types.ts').RenderPathOverrides} [options.renderPathOverrides]
  * @param {(reason: string) => void} [options.onFallback]
  * @param {(message: string) => void} [options.onError]
  * @param {(stats: unknown) => void} [options.onStats]
+ * @param {AbortSignal} [options.signal] Aborting while the worker boots
+ *   terminates it and resolves null. Without this a caller that gave up (its
+ *   context was destroyed mid-boot) had no handle to terminate: the worker,
+ *   and the canvas it took by transfer, outlived it.
  * @returns {Promise<RenderTransport | null>}
  */
 export function selectRenderTopology({
@@ -297,11 +307,14 @@ export function selectRenderTopology({
     targetFps,
     governor,
     meshQuality,
+    contextConfig,
+    renderPathOverrides,
     onFallback,
     onError,
     onStats,
+    signal,
 }) {
-    if (!preferWorker) {
+    if (!preferWorker || signal?.aborted) {
         return Promise.resolve(null);
     }
     if (!canUseRenderWorker({ canvas })) {
@@ -311,14 +324,28 @@ export function selectRenderTopology({
 
     return new Promise((resolve) => {
         let settled = false;
+        /** @type {ReturnType<typeof setupRenderWorker>} */
+        let handle = null;
+
         /** @param {RenderTransport | null} value */
         const settle = (value) => {
             if (settled) return;
             settled = true;
+            signal?.removeEventListener('abort', onAbort);
             resolve(value);
         };
+        // A boot that ends without handing out a transport must not leave its
+        // worker running: nobody else holds the handle.
+        const abandon = () => {
+            handle?.worker.terminate();
+            settle(null);
+        };
+        const onAbort = () => {
+            if (!settled) abandon();
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
 
-        const handle = setupRenderWorker({
+        handle = setupRenderWorker({
             canvas,
             scriptSrc,
             width,
@@ -326,17 +353,19 @@ export function selectRenderTopology({
             targetFps,
             governor,
             meshQuality,
+            contextConfig,
+            renderPathOverrides,
             onReady: () => settle(handle ? createWorkerTransport(handle) : null),
             onUnsupported: (reason) => {
                 onFallback?.(reason);
-                settle(null);
+                if (!settled) abandon();
             },
             // An error before 'ready' is a failed boot, so fall back; one after
             // is a live worker reporting a problem and belongs to the caller.
             onError: (message) => {
                 if (!settled) {
                     onFallback?.(message);
-                    settle(null);
+                    abandon();
                     return;
                 }
                 onError?.(message);

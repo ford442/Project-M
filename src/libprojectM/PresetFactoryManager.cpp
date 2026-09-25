@@ -101,6 +101,65 @@ std::unique_ptr<Preset> PresetFactoryManager::CreatePresetFromStream(const std::
     }
 }
 
+std::unique_ptr<PreparedPreset> PresetFactoryManager::PreparePresetFromFile(const std::string& filename,
+                                                                           const PresetPrepareContext& context) const
+{
+    try
+    {
+        const std::string extension = "." + ParseExtension(filename);
+
+        return ConstFactory(extension).PreparePresetFromFile(filename, context);
+    }
+    catch (const PresetFactoryException&)
+    {
+        throw;
+    }
+    catch (const std::exception& e)
+    {
+        throw PresetFactoryException(e.what());
+    }
+    catch (...)
+    {
+        throw PresetFactoryException("[PresetFactoryManager] Uncaught preset factory exception.");
+    }
+}
+
+std::unique_ptr<PreparedPreset> PresetFactoryManager::PreparePresetFromStream(const std::string& extension, std::istream& data,
+                                                                             const PresetPrepareContext& context) const
+{
+    try
+    {
+        return ConstFactory(extension).PreparePresetFromStream(data, context);
+    }
+    catch (const PresetFactoryException&)
+    {
+        throw;
+    }
+    catch (const std::exception& e)
+    {
+        throw PresetFactoryException(e.what());
+    }
+    catch (...)
+    {
+        throw PresetFactoryException("[PresetFactoryManager] Uncaught preset factory exception.");
+    }
+}
+
+auto PresetFactoryManager::ConstFactory(const std::string& extension) const -> const PresetFactory&
+{
+    const auto factory = m_factoryMap.find(extension);
+    if (factory == m_factoryMap.end())
+    {
+        std::string error = "[PresetFactoryManager] No preset factory associated with extension \"";
+        error += extension;
+        error += "\"";
+        LOG_ERROR(error);
+        throw PresetFactoryException(error);
+    }
+
+    return *factory->second;
+}
+
 PresetFactory& PresetFactoryManager::factory(const std::string& extension)
 {
     if (!extensionHandled(extension))

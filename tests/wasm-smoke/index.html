@@ -30,7 +30,8 @@
       error: null
     };
 
-    // Missing ASYNCIFY_ONLY entries hang on resume rather than crash — fail loud.
+    // A preset load is prepared on the host's prepare thread and activated from
+    // the render loop or the event loop; a load that never completes fails loud.
     const PRESET_READY_TIMEOUT_MS = 30000;
 
     function mark(step) {
@@ -72,8 +73,8 @@
     }
 
     /**
-     * Poll readiness after load_preset_file. ccall may return on the first
-     * Asyncify unwind; a hang here means ASYNCIFY_ONLY missed a stack frame.
+     * Poll readiness after load_preset_file, which returns as soon as the load
+     * is queued. A hang here means the prepared preset was never activated.
      */
     async function waitForPresetReady(Module, label) {
       const deadline = performance.now() + PRESET_READY_TIMEOUT_MS;
@@ -88,8 +89,7 @@
         await sleep(16);
       }
       throw new Error(
-        label + ': timed out waiting for preset ready after ' + PRESET_READY_TIMEOUT_MS + 'ms' +
-        ' (possible missing ASYNCIFY_ONLY entry)'
+        label + ': timed out waiting for preset ready after ' + PRESET_READY_TIMEOUT_MS + 'ms'
       );
     }
 
@@ -215,6 +215,259 @@
       select(hostA);
     }
 
+    /**
+     * Counts live WebGL programs on `gl` from here on by wrapping its
+     * createProgram/deleteProgram. Emscripten's GL layer calls those methods on
+     * the context object it created, which is the one getContext() returns.
+     */
+    function trackProgramCount(gl) {
+      const counter = { live: 0 };
+      const create = gl.createProgram.bind(gl);
+      const destroy = gl.deleteProgram.bind(gl);
+      gl.createProgram = () => { counter.live += 1; return create(); };
+      gl.deleteProgram = (program) => { if (program) counter.live -= 1; return destroy(program); };
+      return counter;
+    }
+
+    /**
+     * The main loop is paced by requestAnimationFrame: at most one frame per
+     * display refresh. It was EM_TIMING_SETIMMEDIATE, which spun as fast as the
+     * postMessage shim allowed — hundreds to thousands of frames a second that
+     * the compositor never showed. 250/s leaves room for 240 Hz panels.
+     *
+     * Under SwiftShader a frame costs more than a refresh, so the rate cannot
+     * tell the two apart here; the timing mode read back from Emscripten can
+     * (EM_TIMING_RAF = 1). The rate bound still catches it on a real GPU.
+     */
+    const PACING_WINDOW_MS = 2000;
+    const MAX_FRAMES_PER_SECOND = 250;
+    const EM_TIMING_RAF = 1;
+    async function checkMainLoopPacing(Module) {
+      if (typeof Module._get_main_loop_timing_mode === 'function') {
+        const mode = Module._get_main_loop_timing_mode();
+        if (mode !== EM_TIMING_RAF) {
+          throw new Error('main loop timing mode is ' + mode + ', expected EM_TIMING_RAF (' + EM_TIMING_RAF + ')');
+        }
+      }
+      const before = Module._get_rendered_frame_count();
+      const t0 = performance.now();
+      await sleep(PACING_WINDOW_MS);
+      const seconds = (performance.now() - t0) / 1000;
+      const perSecond = (Module._get_rendered_frame_count() - before) / seconds;
+      if (perSecond < 1) {
+        throw new Error('main loop rendered no frames in ' + seconds.toFixed(1) + ' s');
+      }
+      if (perSecond > MAX_FRAMES_PER_SECOND) {
+        throw new Error('main loop is not rAF-paced: ' + perSecond.toFixed(0) + ' frames/s over '
+          + seconds.toFixed(1) + ' s (limit ' + MAX_FRAMES_PER_SECOND + ')');
+      }
+      mark('main loop rAF-paced: ' + perSecond.toFixed(0) + ' frames/s');
+    }
+
+    /**
+     * Section 0 lifecycle regressions (preset prepare queue issue): compositor program leak, playlist
+     * leak on context loss / destroy_host, stale handle in set_active_host, and a
+     * legacy export before create_host() halving the host budget. Bundles that
+     * predate live_playlist_count() still run every check except the playlist
+     * counts, so an old bundle shows which of these bugs it has.
+     */
+    async function checkHostLifecycle(Module) {
+      const gl = document.getElementById('pm-smoke-main').getContext('webgl2');
+      const handleA = Module._get_active_host();
+      const countsPlaylists = typeof Module._live_playlist_count === 'function';
+      const expectPlaylists = (expected, what) => {
+        if (countsPlaylists && Module._live_playlist_count() !== expected) {
+          throw new Error(what + ': ' + Module._live_playlist_count() + ' live playlist(s), expected ' + expected);
+        }
+      };
+
+      // 1. start_render() recompiles the compositor; it must not leak a program.
+      const programs = trackProgramCount(gl);
+      for (let i = 0; i < 10; ++i) Module._start_render(64, 64);
+      if (programs.live !== 0) {
+        throw new Error('start_render x10 leaked ' + programs.live + ' compositor program(s)');
+      }
+      assertNoGlError(gl, 'after start_render x10');
+      mark('start_render x10: compositor program count stable');
+
+      // 2. Context loss frees the playlist along with the engine; init() makes
+      // one. pm_handle_context_loss() is what html/projectm-context-loss.js calls
+      // from "webglcontextlost"; it is driven directly on a live context here
+      // because headless Chromium refuses restoreContext() after a synthetic
+      // WEBGL_lose_context loss, and the C++ bookkeeping is the same either way.
+      // A setting the page applied must survive the engine being re-created.
+      const playlists = countsPlaylists ? Module._live_playlist_count() : 0;
+      Module._set_transparency_mode(1);
+      Module._pm_handle_context_loss();
+      expectPlaylists(playlists - 1, 'after pm_handle_context_loss');
+      if (Module._init() !== 0) throw new Error('init() after context loss failed');
+      Module._start_render(64, 64);
+      Module._render_frame();
+      expectPlaylists(playlists, 'after re-init');
+      if (!Module._get_transparency_mode()) {
+        throw new Error('re-init after context loss dropped the host\'s transparency setting');
+      }
+      Module._set_transparency_mode(0);
+      mark('context loss: engine re-initialised with its settings' + (countsPlaylists ? ', old playlist freed' : ''));
+
+      // 3. destroy_host frees the playlist; a stale handle is then ignored
+      // instead of dereferenced.
+      const handleB = Module.ccall('create_host', 'number', ['string', 'string'],
+        ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
+      if (!handleB) throw new Error('create_host() for the lifecycle check failed');
+      // Kept for step 7: an engine handle that stops being valid below.
+      const staleEngine = Module._get_projectm_handle();
+      expectPlaylists(playlists + 1, 'after create_host');
+      Module.ccall('destroy_host', null, ['number'], [handleB]);
+      expectPlaylists(playlists, 'after destroy_host');
+      Module.ccall('set_active_host', null, ['number'], [handleA]);
+      Module.ccall('set_active_host', null, ['number'], [handleB]);
+      if (Module._get_active_host() !== handleA) {
+        throw new Error('set_active_host(stale handle) changed the active host');
+      }
+      Module._render_frame();
+      mark('destroy_host freed its host; stale set_active_host handle ignored');
+
+      // 4. A legacy export before any create_host() must not take a slot. Tear
+      // every host down, touch the compat default, then create kMaxHosts hosts.
+      Module.ccall('destroy_host', null, ['number'], [handleA]);
+      if (Module._host_count() !== 0) throw new Error('hosts left after destroying all');
+      Module.ccall('set_canvas_selectors', null, ['string', 'string'],
+        ['#pm-smoke-main', '#pm-smoke-secondary']);
+      const created = [];
+      for (let i = 0; i < Module._max_host_count(); ++i) {
+        const suffix = i === 0 ? '' : '-2';
+        const h = Module.ccall('create_host', 'number', ['string', 'string'],
+          ['#pm-smoke-main' + suffix, '#pm-smoke-secondary' + suffix]);
+        if (!h) {
+          throw new Error('create_host #' + (i + 1) + ' failed after a legacy export '
+            + '(host_count=' + Module._host_count() + ')');
+        }
+        created.push(h);
+      }
+      mark('legacy export then create_host x' + created.length + ' (host_count ' + Module._host_count() + ')');
+
+      // 5. rebind_canvases() on one host must not stop a sibling's render loop:
+      // the Emscripten main loop is shared, so cancelling it (as the rebind
+      // teardown used to) freezes every host.
+      if (created.length >= 2) {
+        const [first, second] = created;
+        for (const h of created) {
+          Module.ccall('set_active_host', null, ['number'], [h]);
+          Module._start_render(64, 64);
+        }
+        const framesOf = (h) => {
+          Module.ccall('set_active_host', null, ['number'], [h]);
+          return Module._get_rendered_frame_count();
+        };
+        Module.ccall('set_active_host', null, ['number'], [second]);
+        if (Module.ccall('rebind_canvases', 'number', ['string', 'string'],
+          ['#pm-smoke-main-2', '#pm-smoke-secondary-2']) !== 0) {
+          throw new Error('rebind_canvases failed');
+        }
+        const before = framesOf(first);
+        await sleep(200);
+        const after = framesOf(first);
+        if (after <= before) {
+          throw new Error('host A stopped rendering after host B was rebound (' + before + ' -> ' + after + ' frames)');
+        }
+        mark('rebind of host B left host A\'s loop running (' + before + ' -> ' + after + ' frames)');
+      }
+      for (const h of created) Module.ccall('destroy_host', null, ['number'], [h]);
+      expectPlaylists(0, 'after destroying every host');
+
+      await checkRealContextLoss(Module);
+      checkExportsWithoutEngine(Module, staleEngine);
+    }
+
+    /**
+     * 6. A real WEBGL_lose_context loss on one of two hosts. Loss handling must
+     * tear down the host that owns the lost canvas even while its sibling is
+     * active, leave the sibling rendering, and init() must refuse to rebuild on
+     * the still-lost context (headless Chromium never restores a synthetic loss,
+     * so the refusal is the half this can cover).
+     */
+    async function checkRealContextLoss(Module) {
+      if (typeof Module._create_host !== 'function' || Module._max_host_count() < 2) {
+        mark('real context loss skipped (single-host bundle)');
+        return;
+      }
+      const loseCanvas = document.createElement('canvas');
+      loseCanvas.id = 'pm-smoke-lose'; loseCanvas.width = 64; loseCanvas.height = 64;
+      document.body.appendChild(loseCanvas);
+
+      const createOn = (primary, secondary) => {
+        const h = Module.ccall('create_host', 'number', ['string', 'string'], [primary, secondary]);
+        if (!h) throw new Error('create_host(' + primary + ') failed');
+        Module._start_render(64, 64);
+        return h;
+      };
+      const healthy = createOn('#pm-smoke-main', '#pm-smoke-secondary');
+      const doomed = createOn('#pm-smoke-lose', '#pm-smoke-secondary-2');
+
+      const lose = loseCanvas.getContext('webgl2').getExtension('WEBGL_lose_context');
+      if (!lose) {
+        for (const h of [healthy, doomed]) Module.ccall('destroy_host', null, ['number'], [h]);
+        mark('real context loss skipped (no WEBGL_lose_context)');
+        return;
+      }
+      lose.loseContext();
+
+      Module.ccall('set_active_host', null, ['number'], [healthy]);
+      Module._pm_handle_context_loss();
+      if (Module._get_active_host() !== doomed) {
+        throw new Error('context loss did not select the host that owns the lost canvas');
+      }
+      if (Module._get_projectm_handle() !== 0) {
+        throw new Error('the lost host kept its engine');
+      }
+      const initWhileLost = Module._init();
+      if (initWhileLost !== 5) {
+        throw new Error('init() on a still-lost context returned ' + initWhileLost + ', expected 5');
+      }
+      Module._start_render(64, 64); // refused: no engine
+      Module._render_frame();
+
+      Module.ccall('set_active_host', null, ['number'], [healthy]);
+      if (Module._get_projectm_handle() === 0) {
+        throw new Error('context loss on a sibling tore down the healthy host');
+      }
+      const before = Module._get_rendered_frame_count();
+      await sleep(200);
+      if (Module._get_rendered_frame_count() <= before) {
+        throw new Error('the healthy host stopped rendering after its sibling lost its context');
+      }
+      for (const h of [doomed, healthy]) Module.ccall('destroy_host', null, ['number'], [h]);
+      mark('real context loss: lost host torn down, sibling kept rendering, init() refused (5)');
+    }
+
+    /**
+     * 7. Every engine-facing export called on a host with no engine is a no-op,
+     * and an engine handle JS kept past destroy_host() is rejected. Several of
+     * these dereferenced a null or stale engine; a SAFE_HEAP build traps on that.
+     */
+    function checkExportsWithoutEngine(Module, staleEngine) {
+      // No host left: these land on the lazily created, engine-less default.
+      Module._switch_preset();
+      Module.ccall('add_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
+      Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
+      Module._set_mesh(32, 24);
+      Module._create_sprite();
+      Module._start_render(64, 64);
+      Module._set_window_size(64, 64);
+      Module._render_frame();
+      const bytes = Module._malloc(64);
+      Module._add_audio_data(bytes, 64);
+      const floats = Module._malloc(64 * 4);
+      for (const handle of [staleEngine, 12345]) {
+        Module._projectm_pcm_add_float_wrapper(handle, floats, 32, 2);
+      }
+      Module._projectm_pcm_add_float_wrapper(0, floats, 32, 2);
+      Module._free(floats);
+      Module._free(bytes);
+      mark('engine-less exports and stale engine handles are no-ops');
+    }
+
     async function runSmoke() {
       const params = new URLSearchParams(window.location.search);
       const moduleSrc = params.get('module');
@@ -261,17 +514,25 @@
       await writePresetToMemfs(Module, presetSrc, '/presets/tests/000-empty.milk');
       mark('preset copied to MEMFS');
 
-      // Cold-cache load: hang on resume = missing ASYNCIFY_ONLY entry.
+      // load_preset_callback_done() reports the playlist item it switched to,
+      // which only happens once a load has really been activated.
+      const switchedTo = [];
+      globalThis.updatePresetDisplay = (name) => switchedTo.push(name);
+
+      // The load is prepared on the host's prepare thread; the ccall returns at once.
       Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
       mark('load_preset_file ccall returned');
       await waitForPresetReady(Module, 'cold preset');
+      if (!switchedTo.includes('/presets/tests/000-empty.milk')) {
+        throw new Error('cold preset reported ready but never switched (switched to: ' + JSON.stringify(switchedTo) + ')');
+      }
 
       const gl = document.getElementById('pm-smoke-main').getContext('webgl2');
       if (!gl) throw new Error('webgl2 context is unavailable after init');
       assertNoGlError(gl, 'after cold preset load');
       mark('webgl error check passed');
 
-      // Soft-cut / dual-FBO path: second load yields again, then transition while live.
+      // Soft-cut / dual-FBO path: second load prepared while live, then transition.
       const hasDualFbo =
         typeof Module._dual_fbo_begin_transition === 'function' &&
         typeof Module._transition_start === 'function' &&
@@ -285,6 +546,7 @@
         const height = canvas.height || 64;
         Module._start_render(width, height);
         mark('start_render ok (' + width + 'x' + height + ')');
+        await checkMainLoopPacing(Module);
 
         await writePresetToMemfs(Module, preset2Src, '/presets/tests/110-per_pixel.milk');
         mark('second preset copied to MEMFS');
@@ -314,6 +576,29 @@
           Module._dual_fbo_end_transition();
         }
         mark('dual-FBO soft-cut path passed');
+
+        // A heavy preset is prepared (parsed, HLSL transpiled) off the render
+        // thread: the running main loop must keep drawing the current preset
+        // until the new one is activated.
+        const heavySrc = params.get('heavy') || '/custom_milk_fixed/milk011.milk';
+        await writePresetToMemfs(Module, heavySrc, '/presets/heavy.milk');
+        const framesAtRequest = Module._get_rendered_frame_count();
+        Module.ccall('load_preset_file', null, ['string'], ['/presets/heavy.milk']);
+        let framesWhileLoading = 0;
+        const heavyDeadline = performance.now() + PRESET_READY_TIMEOUT_MS;
+        while (Module._is_preset_ready(0) === 0) {
+          if (Module._preset_switch_failed()) throw new Error('heavy preset: preset_switch_failed');
+          if (performance.now() > heavyDeadline) throw new Error('heavy preset: timed out waiting for ready');
+          framesWhileLoading = Module._get_rendered_frame_count() - framesAtRequest;
+          await sleep(4);
+        }
+        if (!switchedTo.includes('/presets/heavy.milk')) {
+          throw new Error('heavy preset reported ready but never switched');
+        }
+        if (framesWhileLoading < 1) {
+          throw new Error('render loop produced no frames while the heavy preset was prepared');
+        }
+        mark('heavy preset prepared off-thread; ' + framesWhileLoading + ' frame(s) rendered meanwhile');
       } else {
         mark('dual-FBO exports absent; skipped soft-cut path');
       }
@@ -400,6 +685,12 @@
         }
         Module._render_frame(); // the engine survived the throw
         mark('known-bad preset exception caught (preset_switch_failed=1, host notified)');
+      }
+
+      if (document.getElementById('pm-smoke-main-2')) {
+        await checkHostLifecycle(Module);
+      } else {
+        mark('host lifecycle exports absent; skipped');
       }
 
       finish(true);

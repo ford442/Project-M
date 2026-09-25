@@ -160,9 +160,9 @@ if(ENABLE_EMSCRIPTEN)
     endif()
 
     # Option to enable dual-pipeline preset transition support (all 5 phases now implemented).
-    # When ON, adds ASYNCIFY stack-size tuning required for non-blocking shader compilation
-    # and file I/O during concurrent preset loading.
-    option(ENABLE_WASM_TRANSITIONS "Enable dual-pipeline preset transition support for WebAssembly builds. Adds ASYNCIFY stack-size tuning for non-blocking shader compilation. Only effective when ENABLE_EMSCRIPTEN is ON." ON)
+    # It no longer affects any link setting: preset loading is non-blocking because presets are
+    # prepared on a pthread (src/wasm/WasmPresetPrepare.cpp), not because of ASYNCIFY.
+    option(ENABLE_WASM_TRANSITIONS "Enable dual-pipeline preset transition support for WebAssembly builds. Only effective when ENABLE_EMSCRIPTEN is ON." ON)
 
     # emscripten uses different options to compile and link libraries, so we can't use find_package().
     # Instead, specifying the required options directly to emcc is the way to go.
@@ -171,7 +171,6 @@ if(ENABLE_EMSCRIPTEN)
     include(EmscriptenWasmFlags)
     projectm_apply_emscripten_lib_compile_flags()
     projectm_apply_emscripten_lib_link_flags()
-    projectm_apply_emscripten_wasm_transition_flags()
 
     # if(USE_PTHREADS)
     #     add_compile_options("SHELL:-pthread")

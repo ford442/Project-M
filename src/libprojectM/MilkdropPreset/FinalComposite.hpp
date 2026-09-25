@@ -7,6 +7,8 @@
 #include <Renderer/Mesh.hpp>
 
 #include <memory>
+#include <optional>
+#include <string>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -26,10 +28,45 @@ public:
     void LoadCompositeShader(const PresetState& presetState);
 
     /**
+     * @brief Loads the composite shader, using one prepared off the render thread if given.
+     * @param presetState The preset state to retrieve the shader version and code from.
+     * @param prepared The prepared composite shader (see MilkdropPreparedPreset). Used only if the
+     *                 preset uses a composite shader; nullopt analyses presetState's code instead.
+     */
+    void LoadCompositeShader(const PresetState& presetState, std::optional<PreparedMilkdropShader> prepared);
+
+    /**
+     * @brief Analyses the composite shader code the way LoadCompositeShader() does, without GL. Any thread.
+     *
+     * Only meaningful if the preset uses a composite shader (compositeShaderVersion > 0).
+     * @param compositeShader The preset's composite shader code (PresetState::compositeShader).
+     * @return The analysed source: the preset's own code, or the default composite shader if it
+     *         has none or its code fails to preprocess.
+     */
+    static auto SelectCompositeShaderSource(const std::string& compositeShader) -> MilkdropShaderSource;
+
+    /**
      * @brief Loads the required textures and compiles the composite shader.
      * @param presetState The preset state to retrieve the configuration values from.
      */
     void CompileCompositeShader(PresetState& presetState);
+
+    /**
+     * @brief Whether the composite shader program is still linking (RenderContext::deferShaderLink).
+     */
+    auto IsCompositeShaderCompilePending() const -> bool;
+
+    /**
+     * @brief Whether a deferred composite shader link has finished. Does not block.
+     */
+    auto IsCompositeShaderCompileComplete() const -> bool;
+
+    /**
+     * @brief Finishes a deferred composite shader link; falls back to the default composite
+     *        shader if it failed, as CompileCompositeShader() does.
+     * @param presetState The preset state. Its render context must not defer shader links.
+     */
+    void FinishCompositeShader(PresetState& presetState);
 
     /**
      * @brief Renders the composite quad with the appropriate effects or shaders.
@@ -46,6 +83,12 @@ public:
     auto HasCompositeShader() const -> bool;
 
 private:
+    /**
+     * @brief Replaces the composite shader with the default one and compiles it.
+     * @param presetState The preset state.
+     */
+    void FallBackToDefaultCompositeShader(PresetState& presetState);
+
     /**
      * Composite mesh vertex with all required attributes.
      */

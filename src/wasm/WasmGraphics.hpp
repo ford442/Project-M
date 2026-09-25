@@ -16,18 +16,31 @@
 // =============================================================================
 
 /**
- * @brief Available floating-point texture formats for FBO color attachments.
+ * @brief Dual-FBO colour format — one numbering for both the precision a host
+ *        asks for and the format it gets.
  *
- * Preference order:
- *   RGBA16F – 16-bit half-float per channel (requires EXT_color_buffer_half_float)
- *   RGBA32F – full 32-bit float per channel (requires EXT_color_buffer_float, optional on wasm)
- *   RGBA8   – 8-bit normalized (always available; shaders must clamp output to [0,1])
+ * set_context_config()'s `fboPrecision` argument takes these values as the
+ * format to prefer (0 "half", 1 "high", 2 "byte"), and dual_fbo_get_format()
+ * returns the one DetectFormat() picked, in the same numbering. The two used
+ * to disagree (the getter returned 0 for RGBA32F and 1 for RGBA16F).
+ *
+ * Selection (DetectFormat()):
+ *   RGBA16F – default whenever it is renderable: WebGL 2 plus either
+ *             EXT_color_buffer_float or EXT_color_buffer_half_float. Always
+ *             filterable in WebGL 2.
+ *   RGBA32F – only when the host asks for it (fboPrecision "high") and
+ *             EXT_color_buffer_float is present. Linear filtering needs
+ *             OES_texture_float_linear; without it the textures are sampled
+ *             GL_NEAREST (a linear filter would leave them incomplete, which
+ *             samples as black).
+ *   RGBA8   – last resort, or forced with fboPrecision "byte"; shaders must
+ *             clamp output to [0,1].
  */
-enum class FboFloatFormat
+enum class FboFloatFormat : int
 {
-    RGBA32F, //!< GL_RGBA32F – optional high-precision mode for recursive warp feedback loops
-    RGBA16F, //!< GL_RGBA16F – default on capable GPUs (better bandwidth/VRAM tradeoff)
-    RGBA8    //!< GL_RGBA8   – last resort; negative alpha corruption possible without clamping
+    RGBA16F = 0, //!< GL_RGBA16F – default on capable GPUs (fboPrecision "half")
+    RGBA32F = 1, //!< GL_RGBA32F – opt-in high precision for recursive feedback (fboPrecision "high")
+    RGBA8 = 2    //!< GL_RGBA8   – fallback; negative alpha corruption possible without clamping (fboPrecision "byte")
 };
 
 /**
@@ -66,50 +79,51 @@ public:
     }
 
     /**
-     * @brief Detects the best available float texture format by probing WebGL extensions.
+     * @brief Picks the FBO colour format by probing WebGL 2 extensions.
      *
      * Call once after the WebGL context has been made current and before any FBO
-     * allocation. Default priority: GL_RGBA16F (EXT_color_buffer_half_float) >
-     * GL_RGBA32F (EXT_color_buffer_float) > GL_RGBA8. If @p preferHighPrecision
-     * is true, RGBA32F is preferred over RGBA16F.
+     * allocation. See FboFloatFormat for the selection rules.
      *
      * @param ctx The active Emscripten WebGL context handle.
-     * @param preferHighPrecision Whether RGBA32F should be preferred over RGBA16F.
+     * @param precisionMode The preferred format, as an FboFloatFormat value
+     *        (set_context_config()'s fboPrecision).
      */
     void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, int precisionMode = 0)
     {
-        // precisionMode: 0 = prefer RGBA16F (default), 1 = prefer RGBA32F
-        // (high), 2 = force RGBA8 (byte, degraded — for debugging the low-
-        // precision path on a float-capable GPU). Host sets this via
-        // set_context_config({ fboPrecision }).
-        if (precisionMode == 2)
+        m_filter = GL_LINEAR;
+        if (precisionMode == static_cast<int>(FboFloatFormat::RGBA8))
         {
             m_format = FboFloatFormat::RGBA8;
             printf("DualFBO: Forced GL_RGBA8 (fboPrecision=byte); output is dithered/clamped.\n");
             return;
         }
-        const bool preferHighPrecision = (precisionMode == 1);
+        // In WebGL 2, EXT_color_buffer_float makes both RGBA16F and RGBA32F
+        // renderable; EXT_color_buffer_half_float covers RGBA16F alone.
         const bool hasFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE);
         const bool hasHalfFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE);
+        const bool halfRenderable = hasFloat || hasHalfFloat;
 
-        if (preferHighPrecision && hasFloat)
+        if (precisionMode == static_cast<int>(FboFloatFormat::RGBA32F) && hasFloat)
         {
             m_format = FboFloatFormat::RGBA32F;
-            // Enable bilinear filtering on float textures when available.
-            emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear");
-            printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in).\n");
+            // RGBA32F is not filterable in core WebGL 2. A GL_LINEAR sampler on
+            // it without this extension makes the texture incomplete, and an
+            // incomplete texture samples as black. The compositor draws the
+            // FBOs 1:1 onto the canvas, so GL_NEAREST loses nothing there.
+            if (emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear") != EM_TRUE)
+            {
+                m_filter = GL_NEAREST;
+                printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in), GL_NEAREST: OES_texture_float_linear unavailable.\n");
+            }
+            else
+            {
+                printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in).\n");
+            }
         }
-        else if (hasHalfFloat)
+        else if (halfRenderable)
         {
             m_format = FboFloatFormat::RGBA16F;
-            emscripten_webgl_enable_extension(ctx, "OES_texture_half_float_linear");
             printf("DualFBO: Using GL_RGBA16F half-float textures (default).\n");
-        }
-        else if (hasFloat)
-        {
-            m_format = FboFloatFormat::RGBA32F;
-            emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear");
-            printf("DualFBO: Using GL_RGBA32F float textures (RGBA16F unavailable).\n");
         }
         else
         {
@@ -379,6 +393,11 @@ public:
     {
         return m_format;
     }
+    //! GL_LINEAR, or GL_NEAREST when the format is not filterable here.
+    GLint GetFilter() const
+    {
+        return m_filter;
+    }
     int Width() const
     {
         return m_width;
@@ -511,8 +530,8 @@ private:
     }
 
     /**
-     * @brief Sets the standard sampler parameters (linear filtering, edge clamp) on a
-     *        currently-bound 2D texture. Assumes the texture is already bound.
+     * @brief Sets the sampler parameters (the filter DetectFormat() chose, edge
+     *        clamp) on a currently-bound 2D texture. Assumes the texture is already bound.
      *
      * @param texId The texture whose parameters to configure (used only for clarity;
      *              the call operates on the currently bound GL_TEXTURE_2D target).
@@ -520,8 +539,8 @@ private:
     void ConfigureTextureSampling(GLuint texId)
     {
         (void) texId; // The texture must be bound before calling this helper.
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filter);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glBindTexture(GL_TEXTURE_2D, 0);
@@ -537,25 +556,18 @@ private:
     bool m_presetBAllocated = false; //!< Whether Preset B FBOs are currently allocated
 
     FboFloatFormat m_format = FboFloatFormat::RGBA8; //!< Detected colour format for textures
+    GLint m_filter = GL_LINEAR;                      //!< GL_NEAREST for RGBA32F without OES_texture_float_linear
 };
 
 // =============================================================================
-// Phase 3: GLStateGuard – RAII WebGL state save/restore for preset isolation
+// Phase 3: GLStateGuard – RAII WebGL state restore for preset isolation
 // =============================================================================
 
 /**
- * @brief RAII guard that snapshots relevant WebGL state on construction and
- *        restores it on destruction.
+ * @brief The slice of WebGL state the host keeps stable around each preset
+ *        render.
  *
- * Usage:
- * @code
- *     {
- *         GLStateGuard guard;
- *         // … render preset A …
- *     } // state automatically restored here
- * @endcode
- *
- * Saved/restored state:
+ * Covered state:
  *   - GL_BLEND enabled flag
  *   - Blend function (src/dst RGB + Alpha)
  *   - GL_DEPTH_WRITEMASK
@@ -566,48 +578,49 @@ private:
  *   - GL_TEXTURE_BINDING_2D on texture unit 0
  *   - GL_FRAMEBUFFER_BINDING
  */
-class GLStateGuard
-{
-public:
-    GLStateGuard()
+struct GLStateSnapshot {
+    GLboolean blendEnabled = GL_FALSE;
+    GLint blendSrcRGB = GL_ONE;
+    GLint blendDstRGB = GL_ZERO;
+    GLint blendSrcAlpha = GL_ONE;
+    GLint blendDstAlpha = GL_ZERO;
+    GLboolean depthMask = GL_TRUE;
+    GLint viewport[4] = {0, 0, 0, 0};
+    GLboolean scissorEnabled = GL_FALSE;
+    GLint scissorBox[4] = {0, 0, 0, 0};
+    GLint activeTexture = GL_TEXTURE0;
+    GLint tex0Binding = 0;
+    GLint fboBinding = 0;
+
+    /**
+     * @brief Reads the covered state back from GL: a dozen glGet* round trips,
+     *        so the render path does it once per start_render(), not per frame.
+     */
+    static GLStateSnapshot Capture()
     {
-        // --- Blend state ---
-        m_blendEnabled = glIsEnabled(GL_BLEND);
-        glGetIntegerv(GL_BLEND_SRC_RGB, &m_blendSrcRGB);
-        glGetIntegerv(GL_BLEND_DST_RGB, &m_blendDstRGB);
-        glGetIntegerv(GL_BLEND_SRC_ALPHA, &m_blendSrcAlpha);
-        glGetIntegerv(GL_BLEND_DST_ALPHA, &m_blendDstAlpha);
-
-        // --- Depth mask ---
-        glGetBooleanv(GL_DEPTH_WRITEMASK, &m_depthMask);
-
-        // --- Viewport ---
-        glGetIntegerv(GL_VIEWPORT, m_viewport);
-
-        // --- Scissor ---
-        m_scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
-        glGetIntegerv(GL_SCISSOR_BOX, m_scissorBox);
-
-        // --- Active texture unit ---
-        glGetIntegerv(GL_ACTIVE_TEXTURE, &m_activeTexture);
-
-        // --- Texture binding on unit 0 ---
+        GLStateSnapshot state;
+        state.blendEnabled = glIsEnabled(GL_BLEND);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &state.blendSrcRGB);
+        glGetIntegerv(GL_BLEND_DST_RGB, &state.blendDstRGB);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &state.blendSrcAlpha);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &state.blendDstAlpha);
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &state.depthMask);
+        glGetIntegerv(GL_VIEWPORT, state.viewport);
+        state.scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+        glGetIntegerv(GL_SCISSOR_BOX, state.scissorBox);
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &state.activeTexture);
         glActiveTexture(GL_TEXTURE0);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &m_tex0Binding);
-        // Restore the originally active texture unit immediately.
-        glActiveTexture(static_cast<GLenum>(m_activeTexture));
-
-        // --- FBO binding ---
-        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &m_fboBinding);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &state.tex0Binding);
+        glActiveTexture(static_cast<GLenum>(state.activeTexture));
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &state.fboBinding);
+        return state;
     }
 
-    ~GLStateGuard()
+    /** @brief Puts the covered state back to these values. Issues no queries. */
+    void Restore() const
     {
-        // --- FBO binding ---
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(m_fboBinding));
-
-        // --- Blend state ---
-        if (m_blendEnabled)
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(fboBinding));
+        if (blendEnabled)
         {
             glEnable(GL_BLEND);
         }
@@ -615,19 +628,13 @@ public:
         {
             glDisable(GL_BLEND);
         }
-        glBlendFuncSeparate(static_cast<GLenum>(m_blendSrcRGB),
-                            static_cast<GLenum>(m_blendDstRGB),
-                            static_cast<GLenum>(m_blendSrcAlpha),
-                            static_cast<GLenum>(m_blendDstAlpha));
-
-        // --- Depth mask ---
-        glDepthMask(m_depthMask);
-
-        // --- Viewport ---
-        glViewport(m_viewport[0], m_viewport[1], m_viewport[2], m_viewport[3]);
-
-        // --- Scissor ---
-        if (m_scissorEnabled)
+        glBlendFuncSeparate(static_cast<GLenum>(blendSrcRGB),
+                            static_cast<GLenum>(blendDstRGB),
+                            static_cast<GLenum>(blendSrcAlpha),
+                            static_cast<GLenum>(blendDstAlpha));
+        glDepthMask(depthMask);
+        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        if (scissorEnabled)
         {
             glEnable(GL_SCISSOR_TEST);
         }
@@ -635,14 +642,56 @@ public:
         {
             glDisable(GL_SCISSOR_TEST);
         }
-        glScissor(m_scissorBox[0], m_scissorBox[1], m_scissorBox[2], m_scissorBox[3]);
-
-        // --- Texture unit 0 binding ---
+        glScissor(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(m_tex0Binding));
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex0Binding));
+        glActiveTexture(static_cast<GLenum>(activeTexture));
+    }
 
-        // --- Active texture unit ---
-        glActiveTexture(static_cast<GLenum>(m_activeTexture));
+    /** @brief Records a viewport + scissor change the host made itself. */
+    void SetViewportAndScissor(int width, int height)
+    {
+        viewport[0] = 0;
+        viewport[1] = 0;
+        viewport[2] = width;
+        viewport[3] = height;
+        scissorBox[0] = 0;
+        scissorBox[1] = 0;
+        scissorBox[2] = width;
+        scissorBox[3] = height;
+    }
+};
+
+/**
+ * @brief RAII guard that puts the host's GL state back after a preset render.
+ *
+ * Given the host's baseline (WasmHost::glBaseline — captured by start_render()
+ * and kept current by set_window_size()), it restores that on destruction and
+ * queries nothing: the state before a preset render is always the state the
+ * host itself established, so reading it back every frame bought nothing but a
+ * dozen synchronous glGet* calls. Without a baseline (a caller outside the
+ * render loop, or before start_render()) it falls back to snapshotting the
+ * current state on construction.
+ *
+ * Usage:
+ * @code
+ *     {
+ *         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+ *         // … render preset A …
+ *     } // state restored here
+ * @endcode
+ */
+class GLStateGuard
+{
+public:
+    explicit GLStateGuard(const GLStateSnapshot* baseline = nullptr)
+        : m_restore(baseline != nullptr ? *baseline : GLStateSnapshot::Capture())
+    {
+    }
+
+    ~GLStateGuard()
+    {
+        m_restore.Restore();
     }
 
     // Non-copyable, non-movable.
@@ -652,18 +701,7 @@ public:
     GLStateGuard& operator=(GLStateGuard&&) = delete;
 
 private:
-    GLboolean m_blendEnabled = GL_FALSE;
-    GLint m_blendSrcRGB = GL_ONE;
-    GLint m_blendDstRGB = GL_ZERO;
-    GLint m_blendSrcAlpha = GL_ONE;
-    GLint m_blendDstAlpha = GL_ZERO;
-    GLboolean m_depthMask = GL_TRUE;
-    GLint m_viewport[4] = {0, 0, 0, 0};
-    GLboolean m_scissorEnabled = GL_FALSE;
-    GLint m_scissorBox[4] = {0, 0, 0, 0};
-    GLint m_activeTexture = GL_TEXTURE0;
-    GLint m_tex0Binding = 0;
-    GLint m_fboBinding = 0;
+    GLStateSnapshot m_restore;
 };
 
 /**
@@ -728,12 +766,30 @@ static void gl_reset_state_between_pipelines()
 class CompositingBlendShader
 {
 public:
+    CompositingBlendShader() = default;
+    CompositingBlendShader(const CompositingBlendShader&) = delete;
+    CompositingBlendShader& operator=(const CompositingBlendShader&) = delete;
+
+    // Owners call Release() while the GL context is still current (see
+    // destruct() in projectM_emscripten.cpp); by then this is a no-op. It is
+    // only a backstop for a host freed without going through destruct().
+    ~CompositingBlendShader()
+    {
+        Release();
+    }
+
     /**
      * @brief Compiles shaders, links program, and uploads the fullscreen quad geometry.
+     *
+     * Safe to call again (start_render() runs once per render start): the
+     * previous program, VAO and VBO are released first rather than leaked.
+     *
      * @return true on success; false if any GL call failed (program stays uninitialised).
      */
     bool Init()
     {
+        Release();
+
         // GLSL ES 3.00 vertex shader: maps NDC positions and derives UV coords.
         static const char* kVertSrc = R"(#version 300 es
 in vec2 aPosition;
@@ -937,6 +993,40 @@ void main() {
     bool IsInitialized() const
     {
         return m_initialized;
+    }
+
+    /**
+     * @brief Deletes the program, VAO and VBO and returns to the uninitialised state.
+     *
+     * Must run while the context that created them is current: GL object ids
+     * are global to the Emscripten GL layer, so deleting a stale id under
+     * another context raises GL_INVALID_OPERATION there. Idempotent.
+     */
+    void Release()
+    {
+        if (m_program != 0)
+        {
+            glDeleteProgram(m_program);
+            m_program = 0;
+        }
+        if (m_vbo != 0)
+        {
+            glDeleteBuffers(1, &m_vbo);
+            m_vbo = 0;
+        }
+        if (m_vao != 0)
+        {
+            glDeleteVertexArrays(1, &m_vao);
+            m_vao = 0;
+        }
+        m_initialized = false;
+        m_locTexA = -1;
+        m_locTexB = -1;
+        m_locBlend = -1;
+        m_locDither = -1;
+        m_locTransparencyEnabled = -1;
+        m_locTransparencyThreshold = -1;
+        m_locPos = -1;
     }
 
 private:

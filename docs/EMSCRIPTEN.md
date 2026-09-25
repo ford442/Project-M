@@ -32,8 +32,12 @@ that are prerequisites for smooth preset cross-fading in the browser.
 | `-s FULL_ES2=0 -s FULL_ES3=0` | Native WebGL 2 only; no GL emulation layer (libprojectM uses no client-side arrays or buffer mapping) |
 | `-O3` | Maximum optimization — needed to handle dual-preset CPU load |
 | `-s ALLOW_MEMORY_GROWTH=1` | Allow WASM heap to grow dynamically — prevents OOM crash when loading a second preset |
-| `-s ASYNCIFY=1` | Allow synchronous C++ functions to yield to the JS event loop — prevents browser freeze during shader compilation |
-| `-s ASYNCIFY_ONLY=@cmake/wasm_asyncify_only.txt` | Instrument only the `load_preset_file*` yield stack (Option B); keep the 60 Hz render path off Asyncify |
+| `-pthread`, `PTHREAD_POOL_SIZE` | Presets are prepared (parsed, shaders transpiled) on a per-host pthread while the render loop keeps running — see [Preset loading](#preset-loading) |
+
+There is no `-s ASYNCIFY`: nothing suspends the wasm stack. The build used ASYNCIFY for a single
+`emscripten_sleep(0)` before each preset compile; that yield is gone now the compile's CPU half
+runs on a prepare thread. `scripts/check_no_asyncify.sh` fails CI if the Asyncify runtime comes
+back into the bundle.
 
 ### CMake option: `ENABLE_WASM_TRANSITIONS`
 
@@ -43,16 +47,47 @@ Dual-pipeline transitions are enabled by default for Emscripten builds:
 emcmake cmake -B build-wasm
 ```
 
-When `ENABLE_WASM_TRANSITIONS=ON`, the following extra flag is applied:
-
-- `-s ASYNCIFY_STACK_SIZE=65536`: Tunes the ASYNCIFY stack size to reduce binary bloat while preserving enough stack
-  space for concurrent preset loading and shader compilation.
-
-`ASYNCIFY_ONLY` (see `cmake/wasm_asyncify_only.txt`) is applied whenever `ASYNCIFY=1` is on — independent of
-this option — so the render path stays uninstrumented even for hard-cut-only builds.
+The option only gates the dual pipeline. It used to add `-s ASYNCIFY_STACK_SIZE=65536` too; that
+coupling was an accident of history and went away with ASYNCIFY itself.
 
 Set `-DENABLE_WASM_TRANSITIONS=OFF` only when explicitly debugging the legacy hard-cut path or comparing transition
 overhead.
+
+## Preset loading
+
+A preset load is split at the GL boundary (libprojectM: `projectM-4/preset_prepare.h`).
+The CPU half runs on the host's prepare thread and the GL half on the render thread.
+The current preset keeps rendering in between:
+
+| Step | Thread | Where | Work |
+|------|--------|-------|------|
+| Request | main runtime | `RequestPresetPrepare()` (`WasmPresetPrepare.cpp`) | Reads the preset from MEMFS, then `projectm_preset_prepare_begin_file_contents()` snapshots the texture file list and asks the transpiled-GLSL cache which shaders it holds; the job is posted to the host's queue |
+| Prepare | prepare thread | `PrepareThreadMain()` | `projectm_preset_prepare_run()`: parse, analyse and transpile the warp/composite HLSL speculatively. No FS calls: each one would be proxied to the main thread and wait for its current frame |
+| Activate | main runtime | `ActivatePreparedPreset()`, top of `render_frame()` | `projectm_load_prepared_preset()`: create the preset's GL objects, compile, start the switch |
+| Switch | main runtime | `render_frame()` / `projectm_poll_pending_preset()` | with `KHR_parallel_shader_compile`, the switch waits until the driver reports the links complete; without it, it happens at activation |
+
+Every load goes this way. `load_preset_file()` / `load_preset_file_hard()` set the playlist
+position. `switch_preset()` and the engine's preset timer call `play_next`. The playlist's
+preset-load hook (`on_playlist_preset_load()`) turns each of these into a request.
+
+- **Latest wins.** Each host has one pending slot and one completed slot. A newer request
+  replaces a pending one, and a result is only activated if nothing newer has been posted.
+- **Readiness.** `app_data.loading` means "a preparation is in flight". It gates
+  `is_preset_ready()` and timer-driven switches, but no longer pauses the render loop.
+  `load_preset_callback_done()` runs, and `is_preset_ready()` turns true, once the switch has
+  happened.
+- **No reentrancy.** When a job finishes, the prepare thread wakes the main runtime thread by
+  proxying a call that only schedules a zero-delay timer. A main thread blocked on a futex (a
+  contended mutex, or an OpenMP barrier mid-frame) runs proxied calls inside the wait
+  (`_emscripten_yield`). Activating there would re-enter the engine mid-render.
+  `render_frame()` also polls every frame.
+- **Teardown.** The prepare thread is detached and never joined. Joining would block the main
+  thread for as long as a transpile takes. `destroy_host()` marks the queue stopped, and a
+  running job frees itself when it finishes. Destroying an engine (context loss, rebind)
+  discards in-flight results.
+- **Shader cache.** The IndexedDB transpiled-GLSL cache is unchanged: same key, same store hook.
+  `begin` asks the cache on the main thread, so a shader type the cache already holds is not
+  transpiled ahead. The render thread then compiles the cached GLSL, as before.
 
 ## WebGL context attributes
 
@@ -214,7 +249,8 @@ WASM compile/link flags, `EXPORTED_FUNCTIONS`, and the OpenMP/pthread pool cap a
 
 - The `ENABLE_EMSCRIPTEN` block in `CMakeLists.txt` (static lib build)
 - The generated `scripts/wasm_link_common.inc.sh` (final `projectM_emscripten.cpp` wrapper link)
-- The generated `cmake/generated/ProjectMWasmBuildConfig.hpp` (`kWasmPthreadPoolSize` for OpenMP)
+- The generated `cmake/generated/ProjectMWasmBuildConfig.hpp` (`kWasmOpenMpThreads`,
+  `kWasmPresetPrepareThreads`, `kWasmPthreadPoolSize`)
 
 Regenerate derived artifacts after editing the CMake module:
 
@@ -239,7 +275,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmHost.hpp` / `WasmHost.cpp` | Per-instance `WasmHost` struct (all former host globals), the host registry + active-host pointer, and the `create_host` / `set_active_host` / `destroy_host` multi-instance exports (#168 Phase B) |
 | `WasmRenderLoop.cpp` | Emscripten main loop (iterates started hosts), `start_render()`, the dual-FBO compositor decision, `render_frame()`, `set_window_size()` |
 | `WasmShaderCache.cpp` | Transpiled-GLSL cache hooks (host-page store/lookup), `shader_cache_*` and `get_glsl_generator_version()` exports |
-| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?fboPrecision` URL ablation switches, applied once from `init()` |
+| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, applied once from `init()` |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
@@ -247,7 +283,8 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmAudioBridge.cpp` | Audio worklet + media-element EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
 | `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
 | `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
-| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
+| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
+| `WasmPresetPrepare.hpp` / `WasmPresetPrepare.cpp` | Per-host preset prepare thread and its single-slot queue; activation of prepared presets from `render_frame()` (see [Preset loading](#preset-loading)) |
 | `WasmJsBindings.cpp` | EM_JS clusters: DOM/VFS bootstrap (`js_init_projectm_dom`), preset download helpers, host-page notifications |
 
 `ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` is a
@@ -293,26 +330,28 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 
 | Setting | CMake lib link | Shell wrapper link | Notes |
 |---------|:--------------:|:------------------:|-------|
-| `SHARED_MEMORY=1`, `WASM_WORKERS=1`, `-pthread` | yes | yes | Required for pthread pool + SharedArrayBuffer |
-| `PTHREAD_POOL_SIZE` | yes (`4`) | yes (`4`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | Must match `kWasmPthreadPoolSize` / `omp_set_num_threads()` |
+| `SHARED_MEMORY=1`, `-pthread` | yes | yes | Required for the pthread pool + SharedArrayBuffer. No `WASM_WORKERS`: every thread is a pthread |
+| `PTHREAD_POOL_SIZE` | yes (`5`) | yes (`5`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 2) |
 | `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `MAXIMUM_MEMORY=4gb`, `ALLOW_MEMORY_GROWTH=1` | yes | yes | See `docs/PERFORMANCE.md` for right-sizing |
 | `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
 | `GL_POOL_TEMP_BUFFERS=0`, `GL_TRACK_ERRORS=0` | yes | yes | Uniform-upload pooling (live because `MAXIMUM_MEMORY=4gb` disables the garbage-free WebGL2 APIs) and error tracking |
-| `-fwasm-exceptions` (or `NO_DISABLE_EXCEPTION_CATCHING=1` with `PROJECTM_WASM_EXCEPTIONS=js`) | compile + link | link (`PROJECTM_WASM_EXCEPTIONS` env) | C++ exception ABI; libs and wrapper must match or `wasm-ld` fails with undefined `__resumeException` / `__cpp_exception` |
-| `ASYNCIFY=1`, `ASYNCIFY_ONLY=@cmake/wasm_asyncify_only.txt`, `ASYNCIFY_STACK_SIZE=65536` | yes / yes / when `ENABLE_WASM_TRANSITIONS=ON` | yes / yes / when `ENABLE_WASM_TRANSITIONS=ON` | Non-blocking shader compile; ONLY list is always-on with ASYNCIFY |
+| `-fwasm-exceptions` | compile + link | compile + link | C++ exception ABI, unconditional. The JS-trampoline fallback (`PROJECTM_WASM_EXCEPTIONS=js`) only existed because of ASYNCIFY and is rejected now |
+| `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`) | link (`PROJECTM_WASM_LTO=1`) | Opt-in whole-program LTO: the static libs become bitcode. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
 | `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | no | yes | Single list in `EmscriptenWasmFlags.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
 | `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
-| `TRUSTED_TYPES=1`, `WASM_BIGINT=1`, `AUDIO_WORKLET=1` | yes | no | Applied when linking static libs via CMake |
+| `WASM_BIGINT=1` | yes | no | Unit-test executables only; the shipped bundle never sees lib-only settings |
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
 | `-l embind` | no | yes | Wrapper TU uses embind |
-| OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(kWasmPthreadPoolSize)` from generated header |
+| OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(kWasmOpenMpThreads)` from generated header |
 | OpenMP blocktime in `projectM_emscripten.cpp` | — | — | `kmp_set_blocktime(0)` — see "OpenMP blocktime" below |
 
 **OpenMP / pthread pool:** libomp's default `omp_get_max_threads()` on wasm follows
 `navigator.hardwareConcurrency`, but only `PTHREAD_POOL_SIZE` Workers are pre-spawned.
-`projectM_emscripten.cpp::ConfigureWasmOpenMPThreadCount()` calls `omp_set_num_threads(kWasmPthreadPoolSize)`
+`projectM_emscripten.cpp::ConfigureWasmOpenMPThreadCount()` calls `omp_set_num_threads(kWasmOpenMpThreads)`
 so OpenMP never requests more threads than Workers exist (fixes 033/034 main-thread freeze).
-Change the pool size only in `PROJECTM_WASM_PTHREAD_POOL_SIZE` inside `EmscriptenWasmFlags.cmake`, then
+The pool also holds one preset prepare thread per host. The generated header `static_assert`s that
+`PTHREAD_POOL_SIZE` covers both. Change the team size (`PROJECTM_WASM_OPENMP_THREADS`) or the
+prepare-thread count (`PROJECTM_WASM_PRESET_PREPARE_THREADS`) in `EmscriptenWasmFlags.cmake`, then
 regenerate with `scripts/sync_wasm_link_common.sh`.
 
 **OpenMP blocktime (audio + framerate):** capping the thread count is only half of
@@ -352,15 +391,18 @@ the fix is present, `200` means it is not, `-1` means the bundle has no libomp
 Module._get_omp_blocktime()   // or getOmpBlocktime(Module) from the generated API
 ```
 
-### Future phases
+### Phases
 
-The full dual-pipeline transition feature is being implemented in 5 phases:
+The dual-pipeline transition feature was implemented in 5 phases, all merged:
 
-1. **Phase 1** (merged) — Emscripten build flags (`USE_WEBGL2`, `FULL_ES3`, `ASYNCIFY`, `ALLOW_MEMORY_GROWTH`, `-O3`)
+1. **Phase 1** (merged) — Emscripten build flags (`USE_WEBGL2`, `ALLOW_MEMORY_GROWTH`, `-O3`; `ASYNCIFY` and
+   `FULL_ES3` have been removed since)
 2. **Phase 2** (merged) — Dual ping-pong FBO architecture with floating-point texture support
 3. **Phase 3** (merged) — WebGL state isolation & playlist transition routing
-4. **Phase 4** (this change) — Async shader transpilation pipeline & GLSL ES 3.0 correctness
-5. **Phase 5** — Final compositing pass: dual-texture blend shader
+4. **Phase 4** (merged) — Async shader transpilation pipeline & GLSL ES 3.0 correctness. Its `emscripten_sleep(0)`
+   yield has been replaced by the prepare thread (see [Preset loading](#preset-loading))
+5. **Phase 5** (merged) — Final compositing pass: dual-texture blend shader, run by `render_frame()` while a
+   transition is active
 
 ## Phase 4 — Async Shader Transpilation & Transition Gating
 
@@ -387,10 +429,15 @@ When building for Emscripten/WASM, `USE_GLES=ON` is set automatically by CMake. 
 `load_preset_file()` now:
 
 1. Resets the `g_presetBReady` gate to `false` at the start of every load.
-2. Sets `app_data.loading = EM_TRUE` to pause the render loop and prevent GL state conflicts during shader compilation.
-3. Calls `emscripten_sleep(0)` to **yield to the browser event loop** before the heavy HLSL→GLSL transpilation and `glCompileShader`/`glLinkProgram` calls begin. This prevents the browser from showing an "unresponsive page" warning.
-4. Loads the preset via the playlist manager (which runs the full shader compilation pipeline internally).
-5. `load_preset_callback_done` fires synchronously once `GL_LINK_STATUS == GL_TRUE` is confirmed; it clears the loading flag and sets `g_presetBReady = true`.
+2. Sets `app_data.loading = EM_TRUE`, meaning "a preparation is in flight". This no longer pauses the
+   render loop; the current preset keeps drawing.
+3. Queues the load on the host's prepare thread through the playlist and returns. The thread does the
+   HLSL→GLSL transpile (see [Preset loading](#preset-loading)). This replaced an `emscripten_sleep(0)`
+   yield that needed ASYNCIFY and still stopped the render loop for the whole compile.
+4. `render_frame()` activates the prepared preset: GL objects, compile, then link. With
+   `KHR_parallel_shader_compile`, the link runs on driver threads and the switch waits for it.
+5. `load_preset_callback_done` fires once the engine has switched. It clears the loading flag and sets
+   `g_presetBReady = true`.
 
 ### Transition gating
 
@@ -419,6 +466,7 @@ only a `stderr` message in the console.
 | `0` | — | Success. | — |
 | `2` | WebGL | Primary canvas selector not found, `emscripten_webgl_create_context` failed, or the created context could not be activated. | Missing canvas element, WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
 | `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (still possible on very low-RAM mobile even with `INITIAL_MEMORY=256mb`), or an internal projectM error. |
+| `5` | WebGL context lost | The host's WebGL context is lost and the browser has not restored it yet (e.g. the context-loss overlay was tapped before `webglcontextrestored`). `init()` refuses rather than build an engine on the dead context. | Not an error: `checkInit()` shows nothing and the context-loss overlay stays up; the `webglcontextrestored` handler retries. |
 | `4` | Cross-origin isolation | *(JS-side only, not returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
 
 ### Main-thread freeze on 033/034 (OpenMP vs. pthread pool)
@@ -455,7 +503,8 @@ EM_JS(void, js_report_init_error, (int code, const char* detail), { ... });
 
 which invokes `window.pmReportInitError(code, detail)` if the host page has defined it. On
 success, `init()` calls `js_report_init_success()`, which invokes `window.pmHideInitError()` if
-defined.
+defined. (Listen through `subscribeWasmCallback()` in `html/projectm-wasm-callbacks.js` rather
+than assigning the global yourself — see "Page globals" in `html/README.md`.)
 
 `html/projectm-init-errors.js` provides a ready-made implementation of both hooks: it shows a
 styled `#pm-init-error` overlay with a human-readable message, browser/GPU compatibility hints,
@@ -647,8 +696,20 @@ Behavior:
   are allocated lazily on the next transition). Finally, the last-displayed preset is reloaded via
   `window.currentPresetPath` (set by `updatePresetDisplay()` in `html/projectm-presets.js` on every
   preset switch).
-- If `init()` fails during recovery (e.g. the browser hasn't actually restored the context yet),
-  `checkInit()` shows the existing `#pm-init-error` overlay with its "Retry" button instead.
+- `pm_handle_context_loss()` tears down every host whose context reports lost — the host that
+  owns the canvas, not whichever host is active — and leaves it active so the restore path's
+  `init()` / `start_render()` rebuild that host. It keeps the lost context's handle so `init()`
+  can see the loss: while the context is still lost `init()` returns `5` and builds nothing (an
+  engine made on the dead context would hold GL names that vanish on restore). `checkInit()`
+  stays quiet for `5` and the context-loss overlay stays up until `webglcontextrestored`.
+- `init()` also re-applies what the page had set on the engine it replaces — mesh size (or the
+  governor tier's), aspect correction, preset lock, transparency mode/threshold, target fps and
+  the governor tier's blur limits — so a restore does not silently fall back to defaults. The same
+  applies after `rebind_canvases()`.
+- `init()`'s "already initialized" early return now also checks that the engine's context is live
+  and current; an engine left on a lost context is torn down and rebuilt.
+- If `init()` fails during recovery for any other reason, `checkInit()` shows the existing
+  `#pm-init-error` overlay with its "Retry" button instead.
 
 ### Testing context loss
 
@@ -723,9 +784,10 @@ frame", not "give up" — and a host that gives up should call
 
 `renderLoop()` preserves:
 
-- The `app_data.loading == EM_TRUE` early-return (set by `load_preset_file()`
-  during shader compilation) — no GL work, including `render_frame()`, runs
-  while a preset is loading.
+- ~~The `app_data.loading == EM_TRUE` early-return~~ — removed: presets are
+  prepared on a pthread and activated at the top of `render_frame()`, so the
+  loop keeps rendering the current preset while the next one loads (see
+  [Preset loading](#preset-loading)).
 - The perf HUD GPU timer hooks (`js_perf_gpu_begin_frame()` /
   `js_perf_gpu_end_frame()`), which now bracket `render_frame()` instead of a
   bare `projectm_opengl_render_frame()` call, so GPU timings include the
@@ -845,9 +907,8 @@ To rebuild after changing `projectM_emscripten.cpp` (or projectM itself):
 
 ```bash
 # 1. Build + install projectM static libs for wasm (BUILD_TESTING off keeps
-#    this fast; ENABLE_WASM_TRANSITIONS=ON matches the smoke wrapper's
-#    ASYNCIFY_STACK_SIZE handling below).
-emcmake cmake -S . -B cmake-build-wasm -DBUILD_TESTING=NO \
+#    this fast; Release defines NDEBUG, as scripts/build_wasm_install.sh does).
+emcmake cmake -S . -B cmake-build-wasm -DBUILD_TESTING=NO -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_WASM_TRANSITIONS=ON -DCMAKE_INSTALL_PREFIX=install-wasm
 cmake --build cmake-build-wasm -j"$(nproc)"
 cmake --install cmake-build-wasm
@@ -859,12 +920,14 @@ INSTALL_DIR=$PWD/install-wasm OUT_DIR=$PWD/cmake-build-wasm/wasm-smoke \
 ```
 
 `scripts/build_wasm_smoke_wrapper.sh` does **not** pass `-flto` unless
-`PROJECTM_WASM_LTO=1`. That opt-in is currently broken: under emsdk 6.0.6 the
-LTO link fails with undefined `EM_JS` symbols (`js_report_init_success`,
-`js_init_projectm_dom`, and eight more declared in `ProjectMWasmInternal.hpp`
-and defined in `WasmJsBindings.cpp`). Under 3.1.53 it failed differently
-(`attempt to add bitcode file after LTO`, from mixing bitcode with the non-LTO
-static libs).
+`PROJECTM_WASM_LTO=1`, which pairs with static libs configured with
+`-DPROJECTM_WASM_LTO=ON` (`PROJECTM_WASM_LTO=1 scripts/build_wasm_install.sh`),
+i.e. whole-program LTO over LLVM bitcode archives. The wrapper TUs are then
+compiled to native objects first and only the link runs LTO: emsdk 6.0.6 does
+not register `EM_JS` functions defined in bitcode as JS imports, which is why a
+plain `-flto` wrapper compile used to fail with undefined `js_report_init_success`,
+`js_init_projectm_dom` and the other `EM_JS` symbols. Sizes and timings:
+`docs/PERFORMANCE.md` ("Whole-program LTO").
 
 Then point the capture script at the freshly built module, either by **copying
 the artifacts to the repo root** (what the committed bundle expects):
@@ -910,16 +973,29 @@ mean/median/p95 stats. See [docs/PERFORMANCE.md](PERFORMANCE.md) for details.
 
 ## Dual-FBO precision policy (WASM)
 
-Dual-FBO format probing defaults to `RGBA16F -> RGBA32F -> RGBA8` to cut transition VRAM/bandwidth
-while keeping float precision by default.
+`DualPingPongFramebuffer::DetectFormat()` (`src/wasm/WasmGraphics.hpp`) picks the format:
 
-- Default: `RGBA16F` when `EXT_color_buffer_half_float` is available (`fboPrecision: 'half'`)
-- High precision opt-in: `fboPrecision: 'high'` (host JS reads `?fboPrecision=high`) prefers `RGBA32F` first
+- Default: `RGBA16F` whenever it is renderable — WebGL 2 plus `EXT_color_buffer_float` *or*
+  `EXT_color_buffer_half_float` (`fboPrecision: 'half'`). It is always filterable in WebGL 2.
+- High precision opt-in: `fboPrecision: 'high'` (host JS reads `?fboPrecision=high`) uses `RGBA32F`
+  when `EXT_color_buffer_float` is present. `RGBA32F` is only linearly filterable with
+  `OES_texture_float_linear`; without it the textures are sampled `GL_NEAREST`, because a
+  `GL_LINEAR` sampler on an unfilterable format leaves the texture incomplete and it samples as
+  black (common on mobile/iOS GPUs). The compositor draws the FBOs 1:1, so nothing is lost.
 - Force byte: `fboPrecision: 'byte'` pins `RGBA8` (debug the degraded path on a float-capable GPU)
 - Fallback: `RGBA8` (degraded-mode banner in `html/projectm-fbo-format.js`)
 
+Before #258 the chain fell back to `RGBA32F` whenever `EXT_color_buffer_half_float` was missing,
+even though `EXT_color_buffer_float` already makes `RGBA16F` renderable — doubling VRAM and
+bandwidth for nothing — and always used `GL_LINEAR`.
+
+One numbering covers both directions (`FboFloatFormat`): `set_context_config()`'s `fboPrecision`
+argument and `dual_fbo_get_format()`'s result are both **0 = RGBA16F, 1 = RGBA32F, 2 = RGBA8**.
+(The getter used to return 0 for RGBA32F and 1 for RGBA16F.)
+
 The precision is set through `ProjectMContext`'s `fboPrecision` option / `set_context_config()`; the C++ side no
-longer reads `?fboPrecision=` from the URL (see "WebGL context attributes" above).
+longer reads `?fboPrecision=` from the URL (see "WebGL context attributes" above). In the render
+worker topology it travels in the worker's `init` message.
 
 `RGBA32F` is 16 bytes/px against 8 for `RGBA16F`, across four surfaces (A_Read/A_Write,
 B_Read/B_Write) — so the default halves both transition VRAM and compositor bandwidth during a

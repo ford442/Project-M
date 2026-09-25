@@ -27,6 +27,12 @@ public:
 
     std::unique_ptr<Preset> LoadPresetFromStream(std::istream& data) override;
 
+    std::unique_ptr<PreparedPreset> PreparePresetFromFile(const std::string& filename,
+                                                          const PresetPrepareContext& context) const override;
+
+    std::unique_ptr<PreparedPreset> PreparePresetFromStream(std::istream& data,
+                                                            const PresetPrepareContext& context) const override;
+
     std::string supportedExtensions() const override
     {
         return ".milk .prjm";

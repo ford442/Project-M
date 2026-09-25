@@ -39,30 +39,20 @@ FinalComposite::FinalComposite()
 
 void FinalComposite::LoadCompositeShader(const PresetState& presetState)
 {
+    LoadCompositeShader(presetState, std::nullopt);
+}
+
+void FinalComposite::LoadCompositeShader(const PresetState& presetState, std::optional<PreparedMilkdropShader> prepared)
+{
     if (presetState.compositeShaderVersion > 0)
     {
+        if (!prepared)
+        {
+            prepared.emplace();
+            prepared->source = SelectCompositeShaderSource(presetState.compositeShader);
+        }
         m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
-        if (!presetState.compositeShader.empty())
-        {
-            try
-            {
-                m_compositeShader->LoadCode(presetState.compositeShader);
-                LOG_DEBUG("[FinalComposite] Successfully loaded composite shader code.");
-            }
-            catch (Renderer::ShaderException& ex)
-            {
-                LOG_WARN("[FinalComposite] Error loading composite warp shader code: " + ex.message() + " - Using fallback shader.");
-
-                // Fall back to default shader
-                m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
-                m_compositeShader->LoadCode(defaultCompositeShader);
-            }
-        }
-        else
-        {
-            LOG_DEBUG("[FinalComposite] No composite shader code in preset, loading default.");
-            m_compositeShader->LoadCode(defaultCompositeShader);
-        }
+        m_compositeShader->LoadPrepared(std::move(*prepared));
     }
     else
     {
@@ -78,6 +68,29 @@ void FinalComposite::LoadCompositeShader(const PresetState& presetState)
     }
 }
 
+auto FinalComposite::SelectCompositeShaderSource(const std::string& compositeShader) -> MilkdropShaderSource
+{
+    if (compositeShader.empty())
+    {
+        LOG_DEBUG("[FinalComposite] No composite shader code in preset, loading default.");
+        return MilkdropShader::AnalyzeCode(MilkdropShader::ShaderType::CompositeShader, defaultCompositeShader);
+    }
+
+    try
+    {
+        auto source = MilkdropShader::AnalyzeCode(MilkdropShader::ShaderType::CompositeShader, compositeShader);
+        LOG_DEBUG("[FinalComposite] Successfully loaded composite shader code.");
+        return source;
+    }
+    catch (const Renderer::ShaderException& ex)
+    {
+        LOG_WARN("[FinalComposite] Error loading composite warp shader code: " + ex.message() + " - Using fallback shader.");
+
+        // Fall back to default shader
+        return MilkdropShader::AnalyzeCode(MilkdropShader::ShaderType::CompositeShader, defaultCompositeShader);
+    }
+}
+
 void FinalComposite::CompileCompositeShader(PresetState& presetState)
 {
     if (m_compositeShader)
@@ -85,18 +98,54 @@ void FinalComposite::CompileCompositeShader(PresetState& presetState)
         try
         {
             m_compositeShader->LoadTexturesAndCompile(presetState);
-            LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
+            if (!m_compositeShader->IsCompilePending())
+            {
+                LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
+            }
         }
-        catch (Renderer::ShaderException& ex)
+        catch (Renderer::ShaderException&)
         {
-            LOG_WARN("[FinalComposite] Error compiling composite warp shader code - Using fallback shader.");
-
-            // Fall back to default shader
-            m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
-            m_compositeShader->LoadCode(defaultCompositeShader);
-            m_compositeShader->LoadTexturesAndCompile(presetState);
+            FallBackToDefaultCompositeShader(presetState);
         }
     }
+}
+
+auto FinalComposite::IsCompositeShaderCompilePending() const -> bool
+{
+    return m_compositeShader && m_compositeShader->IsCompilePending();
+}
+
+auto FinalComposite::IsCompositeShaderCompileComplete() const -> bool
+{
+    return !m_compositeShader || m_compositeShader->IsCompileComplete();
+}
+
+void FinalComposite::FinishCompositeShader(PresetState& presetState)
+{
+    if (!IsCompositeShaderCompilePending())
+    {
+        return;
+    }
+
+    try
+    {
+        m_compositeShader->FinishCompile(presetState);
+        LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
+    }
+    catch (Renderer::ShaderException&)
+    {
+        FallBackToDefaultCompositeShader(presetState);
+    }
+}
+
+void FinalComposite::FallBackToDefaultCompositeShader(PresetState& presetState)
+{
+    LOG_WARN("[FinalComposite] Error compiling composite warp shader code - Using fallback shader.");
+
+    // Fall back to default shader
+    m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
+    m_compositeShader->LoadCode(defaultCompositeShader);
+    m_compositeShader->LoadTexturesAndCompile(presetState);
 }
 
 void FinalComposite::Draw(const PresetState& presetState, const PerFrameContext& perFrameContext)

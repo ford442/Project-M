@@ -164,9 +164,18 @@ diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
 |--------|------|--------|--------|
 | Blur path | `?blurPath=copy` | `PROJECTM_BLUR_COPY_PATH=1` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
 | Texture copy path | `?copyPath=shader` | `PROJECTM_COPY_SHADER_PATH=1` | Restores the pre-#179 copy path: every `CopyTexture` resolve is a fullscreen textured quad. Default (unset) resolves the plain and Y-flipped copies with `glBlitFramebuffer` where the blit is equivalent (no blending, viewport covers the target, source format is color-renderable) and falls back to the quad otherwise. |
-| Dual-FBO precision | `?fboPrecision=high` | — | Probes RGBA32F first for the WASM compositor instead of the RGBA16F default. |
+| Dual-FBO precision | `?fboPrecision=high` | — | Uses RGBA32F for the WASM compositor instead of the RGBA16F default (GL_NEAREST sampling without `OES_texture_float_linear`). |
 | Mesh size | `?meshQuality=low` | — | 64×48 instead of the 80×60 default (a 1.56× vertex-count ratio). |
 | Canvas MSAA | `?aa=1` (or `localStorage.canvasAA='1'`) | — | Opts into `antialias:true`; default (unset) is now `false` (governor v2, issue #178). |
+
+The page reads the WASM switches and hands them to the module: `?blurPath`, `?copyPath` and
+`?perPixelEval` through `set_render_path_overrides()` (`ProjectMContext`'s `renderPathOverrides`
+option, defaulting to the page's query string), `?fboPrecision` through `set_context_config()`.
+Both travel in the render worker's `init` message. Until #258 the C++ side read the first three
+from `globalThis.location.search`, which inside the render worker is the worker script's URL — so
+in the default topology every one of them was silently a no-op. The worker's `stats` message
+reports `renderPathOverrides` (the mask `get_render_path_overrides()` reads back: 1 blur copy,
+2 copy shader, 4 per-pixel CPU) so a run can confirm the switch landed.
 
 The blur and copy switches are read once, at engine init: the blur render path is decided on
 the first blurred frame and then cached, and the copy path is latched the first time a copy
@@ -252,7 +261,9 @@ used to change the mesh resolution at runtime. `html/projectm-mesh-quality.js` w
   (devices with fewer than 8 logical cores start at `'low'`)
 
 The choice is persisted in `localStorage.meshQuality` and can be overridden per page load with
-`?meshQuality=high|low|auto`, or changed at runtime via `window.pmSetMeshQuality(quality)`.
+`?meshQuality=high|low|auto`, or changed at runtime via the `setQuality(quality)` that
+`setupMeshQuality()` returns (pages that import `html/projectm-legacy-globals.js` and call
+`exposeMeshQualityGlobals()` also get it as `window.pmSetMeshQuality(quality)`).
 
 ### Verification performed
 
@@ -290,14 +301,28 @@ therefore animate at the wrong speed whenever the real frame rate diverged from 
 
 ### Render loop cadence (WASM)
 
-The WASM render loop already drives `renderLoop()` via
-`emscripten_set_main_loop((void (*)())renderLoop, 0, 0)` with
-`emscripten_set_main_loop_timing(EM_TIMING_RAF, 1)` (`WasmRenderLoop.cpp`), i.e. it is already
-vsync/`requestAnimationFrame`-driven, uncapped by a fixed timer. No change was needed here; this
-section documents that the acceptance criterion was already satisfied.
-`emscripten_request_animation_frame_loop` was considered but not adopted — the existing
-`emscripten_set_main_loop` + `EM_TIMING_RAF` combination already provides rAF-paced callbacks
-without the API and lifecycle changes that switching would require.
+`start_render()` registers `renderLoop()` with
+`emscripten_set_main_loop(renderLoop, 0, 0)` and
+`emscripten_set_main_loop_timing(EM_TIMING_RAF, 1)` (`WasmRenderLoop.cpp`): one frame per
+`requestAnimationFrame`, i.e. vsync-aligned, never rendering frames the compositor will not show,
+and throttled by the browser in a background tab.
+
+Until #258 the call was `emscripten_set_main_loop_timing(2, 1)` — `2` is
+`EM_TIMING_SETIMMEDIATE`, not `EM_TIMING_RAF` (`1`) — while this section claimed rAF pacing. The
+main-thread loop (`?renderWorker=0`, and every browser that falls back from the worker topology)
+spun as fast as Emscripten's postMessage shim allowed, so FPS numbers recorded on that path, and the
+governor's decisions, measured a spin loop. Compare nothing against main-thread numbers taken
+before that fix.
+
+The WASM smoke (`tests/wasm-smoke/index.html`, `checkMainLoopPacing()`) now guards it: it reads the
+mode back with `get_main_loop_timing_mode()` (an internal test export; SwiftShader frames cost more
+than a refresh, so the frame rate alone cannot tell the two modes apart there) and also bounds the
+frame rate at 250/s over 2 s, which catches a spin loop on a real GPU. The render worker and the
+deterministic harness pause this loop and drive `render_frame()` themselves, so they are unaffected.
+
+`emscripten_request_animation_frame_loop` was considered but not adopted — `emscripten_set_main_loop`
++ `EM_TIMING_RAF` already gives rAF-paced callbacks without the lifecycle changes switching would
+require.
 
 ### Adaptive quality governor (WASM, v1)
 
@@ -315,10 +340,11 @@ Thresholds, relative to a budget of `1000 / targetFps` ms (≈16.7 ms at the def
   exceeds **1.3×** budget (~21.7 ms).
 - **Step up** a tier after **90 consecutive frames** (~1.5 s @ 60 fps) where the frame time is
   under **0.8×** budget (~13.3 ms).
-- Frames within **10 frames** after a preset finishes loading (`app_data.loading` transitioning
-  `true` → `false`) are excluded from both counters, so a single slow ASYNCIFY preset-compile
-  spike cannot trigger a permanent downgrade. Frames while `app_data.loading == true` are skipped
-  entirely (pre-existing `renderLoop()` early return).
+- The frame that switches to a newly loaded preset carries its GL compile and link, so it and the
+  **10 frames** after it are excluded from both counters (`ActivatePreparedPreset()` starts the
+  grace), and a single slow preset compile cannot trigger a permanent downgrade. Frames rendered
+  while the next preset is being prepared count normally: the preparation runs on the host's
+  prepare thread and the loop keeps drawing the current preset (it used to skip those frames).
 
 On startup, the governor's tier is lazily synced from whatever mesh size
 `html/projectm-mesh-quality.js` already applied (`projectm_get_mesh_size`), so the two systems
@@ -420,10 +446,14 @@ New WASM exports (`projectM_emscripten.cpp`, wired up in `CMakeLists.txt` and
 
 `html/projectm-fps-governor.js` (`setupFpsGovernor(Module)`, called from `projectm-core.html`)
 applies `?targetFps=`/`?governor=0|1` query params or `localStorage.targetFps` /
-`localStorage.qualityGovernor`, and exposes `window.pmSetTargetFps(fps)`,
-`window.pmSetQualityGovernorEnabled(enabled)`, and `window.pmGetQualityTier()` for host UIs.
+`localStorage.qualityGovernor` (guarded: a sandboxed iframe whose `localStorage` throws still
+boots), and returns `setTargetFps(fps)`, `setQualityGovernorEnabled(enabled)`, `getQualityTier()`,
+`getRenderScale()`, `getBlurCap()` and `dispose()` for host UIs. It writes nothing to `window`;
+pages whose inline handlers still call `window.pmSetTargetFps(fps)`,
+`window.pmSetQualityGovernorEnabled(enabled)` or `window.pmGetQualityTier()` opt in through
+`exposeGovernorGlobals()` in `html/projectm-legacy-globals.js`.
 `window.pmOnGovernorTierChange(tier)`, if defined by the host page, is called whenever the
-governor changes tiers.
+governor changes tiers — that name is an engine callback, see "Page globals" in `html/README.md`.
 
 ### Native build
 
@@ -543,8 +573,8 @@ projectm-v.030-thread.js` link against the prebuilt `libprojectM-4.a` /
 time cannot be measured directly (same limitation as the rest of this document). What *can* be
 measured headlessly via `scripts/build_wasm_smoke_wrapper.sh`:
 
-- Build success/failure (including compatibility with `ENABLE_WASM_TRANSITIONS`'s
-  `ASYNCIFY_STACK_SIZE` tuning).
+- Build success/failure (at the time including compatibility with `ENABLE_WASM_TRANSITIONS`'s
+  `ASYNCIFY_STACK_SIZE` tuning; the build has no ASYNCIFY any more).
 - Output `.wasm` and `.js` file sizes (smaller artifacts download and parse/instantiate faster,
   particularly relevant to startup time).
 - Wall-clock build/link time.
@@ -587,8 +617,8 @@ that decision.
 
 | Candidate | Finding |
 |---|---|
-| `-s ASYNCIFY=1` | Removing or restructuring this is **not** a flag flip — `ENABLE_WASM_TRANSITIONS` (`ASYNCIFY_STACK_SIZE=65536`) depends on ASYNCIFY for non-blocking shader compilation and concurrent preset loading during transitions (see "Phase 4/5" comments in `projectM_emscripten.cpp`). Replacing it with `-s JSPI=1` for preset loading only, while keeping the render loop ASYNCIFY-free, is a real refactor (separate render vs. load call graphs) requiring its own design + in-browser testing of transitions. Deferred as its own follow-up, not bundled into this flag-audit pass. |
-| `NO_DISABLE_EXCEPTION_CATCHING` → `-fwasm-exceptions` | **Done (2026-09-17)**, with a full lib + wrapper rebuild. It is the default now, selectable through `PROJECTM_WASM_EXCEPTIONS`. See "Toolchain and flag verification (emsdk 6.0.6)" below. |
+| `-s ASYNCIFY=1` | **Removed.** It was not a flag flip: the one yield it served (`emscripten_sleep(0)` before a preset compile) had to go first. Preset loads now prepare on a per-host pthread and the render loop never suspends. See "ASYNCIFY: retired" below. Not JSPI either: that needs a browser flag on Firefox/Safari, and with the work off the render thread nothing needs suspending. |
+| `NO_DISABLE_EXCEPTION_CATCHING` → `-fwasm-exceptions` | **Done (2026-09-17)**, with a full lib + wrapper rebuild. Unconditional since ASYNCIFY went (the `PROJECTM_WASM_EXCEPTIONS=js` fallback is rejected). See "Toolchain and flag verification (emsdk 6.0.6)" below. |
 | `-sINITIAL_MEMORY=1024mb` | **Done (epic #163):** reduced to `256mb` — see "WASM heap right-sizing" below. Re-measure with `tests/wasm-smoke/measure-heap.mjs` after deploy. |
 | `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` | **Re-evaluated with `FULL_ES3=0` (2026-09-17).** `GL_MAX_TEMP_BUFFER_SIZE` was removed; with `FULL_ES2`/`FULL_ES3` off it has no effect, and its value no longer appears in the glue. `GL_POOL_TEMP_BUFFERS=0` was kept (see below). |
 
@@ -626,8 +656,8 @@ the setting shown.
 | `--closure 1` (FS methods pinned in externs) | 1,591,413 B | 106,126 B (-55.9%) | pass | not run | **8/41** |
 | **Landed:** `FULL_ES3=0` + `-fwasm-exceptions`, clean rebuild with no overrides | **1,485,282 B (-6.7%)** | **215,860 B (-10.2%)** | pass | 26/26 ssim 1.00000 | 41/41 |
 
-"Smoke" means `tests/wasm-smoke/run.mjs`: init, OpenMP (4 threads, blocktime 0), Asyncify cold
-load, dual-FBO soft cut, two engine instances, and (new) a known-bad preset.
+"Smoke" means `tests/wasm-smoke/run.mjs`: init, OpenMP (4 threads, blocktime 0), a cold
+load (then under Asyncify), dual-FBO soft cut, two engine instances, and (new) a known-bad preset.
 
 **`FULL_ES3=0`: landed.** Emscripten's `tools/link.py` turns on `FULL_ES2` whenever `FULL_ES3` is
 set. The two layers add client-side vertex-array emulation (`clientBuffers`, `getTempVertexBuffer`)
@@ -674,9 +704,9 @@ fails at link time in both directions (`undefined symbol: __resumeException`, or
 - **Browser support.** Emscripten 6.0.6 emits the legacy EH encoding (1,995 `try`, 0 `try_table`):
   Chrome 95, Firefox 100, Safari 15.2. That is at or below the floor SharedArrayBuffer + COOP/COEP
   already sets, so Safari is not a blocker.
-- **Asyncify.** emcc warns that `ASYNCIFY=1` is incompatible with `-fwasm-exceptions`. A function
-  that is both Asyncify-instrumented and has a `try` fails to *compile*. `ASYNCIFY_ONLY` covers only
-  the three `load_preset_file*` frames, none of which has a `try`, and the cold-load smoke passes.
+- **Asyncify (historical).** emcc warned that `ASYNCIFY=1` is incompatible with `-fwasm-exceptions`:
+  a function that is both Asyncify-instrumented and has a `try` fails to *compile*. It was safe while
+  `ASYNCIFY_ONLY` covered only the three `load_preset_file*` frames. The build has no ASYNCIFY now.
 
 **`--closure 1`: rejected.** Two problems:
 1. **Link.** `src/wasm/pthread_script_url.pre.js` shadows `Worker` on purpose, and Closure rejected
@@ -688,7 +718,7 @@ fails at link time in both directions (`undefined symbol: __resumeException`, or
    - 33 of the 41 names that EM_JS/pre-js code shares with `html/`, which no browser test catches.
 
    The renamed names include `projectMWritePcmRing` (external PCM), `projectMPresetSwitchFailed`,
-   `pmReportInitError`, `pmOnPerfFrame`, all three `pmOnGovernor*Change` hooks, `Module.__pmPerfGpu`,
+   `pmReportInitError`, `pmOnPerfFrame`, all three `pmOnGovernor*Change` hooks, `Module.__pmPerfGpuByCtx`,
    and the worklet's `audioData`/`channelsForPM` message fields. The module still boots, renders and
    passes the smoke test.
 
@@ -696,9 +726,11 @@ To adopt Closure, a hand-maintained externs file would have to track every EM_JS
 check is committed instead: `tests/wasm-smoke/host_contract_names.mjs` runs in CI on every build,
 passes 41/41 on the landed flags, and fails listing 33 names on a `--closure 1` build.
 
-**Wrapper `-flto` (`PROJECTM_WASM_LTO=1`) is broken on 6.0.6.** The link fails with undefined
-`EM_JS` symbols (`js_report_init_success`, `js_init_projectm_dom`, and eight more). The -2.8%
-figure above predates the host-wrapper split and was measured on 5.0.4. It is not investigated here.
+**Wrapper `-flto` (`PROJECTM_WASM_LTO=1`) was broken on 6.0.6.** The link failed with undefined
+`EM_JS` symbols (`js_report_init_success`, `js_init_projectm_dom`, and eight more): Emscripten
+6.0.6 does not register `EM_JS` functions defined in LLVM bitcode as JS imports. Fixed by compiling
+the wrapper TUs to native objects before an LTO link; see "Whole-program LTO" below. The -2.8%
+figure above predates the host-wrapper split and was measured on 5.0.4.
 
 **CI.** The Emscripten workflow had not passed since 2026-04-24, and each break was hidden behind
 the one before it:
@@ -853,7 +885,7 @@ reserved `INITIAL_MEMORY` slab.
 
 Assumptions: RGBA16F ping-pong (≈7 MiB per 1280×720 plane), dual pipeline ×2, blur mip chain
 ≈1.3× main FBO, shader-compile spike amortized over `postPresetLoad` checkpoint. Preset-shader
-compile spikes (ASYNCIFY yields) can add **+30–80 MiB** transiently; `ALLOW_MEMORY_GROWTH` covers
+compile spikes can add **+30–80 MiB** transiently; `ALLOW_MEMORY_GROWTH` covers
 this without raising `INITIAL_MEMORY`.
 
 #### `INITIAL_MEMORY` change
@@ -899,67 +931,103 @@ it isn't already allocated, and the host readiness poll only calls `transition_s
 preset B, allocates it, then starts once" and "keeps polling when allocation fails"). The first
 transition after a cold start still soft-cuts; it does not silently degrade to a hard cut.
 
-### ASYNCIFY strategy decision
+### ASYNCIFY: retired
 
-| Option | Status | Notes |
-|---|---|---|
-| **A: `-s JSPI=1`** for async preset/shader load | **Deferred** | Requires Emscripten ≥ 3.1.58 + browser matrix (Chrome 137+, Safari 18.2+ for full JSPI). Mobile Safari gaps documented in Emscripten release notes. Pairs with monolith split (#167). |
-| **B: `ASYNCIFY_ONLY` / structured load entrypoints** | **Implemented (2026-08)** | Restrict instrumentation to the stack at `emscripten_sleep(0)` in `load_preset_file_impl`. Keep `render_frame` / `renderLoop` off the instrumented graph. |
-| **C: `ASYNCIFY_REMOVE` + explicit `emscripten_sleep` yields** | Fallback | Manual yield points at preset-load boundaries; highest engineering cost, hardest to regression-test. |
+The build has no ASYNCIFY. It used to be kept alive by a single `emscripten_sleep(0)` at the start of
+`load_preset_file_impl`. That call yielded to the event loop once, and the rest of the load then ran
+synchronously with `renderLoop()` skipping frames: parse, HLSL→GLSL transpile, `glCompileShader`,
+`glLinkProgram`, init expressions. Since the OffscreenCanvas render worker became the default (#237),
+the yield mostly protected a worker nobody interacts with, and every preset switch still stalled the
+loop for the whole compile.
 
-**Decision (2026-07):** keep `ASYNCIFY=1` + `ASYNCIFY_STACK_SIZE=65536` for that pass. Implement
-Option B after #167 lands (separate load vs render call graphs).
+Preset loading is now split at the GL boundary (libprojectM `projectM-4/preset_prepare.h`, see
+[EMSCRIPTEN.md → Preset loading](EMSCRIPTEN.md#preset-loading)):
 
-**Decision (2026-08):** Option B landed. List file: [`cmake/wasm_asyncify_only.txt`](../cmake/wasm_asyncify_only.txt),
-wired as `-s ASYNCIFY_ONLY=@…` from [`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake)
-and the generated [`scripts/wasm_link_common.inc.sh`](../scripts/wasm_link_common.inc.sh).
+- **Prepare thread.** Each `WasmHost` runs a pthread that parses and analyses the preset (read on the main thread) and
+  transpiles its shaders speculatively. The render thread uses that GLSL only if the sampler/texsize
+  declarations it builds match the prediction, so the result is byte-identical by construction.
+  `PresetCompatPrepared.GlslMatchesInlineTranspile` checks this for every test preset and
+  `custom_milk_fixed/`, with zero prediction misses.
+- **Render thread.** `render_frame()` activates the prepared preset: GL objects, compile, init
+  expressions. With `KHR_parallel_shader_compile`, the link runs on driver threads and the switch
+  waits for `GL_COMPLETION_STATUS_KHR` (`shader_link_pending` in `projectm_perf_frame_timings`
+  and the HUD). The old preset keeps drawing until then.
+- **Not JSPI.** It needs a browser flag on Firefox and Safari, and with the work off the render
+  thread nothing needs suspending.
 
-The only user-space suspend is `emscripten_sleep(0)` at the **start** of
-`WasmPlaylistBridge.cpp::load_preset_file_impl` (before HLSL→GLSL / `glCompileShader`).
-Shader compile and `projectm_load_preset*` therefore are **not** on the Asyncify unwind stack;
-listing them would grow instrumentation. `ASYNCIFY_ADVISE=1` on the smoke-wrapper link confirms
-exactly three functions instrumented:
+History: Option A (JSPI) was deferred, Option B (`ASYNCIFY_ONLY`, 2026-08) cut instrumentation to
+the three `load_preset_file*` frames (−40.8% `.wasm` against whole-program ASYNCIFY), and Option C
+("manual yields") was the fallback. This change is the structural fix none of them were:
+removing the yield instead of making it cheaper.
 
-- `load_preset_file`
-- `load_preset_file_hard`
-- `load_preset_file_impl(char const*, bool)` (matched via `load_preset_file_impl*`)
+#### Size and link time (Emscripten 6.0.6, SwiftShader host, smoke wrapper)
 
-Historical whole-program baseline (Emscripten 3.1.53, `ENABLE_WASM_TRANSITIONS=ON`, smoke wrapper,
-with `-flto` from an earlier pass):
+Each row changes one thing relative to the row above. Measured on this branch, 2026-09-24/25, same
+machine.
 
-| Artifact | Size |
-|---|---|
-| `.wasm` | 2,024,548 B |
-| `.js` | 233,319 B |
+| Build | `.wasm` | glue `.js` | `Asyncify` in glue | Wrapper compile + link |
+|---|---|---|---|---|
+| 037 flags (`ASYNCIFY=1` + `ASYNCIFY_ONLY`, `WASM_WORKERS=1`) | 1,489,948 B | 216,452 B | 59 | 70.2 s |
+| No ASYNCIFY (prepare thread, job API; `WASM_WORKERS`, lib-only `TRUSTED_TYPES`/`AUDIO_WORKLET` dropped) | 1,503,330 B (+0.9%) | 207,399 B (−4.2%) | **0** | 73.2 s |
+| + whole-program LTO (`PROJECTM_WASM_LTO`: libs as bitcode) | 1,536,453 B (+2.2%) | 208,033 B | 0 | 46.6 s (wrapper TUs compiled in parallel, then one LTO link) |
+| + Release / `NDEBUG` (no LTO) | 1,504,253 B (+0.06%) | 207,399 B | 0 | 76.3 s |
 
-Option B before/after on the same smoke-wrapper link (Emscripten 6.0.6 locally; no wrapper `-flto`;
-`ENABLE_WASM_TRANSITIONS=ON`; identical sources except `ASYNCIFY_ONLY`):
+The +13 KB of the second row is new code: `std::thread` and `std::condition_variable`, the job API,
+and the prediction. `ASYNCIFY_ONLY` had instrumented only three small functions, so removing it saved
+little `.wasm` but 9 KB of glue (the `Asyncify` runtime).
 
-| Metric | Before (whole-program `ASYNCIFY=1`) | After (`ASYNCIFY_ONLY`) | Delta |
-|---|---|---|---|
-| `.wasm` | 2,691,227 B | **1,593,417 B** | **−1,097,810 B (−40.8%)** |
-| `.js` | 237,008 B | 237,008 B | 0 |
-| `wasm-opt --all-features --print-function-map` lines | 3,119 | 3,119 | Names-section count unchanged (instrumentation is per-function body / spill, not new named exports) |
-| `ASYNCIFY_ADVISE` instrumented (`state=1`) | whole-program reachable set | **3** | Instrumented set collapsed to the load yield stack |
+#### Preset switch: frames rendered during the load
 
-Verification:
+`tests/wasm-smoke/preset_switch_stall.mjs` (CI step "Preset switch keeps rendering") runs the
+engine's own main loop. It settles `000-empty.milk`, then hard-cuts to
+`custom_milk_fixed/milk011.milk`. It counts the frames rendered between the request and the frame
+that switches, and compares the longest frame gap around the switch with the settled frames. Two
+runs per row, SwiftShader:
 
-```sh
-# Function map (needs --all-features for pthread/atomics builds)
-"$EMSDK/upstream/bin/wasm-opt" --all-features --print-function-map \
-  cmake-build/wasm-smoke/projectm-v.030-thread.wasm -o /dev/null | wc -l
+| Canvas | Bundle | Frames rendered while loading | Request → ready | Worst frame gap (settled median) |
+|---|---|---|---|---|
+| 320×180 | 037 flags (ASYNCIFY, blocking load) | **0** (fails) | 369–460 ms | 374–461 ms (38–52 ms) |
+| 320×180 | This change | **6–7** | 353–675 ms | 96–312 ms (31 ms) |
+| 1280×720 | 037 flags | **0** (fails) | 316 ms | 316 ms, 1.62× p95 |
+| 1280×720 | This change | **2–3** | 758–1,067 ms | 0.62–1.88× p95 |
 
-# Size
-stat -c%s cmake-build/wasm-smoke/projectm-v.030-thread.wasm
+On the old path the whole load was one frame gap. On the new one, the worst gap is the activation
+frame: SwiftShader does not expose `KHR_parallel_shader_compile`, so that frame still carries the
+GL compile and link. Request → ready is similar at the small canvas, but at 1280×720 it is quantized
+to software frames of 100–300 ms. Activation waits for the next frame boundary, and the prepare
+thread shares cores with SwiftShader's rasterizer and OpenMP.
 
-# Advise pass (temporary): add -s ASYNCIFY_ADVISE=1 next to ASYNCIFY_ONLY and
-# grep 'only-list to 1' in the link log — expect the three load_preset* symbols.
-```
+The preset file is read on the main thread at request time (`projectm_preset_prepare_begin_file_contents()`).
+The prepare thread used to open it itself. Under Emscripten pthreads every FS call from a worker is
+proxied to the main thread and waits for its current frame to end, and that alone added about a
+third to request → ready at 1280×720 (1.0–1.4 s before).
 
-Regression: `tests/wasm-smoke` waits for `_is_preset_ready` / `_dual_fbo_is_preset_b_ready`
-after each `load_preset_file` (hang = missing list entry) and exercises a soft-cut
-(`start_render` → second load → `dual_fbo_begin_transition` → `transition_start` →
-`render_frame` ×8).
+The ratio is reported, not gated, on software GL: the old whole-load stall measured under 2× p95
+there. Gate it (`--max-ratio 2`) on a GPU run (`--gpu`). The #247 hardware baseline should be taken
+on a bundle with this change.
+
+#### Whole-program LTO
+
+`PROJECTM_WASM_LTO` (off by default) builds the static libs as LLVM bitcode, and the bundle link
+optimises across them. Emscripten 6.0.6 does not register `EM_JS` functions defined in bitcode as JS
+imports, which is what broke `PROJECTM_WASM_LTO=1` before (undefined `js_report_init_success` and
+the other `EM_JS` symbols). `scripts/build_wasm_smoke_wrapper.sh` now compiles the wrapper TUs to
+native objects first and runs LTO only in the link.
+
+Result: `.wasm` **+33 KB (+2.2%)**, smoke passes, no measurable CPU difference.
+`scripts/benchmark_presets_wasm.mjs --software-gl` gives per-stage medians within noise: two runs of
+the *same* non-LTO bundle differ by up to ~30% per stage (for example `perPixelEvalMs` 3.18 vs
+5.36 ms on `110-per_pixel.milk`). It stays opt-in until a GPU run shows a gain worth the size.
+
+#### Release / `NDEBUG`
+
+`scripts/build_wasm_install.sh` now passes `CMAKE_BUILD_TYPE` (default `Release`). Before, the
+library was built with no build type, so `NDEBUG` was never defined and every `assert()` stayed in
+the shipped wasm. `.wasm` changes by +923 B (inlining shifts). The 26 goldens stay pixel-identical,
+and the smoke, preset benchmark and stall test pass.
+
+`scripts/check_no_asyncify.sh` (CI, `build_emscripten.yml`) fails if the Asyncify runtime comes back.
+`scripts/verify_wasm_link_common.sh` fails if an `ASYNCIFY` setting reappears in the flags.
 
 ### OpenMP blocktime: the 032 → 036 audio + framerate regression
 
@@ -1015,8 +1083,9 @@ before/after capture records it next to the frame times.
 was available where this was diagnosed): side-by-side FPS for 032 vs. 036 vs.
 036+fix on one light and one heavy preset at a fixed mesh/canvas size, and a
 listening check on the default FLAC player. If a framerate gap survives with
-`blocktimeMs === 0`, the remaining suspects are the dual-FBO compositor path
-and ASYNCIFY on the render path — both unrelated to this fix.
+`blocktimeMs === 0`, the remaining suspect is the dual-FBO compositor path,
+unrelated to this fix. (ASYNCIFY, the other one listed here before, has been
+removed from the build.)
 
 ### OpenMP effectiveness gates
 

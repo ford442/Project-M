@@ -132,16 +132,17 @@ As of this writing, the Emscripten target uses:
 
 - `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -s USE_WEBGL2=1`
 - `-s FULL_ES2=0 -s FULL_ES3=0` (no GL emulation layer; do not document `FULL_ES2=1` or `FULL_ES3=1`)
-- `-s SHARED_MEMORY=1 -s WASM_WORKERS=1 -pthread`
+- `-s SHARED_MEMORY=1 -pthread` (no `WASM_WORKERS`: every thread is a pthread)
 - `-s ALLOW_MEMORY_GROWTH=1 -sMALLOC='mimalloc' -sMAXIMUM_MEMORY=4gb -sINITIAL_MEMORY=256mb`
-- `-fwasm-exceptions` on every TU (`PROJECTM_WASM_EXCEPTIONS=wasm`, default; `js` selects the old
-  `-s NO_DISABLE_EXCEPTION_CATCHING` ABI). Libs and wrapper must be built with the same value.
+- `-fwasm-exceptions` on every TU, unconditionally (the `NO_DISABLE_EXCEPTION_CATCHING` fallback went
+  with ASYNCIFY).
 - No `--closure 1`: it renames the `globalThis.*`/`Module.*` names EM_JS shares with `html/`.
   `tests/wasm-smoke/host_contract_names.mjs` is the CI gate for that.
-- `-s FORCE_FILESYSTEM=1 -s ASYNCIFY=1` (plus `-s ASYNCIFY_STACK_SIZE=65536` when
-  `ENABLE_WASM_TRANSITIONS=ON`, the default)
+- `-s FORCE_FILESYSTEM=1`, and **no `-s ASYNCIFY`**: preset loads are prepared on a per-host pthread
+  (`src/wasm/WasmPresetPrepare.cpp`); `scripts/check_no_asyncify.sh` gates the bundle
 - `-s EXPORTED_RUNTIME_METHODS='ccall,cwrap'` (wrapper link also exports `FS`) and an explicit `EXPORTED_FUNCTIONS` list
-- `PTHREAD_POOL_SIZE=4` aligned with `kWasmPthreadPoolSize` in `cmake/generated/ProjectMWasmBuildConfig.hpp`
+- `PTHREAD_POOL_SIZE=5` = OpenMP helpers (`kWasmOpenMpThreads - 1`) + one prepare thread per host
+  (`kWasmPresetPrepareThreads`), all in `cmake/generated/ProjectMWasmBuildConfig.hpp`
 
 There is no `-sUSE_SDL=2` in the Emscripten build (SDL2 is only used by the native
 `projectM-Test-UI`, gated behind `ENABLE_SDL_UI`).

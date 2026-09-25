@@ -81,13 +81,27 @@ public:
      */
     std::unique_ptr<Preset> CreatePresetFromStream(const std::string& extension, std::istream& data);
 
+    /// The CPU-only half of CreatePresetFromFile(), safe on any thread once initialize() has run.
+    /// \param filename The preset filename or URL.
+    /// \param context Render-thread state captured for this preparation.
+    /// \throws PresetFactoryException on the same failures as CreatePresetFromFile()
+    /// \returns The prepared preset, or nullptr where CreatePresetFromFile() returns nullptr.
+    std::unique_ptr<PreparedPreset> PreparePresetFromFile(const std::string& filename,
+                                                          const PresetPrepareContext& context) const;
+
+    /// The CPU-only half of CreatePresetFromStream(), safe on any thread once initialize() has run.
+    std::unique_ptr<PreparedPreset> PreparePresetFromStream(const std::string& extension, std::istream& data,
+                                                            const PresetPrepareContext& context) const;
+
     std::vector<std::string> extensionsHandled() const;
 
 
 private:
     void registerFactory(const std::string& extension, PresetFactory* factory);
 
-    auto ParseExtension(const std::string& filename) -> std::string;
+    static auto ParseExtension(const std::string& filename) -> std::string;
+
+    auto ConstFactory(const std::string& extension) const -> const PresetFactory&;
 
     mutable std::map<std::string, PresetFactory*> m_factoryMap;
     mutable std::vector<PresetFactory*> m_factoryList;

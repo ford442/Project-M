@@ -18,6 +18,8 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _init
     _set_canvas_selectors
     _set_context_config
+    _set_render_path_overrides
+    _get_render_path_overrides
     _init_with_canvases
     _rebind_canvases
     _create_host
@@ -68,6 +70,8 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _is_preset_ready
     _get_rendered_frame_count
     _preset_switch_failed
+    _live_playlist_count
+    _get_main_loop_timing_mode
     _get_omp_enabled
     _get_omp_max_threads
     _get_omp_thread_count_in_parallel
@@ -143,21 +147,11 @@ projectm_wasm_simd_compile_args() {
 }
 
 # Optional env overrides:
-#   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link (link-time only)
-#   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default 4)
-#   ENABLE_WASM_TRANSITIONS=ON       (default) adds ASYNCIFY_STACK_SIZE
-#   PROJECTM_WASM_EXCEPTIONS=js|wasm C++ exception ABI (default wasm); must match the
-#                                    PROJECTM_WASM_EXCEPTIONS the static libs were configured with
-# ASYNCIFY_ONLY always points at cmake/wasm_asyncify_only.txt (absolute path required).
+#   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link. Required when the static
+#                                    libs were configured with -DPROJECTM_WASM_LTO=ON (bitcode).
+#   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default 5)
 projectm_wasm_pthread_pool_size() {
-    echo "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-4}"
-}
-
-projectm_wasm_asyncify_only_file() {
-    # When this .inc.sh is sourced, BASH_SOURCE[0] is scripts/wasm_link_common.inc.sh.
-    local _root
-    _root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    echo "${_root}/cmake/wasm_asyncify_only.txt"
+    echo "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-5}"
 }
 
 
@@ -173,24 +167,15 @@ projectm_wasm_common_link_args() {
     local -n _out=$1
     local pthread_pool_size
     pthread_pool_size="$(projectm_wasm_pthread_pool_size)"
-    local asyncify_only_file
-    asyncify_only_file="$(projectm_wasm_asyncify_only_file)"
     local pthread_script_url_pre_js
     pthread_script_url_pre_js="$(projectm_wasm_pthread_script_url_pre_js)"
-    local transition_args=()
-    if [[ "${ENABLE_WASM_TRANSITIONS:-ON}" == "ON" ]]; then
-        transition_args+=("-s" "ASYNCIFY_STACK_SIZE=65536")
-    fi
 
-    local exception_args=()
-    case "${PROJECTM_WASM_EXCEPTIONS:-wasm}" in
-        js) exception_args=(-s NO_DISABLE_EXCEPTION_CATCHING=1) ;;
-        wasm) exception_args=(-fwasm-exceptions) ;;
-        *)
-            echo "PROJECTM_WASM_EXCEPTIONS must be js or wasm" >&2
-            return 1
-            ;;
-    esac
+    # Every TU uses native Wasm exceptions (see EmscriptenWasmFlags.cmake).
+    if [[ -n "${PROJECTM_WASM_EXCEPTIONS:-}" && "${PROJECTM_WASM_EXCEPTIONS}" != "wasm" ]]; then
+        echo "PROJECTM_WASM_EXCEPTIONS=${PROJECTM_WASM_EXCEPTIONS} is no longer supported (always -fwasm-exceptions)" >&2
+        return 1
+    fi
+    local exception_args=(-fwasm-exceptions)
 
     local lto_args=()
     if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
@@ -208,7 +193,6 @@ projectm_wasm_common_link_args() {
         -fno-math-errno
         "${exception_args[@]}"
         -s SHARED_MEMORY=1
-        -s WASM_WORKERS=1
         -s MIN_WEBGL_VERSION=2
         -s MAX_WEBGL_VERSION=2
         -s USE_WEBGL2=1
@@ -222,7 +206,6 @@ projectm_wasm_common_link_args() {
         -s MAXIMUM_MEMORY=4gb
         -s INITIAL_MEMORY=256mb
         -s FORCE_FILESYSTEM=1
-        -s ASYNCIFY=1
         -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"
         -s ENVIRONMENT=web,worker
         -s EXPORT_NAME=createModule
@@ -231,9 +214,7 @@ projectm_wasm_common_link_args() {
         -l embind
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"
-        -s "ASYNCIFY_ONLY=@${asyncify_only_file}"
         --pre-js "${pthread_script_url_pre_js}"
-        "${transition_args[@]}"
     )
 }
 

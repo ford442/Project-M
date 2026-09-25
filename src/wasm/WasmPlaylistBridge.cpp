@@ -7,38 +7,46 @@
 using namespace emscripten;
 
 // Per-instance host state (#168 Phase B). The engine/playlist/loading triple
-// and the preset-readiness gate were process-global; they are now members of
-// the active WasmHost. These callbacks fire synchronously from inside the
-// active host's render/load, and the exports run after set_active_host(), so
-// each body binds same-named local references to the active host's members.
+// and the preset-readiness gate are members of the WasmHost that owns them.
+//
+// The engine and playlist callbacks below are registered by init() with that
+// host as their user_data, and act on it rather than on whichever host happens
+// to be active when they fire: a callback raised for one engine must not flip
+// the readiness flags of its sibling. The exports further down run after
+// set_active_host() and use Host() as usual.
 
-void load_preset_callback_example(bool is_hard_cut, unsigned int index, void* user_data)
+// The host a callback was registered for. init() always passes one; the
+// fallback only covers a caller that registers a callback without it.
+static WasmHost& CallbackHost(void* user_data)
 {
-    WasmHost& H = Host();
-    auto& app_data = H.appData;
-    // AppData* app_data = (AppData*)user_data;
-    projectm_playlist_handle playlist = app_data.playlist;
-    uint32_t indx = projectm_playlist_play_next(playlist, false);
-    return;
+    return user_data != nullptr ? *static_cast<WasmHost*>(user_data) : Host();
 }
 
 void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_data)
 {
-    WasmHost& H = Host();
+    WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;
     auto& g_presetBReady = H.presetBReady;
     auto& g_renderedFrameCount = H.renderedFrameCount;
     auto& g_presetReadyFrame = H.presetReadyFrame;
+    if (!app_data.projectm_engine)
+    {
+        return;
+    }
     const double randomDelay = (emscripten_random() * 30.0) + 27.0;
     projectm_set_preset_duration(app_data.projectm_engine, randomDelay);
     app_data.loading = EM_FALSE;
 
-    // Phase 4: Shader compilation is complete (GL_LINK_STATUS == GL_TRUE was
-    // confirmed inside Shader::CompileProgram before this callback was reached).
+    // Phase 4: Shader compilation is complete (ActivatePreparedPreset() calls
+    // this after projectm_load_prepared_preset() initialized the preset).
     // Signal to the transition system that the new preset is safe to blend in.
     g_presetBReady = true;
     g_presetReadyFrame = g_renderedFrameCount;
 
+    if (!app_data.playlist)
+    {
+        return;
+    }
     uint32_t pos = projectm_playlist_get_position(app_data.playlist);
     char* preset_path = projectm_playlist_item(app_data.playlist, pos);
     if (preset_path)
@@ -51,7 +59,7 @@ void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_
 
 void on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data)
 {
-    WasmHost& H = Host();
+    WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;
     auto& g_presetSwitchFailed = H.presetSwitchFailed;
     printf("Preset switch failed (%s): %s\n", preset_filename, message);
@@ -63,12 +71,20 @@ void on_preset_switch_failed(const char* preset_filename, const char* message, v
 
 void on_preset_switch_requested(bool is_hard_cut, void* user_data)
 {
-    WasmHost& H = Host();
+    WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;
-    // Ignore timer-driven switches while a manual preset load is compiling.
+    // Ignore timer-driven switches while a preset load is being prepared.
     // Without this, clicking "custom preset" can load the pick and then immediately
-    // play_next() from an expired preset timer within the same frame.
+    // play_next() from an expired preset timer. The engine only asks once per
+    // preset, so remember the request: if the in-flight load fails, nothing
+    // restarts the engine's timer and ActivatePreparedPreset() replays it.
     if (app_data.loading == EM_TRUE)
+    {
+        H.switchRequestDeferred = true;
+        H.deferredSwitchHardCut = is_hard_cut;
+        return;
+    }
+    if (!app_data.playlist)
     {
         return;
     }
@@ -77,13 +93,32 @@ void on_preset_switch_requested(bool is_hard_cut, void* user_data)
     return;
 }
 
+// The playlist's preset-load hook: every playlist-driven load (set_position,
+// play_next, the engine's timer) arrives here instead of the playlist calling
+// projectm_load_preset_file() synchronously. Queues it for preparation and
+// tells the playlist it is handled; load_preset_callback_done() runs once the
+// preset has been activated (ActivatePreparedPreset()).
+bool on_playlist_preset_load(unsigned int index, const char* filename, bool hard_cut, void* user_data)
+{
+    WasmHost& H = CallbackHost(user_data);
+    if (!H.appData.projectm_engine || H.presetPrepare == nullptr)
+    {
+        return false; // Let the playlist load it synchronously.
+    }
+    RequestPresetPrepare(H, filename, hard_cut, index);
+    return true;
+}
+
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void add_preset_path()
 {
     WasmHost& H = Host();
     auto& app_data = H.appData;
-    const char* loc = "/presets/";
+    if (!app_data.playlist)
+    {
+        return;
+    }
     char preset_file[256];
     for (int i = 0; i <= 100; ++i)
     {
@@ -98,6 +133,10 @@ void add_existing_vfs_presets()
 {
     WasmHost& H = Host();
     auto& app_data = H.appData;
+    if (!app_data.playlist)
+    {
+        return;
+    }
     char preset_file[256];
     int added = 0;
     for (int i = 0; i <= 100; ++i)
@@ -131,6 +170,10 @@ void add_custom_milk_paths(int count)
 {
     WasmHost& H = Host();
     auto& app_data = H.appData;
+    if (!app_data.playlist)
+    {
+        return;
+    }
     char preset_file[256];
     int added = 0;
     for (int i = 0; i < count; ++i)
@@ -165,36 +208,20 @@ static void load_preset_file_impl(const char* filename, bool hard_cut)
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& app_data = H.appData;
-    auto& g_presetBReady = H.presetBReady;
-    auto& g_renderedFrameCount = H.renderedFrameCount;
-    auto& g_presetReadyFrame = H.presetReadyFrame;
-    auto& g_presetSwitchFailed = H.presetSwitchFailed;
-    if (!pm)
+    if (!pm || filename == nullptr)
     {
         return;
     }
 
-    // Phase 4: Reset the "Preset B ready" gate so the transition compositing
-    // layer does not start blending before the new preset's shaders are fully
-    // compiled and linked.
-    g_presetBReady = false;
-    g_presetReadyFrame = g_renderedFrameCount;
-    g_presetSwitchFailed = false;
-
-    // Pause the render loop while shader compilation runs.  This prevents GL
-    // state conflicts between the render call and the compile/link operations
-    // that share the same WebGL context.
-    app_data.loading = EM_TRUE;
-
-    // Phase 4: Yield to the browser event loop *before* the heavy HLSL→GLSL
-    // transpilation and glCompileShader/glLinkProgram calls begin.  This keeps
-    // the page responsive and prevents the "unresponsive page" warning even
-    // when the incoming preset has a complex shader.
-    emscripten_sleep(0);
-
     // Phase 3: Route all preset switches through the playlist manager so that
     // the engine's built-in transition cleanup routines are always triggered
     // (dual FBO re-init, glClearColor reset, blend state isolation).
+    //
+    // Nothing here blocks: the playlist hands the load to on_playlist_preset_load(),
+    // which queues it on this host's prepare thread and returns. The current
+    // preset keeps rendering until the new one is prepared and activated, so
+    // there is no need to yield to the browser first (the emscripten_sleep(0)
+    // that used to be here was the only reason the build needed ASYNCIFY).
     if (app_data.playlist)
     {
         // Search the existing playlist for this filename.
@@ -227,21 +254,15 @@ static void load_preset_file_impl(const char* filename, bool hard_cut)
         }
         if (foundIdx >= 0)
         {
-            // load_preset_callback_done is invoked synchronously from within
-            // this call; it clears app_data.loading and sets g_presetBReady.
             projectm_playlist_set_position(app_data.playlist,
                                            static_cast<uint32_t>(foundIdx), hard_cut);
             return;
         }
-        // Fall through to direct load if playlist add failed.
+        // Fall through to a direct load if playlist add failed.
     }
 
-    // Fallback: no playlist attached yet – load directly.
-    projectm_load_preset_file(pm, filename, !hard_cut);
-
-    g_presetBReady = true;
-    g_presetReadyFrame = g_renderedFrameCount;
-    app_data.loading = EM_FALSE;
+    // Fallback: no playlist attached yet – prepare the file directly.
+    RequestPresetPrepare(H, filename, hard_cut, std::nullopt);
 }
 
 extern "C" {

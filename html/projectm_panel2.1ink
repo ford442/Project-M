@@ -380,6 +380,7 @@ import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
 import { ensureWorkletReady } from './projectm-worklet-playback.js';
 import { ProjectMContext } from './projectm-context.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
+import { exposeAudioPlayerGlobals, patchBroadcastChannel } from './projectm-legacy-globals.js';
 import { setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import {
   PROJECTM_WASM_SELECTABLE_VERSIONS,
@@ -404,6 +405,10 @@ import {
 // (soft-404 HTML is served as text/html and fails MIME checks).
 void import('./projectm-song-loader.js').then((mod) => {
   mod.installSongLoaderInterceptor();
+  // The WASM glue posts its song URL on `new BroadcastChannel('sng')` itself, so
+  // intercepting it means wrapping the global constructor: an explicit,
+  // reversible opt-in (see projectm-legacy-globals.js).
+  patchBroadcastChannel(mod.wrapSongChannel);
 }).catch((error) => {
   console.warn('[B3HD] song loader unavailable; Start/Change Song uses /flac/', error);
 });
@@ -600,7 +605,8 @@ function randomCustom() {
   }
   loadRandomPresetFromRemote();
 }
-const { showAudioPlayer, cycleAudioPlayer, closeAudioPlayer } = createSectionAudioPlayerController();
+const audioPlayerController = createSectionAudioPlayerController();
+const { cycleAudioPlayer, closeAudioPlayer } = audioPlayerController;
 
 function fullWindow() {
   isBezelMode = !isBezelMode;
@@ -637,10 +643,9 @@ window.lockPreset = lockPreset;
 window.startChangeSong = startChangeSong;
 window.randomPreset = randomPreset;
 window.randomCustom = randomCustom;
-window.cycleAudioPlayer = cycleAudioPlayer;
-window.closeAudioPlayer = closeAudioPlayer;
-window.flacPlayer = () => showAudioPlayer('flac');
-window.modPlayer = () => showAudioPlayer('mod');
+// cycleAudioPlayer / closeAudioPlayer / flacPlayer / modPlayer, for the inline
+// onclick handlers above.
+exposeAudioPlayerGlobals(audioPlayerController);
 window.fullWindow = fullWindow;
 window.toggleFullscreen = toggleFullscreen;
 

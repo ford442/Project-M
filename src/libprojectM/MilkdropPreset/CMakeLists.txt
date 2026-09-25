@@ -57,6 +57,8 @@ add_library(MilkdropPreset OBJECT
         FinalComposite.hpp
         IdlePreset.cpp
         IdlePreset.hpp
+        MilkdropPreparedPreset.cpp
+        MilkdropPreparedPreset.hpp
         MilkdropPreset.cpp
         MilkdropPreset.hpp
         MilkdropPresetExceptions.hpp

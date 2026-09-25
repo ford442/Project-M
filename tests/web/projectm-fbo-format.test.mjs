@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { setupFboFormatIndicator } from '../../html/projectm-fbo-format.js';
+import { getFboFormatName, setupFboFormatIndicator } from '../../html/projectm-fbo-format.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const BANNER_ID = 'pm-degraded-mode-banner';
@@ -17,12 +17,15 @@ function fakeModule(formatIndex) {
 }
 
 test('the format index maps to the name the benchmark records', () => {
-    for (const [index, name] of [[0, 'RGBA32F'], [1, 'RGBA16F'], [2, 'RGBA8']]) {
+    // FboFloatFormat's numbering, shared with set_context_config()'s fboPrecision.
+    for (const [index, name] of [[0, 'RGBA16F'], [1, 'RGBA32F'], [2, 'RGBA8']]) {
         const dom = installFakeDom();
         try {
             assert.equal(setupFboFormatIndicator(fakeModule(index)), name);
-            // projectm-perf.js reads the format back off window for its report.
-            assert.equal(globalThis.window.pmGetFboFormat(), name);
+            // projectm-perf.js reads the format straight off the module for its
+            // report; the indicator publishes nothing on window.
+            assert.equal(getFboFormatName(fakeModule(index)), name);
+            assert.equal('pmGetFboFormat' in globalThis.window, false);
         } finally {
             dom.restore();
         }
@@ -34,6 +37,7 @@ test('an unrecognised format index degrades to RGBA8 rather than undefined', () 
     try {
         assert.equal(setupFboFormatIndicator(fakeModule(7)), 'RGBA8');
         assert.equal(setupFboFormatIndicator(fakeModule(-1)), 'RGBA8');
+        assert.equal(getFboFormatName(fakeModule(7)), 'RGBA8');
     } finally {
         dom.restore();
     }

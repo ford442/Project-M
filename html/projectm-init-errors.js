@@ -6,6 +6,7 @@
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
 
 import { init as wasmInit, initWithCanvases } from './generated/projectm-wasm-api.js';
+import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 /** @type {Record<number, { title: string; message: string; hints: string[] }>} */
 const ERROR_INFO = {
@@ -36,6 +37,13 @@ const ERROR_INFO = {
         ],
     },
 };
+
+/**
+ * `init()`'s return code while the WebGL context is lost (and not yet
+ * restored). Not an error to show: the context-loss overlay is already up, and
+ * the browser's "webglcontextrestored" retries init() (projectm-context-loss.js).
+ */
+export const INIT_CONTEXT_LOST = 5;
 
 const GENERIC_ERROR_INFO = {
     title: 'Initialization Failed',
@@ -209,23 +217,36 @@ export function hideInitError() {
 }
 
 /**
- * Sets up the init-error overlay and registers the `window.pmReportInitError` /
- * `window.pmHideInitError` hooks called from `projectM_emscripten.cpp`.
+ * Sets up the init-error overlay and subscribes it to the `pmReportInitError` /
+ * `pmHideInitError` callbacks that `projectM_emscripten.cpp` looks up by name
+ * (through the WASM callback bus, so this needs no legacy shim and several
+ * listeners can coexist).
  *
  * @param {() => void} onRetry Called when the user clicks "Retry". Should re-run the full
  *   init + render setup.
- * @returns {{ simulate: boolean }} `simulate` is true if `?simulateInitFail=1` is present in
- *   the page URL; the overlay is shown immediately in that case for QA purposes. Callers
- *   should skip the real init attempt while `simulate` is true and clear it on retry.
+ * @returns {{ simulate: boolean, dispose: () => void }} `simulate` is true if
+ *   `?simulateInitFail=1` is present in the page URL; the overlay is shown immediately
+ *   in that case for QA purposes. Callers should skip the real init attempt while
+ *   `simulate` is true and clear it on retry. `dispose()` stops listening.
  */
 export function setupInitErrorHandling(onRetry) {
     retryCallback = onRetry;
-    window.pmReportInitError = showInitError;
-    window.pmHideInitError = hideInitError;
+    const unsubscribers = [
+        subscribeWasmCallback('pmReportInitError', showInitError),
+        subscribeWasmCallback('pmHideInitError', hideInitError),
+    ];
     ensureOverlay();
 
     const state = {
         simulate: new URLSearchParams(location.search).get('simulateInitFail') === '1',
+        dispose() {
+            for (const unsubscribe of unsubscribers) {
+                unsubscribe();
+            }
+            if (retryCallback === onRetry) {
+                retryCallback = null;
+            }
+        },
     };
 
     if (state.simulate) {
@@ -237,7 +258,7 @@ export function setupInitErrorHandling(onRetry) {
 
 /**
  * Checks `window.crossOriginIsolated` and shows the init-error overlay (code 4) if it is
- * false. This build is compiled with `-s SHARED_MEMORY=1 -pthread -s WASM_WORKERS=1`
+ * false. This build is compiled with `-s SHARED_MEMORY=1 -pthread`
  * (see CMakeLists.txt and docs/DEPLOYMENT.md), which requires the page to be served with
  * `Cross-Origin-Opener-Policy: same-origin` and a `Cross-Origin-Embedder-Policy` header —
  * without them, `SharedArrayBuffer` is unavailable and the WASM module's pthread runtime
@@ -272,7 +293,7 @@ export function checkInit(Module, {
         ? initWithCanvases(Module, primaryCanvasSelector, secondaryCanvasSelector || '#scanvas')
         : wasmInit(Module);
     if (code !== 0) {
-        if (!overlayEl || !overlayEl.classList.contains('visible')) {
+        if (code !== INIT_CONTEXT_LOST && (!overlayEl || !overlayEl.classList.contains('visible'))) {
             showInitError(code);
         }
         return false;

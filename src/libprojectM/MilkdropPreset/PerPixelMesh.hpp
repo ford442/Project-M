@@ -4,6 +4,7 @@
 #include <Renderer/Shader.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,8 @@ class PresetState;
 class PerFrameContext;
 class PerPixelContext;
 class MilkdropShader;
+struct MilkdropShaderSource;
+struct PreparedMilkdropShader;
 
 /**
  * @brief The "per-pixel" transformation mesh.
@@ -40,10 +43,41 @@ public:
     void LoadWarpShader(const PresetState& presetState);
 
     /**
+     * @brief Loads a warp shader prepared off the render thread (see MilkdropPreparedPreset).
+     * @param prepared The prepared warp shader, or nullopt if the preset uses none.
+     */
+    void LoadWarpShader(std::optional<PreparedMilkdropShader> prepared);
+
+    /**
+     * @brief Analyses the warp shader code the way LoadWarpShader() does, without GL. Any thread.
+     * @param warpShaderVersion The preset's warp shader version (PresetState::warpShaderVersion).
+     * @param warpShader The preset's warp shader code (PresetState::warpShader).
+     * @return The analysed source, or nullopt if the preset uses no warp shader or its code fails
+     *         to preprocess (the preset then runs without one, as in LoadWarpShader()).
+     */
+    static auto SelectWarpShaderSource(int warpShaderVersion, const std::string& warpShader) -> std::optional<MilkdropShaderSource>;
+
+    /**
      * @brief Loads the required textures and compiles the warp shader.
      * @param presetState The preset state to retrieve the configuration values from.
      */
     void CompileWarpShader(PresetState& presetState);
+
+    /**
+     * @brief Whether the warp shader program is still linking (RenderContext::deferShaderLink).
+     */
+    auto IsWarpShaderCompilePending() const -> bool;
+
+    /**
+     * @brief Whether a deferred warp shader link has finished. Does not block.
+     */
+    auto IsWarpShaderCompileComplete() const -> bool;
+
+    /**
+     * @brief Finishes a deferred warp shader link; drops the warp shader if it failed, as CompileWarpShader() does.
+     * @param presetState The preset state.
+     */
+    void FinishWarpShader(PresetState& presetState);
 
     /**
      * @brief Renders the transformation mesh.

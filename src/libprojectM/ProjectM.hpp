@@ -50,6 +50,8 @@ class SpriteManager;
 
 class Preset;
 class PresetFactoryManager;
+class PresetPrepareJob;
+struct PresetPrepareContext;
 class TimeKeeper;
 
 class PROJECTM_CXX_EXPORT ProjectM
@@ -99,6 +101,76 @@ public:
      *                         If set to false, the new preset will be rendered immediately.
      */
     void LoadPresetData(std::istream& presetData, bool smoothTransition);
+
+    /**
+     * @brief Starts loading a preset file in steps, so the CPU-heavy part can run on another thread.
+     *
+     * Call on the render thread. Run the returned job's PresetPrepareJob::Run() on any thread (it
+     * reads and parses the file and transpiles the preset shaders, and touches neither GL nor this
+     * instance), then pass it to LoadPreparedPreset() on the render thread. The current preset keeps
+     * rendering in the meantime. Equivalent to LoadPresetFile() once loaded.
+     *
+     * @param presetFilename The preset filename or URL to load.
+     * @return The job.
+     */
+    auto BeginPreparePresetFile(const std::string& presetFilename) -> std::unique_ptr<PresetPrepareJob>;
+
+    /**
+     * @brief Like BeginPreparePresetFile(), with the file's bytes already read by the caller.
+     *
+     * The preparation parses @a fileContents instead of opening the file. Filename, preset name
+     * and error messages are those of loading the file.
+     * @param presetFilename The preset filename.
+     * @param fileContents The file's contents.
+     * @return The job.
+     */
+    auto BeginPreparePresetFile(const std::string& presetFilename, std::string fileContents) -> std::unique_ptr<PresetPrepareJob>;
+
+    /**
+     * @brief Starts loading preset data in steps. See BeginPreparePresetFile().
+     * @param presetData The preset data, in Milkdrop format.
+     * @return The job.
+     */
+    auto BeginPreparePresetData(std::string presetData) -> std::unique_ptr<PresetPrepareJob>;
+
+    /**
+     * @brief Finishes a load started with BeginPreparePresetFile() / BeginPreparePresetData().
+     *
+     * Call on the render thread. Runs the job first if nobody has. On success the new preset is
+     * initialized and blended in exactly as LoadPresetFile() would; on failure the preset switch
+     * failed event is raised with the job's error and the current preset stays.
+     *
+     * @param job The job. Consumed.
+     * @param smoothTransition If set to true, old and new presets will be blended over smoothly.
+     *                         If set to false, the new preset will be rendered immediately.
+     */
+    void LoadPreparedPreset(std::unique_ptr<PresetPrepareJob> job, bool smoothTransition);
+
+    /**
+     * @brief Completes a preset switch that is waiting for its shader programs to link, if they have.
+     *
+     * With KHR_parallel_shader_compile, LoadPreparedPreset() starts the new preset's shader links
+     * without waiting for them and the current preset keeps rendering; the switch happens once
+     * the driver reports them complete. RenderFrame() calls this on every frame; call it from the
+     * render thread to make progress without rendering.
+     *
+     * @return True if a switch is still waiting afterwards.
+     */
+    auto PollPendingPreset() -> bool;
+
+    /**
+     * @brief Enables or disables linking prepared presets' shaders in the background.
+     *
+     * Enabled by default; it only takes effect if the GL context supports
+     * KHR_parallel_shader_compile. When disabled, LoadPreparedPreset() waits for the links.
+     * @param enabled Whether to use parallel shader compilation.
+     */
+    void SetParallelShaderCompile(bool enabled);
+
+    /**
+     * @brief Whether prepared presets' shaders are linked in the background, i.e. enabled and supported.
+     */
+    auto ParallelShaderCompile() const -> bool;
 
     void SetWindowSize(uint32_t width, uint32_t height);
 
@@ -344,7 +416,32 @@ private:
 
     void CheckGLSLVersion();
 
-    void StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hardCut);
+    void StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hardCut,
+                               bool deferShaderLink = false, const std::string& filename = {});
+
+    /**
+     * @brief Makes an initialized preset the active one, directly or with a transition.
+     */
+    void SwitchToPreset(std::unique_ptr<Preset>&& preset, bool hardCut);
+
+    /**
+     * @brief Captures the render-thread state a background preparation needs.
+     */
+    auto CapturePresetPrepareContext() -> PresetPrepareContext;
+
+    /**
+     * @brief Runs @a job if needed and switches to its preset, or reports its failure.
+     */
+    void FinishPresetLoad(PresetPrepareJob& job, bool smoothTransition, bool deferShaderLink);
+
+    /**
+     * @brief A preset waiting for its shader programs to link before it is switched to.
+     */
+    struct PendingPreset {
+        std::unique_ptr<Preset> preset; //!< The initialized preset.
+        bool hardCut{false};            //!< Switch with a hard cut.
+        std::string filename;           //!< For the preset switch failed event.
+    };
 
     void LoadIdlePreset();
 
@@ -398,7 +495,7 @@ private:
     bool m_transparencyMode{false};       //!< If true, near-black final-output pixels are written with alpha = 0.
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
-    std::unique_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories.
+    std::shared_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories. Shared with in-flight PresetPrepareJobs.
 
     Audio::PCM m_audioStorage;                                                    //!< Audio data buffer and analyzer instance.
     std::unique_ptr<Renderer::TextureManager> m_textureManager;                   //!< The texture manager.
@@ -407,6 +504,9 @@ private:
     std::unique_ptr<Renderer::CopyTexture> m_textureCopier;                       //!< Class that copies textures 1:1 to another texture or framebuffer.
     std::unique_ptr<Preset> m_activePreset;                                       //!< Currently loaded preset.
     std::unique_ptr<Preset> m_transitioningPreset;                                //!< Destination preset when smooth preset switching.
+    std::unique_ptr<PendingPreset> m_pendingPreset;                               //!< Next preset, while its shader programs link.
+    bool m_parallelShaderCompileSupported{false};                                 //!< The GL context supports KHR_parallel_shader_compile.
+    bool m_parallelShaderCompileEnabled{true};                                    //!< SetParallelShaderCompile().
     std::unique_ptr<Renderer::PresetTransition> m_transition;                     //!< Transition effect used for blending.
     std::unique_ptr<TimeKeeper> m_timeKeeper;                                     //!< Keeps the different timers used to render and switch presets.
     std::unique_ptr<UserSprites::SpriteManager> m_spriteManager;                  //!< Manages all types of user sprites.

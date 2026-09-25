@@ -83,28 +83,7 @@ auto TextureSamplerDescriptor::SamplerDeclaration() const -> std::string
         return {};
     }
 
-    std::string declaration = "uniform ";
-    if (m_texture->Type() == GL_TEXTURE_3D)
-    {
-        declaration.append("sampler3D sampler_");
-    }
-    else
-    {
-        declaration.append("sampler2D sampler_");
-    }
-    declaration.append(m_samplerName);
-    declaration.append(";\n");
-
-    // Add short sampler name for prefixed random textures.
-    // E.g. "sampler_rand00" if a sampler "sampler_rand00_smalltiled" was declared
-    if (m_samplerName.substr(0, 4) == "rand" && m_samplerName.length() > 7 && m_samplerName.at(6) == '_')
-    {
-        declaration.append("uniform sampler2D sampler_");
-        declaration.append(m_samplerName.substr(0, 6));
-        declaration.append(";\n");
-    }
-
-    return declaration;
+    return SamplerDeclarationFor(m_samplerName, m_texture->Type() == GL_TEXTURE_3D);
 }
 
 auto TextureSamplerDescriptor::TexSizeDeclaration() const -> std::string
@@ -114,19 +93,50 @@ auto TextureSamplerDescriptor::TexSizeDeclaration() const -> std::string
         return {};
     }
 
+    return TexSizeDeclarationFor(m_sizeName);
+}
+
+auto TextureSamplerDescriptor::SamplerDeclarationFor(const std::string& samplerName, bool volumeTexture) -> std::string
+{
+    std::string declaration = "uniform ";
+    if (volumeTexture)
+    {
+        declaration.append("sampler3D sampler_");
+    }
+    else
+    {
+        declaration.append("sampler2D sampler_");
+    }
+    declaration.append(samplerName);
+    declaration.append(";\n");
+
+    // Add short sampler name for prefixed random textures.
+    // E.g. "sampler_rand00" if a sampler "sampler_rand00_smalltiled" was declared
+    if (samplerName.substr(0, 4) == "rand" && samplerName.length() > 7 && samplerName.at(6) == '_')
+    {
+        declaration.append("uniform sampler2D sampler_");
+        declaration.append(samplerName.substr(0, 6));
+        declaration.append(";\n");
+    }
+
+    return declaration;
+}
+
+auto TextureSamplerDescriptor::TexSizeDeclarationFor(const std::string& sizeName) -> std::string
+{
     std::string declaration;
-    if (!m_sizeName.empty())
+    if (!sizeName.empty())
     {
         declaration.append("uniform float4 texsize_");
-        declaration.append(m_sizeName);
+        declaration.append(sizeName);
         declaration.append(";\n");
 
         // Add short texsize uniform for prefixed random textures.
         // E.g. "texsize_rand00" if a sampler "sampler_rand00_smalltiled" was declared
-        if (m_sizeName.substr(0, 4) == "rand" && m_sizeName.length() > 7 && m_sizeName.at(6) == '_')
+        if (sizeName.substr(0, 4) == "rand" && sizeName.length() > 7 && sizeName.at(6) == '_')
         {
             declaration.append("uniform float4 texsize_");
-            declaration.append(m_sizeName.substr(0, 6));
+            declaration.append(sizeName.substr(0, 6));
             declaration.append(";\n");
         }
     }

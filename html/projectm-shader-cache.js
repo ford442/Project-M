@@ -2,6 +2,7 @@
 // Skips HLSL parse/transpile on repeat visits; glCompileShader still runs each session.
 
 import { PROJECTM_WASM_VERSION } from './projectm-wasm-version.js';
+import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 import {
     openPresetCacheDb,
     SHADER_STORE,
@@ -30,7 +31,8 @@ const MAX_SHADER_CACHE_BYTES = 48 * 1024 * 1024;
 /** @type {Map<string, { warp?: string, composite?: string }>} */
 const pendingShaderWrites = new Map();
 
-let hooksInstalled = false;
+/** @type {(() => void) | null} */
+let unsubscribeTranspileHook = null;
 
 /**
  * @param {...(string | undefined)} parts
@@ -226,22 +228,38 @@ function queueShaderWrite(cacheKey, kind, glsl) {
 }
 
 /**
- * Wire globalThis.pmOnTranspiledShaderStored once per page load.
+ * Listen for the engine's `pmOnTranspiledShaderStored` callback, once per page
+ * load: repeated calls while it is installed return the same disposer.
  *
- * Installed on `globalThis`, not `window`: this module is imported by preset
- * loading (projectm-preset-library.js), which also runs under Node in
- * tests/web and inside the OffscreenCanvas render worker, where `window` is
- * not defined and a bare reference throws. In a document `globalThis === window`,
- * so the hook the WASM glue looks up is unchanged.
+ * The callback arrives through the WASM callback bus, which installs it on
+ * `globalThis`, not `window`: this module is imported by preset loading
+ * (projectm-preset-library.js), which also runs under Node in tests/web, where
+ * `window` is not defined and a bare reference throws. In a document
+ * `globalThis === window`, so the hook the WASM glue looks up is unchanged.
+ *
+ * @returns {() => void} Stops listening (and lets a later call install again).
  */
 export function setupShaderTranspileCacheHooks() {
-    if (hooksInstalled) return;
-    hooksInstalled = true;
+    if (unsubscribeTranspileHook) return unsubscribeTranspileHook;
     ensureShaderCacheEngineVersion().catch(() => {});
-    globalThis.pmOnTranspiledShaderStored = (cacheKey, kind, glsl) => {
-        queueShaderWrite(cacheKey, kind, glsl);
-        touchShaderCacheEntry(cacheKey).catch(() => {});
+    const unsubscribe = subscribeWasmCallback(
+        'pmOnTranspiledShaderStored',
+        (/** @type {string} */ cacheKey, /** @type {ShaderKind} */ kind, /** @type {string} */ glsl) => {
+            queueShaderWrite(cacheKey, kind, glsl);
+            touchShaderCacheEntry(cacheKey).catch(() => {});
+        },
+    );
+    const dispose = () => {
+        unsubscribe();
+        if (unsubscribeTranspileHook === dispose) unsubscribeTranspileHook = null;
     };
+    unsubscribeTranspileHook = dispose;
+    return dispose;
+}
+
+/** Stop listening for `pmOnTranspiledShaderStored`; a later setup installs it again. */
+export function disposeShaderTranspileCacheHooks() {
+    unsubscribeTranspileHook?.();
 }
 
 /**

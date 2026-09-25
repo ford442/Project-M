@@ -21,6 +21,7 @@ on:
       - 'scripts/test_web_embed.sh'
       - 'scripts/check_html_types.sh'
       - 'scripts/check_wasm_public_api.sh'
+      - 'scripts/check_host_globals.sh'
       - 'cmake/WasmApiManifest.cmake'
       - '.github/workflows/web_host_tests.yml'
   pull_request:
@@ -32,6 +33,7 @@ on:
       - 'scripts/test_web_embed.sh'
       - 'scripts/check_html_types.sh'
       - 'scripts/check_wasm_public_api.sh'
+      - 'scripts/check_host_globals.sh'
       - 'cmake/WasmApiManifest.cmake'
       - '.github/workflows/web_host_tests.yml'
   workflow_dispatch: {}
@@ -65,3 +67,10 @@ jobs:
       # been paired with a version bump in packages/web/package.json.
       - name: Public WASM API surface gate
         run: npm run check:api
+
+      # Fails on a `window.pm*` / legacy popup-player / BroadcastChannel write
+      # outside html/projectm-legacy-globals.js (the opt-in shim) and the WASM
+      # callback bus. Also run by host_layer_gate.yml; kept here so a PR that
+      # only touches tests/web/ still runs it next to the suite it protects.
+      - name: Page-global write gate
+        run: npm run check:globals

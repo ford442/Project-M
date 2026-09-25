@@ -6,9 +6,11 @@ import assert from 'node:assert/strict';
 
 import {
     parseExperimentalMetadata,
+    setupExperimentalBridge,
     wantsExperimentalDepth,
     buildDepthSpriteCode
 } from '../../html/projectm-experimental-bridge.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 test('parseExperimentalMetadata returns empty for plain milk', () => {
     const milk = 'MILKDROP_PRESET_VERSION=201\n[preset00]\nfRating=3\n';
@@ -57,4 +59,64 @@ test('buildDepthSpriteCode emits milkdrop sprite block with depth texture', () =
     assert.match(code, /scaling=1\.2/);
     assert.match(code, /blendmode=1/);
     assert.match(code, /bass_att/);
+});
+
+// ---- lifecycle ---------------------------------------------------------------
+
+test('the bridge is inert without ?experimental=1', () => {
+    const dom = installFakeDom();
+    try {
+        assert.deepEqual(setupExperimentalBridge({}, { params: new URLSearchParams() }), { enabled: false });
+    } finally {
+        dom.restore();
+    }
+});
+
+test('an enabled bridge returns its api, publishes nothing on window, and dispose detaches everything', () => {
+    const dom = installFakeDom();
+    /** @type {Map<string, Set<Function>>} */
+    const windowListeners = new Map();
+    globalThis.window.addEventListener = (type, listener) => {
+        if (!windowListeners.has(type)) windowListeners.set(type, new Set());
+        windowListeners.get(type).add(listener);
+    };
+    globalThis.window.removeEventListener = (type, listener) => windowListeners.get(type)?.delete(listener);
+    const listenerCount = (type) => windowListeners.get(type)?.size ?? 0;
+
+    let observing = 0;
+    let disconnected = 0;
+    const previousObserver = globalThis.MutationObserver;
+    globalThis.MutationObserver = class {
+        observe() { observing += 1; }
+        disconnect() { disconnected += 1; }
+    };
+
+    let bridge;
+    try {
+        const keysBefore = Object.keys(globalThis.window).sort();
+        bridge = setupExperimentalBridge({}, { params: new URLSearchParams('experimental=1') });
+
+        assert.equal(bridge.enabled, true);
+        assert.equal(typeof bridge.api.applyDepthTexture, 'function');
+        assert.equal(bridge.state, bridge.api.state);
+        assert.deepEqual(
+            Object.keys(globalThis.window).sort(),
+            keysBefore,
+            'the bridge must not publish window.pmExperimental itself; exposeExperimentalGlobals() does',
+        );
+
+        assert.equal(listenerCount('pm:preset-loaded'), 1);
+        assert.equal(listenerCount('pm:preset-text'), 1);
+        assert.equal(observing, 1);
+
+        bridge.dispose();
+        assert.equal(listenerCount('pm:preset-loaded'), 0);
+        assert.equal(listenerCount('pm:preset-text'), 0);
+        assert.equal(disconnected, 1);
+    } finally {
+        // The image BroadcastChannel is a real one and would keep node alive.
+        bridge?.dispose?.();
+        globalThis.MutationObserver = previousObserver;
+        dom.restore();
+    }
 });

@@ -389,8 +389,13 @@ export async function loadLocalPresetFile(file, {
  * Fetches a `.milk` preset from an HTTP(S) URL, writes it to the Emscripten VFS,
  * and loads it into the running engine.
  *
+ * `signal` cancels the load: the fetch is aborted, and if the signal fires while
+ * the bytes are still arriving nothing is written to the module. The check
+ * matters because the caller aborts when it destroys the engine, and writing
+ * into a module that has just been torn down is a use-after-free.
+ *
  * @param {string} url Absolute or same-origin preset URL.
- * @param {{ module?: ProjectMModuleLike; vfsPath?: string; updateDisplay?: boolean; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => void; windowRef?: Window }} [options]
+ * @param {{ module?: ProjectMModuleLike; vfsPath?: string; updateDisplay?: boolean; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => void; windowRef?: Window; signal?: AbortSignal }} [options]
  * @returns {Promise<{ url: string, vfsPath: string, filename: string }>}
  */
 export async function loadPresetFromUrl(url, {
@@ -399,17 +404,23 @@ export async function loadPresetFromUrl(url, {
     updateDisplay = true,
     startTransitionWhenReady,
     windowRef = window,
+    signal,
 } = {}) {
     if (!module?.FS) {
         throw new Error('Module.FS not available');
     }
 
-    const response = await fetch(url);
+    const response = await fetch(url, signal ? { signal } : undefined);
     if (!response.ok) {
         throw new Error(`Failed to fetch preset (${response.status}): ${url}`);
     }
 
     const bytes = new Uint8Array(await response.arrayBuffer());
+    if (signal?.aborted) {
+        const error = new Error(`Preset load aborted: ${url}`);
+        error.name = 'AbortError';
+        throw error;
+    }
     const filename = String(url).split('/').pop()?.split('?')[0] || 'preset.milk';
     const resolvedPath = vfsPath || `/presets/url_${safePresetName(filename)}`;
 

@@ -1,6 +1,7 @@
 #include "ProjectMCWrapper.hpp"
 
 #include "PerfTimers.hpp"
+#include "PresetPrepareJob.hpp"
 #include "Renderer/Platform/GladLoader.hpp"
 
 #include <projectM-4/projectM.h>
@@ -129,6 +130,77 @@ void projectm_load_preset_data(projectm_handle instance, const char* data,
     std::stringstream presetDataStream(data);
     auto projectMInstance = handle_to_instance(instance);
     projectMInstance->LoadPresetData(presetDataStream, smooth_transition);
+}
+
+struct projectm_preset_prepare_job {
+    std::unique_ptr<libprojectM::PresetPrepareJob> job;
+};
+
+projectm_preset_prepare_job_handle projectm_preset_prepare_begin_file(projectm_handle instance, const char* filename)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(filename)};
+}
+
+projectm_preset_prepare_job_handle projectm_preset_prepare_begin_file_contents(projectm_handle instance, const char* filename,
+                                                                               const char* data, size_t length)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(filename, std::string(data, length))};
+}
+
+projectm_preset_prepare_job_handle projectm_preset_prepare_begin_data(projectm_handle instance, const char* data)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetData(data)};
+}
+
+void projectm_preset_prepare_run(projectm_preset_prepare_job_handle job)
+{
+    if (job != nullptr && job->job)
+    {
+        job->job->Run();
+    }
+}
+
+bool projectm_preset_prepare_failed(projectm_preset_prepare_job_handle job)
+{
+    return job != nullptr && job->job && job->job->HasRun() && job->job->Failed();
+}
+
+void projectm_load_prepared_preset(projectm_handle instance, projectm_preset_prepare_job_handle job,
+                                   bool smooth_transition)
+{
+    if (job == nullptr)
+    {
+        return;
+    }
+    std::unique_ptr<projectm_preset_prepare_job> owned(job);
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->LoadPreparedPreset(std::move(owned->job), smooth_transition);
+}
+
+bool projectm_poll_pending_preset(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->PollPendingPreset();
+}
+
+void projectm_set_parallel_shader_compile(projectm_handle instance, bool enabled)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetParallelShaderCompile(enabled);
+}
+
+bool projectm_get_parallel_shader_compile(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->ParallelShaderCompile();
+}
+
+void projectm_preset_prepare_free(projectm_preset_prepare_job_handle job)
+{
+    delete job;
 }
 
 void projectm_set_preset_switch_requested_event_callback(projectm_handle instance,
@@ -268,6 +340,7 @@ void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
     out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
     out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
     out_timings->fps = timings.fps;
+    out_timings->shader_link_pending = timings.shaderLinkPending ? 1 : 0;
     out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
 }
 

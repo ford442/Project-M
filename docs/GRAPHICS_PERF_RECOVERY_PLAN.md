@@ -712,7 +712,7 @@ To actually rank #176 vs #177 vs #178 against each other, one of:
 1. **Per-stage GPU queries** — nest `TIME_ELAPSED` queries per stage. Cleanest signal.
    Note that timer queries cannot be nested in a single query object, so this means one
    query per stage per frame and more polling bookkeeping; the existing
-   `Module.__pmPerfGpu` ring is the place to extend.
+   `Module.__pmPerfGpuByCtx` (per-context query ring) is the place to extend.
 2. **A/B ablation** — a runtime toggle per suspect (skip the third flip, force
    `BlurLevel::None`, `antialias:false`, force RGBA16F, `?meshQuality=low`), then diff
    `gpuMs` across otherwise identical `?benchmark=1` runs. Cruder, but needs no new

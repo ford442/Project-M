@@ -9,11 +9,23 @@
 // on the Audio Player button, not Start/Change Song. If native FLAC decode
 // fails, we fall back to the legacy ./flac/ BroadcastChannel path with a delayed
 // 'sng' post so the decoder page has time to subscribe.
+//
+// Intercepting the glue's own 'sng' post used to mean replacing
+// `globalThis.BroadcastChannel` for every script on the page. That patch now
+// lives in projectm-legacy-globals.js (`patchBroadcastChannel`), opt-in and
+// reversible; this module only provides the pieces it wraps with:
+// `createSongChannel()` for code that can ask for a channel explicitly, and
+// `wrapSongChannel()` for the patch.
 
 import { ensureWorkletReady, loadWavBytesIntoWorklet } from './projectm-worklet-playback.js';
 
-/** @type {typeof BroadcastChannel | null} */
-let nativeBroadcastChannel = null;
+/**
+ * Property the legacy global patch stamps on its replacement constructor,
+ * pointing back at the real one. Kept as a string in both places because the
+ * shim must not import this module (a soft-404 here must not take the shim
+ * down); tests/web/projectm-legacy-globals.test.mjs pins the two together.
+ */
+const NATIVE_CHANNEL_TAG = 'projectMNativeBroadcastChannel';
 
 /** @type {boolean} */
 let bypassSngIntercept = false;
@@ -298,7 +310,7 @@ export async function openLegacyFlacDecoder(url) {
     if (typeof globalThis.openWeeksFlacDecoder === 'function') {
         globalThis.openWeeksFlacDecoder();
     }
-    const BroadcastChannelCtor = nativeBroadcastChannel;
+    const BroadcastChannelCtor = nativeBroadcastChannelCtor();
     if (!BroadcastChannelCtor) {
         return;
     }
@@ -355,8 +367,81 @@ export async function routeSongUrl(url) {
 }
 
 /**
- * Patch BroadcastChannel so host-side 'sng' posts are routed before the FLAC iframe
- * sees them. Must run before WASM init (same timing as wireFlacDecoderBridge).
+ * The real BroadcastChannel constructor, looking through the legacy global patch
+ * (projectm-legacy-globals.js) when it is installed. Resolved on every use, so a
+ * test or a page that swaps the global later is honoured.
+ *
+ * @returns {typeof BroadcastChannel | null}
+ */
+function nativeBroadcastChannelCtor() {
+    const current = /** @type {any} */ (globalThis).BroadcastChannel;
+    if (typeof current !== 'function') {
+        return null;
+    }
+    return /** @type {typeof BroadcastChannel} */ (current[NATIVE_CHANNEL_TAG] ?? current);
+}
+
+/**
+ * Route 'sng' posts on `channel` through the host song loader, leaving every
+ * other channel name untouched. Mutates and returns the channel it is given.
+ *
+ * Host routes FLAC/MP3 through the worklet (or openLegacyFlacDecoder). It never
+ * forwards to the legacy ./flac/ 'sng' listener unless routing fails completely;
+ * openLegacyFlacDecoder posts with bypassSngIntercept.
+ *
+ * @param {string} name The channel name the channel was created with.
+ * @param {BroadcastChannel} channel
+ * @returns {BroadcastChannel}
+ */
+export function wrapSongChannel(name, channel) {
+    if (name !== 'sng') {
+        return channel;
+    }
+
+    const originalPostMessage = channel.postMessage.bind(channel);
+    channel.postMessage = (data) => {
+        const url = data?.data;
+        if (bypassSngIntercept) {
+            originalPostMessage(data);
+            return;
+        }
+        if (typeof url !== 'string' || !url) {
+            originalPostMessage(data);
+            return;
+        }
+
+        void routeSongUrl(url).catch((error) => {
+            console.error('[projectM song loader] route failed, forwarding to ./flac/:', error);
+            originalPostMessage(data);
+        });
+    };
+    return channel;
+}
+
+/**
+ * Open a BroadcastChannel whose 'sng' posts are routed through the song loader.
+ * The explicit alternative to patching the global constructor: callers that
+ * create their own channel ask for it here.
+ *
+ * @param {string} name
+ * @param {typeof BroadcastChannel | null} [ChannelCtor] Defaults to the real constructor.
+ * @returns {BroadcastChannel}
+ */
+export function createSongChannel(name, ChannelCtor = nativeBroadcastChannelCtor()) {
+    if (!ChannelCtor) {
+        throw new Error('BroadcastChannel is not available');
+    }
+    return wrapSongChannel(name, new ChannelCtor(name));
+}
+
+/**
+ * Wire the Start/Change Song button to the host song loader. Idempotent.
+ *
+ * This no longer replaces `globalThis.BroadcastChannel`. The WASM glue posts its
+ * song URL on `new BroadcastChannel('sng')` itself, so a page that relies on the
+ * host intercepting that post also calls
+ * `patchBroadcastChannel(wrapSongChannel)` from projectm-legacy-globals.js — an
+ * explicit, reversible opt-in.
  */
 export function installSongLoaderInterceptor() {
     if (globalThis.__projectMSongLoaderInstalled) {
@@ -364,52 +449,9 @@ export function installSongLoaderInterceptor() {
     }
     globalThis.__projectMSongLoaderInstalled = true;
 
-    const OriginalBroadcastChannel = globalThis.BroadcastChannel;
-    if (typeof OriginalBroadcastChannel !== 'function') {
+    if (!nativeBroadcastChannelCtor()) {
         console.warn('[projectM song loader] BroadcastChannel unavailable');
-        return;
     }
-
-    nativeBroadcastChannel = OriginalBroadcastChannel;
-    /**
-     * @param {string} name
-     * @returns {BroadcastChannel}
-     */
-    function PatchedBroadcastChannel(name) {
-        const channel = new OriginalBroadcastChannel(name);
-        if (name !== 'sng') {
-            return channel;
-        }
-
-        const originalPostMessage = channel.postMessage.bind(channel);
-        channel.postMessage = (data) => {
-            const url = data?.data;
-            if (bypassSngIntercept) {
-                originalPostMessage(data);
-                return;
-            }
-            if (typeof url !== 'string' || !url) {
-                originalPostMessage(data);
-                return;
-            }
-
-            // Host routes FLAC/MP3 through the worklet (or openLegacyFlacDecoder).
-            // Never forward to the legacy ./flac/ 'sng' listener unless routing fails
-            // completely — openLegacyFlacDecoder posts with bypassSngIntercept.
-            void routeSongUrl(url).catch((error) => {
-                console.error('[projectM song loader] route failed, forwarding to ./flac/:', error);
-                originalPostMessage(data);
-            });
-        };
-        return channel;
-    }
-
-    PatchedBroadcastChannel.prototype = OriginalBroadcastChannel.prototype;
-    // Callable-as-constructor shim: the function returns the wrapped channel, so
-    // `new PatchedBroadcastChannel(...)` yields it in place of the implicit this.
-    globalThis.BroadcastChannel = /** @type {typeof BroadcastChannel} */ (
-        /** @type {unknown} */ (PatchedBroadcastChannel)
-    );
 
     installMusicButtonHandler();
 }

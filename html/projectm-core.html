@@ -546,6 +546,15 @@ import { setupPerfTools } from './projectm-perf.js';
 import { setupAudioTestPanel } from './projectm-synthetic-audio.js';
 import { setupExperimentalBridge } from './projectm-experimental-bridge.js';
 import { setupPresetDevTools } from './projectm-preset-dev.js';
+import {
+    exposeAudioPlayerGlobals,
+    exposeExperimentalGlobals,
+    exposeFboFormatGlobals,
+    exposeGovernorGlobals,
+    exposeMeshQualityGlobals,
+    exposePresetDevGlobals,
+    patchBroadcastChannel,
+} from './projectm-legacy-globals.js';
 import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { setupPresetPicker } from './projectm-preset-picker.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -559,6 +568,11 @@ import {
 // (DreamHost serves www.noahcohn.com/404.1ink as text/html).
 void import('./projectm-song-loader.js').then((mod) => {
     mod.installSongLoaderInterceptor();
+    // The WASM glue posts its song URL on `new BroadcastChannel('sng')` itself,
+    // so intercepting it means wrapping the global constructor. That is an
+    // explicit, reversible opt-in now (see projectm-legacy-globals.js), not a
+    // side effect of the song loader.
+    patchBroadcastChannel(mod.wrapSongChannel);
 }).catch((error) => {
     console.warn('[projectM] song loader unavailable; Start/Change Song uses /flac/', error);
 });
@@ -929,6 +943,9 @@ if (enableLocalPresets) {
 
 const audioPlayerController = createPopupAudioPlayerController();
 const { cycleAudioPlayer, closeAudioPlayer } = audioPlayerController;
+// The inline onclick="cycleAudioPlayer()" handlers and song-loader's
+// openModPlayer lookup read these off window; this page opts in.
+exposeAudioPlayerGlobals(audioPlayerController);
 
 function applyTransparencyDomState(enabled) {
     const scanvas = document.querySelector('#scanvas');
@@ -1380,8 +1397,8 @@ async function attemptInit() {
                 // compiled into the WASM bundle.
                 installHostPcmRingWriter(Module);
 
-                setupMeshQuality(Module);
-                setupFpsGovernor(Module, {
+                exposeMeshQualityGlobals(setupMeshQuality(Module));
+                exposeGovernorGlobals(setupFpsGovernor(Module, {
                     onRenderScaleChange: (scale) => {
                         // Governor v2: shrink the canvas backing store while pmContext
                         // keeps its CSS display size fixed (see syncCanvasSize() in
@@ -1393,11 +1410,12 @@ async function attemptInit() {
                             pmContext.resize();
                         }
                     },
-                });
-                setupFboFormatIndicator(Module);
+                }));
+                const fboFormat = setupFboFormatIndicator(Module);
+                exposeFboFormatGlobals(() => fboFormat);
                 setupPerfTools(Module);
-                setupPresetDevTools(Module, { startTransitionWhenReady });
-                setupExperimentalBridge(Module);
+                exposePresetDevGlobals(setupPresetDevTools(Module, { startTransitionWhenReady }));
+                exposeExperimentalGlobals(setupExperimentalBridge(Module));
                 setupAudioTestPanel(() => getModule());
             } else {
                 console.info('[ProjectM] Rendering in the render worker; main-thread dev panels are inactive (use ?renderWorker=0 for them).');

@@ -14,11 +14,6 @@
 # One path per line, relative to the repository root. Third-party code
 # (html/flac-decode/example/, html/flac-player/bundle.*.js) is not tracked.
 
-# The <project-m-visualizer> custom element. Needs customElements/HTMLElement
-# and a live WebGL canvas; its attribute contract is covered instead by
-# tests/web/projectm-element.test.mjs against projectm-element-attributes.js.
-html/projectm-element.js
-
 # Preset-authoring dev tools, loaded only behind their own debug query params.
 html/projectm-preset-dev.js
 html/projectm-preset-tweaker.js

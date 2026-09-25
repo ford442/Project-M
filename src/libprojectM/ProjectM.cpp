@@ -25,24 +25,28 @@
 #include "PerfTimers.hpp"
 #include "Preset.hpp"
 #include "PresetFactoryManager.hpp"
+#include "PresetPrepareJob.hpp"
 #include "TimeKeeper.hpp"
 
 #include <Audio/PCM.hpp>
 
 #include <Renderer/CopyTexture.hpp>
 #include <Renderer/PresetTransition.hpp>
+#include <Renderer/Shader.hpp>
 #include <Renderer/ShaderCache.hpp>
+#include <Renderer/ShaderTranspileCache.hpp>
 #include <Renderer/TextureManager.hpp>
 #include <Renderer/TransitionShaderManager.hpp>
 
 #include <UserSprites/SpriteManager.hpp>
 
 #include <algorithm>
+#include <iterator>
 
 namespace libprojectM {
 
 ProjectM::ProjectM()
-    : m_presetFactoryManager(std::make_unique<PresetFactoryManager>())
+    : m_presetFactoryManager(std::make_shared<PresetFactoryManager>())
 {
     Initialize();
 }
@@ -62,29 +66,124 @@ void ProjectM::PresetSwitchFailedEvent(const std::string&, const std::string&) c
 
 void ProjectM::LoadPresetFile(const std::string& presetFilename, bool smoothTransition)
 {
-    try
-    {
-        m_textureManager->PurgeTextures();
-        StartPresetTransition(m_presetFactoryManager->CreatePresetFromFile(presetFilename), !smoothTransition);
-    }
-    catch (const std::exception& ex)
-    {
-        LOG_ERROR(ex.what());
-        PresetSwitchFailedEvent(presetFilename, ex.what());
-    }
+    // Prepared and initialized on this thread, so the default (non-transpiling) context: the
+    // shaders are transpiled in Preset::Initialize() exactly as before the load was split.
+    auto job = PresetPrepareJob::FromFile(m_presetFactoryManager, {}, presetFilename);
+    FinishPresetLoad(*job, smoothTransition, false);
 }
 
 void ProjectM::LoadPresetData(std::istream& presetData, bool smoothTransition)
 {
+    std::string data{std::istreambuf_iterator<char>(presetData), std::istreambuf_iterator<char>()};
+    auto job = PresetPrepareJob::FromData(m_presetFactoryManager, {}, std::move(data));
+    FinishPresetLoad(*job, smoothTransition, false);
+}
+
+auto ProjectM::BeginPreparePresetFile(const std::string& presetFilename) -> std::unique_ptr<PresetPrepareJob>
+{
+    return PresetPrepareJob::FromFile(m_presetFactoryManager, CapturePresetPrepareContext(), presetFilename);
+}
+
+auto ProjectM::BeginPreparePresetFile(const std::string& presetFilename, std::string fileContents) -> std::unique_ptr<PresetPrepareJob>
+{
+    auto context = CapturePresetPrepareContext();
+    context.fileContents = std::move(fileContents);
+    return PresetPrepareJob::FromFile(m_presetFactoryManager, std::move(context), presetFilename);
+}
+
+auto ProjectM::BeginPreparePresetData(std::string presetData) -> std::unique_ptr<PresetPrepareJob>
+{
+    return PresetPrepareJob::FromData(m_presetFactoryManager, CapturePresetPrepareContext(), std::move(presetData));
+}
+
+void ProjectM::LoadPreparedPreset(std::unique_ptr<PresetPrepareJob> job, bool smoothTransition)
+{
+    if (!job)
+    {
+        return;
+    }
+    // The caller is loading asynchronously already, so it can also wait for the links.
+    FinishPresetLoad(*job, smoothTransition, true);
+}
+
+auto ProjectM::PollPendingPreset() -> bool
+{
+    if (!m_pendingPreset)
+    {
+        return false;
+    }
+    if (!m_pendingPreset->preset->ShaderCompileComplete())
+    {
+        return true;
+    }
+
+    auto pending = std::move(m_pendingPreset);
     try
     {
-        m_textureManager->PurgeTextures();
-        StartPresetTransition(m_presetFactoryManager->CreatePresetFromStream(".milk", presetData), !smoothTransition);
+        pending->preset->FinishShaderCompile();
+        SwitchToPreset(std::move(pending->preset), pending->hardCut);
     }
     catch (const std::exception& ex)
     {
         LOG_ERROR(ex.what());
-        PresetSwitchFailedEvent("", ex.what());
+        PresetSwitchFailedEvent(pending->filename, ex.what());
+    }
+    return false;
+}
+
+void ProjectM::SetParallelShaderCompile(bool enabled)
+{
+    m_parallelShaderCompileEnabled = enabled;
+}
+
+auto ProjectM::ParallelShaderCompile() const -> bool
+{
+    return m_parallelShaderCompileEnabled && m_parallelShaderCompileSupported;
+}
+
+auto ProjectM::CapturePresetPrepareContext() -> PresetPrepareContext
+{
+    PresetPrepareContext context;
+    context.transpileShaders = true;
+    context.textureFiles = m_textureManager->ScannedTextureFileNames();
+    context.volumeTextureNames = m_textureManager->VolumeTextureNames();
+
+    // The render thread compiles cached GLSL instead of transpiling (MilkdropShader::TranspileHLSLShader()),
+    // so preparing would be wasted work for any shader type the cache already holds. The lookup hooks
+    // belong to the render thread, which is why this is asked here and not by the preparation.
+    const std::string cacheKey = Renderer::GetTranspiledGlslCacheKey();
+    if (!cacheKey.empty())
+    {
+        for (size_t shaderType = 0; shaderType < context.cachedGlsl.size(); shaderType++)
+        {
+            context.cachedGlsl.at(shaderType) = Renderer::LookupTranspiledGlsl(cacheKey, static_cast<int>(shaderType)).has_value();
+        }
+    }
+
+    return context;
+}
+
+void ProjectM::FinishPresetLoad(PresetPrepareJob& job, bool smoothTransition, bool deferShaderLink)
+{
+    try
+    {
+        m_textureManager->PurgeTextures();
+        job.Run();
+        if (job.Failed())
+        {
+            LOG_ERROR(job.Error());
+            PresetSwitchFailedEvent(job.Filename(), job.Error());
+            return;
+        }
+
+        auto prepared = job.TakePreparedPreset();
+        StartPresetTransition(prepared ? prepared->Instantiate() : nullptr, !smoothTransition,
+                              deferShaderLink, job.Filename());
+    }
+    catch (const std::exception& ex)
+    {
+        LOG_ERROR(ex.what());
+        PresetSwitchFailedEvent(job.Filename(), ex.what());
     }
 }
 
@@ -119,6 +218,9 @@ void ProjectM::SetTextureLoadCallback(Renderer::TextureLoadCallback callback)
 void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 {
     Perf::FrameGuard perfFrameGuard;
+
+    // Switch to a preset whose shader programs have finished linking since the last frame.
+    Perf::SetShaderLinkPending(PollPendingPreset());
 
     // Don't render if window area is zero.
     if (m_windowWidth == 0 || m_windowHeight == 0)
@@ -272,6 +374,8 @@ void ProjectM::Initialize()
     // Check OpenGL first before allocating any additional memory.
     CheckGLSLVersion();
 
+    m_parallelShaderCompileSupported = Renderer::Shader::ParallelCompileSupported();
+
     m_timeKeeper = std::make_unique<TimeKeeper>(m_presetDuration,
                                                 m_softCutDuration,
                                                 m_hardCutDuration,
@@ -333,7 +437,8 @@ void ProjectM::SetWindowSize(uint32_t width, uint32_t height)
     m_windowHeight = height;
 }
 
-void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hardCut)
+void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hardCut,
+                                     bool deferShaderLink, const std::string& filename)
 {
     m_presetChangeNotified = m_presetLocked;
 
@@ -342,8 +447,29 @@ void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hard
         return;
     }
 
-    preset->Initialize(GetRenderContext());
+    // A newer preset supersedes one still waiting for its shaders.
+    m_pendingPreset.reset();
 
+    auto renderContext = GetRenderContext();
+    renderContext.deferShaderLink = deferShaderLink && ParallelShaderCompile();
+    preset->Initialize(renderContext);
+
+    if (preset->ShaderCompilePending())
+    {
+        // Keep rendering the current preset; PollPendingPreset() switches once the
+        // driver has linked the new one's programs.
+        m_pendingPreset = std::make_unique<PendingPreset>();
+        m_pendingPreset->preset = std::move(preset);
+        m_pendingPreset->hardCut = hardCut;
+        m_pendingPreset->filename = filename;
+        return;
+    }
+
+    SwitchToPreset(std::move(preset), hardCut);
+}
+
+void ProjectM::SwitchToPreset(std::unique_ptr<Preset>&& preset, bool hardCut)
+{
     // If already in a transition, force immediate completion.
     if (m_transitioningPreset != nullptr)
     {

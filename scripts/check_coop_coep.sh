@@ -4,8 +4,8 @@
 #
 # Verifies that a deployed page sends the Cross-Origin-Opener-Policy (COOP) and
 # Cross-Origin-Embedder-Policy (COEP) headers required for SharedArrayBuffer /
-# pthreads / WASM_WORKERS (see CMakeLists.txt's `-s SHARED_MEMORY=1 -pthread
-# -s WASM_WORKERS=1` flags and docs/DEPLOYMENT.md).
+# pthreads (see the `-s SHARED_MEMORY=1 -pthread` flags in
+# cmake/EmscriptenWasmFlags.cmake and docs/DEPLOYMENT.md).
 #
 # Without these headers, `window.crossOriginIsolated` is false in the browser and
 # this pthread-enabled WASM build cannot run.

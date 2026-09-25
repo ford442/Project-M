@@ -50,25 +50,36 @@ declare global {
         currentPresetName?: string;
         /** Full VFS path of the most recently loaded preset (for context-loss reload). */
         currentPresetPath?: string;
-        /** Init-error overlay hooks registered by projectm-init-errors.js. */
+        /**
+         * Init-error overlay hooks. Engine callbacks: WasmJsBindings.cpp looks these
+         * up by name, and projectm-init-errors.js listens through
+         * projectm-wasm-callbacks.js, which owns the global.
+         */
         pmReportInitError?: (code: number, detail?: string) => void;
         pmHideInitError?: () => void;
         /** Shared AudioContext created by `js_initialize_worklet_system_once` (projectM_emscripten.cpp). */
         projectMAudioContext_Global_Cpp?: AudioContext;
-        /** FPS-governor hooks registered by projectm-fps-governor.js. */
+        /**
+         * FPS-governor convenience API. Published only by `exposeGovernorGlobals()`
+         * in projectm-legacy-globals.js, backed by `setupFpsGovernor()`.
+         */
         pmSetTargetFps?: (fps: number) => number;
         pmSetQualityGovernorEnabled?: (enabled: boolean) => boolean;
         pmGetQualityTier?: () => number;
-        /** Governor v2 (docs/PERFORMANCE.md): tier-change push notifications from WasmPerfGovernor.cpp. */
+        /**
+         * Governor v2 (docs/PERFORMANCE.md): tier-change push notifications from
+         * WasmPerfGovernor.cpp. Engine callbacks, owned by projectm-wasm-callbacks.js.
+         */
         pmOnGovernorTierChange?: (tier: number) => void;
         pmOnGovernorRenderScaleChange?: ((scale: number) => void) | null;
         pmOnGovernorBlurCapChange?: (cap: number) => void;
-        /** Governor v2 pull getters registered by projectm-fps-governor.js. */
+        /** Governor v2 pull getters (legacy shim, like the setters above). */
         pmGetGovernorRenderScale?: () => number;
         pmGetGovernorBlurCap?: () => number;
         /**
-         * External audio-player controls exposed by projectm-audio-player.js
-         * for inline `onclick=` handlers in the legacy panel hosts.
+         * External audio-player controls for inline `onclick=` handlers in the
+         * legacy panel hosts. Published only by `exposeAudioPlayerGlobals()` in
+         * projectm-legacy-globals.js.
          */
         cycleAudioPlayer?: () => void;
         closeAudioPlayer?: () => void;
@@ -78,30 +89,33 @@ declare global {
         openModPlayer?: (trackUrl?: string) => void;
         /**
          * Experimental depth/glTF bridge (`?experimental=1`,
-         * projectm-experimental-bridge.js) and the legacy depth-module loader
-         * guard it shares with the B3HD hosts.
+         * projectm-experimental-bridge.js), published by
+         * `exposeExperimentalGlobals()` in projectm-legacy-globals.js, and the
+         * legacy depth-module loader guard it shares with the B3HD hosts.
          */
         pmExperimental?: Record<string, unknown>;
         __pmDepthModuleLoading?: Promise<boolean>;
         /** Legacy global preset-label updater used by the full `.1ink` hosts. */
         updatePresetDisplay?: (name: string, options?: { text?: string }) => void;
-        /** Mesh-quality hook registered by projectm-mesh-quality.js. */
+        /** Mesh-quality hook (legacy shim; backed by `setupMeshQuality()`). */
         pmSetMeshQuality?: (quality: string) => string;
-        /** Dual-FBO color format, registered by projectm-fbo-format.js. */
+        /** Dual-FBO color format (legacy shim; see `exposeFboFormatGlobals()`). */
         pmGetFboFormat?: () => 'RGBA32F' | 'RGBA16F' | 'RGBA8';
         /**
-         * Transpiled-GLSL cache hook, registered by projectm-shader-cache.js and
-         * called from `js_on_transpiled_shader_stored()` (projectM_emscripten.cpp).
+         * Transpiled-GLSL cache hook, an engine callback: projectm-shader-cache.js
+         * listens through projectm-wasm-callbacks.js and it is called from
+         * `js_on_transpiled_shader_stored()` (projectM_emscripten.cpp).
          * `kind` is 0=warp, 1=composite.
          */
         pmOnTranspiledShaderStored?: (cacheKey: string, kind: 0 | 1, glsl: string) => void;
-        /** Hot-reload hooks registered by projectm-preset-dev.js (`?devPreset=1`). */
+        /** Hot-reload hooks for `?devPreset=1` (legacy shim; see `exposePresetDevGlobals()`). */
         pmReloadPresetText?: (text: string, label?: string) => Promise<void>;
         pmPresetDevEnabled?: boolean;
         /**
-         * Perf HUD hooks registered by projectm-perf.js. `pmOnPerfFrame` is
-         * called once per frame from `js_perf_report_frame()`
-         * (WasmPerfGovernor.cpp) — the stats shape is defined there.
+         * Perf HUD hooks, engine callbacks that projectm-perf.js listens to through
+         * projectm-wasm-callbacks.js. `pmOnPerfFrame` is called once per frame from
+         * `js_perf_report_frame()` (WasmPerfGovernor.cpp) — the stats shape is
+         * defined there.
          */
         pmSetPerfHudEnabled?: (enabled: boolean) => void;
         pmOnPerfFrame?: (stats: {
@@ -114,6 +128,8 @@ declare global {
             compositeMs: number;
             gpuMs: number;
             fps: number;
+            /** Absent from bundles that predate KHR_parallel_shader_compile support. */
+            shaderLinkPending?: boolean;
             /**
              * How the per-pixel equations were evaluated for this frame. `'gpu'` means
              * they were compiled into the warp vertex shader and `perPixelEvalMs`

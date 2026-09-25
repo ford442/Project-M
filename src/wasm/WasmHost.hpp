@@ -21,7 +21,12 @@
 
 #include "ProjectMWasmInternal.hpp"
 #include "WasmGraphics.hpp"
+#include "WasmPresetPrepare.hpp"
 #include "WasmWebGLContext.hpp"
+
+#include <memory>
+#include <optional>
+#include <utility>
 
 // Maximum simultaneous engines in one Module. v1 targets 2 (A/B, compare-two-
 // presets). Each host owns an engine + dual-FBO pair, so this is bounded by
@@ -61,6 +66,18 @@ struct ShaderCacheLoadState {
 };
 
 // =============================================================================
+// EngineSettings – page-applied engine settings that must survive the engine
+// being re-created. Unset fields keep init()'s defaults.
+// =============================================================================
+struct EngineSettings {
+    std::optional<std::pair<size_t, size_t>> meshSize; //!< set_mesh(), or the governor's tier.
+    std::optional<bool> aspectCorrection;
+    std::optional<bool> presetLocked;
+    std::optional<bool> transparencyMode;
+    std::optional<float> transparencyThreshold;
+};
+
+// =============================================================================
 // WasmHost – ownership record for one projectM engine instance.
 //
 // Field groups mirror the former global clusters so the per-function reference
@@ -77,6 +94,18 @@ struct WasmHost {
     uint32_t presetReadyFrame = 0;
     bool presetSwitchFailed = false;
 
+    // ---- Background preset preparation (WasmPresetPrepare.cpp) ----
+    // Created by init(); lives as long as the host, across context loss.
+    std::unique_ptr<PresetPrepareQueue> presetPrepare;
+    // The engine asked for a timer-driven switch while a load was in flight and
+    // was told to wait; replayed if that load fails.
+    bool switchRequestDeferred = false;
+    bool deferredSwitchHardCut = false;
+    // A prepared preset the engine has accepted and is linking in the background.
+    std::optional<PendingPresetSwitch> pendingSwitch;
+    // A timer is armed to poll pendingSwitch without waiting for a frame.
+    bool linkPollScheduled = false;
+
     // ---- Transition controller (Phase 5) ----
     float transitionDuration = 3.0f;
     bool transitionActive = false;
@@ -85,12 +114,20 @@ struct WasmHost {
     double transitionEndTime = 0.0;
     float dualFboIdleReleaseSec = 5.0f;
 
-    // ---- Audio bridge ----
-    bool isStreamingAudio = false;
+    // ---- Engine settings the page applied (re-applied by init()) ----
+    // Engine state is lost whenever the engine is re-created (context loss,
+    // rebind_canvases()), so init() puts back whatever the page had set on
+    // the previous engine rather than silently reverting to the defaults.
+    EngineSettings engineSettings;
+
+    // ---- Deterministic clock (WasmDeterminism.cpp) ----
+    // Per host: the shared main loop ticks every started host once per frame,
+    // so a process-wide index advanced once per host per tick.
+    uint32_t deterministicFrameIndex = 0;
+    double virtualNowMs = 0.0;
 
     // ---- Perf HUD / adaptive quality governor ----
     bool perfHudEnabled = false;
-    bool wasLoading = false;
     int postLoadGraceFrames = 0;
     bool governorEnabled = true;
     int targetFps = 60;
@@ -103,6 +140,10 @@ struct WasmHost {
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE glCtx = 0;
     DualPingPongFramebuffer dualFbo;
     CompositingBlendShader compositorShader;
+    // GL state the host established for this context (start_render() captures
+    // it, set_window_size() keeps viewport/scissor current); what GLStateGuard
+    // restores after each preset render. Cleared with the graphics resources.
+    std::optional<GLStateSnapshot> glBaseline;
 
     // ---- WebGL context attributes + dual-FBO precision (#246) ----
     // Baked into glCtx at create time; never rewritten while glCtx is live.
@@ -118,6 +159,11 @@ struct WasmHost {
     char primarySelector[kCanvasSelectorMax] = "#mcanvas";
     char secondarySelector[kCanvasSelectorMax] = "#scanvas";
     bool canvasSelectorsExplicit = false;
+
+    // Allocated lazily by Host() for a legacy no-handle export rather than by
+    // create_host(). While it has no engine and no context, the next
+    // create_host() adopts it instead of taking another slot.
+    bool implicitDefault = false;
 
     // Whether start_render() has run for this host (so the shared Emscripten
     // main loop renders it). The loop itself is process-global; each host opts
@@ -165,6 +211,12 @@ WasmHost* ActiveHostOrNull();
 // stale or unknown handle).
 uintptr_t HostHandle(const WasmHost& host);
 WasmHost* HostFromHandle(uintptr_t handle);
+
+// The live engine whose address is `engineHandle` (what get_projectm_handle()
+// hands to JS), or nullptr if no live host owns it. JS passes such integers
+// back into the PCM exports; this is the check that keeps a stale or made-up
+// one from being dereferenced as an engine.
+projectm_handle EngineFromHandle(uintptr_t engineHandle);
 
 // Points libprojectM's process-wide transpiled-GLSL cache key at `host`'s
 // in-flight load (or clears it). SetActiveHost() calls this so the key always

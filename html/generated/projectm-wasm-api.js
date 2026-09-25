@@ -12,6 +12,8 @@ export const WASM_API_SYMBOLS = {
     init: 'init',
     setCanvasSelectors: 'set_canvas_selectors',
     setContextConfig: 'set_context_config',
+    setRenderPathOverrides: 'set_render_path_overrides',
+    getRenderPathOverrides: 'get_render_path_overrides',
     initWithCanvases: 'init_with_canvases',
     rebindCanvases: 'rebind_canvases',
     createHost: 'create_host',
@@ -62,6 +64,8 @@ export const WASM_API_SYMBOLS = {
     isPresetReady: 'is_preset_ready',
     getRenderedFrameCount: 'get_rendered_frame_count',
     presetSwitchFailed: 'preset_switch_failed',
+    livePlaylistCount: 'live_playlist_count',
+    getMainLoopTimingMode: 'get_main_loop_timing_mode',
     getOmpEnabled: 'get_omp_enabled',
     getOmpMaxThreads: 'get_omp_max_threads',
     getOmpThreadCountInParallel: 'get_omp_thread_count_in_parallel',
@@ -128,6 +132,8 @@ export const WASM_API_SIGNATURES = {
     init: { symbol: 'init', returnType: 'number', argTypes: [], paramTypes: [] },
     setCanvasSelectors: { symbol: 'set_canvas_selectors', returnType: null, argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
     setContextConfig: { symbol: 'set_context_config', returnType: null, argTypes: ['number', 'number', 'number', 'number', 'number', 'number', 'number'], paramTypes: ['number', 'number', 'number', 'number', 'number', 'number', 'number'] },
+    setRenderPathOverrides: { symbol: 'set_render_path_overrides', returnType: null, argTypes: ['number', 'number', 'number'], paramTypes: ['boolean', 'boolean', 'boolean'] },
+    getRenderPathOverrides: { symbol: 'get_render_path_overrides', returnType: 'number', argTypes: [], paramTypes: [] },
     initWithCanvases: { symbol: 'init_with_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
     rebindCanvases: { symbol: 'rebind_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
     createHost: { symbol: 'create_host', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
@@ -178,6 +184,8 @@ export const WASM_API_SIGNATURES = {
     isPresetReady: { symbol: 'is_preset_ready', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
     getRenderedFrameCount: { symbol: 'get_rendered_frame_count', returnType: 'number', argTypes: [], paramTypes: [] },
     presetSwitchFailed: { symbol: 'preset_switch_failed', returnType: 'number', argTypes: [], paramTypes: [] },
+    livePlaylistCount: { symbol: 'live_playlist_count', returnType: 'number', argTypes: [], paramTypes: [] },
+    getMainLoopTimingMode: { symbol: 'get_main_loop_timing_mode', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpEnabled: { symbol: 'get_omp_enabled', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpMaxThreads: { symbol: 'get_omp_max_threads', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpThreadCountInParallel: { symbol: 'get_omp_thread_count_in_parallel', returnType: 'number', argTypes: [], paramTypes: [] },
@@ -301,9 +309,19 @@ export function setCanvasSelectors(module, primary, secondary) {
     module.ccall('set_canvas_selectors', null, ['string', 'string'], [primary, secondary]);
 }
 
-/** Configure WebGL context attributes and dual-FBO precision (call before init/init_with_canvases/create_host) */
+/** Configure WebGL context attributes and the preferred dual-FBO format (fboPrecision: 0=RGBA16F, 1=RGBA32F, 2=RGBA8, as dual_fbo_get_format returns) — call before init/init_with_canvases/create_host */
 export function setContextConfig(module, antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision) {
     module.ccall('set_context_config', null, ['number', 'number', 'number', 'number', 'number', 'number', 'number'], [antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision]);
+}
+
+/** Set the ?blurPath=copy / ?copyPath=shader / ?perPixelEval=cpu ablation switches from the host (call before init — overrides the URL and is the only way they reach the render worker) */
+export function setRenderPathOverrides(module, blurCopyPath, copyShaderPath, perPixelForceCpu) {
+    module._set_render_path_overrides(blurCopyPath ? 1 : 0, copyShaderPath ? 1 : 0, perPixelForceCpu ? 1 : 0);
+}
+
+/** Render-path switches in effect as a bitmask (1=blurPath copy, 2=copyPath shader, 4=perPixelEval cpu) */
+export function getRenderPathOverrides(module) {
+    return module._get_render_path_overrides();
 }
 
 /** Set canvas selectors then init (returns 0 on success) */
@@ -556,6 +574,16 @@ export function presetSwitchFailed(module) {
     return module._preset_switch_failed();
 }
 
+/** Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook) */
+export function livePlaylistCount(module) {
+    return module._live_playlist_count();
+}
+
+/** Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook) */
+export function getMainLoopTimingMode(module) {
+    return module._get_main_loop_timing_mode();
+}
+
 /** Whether OpenMP was compiled in (0/1) */
 export function getOmpEnabled(module) {
     return module._get_omp_enabled();
@@ -691,7 +719,7 @@ export function dualFboIsPresetBReady(module) {
     return !!module._dual_fbo_is_preset_b_ready();
 }
 
-/** FBO format index (0=RGBA32F, 1=RGBA16F, 2=RGBA8) */
+/** Dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the fboPrecision numbering) */
 export function dualFboGetFormat(module) {
     return module._dual_fbo_get_format();
 }
@@ -776,6 +804,8 @@ export const PUBLIC_WASM_API = [
     init,
     setCanvasSelectors,
     setContextConfig,
+    setRenderPathOverrides,
+    getRenderPathOverrides,
     initWithCanvases,
     rebindCanvases,
     createHost,

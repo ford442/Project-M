@@ -51,22 +51,55 @@ export function setMeshQuality(Module, quality) {
 }
 
 /**
+ * `localStorage` throws on *access* in a sandboxed iframe (opaque origin) and in
+ * some private modes, so both directions are guarded; a page that cannot persist
+ * the choice still gets it for the current load.
+ *
+ * @param {string} key
+ * @returns {string | null}
+ */
+function readStoredQuality(key) {
+    try {
+        return globalThis.localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * @param {string} key
+ * @param {string} value
+ */
+function writeStoredQuality(key, value) {
+    try {
+        globalThis.localStorage.setItem(key, value);
+    } catch {
+        // Persisting is best-effort.
+    }
+}
+
+/**
  * Applies the mesh quality from `?meshQuality=`, localStorage, or
- * navigator.hardwareConcurrency (in that order of precedence), and exposes
- * `window.pmSetMeshQuality(quality)` for host UIs to change and persist it.
+ * navigator.hardwareConcurrency (in that order of precedence) and returns the
+ * control a host UI uses to change and persist it. Nothing is written to
+ * `window`; pages that still call `window.pmSetMeshQuality(...)` opt in through
+ * `exposeMeshQualityGlobals()` in projectm-legacy-globals.js.
  *
  * @param {*} Module The Emscripten module instance (must already be initialized).
- * @returns {{ quality: string }} The quality that was actually applied.
+ * @param {{ params?: URLSearchParams }} [options]
+ * @returns {{ quality: string, setQuality: (quality: string) => string }} The quality
+ *   that was actually applied, and a setter that persists and applies a new one.
  */
-export function setupMeshQuality(Module) {
-    const params = new URLSearchParams(location.search);
-    const requested = params.get('meshQuality') || localStorage.getItem('meshQuality') || 'auto';
+export function setupMeshQuality(Module, options = {}) {
+    const params = options.params || new URLSearchParams(location.search);
+    const requested = params.get('meshQuality') || readStoredQuality('meshQuality') || 'auto';
     const resolved = setMeshQuality(Module, requested);
 
-    window.pmSetMeshQuality = (quality) => {
-        localStorage.setItem('meshQuality', quality);
-        return setMeshQuality(Module, quality);
+    return {
+        quality: resolved,
+        setQuality: (quality) => {
+            writeStoredQuality('meshQuality', quality);
+            return setMeshQuality(Module, quality);
+        },
     };
-
-    return { quality: resolved };
 }

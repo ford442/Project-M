@@ -189,6 +189,14 @@ jobs:
       - name: Run WASM Browser Smoke Test
         run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
 
+      # Real WEBGL_lose_context on both render topologies: the overlay appears,
+      # the engine is torn down, and it is rebuilt when the context is restored
+      # (a tap in between must not break that). Exits 2 if the browser detects
+      # the loss but will not restore a synthetic one; that fails here too, since
+      # recovery would then be unexercised.
+      - name: Run WebGL Context-Loss Recovery Test
+        run: node scripts/test_context_loss_playwright.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
+
       # Debug leg: the same wrapper relinked with Emscripten's runtime checks.
       # SAFE_HEAP traps on a null or wild pointer the release build would
       # silently read through, which is how the host lifecycle bugs (playlist

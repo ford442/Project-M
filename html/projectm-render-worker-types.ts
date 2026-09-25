@@ -133,12 +133,28 @@ export interface RenderWorkerCcallMessage {
     requestId?: number;
 }
 
+/**
+ * Host → worker: rebuild the engine on the (restored) WebGL context.
+ *
+ * The worker runs the same re-init the main thread does — `init()` and
+ * `start_render()` against the module it already holds — and answers with a
+ * {@link RenderWorkerContextRecoveredMessage}. `init()` is the documented
+ * re-init export: it tears down whatever engine is left and rebuilds one, and
+ * it refuses with code 5 while the context is still lost. The transferred
+ * canvas, its `#mcanvas` registration, `set_context_config()` and the PCM ring
+ * all survive a context loss, so nothing else has to be replayed.
+ */
+export interface RenderWorkerRecoverContextMessage {
+    type: 'recover-context';
+}
+
 export type RenderWorkerHostMessage =
     | RenderWorkerInitMessage
     | RenderWorkerResizeMessage
     | RenderWorkerPcmMessage
     | RenderWorkerPresetMessage
-    | RenderWorkerCcallMessage;
+    | RenderWorkerCcallMessage
+    | RenderWorkerRecoverContextMessage;
 
 /** Worker → host: module booted and the render loop is running. */
 export interface RenderWorkerReadyMessage {
@@ -195,7 +211,42 @@ export interface RenderWorkerCcallResultMessage {
     result: unknown;
 }
 
+/**
+ * Worker → host: the worker's WebGL context was lost. The `webglcontextlost`
+ * event fires on the transferred OffscreenCanvas, i.e. in the worker, so this
+ * is the only way the page learns of it. By the time this is posted the worker
+ * has called `preventDefault()` (which is what lets the browser restore the
+ * context) and `pm_handle_context_loss()`, so the engine is already torn down.
+ */
+export interface RenderWorkerContextLostMessage {
+    type: 'context-lost';
+}
+
+/**
+ * Worker → host: the browser restored the context. Only a notification — no
+ * engine exists yet. The host answers with a
+ * {@link RenderWorkerRecoverContextMessage}, so recovery is driven from one
+ * place in both topologies.
+ */
+export interface RenderWorkerContextRestoredMessage {
+    type: 'context-restored';
+}
+
+/**
+ * Worker → host: the outcome of a `recover-context` request. `status` is what
+ * `init()` returned: `0` means the engine is running again, `5` means the
+ * browser has not restored the context yet (not an error — try again after
+ * `context-restored`), anything else is an init failure.
+ */
+export interface RenderWorkerContextRecoveredMessage {
+    type: 'context-recovered';
+    status: number;
+}
+
 export type RenderWorkerMessage =
+    | RenderWorkerContextLostMessage
+    | RenderWorkerContextRestoredMessage
+    | RenderWorkerContextRecoveredMessage
     | RenderWorkerReadyMessage
     | RenderWorkerUnsupportedMessage
     | RenderWorkerErrorMessage
@@ -203,9 +254,23 @@ export type RenderWorkerMessage =
     | RenderWorkerPcmRingMessage
     | RenderWorkerCcallResultMessage;
 
+/** A context-loss notification relayed from the worker. */
+export type RenderWorkerContextEvent = 'lost' | 'restored';
+
 /** The handle `setupRenderWorker()` hands back to the host. */
 export interface RenderWorkerHandle {
     worker: Worker;
+    /**
+     * Subscribes to the worker's context-loss notifications. Returns the
+     * unsubscribe function.
+     */
+    onContextEvent(listener: (event: RenderWorkerContextEvent) => void): () => void;
+    /**
+     * Asks the worker to rebuild its engine and resolves with `init()`'s status
+     * (see {@link RenderWorkerContextRecoveredMessage}). Overlapping calls share
+     * one round trip.
+     */
+    recoverContext(): Promise<number>;
     /** Null until the worker posts a shareable ring, and when it never does. */
     getPcmRing(): PcmRingWriter | null;
     /** Writes to the ring when there is one, else posts the chunk. */

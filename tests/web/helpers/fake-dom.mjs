@@ -27,6 +27,27 @@ export class FakeElement {
         this.children = [];
         /** @type {Map<string, FakeElement>} */
         this._bySelector = new Map();
+        /** @type {Map<string, Set<(event: any) => void>>} */
+        this._listeners = new Map();
+    }
+
+    addEventListener(type, listener) {
+        if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+        this._listeners.get(type).add(listener);
+    }
+
+    removeEventListener(type, listener) {
+        this._listeners.get(type)?.delete(listener);
+    }
+
+    /** Test helper: how many listeners are attached for `type`. */
+    listenerCount(type) {
+        return this._listeners.get(type)?.size ?? 0;
+    }
+
+    /** Test helper: run every listener for `type`, like a click would. */
+    dispatch(type, event = {}) {
+        for (const listener of [...(this._listeners.get(type) ?? [])]) listener(event);
     }
 
     appendChild(child) {

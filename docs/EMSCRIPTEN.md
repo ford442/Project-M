@@ -740,34 +740,48 @@ can lose the WebGL context underlying `#mcanvas`. Without handling, this leaves 
 black canvas with no on-screen indication — only a `webglcontextlost` event and silence in the
 console.
 
-`html/projectm-context-loss.js` exports `setupContextLossRecovery(Module, { canvasSelector })`,
-called once after `checkInit(Module)` succeeds (alongside `setupAudioUnlock()`):
+`ProjectMContext` installs recovery itself, on both render topologies. Standalone hosts call
+`setupContextLossRecovery(target, { canvas })` from `html/projectm-context-loss.js`, where `target`
+is a `ProjectMContext` or a bare `RenderTransport`. The module never touches the Emscripten
+`Module` (it is on the `scripts/check_core_host_public_api.sh` gate list): every engine call goes
+through the transport, so the same recovery runs whether the engine is on this thread or in the
+render worker.
 
 ```js
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 
-if (!checkInit(Module)) {
-    return;
-}
-setupContextLossRecovery(Module);
+const dispose = setupContextLossRecovery(context, { canvas });   // dispose() removes every listener
 ```
+
+Where the events are heard depends on where the context lives:
+
+| Topology | `webglcontextlost` / `webglcontextrestored` fire on | Who hears them |
+|----------|------------------------------------------------------|----------------|
+| `main` | the page's `<canvas>` | `projectm-context-loss.js`, which calls `preventDefault()` and `transport.callVoid('pmHandleContextLoss')` |
+| `worker` | the transferred `OffscreenCanvas`, inside the render worker | the worker, which does the `preventDefault()` + `pm_handle_context_loss()` half itself and relays `context-lost` / `context-restored` (see `projectm-render-worker-types.ts`); the page hears them through `transport.onContextEvent()` |
+
+Either way the re-init is one call, `transport.recoverContext()`, and only a context that actually
+lost its engine is rebuilt. On the worker it is a `recover-context` message; the worker answers
+`context-recovered` with `init()`'s status.
 
 Behavior:
 
-- On `webglcontextlost`: calls `event.preventDefault()` (required for the browser to allow
-  recovery), calls `Module._pm_handle_context_loss()` (`EMSCRIPTEN_KEEPALIVE`,
-  `projectM_emscripten.cpp`) to tear down the projectM instance, playlist, and dual-FBO
-  bookkeeping — all GL calls during teardown are no-ops on a lost context, so this only resets
-  state — and shows a "Graphics paused — tap to restore" overlay.
-- On `webglcontextrestored` (or a tap on the overlay): re-runs `checkInit(Module)`, which calls
-  `Module._init()`. Because `pm_handle_context_loss()` reset the module-level `pm` handle to
-  `NULL`, `init()` takes its full re-initialization path (new EGL/WebGL context, new projectM and
-  playlist instances re-scanning `/presets/` in the in-memory filesystem, which still contains
-  every preset loaded so far). `Module._start_render()` is then called again to apply the current
+- On loss: the "Graphics paused — tap to restore" overlay is shown (it needs a `document`; without
+  one, recovery still runs silently) and projectM's instance, playlist, and dual-FBO bookkeeping
+  are torn down by `pm_handle_context_loss()` (`EMSCRIPTEN_KEEPALIVE`, `projectM_emscripten.cpp`) —
+  all GL calls during teardown are no-ops on a lost context, so this only resets state.
+- On `webglcontextrestored` (or a tap on the overlay): `transport.recoverContext()` runs `init()`,
+  which is the re-init export. Because `pm_handle_context_loss()` reset the module-level `pm`
+  handle to `NULL`, `init()` takes its full re-initialization path (new EGL/WebGL context, new
+  projectM and playlist instances re-scanning `/presets/` in the in-memory filesystem, which still
+  contains every preset loaded so far). `start_render()` is then called again to apply the current
   viewport and restart the loop (FBO format probing happens in `init()`, and both dual-FBO pairs
-  are allocated lazily on the next transition). Finally, the last-displayed preset is reloaded via
-  `window.currentPresetPath` (set by `updatePresetDisplay()` in `html/projectm-presets.js` on every
-  preset switch).
+  are allocated lazily on the next transition). Finally, the last-displayed preset is reloaded
+  through the transport from `window.currentPresetPath` (set by `updatePresetDisplay()` in
+  `html/projectm-presets.js` on every preset switch). Everything else survives a loss on its own:
+  the transferred canvas and its `#mcanvas` registration, `set_context_config()`, and the PCM ring
+  (`pcm_ring_init()` is idempotent for an unchanged capacity, so the descriptor stays valid; the
+  worker re-publishes it anyway so a host that dropped its writer can map it again).
 - `pm_handle_context_loss()` tears down every host whose context reports lost — the host that
   owns the canvas, not whichever host is active — and leaves it active so the restore path's
   `init()` / `start_render()` rebuild that host. It keeps the lost context's handle so `init()`
@@ -780,8 +794,11 @@ Behavior:
   applies after `rebind_canvases()`.
 - `init()`'s "already initialized" early return now also checks that the engine's context is live
   and current; an engine left on a lost context is torn down and rebuilt.
-- If `init()` fails during recovery for any other reason, `checkInit()` shows the existing
-  `#pm-init-error` overlay with its "Retry" button instead.
+- If `init()` fails during recovery for any other reason, the engine reports it through
+  `pmReportInitError` (which drives the `#pm-init-error` overlay and its "Retry" button on a page
+  that called `setupInitErrorHandling()`; that callback fires in the worker's scope in the worker
+  topology, so there the page only sees the console error recovery logs) and the "Graphics paused"
+  overlay stays up.
 
 ### Testing context loss
 
@@ -789,6 +806,22 @@ In Chrome DevTools: **More tools → Rendering → "Force WebGL Context Loss"** 
 WebGL Inspector extension) while a preset is running on `#mcanvas`. The canvas should freeze and
 the "Graphics paused — tap to restore" overlay should appear. Triggering "Restore WebGL Context"
 (or tapping the overlay) should resume rendering with the same preset within a second or two.
+Do this on the default (`renderTopology: 'auto'`, i.e. worker) page as well as with
+`?renderWorker=0`.
+
+Automated, against a built bundle (loses the real context with `WEBGL_lose_context` — on the canvas
+for `main`, inside the render worker for `worker` — and checks the overlay, the engine teardown and
+the rebuild):
+
+```bash
+node scripts/test_context_loss_playwright.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js [worker|main ...]
+```
+
+It exits `2` (not `0`) if the browser detects the loss but refuses to restore a synthetic one, as
+headless Chromium does on some builds: recovery itself was not exercised then. The wire protocol and
+the recovery logic are covered without a browser by `tests/web/projectm-render-worker.test.mjs`,
+`tests/web/projectm-render-worker-host.test.mjs`, `tests/web/projectm-render-transport.test.mjs` and
+`tests/web/projectm-context-loss.test.mjs`.
 
 ## Main Render Loop (`renderLoop()` → `render_frame()`)
 

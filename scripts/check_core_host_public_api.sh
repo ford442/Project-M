@@ -26,7 +26,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Every first-party host under html/ must stay clean of raw Module._ /
+# Every first-party host (and recovery module) under html/ must stay clean of raw Module._ /
 # Module.ccall public-API calls. Add new hosts here as they are created.
 HOSTS=(
     "$PROJECT_ROOT/html/projectm-core.html"
@@ -38,6 +38,10 @@ HOSTS=(
     "$PROJECT_ROOT/html/projectm.1ink"
     "$PROJECT_ROOT/html/projectm_new.1ink"
     "$PROJECT_ROOT/html/projectm_test.1ink"
+    # Host-layer modules that recover engine state. They talk to a
+    # RenderTransport, never to the Module, so recovery works the same in the
+    # render worker (where no Module exists on this thread) as on the main thread.
+    "$PROJECT_ROOT/html/projectm-context-loss.js"
 )
 
 # Allowlist of raw `Module._*` symbols that may remain temporarily. These are

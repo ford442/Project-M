@@ -73,6 +73,25 @@ export interface RenderTransport {
     /** Tell the engine its drawing surface changed size. */
     resize(width: number, height: number): void;
 
+    /**
+     * Subscribes to WebGL context loss/restore notifications that the transport
+     * itself can see. In the worker topology the context lives in the worker, so
+     * the transport relays what the worker reports. On the main thread the
+     * canvas is right here and reports the DOM events itself, so this never
+     * fires — listen on the canvas (see html/projectm-context-loss.js).
+     * Returns the unsubscribe function.
+     */
+    onContextEvent(listener: (event: 'lost' | 'restored') => void): () => void;
+
+    /**
+     * Rebuild the engine on a restored WebGL context and start rendering again.
+     * Resolves with `init()`'s status: `0` recovered, `5` the browser has not
+     * restored the context yet (not an error), anything else an init failure.
+     * `width`/`height` size the render target on the main thread; the worker
+     * already knows its surface and ignores them.
+     */
+    recoverContext(width?: number, height?: number): Promise<number>;
+
     /** Release whatever this transport owns (the worker, or the module). */
     destroy(): void;
 }

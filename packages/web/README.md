@@ -304,7 +304,7 @@ The `.wasm`/glue artifacts are still **not** in the tarball — fetch them with
 | `pm-preset-changed` | `{ name, path?, url? }` |
 | `pm-error` | `{ code, message, error? }` |
 | `pm-fps` | `{ fps }` (once per second) |
-| `pm-audio-source` | `{ activeSource, mode, streamEnabled, externalEnabled, workletAllowed }` |
+| `pm-audio-source` | `{ activeSource, streamEnabled, externalEnabled, workletAllowed }` |
 
 ### Methods
 

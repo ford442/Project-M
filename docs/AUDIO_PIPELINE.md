@@ -128,8 +128,8 @@ stream analyser, external `postMessage` PCM, synthetic debug feeds). Without
 coordination they all call `projectm_pcm_add_float` and **double-feed** the
 engine.
 
-`html/projectm-audio-source-router.js` enforces an **exclusive** policy by
-default:
+`html/projectm-audio-source-router.js` (the one router module) enforces an
+**exclusive** policy:
 
 | Active source | Element (`#audio-stream-element`) | Worklet (`pl()`) | External PCM |
 |---------------|-----------------------------------|------------------|--------------|
@@ -145,12 +145,10 @@ default:
   the first FLAC/MOD PCM chunk or `pl()` call promotes that path and mutes the
   others.
 - Status is exposed as `context.getAudioSourceStatus()` and the custom-element
-  event **`pm-audio-source`** (`detail`: `{ activeSource, mode, streamEnabled,
+  event **`pm-audio-source`** (`detail`: `{ activeSource, streamEnabled,
   externalEnabled, workletAllowed }`).
 
-**Mix mode** (`mode: 'mix'`) is reserved for a future multi-source blend;
-it is documented but not implemented — behaviour matches exclusive until
-designed.
+There is no "mix" mode; see [Mixing](#mixing-not-implemented).
 
 | Path | File | Feed size | Preprocessing |
 |------|------|-----------|---------------|
@@ -314,42 +312,47 @@ Four JavaScript paths can all call `projectm_pcm_add_float` independently.  If t
 active simultaneously the PCM ring buffer is overwritten on every frame, producing
 unpredictable waveforms and beat-detection artefacts.
 
-### Exclusive-mode policy (default)
+### Exclusive policy
 
-`html/projectm-audio-router.js` implements a lightweight `AudioSourceRouter` that
-tracks exactly one *active* source at a time.  Switching activates the new source and
-silences the gate for the previous one.
+`html/projectm-audio-source-router.js` implements `AudioSourceRouter`, which
+tracks exactly one *active* source at a time. Switching activates the new source
+and closes the gate for the previous one:
 
 ```
-AudioSourceRouter
-  .activate('external')  → sets activeSource = 'external'
-  .activate('element')   → sets activeSource = 'element'
-  .shouldFeedExternal()  → true only when activeSource === 'external'
+router.setActiveSource('external')  → activeSource = 'external'
+router.setActiveSource('element')   → activeSource = 'element'
+router.canFeed('external')          → true only when activeSource === 'external'
+router.externalFeedGate()           → canFeed('external'), promoting on autoSwitchOnFeed
 ```
 
-`ProjectMContext` creates one router instance per context (`context.audioSourceRouter`).
-`#wireAudio` calls `router.activate()` for whichever source is configured; the external
-PCM feed is wrapped in a guard that calls `router.shouldFeedExternal()` before forwarding
-each chunk to the engine:
+`ProjectMContext` creates one router per context (`context.audioRouter`) — or
+adopts one passed as `options.audioRouter`. Every router registers with the
+page-level registry in the same module (`getHostAudioSourceRouter()`), which
+`playSong()` and the worklet path consult. That registry is hand-written host
+policy: the generated `html/generated/projectm-wasm-api.*` is ccall/direct
+wrappers only, and `scripts/sync_wasm_link_common.sh` knows nothing about
+sources. **Use `playSong(module, path)`, not the raw generated `pl()`**, from
+host code: it is the gate, and drops the call when another source owns the
+ingress path.
+
+The external PCM feed is wrapped in a guard so chunks are checked before they
+reach the engine:
 
 ```javascript
 setupExternalAudioReceiver({
-    onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
-        if (!router.shouldFeedExternal()) return false;   // exclusive gate
-        return defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerChannel);
-    },
+    feedGate: () => router.externalFeedGate(),
+    onFeed: router.wrapExternalFeed(defaultFeedPCMToModule),
 });
 ```
 
-Chunks arriving when the router is not in `'external'` mode are returned as `false` and
-queued by `setupExternalAudioReceiver`; they can be flushed later if the source switches
-back.
+Chunks arriving when the router is not in `'external'` are dropped (`false`).
 
 > **Note on WASM-managed paths**: the worklet is created by C++ inside the WASM
 > module, so the router can stop its playback (`stop_worklet_playback`) but not
 > unhook it. `set_audio_source_to_stream` is now only a record of the host's
 > choice — with one ring behind every source, nothing in the render loop branches
-> on it.
+> on it. In the render-worker topology both calls go through the
+> `RenderTransport` instead of a module on this thread.
 
 ### Source names
 
@@ -362,48 +365,40 @@ back.
 
 ### `pm-audio-source` event
 
-Whenever the active source changes, the router dispatches a `CustomEvent` on `window`:
+Whenever the active source changes, `ProjectMContext` emits an `audio-source`
+event and `<project-m-visualizer>` re-publishes it as `pm-audio-source`, with the
+router's status as `detail`:
 
 ```javascript
-window.addEventListener('pm-audio-source', (event) => {
-    console.log('active source:', event.detail.source);
-    // → 'none' | 'worklet' | 'element' | 'external'
+viz.addEventListener('pm-audio-source', (event) => {
+    console.log(event.detail);
+    // → { activeSource: 'none' | 'worklet' | 'element' | 'external',
+    //     streamEnabled, externalEnabled, workletAllowed }
 });
 ```
 
-Hosts can use this to update a status badge, mute/unmute UI controls, or log analytics
-without polling `context.activeAudioSource`.
-
-### Accessing the current source
+### Accessing and switching the current source
 
 ```javascript
 const context = new ProjectMContext({ canvas, audioSource: 'external', ... });
 await context.start();
 
-console.log(context.activeAudioSource);            // 'external'
-console.log(context.audioSourceRouter.activeSource); // same
-context.audioSourceRouter.shouldFeedExternal();    // true
+context.getAudioSourceStatus()?.activeSource;   // 'external'
+
+// Runtime switch (e.g. a FLAC player popup opened while element audio plays):
+context.setAudioSource('element');   // external PCM is gated from now on
+context.setAudioSource('external');  // and back
 ```
 
-### Switching sources at runtime
+### Mixing (not implemented)
 
-The router supports runtime switching (e.g. FLAC player popup opened while element
-audio is playing):
-
-```javascript
-// Activate external PCM — element feed is now gated
-context.audioSourceRouter.activate('external');
-
-// Switch back to element; external PCM is gated again
-context.audioSourceRouter.activate('element');
-```
-
-### Mix mode (not yet implemented)
-
-Mixing multiple sources is intentionally **not** the default because double-feeding
-degrades beat detection.  If you need mixing, bypass `shouldFeedExternal()` in your own
-`onFeed` wrapper and document the policy in your host.  A formal mix-mode API can be
-added to `AudioSourceRouter` without breaking the exclusive default.
+Mixing multiple sources is intentionally **not** offered: double-feeding degrades
+beat detection, and the router used to carry a `mode: 'exclusive' | 'mix'` option
+whose `'mix'` value behaved exactly like exclusive. It was removed so embedders do
+not think it works. When mixing is built it belongs in the Web Audio graph (a
+`GainNode` + `ChannelMergerNode` summing the sources *before* the single
+PCM-ring producer), never inside the engine, and the router grows a mode again
+then.
 
 ---
 
@@ -543,15 +538,14 @@ Perf HUD (`?perf=1`) shows **Audio FFT/Loudness** timing via `audio_analysis_ms`
 |------|------|
 | `projectm_audio_processor.js` | Web Audio worklet; batches PCM to main thread |
 | `projectM_emscripten.cpp` | Worklet/stream glue, `_projectm_pcm_add_float_wrapper` |
-| `html/projectm-audio-router.js` | `AudioSourceRouter` — single-active-source policy + `pm-audio-source` events |
 | `html/projectm-external-pcm.js` | MOD/FLAC postMessage bridge |
-| `html/projectm-audio-source-router.js` | Exclusive single-source policy |
+| `html/projectm-audio-source-router.js` | `AudioSourceRouter` — exclusive single-source policy, host-router registry, `playSong()` gate |
 | `html/projectm-synthetic-audio.js` | Test signal generators |
-| `html/projectm-context.js` | `ProjectMContext` — wires router, exposes `activeAudioSource` |
+| `html/projectm-context.js` | `ProjectMContext` — wires router, exposes `getAudioSourceStatus()` / `setAudioSource()` |
 | `src/libprojectM/Audio/PCM.cpp` | Ring buffer, FFT, beat detection |
 | `src/libprojectM/Audio/Loudness.cpp` | bass/mid/treb relative values |
 | `tests/libprojectM/PCMAudioReactivityTest.cpp` | Automated PCM tests |
-| `tests/web/audio-router.test.mjs` | Unit tests for `AudioSourceRouter` |
+| `tests/web/projectm-audio-source-router.test.mjs` | Unit tests for `AudioSourceRouter` and the host-router registry |
 | `tests/web/projectm-external-pcm.test.mjs` | Unit tests for origin allowlist, queue drop, stereo/mono |
 
 ## Related docs

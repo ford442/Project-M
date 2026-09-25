@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Context loss smoke</title>
+  <style>
+    body { margin: 0; background: #000; }
+    #pm-loss-container { width: 320px; height: 180px; position: relative; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <!-- Driven by scripts/test_context_loss_playwright.mjs.
+       ?module=<url of projectm-v.NNN-thread.js>&topology=worker|main&preset=<url> -->
+  <div id="pm-loss-container">
+    <canvas id="pm-loss-main" width="320" height="180"></canvas>
+    <canvas id="pm-loss-secondary" width="320" height="180"></canvas>
+  </div>
+  <script type="module">
+    import { ProjectMContext } from '../../html/projectm-context.js';
+
+    const params = new URLSearchParams(location.search);
+    const topology = params.get('topology') || 'worker';
+    const errors = [];
+
+    const context = new ProjectMContext({
+      canvas: document.getElementById('pm-loss-main'),
+      secondaryCanvas: document.getElementById('pm-loss-secondary'),
+      wasmScriptUrl: params.get('module'),
+      presetUrl: params.get('preset') || undefined,
+      renderTopology: topology,
+      onError: (detail) => errors.push(detail.message),
+    });
+
+    const overlay = () => document.getElementById('pm-context-lost');
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // get_projectm_handle() is the engine pointer: nonzero while an engine
+    // exists, 0 after pm_handle_context_loss() has torn it down. It is the
+    // observable difference between "the overlay is showing" and "the engine
+    // really was rebuilt".
+    const engineHandle = () => context.transport.call('getProjectmHandle');
+
+    // WEBGL_lose_context is the only way a page can lose a context on purpose,
+    // and it has to be called where the context lives: on the canvas here, or
+    // inside the render worker, which owns the transferred canvas. The worker
+    // script has no test hook, so the page wraps `Worker` with a tiny classic
+    // preamble that loads the real worker and adds one message of its own. The
+    // real worker's top-level `let Module` is a global lexical binding, visible
+    // to the scripts that share its scope — including this preamble.
+    const realWorker = globalThis.Worker;
+    let workerHook = null;
+    globalThis.Worker = class extends realWorker {
+      constructor(url, options) {
+        const preamble = `
+          importScripts(${JSON.stringify(String(url))});
+          const realOnMessage = self.onmessage;
+          self.onmessage = (event) => {
+            const msg = event.data;
+            if (msg && msg.type === '__lose-context') {
+              const gl = Module.specialHTMLTargets['#mcanvas'].getContext('webgl2');
+              const ext = gl.getExtension('WEBGL_lose_context');
+              ext.loseContext();
+              setTimeout(() => ext.restoreContext(), msg.restoreDelay);
+              return;
+            }
+            realOnMessage(event);
+          };
+        `;
+        super(URL.createObjectURL(new Blob([preamble], { type: 'text/javascript' })), options);
+        workerHook = this;
+      }
+    };
+
+    window.__pmContextLoss = {
+      errors,
+      topology: () => context.getRenderTopology(),
+      overlayVisible: () => !!overlay()?.classList.contains('visible'),
+      engineHandle,
+      presetPath: () => window.currentPresetPath ?? null,
+      async loseContext({ restoreDelay }) {
+        if (topology === 'worker') {
+          workerHook.postMessage({ type: '__lose-context', restoreDelay });
+          return;
+        }
+        const gl = document.getElementById('pm-loss-main').getContext('webgl2');
+        const ext = gl.getExtension('WEBGL_lose_context');
+        ext.loseContext();
+        setTimeout(() => ext.restoreContext(), restoreDelay);
+      },
+      tapOverlay: () => overlay()?.click(),
+      sleep,
+    };
+
+    context.start().then(
+      () => { window.__pmContextLossReady = true; },
+      (error) => { window.__pmContextLossReady = false; errors.push(String(error)); },
+    );
+  </script>
+</body>
+</html>

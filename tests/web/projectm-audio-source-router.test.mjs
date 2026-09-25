@@ -4,6 +4,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import * as generatedWasmApi from '../../html/generated/projectm-wasm-api.js';
+
 // `setHostAudioSourceRouter` / `playSong` live here, not in the generated WASM
 // API: exclusive-source policy is host policy. An earlier revision hand-edited
 // them into `generated/projectm-wasm-api.js`, which is regenerated from
@@ -117,7 +119,6 @@ test('setActiveSource emits pm-audio-source-shaped status', () => {
     const status = router.getStatus();
     assert.deepEqual(status, {
         activeSource: 'external',
-        mode: 'exclusive',
         streamEnabled: false,
         externalEnabled: true,
         workletAllowed: false,
@@ -227,4 +228,66 @@ test('playSong consults the most recently registered router', () => {
     open.destroy();
     assert.equal(playSong(module, '/x.wav'), false, 'and the older one decides again once it is gone');
     blocked.destroy();
+});
+
+// ---- One router, one policy ---------------------------------------------------
+
+test('the generated WASM API carries no host audio-source policy', () => {
+    // Host policy lives in projectm-audio-source-router.js. It used to be
+    // emitted by cmake/GenerateWasmLinkCommon.cmake as well, which left two
+    // registries and let a regeneration wipe a hand edit. The generated pl()
+    // is a plain ccall now; playSong() is the gate.
+    assert.equal('setHostAudioSourceRouter' in generatedWasmApi, false);
+    assert.equal('getHostAudioSourceRouter' in generatedWasmApi, false);
+});
+
+test('the generated pl() forwards without consulting any router', () => {
+    const calls = [];
+    const module = { ccall: (...args) => calls.push(args) };
+    const router = createAudioSourceRouter({ module, initialSource: 'external' });
+
+    generatedWasmApi.pl(module, '/music/test.wav');
+
+    assert.deepEqual(calls, [['pl', null, ['string'], ['/music/test.wav']]]);
+    assert.equal(router.getActiveSource(), 'external', 'the raw wrapper never promotes a source');
+    router.destroy();
+});
+
+test('a router starts on "none", ignores a repeated source and reports the switch once', () => {
+    const statuses = [];
+    const router = createAudioSourceRouter({
+        module: fakeModule(),
+        onStatusChange: (status) => statuses.push(status.activeSource),
+    });
+    assert.equal(router.getActiveSource(), 'none');
+
+    router.setActiveSource('external');
+    router.setActiveSource('external');
+    router.setActiveSource('element');
+    router.setActiveSource('none');
+
+    assert.deepEqual(statuses, ['external', 'element', 'none']);
+    router.destroy();
+});
+
+test('canFeed is exclusive: only the active source may feed, and nothing may on "none"', () => {
+    const router = createAudioSourceRouter({ module: fakeModule() });
+    for (const source of ['element', 'external', 'worklet']) {
+        assert.equal(router.canFeed(source), false, `none -> ${source}`);
+    }
+
+    for (const active of ['element', 'external', 'worklet']) {
+        router.setActiveSource(active);
+        for (const source of ['element', 'external', 'worklet']) {
+            assert.equal(router.canFeed(source), source === active, `${active} active -> ${source}`);
+        }
+    }
+    router.destroy();
+});
+
+test('status has no mode: "mix" was never implemented, so it is not offered', () => {
+    const router = createAudioSourceRouter({ module: fakeModule(), initialSource: 'element' });
+    assert.equal('mode' in router.getStatus(), false);
+    assert.equal('mode' in router, false);
+    router.destroy();
 });

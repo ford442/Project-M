@@ -220,14 +220,6 @@ function defaultUpdateUi(source, {
     }
 }
 
-/** @param {AudioPlayerController} controller */
-function exposeController(controller) {
-    window.cycleAudioPlayer = controller.cycleAudioPlayer;
-    window.closeAudioPlayer = controller.closeAudioPlayer;
-    window.flacPlayer = () => controller.showAudioPlayer('flac');
-    window.modPlayer = () => controller.showAudioPlayer('mod');
-}
-
 /**
  * Controller for hosts that embed the players as inline `.ext-player-section`
  * elements (panel2).
@@ -236,7 +228,6 @@ function exposeController(controller) {
  * @param {AudioPlayerSource[]} [options.sources]
  * @param {string} [options.menuId] Menu element toggled alongside the sections.
  * @param {(source: AudioPlayerSource) => void} [options.updateUi]
- * @param {boolean} [options.exposeGlobals]
  * @param {(url: string, target: string) => Window | HTMLIFrameElement | null} [options.openPopup]
  * @returns {AudioPlayerController}
  */
@@ -244,7 +235,6 @@ export function createSectionAudioPlayerController({
     sources = DEFAULT_AUDIO_SOURCES,
     menuId,
     updateUi = defaultUpdateUi,
-    exposeGlobals = true,
     openPopup = (url, target) => openPlayerForPcmFeed(url, target),
 } = {}) {
     let activeAudioSourceIndex = 0;
@@ -323,7 +313,6 @@ export function createSectionAudioPlayerController({
         closeAudioPlayer
     };
 
-    if (exposeGlobals) exposeController(controller);
     return controller;
 }
 
@@ -334,13 +323,11 @@ export function createSectionAudioPlayerController({
  * @param {object} [options]
  * @param {AudioPlayerSource[]} [options.sources]
  * @param {(source: AudioPlayerSource) => void} [options.updateUi]
- * @param {boolean} [options.exposeGlobals]
  * @returns {AudioPlayerController}
  */
 export function createPopupAudioPlayerController({
     sources,
     updateUi = defaultUpdateUi,
-    exposeGlobals = true
 } = {}) {
     /** @type {Map<string, Window | HTMLIFrameElement>} */
     const popups = new Map();
@@ -449,12 +436,6 @@ export function createPopupAudioPlayerController({
         /** @param {string} [trackUrl] */
         openModPlayer: (trackUrl) => showAudioPlayer('mod', { trackUrl }),
     };
-
-    if (exposeGlobals) {
-        exposeController(controller);
-        window.openFlacPlayer = controller.openFlacPlayer;
-        window.openModPlayer = controller.openModPlayer;
-    }
 
     return controller;
 }

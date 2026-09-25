@@ -130,8 +130,11 @@ addition to the pre-existing `window.pmOnGovernorTierChange(tier)`:
 | `window.pmOnGovernorBlurCapChange(cap)` | `number` (-1/1/2) | Informational/telemetry only; the blur cap is applied purely in C++ |
 
 `html/projectm-fps-governor.js`'s `setupFpsGovernor(Module, { onRenderScaleChange })`
-wires all three plus `window.pmGetGovernorRenderScale()` / `window.pmGetGovernorBlurCap()`
-pull-getters (for hosts that bind late). **The mesh and blur-cap tiers are applied
+listens to all three (through `html/projectm-wasm-callbacks.js`, which owns the global name
+and fans out, so several contexts can listen at once) and returns `getRenderScale()` /
+`getBlurCap()` pull-getters (for hosts that bind late; `exposeGovernorGlobals()` in
+`html/projectm-legacy-globals.js` republishes them as `window.pmGetGovernorRenderScale()` /
+`window.pmGetGovernorBlurCap()` for pages that still call those names). **The mesh and blur-cap tiers are applied
 entirely inside the WASM module** (`projectm_set_mesh_size` / `projectm_set_max_blur_level`
 in `ApplyQualityTier()`) — no host action needed for those two. The render-scale tier is
 different: it requires the **host** to shrink the `<canvas>` backing store
@@ -152,7 +155,7 @@ Query params / localStorage, mirroring the existing `?targetFps=`/`?governor=` p
 
 ## Render worker bridge
 
-[`html/projectm-wasm-api-worker.ts`](../html/projectm-wasm-api-worker.ts) re-exports `WASM_API_SYMBOLS` (camelCase key → C symbol string) for the OffscreenCanvas worker `ccall` proxy. The worker script itself (`projectm-render-worker.js`) cannot import ES modules; it mirrors `feedPcmFloat` inline.
+The OffscreenCanvas worker's `ccall` proxy takes its symbol names from the signature table in [`html/projectm-render-transport.js`](../html/projectm-render-transport.js) (`createWorkerTransport()`), the same table the main-thread transport validates against, so the two topologies cannot drift. The worker script itself (`projectm-render-worker.js`) cannot import ES modules; it mirrors `feedPcmFloat` inline.
 
 Governor v2 render-scale **is** wired in the render-worker topology:
 `WasmPerfGovernor.cpp` pushes tier changes through `globalThis`, which inside a

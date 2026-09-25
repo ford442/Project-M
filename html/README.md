@@ -65,6 +65,95 @@ against every first-party host under `html/`: `projectm-core.html`,
 `projectm_panel.1ink`, `projectm.1ink`, `projectm_new.1ink`,
 `projectm_test.1ink`.
 
+### Page globals
+
+Nothing under `html/` may publish a `window.pm*` global by plain assignment. With two
+contexts on a page (or one that is destroyed and started again) the second write silently
+replaces the first, and the first one's teardown then nulls the slot the second is using.
+There are two kinds of `pm*` name, handled differently:
+
+- **Engine callbacks** — names the WASM glue looks up by fixed ABI and calls with no host
+  handle: `pmOnPerfFrame`, `pmSetPerfHudEnabled`, `pmOnGovernorTierChange`,
+  `pmOnGovernorRenderScaleChange`, `pmOnGovernorBlurCapChange`,
+  `pmOnTranspiledShaderStored`, `pmReportInitError`, `pmHideInitError`
+  (`WASM_CALLBACK_NAMES`). These cannot be opt-in: a page that never imports a shim must
+  still hear the governor. `projectm-wasm-callbacks.js` installs each name once, fans it out
+  to every `subscribeWasmCallback(name, listener)` subscriber, and removes it when the last
+  one leaves. Because the callbacks carry no host handle, every subscriber sees every call;
+  telling engine instances in a shared Module apart needs the handle passed from the C++ side.
+- **Convenience API** — everything only host pages and the console call: `pmSetTargetFps`,
+  `pmSetQualityGovernorEnabled`, `pmGetQualityTier`, `pmGetGovernorRenderScale`,
+  `pmGetGovernorBlurCap`, `pmSetMeshQuality`, `pmGetFboFormat`, `pmReloadPresetText`,
+  `pmPresetDevEnabled`, `pmExperimental`, the popup-player names (`cycleAudioPlayer`,
+  `closeAudioPlayer`, `flacPlayer`, `modPlayer`, `openFlacPlayer`, `openModPlayer`), and the
+  `BroadcastChannel('sng')` intercept. The setup functions (`setupFpsGovernor`,
+  `setupMeshQuality`, `setupPresetDevTools`, `setupExperimentalBridge`, the audio-player
+  controllers, `installSongLoaderInterceptor`) publish nothing; they return plain objects with a
+  `dispose()`. A page that still has inline `onclick="cycleAudioPlayer()"` handlers or a
+  console workflow built on these names imports `projectm-legacy-globals.js` and calls
+  `exposeGovernorGlobals()`, `exposeAudioPlayerGlobals()`, `patchBroadcastChannel()`, … (or the
+  aggregate `installLegacyGlobals({...})`). Every installer goes through `claimGlobal()`
+  (`projectm-globals.js`), returns a disposer, and never overwrites a value it does not
+  recognise. `projectm-core.html` and `projectm_panel2.1ink` opt in; embeds built on
+  `ProjectMContext` / `<project-m-visualizer>` do not.
+
+`scripts/check_host_globals.sh` fails on a new `window.pm*` / legacy-name /
+`BroadcastChannel` assignment (or a `claimGlobal()` of a literal `pm*` name) in any
+`html/projectm-*.js` or first-party host page outside those two modules. It runs in
+`host_layer_gate.yml` and `web_host_tests.yml` (`npm run check:globals`), and
+`tests/web/projectm-legacy-globals.test.mjs` runs it as part of `npm test`.
+`projectm-render-worker.js` is the one explicit exception: a classic worker script cannot import
+the ES-module bus, and its `self` is the worker's own scope, which holds exactly one engine.
+
+### Context lifecycle
+
+`ProjectMContext` is built to be destroyed and started again, and to share a page with
+other contexts. The contracts, all covered by `tests/web/context-lifecycle.test.mjs` and
+`tests/web/element-lifecycle.test.mjs` (a fake browser in `tests/web/helpers/lifecycle-env.mjs`
+that records what a context leaves behind):
+
+- **`start()` is idempotent under concurrency.** Overlapping calls share one boot (the same
+  promise); once ready it resolves immediately. A start that fails releases everything it had
+  acquired — Module, render worker, WebGL context, listeners, hooks — reports the failure to
+  `onError` **once**, and leaves the context startable again.
+- **`destroy()` aborts a boot in flight.** The pending `start()` rejects with an `AbortError`
+  (no `onError`: nothing failed). An `AbortSignal` is threaded through script resolution and
+  loading, the render-worker spawn and preset fetches; a Module factory or worker that cannot
+  be cancelled is torn down as soon as it arrives. Every resource registers its undo step the
+  moment it is acquired, so one teardown serves both a finished context and a half-booted one.
+- **Nothing process-wide is written by plain assignment.** Each slot a context uses is claimed
+  and released, so destroying one context leaves another's intact:
+
+  | Slot | Scoping |
+  |---|---|
+  | `window.Module` | `claimGlobal` — newest live context wins; released with it |
+  | `projectMWritePcmRing` (worklet → ring) | `claimGlobal` |
+  | external-PCM transport | claim stack (`setExternalPcmTransport` returns a release) |
+  | external-PCM receiver | stack — the **newest open receiver is live**; closing it re-exposes the previous one. Only the live one feeds, so a page-level receiver and a context started beside it never double-feed |
+  | engine callbacks (`pmOnGovernor*`, …) | `projectm-wasm-callbacks.js` fan-out |
+  | audio-source router registry | list — `destroy()` removes only that router |
+  | worklet `BroadcastChannel('file')` safety net | ref-counted; closed with the last holder |
+  | audio-unlock, context-loss, resize, preset listeners | disposers, removed on teardown |
+
+- **A router you inject is yours.** `options.audioRouter` is detached from on `destroy()` (its
+  module, transport and status callback are restored), not destroyed. A router the context
+  created is destroyed with it.
+- **`context.events`** is a per-instance `EventTarget` (`ready`, `error`, `audio-source`,
+  `preset-changed`, `destroy`), unlike the window-level `pm:*` events.
+- **`<project-m-visualizer>`** reports a boot failure as exactly one `pm-error` and no
+  unhandled rejection, destroys a context that is still booting when the element is removed,
+  and regenerates the canvases it made when it is re-attached (a canvas handed to the render
+  worker cannot be reused). Canvases the page supplied are left alone.
+
+Known limits, deliberately not papered over:
+
+- Engine callbacks carry no host handle, so in a shared Module every context hears every
+  governor tier change. Telling instances apart needs the handle passed from the C++ side.
+- Only one external-PCM receiver feeds at a time (the newest). Two contexts that both need the
+  same external audio simultaneously would need a per-target broadcast.
+- The `AudioContext` and worklet node are created by the WASM side and are process-global;
+  `pm:preset-loaded` is still a window-level event, so two contexts see each other's loads.
+
 ### Core / canonical
 
 - `projectm-core.html`: reference core shell. Markup + panel chrome only; boots via
@@ -186,7 +275,6 @@ outgoing typo type-checks fine and fails only on the far side.
 - `projectm-render-worker-types.ts` — the render-worker message protocol.
 - `projectm-transport-types.ts` — `RenderTransport`, the one interface over both
   render topologies (implemented by `projectm-render-transport.js`).
-- `projectm-wasm-api-worker.ts` — ccall symbol names for the worker proxy.
 
 `generated/projectm-wasm-api.{js,ts}` is the one same-basename `.js`/`.ts` pair
 in the tree. It does not violate rule 1 below: both halves are emitted together
@@ -237,6 +325,7 @@ Every HTML-facing PR should state which hosts are affected and which shared modu
 - Does Random Preset still go through `projectm-presets.js`?
 - Does the custom preset picker still load through `projectm-preset-picker.js`, and is `custom_presets_manifest.json` regenerated if `custom_milk_fixed/` or the capture baseline changed?
 - Does external PCM still go through `projectm-external-pcm.js`?
+- Did the change add a `window.pm*` write? Engine callbacks go through `subscribeWasmCallback()`; convenience names belong in `projectm-legacy-globals.js` (`scripts/check_host_globals.sh` enforces it).
 - Does FLAC/MOD UI still go through `projectm-audio-player.js`?
 - If layout changed, was panel2 bezel calibration preserved or intentionally updated?
 - Does `projectm-core.html` still pass `scripts/check_core_host_public_api.sh` (no new raw `Module._`/`Module.ccall` public-API calls)?

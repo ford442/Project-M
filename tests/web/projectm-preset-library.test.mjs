@@ -16,6 +16,7 @@ import {
     presetId,
 } from '../../html/projectm-preset-library.js';
 import { cachePreset } from '../../html/projectm-preset-cache.js';
+import { disposeShaderTranspileCacheHooks } from '../../html/projectm-shader-cache.js';
 import { installFakeIndexedDb, resetFakeIndexedDb } from './helpers/fake-indexeddb.mjs';
 
 /** A module handle that satisfies canLoadPresets() and records what it is told. */
@@ -256,6 +257,7 @@ test('loadPresetEntry serves a cached preset without fetching, and starts the tr
     } finally {
         restoreIdb();
         resetFakeIndexedDb();
-        delete globalThis.pmOnTranspiledShaderStored;
+        // loadPresetEntry() installs the transpile hook as a side effect.
+        disposeShaderTranspileCacheHooks();
     }
 });

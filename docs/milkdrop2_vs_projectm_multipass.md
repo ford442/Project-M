@@ -130,8 +130,10 @@ What was missing was **surfacing the selected/degraded format**:
 - Added `html/projectm-fbo-format.js` (`setupFboFormatIndicator(Module)`,
   wired into `projectm-core.html`'s `attemptInit()` after `_start_render()`).
   When the format is RGBA8, it shows an on-screen "Degraded rendering mode"
-  banner and exposes `window.pmGetFboFormat()` returning `'RGBA32F'`,
-  `'RGBA16F'`, or `'RGBA8'`.
+  banner and returns the format name (`'RGBA32F'`, `'RGBA16F'` or `'RGBA8'`;
+  `getFboFormatName(Module)` reads it without the banner). Pages that still
+  want `window.pmGetFboFormat()` opt in through `exposeFboFormatGlobals()` in
+  `html/projectm-legacy-globals.js`.
 - `DetectFormat()`'s RGBA8 branch log messages were extended to mention the
   degraded-mode query API and the dithering/clamping described below.
 - `start_render()` now conditionally re-enables `GL_DITHER` (previously

@@ -9,24 +9,82 @@ import { feedPcmThroughRing } from './projectm-pcm-ring.js';
  */
 
 /**
- * The render transport to feed, when the host has one.
+ * @typedef {object} Receiver
+ * @property {ExternalPcmFeedFn | null} onFeed Replaces the default feed when set.
+ * @property {(() => boolean) | null} feedGate When it returns false, PCM is dropped.
+ * @property {RenderTransport | null} transport The engine this receiver feeds.
+ * @property {string[] | null} allowedOrigins Null means the default allowlist.
+ */
+
+/**
+ * Open receivers, oldest first. The LAST one is live: it decides the origin
+ * allowlist, the gate and the feed for every message, and closing it hands
+ * that role back to the one before it.
+ *
+ * This used to be a set of module-level variables, so a second
+ * setupExternalAudioReceiver() silently replaced the first one's gate and feed,
+ * and the first receiver's close() then cleared the second one's. Only the live
+ * receiver feeds — not all of them — because a page-level receiver (core.html,
+ * the panel hosts) and the ProjectMContext that started next to it target the
+ * same engine, and feeding it from both would double every chunk.
+ *
+ * @type {Receiver[]}
+ */
+const receivers = [];
+
+/** @returns {Receiver | null} */
+function liveReceiver() {
+    return receivers[receivers.length - 1] ?? null;
+}
+
+/**
+ * Transports registered as the page default, oldest first; the last is current.
  *
  * External PCM arrives on the main thread by postMessage regardless of where
  * rendering happens, so this is the seam where it learns which engine to hand
- * the samples to. Unset (the default) keeps the historical behaviour of
- * reaching for `globalThis.Module`.
+ * the samples to. With nothing registered (the default) it keeps the historical
+ * behaviour of reaching for `globalThis.Module`.
  *
- * @type {RenderTransport | null}
+ * @type {{ transport: RenderTransport }[]}
  */
+const transportClaims = [];
+
+/** @type {RenderTransport | null} */
 let renderTransport = null;
 
 /**
- * Registers (or clears, with null) the transport external PCM should feed.
+ * Registers a transport external PCM should feed by default, until the
+ * returned function is called. Claims stack: the newest wins, and releasing one
+ * only removes that claim, so a context being destroyed no longer unregisters
+ * the transport a sibling context is using.
+ *
+ * `setExternalPcmTransport(null)` is the blunt legacy form: it drops every claim.
  *
  * @param {RenderTransport | null} transport
+ * @returns {() => void} Releases this claim. Idempotent.
  */
 export function setExternalPcmTransport(transport) {
+    if (!transport) {
+        transportClaims.length = 0;
+        renderTransport = null;
+        return () => {};
+    }
+    const claim = { transport };
+    transportClaims.push(claim);
     renderTransport = transport;
+    return () => {
+        const index = transportClaims.indexOf(claim);
+        if (index === -1) {
+            return;
+        }
+        transportClaims.splice(index, 1);
+        renderTransport = transportClaims[transportClaims.length - 1]?.transport ?? null;
+    };
+}
+
+/** The transport the next chunk goes to: the live receiver's own, else the page default. */
+function currentTransport() {
+    return liveReceiver()?.transport ?? renderTransport;
 }
 
 const AUDIO_CHANNEL_NAME = 'projectm-audio';
@@ -55,20 +113,25 @@ const DEFAULT_EXTERNAL_PCM_GAIN = 1.0;
 let configuredAllowedOrigins = null;
 let configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
 let debugRmsEnabled = false;
-/** @type {BroadcastChannel | null} */
-let externalAudioChannel = null;
-let messageListenerInstalled = false;
+/**
+ * The page-wide ingress shared by every open receiver: one `message` listener,
+ * one BroadcastChannel, one flush timer. Installed with the first receiver and
+ * removed with the last.
+ *
+ * @type {{
+ *   window: Window | null,
+ *   onMessage: ((event: MessageEvent) => void) | null,
+ *   onBeforeUnload: (() => void) | null,
+ *   channel: BroadcastChannel | null,
+ * } | null}
+ */
+let ingress = null;
 /** @type {ReturnType<typeof setInterval> | 0} */
 let flushInterval = 0;
 let pcmTransferPtr = 0;
 /** @type {ProjectMModuleLike | null} */
 let pcmTransferModule = null;
 let pcmTransferCap = DEFAULT_PCM_TRANSFER_CAP;
-/** @type {ExternalPcmFeedFn | null} */
-let customFeed = null;
-/** @type {(() => boolean) | null} */
-let feedGate = null;
-
 /** @type {ExternalPcmChunk[]} */
 const pendingExternalPCM = [];
 
@@ -117,8 +180,13 @@ function readAllowedOriginsFromStorage() {
 function allowedOriginSet() {
     const fromStorage = readAllowedOriginsFromStorage();
     let origins;
+    const live = liveReceiver();
     if (fromStorage) {
         origins = fromStorage;
+    } else if (live) {
+        // An open receiver's own list decides; null means "defaults", exactly
+        // as an omitted `allowedOrigins` always did.
+        origins = live.allowedOrigins ?? [...DEFAULT_EXTERNAL_PCM_ORIGINS];
     } else if (configuredAllowedOrigins != null) {
         origins = configuredAllowedOrigins;
     } else {
@@ -146,20 +214,32 @@ export function isTrustedExternalPcmOrigin(origin) {
 /** @param {string[] | Set<string> | string | null | undefined} origins */
 export function setConfiguredAllowedOrigins(origins) {
     configuredAllowedOrigins = origins == null ? null : (normalizedOriginList(origins) ?? []);
+    // A host that tightens the policy at run time expects it to apply to the
+    // receiver it already opened.
+    const live = liveReceiver();
+    if (live) {
+        live.allowedOrigins = configuredAllowedOrigins;
+    }
 }
 
 /** Test helper: reset module-level receiver state between unit tests. */
 export function resetExternalPcmStateForTests() {
-    if (flushInterval) {
-        clearInterval(flushInterval);
-        flushInterval = 0;
-    }
+    receivers.length = 0;
+    teardownIngress();
     configuredAllowedOrigins = null;
     configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
-    feedGate = null;
-    customFeed = null;
+    debugRmsEnabled = false;
+    transportClaims.length = 0;
     renderTransport = null;
     pendingExternalPCM.length = 0;
+}
+
+/**
+ * How many receivers are open. For tests and leak diagnostics.
+ * @returns {number}
+ */
+export function getExternalPcmReceiverCount() {
+    return receivers.length;
 }
 
 // Reads an optional input-gain multiplier for external PCM. External players feed
@@ -275,13 +355,17 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
     // or marshal into: the transport owns the ingest and the samples cross
     // once, here. Gain still applies first, so the two topologies hear the
     // same signal.
-    if (renderTransport && renderTransport.topology === 'worker') {
+    const transport = currentTransport();
+    if (transport && transport.topology === 'worker') {
         const { samples } = preprocessExternalPcm(buffer, channels, samplesPerChannel);
-        renderTransport.feedPcm(samples, channels);
+        transport.feedPcm(samples, channels);
         return true;
     }
 
-    const moduleInstance = currentProjectMModule();
+    // On the main thread, feed the module the transport wraps rather than
+    // whichever one `window.Module` currently names: with two contexts that
+    // global belongs to the newer one.
+    const moduleInstance = transport?.module ?? currentProjectMModule();
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
     const m = /** @type {any} */ (moduleInstance);
 
@@ -398,12 +482,16 @@ export function feedPCMToModule(buffer, channels = 2, sampleRate) {
     const payload = normalizePcmPayload(buffer, channels, sampleRate);
     if (!payload) return false;
 
-    if (feedGate && !feedGate()) {
+    // With no receiver open this is the direct-call API (debug hooks, hosts
+    // that push chunks themselves): no gate, default feed.
+    const live = liveReceiver();
+    if (live?.feedGate && !live.feedGate()) {
         return false;
     }
 
     if (debugRmsEnabled) logExternalPcmRms(payload.buffer);
 
+    const customFeed = live?.onFeed ?? null;
     const feedResult = customFeed
         ? customFeed(payload.buffer, payload.channels, payload.sampleRate, payload.samplesPerChannel)
         : defaultFeedPCMToModule(payload.buffer, payload.channels, payload.sampleRate, payload.samplesPerChannel);
@@ -429,25 +517,88 @@ export function flushQueuedExternalPCM() {
     }
 }
 
-function closeExternalAudioChannel() {
-    if (externalAudioChannel) {
-        externalAudioChannel.close();
-        externalAudioChannel = null;
-    }
-}
-
-function cleanupExternalPCM() {
+/** Removes the page-wide ingress once no receiver needs it. */
+function teardownIngress() {
     if (flushInterval) {
         clearInterval(flushInterval);
         flushInterval = 0;
     }
-    feedGate = null;
-    closeExternalAudioChannel();
+    if (ingress) {
+        const { window: target, onMessage, onBeforeUnload, channel } = ingress;
+        if (target && onMessage) {
+            target.removeEventListener('message', /** @type {EventListener} */ (onMessage));
+        }
+        if (target && onBeforeUnload) {
+            target.removeEventListener('beforeunload', onBeforeUnload);
+        }
+        if (channel) {
+            channel.onmessage = null;
+            channel.close();
+        }
+        ingress = null;
+    }
+    // Chunks queued for a receiver that is gone must not reach the next one.
+    pendingExternalPCM.length = 0;
     if (pcmTransferPtr && pcmTransferModule && pcmTransferModule._free) {
         pcmTransferModule._free(pcmTransferPtr);
     }
     pcmTransferPtr = 0;
     pcmTransferModule = null;
+}
+
+/** @param {Receiver} receiver */
+function closeReceiver(receiver) {
+    const index = receivers.indexOf(receiver);
+    if (index === -1) {
+        return;
+    }
+    receivers.splice(index, 1);
+    if (receivers.length === 0) {
+        teardownIngress();
+    }
+}
+
+/** Opens the `message` listener, BroadcastChannel and flush timer shared by all receivers. */
+function installIngress() {
+    /** @type {NonNullable<typeof ingress>} */
+    const next = { window: null, onMessage: null, onBeforeUnload: null, channel: null };
+    ingress = next;
+
+    if (typeof window !== 'undefined') {
+        next.window = window;
+        next.onMessage = (event) => {
+            if (!isTrustedExternalPcmOrigin(event.origin)) {
+                console.debug('[projectM external PCM] ignored untrusted origin:', event.origin);
+                return;
+            }
+
+            const data = event.data;
+            if (data && data.type === 'pcm') {
+                feedPCMToModule(data.buffer, data.channels, data.sampleRate);
+            }
+        };
+        window.addEventListener('message', next.onMessage);
+        next.onBeforeUnload = () => {
+            receivers.length = 0;
+            teardownIngress();
+        };
+        window.addEventListener('beforeunload', next.onBeforeUnload, { once: true });
+    }
+
+    try {
+        const channel = new BroadcastChannel(AUDIO_CHANNEL_NAME);
+        channel.onmessage = (event) => {
+            const data = event.data;
+            if (data && data.type === 'pcm') {
+                feedPCMToModule(data.buffer, data.channels, data.sampleRate);
+            }
+        };
+        next.channel = channel;
+    } catch (error) {
+        console.debug('[projectM external PCM] BroadcastChannel unavailable:', error);
+    }
+
+    flushInterval = setInterval(flushQueuedExternalPCM, 100);
 }
 
 /**
@@ -460,10 +611,20 @@ export function setExternalPcmGain(gain) {
 }
 
 /**
+ * Opens an external-PCM receiver.
+ *
+ * Receivers stack: the newest is live, and `close()` on any of them removes just
+ * that one. The page's `message` listener, BroadcastChannel and flush timer are
+ * shared, opened with the first receiver and torn down with the last — so a
+ * context that is destroyed leaves nothing behind, and one that is destroyed
+ * while another is open leaves that other one running.
+ *
  * @param {object} [options]
  * @param {ExternalPcmFeedFn} [options.onFeed]
  * @param {() => boolean} [options.feedGate] When it returns false, PCM is dropped
  *   (not queued). Used by {@link AudioSourceRouter} for exclusive-source policy.
+ * @param {RenderTransport | null} [options.transport] The engine this receiver
+ *   feeds. Defaults to the page default registered with {@link setExternalPcmTransport}.
  * @param {string[] | Set<string> | string} [options.allowedOrigins]
  * @param {number} [options.preallocSize]
  * @param {number} [options.gain]
@@ -473,60 +634,37 @@ export function setExternalPcmGain(gain) {
 export function setupExternalAudioReceiver({
     onFeed,
     feedGate: feedGateOption,
+    transport,
     allowedOrigins,
     preallocSize,
     gain,
     debugRms,
 } = {}) {
-    customFeed = typeof onFeed === 'function' ? onFeed : null;
-    feedGate = typeof feedGateOption === 'function' ? feedGateOption : null;
-    // null/undefined → defaults; explicit [] disables all remote origins (same-origin still allowed).
-    configuredAllowedOrigins = allowedOrigins === undefined
-        ? null
-        : (normalizedOriginList(allowedOrigins) ?? []);
+    /** @type {Receiver} */
+    const receiver = {
+        onFeed: typeof onFeed === 'function' ? onFeed : null,
+        feedGate: typeof feedGateOption === 'function' ? feedGateOption : null,
+        transport: transport ?? null,
+        // null/undefined → defaults; explicit [] disables all remote origins (same-origin still allowed).
+        allowedOrigins: allowedOrigins === undefined
+            ? null
+            : (normalizedOriginList(allowedOrigins) ?? []),
+    };
+    receivers.push(receiver);
+
     pcmTransferCap = preallocSize !== undefined && Number.isFinite(preallocSize) && preallocSize > 0
         ? Math.floor(preallocSize)
         : DEFAULT_PCM_TRANSFER_CAP;
     if (gain !== undefined) setExternalPcmGain(gain);
     debugRmsEnabled = !!debugRms;
 
-    if (!messageListenerInstalled) {
-        window.addEventListener('message', (event) => {
-            if (!isTrustedExternalPcmOrigin(event.origin)) {
-                console.debug('[projectM external PCM] ignored untrusted origin:', event.origin);
-                return;
-            }
-
-            const data = event.data;
-            if (data && data.type === 'pcm') {
-                feedPCMToModule(data.buffer, data.channels, data.sampleRate);
-            }
-        });
-        messageListenerInstalled = true;
-    }
-
-    if (!externalAudioChannel) {
-        try {
-            externalAudioChannel = new BroadcastChannel(AUDIO_CHANNEL_NAME);
-            externalAudioChannel.onmessage = (event) => {
-                const data = event.data;
-                if (data && data.type === 'pcm') {
-                    feedPCMToModule(data.buffer, data.channels, data.sampleRate);
-                }
-            };
-        } catch (error) {
-            console.debug('[projectM external PCM] BroadcastChannel unavailable:', error);
-        }
-    }
-
-    if (!flushInterval) {
-        flushInterval = setInterval(flushQueuedExternalPCM, 100);
-        window.addEventListener('beforeunload', cleanupExternalPCM, { once: true });
+    if (!ingress) {
+        installIngress();
     }
 
     return {
         feedPCMToModule,
         flushQueuedExternalPCM,
-        close: cleanupExternalPCM
+        close: () => closeReceiver(receiver),
     };
 }

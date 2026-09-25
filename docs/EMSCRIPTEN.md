@@ -503,7 +503,8 @@ EM_JS(void, js_report_init_error, (int code, const char* detail), { ... });
 
 which invokes `window.pmReportInitError(code, detail)` if the host page has defined it. On
 success, `init()` calls `js_report_init_success()`, which invokes `window.pmHideInitError()` if
-defined.
+defined. (Listen through `subscribeWasmCallback()` in `html/projectm-wasm-callbacks.js` rather
+than assigning the global yourself — see "Page globals" in `html/README.md`.)
 
 `html/projectm-init-errors.js` provides a ready-made implementation of both hooks: it shows a
 styled `#pm-init-error` overlay with a human-readable message, browser/GPU compatibility hints,

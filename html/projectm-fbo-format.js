@@ -53,9 +53,21 @@ function ensureBanner() {
 }
 
 /**
+ * The dual-FBO color format the engine picked, by name. Unrecognised indices
+ * degrade to 'RGBA8' rather than undefined. Only valid after `startRender()`.
+ *
+ * @param {import('./generated/projectm-wasm-api.ts').ProjectMModule} Module
+ * @returns {FboFormatName}
+ */
+export function getFboFormatName(Module) {
+    return FORMAT_NAMES[dualFboGetFormat(Module)] || 'RGBA8';
+}
+
+/**
  * Reads the dual-FBO color format and, if it's the degraded RGBA8 fallback,
- * shows a banner indicating reduced visual quality. Also exposes
- * `window.pmGetFboFormat()` returning one of 'RGBA32F' | 'RGBA16F' | 'RGBA8'.
+ * shows a banner indicating reduced visual quality. Nothing is written to
+ * `window`; pages that still call `window.pmGetFboFormat()` opt in through
+ * `exposeFboFormatGlobals()` in projectm-legacy-globals.js.
  *
  * Must be called after `startRender()`.
  *
@@ -66,8 +78,6 @@ function ensureBanner() {
 export function setupFboFormatIndicator(Module) {
     const formatIndex = dualFboGetFormat(Module);
     const formatName = FORMAT_NAMES[formatIndex] || 'RGBA8';
-
-    window.pmGetFboFormat = () => formatName;
 
     if (formatIndex === 2) {
         ensureBanner().style.display = 'block';

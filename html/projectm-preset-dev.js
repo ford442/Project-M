@@ -286,8 +286,19 @@ export function setupPresetDevTools(Module, options = {}) {
         setTimeout(() => pollBtn.click(), 500);
     }
 
-    window.pmReloadPresetText = reloadFromText;
-    window.pmPresetDevEnabled = true;
-
-    return { enabled: true, reloadFromText, tweaker };
+    // Nothing is written to `window`; pages whose console workflow still calls
+    // `window.pmReloadPresetText(...)` opt in through `exposePresetDevGlobals()`
+    // in projectm-legacy-globals.js.
+    return {
+        enabled: true,
+        reloadFromText,
+        tweaker,
+        /** Stops the URL poller; the panel itself stays in the page. */
+        dispose() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        },
+    };
 }

@@ -9,7 +9,6 @@
 // returns null and the caller falls back to the main-thread render path
 // unchanged.
 
-import { WASM_API_SYMBOLS } from './generated/projectm-wasm-api.js';
 import { createPcmRingWriter } from './projectm-pcm-ring.js';
 
 /**

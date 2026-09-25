@@ -119,11 +119,15 @@ function hideOverlay() {
  *
  * @param {*} Module The Emscripten module instance.
  * @param {{ canvasSelector?: string }} [options]
+ * @returns {() => void} Removes the three listeners this call added (two on the
+ *   canvas, one on the shared overlay). They used to stay attached for the life
+ *   of the page, holding the destroyed module and canvas alive and, after a
+ *   destroy(), still able to call `checkInit()` on a torn-down engine.
  */
 export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' } = {}) {
     const canvas = document.querySelector(canvasSelector);
     if (!canvas) {
-        return;
+        return () => {};
     }
 
     let restoring = false;
@@ -163,24 +167,38 @@ export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' }
         }
     }
 
-    canvas.addEventListener('webglcontextlost', (event) => {
+    const onContextLost = (/** @type {Event} */ event) => {
         event.preventDefault();
         console.warn('[projectM] WebGL context lost.');
         if (Module && Module._pm_handle_context_loss) {
             pmHandleContextLoss(Module);
         }
         showOverlay();
-    }, false);
-
-    canvas.addEventListener('webglcontextrestored', () => {
+    };
+    const onContextRestored = () => {
         console.warn('[projectM] WebGL context restored.');
         restore();
-    }, false);
+    };
+
+    canvas.addEventListener('webglcontextlost', onContextLost, false);
+    canvas.addEventListener('webglcontextrestored', onContextRestored, false);
 
     const overlay = ensureOverlay();
-    overlay.addEventListener('click', () => {
+    const onOverlayClick = () => {
         if (overlay.classList.contains('visible')) {
             restore();
         }
-    });
+    };
+    overlay.addEventListener('click', onOverlayClick);
+
+    let disposed = false;
+    return () => {
+        if (disposed) {
+            return;
+        }
+        disposed = true;
+        canvas.removeEventListener('webglcontextlost', onContextLost, false);
+        canvas.removeEventListener('webglcontextrestored', onContextRestored, false);
+        overlay.removeEventListener('click', onOverlayClick);
+    };
 }

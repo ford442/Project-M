@@ -98,7 +98,11 @@ html/projectm-core.html?experimental=1&localPresets=1&devPreset=1
 
 Optional: `&depthModule=https://…/custom-depth.3ijs` to override the module URL.
 
-### API (`window.pmExperimental`)
+### API (`setupExperimentalBridge(...).api`, or `window.pmExperimental` on pages that opt in)
+
+The bridge returns this object and publishes nothing on `window` itself; a page that wants it
+in the console calls `exposeExperimentalGlobals()` from `html/projectm-legacy-globals.js`
+(`projectm-core.html` does).
 
 | Method | Purpose |
 |--------|---------|

@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
     FLAC_PLAYER_BASE_URL,
     MOD_PLAYER_BASE_URL,
+    createPopupAudioPlayerController,
     createSectionAudioPlayerController,
     isSameOriginUrl,
     openPlayerForPcmFeed,
@@ -161,7 +162,6 @@ test('section controller iframes same-origin FLAC and popups cross-origin MOD', 
 
     try {
         const controller = createSectionAudioPlayerController({
-            exposeGlobals: false,
             updateUi() {},
             openPopup(url, target) {
                 popups.push({ url, target });
@@ -183,5 +183,33 @@ test('section controller iframes same-origin FLAC and popups cross-origin MOD', 
         globalThis.window = previousWindow;
         globalThis.location = previousLocation;
         globalThis.localStorage = previousLocalStorage;
+    }
+});
+
+test('neither controller publishes anything on window (the legacy shim owns those names)', () => {
+    const hadWindow = 'window' in globalThis;
+    const previousWindow = globalThis.window;
+    const names = [
+        'cycleAudioPlayer', 'closeAudioPlayer', 'flacPlayer', 'modPlayer', 'openFlacPlayer', 'openModPlayer',
+    ];
+    globalThis.window = {};
+    try {
+        const section = createSectionAudioPlayerController({ updateUi() {} });
+        const popup = createPopupAudioPlayerController({ updateUi() {} });
+
+        assert.deepEqual(Object.keys(globalThis.window), []);
+        for (const name of names) {
+            assert.equal(name in globalThis, false, `${name} must not be created as a side effect`);
+        }
+
+        // What the shim needs is on the controller instead.
+        assert.equal(typeof section.cycleAudioPlayer, 'function');
+        assert.equal(typeof section.closeAudioPlayer, 'function');
+        assert.equal(typeof section.showAudioPlayer, 'function');
+        assert.equal(typeof popup.openFlacPlayer, 'function');
+        assert.equal(typeof popup.openModPlayer, 'function');
+    } finally {
+        if (hadWindow) globalThis.window = previousWindow;
+        else delete globalThis.window;
     }
 });

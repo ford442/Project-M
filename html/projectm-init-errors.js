@@ -6,6 +6,7 @@
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
 
 import { init as wasmInit, initWithCanvases } from './generated/projectm-wasm-api.js';
+import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 /** @type {Record<number, { title: string; message: string; hints: string[] }>} */
 const ERROR_INFO = {
@@ -216,23 +217,36 @@ export function hideInitError() {
 }
 
 /**
- * Sets up the init-error overlay and registers the `window.pmReportInitError` /
- * `window.pmHideInitError` hooks called from `projectM_emscripten.cpp`.
+ * Sets up the init-error overlay and subscribes it to the `pmReportInitError` /
+ * `pmHideInitError` callbacks that `projectM_emscripten.cpp` looks up by name
+ * (through the WASM callback bus, so this needs no legacy shim and several
+ * listeners can coexist).
  *
  * @param {() => void} onRetry Called when the user clicks "Retry". Should re-run the full
  *   init + render setup.
- * @returns {{ simulate: boolean }} `simulate` is true if `?simulateInitFail=1` is present in
- *   the page URL; the overlay is shown immediately in that case for QA purposes. Callers
- *   should skip the real init attempt while `simulate` is true and clear it on retry.
+ * @returns {{ simulate: boolean, dispose: () => void }} `simulate` is true if
+ *   `?simulateInitFail=1` is present in the page URL; the overlay is shown immediately
+ *   in that case for QA purposes. Callers should skip the real init attempt while
+ *   `simulate` is true and clear it on retry. `dispose()` stops listening.
  */
 export function setupInitErrorHandling(onRetry) {
     retryCallback = onRetry;
-    window.pmReportInitError = showInitError;
-    window.pmHideInitError = hideInitError;
+    const unsubscribers = [
+        subscribeWasmCallback('pmReportInitError', showInitError),
+        subscribeWasmCallback('pmHideInitError', hideInitError),
+    ];
     ensureOverlay();
 
     const state = {
         simulate: new URLSearchParams(location.search).get('simulateInitFail') === '1',
+        dispose() {
+            for (const unsubscribe of unsubscribers) {
+                unsubscribe();
+            }
+            if (retryCallback === onRetry) {
+                retryCallback = null;
+            }
+        },
     };
 
     if (state.simulate) {

@@ -10,6 +10,7 @@ import test from 'node:test';
 import { SHADER_STORE, openPresetCacheDb } from '../../html/projectm-preset-cache.js';
 import {
     buildShaderCacheKey,
+    disposeShaderTranspileCacheHooks,
     ensureShaderCacheEngineVersion,
     finalizeShaderCacheForLoad,
     getCachedTranspiledShaders,
@@ -315,7 +316,32 @@ test('the transpile hook writes a row once both shader halves have arrived', asy
             await new Promise((resolve) => setTimeout(resolve, 5));
             assert.equal(fakeStoreContents(DB_NAME, SHADER_STORE).has('key-b'), false);
         } finally {
-            delete globalThis.pmOnTranspiledShaderStored;
+            disposeShaderTranspileCacheHooks();
+            storage.restore();
+        }
+    });
+});
+
+test('the transpile hook rides the callback bus: one install, shared, and removable', async () => {
+    await withFakeDb(async () => {
+        const storage = installFakeLocalStorage({ 'projectm:shaderCacheEngineVersion': PROJECTM_WASM_VERSION });
+        try {
+            assert.equal('pmOnTranspiledShaderStored' in globalThis, false);
+
+            const dispose = setupShaderTranspileCacheHooks();
+            assert.equal(typeof globalThis.pmOnTranspiledShaderStored, 'function');
+            assert.equal(setupShaderTranspileCacheHooks(), dispose, 'a second setup reuses the install');
+
+            dispose();
+            assert.equal('pmOnTranspiledShaderStored' in globalThis, false, 'disposing hands the engine hook back');
+
+            // Installing again after a dispose works (the once-per-page guard resets).
+            setupShaderTranspileCacheHooks();
+            assert.equal(typeof globalThis.pmOnTranspiledShaderStored, 'function');
+            disposeShaderTranspileCacheHooks();
+            assert.equal('pmOnTranspiledShaderStored' in globalThis, false);
+        } finally {
+            disposeShaderTranspileCacheHooks();
             storage.restore();
         }
     });
@@ -359,7 +385,13 @@ test('measurePresetSwitchTimings loads each preset cold then warm and reports th
             assert.deepEqual(loads, ['a.milk', 'a.milk', 'b.milk', 'b.milk']);
             assert.deepEqual(summary.presets.map((p) => p.preset), ['A', 'b.milk']);
             for (const row of summary.presets) {
-                assert.equal(row.savedMs, row.coldMs - row.warmMs);
+                // coldMs, warmMs and savedMs are each rounded on their own from
+                // sub-millisecond timings, so the rounded difference can be off
+                // by one from the difference of the rounded values.
+                assert.ok(
+                    Math.abs(row.savedMs - (row.coldMs - row.warmMs)) <= 1,
+                    `savedMs ${row.savedMs} should be coldMs - warmMs (${row.coldMs} - ${row.warmMs}) within rounding`,
+                );
             }
             assert.equal(posted.length, 1);
             assert.equal(posted[0].type, 'pm-preset-switch-benchmark');

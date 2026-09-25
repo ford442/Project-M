@@ -4,7 +4,6 @@
 // random, and optional Featured pack tab. Metadata from custom_presets_manifest.json
 // (schemaVersion ≥ 2) and featured_pack_manifest.json.
 
-import { updatePresetDisplay } from './projectm-presets.js';
 import {
     filterPresets,
     pickWeightedRandom,
@@ -34,14 +33,6 @@ import { getFavorites } from './projectm-preset-favorites.js';
  */
 
 export const DEFAULT_MANIFEST_URL = './custom_presets_manifest.json';
-
-/**
- * @param {string} filename
- * @returns {string}
- */
-function safePresetName(filename) {
-    return String(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-}
 
 /**
  * @param {object} [options]

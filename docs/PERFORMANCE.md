@@ -261,7 +261,9 @@ used to change the mesh resolution at runtime. `html/projectm-mesh-quality.js` w
   (devices with fewer than 8 logical cores start at `'low'`)
 
 The choice is persisted in `localStorage.meshQuality` and can be overridden per page load with
-`?meshQuality=high|low|auto`, or changed at runtime via `window.pmSetMeshQuality(quality)`.
+`?meshQuality=high|low|auto`, or changed at runtime via the `setQuality(quality)` that
+`setupMeshQuality()` returns (pages that import `html/projectm-legacy-globals.js` and call
+`exposeMeshQualityGlobals()` also get it as `window.pmSetMeshQuality(quality)`).
 
 ### Verification performed
 
@@ -444,10 +446,14 @@ New WASM exports (`projectM_emscripten.cpp`, wired up in `CMakeLists.txt` and
 
 `html/projectm-fps-governor.js` (`setupFpsGovernor(Module)`, called from `projectm-core.html`)
 applies `?targetFps=`/`?governor=0|1` query params or `localStorage.targetFps` /
-`localStorage.qualityGovernor`, and exposes `window.pmSetTargetFps(fps)`,
-`window.pmSetQualityGovernorEnabled(enabled)`, and `window.pmGetQualityTier()` for host UIs.
+`localStorage.qualityGovernor` (guarded: a sandboxed iframe whose `localStorage` throws still
+boots), and returns `setTargetFps(fps)`, `setQualityGovernorEnabled(enabled)`, `getQualityTier()`,
+`getRenderScale()`, `getBlurCap()` and `dispose()` for host UIs. It writes nothing to `window`;
+pages whose inline handlers still call `window.pmSetTargetFps(fps)`,
+`window.pmSetQualityGovernorEnabled(enabled)` or `window.pmGetQualityTier()` opt in through
+`exposeGovernorGlobals()` in `html/projectm-legacy-globals.js`.
 `window.pmOnGovernorTierChange(tier)`, if defined by the host page, is called whenever the
-governor changes tiers.
+governor changes tiers — that name is an engine callback, see "Page globals" in `html/README.md`.
 
 ### Native build
 

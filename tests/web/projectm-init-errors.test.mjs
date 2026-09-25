@@ -9,8 +9,10 @@ import {
     checkCrossOriginIsolation,
     checkInit,
     hideInitError,
+    setupInitErrorHandling,
     showInitError,
 } from '../../html/projectm-init-errors.js';
+import { countWasmCallbackSubscribers } from '../../html/projectm-wasm-callbacks.js';
 
 function installMinimalDocument() {
     const nodes = new Map();
@@ -154,4 +156,54 @@ test('checkInit keeps quiet while the context is lost, and reports any other fai
 
     assert.equal(checkInit({ _init: () => 0 }), true);
     assert.equal(overlay().classList.contains('visible'), false);
+});
+
+test('setupInitErrorHandling listens for the engine callbacks without writing to window, and disposes', () => {
+    hideInitError();
+    const previousLocation = globalThis.location;
+    globalThis.location = { search: '' };
+    globalThis.window = { crossOriginIsolated: true };
+    const overlay = () => nodes.get('pm-init-error');
+
+    let handling;
+    try {
+        const keysBefore = Object.keys(globalThis.window);
+        handling = setupInitErrorHandling(() => {});
+
+        assert.equal(handling.simulate, false);
+        assert.deepEqual(Object.keys(globalThis.window), keysBefore, 'nothing is assigned to window');
+        assert.equal(countWasmCallbackSubscribers('pmReportInitError'), 1);
+        assert.equal(countWasmCallbackSubscribers('pmHideInitError'), 1);
+
+        // WasmJsBindings.cpp looks these up on globalThis by name.
+        globalThis.pmReportInitError(4, 'from the engine');
+        assert.equal(overlay().classList.contains('visible'), true);
+        assert.match(overlay().querySelector('.pm-init-error-message').textContent, /from the engine/);
+
+        globalThis.pmHideInitError();
+        assert.equal(overlay().classList.contains('visible'), false);
+
+        handling.dispose();
+        assert.equal(countWasmCallbackSubscribers('pmReportInitError'), 0);
+        assert.equal('pmReportInitError' in globalThis, false, 'the last listener gives the hook back');
+        assert.equal('pmHideInitError' in globalThis, false);
+    } finally {
+        handling?.dispose();
+        globalThis.location = previousLocation;
+    }
+});
+
+test('?simulateInitFail=1 shows the overlay immediately', () => {
+    hideInitError();
+    const previousLocation = globalThis.location;
+    globalThis.location = { search: '?simulateInitFail=1' };
+    let handling;
+    try {
+        handling = setupInitErrorHandling(() => {});
+        assert.equal(handling.simulate, true);
+        assert.equal(nodes.get('pm-init-error').classList.contains('visible'), true);
+    } finally {
+        handling?.dispose();
+        globalThis.location = previousLocation;
+    }
 });

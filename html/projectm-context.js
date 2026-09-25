@@ -2,6 +2,7 @@ import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap
 import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
 import {
     connectMediaElement,
+    disconnectMediaElement,
     installMediaElementSourceHook,
 } from './projectm-audio-element-source.js';
 import {
@@ -9,6 +10,8 @@ import {
     audioSourceToRouterSource,
     createAudioSourceRouter,
 } from './projectm-audio-source-router.js';
+import { claimGlobal } from './projectm-globals.js';
+import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 import { setupContextLossRecovery } from './projectm-context-loss.js';
 import {
     defaultFeedPCMToModule,
@@ -69,6 +72,7 @@ let canvasIdSerial = 0;
  *   windowRef?: (Window & typeof globalThis),
  *   primaryCanvasSelector?: string,
  *   secondaryCanvasSelector?: string,
+ *   signal?: AbortSignal,
  * }} [options]
  * @returns {Promise<ProjectMModule>}
  */
@@ -81,6 +85,7 @@ export async function bootProjectMSharedModule(options = {}) {
         windowRef = typeof window !== 'undefined' ? window : undefined,
         primaryCanvasSelector,
         secondaryCanvasSelector,
+        signal,
     } = options;
 
     const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
@@ -93,6 +98,7 @@ export async function bootProjectMSharedModule(options = {}) {
             pmScript: wasmScriptUrl,
             rootScript: wasmScriptUrl,
             forceRefresh: true,
+            signal,
         });
     } else {
         await loadProjectMWasmScript({
@@ -102,6 +108,7 @@ export async function bootProjectMSharedModule(options = {}) {
                 ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
                 : {}),
             forceRefresh: Boolean(wasmVersion),
+            signal,
         });
     }
 
@@ -109,10 +116,12 @@ export async function bootProjectMSharedModule(options = {}) {
         scriptSrc: wasmScriptUrl || undefined,
         wasmVersion,
         baseUrl: resolvedBaseUrl,
+        documentRef,
         windowRef,
         noInitialRun: true,
         primaryCanvasSelector,
         secondaryCanvasSelector,
+        signal,
     }));
     if (windowRef) {
         windowRef.Module = module;
@@ -163,6 +172,27 @@ function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
  * @typedef {import('./projectm-context-types.ts').ProjectMRenderTopology} ProjectMRenderTopology
  */
+
+/**
+ * An error shaped like the one `fetch()` rejects with when aborted, so callers
+ * can tell "this was cancelled" from "this failed" by `error.name`.
+ *
+ * @param {string} message
+ * @returns {Error}
+ */
+function createAbortError(message) {
+    const error = new Error(message);
+    error.name = 'AbortError';
+    return error;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isAbortError(error) {
+    return !!error && typeof error === 'object' && /** @type {{ name?: unknown }} */ (error).name === 'AbortError';
+}
 
 /**
  * @param {HTMLMediaElement | string | null | undefined} value
@@ -250,8 +280,49 @@ function syncCanvasSize({
 
 /**
  * High-level embed API: canvas bootstrap, WASM init, resize, presets, and audio wiring.
+ *
+ * Lifecycle. `start()` is idempotent under concurrency: overlapping calls share
+ * one boot. `destroy()` aborts a boot that is still in flight, and a start that
+ * fails (or is aborted) releases everything it had acquired by then — the
+ * Module, the render worker, the WebGL context and every listener — so the
+ * context is left as it was before `start()` and can be started again. Every
+ * resource is registered for teardown the moment it is acquired, which is what lets one routine tear down both a finished context
+ * and a half-booted one.
+ *
+ * Several contexts can share a page. Everything a context puts in a
+ * process-wide slot (`window.Module`, the PCM writer, the external-PCM
+ * transport, the governor callback, the router registry, the worklet safety
+ * net) is claimed and released, so destroying one leaves the others' intact.
  */
 export class ProjectMContext {
+    /**
+     * Per-instance notifications, for hosts that want an event stream rather
+     * than the `on*` options: `ready`, `error`, `audio-source`,
+     * `preset-changed` and `destroy`, each a `CustomEvent` whose `detail`
+     * matches the corresponding callback's argument. Unlike the window-level
+     * `pm:*` events these belong to this context alone.
+     *
+     * @type {EventTarget}
+     */
+    events = new EventTarget();
+
+    /**
+     * Aborted by teardown: whatever `start()` is still awaiting gives up, and a
+     * continuation that outlives the context checks it before touching anything.
+     * @type {AbortController | null}
+     */
+    #attempt = null;
+    /** @type {Promise<ProjectMContext> | null} */
+    #startPromise = null;
+    /**
+     * Undo steps for everything this context has acquired, oldest first;
+     * teardown runs them newest first.
+     * @type {(() => void)[]}
+     */
+    #disposers = [];
+    /** The last error handed to `onError`, so one failure is reported once. */
+    #reportedError = /** @type {unknown} */ (undefined);
+
     /** @param {ProjectMContextOptions} options */
     constructor(options) {
         if (!options?.canvas) {
@@ -302,8 +373,6 @@ export class ProjectMContext {
          * @type {RenderTransport | null}
          */
         this.transport = null;
-        /** @type {(() => void) | null} */
-        this._pcmWriterCleanup = null;
         /** Latest stats posted by the render worker; null on the main thread. */
         this.workerStats = null;
         /** @type {((fps: number) => void) | undefined} */
@@ -327,28 +396,46 @@ export class ProjectMContext {
         this.fpsLastSample = 0;
         /** Internal render scale (1.0/0.75/0.5) applied by governor v2; see resize(). */
         this.renderScale = 1;
-        /** @type {((event: Event) => void) | null} */
-        this.presetListener = null;
-/** @type {HTMLMediaElement | null} */
-this.audioElement = null;
-/** @type {AudioSourceRouter | null} */
-this.audioRouter = options.audioRouter ?? null;
-/** @type {(() => void) | null} */
-this._externalReceiverClose = null;
+        /** @type {HTMLMediaElement | null} */
+        this.audioElement = null;
+        /** @type {AudioSourceRouter | null} */
+        this.audioRouter = options.audioRouter ?? null;
     }
 
     /**
      * Boots WASM, starts rendering, and resolves when the engine is ready.
+     *
+     * Calling it again while a boot is in flight returns the same promise, and
+     * calling it once ready resolves immediately. If the boot fails everything
+     * it acquired is released and a later call starts over.
+     *
      * @returns {Promise<ProjectMContext>}
      */
-    async start() {
+    start() {
         if (this.destroyed) {
-            throw new Error('ProjectMContext was destroyed');
+            return Promise.reject(new Error('ProjectMContext was destroyed'));
         }
         if (this.ready) {
-            return this;
+            return Promise.resolve(this);
         }
+        if (!this.#startPromise) {
+            const attempt = new AbortController();
+            this.#attempt = attempt;
+            const promise = this.#run(attempt.signal).finally(() => {
+                if (this.#startPromise === promise) {
+                    this.#startPromise = null;
+                }
+            });
+            this.#startPromise = promise;
+        }
+        return this.#startPromise;
+    }
 
+    /**
+     * @param {AbortSignal} signal Aborted when this attempt is torn down.
+     * @returns {Promise<ProjectMContext>}
+     */
+    async #run(signal) {
         const {
             requireCrossOriginIsolation,
             wasmScriptUrl,
@@ -371,10 +458,12 @@ this._externalReceiverClose = null;
             onAudioSourceChange,
             audioRouter: existingAudioRouter,
             onReady,
-            onError,
             onPresetChanged,
             onFps,
         } = this.options;
+
+        this.#reportedError = undefined;
+        this.ownsModule = !this.options.sharedModule;
 
         if (audioSource === 'element') {
             const media = resolveMediaElement(audioElement, documentRef);
@@ -386,7 +475,8 @@ this._externalReceiverClose = null;
 
         if (requireCrossOriginIsolation && !checkCrossOriginIsolation()) {
             const error = new Error('Cross-origin isolation is required for this WASM build');
-            onError?.({ code: 4, message: error.message, error });
+            this.#reportError(error, 4);
+            this.#teardown();
             throw error;
         }
 
@@ -403,9 +493,7 @@ this._externalReceiverClose = null;
                 // every engine op below activates this host first.
                 this.module = /** @type {ProjectMModule} */ (sharedModule);
                 this.ownsModule = false;
-                if (windowRef) {
-                    windowRef.Module = this.module;
-                }
+                this.#claimWindowModule();
                 // Context attributes are baked at context creation, which
                 // create_host() does — configure them first.
                 this.#applyContextConfig();
@@ -418,7 +506,7 @@ this._externalReceiverClose = null;
                     const error = new Error(
                         'create_host() failed (instance cap reached or engine init failed)'
                     );
-                    onError?.({ code: 4, message: error.message, error });
+                    this.#reportError(error, 4);
                     throw error;
                 }
                 this.hostHandle = handle;
@@ -432,6 +520,8 @@ this._externalReceiverClose = null;
                 const preferWorker = renderTopology === 'worker'
                     || (renderTopology === 'auto' && isRenderWorkerEnabled());
                 if (preferWorker) {
+                    // Assigned before the abort check so a transport that
+                    // arrives after destroy() is still torn down by teardown.
                     this.transport = await this.#startRenderWorker({
                         resolvedBaseUrl,
                         wasmScriptUrl,
@@ -440,7 +530,9 @@ this._externalReceiverClose = null;
                         targetFps,
                         qualityGovernor,
                         meshQuality,
+                        signal,
                     });
+                    this.#throwIfAborted(signal);
                     if (!this.transport && renderTopology === 'worker') {
                         throw new Error('renderTopology="worker" was requested but the render worker could not start');
                     }
@@ -454,6 +546,7 @@ this._externalReceiverClose = null;
                             pmScript: wasmScriptUrl,
                             rootScript: wasmScriptUrl,
                             forceRefresh: true,
+                            signal,
                         });
                     } else {
                         await loadProjectMWasmScript({
@@ -463,21 +556,27 @@ this._externalReceiverClose = null;
                                 ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
                                 : {}),
                             forceRefresh: Boolean(wasmVersion),
+                            signal,
                         });
                     }
+                    this.#throwIfAborted(signal);
 
+                    // A module factory cannot be cancelled once it is running,
+                    // so this resolves even if destroy() happened meanwhile.
+                    // Assigning it first means teardown destructs it.
                     this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
                         scriptSrc: wasmScriptUrl || undefined,
                         wasmVersion,
                         baseUrl: resolvedBaseUrl,
+                        documentRef,
                         windowRef,
                         noInitialRun: true,
                         primaryCanvasSelector: this.primaryCanvasSelector,
                         secondaryCanvasSelector: this.secondaryCanvasSelector,
+                        signal,
                     }));
-                    if (windowRef) {
-                        windowRef.Module = this.module;
-                    }
+                    this.#throwIfAborted(signal);
+                    this.#claimWindowModule();
 
                     // Context attributes are baked when checkInit() creates the
                     // WebGL context — configure them first.
@@ -488,7 +587,7 @@ this._externalReceiverClose = null;
                         secondaryCanvasSelector: this.secondaryCanvasSelector,
                     })) {
                         const error = new Error('projectM init() failed');
-                        onError?.({ code: -1, message: error.message, error });
+                        this.#reportError(error, -1);
                         throw error;
                     }
 
@@ -498,38 +597,21 @@ this._externalReceiverClose = null;
 
             const transport = /** @type {RenderTransport} */ (this.transport);
             // External PCM arrives on this thread either way; tell it which
-            // engine to hand the samples to.
-            setExternalPcmTransport(transport);
+            // engine to hand the samples to. A claim, not an assignment: the
+            // release below leaves a sibling context's registration alone.
+            this.#own(setExternalPcmTransport(transport));
 
-            this.audioRouter = existingAudioRouter ?? createAudioSourceRouter({
-                module: this.module,
-                transport,
-                initialSource: audioSourceToRouterSource(audioSource),
-                onStatusChange: (status) => {
-                    onAudioSourceChange?.(status);
-                },
-            });
-            if (existingAudioRouter) {
-                existingAudioRouter.setModule(this.module);
-                existingAudioRouter.setTransport(transport);
-                if (onAudioSourceChange) {
-                    const prior = existingAudioRouter.onStatusChange;
-                    existingAudioRouter.onStatusChange = (status) => {
-                        prior?.(status);
-                        onAudioSourceChange(status);
-                    };
-                }
-            }
+            this.audioRouter = this.#attachAudioRouter(existingAudioRouter, transport, audioSource, onAudioSourceChange);
 
-            setupAudioUnlock();
-            installWorkletPlaybackSafetyNet();
+            this.#own(setupAudioUnlock());
+            this.#own(installWorkletPlaybackSafetyNet());
             // The worklet runs on this thread in both topologies; this is what
             // decides where its PCM goes.
-            this._pcmWriterCleanup = installTransportPcmWriter(transport);
+            this.#own(installTransportPcmWriter(transport));
             if (this.module) {
-                setupContextLossRecovery(this.module, {
+                this.#own(setupContextLossRecovery(this.module, {
                     canvasSelector: this.primaryCanvasSelector,
-                });
+                }));
             }
 
             // Everything from here drives the engine; make this context's host
@@ -578,12 +660,14 @@ this._externalReceiverClose = null;
                 this.renderScale = getGovernorRenderScale(this.module) || 1;
                 // Via the injected windowRef, like every other global hook this class
                 // installs — a bare `window` here ignores the caller's window and
-                // throws outright where there is no global one.
+                // throws outright where there is no global one. The engine calls the
+                // hook by its global name, so it goes through the callback bus: every
+                // context listens, and destroying one leaves the rest subscribed.
                 if (this.options.windowRef) {
-                    this.options.windowRef.pmOnGovernorRenderScaleChange = (scale) => {
+                    this.#own(subscribeWasmCallback('pmOnGovernorRenderScaleChange', (/** @type {number} */ scale) => {
                         this.renderScale = scale;
                         this.resize();
-                    };
+                    }, this.options.windowRef));
                 }
             }
 
@@ -597,7 +681,7 @@ this._externalReceiverClose = null;
                 }
             }
 
-            this.#wireAudio(audioSource, audioElement, externalPcmOrigins);
+            this.#wireAudio(audioSource, audioElement, externalPcmOrigins, signal);
             if (!existingAudioRouter) {
                 this.audioRouter.setModule(this.module);
                 this.audioRouter.setTransport(transport);
@@ -607,19 +691,207 @@ this._externalReceiverClose = null;
 
             if (presetUrl) {
                 await this.loadPresetUrl(presetUrl);
+                this.#throwIfAborted(signal);
             }
 
             this.ready = true;
             if (onFps) {
-                this.#startFpsMonitor(onFps);
+                this.#startFpsMonitor(onFps, signal);
             }
 
             onReady?.(this);
+            this.#emit('ready', undefined);
             return this;
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            onError?.({ code: -1, message, error });
+            // Read this BEFORE tearing down: teardown aborts the signal itself,
+            // so afterwards every failure would look like a cancellation.
+            const cancelled = signal.aborted;
+            // Release whatever this attempt had acquired before it failed: a
+            // Module and WebGL context, a Worker, and every listener. Browsers
+            // cap live WebGL contexts at roughly 16 and then drop the oldest, so
+            // a start that fails repeatedly must not keep them.
+            this.#teardown();
+            if (cancelled) {
+                // destroy() cancelled this boot. Whatever surfaced afterwards
+                // (a step running against state that was just released) is a
+                // symptom of that, not a failure worth reporting.
+                throw isAbortError(error)
+                    ? error
+                    : createAbortError('ProjectMContext was destroyed during start()');
+            }
+            this.#reportError(error);
             throw error;
+        }
+    }
+
+    /**
+     * Registers an undo step for something this context just acquired. It runs
+     * when the context is destroyed, and when a start that acquired it fails.
+     *
+     * @param {(() => void) | null | undefined} dispose
+     */
+    #own(dispose) {
+        if (typeof dispose === 'function') {
+            this.#disposers.push(dispose);
+        }
+    }
+
+    /** @param {AbortSignal} signal */
+    #throwIfAborted(signal) {
+        if (signal.aborted) {
+            throw createAbortError('ProjectMContext was destroyed during start()');
+        }
+    }
+
+    /**
+     * Hands a failure to `onError` and the `error` event — once. `start()` reports
+     * some failures where they happen (they carry a specific code) and the outer
+     * handler sees the same error again on its way out.
+     *
+     * @param {unknown} error
+     * @param {number} [code]
+     */
+    #reportError(error, code = -1) {
+        if (this.#reportedError === error) {
+            return;
+        }
+        this.#reportedError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        this.options.onError?.({ code, message, error });
+        this.#emit('error', { code, message, error });
+    }
+
+    /**
+     * @param {string} type
+     * @param {unknown} detail
+     */
+    #emit(type, detail) {
+        const event = typeof CustomEvent === 'function'
+            ? new CustomEvent(type, { detail })
+            : Object.assign(new Event(type), { detail });
+        this.events.dispatchEvent(event);
+    }
+
+    /**
+     * Publish this context's Module as `window.Module` for the legacy code that
+     * still reads it. Claimed, so destroying the context no longer leaves the
+     * global pointing at a destructed engine, and with two contexts the older one
+     * takes it back when the newer one goes.
+     */
+    #claimWindowModule() {
+        const { windowRef } = this.options;
+        if (windowRef && this.module) {
+            this.#own(claimGlobal(windowRef, 'Module', this.module));
+        }
+    }
+
+    /**
+     * Creates this context's audio router, or adopts the host's.
+     *
+     * A router the context created is its own and is destroyed with it. One the
+     * host injected (core.html shares a single router between the page and its
+     * context) belongs to the host: teardown only detaches this context from it
+     * and restores its status callback.
+     *
+     * @param {AudioSourceRouter | null | undefined} existingRouter
+     * @param {RenderTransport} transport
+     * @param {ProjectMAudioSource | undefined} audioSource
+     * @param {((status: ProjectMAudioSourceStatus) => void) | undefined} onAudioSourceChange
+     * @returns {AudioSourceRouter}
+     */
+    #attachAudioRouter(existingRouter, transport, audioSource, onAudioSourceChange) {
+        /** @param {ProjectMAudioSourceStatus} status */
+        const publish = (status) => {
+            onAudioSourceChange?.(status);
+            this.#emit('audio-source', status);
+        };
+
+        if (!existingRouter) {
+            const created = createAudioSourceRouter({
+                module: this.module,
+                transport,
+                initialSource: audioSourceToRouterSource(audioSource),
+                onStatusChange: publish,
+            });
+            this.#own(() => created.destroy());
+            return created;
+        }
+
+        existingRouter.setModule(this.module);
+        existingRouter.setTransport(transport);
+        const prior = existingRouter.onStatusChange;
+        /** @param {ProjectMAudioSourceStatus} status */
+        const wrapped = (status) => {
+            prior?.(status);
+            publish(status);
+        };
+        existingRouter.onStatusChange = wrapped;
+        const attachedModule = this.module;
+        this.#own(() => {
+            if (existingRouter.onStatusChange === wrapped) {
+                existingRouter.onStatusChange = prior;
+            }
+            if (existingRouter.module === attachedModule) {
+                existingRouter.setModule(null);
+            }
+            if (existingRouter.transport === transport) {
+                existingRouter.setTransport(null);
+            }
+        });
+        return existingRouter;
+    }
+
+    /**
+     * Releases everything `start()` acquired, newest first, then the engine
+     * itself. Safe to call at any point of a boot and more than once: the
+     * failure path of a half-finished start and destroy() both come through
+     * here, and a destroy() that lands mid-boot is followed by the boot's own
+     * cleanup for whatever it acquired after that.
+     */
+    #teardown() {
+        this.ready = false;
+        this.#attempt?.abort();
+        this.#attempt = null;
+
+        const disposers = this.#disposers.splice(0).reverse();
+        for (const dispose of disposers) {
+            try {
+                dispose();
+            } catch (error) {
+                console.warn('[ProjectMContext] cleanup step failed:', error);
+            }
+        }
+
+        this.#teardownEngine();
+        this.audioRouter = null;
+        this.workerStats = null;
+        this.workerFpsSink = undefined;
+    }
+
+    /** Frees the engine: a host inside a shared Module, a worker, or an owned Module. */
+    #teardownEngine() {
+        const { module, transport, hostHandle } = this;
+        this.hostHandle = 0;
+        this.transport = null;
+        this.module = null;
+
+        try {
+            if (hostHandle && module) {
+                // Multi-instance: free just this engine; the shared Module and any
+                // sibling contexts keep running. The Module itself is torn down by
+                // whoever booted it (bootProjectMSharedModule caller).
+                destroyHost(module, hostHandle);
+            } else if (transport) {
+                // Tears down the module on the main thread, terminates the worker in
+                // the other topology.
+                transport.destroy();
+            } else if (this.ownsModule && module?._destruct) {
+                // A Module that was created but never got a transport (init failed
+                // part-way, or the boot was cancelled right after the factory ran).
+                module._destruct();
+            }
+        } catch (error) {
+            console.warn('[ProjectMContext] engine teardown failed:', error);
         }
     }
 
@@ -631,25 +903,31 @@ this._externalReceiverClose = null;
         if (!this.transport) {
             throw new Error('ProjectMContext is not started');
         }
+        const transport = this.transport;
+        const signal = this.#attempt?.signal;
         this.#activate();
         if (this.module) {
             return loadPresetFromUrl(url, {
                 module: this.module,
                 windowRef: this.options.windowRef,
+                signal,
             });
         }
 
         // Worker topology: the fetch still happens here — this thread has the
         // page's credentials and cache — and only the bytes cross, to be
         // written into the VFS on the other side.
-        const response = await fetch(url);
+        const response = await fetch(url, signal ? { signal } : undefined);
         if (!response.ok) {
             throw new Error(`Failed to fetch preset (${response.status}): ${url}`);
         }
         const bytes = new Uint8Array(await response.arrayBuffer());
+        if (signal?.aborted || this.transport !== transport) {
+            throw createAbortError(`Preset load aborted: ${url}`);
+        }
         const filename = String(url).split('/').pop()?.split('?')[0] || 'preset.milk';
         const vfsPath = `/presets/url_${filename.replace(/[^A-Za-z0-9._-]/g, '_')}`;
-        this.transport.writePreset(vfsPath, bytes);
+        transport.writePreset(vfsPath, bytes);
         updatePresetDisplay(vfsPath, { windowRef: this.options.windowRef });
         return { url, vfsPath, filename };
     }
@@ -662,6 +940,7 @@ this._externalReceiverClose = null;
         if (!this.transport) {
             throw new Error('ProjectMContext is not started');
         }
+        const transport = this.transport;
         this.#activate();
         if (this.module) {
             return loadLocalPresetFile(file, {
@@ -671,8 +950,11 @@ this._externalReceiverClose = null;
         }
 
         const bytes = new Uint8Array(await file.arrayBuffer());
+        if (this.transport !== transport) {
+            throw createAbortError(`Preset load aborted: ${file.name}`);
+        }
         const vfsPath = `/presets/local_${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`;
-        this.transport.writePreset(vfsPath, bytes);
+        transport.writePreset(vfsPath, bytes);
         let text;
         try {
             text = new TextDecoder().decode(bytes);
@@ -906,70 +1188,41 @@ this._externalReceiverClose = null;
             ?? resolveRenderPathOverrides(this.options.windowRef?.location?.search ?? '');
     }
 
+    /**
+     * Stops this context and releases everything it holds. A boot still in
+     * flight is aborted: its `start()` promise rejects with an `AbortError`
+     * (no `onError`, since nothing failed). Safe to call more than once.
+     */
     destroy() {
+        const alreadyDestroyed = this.destroyed;
         this.destroyed = true;
-        this.ready = false;
-        if (this.resizeObserver) {
-            this.resizeObserver.disconnect();
-            this.resizeObserver = null;
+        this.#teardown();
+        if (!alreadyDestroyed) {
+            this.#emit('destroy', undefined);
         }
-        if (this.fpsTimer) {
-            cancelAnimationFrame(this.fpsTimer);
-            this.fpsTimer = 0;
-        }
-        if (this.presetListener) {
-            this.options.windowRef?.removeEventListener('pm:preset-loaded', this.presetListener);
-            this.presetListener = null;
-        }
-        if (this._externalReceiverClose) {
-            this._externalReceiverClose();
-            this._externalReceiverClose = null;
-        }
-        if (this._pcmWriterCleanup) {
-            this._pcmWriterCleanup();
-            this._pcmWriterCleanup = null;
-        }
-        if (this.options.windowRef?.pmOnGovernorRenderScaleChange) {
-            this.options.windowRef.pmOnGovernorRenderScaleChange = null;
-        }
-        setExternalPcmTransport(null);
-        this.audioRouter?.destroy();
-        this.audioRouter = null;
-        if (this.hostHandle && this.module) {
-            // Multi-instance: free just this engine; the shared Module and any
-            // sibling contexts keep running. The Module itself is torn down by
-            // whoever booted it (bootProjectMSharedModule caller).
-            destroyHost(this.module, this.hostHandle);
-            this.hostHandle = 0;
-        } else if (this.transport) {
-            // Tears down the module on the main thread, terminates the worker in
-            // the other topology.
-            this.transport.destroy();
-        } else if (this.ownsModule && this.module?._destruct) {
-            this.module._destruct();
-        }
-        this.transport = null;
-        this.module = null;
-        this.workerStats = null;
     }
 
     /**
      * @param {ProjectMAudioSource} audioSource
      * @param {HTMLMediaElement | string | undefined} audioElementOption
      * @param {string[] | undefined} externalPcmOrigins
+     * @param {AbortSignal} signal
      */
-    #wireAudio(audioSource, audioElementOption, externalPcmOrigins) {
+    #wireAudio(audioSource, audioElementOption, externalPcmOrigins, signal) {
         const router = this.audioRouter;
 
         if (audioSource === 'external') {
             const receiver = setupExternalAudioReceiver({
                 allowedOrigins: externalPcmOrigins ?? [],
+                // This context's own engine, so the receiver keeps feeding it
+                // whatever another context registers as the page default.
+                transport: this.transport,
                 feedGate: () => router?.externalFeedGate() ?? false,
                 onFeed: router
                     ? router.wrapExternalFeed(defaultFeedPCMToModule)
                     : defaultFeedPCMToModule,
             });
-            this._externalReceiverClose = receiver.close;
+            this.#own(receiver.close);
             return;
         }
 
@@ -997,9 +1250,16 @@ this._externalReceiverClose = null;
         });
         // The element feeds the engine through the shared worklet (and from there
         // the PCM ring), so it cannot be connected until the worklet node exists.
+        // By then this context may have been destroyed: connecting then would wire
+        // a torn-down context's element into the shared worklet for good.
         ensureWorkletReady()
             .then((ready) => {
-                if (ready) connectMediaElement(media);
+                if (!ready || signal.aborted) {
+                    return;
+                }
+                if (connectMediaElement(media)) {
+                    this.#own(() => disconnectMediaElement(media));
+                }
             })
             .catch((err) => {
                 console.warn('[ProjectMContext] could not connect audio element:', err);
@@ -1018,6 +1278,7 @@ this._externalReceiverClose = null;
      * @param {number | undefined} options.targetFps
      * @param {boolean | undefined} options.qualityGovernor
      * @param {ProjectMMeshQuality | undefined} options.meshQuality
+     * @param {AbortSignal} options.signal
      * @returns {Promise<RenderTransport | null>}
      */
     async #startRenderWorker({
@@ -1028,6 +1289,7 @@ this._externalReceiverClose = null;
         targetFps,
         qualityGovernor,
         meshQuality,
+        signal,
     }) {
         // The worker importScripts() the glue itself, so it needs an absolute
         // URL — resolved the same way the main-thread path resolves it, so both
@@ -1041,9 +1303,13 @@ this._externalReceiverClose = null;
                     ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
                     : {}),
                 forceRefresh: Boolean(wasmVersion),
+                signal,
             });
             scriptSrc = new URL(candidate, resolvedBaseUrl).href;
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             this.options.onRenderWorkerFallback?.(`could not resolve the WASM bundle URL: ${error}`);
             return null;
         }
@@ -1066,11 +1332,13 @@ this._externalReceiverClose = null;
             // own init(); these have to travel with the init message.
             contextConfig: this.#contextConfig(),
             renderPathOverrides: this.#renderPathOverrides(),
+            signal,
             onFallback: (reason) => {
                 this.options.onRenderWorkerFallback?.(reason);
             },
             onError: (message) => {
-                this.options.onError?.({ code: -1, message, error: new Error(message) });
+                // A live worker reporting a problem after a successful boot.
+                this.#reportRuntimeError(message);
             },
             onStats: (stats) => {
                 this.workerStats = /** @type {any} */ (stats);
@@ -1079,29 +1347,62 @@ this._externalReceiverClose = null;
         });
     }
 
+    /**
+     * Errors from a running engine (the worker), as opposed to a failed start.
+     * Not deduplicated: each one is a separate event.
+     *
+     * @param {string} message
+     */
+    #reportRuntimeError(message) {
+        const error = new Error(message);
+        this.options.onError?.({ code: -1, message, error });
+        this.#emit('error', { code: -1, message, error });
+    }
+
     #observeResize() {
-        this.resizeObserver = observeModuleSize({
+        const observer = observeModuleSize({
             container: this.container,
             sync: () => this.resize(),
         });
-        if (!this.resizeObserver && typeof globalThis.addEventListener === 'function') {
-            globalThis.addEventListener('resize', () => this.resize());
+        if (observer) {
+            this.resizeObserver = observer;
+            this.#own(() => {
+                observer.disconnect();
+                this.resizeObserver = null;
+            });
+            return;
+        }
+
+        // No ResizeObserver: fall back to window resizes, on the same window the
+        // rest of this class is told to use, and take the listener off again.
+        const target = /** @type {EventTarget | undefined} */ (this.options.windowRef ?? globalThis);
+        if (typeof target?.addEventListener === 'function') {
+            const onResize = () => this.resize();
+            target.addEventListener('resize', onResize);
+            this.#own(() => target.removeEventListener('resize', onResize));
         }
     }
 
     /** @param {((detail: ProjectMPresetDetail) => void) | undefined} onPresetChanged */
     #wirePresetEvents(onPresetChanged) {
-        if (!onPresetChanged) {
+        const { windowRef } = this.options;
+        if (!windowRef?.addEventListener) {
             return;
         }
-        this.presetListener = (event) => {
-            onPresetChanged(/** @type {CustomEvent<ProjectMPresetDetail>} */ (event).detail);
+        const listener = (/** @type {Event} */ event) => {
+            const detail = /** @type {CustomEvent<ProjectMPresetDetail>} */ (event).detail;
+            onPresetChanged?.(detail);
+            this.#emit('preset-changed', detail);
         };
-        this.options.windowRef?.addEventListener('pm:preset-loaded', this.presetListener);
+        windowRef.addEventListener('pm:preset-loaded', listener);
+        this.#own(() => windowRef.removeEventListener('pm:preset-loaded', listener));
     }
 
-    /** @param {(fps: number) => void} onFps */
-    #startFpsMonitor(onFps) {
+    /**
+     * @param {(fps: number) => void} onFps
+     * @param {AbortSignal} signal
+     */
+    #startFpsMonitor(onFps, signal) {
         if (!this.module) {
             // No frame counter to read on this thread — the worker already
             // measures its own frame rate and posts it every 500 ms.
@@ -1111,7 +1412,7 @@ this._externalReceiverClose = null;
         }
 
         const sample = () => {
-            if (this.destroyed || !this.module) {
+            if (signal.aborted || this.destroyed || !this.module) {
                 return;
             }
 
@@ -1134,6 +1435,13 @@ this._externalReceiverClose = null;
             this.fpsTimer = requestAnimationFrame(sample);
         };
         this.fpsTimer = requestAnimationFrame(sample);
+        this.#own(() => {
+            if (this.fpsTimer) {
+                cancelAnimationFrame(this.fpsTimer);
+                this.fpsTimer = 0;
+            }
+            this.fpsLastSample = 0;
+        });
     }
 }
 

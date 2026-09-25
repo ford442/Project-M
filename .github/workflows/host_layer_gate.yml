@@ -6,17 +6,24 @@ name: Host Layer Gate
 # `Module._<sym>` / `Module.ccall(...)` public-API calls instead of routing
 # public engine ops through the generated WASM API
 # (html/generated/projectm-wasm-api.js) or ProjectMContext / <project-m-visualizer>.
+#
+# Also fails if a host module or page assigns a `window.pm*` global (or the legacy
+# popup-player names, or patches BroadcastChannel) outside the opt-in shim
+# html/projectm-legacy-globals.js: two contexts on one page cannot share a slot
+# that is overwritten on start and nulled on destroy.
 
 on:
   push:
     paths:
       - 'html/**'
       - 'scripts/check_core_host_public_api.sh'
+      - 'scripts/check_host_globals.sh'
       - '.github/workflows/host_layer_gate.yml'
   pull_request:
     paths:
       - 'html/**'
       - 'scripts/check_core_host_public_api.sh'
+      - 'scripts/check_host_globals.sh'
       - '.github/workflows/host_layer_gate.yml'
   workflow_dispatch: {}
 
@@ -30,3 +37,6 @@ jobs:
 
       - name: Gated hosts use generated API / context (no raw Module._ public calls)
         run: scripts/check_core_host_public_api.sh
+
+      - name: No window.pm* writes outside the legacy shim / WASM callback bus
+        run: scripts/check_host_globals.sh

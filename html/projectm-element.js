@@ -79,10 +79,22 @@ function dispatchLifecycleEvent(target, type, detail) {
 export class ProjectMVisualizerElement extends HTMLElement {
     static observedAttributes = OBSERVED_ATTRIBUTES;
 
+    /** The running context; null until a boot has finished, and again once the element is removed. */
     /** @type {ProjectMContext | null} */
     #context = null;
+    /**
+     * A context whose `start()` is still in flight. Kept apart from `#context`
+     * so `disconnectedCallback` can find and destroy it: it used to look only at
+     * `#context`, which is assigned when the boot finishes, so an element removed
+     * mid-boot left a context that went on to render on a detached element.
+     * @type {ProjectMContext | null}
+     */
+    #booting = null;
     /** @type {Promise<ProjectMContext> | null} */
     #bootPromise = null;
+    /** The wrapper this element built around the canvases, when it built them. */
+    /** @type {HTMLElement | null} */
+    #generatedContainer = null;
     /**
      * Optional shared projectM Module (from bootProjectMSharedModule()). Set
      * this property before the element boots to run this visualizer as an
@@ -94,7 +106,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
 
     connectedCallback() {
         if (this.querySelector('canvas.pm-main-canvas')) {
-            this.#boot();
+            this.#bootDetached();
             return;
         }
 
@@ -124,13 +136,26 @@ export class ProjectMVisualizerElement extends HTMLElement {
 
         container.append(mcanvas, scanvas);
         this.append(container);
-        this.#boot();
+        this.#generatedContainer = container;
+        this.#bootDetached();
     }
 
     disconnectedCallback() {
-        this.#context?.destroy();
+        const context = this.#context ?? this.#booting;
         this.#context = null;
+        this.#booting = null;
         this.#bootPromise = null;
+        // Destroying a context that is still booting aborts its start().
+        context?.destroy();
+
+        // A canvas whose control went to the render worker cannot be handed to
+        // a second engine, so an element that is removed and re-attached (any
+        // DOM move does this) has to start on fresh ones. Only markup this
+        // element made is removed; canvases the page supplied are its own.
+        if (this.#generatedContainer) {
+            this.#generatedContainer.remove();
+            this.#generatedContainer = null;
+        }
     }
 
     /**
@@ -217,6 +242,17 @@ export class ProjectMVisualizerElement extends HTMLElement {
         this.#context?.nextPreset();
     }
 
+    /**
+     * Boot from `connectedCallback`, where nobody is awaiting the result.
+     *
+     * Every failure has already reached the page as a `pm-error` event by the
+     * time the promise rejects, so the rejection carries nothing new; leaving it
+     * unhandled only adds an `unhandledrejection` for every failed boot.
+     */
+    #bootDetached() {
+        this.#boot().catch(() => {});
+    }
+
     /** @returns {Promise<ProjectMContext>} */
     #boot() {
         if (this.#bootPromise) {
@@ -268,8 +304,10 @@ export class ProjectMVisualizerElement extends HTMLElement {
             this.getAttribute('render-topology') || 'auto'
         );
 
-        this.#bootPromise = (async () => {
-            const context = new ProjectMContext({
+        /** @type {ProjectMContext} */
+        let context;
+        try {
+            context = new ProjectMContext({
                 canvas,
                 secondaryCanvas,
                 container: canvas.parentElement ?? this,
@@ -293,6 +331,9 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 onReady: () => {
                     dispatchLifecycleEvent(this, 'pm-ready', { version: buildProjectMWasmUrls().wasm });
                 },
+                // The one place a boot failure becomes a `pm-error`: the context
+                // reports each failed start exactly once, so nothing below adds
+                // a second event for the same error.
                 onError: (detail) => {
                     dispatchLifecycleEvent(this, 'pm-error', detail);
                 },
@@ -306,16 +347,38 @@ export class ProjectMVisualizerElement extends HTMLElement {
                     dispatchLifecycleEvent(this, 'pm-audio-source', status);
                 },
             });
+        } catch (error) {
+            // The context never existed, so it could not report this itself.
+            this.#emitError(error);
+            return Promise.reject(error);
+        }
 
-            await context.start();
+        this.#booting = context;
+        const boot = (async () => {
+            try {
+                await context.start();
+            } catch (error) {
+                if (this.#booting === context) {
+                    this.#booting = null;
+                }
+                throw error;
+            }
+
+            if (this.#booting !== context) {
+                // Removed while the boot was finishing: the element let go of
+                // this context in disconnectedCallback, so nothing else will.
+                context.destroy();
+                const error = new Error('project-m-visualizer was removed while it was starting');
+                error.name = 'AbortError';
+                throw error;
+            }
+            this.#booting = null;
             this.#context = context;
             return context;
-        })().catch((error) => {
-            this.#emitError(error);
-            throw error;
-        });
+        })();
+        this.#bootPromise = boot;
 
-        return this.#bootPromise;
+        return boot;
     }
 
     /** @param {unknown} error */

@@ -2,26 +2,29 @@
 //
 // Surfaces the dual ping-pong FBO color format (selected once in
 // DualPingPongFramebuffer::DetectFormat(), projectM_emscripten.cpp) to the
-// host page. Default probe order is RGBA16F -> RGBA32F -> RGBA8
-// (?fboPrecision=high opts into RGBA32F-first probing). RGBA32F/RGBA16F are
-// full-quality; RGBA8 is a "degraded mode"
-// fallback used on GPUs/browsers without EXT_color_buffer_half_float, which
+// host page. RGBA16F whenever it is renderable; RGBA32F only when the host
+// asks for it (?fboPrecision=high); RGBA8 otherwise. RGBA32F/RGBA16F are
+// full-quality; RGBA8 is a "degraded mode" fallback used on GPUs/browsers
+// without EXT_color_buffer_float or EXT_color_buffer_half_float, which
 // can show 8-bit banding in recursive warp/feedback presets (mitigated, but
 // not eliminated, by the ordered-dither + clamp in CompositingBlendShader).
 //
-// `dualFboGetFormat()` returns 0=RGBA32F, 1=RGBA16F, 2=RGBA8 and is only
-// valid after `startRender()` (DetectFormat() runs during `init()`).
+// `dualFboGetFormat()` returns 0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the same
+// numbering `set_context_config()` takes for its fboPrecision preference
+// ('half' / 'high' / 'byte') — and is only valid after `startRender()`
+// (DetectFormat() runs during `init()`).
 
 import { dualFboGetFormat } from './generated/projectm-wasm-api.js';
 
 const BANNER_ID = 'pm-degraded-mode-banner';
 
 /**
- * Indexed by the `dual_fbo_get_format()` return value — keep in order.
+ * Indexed by the `dual_fbo_get_format()` return value (FboFloatFormat in
+ * src/wasm/WasmGraphics.hpp) — keep in order.
  * @typedef {'RGBA32F' | 'RGBA16F' | 'RGBA8'} FboFormatName
  * @type {readonly [FboFormatName, FboFormatName, FboFormatName]}
  */
-const FORMAT_NAMES = ['RGBA32F', 'RGBA16F', 'RGBA8'];
+export const FORMAT_NAMES = ['RGBA16F', 'RGBA32F', 'RGBA8'];
 
 function ensureBanner() {
     let el = document.getElementById(BANNER_ID);

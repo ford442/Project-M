@@ -188,6 +188,22 @@ WasmHost* HostFromHandle(uintptr_t handle)
     return nullptr;
 }
 
+projectm_handle EngineFromHandle(uintptr_t engineHandle)
+{
+    if (engineHandle == 0)
+    {
+        return nullptr;
+    }
+    for (int i = 0; i < kMaxHosts; ++i)
+    {
+        if (g_hosts[i] != nullptr && reinterpret_cast<uintptr_t>(g_hosts[i]->appData.projectm_engine) == engineHandle)
+        {
+            return g_hosts[i]->appData.projectm_engine;
+        }
+    }
+    return nullptr;
+}
+
 int LiveHostCount()
 {
     int n = 0;

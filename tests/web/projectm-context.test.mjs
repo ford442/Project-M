@@ -199,6 +199,52 @@ test('start() calls set_context_config before create_host with mapped args', asy
     assert.equal(errors[0]?.code, 4);
 });
 
+test('start() hands the page\'s render-path switches to the module before create_host', async () => {
+    const canvas = makeCanvas('ctx-render-paths');
+    const calls = [];
+    const module = {
+        ccall: (name) => {
+            calls.push([name]);
+            return name === 'create_host' ? 0 : undefined;
+        },
+        _set_render_path_overrides: (...args) => calls.push(['set_render_path_overrides', args]),
+    };
+    const context = new ProjectMContext({
+        canvas,
+        sharedModule: module,
+        requireCrossOriginIsolation: false,
+        // Only location is read from it before create_host() fails.
+        windowRef: /** @type {any} */ ({ location: { search: '?blurPath=copy&perPixelEval=cpu' } }),
+        onError: () => {},
+    });
+
+    await assert.rejects(() => context.start(), /create_host/);
+
+    assert.deepEqual(calls.map((c) => c[0]), ['set_context_config', 'set_render_path_overrides', 'create_host']);
+    assert.deepEqual(calls[1][1], [1, 0, 1]);
+});
+
+test('an explicit renderPathOverrides option wins over the page URL', async () => {
+    const canvas = makeCanvas('ctx-render-paths-explicit');
+    /** @type {number[][]} */
+    const overrides = [];
+    const module = {
+        ccall: (name) => (name === 'create_host' ? 0 : undefined),
+        _set_render_path_overrides: (...args) => overrides.push(args),
+    };
+    const context = new ProjectMContext({
+        canvas,
+        sharedModule: module,
+        requireCrossOriginIsolation: false,
+        windowRef: /** @type {any} */ ({ location: { search: '?blurPath=copy' } }),
+        renderPathOverrides: { blurCopyPath: false, copyShaderPath: true, perPixelForceCpu: false },
+        onError: () => {},
+    });
+
+    await assert.rejects(() => context.start(), /create_host/);
+    assert.deepEqual(overrides, [[0, 1, 0]]);
+});
+
 // ---- Multi-instance host handle (#168 Phase B) ----------------------------
 
 test('single-instance control ops do not call set_active_host', () => {

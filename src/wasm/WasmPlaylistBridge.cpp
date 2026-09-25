@@ -7,28 +7,32 @@
 using namespace emscripten;
 
 // Per-instance host state (#168 Phase B). The engine/playlist/loading triple
-// and the preset-readiness gate were process-global; they are now members of
-// the active WasmHost. These callbacks fire synchronously from inside the
-// active host's render/load, and the exports run after set_active_host(), so
-// each body binds same-named local references to the active host's members.
+// and the preset-readiness gate are members of the WasmHost that owns them.
+//
+// The engine and playlist callbacks below are registered by init() with that
+// host as their user_data, and act on it rather than on whichever host happens
+// to be active when they fire: a callback raised for one engine must not flip
+// the readiness flags of its sibling. The exports further down run after
+// set_active_host() and use Host() as usual.
 
-void load_preset_callback_example(bool is_hard_cut, unsigned int index, void* user_data)
+// The host a callback was registered for. init() always passes one; the
+// fallback only covers a caller that registers a callback without it.
+static WasmHost& CallbackHost(void* user_data)
 {
-    WasmHost& H = Host();
-    auto& app_data = H.appData;
-    // AppData* app_data = (AppData*)user_data;
-    projectm_playlist_handle playlist = app_data.playlist;
-    uint32_t indx = projectm_playlist_play_next(playlist, false);
-    return;
+    return user_data != nullptr ? *static_cast<WasmHost*>(user_data) : Host();
 }
 
 void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_data)
 {
-    WasmHost& H = Host();
+    WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;
     auto& g_presetBReady = H.presetBReady;
     auto& g_renderedFrameCount = H.renderedFrameCount;
     auto& g_presetReadyFrame = H.presetReadyFrame;
+    if (!app_data.projectm_engine)
+    {
+        return;
+    }
     const double randomDelay = (emscripten_random() * 30.0) + 27.0;
     projectm_set_preset_duration(app_data.projectm_engine, randomDelay);
     app_data.loading = EM_FALSE;
@@ -39,6 +43,10 @@ void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_
     g_presetBReady = true;
     g_presetReadyFrame = g_renderedFrameCount;
 
+    if (!app_data.playlist)
+    {
+        return;
+    }
     uint32_t pos = projectm_playlist_get_position(app_data.playlist);
     char* preset_path = projectm_playlist_item(app_data.playlist, pos);
     if (preset_path)
@@ -51,7 +59,7 @@ void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_
 
 void on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data)
 {
-    WasmHost& H = Host();
+    WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;
     auto& g_presetSwitchFailed = H.presetSwitchFailed;
     printf("Preset switch failed (%s): %s\n", preset_filename, message);
@@ -63,7 +71,7 @@ void on_preset_switch_failed(const char* preset_filename, const char* message, v
 
 void on_preset_switch_requested(bool is_hard_cut, void* user_data)
 {
-    WasmHost& H = Host();
+    WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;
     // Ignore timer-driven switches while a preset load is being prepared.
     // Without this, clicking "custom preset" can load the pick and then immediately
@@ -74,6 +82,10 @@ void on_preset_switch_requested(bool is_hard_cut, void* user_data)
     {
         H.switchRequestDeferred = true;
         H.deferredSwitchHardCut = is_hard_cut;
+        return;
+    }
+    if (!app_data.playlist)
+    {
         return;
     }
     printf("projectM is requesting a preset switch (hard_cut: %s)!\n", is_hard_cut ? "true" : "false");
@@ -88,7 +100,7 @@ void on_preset_switch_requested(bool is_hard_cut, void* user_data)
 // preset has been activated (ActivatePreparedPreset()).
 bool on_playlist_preset_load(unsigned int index, const char* filename, bool hard_cut, void* user_data)
 {
-    WasmHost& H = Host();
+    WasmHost& H = CallbackHost(user_data);
     if (!H.appData.projectm_engine || H.presetPrepare == nullptr)
     {
         return false; // Let the playlist load it synchronously.
@@ -103,7 +115,10 @@ void add_preset_path()
 {
     WasmHost& H = Host();
     auto& app_data = H.appData;
-    const char* loc = "/presets/";
+    if (!app_data.playlist)
+    {
+        return;
+    }
     char preset_file[256];
     for (int i = 0; i <= 100; ++i)
     {
@@ -118,6 +133,10 @@ void add_existing_vfs_presets()
 {
     WasmHost& H = Host();
     auto& app_data = H.appData;
+    if (!app_data.playlist)
+    {
+        return;
+    }
     char preset_file[256];
     int added = 0;
     for (int i = 0; i <= 100; ++i)
@@ -151,6 +170,10 @@ void add_custom_milk_paths(int count)
 {
     WasmHost& H = Host();
     auto& app_data = H.appData;
+    if (!app_data.playlist)
+    {
+        return;
+    }
     char preset_file[256];
     int added = 0;
     for (int i = 0; i < count; ++i)

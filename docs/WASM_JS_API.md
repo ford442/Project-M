@@ -98,7 +98,7 @@ symbol's doc text is not an API change and needs nothing.
 | `dualFboSetIdleReleaseSeconds` | `dual_fbo_set_idle_release_seconds` | Idle seconds before the preset-A pair is reclaimed (0 = immediate, &lt;0 = never). Default 5 |
 | `dualFboGetIdleReleaseSeconds` | `dual_fbo_get_idle_release_seconds` | |
 | `dualFboIsPresetBReady` | `dual_fbo_is_preset_b_ready` | |
-| `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA32F, 1=RGBA16F, 2=RGBA8 |
+| `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (same numbering as `set_context_config`'s `fboPrecision`) |
 | `transitionStart` | `transition_start` | |
 | `transitionCancel` | `transition_cancel` | |
 | `transitionIsActive` | `transition_is_active` | |

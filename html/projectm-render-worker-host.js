@@ -18,7 +18,30 @@ import { createPcmRingWriter } from './projectm-pcm-ring.js';
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerHandle} RenderWorkerHandle
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerStatsMessage} RenderWorkerStatsMessage
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} RenderWorkerContextConfig
+ * @typedef {import('./projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
  */
+
+/**
+ * The render-path ablation switches in a page query string: `?blurPath=copy`,
+ * `?copyPath=shader`, `?perPixelEval=cpu` (values case-insensitive). The page
+ * reads them and hands them to the module with `set_render_path_overrides()` —
+ * directly on the main thread, through the worker's `init` message otherwise,
+ * since a worker's own `location` is its script URL and has no query.
+ *
+ * @param {string} [search]
+ * @returns {RenderPathOverrides}
+ */
+export function resolveRenderPathOverrides(search = globalThis.location?.search ?? '') {
+    const params = new URLSearchParams(search);
+    /** @param {string} key @param {string} value */
+    const is = (key, value) => (params.get(key) || '').toLowerCase() === value;
+    return {
+        blurCopyPath: is('blurPath', 'copy'),
+        copyShaderPath: is('copyPath', 'shader'),
+        perPixelForceCpu: is('perPixelEval', 'cpu'),
+    };
+}
 
 /**
  * Whether the host *wants* the render worker. Says nothing about whether the
@@ -81,6 +104,10 @@ export function isRenderWorkerSupported(canvas) {
  * @param {number} [options.targetFps]
  * @param {boolean} [options.governor]
  * @param {string} [options.meshQuality]
+ * @param {RenderWorkerContextConfig} [options.contextConfig] set_context_config()
+ *   arguments, applied in the worker before init().
+ * @param {RenderPathOverrides} [options.renderPathOverrides] The page's
+ *   render-path switches, applied in the worker before init().
  * @param {() => void} [options.onReady]
  * @param {(reason: string) => void} [options.onUnsupported]
  * @param {(message: string) => void} [options.onError]
@@ -96,6 +123,8 @@ export function setupRenderWorker({
     targetFps,
     governor,
     meshQuality,
+    contextConfig,
+    renderPathOverrides,
     onReady,
     onUnsupported,
     onError,
@@ -175,7 +204,9 @@ export function setupRenderWorker({
         height,
         targetFps,
         governor,
-        meshQuality
+        meshQuality,
+        contextConfig,
+        renderPathOverrides,
     }, [offscreen]);
 
     return {

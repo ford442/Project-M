@@ -8,7 +8,8 @@
 // main loop here instead.
 //
 // Message protocol (host -> worker):
-//   { type: 'init', canvas, scriptSrc, width, height, targetFps, governor, meshQuality }
+//   { type: 'init', canvas, scriptSrc, width, height, targetFps, governor, meshQuality,
+//     contextConfig, renderPathOverrides }
 //   { type: 'resize', width, height }
 //   { type: 'pcm', buffer, channels }                 // only when the ring cannot be shared
 //   { type: 'preset', vfsPath, bytes, mode }
@@ -18,7 +19,7 @@
 //   { type: 'ready' }
 //   { type: 'unsupported', reason }
 //   { type: 'error', message }
-//   { type: 'stats', fps, fboFormat, qualityTier }
+//   { type: 'stats', fps, fboFormat, qualityTier, renderScale, renderPathOverrides }
 //   { type: 'pcm-ring', descriptor }
 //   { type: 'ccall-result', requestId, result }
 //
@@ -233,7 +234,8 @@ function postStats() {
         fps: lastFps,
         fboFormat: Module._dual_fbo_get_format ? Module._dual_fbo_get_format() : -1,
         qualityTier: Module._get_quality_tier ? Module._get_quality_tier() : -1,
-        renderScale
+        renderScale,
+        renderPathOverrides: Module._get_render_path_overrides ? Module._get_render_path_overrides() : -1,
     });
 }
 
@@ -386,6 +388,22 @@ async function init(msg) {
         return;
     }
     targets['#mcanvas'] = msg.canvas;
+
+    // Both are decided when init() runs — the context attributes are baked into
+    // the context it creates, the render paths are fixed before the first
+    // preset — and neither can be read from here: this scope has no page URL.
+    const cfg = msg.contextConfig;
+    if (cfg) {
+        Module.ccall('set_context_config', null,
+            ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
+            [cfg.antialias, cfg.preserveDrawingBuffer, cfg.depth, cfg.stencil, cfg.alpha,
+                cfg.powerPreference, cfg.fboPrecision]);
+    }
+    const overrides = msg.renderPathOverrides;
+    if (overrides && Module._set_render_path_overrides) {
+        Module._set_render_path_overrides(overrides.blurCopyPath ? 1 : 0,
+            overrides.copyShaderPath ? 1 : 0, overrides.perPixelForceCpu ? 1 : 0);
+    }
 
     const initStatus = Module._init();
     if (initStatus !== 0) {

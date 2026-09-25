@@ -27,7 +27,7 @@ struct WasmContextConfig {
     int stencil = 0;               //!< 0/1 — canvas stencil attachment (default off, #246).
     int alpha = 1;                 //!< 0/1 — alpha channel (transparency overlays).
     int powerPreference = 2;       //!< 0 default, 1 low-power, 2 high-performance.
-    int fboPrecision = 0;          //!< Dual-FBO format: 0 half (RGBA16F), 1 high (RGBA32F), 2 byte (RGBA8).
+    int fboPrecision = 0;          //!< Preferred dual-FBO format, as FboFloatFormat: 0 half (RGBA16F), 1 high (RGBA32F), 2 byte (RGBA8).
 };
 
 // Configure WebGL context attributes + dual-FBO precision from the host JS layer.

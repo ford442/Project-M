@@ -275,7 +275,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmHost.hpp` / `WasmHost.cpp` | Per-instance `WasmHost` struct (all former host globals), the host registry + active-host pointer, and the `create_host` / `set_active_host` / `destroy_host` multi-instance exports (#168 Phase B) |
 | `WasmRenderLoop.cpp` | Emscripten main loop (iterates started hosts), `start_render()`, the dual-FBO compositor decision, `render_frame()`, `set_window_size()` |
 | `WasmShaderCache.cpp` | Transpiled-GLSL cache hooks (host-page store/lookup), `shader_cache_*` and `get_glsl_generator_version()` exports |
-| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?fboPrecision` URL ablation switches, applied once from `init()` |
+| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, applied once from `init()` |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
@@ -466,6 +466,7 @@ only a `stderr` message in the console.
 | `0` | — | Success. | — |
 | `2` | WebGL | Primary canvas selector not found, `emscripten_webgl_create_context` failed, or the created context could not be activated. | Missing canvas element, WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
 | `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (still possible on very low-RAM mobile even with `INITIAL_MEMORY=256mb`), or an internal projectM error. |
+| `5` | WebGL context lost | The host's WebGL context is lost and the browser has not restored it yet (e.g. the context-loss overlay was tapped before `webglcontextrestored`). `init()` refuses rather than build an engine on the dead context. | Not an error: `checkInit()` shows nothing and the context-loss overlay stays up; the `webglcontextrestored` handler retries. |
 | `4` | Cross-origin isolation | *(JS-side only, not returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
 
 ### Main-thread freeze on 033/034 (OpenMP vs. pthread pool)
@@ -694,8 +695,20 @@ Behavior:
   are allocated lazily on the next transition). Finally, the last-displayed preset is reloaded via
   `window.currentPresetPath` (set by `updatePresetDisplay()` in `html/projectm-presets.js` on every
   preset switch).
-- If `init()` fails during recovery (e.g. the browser hasn't actually restored the context yet),
-  `checkInit()` shows the existing `#pm-init-error` overlay with its "Retry" button instead.
+- `pm_handle_context_loss()` tears down every host whose context reports lost — the host that
+  owns the canvas, not whichever host is active — and leaves it active so the restore path's
+  `init()` / `start_render()` rebuild that host. It keeps the lost context's handle so `init()`
+  can see the loss: while the context is still lost `init()` returns `5` and builds nothing (an
+  engine made on the dead context would hold GL names that vanish on restore). `checkInit()`
+  stays quiet for `5` and the context-loss overlay stays up until `webglcontextrestored`.
+- `init()` also re-applies what the page had set on the engine it replaces — mesh size (or the
+  governor tier's), aspect correction, preset lock, transparency mode/threshold, target fps and
+  the governor tier's blur limits — so a restore does not silently fall back to defaults. The same
+  applies after `rebind_canvases()`.
+- `init()`'s "already initialized" early return now also checks that the engine's context is live
+  and current; an engine left on a lost context is torn down and rebuilt.
+- If `init()` fails during recovery for any other reason, `checkInit()` shows the existing
+  `#pm-init-error` overlay with its "Retry" button instead.
 
 ### Testing context loss
 
@@ -959,16 +972,29 @@ mean/median/p95 stats. See [docs/PERFORMANCE.md](PERFORMANCE.md) for details.
 
 ## Dual-FBO precision policy (WASM)
 
-Dual-FBO format probing defaults to `RGBA16F -> RGBA32F -> RGBA8` to cut transition VRAM/bandwidth
-while keeping float precision by default.
+`DualPingPongFramebuffer::DetectFormat()` (`src/wasm/WasmGraphics.hpp`) picks the format:
 
-- Default: `RGBA16F` when `EXT_color_buffer_half_float` is available (`fboPrecision: 'half'`)
-- High precision opt-in: `fboPrecision: 'high'` (host JS reads `?fboPrecision=high`) prefers `RGBA32F` first
+- Default: `RGBA16F` whenever it is renderable — WebGL 2 plus `EXT_color_buffer_float` *or*
+  `EXT_color_buffer_half_float` (`fboPrecision: 'half'`). It is always filterable in WebGL 2.
+- High precision opt-in: `fboPrecision: 'high'` (host JS reads `?fboPrecision=high`) uses `RGBA32F`
+  when `EXT_color_buffer_float` is present. `RGBA32F` is only linearly filterable with
+  `OES_texture_float_linear`; without it the textures are sampled `GL_NEAREST`, because a
+  `GL_LINEAR` sampler on an unfilterable format leaves the texture incomplete and it samples as
+  black (common on mobile/iOS GPUs). The compositor draws the FBOs 1:1, so nothing is lost.
 - Force byte: `fboPrecision: 'byte'` pins `RGBA8` (debug the degraded path on a float-capable GPU)
 - Fallback: `RGBA8` (degraded-mode banner in `html/projectm-fbo-format.js`)
 
+Before #258 the chain fell back to `RGBA32F` whenever `EXT_color_buffer_half_float` was missing,
+even though `EXT_color_buffer_float` already makes `RGBA16F` renderable — doubling VRAM and
+bandwidth for nothing — and always used `GL_LINEAR`.
+
+One numbering covers both directions (`FboFloatFormat`): `set_context_config()`'s `fboPrecision`
+argument and `dual_fbo_get_format()`'s result are both **0 = RGBA16F, 1 = RGBA32F, 2 = RGBA8**.
+(The getter used to return 0 for RGBA32F and 1 for RGBA16F.)
+
 The precision is set through `ProjectMContext`'s `fboPrecision` option / `set_context_config()`; the C++ side no
-longer reads `?fboPrecision=` from the URL (see "WebGL context attributes" above).
+longer reads `?fboPrecision=` from the URL (see "WebGL context attributes" above). In the render
+worker topology it travels in the worker's `init` message.
 
 `RGBA32F` is 16 bytes/px against 8 for `RGBA16F`, across four surfaces (A_Read/A_Write,
 B_Read/B_Write) — so the default halves both transition VRAM and compositor bandwidth during a

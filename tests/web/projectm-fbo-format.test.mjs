@@ -17,7 +17,8 @@ function fakeModule(formatIndex) {
 }
 
 test('the format index maps to the name the benchmark records', () => {
-    for (const [index, name] of [[0, 'RGBA32F'], [1, 'RGBA16F'], [2, 'RGBA8']]) {
+    // FboFloatFormat's numbering, shared with set_context_config()'s fboPrecision.
+    for (const [index, name] of [[0, 'RGBA16F'], [1, 'RGBA32F'], [2, 'RGBA8']]) {
         const dom = installFakeDom();
         try {
             assert.equal(setupFboFormatIndicator(fakeModule(index)), name);

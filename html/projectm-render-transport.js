@@ -283,6 +283,8 @@ export function canUseRenderWorker({
  * @param {number} [options.targetFps]
  * @param {boolean} [options.governor]
  * @param {string} [options.meshQuality]
+ * @param {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} [options.contextConfig]
+ * @param {import('./projectm-render-worker-types.ts').RenderPathOverrides} [options.renderPathOverrides]
  * @param {(reason: string) => void} [options.onFallback]
  * @param {(message: string) => void} [options.onError]
  * @param {(stats: unknown) => void} [options.onStats]
@@ -297,6 +299,8 @@ export function selectRenderTopology({
     targetFps,
     governor,
     meshQuality,
+    contextConfig,
+    renderPathOverrides,
     onFallback,
     onError,
     onStats,
@@ -326,6 +330,8 @@ export function selectRenderTopology({
             targetFps,
             governor,
             meshQuality,
+            contextConfig,
+            renderPathOverrides,
             onReady: () => settle(handle ? createWorkerTransport(handle) : null),
             onUnsupported: (reason) => {
                 onFallback?.(reason);

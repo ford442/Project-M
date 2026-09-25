@@ -164,9 +164,18 @@ diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
 |--------|------|--------|--------|
 | Blur path | `?blurPath=copy` | `PROJECTM_BLUR_COPY_PATH=1` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
 | Texture copy path | `?copyPath=shader` | `PROJECTM_COPY_SHADER_PATH=1` | Restores the pre-#179 copy path: every `CopyTexture` resolve is a fullscreen textured quad. Default (unset) resolves the plain and Y-flipped copies with `glBlitFramebuffer` where the blit is equivalent (no blending, viewport covers the target, source format is color-renderable) and falls back to the quad otherwise. |
-| Dual-FBO precision | `?fboPrecision=high` | — | Probes RGBA32F first for the WASM compositor instead of the RGBA16F default. |
+| Dual-FBO precision | `?fboPrecision=high` | — | Uses RGBA32F for the WASM compositor instead of the RGBA16F default (GL_NEAREST sampling without `OES_texture_float_linear`). |
 | Mesh size | `?meshQuality=low` | — | 64×48 instead of the 80×60 default (a 1.56× vertex-count ratio). |
 | Canvas MSAA | `?aa=1` (or `localStorage.canvasAA='1'`) | — | Opts into `antialias:true`; default (unset) is now `false` (governor v2, issue #178). |
+
+The page reads the WASM switches and hands them to the module: `?blurPath`, `?copyPath` and
+`?perPixelEval` through `set_render_path_overrides()` (`ProjectMContext`'s `renderPathOverrides`
+option, defaulting to the page's query string), `?fboPrecision` through `set_context_config()`.
+Both travel in the render worker's `init` message. Until #258 the C++ side read the first three
+from `globalThis.location.search`, which inside the render worker is the worker script's URL — so
+in the default topology every one of them was silently a no-op. The worker's `stats` message
+reports `renderPathOverrides` (the mask `get_render_path_overrides()` reads back: 1 blur copy,
+2 copy shader, 4 per-pixel CPU) so a run can confirm the switch landed.
 
 The blur and copy switches are read once, at engine init: the blur render path is decided on
 the first blurred frame and then cached, and the copy path is latched the first time a copy
@@ -290,14 +299,28 @@ therefore animate at the wrong speed whenever the real frame rate diverged from 
 
 ### Render loop cadence (WASM)
 
-The WASM render loop already drives `renderLoop()` via
-`emscripten_set_main_loop((void (*)())renderLoop, 0, 0)` with
-`emscripten_set_main_loop_timing(EM_TIMING_RAF, 1)` (`WasmRenderLoop.cpp`), i.e. it is already
-vsync/`requestAnimationFrame`-driven, uncapped by a fixed timer. No change was needed here; this
-section documents that the acceptance criterion was already satisfied.
-`emscripten_request_animation_frame_loop` was considered but not adopted — the existing
-`emscripten_set_main_loop` + `EM_TIMING_RAF` combination already provides rAF-paced callbacks
-without the API and lifecycle changes that switching would require.
+`start_render()` registers `renderLoop()` with
+`emscripten_set_main_loop(renderLoop, 0, 0)` and
+`emscripten_set_main_loop_timing(EM_TIMING_RAF, 1)` (`WasmRenderLoop.cpp`): one frame per
+`requestAnimationFrame`, i.e. vsync-aligned, never rendering frames the compositor will not show,
+and throttled by the browser in a background tab.
+
+Until #258 the call was `emscripten_set_main_loop_timing(2, 1)` — `2` is
+`EM_TIMING_SETIMMEDIATE`, not `EM_TIMING_RAF` (`1`) — while this section claimed rAF pacing. The
+main-thread loop (`?renderWorker=0`, and every browser that falls back from the worker topology)
+spun as fast as Emscripten's postMessage shim allowed, so FPS numbers recorded on that path, and the
+governor's decisions, measured a spin loop. Compare nothing against main-thread numbers taken
+before that fix.
+
+The WASM smoke (`tests/wasm-smoke/index.html`, `checkMainLoopPacing()`) now guards it: it reads the
+mode back with `get_main_loop_timing_mode()` (an internal test export; SwiftShader frames cost more
+than a refresh, so the frame rate alone cannot tell the two modes apart there) and also bounds the
+frame rate at 250/s over 2 s, which catches a spin loop on a real GPU. The render worker and the
+deterministic harness pause this loop and drive `render_frame()` themselves, so they are unaffected.
+
+`emscripten_request_animation_frame_loop` was considered but not adopted — `emscripten_set_main_loop`
++ `EM_TIMING_RAF` already gives rAF-paced callbacks without the lifecycle changes switching would
+require.
 
 ### Adaptive quality governor (WASM, v1)
 
@@ -689,7 +712,7 @@ fails at link time in both directions (`undefined symbol: __resumeException`, or
    - 33 of the 41 names that EM_JS/pre-js code shares with `html/`, which no browser test catches.
 
    The renamed names include `projectMWritePcmRing` (external PCM), `projectMPresetSwitchFailed`,
-   `pmReportInitError`, `pmOnPerfFrame`, all three `pmOnGovernor*Change` hooks, `Module.__pmPerfGpu`,
+   `pmReportInitError`, `pmOnPerfFrame`, all three `pmOnGovernor*Change` hooks, `Module.__pmPerfGpuByCtx`,
    and the worklet's `audioData`/`channelsForPM` message fields. The module still boots, renders and
    passes the smoke test.
 

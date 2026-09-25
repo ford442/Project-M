@@ -21,6 +21,7 @@ import test from 'node:test';
 import {
     isRenderWorkerEnabled,
     isRenderWorkerSupported,
+    resolveRenderPathOverrides,
     setupRenderWorker,
 } from '../../html/projectm-render-worker-host.js';
 
@@ -148,10 +149,46 @@ test('setupRenderWorker posts an init message transferring the offscreen canvas'
     assert.equal(msg.governor, true);
     assert.equal(msg.meshQuality, 'low');
     assert.equal(msg.pcm, undefined, 'the host no longer allocates a ring; the worker owns it');
+    assert.equal(msg.contextConfig, undefined);
+    assert.equal(msg.renderPathOverrides, undefined);
     assert.deepEqual(transfer, [offscreen]);
 
     globalThis.crossOriginIsolated = prevCOI;
     clearMockWorkerEnv();
+});
+
+test('setupRenderWorker forwards the context config and render-path switches in the init message', () => {
+    installMockWorkerEnv();
+    const contextConfig = {
+        antialias: 0, preserveDrawingBuffer: 1, depth: 0, stencil: 0,
+        alpha: 1, powerPreference: 2, fboPrecision: 2,
+    };
+    const renderPathOverrides = resolveRenderPathOverrides('?blurPath=copy');
+    const handle = setupRenderWorker({
+        canvas: makeCanvas({ offscreen: {} }),
+        scriptSrc: 'projectm.js',
+        width: 1,
+        height: 1,
+        contextConfig,
+        renderPathOverrides,
+    });
+    const { msg } = handle.worker.posted[0];
+    assert.deepEqual(msg.contextConfig, contextConfig);
+    assert.deepEqual(msg.renderPathOverrides, { blurCopyPath: true, copyShaderPath: false, perPixelForceCpu: false });
+    clearMockWorkerEnv();
+});
+
+test('resolveRenderPathOverrides reads the three ablation switches, case-insensitively', () => {
+    assert.deepEqual(resolveRenderPathOverrides(''), {
+        blurCopyPath: false, copyShaderPath: false, perPixelForceCpu: false,
+    });
+    assert.deepEqual(resolveRenderPathOverrides('?blurPath=COPY&copyPath=shader&perPixelEval=Cpu'), {
+        blurCopyPath: true, copyShaderPath: true, perPixelForceCpu: true,
+    });
+    // Other values are not switches.
+    assert.deepEqual(resolveRenderPathOverrides('?blurPath=direct&perPixelEval=gpu'), {
+        blurCopyPath: false, copyShaderPath: false, perPixelForceCpu: false,
+    });
 });
 
 test('setupRenderWorker dispatches ready/unsupported/error/stats messages from the worker', () => {

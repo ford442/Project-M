@@ -29,7 +29,7 @@ import {
     installTransportPcmWriter,
     selectRenderTopology,
 } from './projectm-render-transport.js';
-import { isRenderWorkerEnabled } from './projectm-render-worker-host.js';
+import { isRenderWorkerEnabled, resolveRenderPathOverrides } from './projectm-render-worker-host.js';
 import { checkCrossOriginIsolation, checkInit } from './projectm-init-errors.js';
 import { setMeshQuality } from './projectm-mesh-quality.js';
 import {
@@ -851,21 +851,59 @@ this._externalReceiverClose = null;
         if (!this.module || typeof setContextConfig !== 'function') {
             return;
         }
-        const o = this.options;
-        const powerMap = { 'default': 0, 'low-power': 1, 'high-performance': 2 };
-        const fboMap = { 'half': 0, 'high': 1, 'byte': 2 };
+        const c = this.#contextConfig();
         setContextConfig(
             this.module,
-            o.antialias ? 1 : 0,
-            o.preserveDrawingBuffer ? 1 : 0,
-            o.depth ? 1 : 0,
-            o.stencil ? 1 : 0,
+            c.antialias,
+            c.preserveDrawingBuffer,
+            c.depth,
+            c.stencil,
+            c.alpha,
+            c.powerPreference,
+            c.fboPrecision
+        );
+        // Bundles that predate the export read the switches from the URL
+        // themselves, which works on this thread.
+        if (typeof this.module._set_render_path_overrides === 'function') {
+            const r = this.#renderPathOverrides();
+            this.module._set_render_path_overrides(
+                r.blurCopyPath ? 1 : 0,
+                r.copyShaderPath ? 1 : 0,
+                r.perPixelForceCpu ? 1 : 0
+            );
+        }
+    }
+
+    /**
+     * `set_context_config()`'s arguments for this context's options — applied
+     * here on the main thread, and sent in the render worker's `init` message.
+     *
+     * @returns {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig}
+     */
+    #contextConfig() {
+        const o = this.options;
+        /** @type {Record<string, number>} */
+        const powerMap = { 'default': 0, 'low-power': 1, 'high-performance': 2 };
+        // The FboFloatFormat numbering, which dual_fbo_get_format() also reports.
+        /** @type {Record<string, number>} */
+        const fboMap = { 'half': 0, 'high': 1, 'byte': 2 };
+        return {
+            antialias: o.antialias ? 1 : 0,
+            preserveDrawingBuffer: o.preserveDrawingBuffer ? 1 : 0,
+            depth: o.depth ? 1 : 0,
+            stencil: o.stencil ? 1 : 0,
             // Context alpha stays on (transparency overlays); the `alpha` option
             // is a separate canvas-CSS hint, not the WebGL alpha attribute.
-            1,
-            powerMap[o.powerPreference ?? 'high-performance'] ?? 2,
-            fboMap[o.fboPrecision ?? 'half'] ?? 0
-        );
+            alpha: 1,
+            powerPreference: powerMap[o.powerPreference ?? 'high-performance'] ?? 2,
+            fboPrecision: fboMap[o.fboPrecision ?? 'half'] ?? 0,
+        };
+    }
+
+    /** @returns {import('./projectm-render-worker-types.ts').RenderPathOverrides} */
+    #renderPathOverrides() {
+        return this.options.renderPathOverrides
+            ?? resolveRenderPathOverrides(this.options.windowRef?.location?.search ?? '');
     }
 
     destroy() {
@@ -1024,6 +1062,10 @@ this._externalReceiverClose = null;
             targetFps,
             governor: qualityGovernor,
             meshQuality,
+            // The worker creates its context and picks its render paths in its
+            // own init(); these have to travel with the init message.
+            contextConfig: this.#contextConfig(),
+            renderPathOverrides: this.#renderPathOverrides(),
             onFallback: (reason) => {
                 this.options.onRenderWorkerFallback?.(reason);
             },

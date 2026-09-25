@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    INIT_CONTEXT_LOST,
     checkCrossOriginIsolation,
+    checkInit,
     hideInitError,
     showInitError,
 } from '../../html/projectm-init-errors.js';
@@ -136,4 +138,20 @@ test('showInitError maps known codes to stable title and hint lists', () => {
     assert.match(message?.textContent ?? '', /detail string/);
     assert.ok((hints?.children?.length ?? 0) >= 2, 'code 4 should include troubleshooting hints');
     assert.equal(overlay.classList.contains('visible'), true);
+});
+
+test('checkInit keeps quiet while the context is lost, and reports any other failure', () => {
+    hideInitError();
+    const overlay = () => nodes.get('pm-init-error');
+
+    // A tap on the context-loss overlay can call init() before the browser has
+    // restored the context; the C++ side refuses with 5, which is not an error.
+    assert.equal(checkInit({ _init: () => INIT_CONTEXT_LOST }), false);
+    assert.equal(overlay().classList.contains('visible'), false);
+
+    assert.equal(checkInit({ _init: () => 3 }), false);
+    assert.equal(overlay().classList.contains('visible'), true);
+
+    assert.equal(checkInit({ _init: () => 0 }), true);
+    assert.equal(overlay().classList.contains('visible'), false);
 });

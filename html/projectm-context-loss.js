@@ -12,7 +12,9 @@
 // On "webglcontextrestored" (or a tap on the overlay):
 //   - re-runs checkInit(Module), which calls Module._init() and performs a
 //     full re-initialization (new WebGL context, new projectM/playlist
-//     instance)
+//     instance, the page's mesh/transparency/fps/governor settings re-applied).
+//     While the context is still lost init() refuses with code 5 and the
+//     overlay stays up.
 //   - calls Module._start_render() to recreate the dual-FBO pipeline
 //   - reloads the last-displayed preset via window.currentPresetPath (set by
 //     updatePresetDisplay() in projectm-presets.js)
@@ -133,7 +135,11 @@ export function setupContextLossRecovery(Module, { canvasSelector = '#mcanvas' }
         restoring = true;
         try {
             if (!checkInit(Module)) {
-                // init-error overlay is shown; its own Retry button re-runs init.
+                // Either the context is still lost (init() returns 5 until the
+                // browser restores it — a tap on this overlay can come first),
+                // and this overlay stays up for "webglcontextrestored" to retry;
+                // or init failed for real, and the init-error overlay's own
+                // Retry button re-runs it.
                 return;
             }
 

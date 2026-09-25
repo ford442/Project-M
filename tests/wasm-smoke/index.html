@@ -230,6 +230,41 @@
     }
 
     /**
+     * The main loop is paced by requestAnimationFrame: at most one frame per
+     * display refresh. It was EM_TIMING_SETIMMEDIATE, which spun as fast as the
+     * postMessage shim allowed — hundreds to thousands of frames a second that
+     * the compositor never showed. 250/s leaves room for 240 Hz panels.
+     *
+     * Under SwiftShader a frame costs more than a refresh, so the rate cannot
+     * tell the two apart here; the timing mode read back from Emscripten can
+     * (EM_TIMING_RAF = 1). The rate bound still catches it on a real GPU.
+     */
+    const PACING_WINDOW_MS = 2000;
+    const MAX_FRAMES_PER_SECOND = 250;
+    const EM_TIMING_RAF = 1;
+    async function checkMainLoopPacing(Module) {
+      if (typeof Module._get_main_loop_timing_mode === 'function') {
+        const mode = Module._get_main_loop_timing_mode();
+        if (mode !== EM_TIMING_RAF) {
+          throw new Error('main loop timing mode is ' + mode + ', expected EM_TIMING_RAF (' + EM_TIMING_RAF + ')');
+        }
+      }
+      const before = Module._get_rendered_frame_count();
+      const t0 = performance.now();
+      await sleep(PACING_WINDOW_MS);
+      const seconds = (performance.now() - t0) / 1000;
+      const perSecond = (Module._get_rendered_frame_count() - before) / seconds;
+      if (perSecond < 1) {
+        throw new Error('main loop rendered no frames in ' + seconds.toFixed(1) + ' s');
+      }
+      if (perSecond > MAX_FRAMES_PER_SECOND) {
+        throw new Error('main loop is not rAF-paced: ' + perSecond.toFixed(0) + ' frames/s over '
+          + seconds.toFixed(1) + ' s (limit ' + MAX_FRAMES_PER_SECOND + ')');
+      }
+      mark('main loop rAF-paced: ' + perSecond.toFixed(0) + ' frames/s');
+    }
+
+    /**
      * Section 0 lifecycle regressions (preset prepare queue issue): compositor program leak, playlist
      * leak on context loss / destroy_host, stale handle in set_active_host, and a
      * legacy export before create_host() halving the host budget. Bundles that
@@ -260,20 +295,28 @@
       // from "webglcontextlost"; it is driven directly on a live context here
       // because headless Chromium refuses restoreContext() after a synthetic
       // WEBGL_lose_context loss, and the C++ bookkeeping is the same either way.
+      // A setting the page applied must survive the engine being re-created.
       const playlists = countsPlaylists ? Module._live_playlist_count() : 0;
+      Module._set_transparency_mode(1);
       Module._pm_handle_context_loss();
       expectPlaylists(playlists - 1, 'after pm_handle_context_loss');
       if (Module._init() !== 0) throw new Error('init() after context loss failed');
       Module._start_render(64, 64);
       Module._render_frame();
       expectPlaylists(playlists, 'after re-init');
-      mark('context loss: engine re-initialised' + (countsPlaylists ? ', old playlist freed' : ''));
+      if (!Module._get_transparency_mode()) {
+        throw new Error('re-init after context loss dropped the host\'s transparency setting');
+      }
+      Module._set_transparency_mode(0);
+      mark('context loss: engine re-initialised with its settings' + (countsPlaylists ? ', old playlist freed' : ''));
 
       // 3. destroy_host frees the playlist; a stale handle is then ignored
       // instead of dereferenced.
       const handleB = Module.ccall('create_host', 'number', ['string', 'string'],
         ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
       if (!handleB) throw new Error('create_host() for the lifecycle check failed');
+      // Kept for step 7: an engine handle that stops being valid below.
+      const staleEngine = Module._get_projectm_handle();
       expectPlaylists(playlists + 1, 'after create_host');
       Module.ccall('destroy_host', null, ['number'], [handleB]);
       expectPlaylists(playlists, 'after destroy_host');
@@ -332,6 +375,97 @@
       }
       for (const h of created) Module.ccall('destroy_host', null, ['number'], [h]);
       expectPlaylists(0, 'after destroying every host');
+
+      await checkRealContextLoss(Module);
+      checkExportsWithoutEngine(Module, staleEngine);
+    }
+
+    /**
+     * 6. A real WEBGL_lose_context loss on one of two hosts. Loss handling must
+     * tear down the host that owns the lost canvas even while its sibling is
+     * active, leave the sibling rendering, and init() must refuse to rebuild on
+     * the still-lost context (headless Chromium never restores a synthetic loss,
+     * so the refusal is the half this can cover).
+     */
+    async function checkRealContextLoss(Module) {
+      if (typeof Module._create_host !== 'function' || Module._max_host_count() < 2) {
+        mark('real context loss skipped (single-host bundle)');
+        return;
+      }
+      const loseCanvas = document.createElement('canvas');
+      loseCanvas.id = 'pm-smoke-lose'; loseCanvas.width = 64; loseCanvas.height = 64;
+      document.body.appendChild(loseCanvas);
+
+      const createOn = (primary, secondary) => {
+        const h = Module.ccall('create_host', 'number', ['string', 'string'], [primary, secondary]);
+        if (!h) throw new Error('create_host(' + primary + ') failed');
+        Module._start_render(64, 64);
+        return h;
+      };
+      const healthy = createOn('#pm-smoke-main', '#pm-smoke-secondary');
+      const doomed = createOn('#pm-smoke-lose', '#pm-smoke-secondary-2');
+
+      const lose = loseCanvas.getContext('webgl2').getExtension('WEBGL_lose_context');
+      if (!lose) {
+        for (const h of [healthy, doomed]) Module.ccall('destroy_host', null, ['number'], [h]);
+        mark('real context loss skipped (no WEBGL_lose_context)');
+        return;
+      }
+      lose.loseContext();
+
+      Module.ccall('set_active_host', null, ['number'], [healthy]);
+      Module._pm_handle_context_loss();
+      if (Module._get_active_host() !== doomed) {
+        throw new Error('context loss did not select the host that owns the lost canvas');
+      }
+      if (Module._get_projectm_handle() !== 0) {
+        throw new Error('the lost host kept its engine');
+      }
+      const initWhileLost = Module._init();
+      if (initWhileLost !== 5) {
+        throw new Error('init() on a still-lost context returned ' + initWhileLost + ', expected 5');
+      }
+      Module._start_render(64, 64); // refused: no engine
+      Module._render_frame();
+
+      Module.ccall('set_active_host', null, ['number'], [healthy]);
+      if (Module._get_projectm_handle() === 0) {
+        throw new Error('context loss on a sibling tore down the healthy host');
+      }
+      const before = Module._get_rendered_frame_count();
+      await sleep(200);
+      if (Module._get_rendered_frame_count() <= before) {
+        throw new Error('the healthy host stopped rendering after its sibling lost its context');
+      }
+      for (const h of [doomed, healthy]) Module.ccall('destroy_host', null, ['number'], [h]);
+      mark('real context loss: lost host torn down, sibling kept rendering, init() refused (5)');
+    }
+
+    /**
+     * 7. Every engine-facing export called on a host with no engine is a no-op,
+     * and an engine handle JS kept past destroy_host() is rejected. Several of
+     * these dereferenced a null or stale engine; a SAFE_HEAP build traps on that.
+     */
+    function checkExportsWithoutEngine(Module, staleEngine) {
+      // No host left: these land on the lazily created, engine-less default.
+      Module._switch_preset();
+      Module.ccall('add_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
+      Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
+      Module._set_mesh(32, 24);
+      Module._create_sprite();
+      Module._start_render(64, 64);
+      Module._set_window_size(64, 64);
+      Module._render_frame();
+      const bytes = Module._malloc(64);
+      Module._add_audio_data(bytes, 64);
+      const floats = Module._malloc(64 * 4);
+      for (const handle of [staleEngine, 12345]) {
+        Module._projectm_pcm_add_float_wrapper(handle, floats, 32, 2);
+      }
+      Module._projectm_pcm_add_float_wrapper(0, floats, 32, 2);
+      Module._free(floats);
+      Module._free(bytes);
+      mark('engine-less exports and stale engine handles are no-ops');
     }
 
     async function runSmoke() {
@@ -412,6 +546,7 @@
         const height = canvas.height || 64;
         Module._start_render(width, height);
         mark('start_render ok (' + width + 'x' + height + ')');
+        await checkMainLoopPacing(Module);
 
         await writePresetToMemfs(Module, preset2Src, '/presets/tests/110-per_pixel.milk');
         mark('second preset copied to MEMFS');

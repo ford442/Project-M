@@ -273,6 +273,64 @@ test('init boots the module, applies the options, publishes the ring, and report
     assert.equal(descriptor.indexModulus, 16);
 });
 
+test('init applies the context config and render-path switches before init() creates the context', async () => {
+    const module = fakeRingModule();
+    /** @type {string[]} */
+    const order = [];
+    /** @type {number[][]} */
+    const contextConfigs = [];
+    // Models the C++ side: set_render_path_overrides() sets the environment the
+    // engine reads, get_render_path_overrides() reads it back as a mask.
+    let overrideMask = 0;
+    const ccall = module.ccall;
+    module.ccall = (name, returnType, argTypes, args) => {
+        if (name === 'set_context_config') {
+            order.push(name);
+            contextConfigs.push([...args]); // built in the vm realm: copy before deepEqual
+            return undefined;
+        }
+        return ccall(name, returnType, argTypes, args);
+    };
+    module._set_render_path_overrides = (blur, copy, perPixel) => {
+        order.push('set_render_path_overrides');
+        overrideMask = (blur ? 1 : 0) | (copy ? 2 : 0) | (perPixel ? 4 : 0);
+    };
+    module._get_render_path_overrides = () => overrideMask;
+    const init = module._init;
+    module._init = () => { order.push('init'); return init(); };
+
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({
+        contextConfig: {
+            antialias: 1, preserveDrawingBuffer: 0, depth: 0, stencil: 0,
+            alpha: 1, powerPreference: 2, fboPrecision: 1,
+        },
+        // What resolveRenderPathOverrides('?blurPath=copy') produces on the page.
+        renderPathOverrides: { blurCopyPath: true, copyShaderPath: false, perPixelForceCpu: false },
+    }));
+
+    // Both are decided inside init(): the attributes are baked into the context
+    // it creates, and the render paths are fixed before the first preset.
+    assert.deepEqual(order, ['set_context_config', 'set_render_path_overrides', 'init']);
+    assert.deepEqual(contextConfigs, [[1, 0, 0, 0, 1, 2, 1]]);
+
+    // Read back through the stats tick: the switch reached the worker's module.
+    worker.posted.length = 0;
+    worker.tickStats();
+    assert.equal(worker.posted[0].renderPathOverrides, 1);
+});
+
+test('init without a context config or switches leaves the module defaults alone', async () => {
+    const module = fakeRingModule();
+    let called = false;
+    module._set_render_path_overrides = () => { called = true; };
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    assert.equal(called, false);
+    assert.deepEqual(module.ccalls, []);
+    assert.equal(worker.posted.at(-1).type, 'ready');
+});
+
 test('init registers the transferred canvas under the engine canvas selector', async () => {
     const module = fakeRingModule();
     const worker = loadWorker({ createModule: async () => module });
@@ -524,6 +582,7 @@ test('stats fall back to -1 when the bundle lacks the quality exports', async ()
     worker.tickStats();
     assert.equal(worker.posted[0].fboFormat, -1);
     assert.equal(worker.posted[0].qualityTier, -1);
+    assert.equal(worker.posted[0].renderPathOverrides, -1);
 });
 
 test('both implementations cover every message type declared in the wire protocol', () => {

@@ -126,6 +126,14 @@ export interface ProjectMContextOptions {
     stencil?: boolean;
     /** Dual-FBO color precision (default 'half' = RGBA16F; 'high' = RGBA32F; 'byte' = RGBA8). */
     fboPrecision?: 'half' | 'high' | 'byte';
+    /**
+     * Render-path ablation switches (`?blurPath=copy`, `?copyPath=shader`,
+     * `?perPixelEval=cpu`), handed to the WASM host with
+     * `set_render_path_overrides()` before init — on either topology, since the
+     * render worker cannot read the page URL itself. Defaults to the page's own
+     * query string (`windowRef.location.search`).
+     */
+    renderPathOverrides?: import('./projectm-render-worker-types.ts').RenderPathOverrides;
     presetUrl?: string;
     presetLocked?: boolean;
     audioSource?: ProjectMAudioSource;

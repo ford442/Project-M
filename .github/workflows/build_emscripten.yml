@@ -178,6 +178,22 @@ jobs:
       - name: Run WASM Browser Smoke Test
         run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
 
+      # Debug leg: the same wrapper relinked with Emscripten's runtime checks.
+      # SAFE_HEAP traps on a null or wild pointer the release build would
+      # silently read through, which is how the host lifecycle bugs (playlist
+      # use-after-free, null-engine exports, unvalidated engine handles) went
+      # unnoticed. The smoke's lifecycle section drives exactly those paths.
+      - name: Build WASM Smoke Wrapper (SAFE_HEAP debug)
+        env:
+          ENABLE_WASM_TRANSITIONS: ${{ matrix.wasm-transitions }}
+          INSTALL_DIR: ${{ github.workspace }}/install
+          OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke-debug
+          PROJECTM_WASM_EXTRA_LINK_FLAGS: -sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2
+        run: scripts/build_wasm_smoke_wrapper.sh
+
+      - name: Run WASM Browser Smoke Test (SAFE_HEAP debug)
+        run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke-debug/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
+
       # The render loop must keep drawing the current preset while the next one
       # is prepared (it used to stop for the whole load). Frame count is the gate;
       # the stall ratio is only reported, as SwiftShader frame times are too

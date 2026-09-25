@@ -23,15 +23,27 @@
 // H.qualityTier;`). Governor entry points (UpdateQualityGovernor /
 // ResetGovernorCounters / renderLoop) run under the active host.
 
+// GPU timer state lives per WebGL context, keyed on the context object: two
+// hosts each render on their own context, and a context re-created after a
+// loss is a new object whose queries and extension object are its own. (It
+// used to be one Module-wide record that cached the first context's extension
+// and query list for every later context.)
+//
 // Begins a GPU timer query for the upcoming render_frame() call, if the
 // EXT_disjoint_timer_query_webgl2 extension is available. No-op otherwise.
 // clang-format off
 EM_JS(void, js_perf_gpu_begin_frame, (), {
-    if (!Module.__pmPerfGpu) {
-        const ext = GLctx.getExtension('EXT_disjoint_timer_query_webgl2');
-        Module.__pmPerfGpu = { ext: ext, queries: [], lastMs: -1 };
+    if (typeof GLctx === 'undefined' || !GLctx) {
+        return;
     }
-    const gpu = Module.__pmPerfGpu;
+    if (!Module.__pmPerfGpuByCtx) {
+        Module.__pmPerfGpuByCtx = new WeakMap();
+    }
+    let gpu = Module.__pmPerfGpuByCtx.get(GLctx);
+    if (!gpu) {
+        gpu = { ext: GLctx.getExtension('EXT_disjoint_timer_query_webgl2'), queries: [], lastMs: -1 };
+        Module.__pmPerfGpuByCtx.set(GLctx, gpu);
+    }
     if (!gpu.ext) {
         return;
     }
@@ -45,7 +57,8 @@ EM_JS(void, js_perf_gpu_begin_frame, (), {
 // previously submitted queries (without blocking) for completed results.
 // clang-format off
 EM_JS(void, js_perf_gpu_end_frame, (), {
-    const gpu = Module.__pmPerfGpu;
+    const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
+        ? Module.__pmPerfGpuByCtx.get(GLctx) : null;
     if (!gpu || !gpu.ext) {
         return;
     }
@@ -71,11 +84,14 @@ EM_JS(void, js_perf_gpu_end_frame, (), {
 });
 // clang-format on
 
-// Returns the most recently completed GPU frame time in milliseconds, or -1
-// if the timer query extension is unavailable or no result has arrived yet.
+// Returns the current context's most recently completed GPU frame time in
+// milliseconds, or -1 if the timer query extension is unavailable or no result
+// has arrived yet.
 // clang-format off
 EM_JS(double, js_perf_gpu_get_last_ms, (), {
-    return (Module.__pmPerfGpu && Module.__pmPerfGpu.ext) ? Module.__pmPerfGpu.lastMs : -1;
+    const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
+        ? Module.__pmPerfGpuByCtx.get(GLctx) : null;
+    return (gpu && gpu.ext) ? gpu.lastMs : -1;
 });
 // clang-format on
 
@@ -230,11 +246,26 @@ static void ApplyQualityTier(int tier)
     g_qualityTier = tier;
     const QualityTierSettings& settings = kQualityTiers[tier];
     projectm_set_mesh_size(pm, settings.meshWidth, settings.meshHeight);
+    // The tier now owns the mesh size; a re-created engine should get it back.
+    H.engineSettings.meshSize = std::make_pair(settings.meshWidth, settings.meshHeight);
     projectm_set_max_blur_level(pm, settings.maxBlurLevel);
     projectm_set_blur_resolution_scale(pm, static_cast<float>(settings.blurResolutionScale));
     js_governor_report_tier(tier);
     js_governor_report_render_scale(settings.renderScale);
     js_governor_report_blur_cap(settings.maxBlurLevel);
+}
+
+void ReapplyQualityTierLimits()
+{
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    if (!pm || !H.qualityTierInitialized)
+    {
+        return;
+    }
+    const QualityTierSettings& settings = kQualityTiers[std::max(0, std::min(kMaxQualityTier, H.qualityTier))];
+    projectm_set_max_blur_level(pm, settings.maxBlurLevel);
+    projectm_set_blur_resolution_scale(pm, static_cast<float>(settings.blurResolutionScale));
 }
 
 // Resets the consecutive over/under-budget frame counters. Called whenever
@@ -263,6 +294,12 @@ void UpdateQualityGovernor(double frameMs)
     auto& g_qualityTierInitialized = H.qualityTierInitialized;
     auto& g_overBudgetFrames = H.overBudgetFrames;
     auto& g_underBudgetFrames = H.underBudgetFrames;
+    // renderLoop() calls this for every started host, including one whose
+    // engine is gone (context lost, mid-rebind).
+    if (!pm)
+    {
+        return;
+    }
     if (!g_qualityTierInitialized)
     {
         size_t width = 0;

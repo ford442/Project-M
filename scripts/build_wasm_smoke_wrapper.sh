@@ -156,10 +156,16 @@ if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
     wait
 fi
 
+# Extra em++ link flags, whitespace-separated — e.g. the debug CI leg's
+# "-sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2".
+extra_link_args=()
+read -r -a extra_link_args <<< "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}"
+
 "${emxx_cmd[@]}" "${wrapper_inputs[@]}" \
     "${wrapper_include_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \
+    "${extra_link_args[@]}" \
     -s INVOKE_RUN=0 \
     "${libomp_args[@]}" \
     -o "$OUT_DIR/projectm-v.030-thread.js" \

@@ -72,6 +72,8 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _init
         _set_canvas_selectors
         _set_context_config
+        _set_render_path_overrides
+        _get_render_path_overrides
         _init_with_canvases
         _rebind_canvases
         _create_host
@@ -123,6 +125,7 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _get_rendered_frame_count
         _preset_switch_failed
         _live_playlist_count
+        _get_main_loop_timing_mode
         _get_omp_enabled
         _get_omp_max_threads
         _get_omp_thread_count_in_parallel

@@ -1,7 +1,7 @@
 # @projectm/web public WASM API surface.
 # Generated from cmake/WasmApiManifest.cmake by scripts/check_wasm_public_api.sh.
 # Do not edit by hand: run scripts/check_wasm_public_api.sh --update.
-# package-version: 0.1.0
+# package-version: 0.2.0
 add_preset_file(vfsPath:string) -> void [ccall]
 attach_worklet_ingest() -> void [direct]
 connect_media_element_source(selector:string) -> number [ccall]
@@ -25,6 +25,7 @@ get_pcm_ring_data_ptr() -> number [direct]
 get_pcm_ring_header_ptr() -> number [direct]
 get_pcm_ring_index_modulus() -> number [direct]
 get_quality_tier() -> number [direct]
+get_render_path_overrides() -> number [direct]
 get_transparency_mode() -> boolean [direct]
 get_transparency_threshold() -> number [direct]
 host_count() -> number [direct]
@@ -50,6 +51,7 @@ set_mesh(width:number,height:number) -> void [direct]
 set_preset_locked(locked:boolean) -> void [direct]
 set_quality_governor(enabled:boolean) -> void [direct]
 set_render_loop_paused(paused:boolean) -> void [direct]
+set_render_path_overrides(blurCopyPath:boolean,copyShaderPath:boolean,perPixelForceCpu:boolean) -> void [direct]
 set_target_fps(fps:number) -> void [direct]
 set_transparency_mode(enabled:boolean) -> void [direct]
 set_transparency_threshold(threshold:number) -> void [direct]

@@ -32,19 +32,32 @@
 
 #include <projectM-4/debug.h>
 
+// The on/off switches and the frame period are process-wide harness settings.
+// The frame index and the virtual "now" are per host (WasmHost): the shared
+// main loop renders every started host once per tick, so a single index
+// advanced once per host per tick and two engines each saw every other frame.
 namespace {
 
 bool g_deterministicClock{false};
 bool g_deterministicSeed{false};
-double g_virtualNowMs{0.0};
 double g_msPerFrame{1000.0 / 60.0};
-uint32_t g_deterministicFrameIndex{0};
+
+void ResetVirtualClock(WasmHost& host)
+{
+    host.deterministicFrameIndex = 0;
+    host.virtualNowMs = 0.0;
+}
 
 } // namespace
 
 double WasmNow()
 {
-    return g_deterministicClock ? g_virtualNowMs : emscripten_get_now();
+    if (!g_deterministicClock)
+    {
+        return emscripten_get_now();
+    }
+    const WasmHost* active = ActiveHostOrNull();
+    return active != nullptr ? active->virtualNowMs : 0.0;
 }
 
 void DeterministicFrameTick()
@@ -58,12 +71,12 @@ void DeterministicFrameTick()
     // Frame N is defined to happen at N / fps seconds. Set the clock before the
     // frame renders so the engine's per-frame evaluation and this TU's own
     // WasmNow() readers agree on when "now" is for this frame.
-    g_virtualNowMs = static_cast<double>(g_deterministicFrameIndex) * g_msPerFrame;
+    H.virtualNowMs = static_cast<double>(H.deterministicFrameIndex) * g_msPerFrame;
     if (pm != nullptr)
     {
-        projectm_set_frame_time(pm, g_virtualNowMs / 1000.0);
+        projectm_set_frame_time(pm, H.virtualNowMs / 1000.0);
     }
-    g_deterministicFrameIndex++;
+    H.deterministicFrameIndex++;
 }
 
 extern "C" {
@@ -93,30 +106,36 @@ int is_deterministic_seed()
 }
 
 /**
- * Switches the host and engine onto a virtual clock advancing 1/fps per
- * rendered frame, restarting the frame count at 0. Disabling hands the engine
- * back to its own system clock (projectm_set_frame_time() < 0).
+ * Switches every host and its engine onto a virtual clock advancing 1/fps per
+ * frame that host renders, restarting each host's frame count at 0. Disabling
+ * hands the engines back to their own system clock (projectm_set_frame_time() < 0).
  */
 EMSCRIPTEN_KEEPALIVE
 void set_deterministic_clock(int enabled, double fps)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     g_deterministicClock = (enabled != 0);
-    g_deterministicFrameIndex = 0;
-    g_virtualNowMs = 0.0;
     if (g_deterministicClock)
     {
         g_msPerFrame = (fps > 0.0) ? (1000.0 / fps) : (1000.0 / 60.0);
-        if (pm != nullptr)
+    }
+    const auto reset = [](WasmHost& host) {
+        ResetVirtualClock(host);
+        if (host.appData.projectm_engine != nullptr)
         {
-            projectm_set_frame_time(pm, 0.0);
+            projectm_set_frame_time(host.appData.projectm_engine, g_deterministicClock ? 0.0 : -1.0);
+        }
+    };
+    const int slots = HostSlotCount();
+    for (int i = 0; i < slots; ++i)
+    {
+        if (WasmHost* host = HostSlot(i))
+        {
+            reset(*host);
         }
     }
-    else if (pm != nullptr)
-    {
-        projectm_set_frame_time(pm, -1.0);
-    }
+    // The harness may call this before any host exists; Host() then brings up
+    // the compat default, which the loop above could not see.
+    reset(Host());
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -157,11 +176,11 @@ void set_render_loop_paused(int paused)
     }
 }
 
-/** Frames ticked since the virtual clock was last (re)enabled. */
+/** Frames the active host has ticked since the virtual clock was last (re)enabled. */
 EMSCRIPTEN_KEEPALIVE
 unsigned int deterministic_frame_index()
 {
-    return g_deterministicFrameIndex;
+    return Host().deterministicFrameIndex;
 }
 
 } // extern "C"

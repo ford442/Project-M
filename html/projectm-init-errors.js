@@ -37,6 +37,13 @@ const ERROR_INFO = {
     },
 };
 
+/**
+ * `init()`'s return code while the WebGL context is lost (and not yet
+ * restored). Not an error to show: the context-loss overlay is already up, and
+ * the browser's "webglcontextrestored" retries init() (projectm-context-loss.js).
+ */
+export const INIT_CONTEXT_LOST = 5;
+
 const GENERIC_ERROR_INFO = {
     title: 'Initialization Failed',
     message: 'projectM could not start for an unknown reason.',
@@ -272,7 +279,7 @@ export function checkInit(Module, {
         ? initWithCanvases(Module, primaryCanvasSelector, secondaryCanvasSelector || '#scanvas')
         : wasmInit(Module);
     if (code !== 0) {
-        if (!overlayEl || !overlayEl.classList.contains('visible')) {
+        if (code !== INIT_CONTEXT_LOST && (!overlayEl || !overlayEl.classList.contains('visible'))) {
             showInitError(code);
         }
         return false;

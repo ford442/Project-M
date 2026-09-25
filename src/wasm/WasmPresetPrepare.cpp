@@ -260,7 +260,7 @@ static void CompletePresetSwitch(WasmHost& host, const PendingPresetSwitch& pres
     {
         if (presetSwitch.playlistIndex && host.appData.playlist != nullptr)
         {
-            load_preset_callback_done(presetSwitch.hardCut, *presetSwitch.playlistIndex, &host.appData);
+            load_preset_callback_done(presetSwitch.hardCut, *presetSwitch.playlistIndex, &host);
         }
         else
         {

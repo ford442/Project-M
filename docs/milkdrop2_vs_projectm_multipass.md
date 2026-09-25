@@ -124,7 +124,7 @@ needed to the priority order itself.
 
 What was missing was **surfacing the selected/degraded format**:
 
-- `dual_fbo_get_format()` (0=RGBA32F, 1=RGBA16F, 2=RGBA8) was already exported
+- `dual_fbo_get_format()` (0=RGBA16F, 1=RGBA32F, 2=RGBA8 since #258) was already exported
   in `CMakeLists.txt`'s `PROJECTM_WASM_EXPORTED_FUNCTIONS` but missing from
   `scripts/build_wasm_smoke_wrapper.sh`'s `EXPORTED_FUNCTIONS` list — added.
 - Added `html/projectm-fbo-format.js` (`setupFboFormatIndicator(Module)`,

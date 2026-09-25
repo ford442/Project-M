@@ -143,16 +143,18 @@ void render_frame();
 void InstallShaderTranspileCacheHooks();
 
 // ---- Render-path ablation switches (defined in WasmRenderPathOverrides.cpp) -
-// URL query overrides applied once from init(), before the first preset
-// renders. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
-void ApplyBlurPathOverride();
-void ApplyCopyPathOverride();
-void ApplyPerPixelEvalOverride();
-bool WasmPreferHighPrecisionFbo();
+// Applied once from init(), before the first preset renders: whatever the host
+// set with set_render_path_overrides(), or else the page's own query string.
+// See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+void ApplyRenderPathOverrides();
 
 // ---- Quality governor entry points (defined in WasmPerfGovernor.cpp) -------
 void ResetGovernorCounters();
 void UpdateQualityGovernor(double frameMs);
+// Re-applies the active host's current tier's blur cap and blur resolution to a
+// freshly created engine (the tier's mesh travels in EngineSettings). No-op
+// until the governor has picked a tier.
+void ReapplyQualityTierLimits();
 
 // ---- Preset switch callbacks (defined in WasmPlaylistBridge.cpp) -----------
 // Registered with projectM/projectM-playlist from init() in

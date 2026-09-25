@@ -40,6 +40,33 @@ export interface PcmRingDescriptor {
     indexModulus: number;
 }
 
+/**
+ * `set_context_config()`'s arguments. Attributes are baked into the WebGL
+ * context when `init()` creates it, so the worker applies these first.
+ */
+export interface RenderWorkerContextConfig {
+    antialias: number;
+    preserveDrawingBuffer: number;
+    depth: number;
+    stencil: number;
+    alpha: number;
+    /** 0 default, 1 low-power, 2 high-performance. */
+    powerPreference: number;
+    /** Preferred dual-FBO format: 0 RGBA16F, 1 RGBA32F, 2 RGBA8 (as `dual_fbo_get_format()` reports). */
+    fboPrecision: number;
+}
+
+/**
+ * The page's render-path ablation switches (`?blurPath=copy`,
+ * `?copyPath=shader`, `?perPixelEval=cpu`). A worker cannot read them itself:
+ * its `location` is the worker script's URL, which has no query.
+ */
+export interface RenderPathOverrides {
+    blurCopyPath: boolean;
+    copyShaderPath: boolean;
+    perPixelForceCpu: boolean;
+}
+
 /** Host → worker: boot the module and take over the transferred canvas. */
 export interface RenderWorkerInitMessage {
     type: 'init';
@@ -50,6 +77,10 @@ export interface RenderWorkerInitMessage {
     targetFps?: number;
     governor?: boolean;
     meshQuality?: string;
+    /** Applied with `set_context_config()` before `init()`. */
+    contextConfig?: RenderWorkerContextConfig;
+    /** Applied with `set_render_path_overrides()` before `init()`. */
+    renderPathOverrides?: RenderPathOverrides;
 }
 
 /** Host → worker: canvas size changed. */
@@ -140,6 +171,12 @@ export interface RenderWorkerStatsMessage {
      * thread.
      */
     renderScale: number;
+    /**
+     * `get_render_path_overrides()`: the ablation switches in effect in the
+     * worker's module (1 blurPath=copy, 2 copyPath=shader, 4 perPixelEval=cpu),
+     * or -1 on a bundle without the export.
+     */
+    renderPathOverrides: number;
 }
 
 /**

@@ -64,7 +64,7 @@ static void RenderActiveHostFrame()
 // The single Emscripten main loop services every started host. With one host
 // (the compat/default path) this is exactly the old single-instance loop; with
 // two (#168 Phase B) each is made active — which makes its own WebGL context
-// current — and rendered in turn within the same rAF tick.
+// current — and rendered in turn within the same requestAnimationFrame tick.
 //
 // The host that was active before the tick is restored afterwards. JS selects a
 // host with set_active_host() and may then yield (e.g. awaiting IndexedDB
@@ -99,6 +99,13 @@ void start_render(int width, int height)
     auto& pm = H.appData.projectm_engine;
     auto& g_dualFbo = H.dualFbo;
     auto& g_compositorShader = H.compositorShader;
+    // No engine means no context to set state on (init() failed, or the
+    // context was lost and not yet restored).
+    if (!pm)
+    {
+        fprintf(stderr, "start_render: no engine on this host; call init() first.\n");
+        return;
+    }
     // glClearColor( 1.0, 1.0, 1.0, 0.0 );
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     printf("Setting window size: %i x %i\n", width, height);
@@ -135,17 +142,46 @@ void start_render(int width, int height)
         fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
     }
 
+    // The state everything above established is what each preset render is
+    // put back to (GLStateGuard), so capture it once here instead of reading
+    // it back from GL every frame.
+    H.glBaseline = GLStateSnapshot::Capture();
+
     // Opt this host into the shared render loop. Register the process-global
     // Emscripten main loop only once; it then iterates every started host.
-    Host().renderLoopStarted = true;
+    //
+    // Paced by requestAnimationFrame, one frame per display refresh: vsync
+    // aligned, never rendering frames the compositor will not show, and
+    // throttled by the browser in a background tab. (It used to be
+    // EM_TIMING_SETIMMEDIATE, which spun as fast as the postMessage shim
+    // allowed.) The render worker and the deterministic harness pause this
+    // loop and drive render_frame() themselves.
+    H.renderLoopStarted = true;
     if (!g_mainLoopRegistered)
     {
         emscripten_set_main_loop(renderLoop, 0, 0);
-        emscripten_set_main_loop_timing(2, 1);
+        emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
         g_mainLoopRegistered = true;
     }
 
     return;
+}
+
+// The shared main loop's Emscripten timing mode (EM_TIMING_RAF = 1), or -1
+// before any start_render() registered the loop. Test hook: under a software
+// rasteriser a frame costs more than a display refresh, so the frame rate
+// alone cannot tell rAF pacing from EM_TIMING_SETIMMEDIATE.
+EMSCRIPTEN_KEEPALIVE
+int get_main_loop_timing_mode()
+{
+    if (!g_mainLoopRegistered)
+    {
+        return -1;
+    }
+    int mode = 0;
+    int value = 0;
+    emscripten_get_main_loop_timing(&mode, &value);
+    return mode;
 }
 } // extern "C"
 
@@ -263,7 +299,7 @@ void render_frame()
     {
         // Direct-to-canvas path (steady state, startup, or compositor unavailable).
         ReleaseDualFboIfIdle();
-        GLStateGuard guard;
+        GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame(pm);
         g_renderedFrameCount++;
         return;
@@ -281,7 +317,7 @@ void render_frame()
     // when called. Use projectm_opengl_render_frame_fbo() so the final composite
     // lands in our Write FBO instead of clobbering the canvas directly.
     {
-        GLStateGuard guard;
+        GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
     }
     g_dualFbo.SwapPresetA();
@@ -289,7 +325,7 @@ void render_frame()
     // --- Step 2: Render Preset B into its Write FBO ---
     gl_reset_state_between_pipelines();
     {
-        GLStateGuard guard;
+        GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
     }
     g_dualFbo.SwapPresetB();
@@ -343,6 +379,10 @@ void set_window_size(int width, int height)
     WasmWebGLResizeCanvases(width, height);
     glViewport(0, 0, width, height);
     glScissor(0, 0, width, height);
+    if (H.glBaseline)
+    {
+        H.glBaseline->SetViewportAndScissor(width, height);
+    }
     projectm_set_window_size(pm, width, height);
     // Phase 2: Resize all allocated dual ping-pong FBOs to match the new viewport.
     g_dualFbo.Resize(width, height);

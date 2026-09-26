@@ -51,11 +51,11 @@ root, because hosts `import './projectm-*.js'`):
   `projectm-core.css`
 
 The active bundle version is defined once in `html/projectm-wasm-version.js`
-(`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.036-thread`).
+(`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.038-thread`).
 Keep it aligned with `scripts/prepare_deploy_bundle.sh` and
 `scripts/verify_deploy_urls.sh` (checked by `scripts/verify_wasm_version_sync.sh`).
 
-First-party hosts also expose a WASM version picker (`?wasm=030|030b|032|033|034|035|036`).
+First-party hosts also expose a WASM version picker (`?wasm=030|030b|032|033|034|035|036|037|038`).
 Each version is a distinct filename (`projectm-v.<ver>-thread.*`), so deploying a new
 tag does not overwrite older CDN artifacts. The host default (`?wasm=` when omitted)
 is `PROJECTM_WASM_DEFAULT_VERSION` in `html/projectm-wasm-version.js` (currently `032`)
@@ -85,8 +85,8 @@ python deploy.py --target prod          # production: projectm.1ink.us/ (needs D
 python deploy.py --target test,go,prod  # all configured targets
 
 # 4. Verify (no HTML 404s under pm/)
-scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ projectm-v.036-thread
-scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.036-thread
+scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ projectm-v.038-thread
+scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.038-thread
 scripts/check_coop_coep.sh https://projectm.1ink.us/
 ```
 

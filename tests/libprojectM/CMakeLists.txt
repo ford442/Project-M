@@ -41,6 +41,7 @@ add_executable(projectM-unittest
         PresetPerfBenchTest.cpp
         PresetSwitchSchedulerTest.cpp
         PresetCompatTest.cpp
+        PCMTest.cpp
         PresetFileParserTest.cpp
         PresetTransitionMultiPassTest.cpp
         PresetTransitionStressTest.cpp

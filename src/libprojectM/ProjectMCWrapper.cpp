@@ -793,7 +793,7 @@ float projectm_get_transparency_threshold(projectm_handle instance)
 
 unsigned int projectm_pcm_get_max_samples()
 {
-    return libprojectM::Audio::WaveformSamples;
+    return libprojectM::Audio::AudioBufferSamples;
 }
 
 template<class BufferType>

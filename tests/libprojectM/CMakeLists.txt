@@ -34,6 +34,7 @@ add_executable(projectM-unittest
         HeadlessGlContext.cpp
         GlOffscreenContext.cpp
         HLSLParserTest.cpp
+        HLSLModuloTest.cpp
         LoggingTest.cpp
         MilkdropShaderCommentParsingTest.cpp
         OpenMPBenchTest.cpp

@@ -176,7 +176,10 @@ per-vertex values over in them instead (`a_pp_cpu0..3`, narrowest first: the vec
 **Per-frame uniforms:** `u_pp_time`, `u_pp_fps`, `u_pp_frame`, `u_pp_progress`,
 `u_pp_bass`, `u_pp_mid`, `u_pp_treb`, `u_pp_bass_att`, `u_pp_mid_att`,
 `u_pp_treb_att`, `u_pp_meshx`, `u_pp_meshy`, `u_pp_pixelsx`, `u_pp_pixelsy`,
-`u_pp_aspectx`, `u_pp_aspecty`, plus `u_pp_q[8]` (`q1..q32` packed as `vec4`s to stay
+`u_pp_aspectx`, `u_pp_aspecty`, the musical-time variables as `u_pp_pm_bpm` …
+`u_pp_pm_rhythm_conf` (one per `pm_*` name, see
+[`MILK_PRESET_GUIDE.md`](MILK_PRESET_GUIDE.md#musical-time-pm_-variables); flag bits 16
+and up of the uniform mask), plus `u_pp_q[8]` (`q1..q32` packed as `vec4`s to stay
 inside WebGL2's uniform limits, uploaded with one `glUniform4fv` call) and the four seed
 uniforms `u_pp_seed_transforms`, `u_pp_seed_center`, `u_pp_seed_distance` and
 `u_pp_seed_stretch`.

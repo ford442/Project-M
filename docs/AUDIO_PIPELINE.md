@@ -53,6 +53,11 @@ Each rendered frame calls `PCM::UpdateFrameAudioData()` **once** (see
 Preset code reads these via evaluator variables (`bass`, `bass_att`, `mid`, `treb`,
 `value1`/`value2` spectrum samples, waveform arrays in custom waves, etc.).
 
+A second step, `PCM::UpdateRhythmAnalysis()`, runs right after it with its own perf
+bucket (`rhythm_analysis_ms` / `rhythmMs`) and adds musical time — tempo, beat and bar
+phase, onsets, sections — as the `pm_*` preset variables. See
+[Rhythm analysis](#rhythm-analysis) below.
+
 ## Constants (C++)
 
 | Symbol | Value | Role |
@@ -71,6 +76,94 @@ Beat bands split the spectrum into sixths (`Loudness::Band` in `Loudness.hpp`):
 
 Relative values (`bass`, `mid`, `treb`) revolve around **1.0**; spikes on transients,
 quieter during silence. Attenuated variants (`bass_att`, …) change more slowly.
+
+## Rhythm analysis
+
+`Audio::RhythmAnalyzer` (`src/libprojectM/Audio/RhythmAnalyzer.*`, issue: musical time)
+turns the audio into **where the beat is and where it is going**. It is in-tree and has no
+dependency: the obvious MIR libraries are GPL/AGPL (aubio, BTrack: GPL-3; Essentia: AGPL-3)
+and cannot be linked into LGPL libprojectM, so the algorithms were implemented from the
+papers cited in the header, not from any code.
+
+```mermaid
+flowchart LR
+  ADD[PCM::Add] --> RR[(mono ring\n16384 samples)]
+  RR --> HOP[STFT 1024 / hop 441\nevery incoming sample]
+  HOP --> FLUX[log spectral flux\nlow / mid / high]
+  FLUX --> ENV[(onset envelope\n100 Hz grid)]
+  ENV --> ACF[weighted autocorrelation\nT = 2.5 s]
+  ACF --> COMB[4-tooth comb 60-200 BPM\n+ off-beat penalty + prior]
+  COMB --> TEMPO[tempo]
+  ENV --> PLL[beat clock\nphase-locked to onset edges]
+  TEMPO --> PLL
+  PLL --> OUT[pm_beat_phase / pm_bar_phase\npm_beat_pulse / pm_bpm]
+  HOP --> SEC[12 log bands\n3 s vs 8 s novelty] --> OUT2[pm_section]
+```
+
+| Stage | Method |
+|-------|--------|
+| Ingest | `PCM::Add()` also writes a mono copy into a 16384-sample ring; `UpdateRhythmAnalysis()` hands the analyzer every sample since the last frame. Unlike the 576-sample frame window, no audio falls between two frames, so onset timing does not depend on the frame rate. |
+| Time base | The sum of the frame durations. The samples of a frame are spread evenly over it, so the sample rate is never needed. |
+| Onsets | 1024-sample Hann STFT every 441 samples (10 ms at 44.1 kHz), its own real FFT. Half-wave rectified flux of `log(1 + 0.4·|X|)`, averaged per bin in three bands (bins 1-4 ≈ 43-215 Hz, 5-46, 47-255). |
+| Envelope | The hop onsets interpolated onto a fixed 100 Hz grid, running mean (1.5 s) removed. |
+| Tempo | Exponentially weighted autocorrelation (time constant 2.5 s, lags to 4.1 s), normalized per lag for the weight it has had time to gather (no warm-up bias towards fast tempi). Four comb teeth (τ, 2τ, 3τ, 4τ) over 60-200 BPM in 0.5 BPM steps, minus half the correlation half a period off each tooth (so a click track at 174 BPM is not read as 87), times a log-Gaussian prior (130 BPM, one octave). Parabolic peak interpolation. Evaluated 4×/s; changes under 4 % are smoothed, larger ones must repeat three times (0.75 s). |
+| Beat clock | Free-running phase at the tempo. Every 50 ms the rising edges of the envelope over the last 4 s (weighted by recency, 1.5 s) are folded onto the clock's own phase; 20 % of the histogram peak's offset is corrected. Because the clock is extrapolated backwards from now, a correction shows in the next measurement and the loop cannot oscillate. A correction never moves the clock back across zero, so every beat is counted once. 10 ms of detection latency are compensated. |
+| Bars | Low-band accent averaged per beat position mod 4; the strongest position (≥ 1.2× the mean, 1.1× hysteresis) is the downbeat. Otherwise beat count mod 4. |
+| Sections | 12 log-spaced band energies every 0.25 s; novelty = RMS distance between the last 3 s and the 8 s before. A change is an upward crossing of max(0.15, mean + 4σ) of the novelty, at most one per 8 s, only while audio is playing. |
+| Confidence | Comb contrast (best minus mean) mapped through a smoothstep (0.02-0.15), gated by a 0.3 s RMS level (-50 to -36 dBFS), smoothed over 0.4 s. `pm_bpm` and beat/bar events need ≥ 0.35. |
+
+**Measured** (`tests/libprojectM/RhythmAnalyzerTest.cpp`, synthetic kick/hi-hat tracks,
+60 FPS): 90/120/128/174 BPM straight and with swing plus 5 ms jitter lock within 4 s to
+±0.42 BPM worst case, mean phase error of the predicted beat 0.4-3.3 ms (gate: 20 ms); the
+same at 30 FPS, 144 FPS and with ±30 % frame-time jitter; 120→140 BPM re-locks in under
+4 s; silence gives confidence 0 and `pm_bpm` 0. A wider sweep (62-195 BPM, three
+grooves) locks from 83 BPM up within 4 s; 62-76 BPM need ~5 s (four comb teeth at 1 s per
+beat), and a 62-69 BPM backbeat with 8th-note hats reads as double time, a musically
+ambiguous case.
+
+**Cost:** 0.036 ms mean, 0.055 ms p95 per frame native (Release,
+`PCMAudioBenchTest.RhythmAnalysisCostPerFrame`). The WASM target is < 0.2 ms at p95; the
+perf HUD shows it as the **Rhythm (tempo/beat)** row (`rhythmMs`).
+
+### Where the results go
+
+- **Presets:** the `pm_*` variables, in every code context and in shaders. See
+  [`MILK_PRESET_GUIDE.md`](MILK_PRESET_GUIDE.md#musical-time-pm_-variables).
+- **C API** (`projectM-4/rhythm.h`): `projectm_get_rhythm_info()`,
+  `projectm_set_rhythm_hint()` (a known tempo from a MIDI clock or track metadata replaces
+  the estimate; the phase still locks to the audio), and the scheduling calls below.
+- **WASM:** `get_rhythm_bpm()`, `get_rhythm_beat_phase()`, `get_rhythm_bar_phase()`,
+  `get_rhythm_confidence()`, `get_rhythm_beat_index()`, `get_rhythm_section()`,
+  `set_rhythm_hint()`; `set_rhythm_events(1)` reports beats, bars and sections to
+  `globalThis.pmOnRhythmEvent` (only frames that carry one). `ProjectMContext.on('beat' |
+  'bar' | 'section', cb)` wraps that in both render topologies (the worker relays the
+  events as `rhythm-event` messages), and `getRhythmInfo()` polls.
+
+### Musical scheduling
+
+| Setting | C API | WASM / `ProjectMContext` |
+|---------|-------|--------------------------|
+| Switch presets every N bars, or on the first downbeat after a section change | `projectm_set_preset_switch_policy()`, `projectm_playlist_set_switch_policy()` | `set_preset_switch_policy()`, `setPresetSwitchPolicy('bars' \| 'section', bars)`, `?switchOn=bars&switchBars=16` on `projectm-core.html` |
+| Transition length in beats | `projectm_set_soft_cut_duration_beats()` | `transition_set_duration_beats()`, `setTransitionDurationBeats()`, `?transitionBeats=1` |
+| Hard cuts land on the beat | `projectm_set_hard_cut_on_beat()` | `set_hard_cut_on_beat()`, `setHardCutOnBeat()` |
+| Known tempo | `projectm_set_rhythm_hint()` | `set_rhythm_hint()`, `setRhythmHint()`, `?bpm=128` |
+
+Every musical policy falls back to the timer while the tempo is not known, and never
+keeps a preset beyond twice its duration. Beat lengths fall back to seconds. The scheduling
+logic is `PresetSwitchScheduler` (`src/libprojectM/PresetSwitchScheduler.*`), unit-tested
+without a GL context.
+
+### Limitations
+
+- **Host latency is not compensated.** The beat clock is aligned to the audio as it enters
+  `PCM::Add()`. If the host feeds audio ahead of what the speakers play (output latency),
+  visuals lead the sound by that much.
+- **WASM preset switches land after the downbeat.** The switch is *requested* on the
+  downbeat, but the browser host prepares presets on a background thread and links their
+  shaders asynchronously, so the new preset appears once that is done (typically a few
+  hundred ms). Preparing ahead and holding activation for the downbeat is a follow-up.
+- **Downbeats** come from low-band accents; music without an accented "one" falls back to
+  the beat count, which may start a bar on any beat.
 
 ## The PCM ring: one ingest
 

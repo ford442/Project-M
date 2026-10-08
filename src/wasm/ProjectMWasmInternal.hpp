@@ -135,6 +135,20 @@ extern "C" {
 void render_frame();
 }
 
+// ---- Musical-time events (defined in WasmRhythm.cpp) -----------------------
+struct WasmHost;
+// CollectRhythmEvents() runs after every engine render inside render_frame() and
+// remembers the beat/bar/section events of the frame; FlushRhythmEvents() runs once
+// at the end of render_frame() and reports them to the page, if it asked for them
+// with set_rhythm_events(). Two calls because a crossfade renders the engine twice
+// per frame, and only the first render of the frame sees the events.
+void CollectRhythmEvents(WasmHost& host);
+void FlushRhythmEvents(WasmHost& host);
+
+// The crossfade length transition_start() should arm: transition_set_duration_beats()
+// resolved against the current tempo, or the duration in seconds.
+float ResolveTransitionDuration(WasmHost& host);
+
 // ---- Transpiled-GLSL cache (defined in WasmShaderCache.cpp) ----------------
 // Registers the lookup/store callbacks that bridge libprojectM's shader
 // transpile cache to the host page. Called once from init().
@@ -178,7 +192,7 @@ void js_perf_hud_set_enabled(int enabled);
 void js_perf_report_frame(double totalMs, double audioMs, double perFrameEvalMs,
                           double perPixelEvalMs, double blurMs, double waveformsShapesMs,
                           double compositeMs, double gpuMs, double fps, int shaderLinkPending,
-                          int perPixelEvalPath);
+                          int perPixelEvalPath, double rhythmMs);
 
 // JS bindings / DOM + host-page notifications (WasmJsBindings.cpp)
 void js_update_preset_name(const char* name);

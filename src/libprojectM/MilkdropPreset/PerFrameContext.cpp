@@ -112,6 +112,7 @@ void PerFrameContext::RegisterBuiltinVariables()
     REG_VAR(blur2_max);
     REG_VAR(blur3_max);
     REG_VAR(blur1_edge_darken);
+    rhythm.Register(perFrameCodeContext);
 }
 
 void PerFrameContext::EvaluateInitCode(PresetState& state)
@@ -233,6 +234,7 @@ void PerFrameContext::LoadStateVariables(PresetState& state)
     *blur2_max = static_cast<PRJM_EVAL_F>(state.blur2Max);
     *blur3_max = static_cast<PRJM_EVAL_F>(state.blur3Max);
     *blur1_edge_darken = static_cast<PRJM_EVAL_F>(state.blur1EdgeDarken);
+    rhythm.Load(state.audioData.rhythm);
 }
 
 void PerFrameContext::CompilePerFrameCode(const std::string& perFrameCode)

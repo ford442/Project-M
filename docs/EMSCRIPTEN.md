@@ -353,6 +353,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmAudioBridge.cpp` | Audio worklet + media-element EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
 | `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
 | `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
+| `WasmRhythm.cpp` | Musical time: `get_rhythm_*` readouts, `set_rhythm_hint`, `set_preset_switch_policy`, `transition_set_duration_beats`, `set_hard_cut_on_beat`, and the `set_rhythm_events` → `pmOnRhythmEvent` beat/bar/section events (see [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis)) |
 | `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
 | `WasmPresetPrepare.hpp` / `WasmPresetPrepare.cpp` | Per-host preset prepare thread and its single-slot queue; activation of prepared presets from `render_frame()` (see [Preset loading](#preset-loading)) |
 | `WasmJsBindings.cpp` | EM_JS clusters: DOM/VFS bootstrap (`js_init_projectm_dom`), preset download helpers, host-page notifications |

@@ -31,6 +31,7 @@ export const WASM_CALLBACK_NAMES = Object.freeze([
     'pmOnGovernorBlurCapChange',
     'pmOnPerfFrame',
     'pmSetPerfHudEnabled',
+    'pmOnRhythmEvent',
     'pmOnTranspiledShaderStored',
     'pmReportInitError',
     'pmHideInitError',

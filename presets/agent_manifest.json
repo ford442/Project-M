@@ -58,7 +58,7 @@
       "prefix": "orbital_rave_",
       "mood": "neon tunnels, rave energy, fast orbit",
       "audio": ["bass_att", "treb_att"],
-      "presets": ["custom_milk_fixed/orbital_rave_zephyr.milk", "custom_milk_fixed/orbital_rave_neon.milk", "custom_milk_fixed/orbital_rave_aurora.milk"]
+      "presets": ["custom_milk_fixed/orbital_rave_zephyr.milk", "custom_milk_fixed/orbital_rave_neon.milk", "custom_milk_fixed/orbital_rave_aurora.milk", "custom_milk_fixed/orbital_rave_beatlock.milk"]
     },
     "watershed": {
       "prefix": "cinematic_pedal_steel_",
@@ -76,7 +76,7 @@
       "prefix": "shader_swarm_",
       "mood": "playful candy colors, particle swarms",
       "audio": ["treb_att", "bass_att"],
-      "presets": ["custom_milk_fixed/shader_swarm_candy.milk", "custom_milk_fixed/shader_swarm_reactive.milk", "custom_milk_fixed/shader_swarm_galaxy.milk"]
+      "presets": ["custom_milk_fixed/shader_swarm_candy.milk", "custom_milk_fixed/shader_swarm_reactive.milk", "custom_milk_fixed/shader_swarm_galaxy.milk", "custom_milk_fixed/shader_swarm_onsets.milk"]
     }
   },
   "signature_series": {
@@ -96,7 +96,9 @@
       "custom_milk_fixed/redwood_dreams_firefly.milk",
       "custom_milk_fixed/shader_swarm_candy.milk",
       "custom_milk_fixed/shader_swarm_reactive.milk",
-      "custom_milk_fixed/shader_swarm_galaxy.milk"
+      "custom_milk_fixed/shader_swarm_galaxy.milk",
+      "custom_milk_fixed/orbital_rave_beatlock.milk",
+      "custom_milk_fixed/shader_swarm_onsets.milk"
     ]
   },
   "known_good": [
@@ -136,5 +138,9 @@
     "custom_milk_fixed/cinematic_pedal_steel_rain.milk",
     "custom_milk_fixed/redwood_dreams_firefly.milk",
     "custom_milk_fixed/shader_swarm_galaxy.milk"
+  ],
+  "new_presets_2026_10_rhythm": [
+    "custom_milk_fixed/orbital_rave_beatlock.milk",
+    "custom_milk_fixed/shader_swarm_onsets.milk"
   ]
 }

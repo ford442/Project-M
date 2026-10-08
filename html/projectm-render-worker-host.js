@@ -21,6 +21,7 @@ import { createPcmRingWriter } from './projectm-pcm-ring.js';
  * @typedef {import('./projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextEvent} RenderWorkerContextEvent
  * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
+ * @typedef {import('./projectm-render-worker-types.ts').RhythmEvent} RhythmEvent
  */
 
 /**
@@ -246,6 +247,8 @@ export function setupRenderWorker({
     const perfFrameListeners = new Set();
     /** @type {Set<(enabled: boolean) => void>} */
     const perfHudListeners = new Set();
+    /** @type {Set<(event: RhythmEvent) => void>} */
+    const rhythmListeners = new Set();
     /** @type {Set<(stats: RenderWorkerStatsMessage) => void>} */
     const statsListeners = new Set();
     /** @type {RenderWorkerStatsMessage | null} */
@@ -306,6 +309,9 @@ export function setupRenderWorker({
                 break;
             case 'perf-hud':
                 notify(perfHudListeners, msg.enabled);
+                break;
+            case 'rhythm-event':
+                notify(rhythmListeners, msg.event);
                 break;
             case 'pcm-ring':
                 try {
@@ -399,6 +405,14 @@ export function setupRenderWorker({
          */
         onPerfHudEnabled(listener) {
             return subscribe(perfHudListeners, listener);
+        },
+
+        /**
+         * @param {(event: RhythmEvent) => void} listener
+         * @returns {() => void}
+         */
+        onRhythmEvent(listener) {
+            return subscribe(rhythmListeners, listener);
         },
 
         /** @returns {RenderWorkerStatsMessage | null} */

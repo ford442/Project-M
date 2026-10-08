@@ -170,6 +170,11 @@ export type RenderWorkerHostMessage =
 export interface PerfFrameStats {
     totalMs: number;
     audioMs: number;
+    /**
+     * Rhythm analysis: onsets, tempo, beat phase and sections (the pm_* preset
+     * variables). Not part of `audioMs`. Absent from older bundles.
+     */
+    rhythmMs?: number;
     perFrameEvalMs: number;
     perPixelEvalMs: number;
     blurMs: number;
@@ -208,6 +213,34 @@ export interface PerfFrameStats {
      * per warp mesh vertex. See docs/GPU_PERPIXEL_EVAL.md.
      */
     perPixelEvalPath?: 'gpu' | 'cpu';
+}
+
+/**
+ * One frame's musical-time events, as `js_report_rhythm_event()`
+ * (src/wasm/WasmRhythm.cpp) builds it and hands to `pmOnRhythmEvent`. Keep the
+ * keys in sync with that EM_JS block. Only frames with at least one event are
+ * reported (a beat about twice a second at 120 BPM), and only while
+ * `set_rhythm_events(1)` is on.
+ */
+export interface RhythmEvent {
+    /** The engine host it came from (create_host()'s handle; nonzero for the default host too). */
+    host: number;
+    /** A beat landed on this frame. */
+    beat: boolean;
+    /** The beat was a downbeat: a new bar starts. */
+    bar: boolean;
+    /** A new section of the song was detected. */
+    section: boolean;
+    /** Tempo in BPM (0 while not confident). */
+    bpm: number;
+    /** Beats counted since the engine started. */
+    beatIndex: number;
+    /** 0..1 over the bar. */
+    barPhase: number;
+    /** Section index after this event. */
+    sectionIndex: number;
+    /** Tracker confidence, 0..1. */
+    confidence: number;
 }
 
 /** Worker → host: module booted and the render loop is running. */
@@ -320,6 +353,16 @@ export interface RenderWorkerPerfHudMessage {
     enabled: boolean;
 }
 
+/**
+ * Worker → host: a beat, bar or section event the engine reported in the worker
+ * (`pmOnRhythmEvent` in the worker's scope). Not batched: there are only a few a
+ * second, and a batch would deliver the beat late.
+ */
+export interface RenderWorkerRhythmEventMessage {
+    type: 'rhythm-event';
+    event: RhythmEvent;
+}
+
 export type RenderWorkerMessage =
     | RenderWorkerContextLostMessage
     | RenderWorkerContextRestoredMessage
@@ -331,7 +374,8 @@ export type RenderWorkerMessage =
     | RenderWorkerPcmRingMessage
     | RenderWorkerCcallResultMessage
     | RenderWorkerPerfFramesMessage
-    | RenderWorkerPerfHudMessage;
+    | RenderWorkerPerfHudMessage
+    | RenderWorkerRhythmEventMessage;
 
 /** A context-loss notification relayed from the worker. */
 export type RenderWorkerContextEvent = 'lost' | 'restored';
@@ -360,6 +404,11 @@ export interface RenderWorkerHandle {
      * unsubscribe function.
      */
     onPerfHudEnabled(listener: (enabled: boolean) => void): () => void;
+    /**
+     * Subscribes to the beat/bar/section events the worker relays. Returns the
+     * unsubscribe function.
+     */
+    onRhythmEvent(listener: (event: RhythmEvent) => void): () => void;
     /**
      * The most recent `stats` message, or null before the first one. Lets a
      * late subscriber (the FBO-format banner) read state the worker already

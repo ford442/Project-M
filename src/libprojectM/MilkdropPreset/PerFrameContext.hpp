@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PresetState.hpp"
+#include "RhythmVariables.hpp"
 
 #include <projectm-eval.h>
 
@@ -78,6 +79,8 @@ public:
     PRJM_EVAL_F* sy{};
     PRJM_EVAL_F* time{};
     PRJM_EVAL_F* fps{};
+    RhythmVariables rhythm; //!< The read-only pm_* musical-time variables.
+
     PRJM_EVAL_F* bass{};
     PRJM_EVAL_F* mid{};
     PRJM_EVAL_F* treb{};

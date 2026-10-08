@@ -17,6 +17,7 @@
 #include <projectM-4/parameters.h>
 #include <projectM-4/projectm_perf.h>
 #include <projectM-4/render_opengl.h>
+#include <projectM-4/rhythm.h>
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
@@ -342,6 +343,7 @@ void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
     out_timings->fps = timings.fps;
     out_timings->shader_link_pending = timings.shaderLinkPending ? 1 : 0;
     out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
+    out_timings->rhythm_analysis_ms = timings[libprojectM::Perf::Field::RhythmAnalysis];
 }
 
 // The C and C++ enums are two spellings of one list; this is what keeps them in step.
@@ -512,6 +514,99 @@ void projectm_set_preset_duration(projectm_handle instance, double seconds)
     auto projectMInstance = handle_to_instance(instance);
     projectMInstance->SetPresetDuration(seconds);
 }
+
+void projectm_get_rhythm_info(projectm_handle instance, projectm_rhythm_info* out_info)
+{
+    if (out_info == nullptr)
+    {
+        return;
+    }
+    auto projectMInstance = handle_to_instance(instance);
+    const auto& rhythm = projectMInstance->RhythmInfo();
+    out_info->bpm = rhythm.bpm;
+    out_info->beat_phase = rhythm.beatPhase;
+    out_info->bar_phase = rhythm.barPhase;
+    out_info->confidence = rhythm.confidence;
+    out_info->beat_index = rhythm.beatIndex;
+    out_info->section = rhythm.section;
+    out_info->section_changed = rhythm.sectionChanged ? 1 : 0;
+    out_info->beat = rhythm.beat ? 1 : 0;
+    out_info->bar = rhythm.bar ? 1 : 0;
+    out_info->beat_pulse = rhythm.beatPulse;
+    out_info->onset = rhythm.onset;
+}
+
+void projectm_set_rhythm_hint(projectm_handle instance, float bpm)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetRhythmHint(bpm);
+}
+
+float projectm_get_rhythm_hint(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->RhythmHint();
+}
+
+void projectm_set_preset_switch_policy(projectm_handle instance, projectm_preset_switch_policy policy, uint32_t bars)
+{
+    using Policy = libprojectM::ProjectM::PresetSwitchPolicy;
+    auto projectMInstance = handle_to_instance(instance);
+    Policy value{Policy::Timer};
+    switch (policy)
+    {
+        case PROJECTM_PRESET_SWITCH_BARS:
+            value = Policy::Bars;
+            break;
+        case PROJECTM_PRESET_SWITCH_SECTION:
+            value = Policy::Section;
+            break;
+        case PROJECTM_PRESET_SWITCH_TIMER:
+        default:
+            break;
+    }
+    projectMInstance->SetPresetSwitchPolicy(value, bars);
+}
+
+projectm_preset_switch_policy projectm_get_preset_switch_policy(projectm_handle instance, uint32_t* out_bars)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    if (out_bars != nullptr)
+    {
+        *out_bars = projectMInstance->PresetSwitchBars();
+    }
+    return static_cast<projectm_preset_switch_policy>(projectMInstance->GetPresetSwitchPolicy());
+}
+
+void projectm_set_soft_cut_duration_beats(projectm_handle instance, double beats)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetSoftCutDurationBeats(beats);
+}
+
+double projectm_get_soft_cut_duration_beats(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->SoftCutDurationBeats();
+}
+
+void projectm_set_hard_cut_on_beat(projectm_handle instance, bool enabled)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetHardCutOnBeat(enabled);
+}
+
+bool projectm_get_hard_cut_on_beat(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->HardCutOnBeat();
+}
+
+// The C and C++ enums are two spellings of one list.
+static_assert(static_cast<int>(libprojectM::ProjectM::PresetSwitchPolicy::Bars) == PROJECTM_PRESET_SWITCH_BARS,
+              "projectm_preset_switch_policy and ProjectM::PresetSwitchPolicy are out of sync");
+static_assert(static_cast<int>(libprojectM::ProjectM::PresetSwitchPolicy::Section) == PROJECTM_PRESET_SWITCH_SECTION,
+              "projectm_preset_switch_policy and ProjectM::PresetSwitchPolicy are out of sync");
 
 void projectm_get_mesh_size(projectm_handle instance, size_t* width, size_t* height)
 {

@@ -15,7 +15,7 @@
 // same-basename `.ts` would shadow the real `.js` module for every JS importer
 // during typecheck.
 
-import type { PerfFrameStats, RenderWorkerHandle } from './projectm-render-worker-types.ts';
+import type { PerfFrameStats, RenderWorkerHandle, RhythmEvent } from './projectm-render-worker-types.ts';
 
 /** Which topology a transport is driving. */
 export type RenderTopology = 'main' | 'worker';
@@ -96,6 +96,15 @@ export interface RenderTransport {
      * (`pmSetPerfHudEnabled`). Returns the unsubscribe function.
      */
     onPerfHudEnabled(listener: (enabled: boolean) => void): () => void;
+
+    /**
+     * Subscribes to the engine's beat/bar/section events (`pmOnRhythmEvent`),
+     * reported while `set_rhythm_events(1)` is on. On the main thread that is
+     * the WASM callback bus; in the worker topology the worker relays them.
+     * Every engine in a shared Module reports here; `event.host` tells them
+     * apart. Returns the unsubscribe function.
+     */
+    onRhythmEvent(listener: (event: RhythmEvent) => void): () => void;
 
     /**
      * Rebuild the engine on a restored WebGL context and start rendering again.

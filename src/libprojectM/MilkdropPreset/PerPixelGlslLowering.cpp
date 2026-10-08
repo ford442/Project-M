@@ -2,8 +2,10 @@
 
 #include "Constants.hpp"
 #include "MilkdropStaticShaders.hpp"
+#include "RhythmVariables.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cfloat>
 #include <cmath>
@@ -133,6 +135,19 @@ auto PerPixelGlslLowering::CpuValueAttributeLocation(int index) -> int
 {
     const auto slot = CpuValueSlot(index);
     return slot.first < 0 ? -1 : kCpuValueAttributes[slot.first].location;
+}
+
+auto PerPixelGlslLowering::RhythmUniformName(int index) -> const std::string&
+{
+    static const auto names = [] {
+        std::array<std::string, RhythmVariables::Count> list;
+        for (int variable = 0; variable < RhythmVariables::Count; variable++)
+        {
+            list[variable] = std::string("u_pp_") + RhythmVariables::Names[variable];
+        }
+        return list;
+    }();
+    return names.at(static_cast<size_t>(index));
 }
 
 auto PerPixelGlslLowering::ForcedToCpu() -> bool
@@ -270,12 +285,15 @@ const OutputChannel kOutputChannels[] = {
 /** @brief Per-frame scalars that are loaded once per frame and never re-seeded per vertex. */
 struct ReadOnlyBuiltin
 {
-    const char* name;
-    const char* uniform;
+    std::string name;
+    std::string uniform;
     std::uint32_t flag;
 };
 
-const ReadOnlyBuiltin kReadOnlyBuiltins[] = {
+static_assert(PerPixelGlslLowering::RhythmUniformFirstBit + RhythmVariables::Count <= 32u,
+              "The pm_* variables no longer fit into the 32-bit uniform mask");
+
+const ReadOnlyBuiltin kFrameBuiltins[] = {
     {"time", "u_pp_time", PerPixelGlslLowering::UniformTime},
     {"fps", "u_pp_fps", PerPixelGlslLowering::UniformFps},
     {"frame", "u_pp_frame", PerPixelGlslLowering::UniformFrame},
@@ -293,6 +311,27 @@ const ReadOnlyBuiltin kReadOnlyBuiltins[] = {
     {"aspectx", "u_pp_aspectx", PerPixelGlslLowering::UniformAspectX},
     {"aspecty", "u_pp_aspecty", PerPixelGlslLowering::UniformAspectY},
 };
+
+/**
+ * @brief Every read-only builtin: the Milkdrop scalars plus the pm_* musical-time variables.
+ *
+ * The pm_* values are frame constants like bass, so a preset reading them stays on the GPU
+ * path; they become u_pp_pm_* uniforms.
+ */
+auto ReadOnlyBuiltins() -> const std::vector<ReadOnlyBuiltin>&
+{
+    static const std::vector<ReadOnlyBuiltin> builtins = [] {
+        std::vector<ReadOnlyBuiltin> list(std::begin(kFrameBuiltins), std::end(kFrameBuiltins));
+        for (int index = 0; index < RhythmVariables::Count; index++)
+        {
+            list.push_back({RhythmVariables::Names[index],
+                            PerPixelGlslLowering::RhythmUniformName(index),
+                            PerPixelGlslLowering::RhythmUniformFlag(index)});
+        }
+        return list;
+    }();
+    return builtins;
+}
 
 /** @brief Helper functions the emitted code may call, in dependency order. */
 enum Helper
@@ -981,7 +1020,7 @@ private:
         }
 
         // Never written by this program, so it has the same value on every vertex.
-        for (const auto& builtin : kReadOnlyBuiltins)
+        for (const auto& builtin : ReadOnlyBuiltins())
         {
             if (name == builtin.name)
             {
@@ -1005,7 +1044,7 @@ private:
 
     static auto IsReadOnlyBuiltin(const std::string& name) -> bool
     {
-        return std::any_of(std::begin(kReadOnlyBuiltins), std::end(kReadOnlyBuiltins),
+        return std::any_of(ReadOnlyBuiltins().begin(), ReadOnlyBuiltins().end(),
                            [&name](const ReadOnlyBuiltin& builtin) { return name == builtin.name; });
     }
 
@@ -1792,7 +1831,7 @@ auto PerPixelGlslLowering::LowerProgram(projectm_eval_code* code) -> Result
         source += "\n";
     }
 
-    for (const auto& builtin : kReadOnlyBuiltins)
+    for (const auto& builtin : ReadOnlyBuiltins())
     {
         if ((uniforms & builtin.flag) != 0u)
         {

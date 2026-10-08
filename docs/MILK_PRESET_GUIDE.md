@@ -14,6 +14,7 @@ This guide provides everything needed to programmatically generate, understand, 
 8. [Shader System (Warp & Composite)](#shader-system-warp--composite)
 9. [Code Generation Patterns](#code-generation-patterns)
 10. [Example Presets](#example-presets)
+11. [Musical Time (`pm_*` variables)](#musical-time-pm_-variables)
 
 ---
 
@@ -256,6 +257,7 @@ All common time/audio variables plus preset parameters:
 | `mv_*` | float | Motion vector parameters (writable) |
 | `blur*_min`, `blur*_max` | float | Blur ranges (writable) |
 | `q1` through `q32` | float | Communication with other contexts (writable) |
+| `pm_*` | float | projectM musical time: tempo, beat/bar phase, onsets, sections (read-only). See [Musical Time](#musical-time-pm_-variables) |
 
 ### Example: Breathing Zoom
 
@@ -912,4 +914,88 @@ warp_4=`ret = tex2D(sampler_main, uv).xyz;
 6. **Warp modulates per-vertex** — `per_pixel` code runs once per mesh vertex, allowing per-location transforms
 7. **Custom waves use FFT or PCM** — Set `wavecode_N_bSpectrum` to choose spectrum (FFT) vs waveform (PCM)
 8. **Shapes are instanced** — Set `num_inst` to draw multiple copies; loop with `instance` index
+
+---
+
+## Musical Time (`pm_*` variables)
+
+A projectM extension. Classic Milkdrop only knows loudness relative to a running average:
+`bass`/`mid`/`treb` and their `_att` versions, with presets thresholding `bass_att` to fake
+a beat and reacting a frame or more *after* it. projectM also tracks the tempo and where
+the beat **is going to be** (see [`AUDIO_PIPELINE.md`](AUDIO_PIPELINE.md#rhythm-analysis)),
+so a zoom pulse or a hue step can land *on* the beat.
+
+| Variable | Range | Meaning |
+|----------|-------|---------|
+| `pm_bpm` | 0, 60-200 | Tempo. **0 while the tracker is not confident** (`pm_rhythm_conf` < 0.35) |
+| `pm_beat_phase` | 0..1 | Sawtooth over each beat; **0 = the beat**, predicted, not detected |
+| `pm_beat_pulse` | 0..1 | 1 on the beat frame, decays exponentially over ~100 ms. 0 while not confident |
+| `pm_beat_index` | 0, 1, 2, ... | Beat counter, +1 every time `pm_beat_phase` wraps |
+| `pm_bar_phase` | 0..1 | Sawtooth over a four-beat bar; 0 = downbeat |
+| `pm_onset` | 0..1 | Onset strength (spectral flux), all bands, normalized to recent peaks |
+| `pm_onset_lo`, `pm_onset_mid`, `pm_onset_hi` | 0..1 | Same, per band: ~40-200 Hz (kick), ~200 Hz-2 kHz, ~2-11 kHz (hats) |
+| `pm_centroid` | 0..1 | Spectral centroid as a fraction of the Nyquist frequency ("brightness") |
+| `pm_flatness` | 0..1 | Spectral flatness: 0 = tonal, towards 1 = noise-like |
+| `pm_rms` | 0..1 | RMS level of the latest audio, full scale = 1 |
+| `pm_section` | 0, 1, 2, ... | Section index, +1 on every detected change of song section |
+| `pm_section_change` | 0 or 1 | 1 only on the frame a new section is detected |
+| `pm_rhythm_conf` | 0..1 | Tracker confidence; 1 while the host supplied the tempo |
+
+**Where they are available:** per-frame, per-pixel (CPU and GPU path), custom shape and
+custom wave per-frame and per-point code, and warp/composite shaders (as `#define`s over
+the `_c14`..`_c17` uniforms, like `bass` over `_c3`).
+
+**Rules:**
+
+- **Read-only.** Every name has the `pm_` prefix because more than a hundred presets
+  already use `beat` as a local variable; nothing un-prefixed was added. A preset that
+  *assigns* a `pm_*` name gets a plain local that replaces the engine's value for the rest
+  of that frame (in per-pixel code and shaders too). `scripts/audit_presets.mjs` warns
+  about that (`assigns-rhythm-variable`) and about misspelled names
+  (`unknown-rhythm-variable`), which silently read 0.
+- **GPU-eligible.** They are frame constants, so per-pixel code reading them stays on the
+  GPU path (as `u_pp_pm_*` uniforms, see [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md)).
+- **No cost to other presets.** A preset that does not mention `pm_*` renders bit-identically.
+- **The clock runs even when unsure.** `pm_beat_phase`, `pm_bar_phase` and `pm_beat_index`
+  keep running at the last tempo (120 BPM before the first estimate), so motion built on
+  them never stalls. Gate effects that should only fire on real beats with
+  `pm_beat_pulse` (0 while unsure) or `pm_rhythm_conf`.
+- **Warm-up.** A tempo is known after ~2-4 s of rhythmic audio (slower songs take longer:
+  four beats at 60 BPM are four seconds).
+
+### Example: zoom pulse on the beat
+
+The pulse decays from 1 at the beat; `pow(1 - phase, 4)` is a smoother alternative that
+also works while the tracker is unsure.
+
+```
+per_frame_1=zoom = 1.0 + 0.06*pm_beat_pulse;
+per_frame_2=rot = 0.02*sin(6.2832*pm_bar_phase);
+```
+
+### Example: hue rotation locked to the bar, in a shader
+
+```
+comp_1=`shader_body
+comp_2=`{
+comp_3=`    float3 c = tex2D(sampler_main, uv).xyz;
+comp_4=`    float a = 6.2832 * pm_bar_phase;
+comp_5=`    float3 k = float3(cos(a), cos(a + 2.094), cos(a + 4.189)) * 0.5 + 0.5;
+comp_6=`    ret = c * lerp(float3(1,1,1), k, pm_rhythm_conf);
+comp_7=`}
+```
+
+### Example: per-pixel ripple from the kick
+
+```
+per_pixel_1=zoom = zoom + 0.04*pm_onset_lo*sin(rad*20 - pm_beat_phase*6.2832);
+```
+
+### Example: something new every section
+
+```
+per_frame_1=q8 = pm_section % 4;
+```
+
+`q8` then selects one of four looks in the shaders; it changes exactly when the music does.
 

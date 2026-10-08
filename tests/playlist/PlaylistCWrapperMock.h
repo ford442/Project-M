@@ -12,6 +12,7 @@ public:
 
     // PlaylistCWrapper members
     MOCK_METHOD(void, Connect, (projectm_handle));
+    MOCK_METHOD(void, SetSwitchPolicy, (projectm_preset_switch_policy, uint32_t));
 
     // Playlist members
     MOCK_METHOD(uint32_t, Size, (), (const));

@@ -8,6 +8,9 @@ add_library(Audio OBJECT
         PCM.hpp
         Loudness.cpp
         Loudness.hpp
+        RhythmAnalyzer.cpp
+        RhythmAnalyzer.hpp
+        RhythmInfo.hpp
         WaveformAligner.cpp
         WaveformAligner.hpp
         )

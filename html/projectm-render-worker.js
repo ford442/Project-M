@@ -28,6 +28,7 @@
 //   { type: 'context-recovered', status }             // outcome of 'recover-context' (init() code)
 //   { type: 'perf-frames', frames }                   // perf-HUD frames, batched (~100 ms)
 //   { type: 'perf-hud', enabled }                     // set_perf_hud() toggled the instrumentation
+//   { type: 'rhythm-event', event }                   // a beat/bar/section (set_rhythm_events(1))
 //
 // Audio: the module owns its PCM ring (src/wasm/WasmPcmRing.cpp) and drains it
 // in render_frame(), exactly as on the main thread. This worker's only jobs are
@@ -44,6 +45,7 @@
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerPresetMessage} RenderWorkerPresetMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
  * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
+ * @typedef {import('./projectm-render-worker-types.ts').RhythmEvent} RhythmEvent
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
 
@@ -181,6 +183,15 @@ const onPerfHudEnabled = (enabled) => {
     postToHost({ type: 'perf-hud', enabled: !!enabled });
 };
 /** @type {any} */ (self).pmSetPerfHudEnabled = onPerfHudEnabled;
+
+// Beat/bar/section events (src/wasm/WasmRhythm.cpp) land in this scope too.
+// Relayed one by one: the engine only reports frames that carry an event, a few
+// a second, and batching them would make every beat arrive late.
+/** @param {RhythmEvent} event */
+const onRhythmEvent = (event) => {
+    postToHost({ type: 'rhythm-event', event: { ...event } });
+};
+/** @type {any} */ (self).pmOnRhythmEvent = onRhythmEvent;
 
 /**
  * Reads the module's PCM ring descriptor. Mirrors readPcmRingDescriptor() in

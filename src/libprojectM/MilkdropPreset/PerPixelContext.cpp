@@ -68,6 +68,7 @@ void PerPixelContext::RegisterBuiltinVariables()
     REG_VAR(pixelsy);
     REG_VAR(aspectx);
     REG_VAR(aspecty);
+    rhythm.Register(perPixelCodeContext);
 }
 
 void PerPixelContext::LoadStateReadOnlyVariables(PresetState& state, PerFrameContext& perFrameState)
@@ -88,6 +89,7 @@ void PerPixelContext::LoadStateReadOnlyVariables(PresetState& state, PerFrameCon
     *pixelsy = static_cast<PRJM_EVAL_F>(state.renderContext.viewportSizeY);
     *aspectx = static_cast<PRJM_EVAL_F>(state.renderContext.aspectX);
     *aspecty = static_cast<PRJM_EVAL_F>(state.renderContext.aspectY);
+    rhythm.CopyFrom(perFrameState.rhythm);
 }
 
 void PerPixelContext::LoadPerFrameQVariables(PresetState& state, PerFrameContext& perFrameState)
@@ -117,6 +119,7 @@ void PerPixelContext::CopyFrameStateFrom(const PerPixelContext& source)
     *pixelsy = *source.pixelsy;
     *aspectx = *source.aspectx;
     *aspecty = *source.aspecty;
+    rhythm.CopyFrom(source.rhythm);
 
     for (int q = 0; q < QVarCount; q++)
     {

@@ -80,6 +80,7 @@ void ShapePerFrameContext::RegisterBuiltinVariables()
     REG_VAR(border_g);
     REG_VAR(border_b);
     REG_VAR(border_a);
+    rhythm.Register(perFrameCodeContext);
 }
 void ShapePerFrameContext::LoadStateVariables(const PresetState& state,
                                               CustomShape& shape,
@@ -95,6 +96,7 @@ void ShapePerFrameContext::LoadStateVariables(const PresetState& state,
     *bass_att = static_cast<double>(state.audioData.bassAtt);
     *mid_att = static_cast<double>(state.audioData.midAtt);
     *treb_att = static_cast<double>(state.audioData.trebAtt);
+    rhythm.Load(state.audioData.rhythm);
 
     for (int q = 0; q < QVarCount; q++)
     {

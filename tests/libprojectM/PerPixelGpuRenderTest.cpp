@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -668,4 +669,220 @@ TEST_F(PerPixelGpuRenderTest, HeavyPresetsRenderTheSameOnBothPaths)
         << visiblyDifferent.size() << " of " << checked
         << " presets differ visibly between the two paths; the budget is "
         << kVisiblyDifferentBudget;
+}
+
+/**
+ * @brief The pm_* musical-time variables reach per-frame, per-pixel (both paths) and shader
+ *        code, and change nothing for a preset that does not read them.
+ *
+ * No audio is fed, so pm_rhythm_conf is 0; a tempo hint makes it 1. Each fixture reads it in
+ * one place only, so the two renders differ only if that place sees the variable.
+ */
+TEST_F(PerPixelGpuRenderTest, RhythmVariablesReachEveryCodePath)
+{
+    const FrameHook hint = [](projectm_handle instance, int frame) {
+        if (frame == 0)
+        {
+            projectm_set_rhythm_hint(instance, 120.0f);
+        }
+    };
+
+    struct Fixture
+    {
+        const char* name;
+        const char* body;
+        bool forceCpu;
+    };
+    const Fixture fixtures[] = {
+        {"per-frame", "per_frame_1=ob_a = pm_rhythm_conf; ob_size = 0.2*pm_rhythm_conf;\n", false},
+        {"per-pixel on the GPU", "per_pixel_1=zoom = 1 - 0.3*pm_rhythm_conf*rad;\n", false},
+        {"per-pixel on the CPU", "per_pixel_1=zoom = 1 - 0.3*pm_rhythm_conf*rad;\n", true},
+        {"custom shape",
+         "shapecode_0_enabled=1\nshapecode_0_sides=4\nshapecode_0_rad=0.3\nshapecode_0_r=1\nshapecode_0_g=1\n"
+         "shapecode_0_b=1\nshapecode_0_a=0\nshapecode_0_r2=1\nshapecode_0_g2=1\nshapecode_0_b2=1\nshapecode_0_a2=0\n"
+         "shape_0_per_frame1=a = pm_rhythm_conf; a2 = pm_rhythm_conf;\n",
+         false},
+        {"custom waveform",
+         "wavecode_0_enabled=1\nwavecode_0_samples=128\nwavecode_0_bDrawThick=1\nwavecode_0_r=1\nwavecode_0_g=1\n"
+         "wavecode_0_b=1\nwavecode_0_a=1\n"
+         "wave_0_per_point1=x = sample; y = 0.5; a = pm_rhythm_conf;\n",
+         false},
+        {"composite shader",
+         "MILKDROP_PRESET_VERSION=201\nPSVERSION=2\nPSVERSION_WARP=0\nPSVERSION_COMP=2\n"
+         "comp_1=`shader_body\ncomp_2=`{\n"
+         "comp_3=`    ret = tex2D(sampler_main, uv).xyz + float3(pm_rhythm_conf, pm_bpm / 240.0, 0);\n"
+         "comp_4=`}\n",
+         false},
+    };
+
+    const auto path = (std::filesystem::temp_directory_path() / "projectm-rhythm-variables-test.milk").string();
+    for (const auto& fixture : fixtures)
+    {
+        SCOPED_TRACE(fixture.name);
+        {
+            std::ofstream preset(path);
+            preset << "[preset00]\n"
+                      "fDecay=0.9\n"
+                      "fWaveAlpha=0\n"
+                      "zoom=1.0\n"
+                      "warp=0\n"
+                      "ob_size=0.0\n"
+                      "ob_r=1\n"
+                      "ob_g=0.5\n"
+                      "ob_b=0.2\n"
+                      "ob_a=0\n"
+                      "ib_size=0.05\n"
+                      "ib_r=0.2\n"
+                      "ib_g=0.4\n"
+                      "ib_b=1\n"
+                      "ib_a=1\n"
+                   << fixture.body;
+        }
+
+        std::string error;
+        const auto withoutHint = RenderPreset(path, fixture.forceCpu, kShortFrames, error);
+        ASSERT_FALSE(withoutHint.empty()) << error;
+        const auto withHint = RenderPreset(path, fixture.forceCpu, kShortFrames, error, hint);
+        ASSERT_FALSE(withHint.empty()) << error;
+
+        EXPECT_GT(Compare(withoutHint, withHint).maxAbsolute, 32.0) << "pm_rhythm_conf did not reach the preset";
+    }
+    std::filesystem::remove(path);
+
+    // A preset that does not mention pm_* renders the same bytes whatever they hold.
+    const std::string control = std::string(PROJECTM_PRESET_TESTS_DIR) + kFixturePreset;
+    if (std::filesystem::exists(control))
+    {
+        for (const bool forceCpu : {false, true})
+        {
+            std::string error;
+            const auto withoutHint = RenderPreset(control, forceCpu, kShortFrames, error);
+            ASSERT_FALSE(withoutHint.empty()) << error;
+            const auto withHint = RenderPreset(control, forceCpu, kShortFrames, error, hint);
+            ASSERT_FALSE(withHint.empty()) << error;
+            EXPECT_EQ(withoutHint, withHint) << "a preset without pm_* changed with the rhythm values";
+        }
+    }
+}
+
+/**
+ * @brief With the bars policy, the engine asks for the next preset on a downbeat, after the
+ *        configured number of bars, rather than on its timer.
+ *
+ * Rendered through the C API with audio fed every frame, the way a host drives it: an
+ * accented kick every beat at 120 BPM. Lives in this suite for its shared GL context.
+ */
+TEST_F(PerPixelGpuRenderTest, BarsPolicyRequestsTheSwitchOnADownbeat)
+{
+    constexpr double kSampleRate = 44100.0;
+    constexpr double kBpm = 120.0;
+    constexpr uint32_t kBars = 4;
+    constexpr int kFrames = 60 * 20;
+
+    GLuint texture = 0;
+    GLuint framebuffer = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kWidth, kHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), static_cast<GLenum>(GL_FRAMEBUFFER_COMPLETE));
+
+    auto* instance = projectm_create();
+    ASSERT_NE(instance, nullptr);
+    projectm_set_window_size(instance, kWidth, kHeight);
+    projectm_set_preset_duration(instance, 3600.0);
+    projectm_set_preset_switch_policy(instance, PROJECTM_PRESET_SWITCH_BARS, kBars);
+
+    uint32_t bars = 0;
+    projectm_preset_switch_policy policy = projectm_get_preset_switch_policy(instance, &bars);
+    EXPECT_EQ(policy, PROJECTM_PRESET_SWITCH_BARS);
+    EXPECT_EQ(bars, kBars);
+
+    struct Requests
+    {
+        int count{0};
+    } requests;
+    projectm_set_preset_switch_requested_event_callback(
+        instance, [](bool, void* userData) { static_cast<Requests*>(userData)->count++; }, &requests);
+
+    int requestFrame = -1;
+    bool requestOnDownbeat = false;
+    int barsBeforeRequest = 0;
+    std::vector<float> block;
+    std::size_t sample = 0;
+    for (int frame = 0; frame < kFrames && requestFrame < 0; frame++)
+    {
+        const auto until = static_cast<std::size_t>((frame + 1) * kSampleRate / 60.0);
+        block.clear();
+        for (; sample < until; sample++)
+        {
+            const double time = static_cast<double>(sample) / kSampleRate;
+            const double beatTime = std::fmod(time - 0.1 + 60.0, 60.0 / kBpm);
+            const auto beat = static_cast<long>(std::floor((time - 0.1) * kBpm / 60.0));
+            const double level = time >= 0.1 ? (beat % 4 == 0 ? 0.9 : 0.5) : 0.0;
+            const double kick = level * std::sin(2.0 * 3.14159265358979 * (50.0 * beatTime + 3.9 * (1.0 - std::exp(-beatTime / 0.03)))) *
+                                std::exp(-beatTime / 0.09);
+            block.push_back(static_cast<float>(kick));
+            block.push_back(static_cast<float>(kick));
+        }
+        projectm_pcm_add_float(instance, block.data(), static_cast<unsigned int>(block.size() / 2), PROJECTM_STEREO);
+        projectm_set_frame_time(instance, static_cast<double>(frame) / 60.0);
+        projectm_opengl_render_frame_fbo(instance, framebuffer);
+
+        projectm_rhythm_info info{};
+        projectm_get_rhythm_info(instance, &info);
+        if (info.bar != 0)
+        {
+            barsBeforeRequest++;
+        }
+        if (requests.count > 0)
+        {
+            requestFrame = frame;
+            requestOnDownbeat = info.bar != 0;
+            EXPECT_NEAR(info.bpm, kBpm, 1.0f);
+        }
+    }
+
+    projectm_destroy(instance);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &framebuffer);
+    glDeleteTextures(1, &texture);
+
+    ASSERT_GE(requestFrame, 0) << "no switch was requested in " << kFrames / 60 << " s";
+    EXPECT_TRUE(requestOnDownbeat) << "requested at frame " << requestFrame << ", not on a downbeat";
+    EXPECT_EQ(barsBeforeRequest, static_cast<int>(kBars)) << "the request came on the downbeat completing the bars";
+    EXPECT_EQ(requests.count, 1);
+}
+
+/**
+ * @brief The Signature Series showcase presets for the pm_* variables render, and follow
+ *        them: a known tempo (the hint) changes the picture.
+ */
+TEST_F(PerPixelGpuRenderTest, RhythmShowcasePresetsFollowTheRhythm)
+{
+    const FrameHook hint = [](projectm_handle instance, int frame) {
+        if (frame == 0)
+        {
+            projectm_set_rhythm_hint(instance, 128.0f);
+        }
+    };
+
+    for (const char* name : {"orbital_rave_beatlock.milk", "shader_swarm_onsets.milk"})
+    {
+        SCOPED_TRACE(name);
+        const auto path = std::string(PROJECTM_CUSTOM_MILK_FIXED_DIR) + "/" + name;
+        ASSERT_TRUE(std::filesystem::exists(path)) << path;
+
+        std::string error;
+        const auto withoutHint = RenderPreset(path, false, kShortFrames, error);
+        ASSERT_FALSE(withoutHint.empty()) << error;
+        const auto lit = std::count_if(withoutHint.begin(), withoutHint.end(), [](unsigned char value) { return value > 16; });
+        EXPECT_GT(lit, static_cast<long>(withoutHint.size() / 50)) << "renders (nearly) black";
+
+        const auto withHint = RenderPreset(path, false, kShortFrames, error, hint);
+        ASSERT_FALSE(withHint.empty()) << error;
+        EXPECT_GT(Compare(withoutHint, withHint).maxAbsolute, 16.0) << "does not react to the pm_* variables";
+    }
 }

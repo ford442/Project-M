@@ -34,6 +34,7 @@
 #include "projectM-4/parameters.h"
 #include "projectM-4/preset_prepare.h"
 #include "projectM-4/render_opengl.h"
+#include "projectM-4/rhythm.h"
 #include "projectM-4/touch.h"
 #include "projectM-4/version.h"
 #include "projectM-4/user_sprites.h"

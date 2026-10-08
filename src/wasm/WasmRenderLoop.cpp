@@ -55,7 +55,7 @@ static void RenderActiveHostFrame()
             timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
             timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
             timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps, timings.shader_link_pending,
-            timings.per_pixel_eval_path);
+            timings.per_pixel_eval_path, timings.rhythm_analysis_ms);
     }
     UpdateQualityGovernor(emscripten_get_now() - frameStartMs);
     return;
@@ -251,7 +251,7 @@ void render_frame()
     auto& g_compositorShader = H.compositorShader;
     auto& g_transitionActive = H.transitionActive;
     auto& g_transitionBlend = H.transitionBlend;
-    auto& g_transitionDuration = H.transitionDuration;
+    auto& g_transitionDuration = H.activeTransitionDuration;
     auto& g_transitionStartTime = H.transitionStartTime;
     auto& g_transitionEndTime = H.transitionEndTime;
     auto& g_presetBReady = H.presetBReady;
@@ -301,6 +301,8 @@ void render_frame()
         ReleaseDualFboIfIdle();
         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame(pm);
+        CollectRhythmEvents(H);
+        FlushRhythmEvents(H);
         g_renderedFrameCount++;
         return;
     }
@@ -320,6 +322,7 @@ void render_frame()
         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
     }
+    CollectRhythmEvents(H);
     g_dualFbo.SwapPresetA();
 
     // --- Step 2: Render Preset B into its Write FBO ---
@@ -328,6 +331,7 @@ void render_frame()
         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
     }
+    CollectRhythmEvents(H);
     g_dualFbo.SwapPresetB();
 
     // --- Step 3: Composite to the default framebuffer (browser canvas) ---
@@ -366,6 +370,7 @@ void render_frame()
         g_transitionEndTime = WasmNow();
         fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
     }
+    FlushRhythmEvents(H);
     g_renderedFrameCount++;
     return;
 }

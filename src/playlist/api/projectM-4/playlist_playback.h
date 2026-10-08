@@ -27,6 +27,7 @@
 #pragma once
 
 #include "projectM-4/playlist_types.h"
+#include "projectM-4/rhythm.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -50,6 +51,24 @@ PROJECTM_PLAYLIST_EXPORT void projectm_playlist_set_shuffle(projectm_playlist_ha
  * @since 4.0.0
  */
 PROJECTM_PLAYLIST_EXPORT bool projectm_playlist_get_shuffle(projectm_playlist_handle instance);
+
+/**
+ * @brief Sets when the connected projectM instance asks the playlist for the next preset.
+ *
+ * Convenience for projectm_set_preset_switch_policy() (projectM-4/rhythm.h) on the connected
+ * instance: switch on the preset timer, every @p bars bars, or on the first downbeat after a
+ * detected section change. The setting is kept and applied again when the playlist is
+ * connected to another projectM instance.
+ *
+ * @param instance The playlist manager instance.
+ * @param policy When to switch.
+ * @param bars Preset length in bars (PROJECTM_PRESET_SWITCH_BARS, typically 16 or 32) or the
+ *             shortest preset in bars (PROJECTM_PRESET_SWITCH_SECTION). 0 means 16.
+ * @since 4.2.0
+ */
+PROJECTM_PLAYLIST_EXPORT void projectm_playlist_set_switch_policy(projectm_playlist_handle instance,
+                                                                  projectm_preset_switch_policy policy,
+                                                                  uint32_t bars);
 
 /**
  * @brief Sets the number of retries after failed preset switches.

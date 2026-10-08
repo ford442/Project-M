@@ -619,7 +619,7 @@ test('both implementations cover every message type declared in the wire protoco
         workerToHost.slice().sort(),
         [
             'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
-            'error', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'stats', 'unsupported',
+            'error', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'rhythm-event', 'stats', 'unsupported',
         ],
     );
 
@@ -690,6 +690,24 @@ test('the HUD toggle is relayed, and switching it off flushes what was measured'
     assert.equal(worker.posted[0].enabled, true);
     assert.deepEqual(Array.from(worker.posted[2].frames, (f) => f.totalMs), [2]);
     assert.equal(worker.posted[3].enabled, false);
+});
+
+// ---- Rhythm events -------------------------------------------------------------
+//
+// js_report_rhythm_event() calls globalThis.pmOnRhythmEvent, the worker's scope
+// in this topology. Beats are relayed one by one, not batched: a batch would
+// deliver every beat late.
+
+test('rhythm events reported in the worker reach the host one by one', () => {
+    const worker = loadWorker();
+    const beat = { host: 7, beat: true, bar: false, section: false, bpm: 128, beatIndex: 41, barPhase: 0.25, sectionIndex: 2, confidence: 0.9 };
+    worker.scope.pmOnRhythmEvent(beat);
+    worker.scope.pmOnRhythmEvent({ ...beat, bar: true, beatIndex: 42, barPhase: 0 });
+
+    assert.deepEqual(worker.posted.map((m) => m.type), ['rhythm-event', 'rhythm-event']);
+    assert.deepEqual({ ...worker.posted[0].event }, beat);
+    assert.equal(worker.posted[1].event.bar, true);
+    assert.equal(worker.posted[1].event.beatIndex, 42);
 });
 
 // ---- WebGL context loss ------------------------------------------------------

@@ -463,8 +463,11 @@ void transition_start()
     g_transitionBlend = 0.0f;
     g_transitionStartTime = WasmNow(); // milliseconds
     g_transitionActive = true;
-    fprintf(stderr, "Phase5: Transition started (duration=%.2f s).\n",
-            static_cast<double>(g_transitionDuration));
+    // transition_set_duration_beats() is resolved against the tempo now, once: a
+    // tempo change mid-crossfade must not make the blend jump.
+    H.activeTransitionDuration = ResolveTransitionDuration(H);
+    fprintf(stderr, "Phase5: Transition started (duration=%.2f s, configured %.2f s).\n",
+            static_cast<double>(H.activeTransitionDuration), static_cast<double>(g_transitionDuration));
 }
 
 /**

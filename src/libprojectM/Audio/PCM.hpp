@@ -11,6 +11,7 @@
 #include "Audio/FrameAudioData.hpp"
 #include "Audio/Loudness.hpp"
 #include "Audio/MilkdropFFT.hpp"
+#include "Audio/RhythmAnalyzer.hpp"
 #include "Audio/WaveformAligner.hpp"
 
 #include <projectM-4/projectM_cxx_export.h>
@@ -19,6 +20,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
+#include <vector>
 
 
 namespace libprojectM {
@@ -68,6 +70,29 @@ public:
     void UpdateFrameAudioData(double secondsSinceLastFrame, uint32_t frame);
 
     /**
+     * @brief Runs the rhythm analysis (tempo, beat phase, onsets, sections) on every sample
+     *        added since the previous call.
+     *
+     * A separate step from UpdateFrameAudioData() so its cost shows up separately in the perf
+     * timers. Must be called once per frame; without it, FrameAudioData::rhythm keeps its
+     * defaults.
+     *
+     * @param secondsSinceLastFrame Time passed since rendering the last frame, the analyzer's clock.
+     */
+    void UpdateRhythmAnalysis(double secondsSinceLastFrame);
+
+    /**
+     * @brief Sets a known tempo instead of estimating it. See RhythmAnalyzer::SetTempoHint().
+     * @param bpm Tempo in beats per minute, or 0 to go back to estimating.
+     */
+    void SetRhythmHint(float bpm);
+
+    /**
+     * @brief Returns the tempo hint, 0 if none is set.
+     */
+    auto RhythmHint() const -> float;
+
+    /**
      * @brief Returns a class holding a copy of the current frame audio data.
      * @return A FrameAudioData class with waveform, spectrum and other derived values.
      */
@@ -106,6 +131,15 @@ private:
     SpectrumBuffer m_spectrumR{0.f}; //!< Right-channel spectrum data.
 
     MilkdropFFT m_fft{WaveformSamples, SpectrumSamples, true}; //!< Spectrum analyzer instance.
+
+    // Rhythm analysis sees every sample, not just the latest AudioBufferSamples: a mono copy
+    // of the input goes into a larger ring, drained once per frame by UpdateRhythmAnalysis().
+    static constexpr size_t RhythmRingSamples = 16384;                            //!< ~0.37 s at 44.1 kHz; enough for a frame at 3 FPS.
+    std::vector<float> m_rhythmRing = std::vector<float>(RhythmRingSamples, 0.f); //!< Mono input, full scale +-1. Guarded by m_pcmMutex.
+    uint64_t m_rhythmWritten{0};                                                  //!< Samples written to m_rhythmRing so far. Guarded by m_pcmMutex.
+    uint64_t m_rhythmRead{0};                                                     //!< Samples handed to the analyzer so far. Render thread only.
+    std::vector<float> m_rhythmSamples;                                           //!< Scratch buffer for the samples of one frame.
+    RhythmAnalyzer m_rhythm;                                                      //!< Tempo, beat phase, onsets, sections.
 
     // Alignment data
     WaveformAligner m_alignL; //!< Left-channel waveform alignment.

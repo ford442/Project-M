@@ -105,6 +105,19 @@ export type ProjectMModule = EmscriptenModule & {
     _deterministic_now_ms: () => number;
     _deterministic_frame_index: () => number;
     _set_render_loop_paused: (paused: number) => void;
+    _get_rhythm_bpm: () => number;
+    _get_rhythm_beat_phase: () => number;
+    _get_rhythm_bar_phase: () => number;
+    _get_rhythm_confidence: () => number;
+    _get_rhythm_beat_index: () => number;
+    _get_rhythm_section: () => number;
+    _set_rhythm_hint: (bpm: number) => void;
+    _set_preset_switch_policy: (policy: number, bars: number) => void;
+    _get_preset_switch_policy: () => number;
+    _transition_set_duration_beats: (beats: number) => void;
+    _transition_get_duration_beats: () => number;
+    _set_hard_cut_on_beat: (enabled: number) => void;
+    _set_rhythm_events: (enabled: number) => void;
 };
 
 /** C symbol names for render-worker ccall proxying. */
@@ -213,6 +226,19 @@ export const WASM_API_SYMBOLS = {
     deterministicNowMs: 'deterministic_now_ms',
     deterministicFrameIndex: 'deterministic_frame_index',
     setRenderLoopPaused: 'set_render_loop_paused',
+    getRhythmBpm: 'get_rhythm_bpm',
+    getRhythmBeatPhase: 'get_rhythm_beat_phase',
+    getRhythmBarPhase: 'get_rhythm_bar_phase',
+    getRhythmConfidence: 'get_rhythm_confidence',
+    getRhythmBeatIndex: 'get_rhythm_beat_index',
+    getRhythmSection: 'get_rhythm_section',
+    setRhythmHint: 'set_rhythm_hint',
+    setPresetSwitchPolicy: 'set_preset_switch_policy',
+    getPresetSwitchPolicy: 'get_preset_switch_policy',
+    transitionSetDurationBeats: 'transition_set_duration_beats',
+    transitionGetDurationBeats: 'transition_get_duration_beats',
+    setHardCutOnBeat: 'set_hard_cut_on_beat',
+    setRhythmEvents: 'set_rhythm_events',
 } as const;
 
 /** One row of {@link WASM_API_SIGNATURES}. */
@@ -337,6 +363,19 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     deterministicNowMs: { symbol: 'deterministic_now_ms', returnType: 'number', argTypes: [], paramTypes: [] },
     deterministicFrameIndex: { symbol: 'deterministic_frame_index', returnType: 'number', argTypes: [], paramTypes: [] },
     setRenderLoopPaused: { symbol: 'set_render_loop_paused', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    getRhythmBpm: { symbol: 'get_rhythm_bpm', returnType: 'number', argTypes: [], paramTypes: [] },
+    getRhythmBeatPhase: { symbol: 'get_rhythm_beat_phase', returnType: 'number', argTypes: [], paramTypes: [] },
+    getRhythmBarPhase: { symbol: 'get_rhythm_bar_phase', returnType: 'number', argTypes: [], paramTypes: [] },
+    getRhythmConfidence: { symbol: 'get_rhythm_confidence', returnType: 'number', argTypes: [], paramTypes: [] },
+    getRhythmBeatIndex: { symbol: 'get_rhythm_beat_index', returnType: 'number', argTypes: [], paramTypes: [] },
+    getRhythmSection: { symbol: 'get_rhythm_section', returnType: 'number', argTypes: [], paramTypes: [] },
+    setRhythmHint: { symbol: 'set_rhythm_hint', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    setPresetSwitchPolicy: { symbol: 'set_preset_switch_policy', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    getPresetSwitchPolicy: { symbol: 'get_preset_switch_policy', returnType: 'number', argTypes: [], paramTypes: [] },
+    transitionSetDurationBeats: { symbol: 'transition_set_duration_beats', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    transitionGetDurationBeats: { symbol: 'transition_get_duration_beats', returnType: 'number', argTypes: [], paramTypes: [] },
+    setHardCutOnBeat: { symbol: 'set_hard_cut_on_beat', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    setRhythmEvents: { symbol: 'set_rhythm_events', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
 };
 
 /**
@@ -878,6 +917,71 @@ export function setRenderLoopPaused(module: ProjectMModule, paused: boolean): vo
     module._set_render_loop_paused(paused ? 1 : 0);
 }
 
+/** Tempo in BPM from the rhythm analysis (0 while the tracker is not confident) */
+export function getRhythmBpm(module: ProjectMModule): number {
+    return module._get_rhythm_bpm();
+}
+
+/** Beat phase 0..1, 0 = the (predicted) beat */
+export function getRhythmBeatPhase(module: ProjectMModule): number {
+    return module._get_rhythm_beat_phase();
+}
+
+/** Bar phase 0..1 over four beats, 0 = downbeat */
+export function getRhythmBarPhase(module: ProjectMModule): number {
+    return module._get_rhythm_bar_phase();
+}
+
+/** Tempo tracker confidence 0..1 (1 while a tempo hint is set) */
+export function getRhythmConfidence(module: ProjectMModule): number {
+    return module._get_rhythm_confidence();
+}
+
+/** Beats counted since the engine started */
+export function getRhythmBeatIndex(module: ProjectMModule): number {
+    return module._get_rhythm_beat_index();
+}
+
+/** Section index, incremented on every detected section change */
+export function getRhythmSection(module: ProjectMModule): number {
+    return module._get_rhythm_section();
+}
+
+/** Use a known tempo (MIDI clock, track BPM) instead of estimating it (0 goes back to estimating) */
+export function setRhythmHint(module: ProjectMModule, bpm: number): void {
+    module._set_rhythm_hint(bpm);
+}
+
+/** Switch presets on the timer (0), every N bars (1) or on a detected section change (2), bars 0 = 16 */
+export function setPresetSwitchPolicy(module: ProjectMModule, policy: number, bars: number): void {
+    module._set_preset_switch_policy(policy, bars);
+}
+
+/** Preset switch policy (0 timer, 1 bars, 2 section) */
+export function getPresetSwitchPolicy(module: ProjectMModule): number {
+    return module._get_preset_switch_policy();
+}
+
+/** Crossfade length in beats, resolved against the tempo when each crossfade starts (0 = use seconds) */
+export function transitionSetDurationBeats(module: ProjectMModule, beats: number): void {
+    module._transition_set_duration_beats(beats);
+}
+
+/** Configured crossfade length in beats (0 = seconds) */
+export function transitionGetDurationBeats(module: ProjectMModule): number {
+    return module._transition_get_duration_beats();
+}
+
+/** Make beat-detection hard cuts wait for the next beat */
+export function setHardCutOnBeat(module: ProjectMModule, enabled: boolean): void {
+    module._set_hard_cut_on_beat(enabled ? 1 : 0);
+}
+
+/** Report beats, bars and section changes to globalThis.pmOnRhythmEvent (off by default) */
+export function setRhythmEvents(module: ProjectMModule, enabled: boolean): void {
+    module._set_rhythm_events(enabled ? 1 : 0);
+}
+
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
     init,
@@ -941,5 +1045,18 @@ export const PUBLIC_WASM_API = [
     isDeterministicClock,
     deterministicNowMs,
     deterministicFrameIndex,
-    setRenderLoopPaused
+    setRenderLoopPaused,
+    getRhythmBpm,
+    getRhythmBeatPhase,
+    getRhythmBarPhase,
+    getRhythmConfidence,
+    getRhythmBeatIndex,
+    getRhythmSection,
+    setRhythmHint,
+    setPresetSwitchPolicy,
+    getPresetSwitchPolicy,
+    transitionSetDurationBeats,
+    transitionGetDurationBeats,
+    setHardCutOnBeat,
+    setRhythmEvents
 ] as const;

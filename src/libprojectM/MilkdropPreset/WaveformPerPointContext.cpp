@@ -66,6 +66,7 @@ void WaveformPerPointContext::RegisterBuiltinVariables()
     REG_VAR(g);
     REG_VAR(b);
     REG_VAR(a);
+    rhythm.Register(perPointCodeContext);
 }
 
 void WaveformPerPointContext::LoadReadOnlyStateVariables(const PerFrameContext& presetPerFrameContext)
@@ -80,6 +81,7 @@ void WaveformPerPointContext::LoadReadOnlyStateVariables(const PerFrameContext& 
     *bass_att = *presetPerFrameContext.bass_att;
     *mid_att = *presetPerFrameContext.mid_att;
     *treb_att = *presetPerFrameContext.treb_att;
+    rhythm.CopyFrom(presetPerFrameContext.rhythm);
 }
 
 void WaveformPerPointContext::CompilePerPointCode(const std::string& perPointCode,

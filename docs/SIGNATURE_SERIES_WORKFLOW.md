@@ -114,6 +114,8 @@ Every Signature Series preset **must** start with:
 // music: uptempo electronic / drum & bass
 ```
 
+A preset built on the `pm_*` variables adds `pm-rhythm` to its tags.
+
 Register the file in `presets/agent_manifest.json` → `signature_series.presets` after validation.
 
 ## First batch (2026-07)
@@ -141,6 +143,22 @@ Target: **5–10** presets in the first batch; expand with `orbital_rave_*` / `s
 | `shader_swarm_galaxy.milk` | Candy World | curated (capture pending) |
 
 Release notes: [`SIGNATURE_SERIES_BATCH2.md`](SIGNATURE_SERIES_BATCH2.md)
+
+## Rhythm batch (2026-10)
+
+Showcases for the `pm_*` musical-time variables
+([`MILK_PRESET_GUIDE.md`](MILK_PRESET_GUIDE.md#musical-time-pm_-variables)): motion that
+lands *on* the beat and changes with the song's structure, instead of thresholding
+`bass_att`. Both fall back to classic audio reactivity while the tempo is unknown
+(`pm_rhythm_conf`), and `PerPixelGpuRenderTest.RhythmShowcasePresetsFollowTheRhythm`
+checks that they render and follow the rhythm values.
+
+| File | Lane | Musical time used | Status |
+|------|------|-------------------|--------|
+| `orbital_rave_beatlock.milk` | Zephyr Orbital | Kick on `pm_beat_phase`, one tunnel segment per bar (`pm_bar_phase`), fold count per `pm_section`, downbeat flash | curated (capture pending) |
+| `shader_swarm_onsets.milk` | Candy World | Kick bloom (`pm_onset_lo`), hi-hat sparkle (`pm_onset_hi`), palette by `pm_centroid`, folds per `pm_section` | curated (capture pending) |
+
+Try them with `projectm-core.html?switchOn=bars&transitionBeats=1&rhythmDebug=1`.
 
 ## Promotion criteria (draft → custom_milk_fixed)
 

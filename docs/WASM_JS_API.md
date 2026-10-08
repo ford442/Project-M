@@ -105,8 +105,36 @@ symbol's doc text is not an API change and needs nothing.
 | `transitionGetBlend` | `transition_get_blend` | |
 | `transitionSetDuration` | `transition_set_duration` | |
 | `transitionGetDuration` | `transition_get_duration` | |
+| `transitionSetDurationBeats` | `transition_set_duration_beats` | Crossfade length in beats, resolved against the tempo when each crossfade starts; seconds apply while the tempo is unknown. 0 = seconds only. Also sets the engine's own soft cuts |
+| `transitionGetDurationBeats` | `transition_get_duration_beats` | |
+| `getRhythmBpm` | `get_rhythm_bpm` | Tempo, 0 while the tracker is not confident. See [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis) |
+| `getRhythmBeatPhase` | `get_rhythm_beat_phase` | 0..1, 0 = the predicted beat |
+| `getRhythmBarPhase` | `get_rhythm_bar_phase` | 0..1 over four beats, 0 = downbeat |
+| `getRhythmConfidence` | `get_rhythm_confidence` | 0..1 (1 while a hint is set) |
+| `getRhythmBeatIndex` | `get_rhythm_beat_index` | Beats since the engine started |
+| `getRhythmSection` | `get_rhythm_section` | Section index |
+| `setRhythmHint` | `set_rhythm_hint` | A known tempo (MIDI clock, track BPM) instead of the estimate; 0 clears |
+| `setPresetSwitchPolicy` | `set_preset_switch_policy` | 0 timer, 1 every `bars` bars, 2 on a section change (at most every `bars` bars). Falls back to the timer while the tempo is unknown |
+| `getPresetSwitchPolicy` | `get_preset_switch_policy` | |
+| `setHardCutOnBeat` | `set_hard_cut_on_beat` | Beat-detection hard cuts wait for the next beat |
+| `setRhythmEvents` | `set_rhythm_events` | Report beats/bars/sections to `globalThis.pmOnRhythmEvent` (see below). Off by default |
 
 Export names are also listed in `PUBLIC_WASM_API` inside the generated module.
+
+### Rhythm events (`pmOnRhythmEvent`)
+
+While `set_rhythm_events(1)` is on, `render_frame()` calls
+`globalThis.pmOnRhythmEvent(event)` on every frame that carries a beat, a downbeat or a
+section change, and on no other frame (about two calls a second at 120 BPM). `event` is
+`{ host, beat, bar, section, bpm, beatIndex, barPhase, sectionIndex, confidence }`
+(`RhythmEvent` in `html/projectm-render-worker-types.ts`); `host` is the engine's host
+handle, for telling apart the engines of a shared Module. A crossfade renders the engine
+twice per frame; the events of both renders are reported once.
+
+Hosts should not install the global themselves: `ProjectMContext.on('beat' | 'bar' |
+'section', listener)` turns the engine reporting on while it has listeners, filters by
+host, and works in both topologies (the render worker relays each event as a
+`rhythm-event` message, unbatched so a beat is not delivered late).
 
 ### Internal (first-party host only)
 

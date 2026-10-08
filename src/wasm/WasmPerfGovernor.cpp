@@ -186,7 +186,8 @@ EM_JS(void, js_perf_report_frame, (
     double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
     double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps,
     int shaderLinkPending,
-    int perPixelEvalPath
+    int perPixelEvalPath,
+    double rhythmMs
 ), {
     if (typeof globalThis.pmOnPerfFrame === 'function') {
         const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
@@ -199,6 +200,9 @@ EM_JS(void, js_perf_report_frame, (
         globalThis.pmOnPerfFrame({
             totalMs: totalMs,
             audioMs: audioMs,
+            // Onsets, tempo, beat phase and sections (the pm_* preset variables);
+            // not part of audioMs.
+            rhythmMs: rhythmMs,
             perFrameEvalMs: perFrameEvalMs,
             perPixelEvalMs: perPixelEvalMs,
             blurMs: blurMs,

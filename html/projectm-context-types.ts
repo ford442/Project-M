@@ -36,6 +36,33 @@ export type ProjectMMeshQuality = 'auto' | 'high' | 'low';
  */
 export type ProjectMRenderTopology = 'auto' | 'worker' | 'main';
 
+/**
+ * When the playlist moves on (`projectm-4/rhythm.h`): after the preset duration,
+ * every `presetSwitchBars` bars, or on the first downbeat after a detected
+ * section change. The musical policies fall back to the timer while the tempo
+ * is not known.
+ */
+export type ProjectMPresetSwitchPolicy = 'timer' | 'bars' | 'section';
+
+/** Musical-time events delivered by `ProjectMContext.on()`. */
+export type ProjectMRhythmEventType = 'beat' | 'bar' | 'section';
+
+/** Tempo and phase of the most recent frame, from `ProjectMContext.getRhythmInfo()`. */
+export interface ProjectMRhythmInfo {
+    /** Beats per minute, 0 while the tracker is not confident. */
+    bpm: number;
+    /** 0..1, 0 = the beat. */
+    beatPhase: number;
+    /** 0..1 over a four-beat bar, 0 = downbeat. */
+    barPhase: number;
+    /** 0..1. */
+    confidence: number;
+    /** Beats counted since the engine started. */
+    beatIndex: number;
+    /** Section index. */
+    section: number;
+}
+
 export interface ProjectMErrorDetail {
     code: number;
     message: string;
@@ -133,6 +160,18 @@ export interface ProjectMContextOptions {
     renderPathOverrides?: import('./projectm-render-worker-types.ts').RenderPathOverrides;
     presetUrl?: string;
     presetLocked?: boolean;
+    /** When the playlist switches presets. Default `'timer'`. */
+    presetSwitchPolicy?: ProjectMPresetSwitchPolicy;
+    /** Bars per preset (`'bars'`) or the shortest preset in bars (`'section'`). Default 16. */
+    presetSwitchBars?: number;
+    /**
+     * Crossfade length in beats, resolved against the tempo when each crossfade
+     * starts. While the tempo is unknown the duration in seconds applies.
+     * Default 0: seconds only.
+     */
+    transitionBeats?: number;
+    /** A known tempo (BPM) instead of the estimate, e.g. from track metadata. */
+    rhythmHint?: number;
     audioSource?: ProjectMAudioSource;
     /** HTMLMediaElement or CSS selector when `audioSource` is `element`. */
     audioElement?: HTMLMediaElement | string;

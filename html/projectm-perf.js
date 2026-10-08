@@ -55,7 +55,7 @@ import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
  */
 
 /** CPU submit-time buckets (libprojectM PerfTimers.hpp). */
-/** @typedef {'audioMs' | 'perFrameEvalMs' | 'perPixelEvalMs' | 'blurMs' | 'waveformsShapesMs' | 'compositeMs'} PerfCpuKey */
+/** @typedef {'audioMs' | 'rhythmMs' | 'perFrameEvalMs' | 'perPixelEvalMs' | 'blurMs' | 'waveformsShapesMs' | 'compositeMs'} PerfCpuKey */
 /** GPU TIME_ELAPSED buckets: one per libprojectM GPU stage, plus the whole frame. */
 /** @typedef {'gpuWarpMs' | 'gpuBlurMs' | 'gpuShapesMs' | 'gpuCopyMs' | 'gpuCompositeMs' | 'gpuPresentMs' | 'gpuOtherMs' | 'gpuMs'} PerfGpuKey */
 /** Every {@link PerfFrameStats} key the benchmark summarizes besides totalMs/fps. */
@@ -74,7 +74,7 @@ const STYLE_ID = 'pm-perf-hud-style';
 const HUD_ID = 'pm-perf-hud';
 
 /** @type {ReadonlyArray<PerfCpuKey>} */
-const CPU_KEYS = ['audioMs', 'perFrameEvalMs', 'perPixelEvalMs', 'blurMs', 'waveformsShapesMs', 'compositeMs'];
+const CPU_KEYS = ['audioMs', 'rhythmMs', 'perFrameEvalMs', 'perPixelEvalMs', 'blurMs', 'waveformsShapesMs', 'compositeMs'];
 /** @type {ReadonlyArray<PerfGpuKey>} */
 const GPU_KEYS = ['gpuWarpMs', 'gpuBlurMs', 'gpuShapesMs', 'gpuCopyMs', 'gpuCompositeMs', 'gpuPresentMs', 'gpuOtherMs', 'gpuMs'];
 /** @type {ReadonlyArray<PerfBarKey>} */
@@ -90,6 +90,7 @@ const SAMPLE_KEYS = [...CPU_KEYS, ...GPU_KEYS];
  */
 const ROWS = [
     { id: 'audio', label: 'Audio FFT/Loudness', cpu: 'audioMs', gpu: null, color: '#60a5fa' },
+    { id: 'rhythm', label: 'Rhythm (tempo/beat)', cpu: 'rhythmMs', gpu: null, color: '#93c5fd' },
     { id: 'perFrame', label: 'Per-frame eval', cpu: 'perFrameEvalMs', gpu: null, color: '#34d399' },
     { id: 'perPixel', label: 'Per-pixel/warp', cpu: 'perPixelEvalMs', gpu: 'gpuWarpMs', color: '#fbbf24' },
     { id: 'blur', label: 'Blur', cpu: 'blurMs', gpu: 'gpuBlurMs', color: '#a78bfa' },

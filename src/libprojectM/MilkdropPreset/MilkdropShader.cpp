@@ -1,5 +1,6 @@
 #include "MilkdropShader.hpp"
 
+#include "PerFrameContext.hpp"
 #include "PerPixelGlslLowering.hpp"
 #include "PresetState.hpp"
 #include "ShaderTranspiler.hpp"
@@ -478,6 +479,27 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
                                        blurMax[1],
                                        blurMin[2],
                                        blurMax[2]});
+
+    // projectM's pm_* musical-time variables, as the per-frame code left them.
+    auto rhythm = [&perFrameContext](RhythmVariables::Index index) {
+        return static_cast<float>(perFrameContext.rhythm.Value(index));
+    };
+    m_shader.SetUniformFloat4("_c14", {rhythm(RhythmVariables::Bpm),
+                                       rhythm(RhythmVariables::BeatPhase),
+                                       rhythm(RhythmVariables::BeatPulse),
+                                       rhythm(RhythmVariables::BarPhase)});
+    m_shader.SetUniformFloat4("_c15", {rhythm(RhythmVariables::Onset),
+                                       rhythm(RhythmVariables::OnsetLow),
+                                       rhythm(RhythmVariables::OnsetMid),
+                                       rhythm(RhythmVariables::OnsetHigh)});
+    m_shader.SetUniformFloat4("_c16", {rhythm(RhythmVariables::Centroid),
+                                       rhythm(RhythmVariables::Flatness),
+                                       rhythm(RhythmVariables::Rms),
+                                       rhythm(RhythmVariables::Confidence)});
+    m_shader.SetUniformFloat4("_c17", {rhythm(RhythmVariables::BeatIndex),
+                                       rhythm(RhythmVariables::Section),
+                                       rhythm(RhythmVariables::SectionChange),
+                                       0.0f});
 
 
     std::array<glm::mat4, 24> tempMatrices{};

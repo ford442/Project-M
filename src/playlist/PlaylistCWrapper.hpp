@@ -67,6 +67,13 @@ public:
     virtual auto RetryCount() -> uint32_t;
 
     /**
+     * @brief Sets when projectM requests the next preset, now and on every later Connect().
+     * @param policy The switch policy.
+     * @param bars Bars per preset, or the shortest preset for the section policy.
+     */
+    virtual void SetSwitchPolicy(projectm_preset_switch_policy policy, uint32_t bars);
+
+    /**
      * @brief Sets the preset switched callback.
      * @param callback The callback pointer.
      * @param userData The callback context data.
@@ -112,6 +119,10 @@ private:
     std::string m_lastFailedPresetError;    //!< Error message of the last failure.
 
     bool m_hardCutRequested{false}; //!< Stores the type of the last requested switch attempt.
+
+    bool m_switchPolicySet{false};                                       //!< SetSwitchPolicy() was called.
+    projectm_preset_switch_policy m_switchPolicy{PROJECTM_PRESET_SWITCH_TIMER}; //!< The policy to apply on Connect().
+    uint32_t m_switchBars{16};                                           //!< The bar count to apply on Connect().
 
     projectm_playlist_preset_switched_event m_presetSwitchedEventCallback{nullptr}; //!< Preset switched callback pointer set by the application.
     void* m_presetSwitchedEventUserData{nullptr};                                   //!< Context data pointer set by the application.

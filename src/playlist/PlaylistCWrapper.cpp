@@ -2,6 +2,7 @@
 
 #include "projectM-4/callbacks.h"
 #include "projectM-4/core.h"
+#include "projectM-4/rhythm.h"
 
 namespace libprojectM {
 namespace Playlist {
@@ -13,6 +14,22 @@ PlaylistCWrapper::PlaylistCWrapper(projectm_handle projectMInstance)
     {
         projectm_set_preset_switch_requested_event_callback(m_projectMInstance, &OnPresetSwitchRequested, this);
         projectm_set_preset_switch_failed_event_callback(m_projectMInstance, &OnPresetSwitchFailed, this);
+        if (m_switchPolicySet)
+        {
+            projectm_set_preset_switch_policy(m_projectMInstance, m_switchPolicy, m_switchBars);
+        }
+    }
+}
+
+
+void PlaylistCWrapper::SetSwitchPolicy(projectm_preset_switch_policy policy, uint32_t bars)
+{
+    m_switchPolicySet = true;
+    m_switchPolicy = policy;
+    m_switchBars = bars;
+    if (m_projectMInstance != nullptr)
+    {
+        projectm_set_preset_switch_policy(m_projectMInstance, policy, bars);
     }
 }
 
@@ -510,6 +527,14 @@ uint32_t projectm_playlist_get_retry_count(projectm_playlist_handle instance)
 {
     auto* playlist = playlist_handle_to_instance(instance);
     return playlist->RetryCount();
+}
+
+
+void projectm_playlist_set_switch_policy(projectm_playlist_handle instance, projectm_preset_switch_policy policy,
+                                        uint32_t bars)
+{
+    auto* playlist = playlist_handle_to_instance(instance);
+    playlist->SetSwitchPolicy(policy, bars);
 }
 
 

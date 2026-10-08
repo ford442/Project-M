@@ -75,8 +75,9 @@ There are two kinds of `pm*` name, handled differently:
 - **Engine callbacks** — names the WASM glue looks up by fixed ABI and calls with no host
   handle: `pmOnPerfFrame`, `pmSetPerfHudEnabled`, `pmOnGovernorTierChange`,
   `pmOnGovernorRenderScaleChange`, `pmOnGovernorBlurCapChange`,
-  `pmOnTranspiledShaderStored`, `pmReportInitError`, `pmHideInitError`
-  (`WASM_CALLBACK_NAMES`). These cannot be opt-in: a page that never imports a shim must
+  `pmOnTranspiledShaderStored`, `pmReportInitError`, `pmHideInitError`, `pmOnRhythmEvent`
+  (`WASM_CALLBACK_NAMES`; `pmOnRhythmEvent` is the one exception that does carry the host
+  handle, as `event.host`). These cannot be opt-in: a page that never imports a shim must
   still hear the governor. `projectm-wasm-callbacks.js` installs each name once, fans it out
   to every `subscribeWasmCallback(name, listener)` subscriber, and removes it when the last
   one leaves. Because the callbacks carry no host handle, every subscriber sees every call;

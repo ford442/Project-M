@@ -337,6 +337,19 @@ TEST(projectMPlaylistAPI, GetShuffle)
 }
 
 
+TEST(projectMPlaylistAPI, SetSwitchPolicy)
+{
+    PlaylistCWrapperMock mockPlaylist;
+
+    EXPECT_CALL(mockPlaylist, SetSwitchPolicy(PROJECTM_PRESET_SWITCH_BARS, 32))
+        .Times(1);
+    EXPECT_CALL(mockPlaylist, SetSwitchPolicy(PROJECTM_PRESET_SWITCH_SECTION, 16))
+        .Times(1);
+
+    projectm_playlist_set_switch_policy(reinterpret_cast<projectm_playlist_handle>(&mockPlaylist), PROJECTM_PRESET_SWITCH_BARS, 32);
+    projectm_playlist_set_switch_policy(reinterpret_cast<projectm_playlist_handle>(&mockPlaylist), PROJECTM_PRESET_SWITCH_SECTION, 16);
+}
+
 TEST(projectMPlaylistAPI, SetShuffle)
 {
     PlaylistCWrapperMock mockPlaylist;

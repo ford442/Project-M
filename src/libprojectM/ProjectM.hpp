@@ -52,11 +52,22 @@ class Preset;
 class PresetFactoryManager;
 class PresetPrepareJob;
 struct PresetPrepareContext;
+class PresetSwitchScheduler;
 class TimeKeeper;
 
 class PROJECTM_CXX_EXPORT ProjectM
 {
 public:
+    /**
+     * @brief When a preset switch is requested. Values match projectm_preset_switch_policy.
+     */
+    enum class PresetSwitchPolicy : int
+    {
+        Timer = 0,  //!< After the preset duration.
+        Bars = 1,   //!< On the downbeat that completes the configured number of bars.
+        Section = 2 //!< On the first downbeat after a detected section change.
+    };
+
     ProjectM();
 
     ProjectM(const ProjectM& other) = delete;
@@ -237,6 +248,43 @@ public:
     auto PresetDuration() const -> double;
 
     void SetPresetDuration(double seconds);
+
+    /**
+     * @brief Musical-time values (tempo, beat/bar phase, sections) of the last rendered frame.
+     */
+    auto RhythmInfo() const -> const Audio::RhythmInfo&;
+
+    /**
+     * @brief Overrides tempo estimation with a known tempo, 0 to clear. See projectm_set_rhythm_hint().
+     */
+    void SetRhythmHint(float bpm);
+
+    auto RhythmHint() const -> float;
+
+    /**
+     * @brief Sets when a preset switch is requested. See projectm_set_preset_switch_policy().
+     * @param policy When to switch.
+     * @param bars Preset length (Bars) or shortest preset (Section) in bars; 0 means 16.
+     */
+    void SetPresetSwitchPolicy(PresetSwitchPolicy policy, uint32_t bars);
+
+    auto GetPresetSwitchPolicy() const -> PresetSwitchPolicy;
+
+    auto PresetSwitchBars() const -> uint32_t;
+
+    /**
+     * @brief Sets the soft cut duration in beats, 0 to use seconds. See projectm_set_soft_cut_duration_beats().
+     */
+    void SetSoftCutDurationBeats(double beats);
+
+    auto SoftCutDurationBeats() const -> double;
+
+    /**
+     * @brief Makes beat-detection hard cuts wait for the next beat. See projectm_set_hard_cut_on_beat().
+     */
+    void SetHardCutOnBeat(bool enabled);
+
+    auto HardCutOnBeat() const -> bool;
 
     /**
      * @brief Returns the current frames per second value.
@@ -480,6 +528,10 @@ private:
     bool m_aspectCorrection{true};   //!< If true, corrects aspect ratio for non-rectangular windows.
     float m_easterEgg{1.0};          //!< Random preset duration modifier. See TimeKeeper class.
     float m_previousFrameVolume{};   //!< Volume in previous frame, used for hard cuts.
+
+    Audio::RhythmInfo m_rhythmInfo;                           //!< Musical-time values of the last rendered frame.
+    std::unique_ptr<PresetSwitchScheduler> m_switchScheduler; //!< Timer or musical preset switching, beat-aligned hard cuts.
+    double m_softCutDurationBeats{0.0};                       //!< Soft cut length in beats, 0 = use m_softCutDuration.
     float m_texelOffsetX{0.0};       //!< Horizontal warp shader texel offset
     float m_texelOffsetY{0.0};       //!< Vertical warp shader texel offset
 

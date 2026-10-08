@@ -63,7 +63,26 @@ public:
         UniformPixelsY = 1u << 13u,
         UniformAspectX = 1u << 14u,
         UniformAspectY = 1u << 15u,
+        // Bits 16 and up: the pm_* musical-time variables, see RhythmUniformFlag().
     };
+
+    /** @brief First UniformFlags bit used by the pm_* variables. */
+    static constexpr std::uint32_t RhythmUniformFirstBit = 16u;
+
+    /**
+     * @brief UniformFlags bit of one pm_* variable.
+     * @param index A RhythmVariables::Index.
+     */
+    static constexpr auto RhythmUniformFlag(int index) -> std::uint32_t
+    {
+        return 1u << (RhythmUniformFirstBit + static_cast<std::uint32_t>(index));
+    }
+
+    /**
+     * @brief GLSL uniform name of one pm_* variable ("u_pp_" + its name).
+     * @param index A RhythmVariables::Index.
+     */
+    static auto RhythmUniformName(int index) -> const std::string&;
 
     /**
      * @brief Largest number of per-vertex values a CpuSlice may hand to the shader.

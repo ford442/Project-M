@@ -1,0 +1,97 @@
+// Signature Series | orbital_rave | Zephyr Orbital
+// tags: beat-locked, orbital, tunnel, pm-rhythm, medium
+// author: projectM-signature-rhythm-2026-10
+// project: zephyr-orbital
+// music: four-on-the-floor techno / house / drum & bass
+// Showcase for projectM's musical-time variables (docs/MILK_PRESET_GUIDE.md, "Musical Time"):
+// the tunnel kicks ON the beat (pm_beat_phase predicts it), turns exactly one segment per
+// bar (pm_bar_phase), changes its fold count with each section of the song (pm_section),
+// and falls back to bass_att whenever the tracker is unsure (pm_rhythm_conf).
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+presetname=Orbital Rave Beatlock
+fRating=4.500000
+fGammaAdj=1.500000
+fDecay=0.960000
+fVideoEchoZoom=1.000000
+fVideoEchoAlpha=0.000000
+nWaveMode=0
+bAdditiveWaves=0
+fWaveAlpha=0.001000
+fWarpScale=1.000000
+zoom=1.000000
+rot=0.000000
+warp=0.000000
+cx=0.500000
+cy=0.500000
+mv_a=0.000000
+shapecode_0_enabled=1
+shapecode_0_sides=48
+shapecode_0_additive=1
+shapecode_0_thickOutline=1
+shapecode_0_textured=0
+shapecode_0_num_inst=1
+shapecode_0_x=0.500000
+shapecode_0_y=0.500000
+shapecode_0_rad=0.100000
+shapecode_0_ang=0.000000
+shapecode_0_r=1.000000
+shapecode_0_g=1.000000
+shapecode_0_b=1.000000
+shapecode_0_a=0.000000
+shapecode_0_r2=0.000000
+shapecode_0_g2=0.000000
+shapecode_0_b2=0.000000
+shapecode_0_a2=0.000000
+shapecode_0_border_r=1.000000
+shapecode_0_border_g=1.000000
+shapecode_0_border_b=1.000000
+shapecode_0_border_a=1.000000
+shape_0_per_frame1=rad = 0.06 + 0.2*q1;
+shape_0_per_frame2=hue = 6.2832*q2;
+shape_0_per_frame3=border_r = 0.5 + 0.5*cos(hue); border_g = 0.5 + 0.5*cos(hue + 2.094); border_b = 0.5 + 0.5*cos(hue + 4.189);
+shape_0_per_frame4=border_a = 0.35 + 0.65*q1;
+shape_0_per_frame5=ang = 6.2832*q2/q5;
+
+per_frame_1=conf = pm_rhythm_conf;
+per_frame_2=kick = pow(1 - pm_beat_phase, 5);
+per_frame_3=fallbackbar = time*0.125 - int(time*0.125);
+per_frame_4=q1 = conf*kick + (1 - conf)*min(bass_att*0.4, 0.8);
+per_frame_5=q2 = conf*pm_bar_phase + (1 - conf)*fallbackbar;
+per_frame_6=q3 = time*0.25;
+per_frame_7=q4 = treb_att;
+per_frame_8=q5 = 6 + 2*(pm_section % 3);
+per_frame_9=zoom = 1.0 + 0.03*q1;
+per_frame_10=rot = 0.003*sin(time*0.3);
+
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`float2 uvc=uv-0.5;
+warp_4=`float r=length(uvc);
+warp_5=`float seg=6.2831853/q5;
+warp_6=`float a=atan2(uvc.y,uvc.x)+seg*q2+q3*0.05;
+warp_7=`a=a-floor(a/seg)*seg;
+warp_8=`float tunnelR=pow(r,0.72-q1*0.12);
+warp_9=`float2 tuv=float2(cos(a),sin(a))*tunnelR+0.5;
+warp_10=`float2 sampleUV=lerp(uv,tuv,0.28+q1*0.2);
+warp_11=`float3 col=tex2D(sampler_main,sampleUV).xyz;
+warp_12=`ret=col*(0.955+q1*0.03);
+warp_13=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`float3 col=tex2D(sampler_main,uv).xyz;
+comp_4=`float a=6.2831853*pm_bar_phase;
+comp_5=`float3 tint=float3(cos(a),cos(a+2.094),cos(a+4.189))*0.5+0.5;
+comp_6=`col*=lerp(float3(1,1,1),0.6+0.8*tint,pm_rhythm_conf);
+comp_7=`float down=pow(1.0-pm_bar_phase,10.0)*pm_rhythm_conf;
+comp_8=`col+=float3(0.22,0.16,0.35)*down;
+comp_9=`col+=float3(0.1,0.25,0.4)*q4*0.15;
+comp_10=`float2 c=uv-0.5;
+comp_11=`col*=1.0-smoothstep(0.45,0.95,length(c))*0.3;
+comp_12=`ret=saturate(col);
+comp_13=`}

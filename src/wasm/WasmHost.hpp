@@ -75,6 +75,10 @@ struct EngineSettings {
     std::optional<bool> presetLocked;
     std::optional<bool> transparencyMode;
     std::optional<float> transparencyThreshold;
+    std::optional<float> rhythmHint;                            //!< set_rhythm_hint().
+    std::optional<std::pair<int, uint32_t>> presetSwitchPolicy; //!< set_preset_switch_policy().
+    std::optional<float> transitionBeats;                       //!< transition_set_duration_beats().
+    std::optional<bool> hardCutOnBeat;                          //!< set_hard_cut_on_beat().
 };
 
 // =============================================================================
@@ -108,6 +112,10 @@ struct WasmHost {
 
     // ---- Transition controller (Phase 5) ----
     float transitionDuration = 3.0f;
+    // Crossfade length in beats (transition_set_duration_beats()), 0 = use seconds.
+    float transitionBeats = 0.0f;
+    // The duration the running crossfade resolved to when transition_start() armed it.
+    float activeTransitionDuration = 3.0f;
     bool transitionActive = false;
     float transitionBlend = 0.0f;
     double transitionStartTime = 0.0;
@@ -125,6 +133,13 @@ struct WasmHost {
     // so a process-wide index advanced once per host per tick.
     uint32_t deterministicFrameIndex = 0;
     double virtualNowMs = 0.0;
+
+    // ---- Musical-time events (WasmRhythm.cpp) ----
+    // set_rhythm_events(): report beats/bars/sections to globalThis.pmOnRhythmEvent.
+    bool rhythmEventsEnabled = false;
+    // Events seen during the current render_frame() (it may render the engine twice
+    // during a crossfade; only the first render of a tick carries the events).
+    int pendingRhythmEvents = 0;
 
     // ---- Perf HUD / adaptive quality governor ----
     bool perfHudEnabled = false;

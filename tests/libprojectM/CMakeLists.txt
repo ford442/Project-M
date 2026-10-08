@@ -13,6 +13,7 @@ set(INCLUDE_FILES
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/preset_prepare.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/projectm_perf.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/render_opengl.h
+        ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/rhythm.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/touch.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/user_sprites.h
 
@@ -37,6 +38,7 @@ add_executable(projectM-unittest
         MilkdropShaderCommentParsingTest.cpp
         OpenMPBenchTest.cpp
         PresetPerfBenchTest.cpp
+        PresetSwitchSchedulerTest.cpp
         PresetCompatTest.cpp
         PresetFileParserTest.cpp
         PresetTransitionMultiPassTest.cpp
@@ -46,6 +48,7 @@ add_executable(projectM-unittest
         PerfGpuStageTest.cpp
         PerPixelGlslLoweringTest.cpp
         PerPixelGpuRenderTest.cpp
+        RhythmAnalyzerTest.cpp
         ShaderCacheTest.cpp
         WaveformAlignerTest.cpp
 

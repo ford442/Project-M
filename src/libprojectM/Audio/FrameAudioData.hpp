@@ -2,11 +2,13 @@
  * @file FrameAudioData.hpp
  * @brief Holds all audio data to be used to render a single frame.
  *
- * This includes the actual waveform data, spectrum and beat detection values.
+ * This includes the actual waveform data, spectrum, beat detection values and the musical-time
+ * values (tempo, beat/bar phase, onsets, sections) from RhythmAnalyzer.
  */
 #pragma once
 
 #include "Audio/AudioConstants.hpp"
+#include "Audio/RhythmInfo.hpp"
 
 #include <projectM-4/projectM_cxx_export.h>
 
@@ -33,6 +35,8 @@ public:
 
     std::array<float, SpectrumSamples> spectrumLeft;
     std::array<float, SpectrumSamples> spectrumRight;
+
+    RhythmInfo rhythm; //!< Tempo, beat/bar phase, onsets, sections and descriptors (the pm_* preset variables).
 };
 
 } // namespace Audio

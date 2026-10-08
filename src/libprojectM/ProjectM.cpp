@@ -26,6 +26,7 @@
 #include "Preset.hpp"
 #include "PresetFactoryManager.hpp"
 #include "PresetPrepareJob.hpp"
+#include "PresetSwitchScheduler.hpp"
 #include "TimeKeeper.hpp"
 
 #include <Audio/PCM.hpp>
@@ -41,13 +42,15 @@
 #include <UserSprites/SpriteManager.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <optional>
 
 namespace libprojectM {
 
 ProjectM::ProjectM()
-    : m_presetFactoryManager(std::make_shared<PresetFactoryManager>())
+    : m_switchScheduler(std::make_unique<PresetSwitchScheduler>())
+    , m_presetFactoryManager(std::make_shared<PresetFactoryManager>())
 {
     Initialize();
 }
@@ -256,22 +259,34 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     {
         PROJECTM_PERF_SCOPE(AudioAnalysis);
         m_audioStorage.UpdateFrameAudioData(m_timeKeeper->SecondsSinceLastFrame(), m_frameCount);
-        audioData = m_audioStorage.GetFrameAudioData();
     }
+    {
+        PROJECTM_PERF_SCOPE(RhythmAnalysis);
+        m_audioStorage.UpdateRhythmAnalysis(m_timeKeeper->SecondsSinceLastFrame());
+    }
+    audioData = m_audioStorage.GetFrameAudioData();
+    m_rhythmInfo = audioData.rhythm;
+
+    const double presetSeconds = m_timeKeeper->GetRunningTime() - m_timeKeeper->PresetTimeA();
+    m_switchScheduler->Observe(m_rhythmInfo, presetSeconds);
 
     // Check if the preset isn't locked, and we've not already notified the user
     if (!m_presetChangeNotified)
     {
-        // If preset is done and we're not already switching
-        if (m_timeKeeper->PresetProgressA() >= 1.0 && !m_timeKeeper->IsSmoothing())
+        // If preset is done (on the timer, or on the bar/section the policy waits for)
+        // and we're not already switching
+        if (!m_timeKeeper->IsSmoothing() &&
+            m_switchScheduler->SwitchDue(m_rhythmInfo, presetSeconds, m_timeKeeper->PresetDuration(),
+                                        m_timeKeeper->PresetProgressA() >= 1.0))
         {
             m_presetChangeNotified = true;
             PresetSwitchRequestedEvent(false);
         }
-        else if (m_hardCutEnabled &&
-                 m_frameCount > 50 &&
-                 (audioData.vol - m_previousFrameVolume > m_hardCutSensitivity) &&
-                 m_timeKeeper->CanHardCut())
+        else if (m_switchScheduler->HardCutDue(m_hardCutEnabled &&
+                                                  m_frameCount > 50 &&
+                                                  (audioData.vol - m_previousFrameVolume > m_hardCutSensitivity) &&
+                                                  m_timeKeeper->CanHardCut(),
+                                              m_rhythmInfo))
         {
             m_presetChangeNotified = true;
             PresetSwitchRequestedEvent(true);
@@ -490,6 +505,8 @@ void ProjectM::SwitchToPreset(std::unique_ptr<Preset>&& preset, bool hardCut)
         preset->DrawInitialImage(m_activePreset->OutputTexture(), GetRenderContext());
     }
 
+    m_switchScheduler->PresetStarted();
+
     if (hardCut)
     {
         m_activePreset = std::move(preset);
@@ -497,10 +514,12 @@ void ProjectM::SwitchToPreset(std::unique_ptr<Preset>&& preset, bool hardCut)
     }
     else
     {
+        const double softCutDuration = PresetSwitchScheduler::SoftCutDuration(m_softCutDuration, m_softCutDurationBeats, m_rhythmInfo.bpm);
+        m_timeKeeper->ChangeSoftCutDuration(softCutDuration);
         m_transitioningPreset = std::move(preset);
         m_timeKeeper->StartSmoothing();
         auto transitionShader = m_transitionShaderManager->RandomTransition();
-        m_transition = std::make_unique<Renderer::PresetTransition>(transitionShader, m_softCutDuration, m_timeKeeper->GetFrameTime());
+        m_transition = std::make_unique<Renderer::PresetTransition>(transitionShader, softCutDuration, m_timeKeeper->GetFrameTime());
         if (m_transition && transitionShader)
         {
             m_transition->SetPassCount(m_transitionShaderManager->GetPassCount(transitionShader));
@@ -633,6 +652,61 @@ void ProjectM::SetBeatSensitivity(float sensitivity)
 auto ProjectM::GetBeatSensitivity() const -> float
 {
     return m_beatSensitivity;
+}
+
+auto ProjectM::RhythmInfo() const -> const Audio::RhythmInfo&
+{
+    return m_rhythmInfo;
+}
+
+void ProjectM::SetRhythmHint(float bpm)
+{
+    m_audioStorage.SetRhythmHint(bpm);
+}
+
+auto ProjectM::RhythmHint() const -> float
+{
+    return m_audioStorage.RhythmHint();
+}
+
+// The public enum and the scheduler's are two spellings of one list.
+static_assert(static_cast<int>(ProjectM::PresetSwitchPolicy::Bars) == static_cast<int>(PresetSwitchScheduler::Policy::Bars) &&
+                  static_cast<int>(ProjectM::PresetSwitchPolicy::Section) == static_cast<int>(PresetSwitchScheduler::Policy::Section),
+              "ProjectM::PresetSwitchPolicy and PresetSwitchScheduler::Policy are out of sync");
+
+void ProjectM::SetPresetSwitchPolicy(PresetSwitchPolicy policy, uint32_t bars)
+{
+    m_switchScheduler->SetPolicy(static_cast<PresetSwitchScheduler::Policy>(policy), bars);
+}
+
+auto ProjectM::GetPresetSwitchPolicy() const -> PresetSwitchPolicy
+{
+    return static_cast<PresetSwitchPolicy>(m_switchScheduler->GetPolicy());
+}
+
+auto ProjectM::PresetSwitchBars() const -> uint32_t
+{
+    return m_switchScheduler->Bars();
+}
+
+void ProjectM::SetSoftCutDurationBeats(double beats)
+{
+    m_softCutDurationBeats = std::isfinite(beats) && beats > 0.0 ? beats : 0.0;
+}
+
+auto ProjectM::SoftCutDurationBeats() const -> double
+{
+    return m_softCutDurationBeats;
+}
+
+void ProjectM::SetHardCutOnBeat(bool enabled)
+{
+    m_switchScheduler->SetHardCutOnBeat(enabled);
+}
+
+auto ProjectM::HardCutOnBeat() const -> bool
+{
+    return m_switchScheduler->HardCutOnBeat();
 }
 
 auto ProjectM::SoftCutDuration() const -> double

@@ -54,6 +54,11 @@ import {
 const DEFAULT_TARGET_FPS = 60;
 let canvasIdSerial = 0;
 
+/** The events `ProjectMContext.on()` routes from the engine's rhythm analysis. */
+const RHYTHM_EVENT_TYPES = Object.freeze(['beat', 'bar', 'section']);
+/** `set_preset_switch_policy()`'s policy numbers, by name (projectM-4/rhythm.h). */
+const PRESET_SWITCH_POLICIES = Object.freeze(['timer', 'bars', 'section']);
+
 /**
  * Boot a single projectM WASM Module *without* initialising an engine, so that
  * several `ProjectMContext` instances can share it and each create their own
@@ -171,6 +176,8 @@ function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
  * @typedef {import('./projectm-context-types.ts').ProjectMRenderTopology} ProjectMRenderTopology
+ * @typedef {import('./projectm-context-types.ts').ProjectMPresetSwitchPolicy} ProjectMPresetSwitchPolicy
+ * @typedef {import('./projectm-context-types.ts').ProjectMRhythmInfo} ProjectMRhythmInfo
  */
 
 /**
@@ -299,12 +306,19 @@ export class ProjectMContext {
      * Per-instance notifications, for hosts that want an event stream rather
      * than the `on*` options: `ready`, `error`, `audio-source`,
      * `preset-changed` and `destroy`, each a `CustomEvent` whose `detail`
-     * matches the corresponding callback's argument. Unlike the window-level
-     * `pm:*` events these belong to this context alone.
+     * matches the corresponding callback's argument, plus the musical-time
+     * events `beat`, `bar` and `section` (detail: a `RhythmEvent`) while
+     * someone listens to them through {@link ProjectMContext#on}. Unlike the
+     * window-level `pm:*` events these belong to this context alone.
      *
      * @type {EventTarget}
      */
     events = new EventTarget();
+
+    /** Live `on()` subscriptions to beat/bar/section; the engine reports only while there are any. */
+    #rhythmListeners = 0;
+    /** Unsubscribes from the transport's rhythm events, while subscribed. @type {(() => void) | null} */
+    #rhythmUnsubscribe = null;
 
     /**
      * Aborted by teardown: whatever `start()` is still awaiting gives up, and a
@@ -648,6 +662,8 @@ export class ProjectMContext {
                 setQualityGovernorEnabled(this.module, qualityGovernor);
             }
             transport.callVoid('setPresetLocked', presetLocked);
+            this.#applyRhythmOptions();
+            this.#syncRhythmEvents();
 
             // Governor v2 (docs/PERFORMANCE.md): sync the starting render scale, then
             // resize on every tier change (WasmPerfGovernor.cpp pushes here via
@@ -854,6 +870,10 @@ export class ProjectMContext {
         this.ready = false;
         this.#attempt?.abort();
         this.#attempt = null;
+        // The transport goes away with the engine; on() listeners stay registered
+        // and a later start() reconnects them.
+        this.#rhythmUnsubscribe?.();
+        this.#rhythmUnsubscribe = null;
 
         const disposers = this.#disposers.splice(0).reverse();
         for (const dispose of disposers) {
@@ -1061,6 +1081,182 @@ export class ProjectMContext {
         this.#activate();
         this.transport.callVoid('setTargetFps', fps);
         return fps;
+    }
+
+    /**
+     * Subscribes to one of this context's events and returns the unsubscribe
+     * function. Besides the lifecycle events of {@link ProjectMContext#events}
+     * this delivers the music's structure as it plays:
+     *
+     *  - `beat`: on every beat, *on* it rather than after it (the beat clock
+     *    predicts it), while the tempo is known.
+     *  - `bar`: on every downbeat.
+     *  - `section`: when a new part of the song starts.
+     *
+     * Each listener gets a `RhythmEvent` (bpm, beatIndex, barPhase,
+     * sectionIndex, confidence). The engine only reports while at least one
+     * beat/bar/section listener is subscribed, and only frames that carry an
+     * event — never every frame. Works the same in both render topologies, and
+     * may be called before start(): the subscription connects once the engine
+     * is up.
+     *
+     * @param {string} type
+     * @param {(detail: any) => void} listener
+     * @returns {() => void}
+     */
+    on(type, listener) {
+        const handler = (/** @type {Event} */ event) => listener(/** @type {CustomEvent} */ (event).detail);
+        this.events.addEventListener(type, handler);
+        const rhythm = RHYTHM_EVENT_TYPES.includes(type);
+        if (rhythm) {
+            this.#rhythmListeners++;
+            this.#syncRhythmEvents();
+        }
+        let subscribed = true;
+        return () => {
+            if (!subscribed) {
+                return;
+            }
+            subscribed = false;
+            this.events.removeEventListener(type, handler);
+            if (rhythm) {
+                this.#rhythmListeners--;
+                this.#syncRhythmEvents();
+            }
+        };
+    }
+
+    /**
+     * Uses a known tempo instead of estimating it (a MIDI clock, track
+     * metadata, a tap-tempo button). The beat phase still locks to the audio.
+     *
+     * @param {number} bpm Beats per minute, or 0 to go back to estimating.
+     */
+    setRhythmHint(bpm) {
+        this.#callRhythm('setRhythmHint', Number.isFinite(bpm) && bpm > 0 ? bpm : 0);
+    }
+
+    /**
+     * When the playlist moves on. See {@link ProjectMPresetSwitchPolicy}.
+     *
+     * @param {ProjectMPresetSwitchPolicy} policy
+     * @param {number} [bars] Bars per preset, or the shortest preset for `'section'`. Default 16.
+     */
+    setPresetSwitchPolicy(policy, bars = 16) {
+        const index = PRESET_SWITCH_POLICIES.indexOf(policy);
+        if (index < 0) {
+            throw new RangeError(`unknown preset switch policy: ${policy}`);
+        }
+        this.#callRhythm('setPresetSwitchPolicy', index, Number.isFinite(bars) && bars > 0 ? Math.round(bars) : 16);
+    }
+
+    /**
+     * Crossfade length in beats, resolved against the tempo when each crossfade
+     * starts; while the tempo is unknown the duration in seconds applies.
+     *
+     * @param {number} beats Beats, or 0 to use seconds only.
+     */
+    setTransitionDurationBeats(beats) {
+        this.#callRhythm('transitionSetDurationBeats', Number.isFinite(beats) && beats > 0 ? beats : 0);
+    }
+
+    /**
+     * Makes beat-detection hard cuts wait for the next beat.
+     *
+     * @param {boolean} enabled
+     */
+    setHardCutOnBeat(enabled) {
+        this.#callRhythm('setHardCutOnBeat', !!enabled);
+    }
+
+    /**
+     * Tempo and phase of the most recent frame, or null before start() or on a
+     * bundle without rhythm analysis. One round trip per field in the worker
+     * topology, so poll it for a display, not per frame.
+     *
+     * @returns {Promise<ProjectMRhythmInfo | null>}
+     */
+    async getRhythmInfo() {
+        const transport = this.transport;
+        if (!transport || !transport.supports('getRhythmBpm')) {
+            return null;
+        }
+        this.#activate();
+        const [bpm, beatPhase, barPhase, confidence, beatIndex, section] = await Promise.all([
+            transport.call('getRhythmBpm'),
+            transport.call('getRhythmBeatPhase'),
+            transport.call('getRhythmBarPhase'),
+            transport.call('getRhythmConfidence'),
+            transport.call('getRhythmBeatIndex'),
+            transport.call('getRhythmSection'),
+        ]);
+        return {
+            bpm: Number(bpm),
+            beatPhase: Number(beatPhase),
+            barPhase: Number(barPhase),
+            confidence: Number(confidence),
+            beatIndex: Number(beatIndex),
+            section: Number(section),
+        };
+    }
+
+    /**
+     * One rhythm control op, skipped on a bundle that predates it.
+     *
+     * @param {string} name
+     * @param {...unknown} args
+     */
+    #callRhythm(name, ...args) {
+        const transport = this.transport;
+        if (!transport || !transport.supports(name)) {
+            return;
+        }
+        this.#activate();
+        transport.callVoid(name, ...args);
+    }
+
+    /** Applies the rhythm options passed to the constructor, once the engine is up. */
+    #applyRhythmOptions() {
+        const { presetSwitchPolicy, presetSwitchBars, transitionBeats, rhythmHint } = this.options;
+        if (presetSwitchPolicy && presetSwitchPolicy !== 'timer') {
+            this.setPresetSwitchPolicy(presetSwitchPolicy, presetSwitchBars);
+        }
+        if (typeof transitionBeats === 'number' && transitionBeats > 0) {
+            this.setTransitionDurationBeats(transitionBeats);
+        }
+        if (typeof rhythmHint === 'number' && rhythmHint > 0) {
+            this.setRhythmHint(rhythmHint);
+        }
+    }
+
+    /**
+     * Connects the engine's rhythm events to this context while someone listens,
+     * and disconnects them (engine reporting included) when nobody does.
+     */
+    #syncRhythmEvents() {
+        const transport = this.transport;
+        const wanted = this.#rhythmListeners > 0 && !!transport && transport.supports('setRhythmEvents');
+        if (wanted && !this.#rhythmUnsubscribe && transport) {
+            this.#rhythmUnsubscribe = transport.onRhythmEvent((event) => {
+                // A shared Module reports every engine's events to every
+                // subscriber; keep this context's own.
+                if (this.hostHandle && event.host !== this.hostHandle) {
+                    return;
+                }
+                if (event.beat) this.#emit('beat', event);
+                if (event.bar) this.#emit('bar', event);
+                if (event.section) this.#emit('section', event);
+            });
+            this.#activate();
+            transport.callVoid('setRhythmEvents', true);
+        } else if (!wanted && this.#rhythmUnsubscribe) {
+            this.#rhythmUnsubscribe();
+            this.#rhythmUnsubscribe = null;
+            if (transport && transport.supports('setRhythmEvents')) {
+                this.#activate();
+                transport.callVoid('setRhythmEvents', false);
+            }
+        }
     }
 
     /**

@@ -27,6 +27,7 @@
 #include <MilkdropPreset/PerPixelContext.hpp>
 #include <MilkdropPreset/PerPixelGlslLowering.hpp>
 #include <MilkdropPreset/PresetFileParser.hpp>
+#include <MilkdropPreset/RhythmVariables.hpp>
 
 #include <glad/gl.h>
 
@@ -66,6 +67,7 @@ struct FrameState
     double readOnly[16]{};  //!< time, fps, frame, progress, bass..treb_att, meshx..aspecty
     double q[QVarCount]{};
     double seeds[kChannelCount]{}; //!< zoom, zoomexp, rot, warp, cx, cy, dx, dy, sx, sy
+    libprojectM::Audio::RhythmInfo rhythm; //!< The pm_* variables.
 };
 
 /** @brief One vertex's inputs: x, y, rad, ang. */
@@ -104,6 +106,22 @@ auto MakeFrameState(std::mt19937& rng) -> FrameState
     frame.readOnly[13] = 720.0;  // pixelsy
     frame.readOnly[14] = 1.0;    // aspectx
     frame.readOnly[15] = 1.0 / 1.2; // aspecty
+
+    frame.rhythm.bpm = 90.0f + 60.0f * static_cast<float>(unit(rng));
+    frame.rhythm.beatPhase = static_cast<float>(unit(rng));
+    frame.rhythm.beatPulse = static_cast<float>(unit(rng));
+    frame.rhythm.beatIndex = static_cast<std::uint64_t>(unit(rng) * 5000.0);
+    frame.rhythm.barPhase = static_cast<float>(unit(rng));
+    frame.rhythm.onset = static_cast<float>(unit(rng));
+    frame.rhythm.onsetLow = static_cast<float>(unit(rng));
+    frame.rhythm.onsetMid = static_cast<float>(unit(rng));
+    frame.rhythm.onsetHigh = static_cast<float>(unit(rng));
+    frame.rhythm.centroid = static_cast<float>(unit(rng));
+    frame.rhythm.flatness = static_cast<float>(unit(rng));
+    frame.rhythm.rms = static_cast<float>(unit(rng));
+    frame.rhythm.section = static_cast<int>(unit(rng) * 8.0);
+    frame.rhythm.sectionChanged = unit(rng) > 0.5;
+    frame.rhythm.confidence = static_cast<float>(unit(rng));
 
     for (auto& q : frame.q)
     {
@@ -202,6 +220,7 @@ void LoadFrame(PerPixelContext& context, const FrameState& frame)
     {
         *context.q_vars[i] = frame.q[i];
     }
+    context.rhythm.Load(frame.rhythm);
 }
 
 auto Channels(PerPixelContext& context) -> std::array<PRJM_EVAL_F*, kChannelCount>
@@ -490,6 +509,15 @@ void main()
         if (location >= 0)
         {
             glUniform1f(location, static_cast<float>(frame.readOnly[i]));
+        }
+    }
+    const auto rhythmValues = libprojectM::MilkdropPreset::RhythmVariables::Values(frame.rhythm);
+    for (int i = 0; i < libprojectM::MilkdropPreset::RhythmVariables::Count; i++)
+    {
+        const GLint location = glGetUniformLocation(program, PerPixelGlslLowering::RhythmUniformName(i).c_str());
+        if (location >= 0)
+        {
+            glUniform1f(location, static_cast<float>(rhythmValues[static_cast<std::size_t>(i)]));
         }
     }
     const GLint qLocation = glGetUniformLocation(program, "u_pp_q");
@@ -952,6 +980,40 @@ TEST_F(PerPixelGlslLoweringTest, ReadOnlyBuiltinsAndQVariablesAreReadable)
     ExpectAgrees("zoom = 1 + q1*0.1 + q32*0.1 + bass*0.01;"
                  "rot = time*0.001 + treb_att*0.01 + progress*0.1;"
                  "warp = meshx*0.001 + aspectx*0.1 + pixelsx*0.0001;");
+}
+
+TEST_F(PerPixelGlslLoweringTest, RhythmVariablesAreFrameUniforms)
+{
+    // The pm_* musical-time variables are frame constants like bass: reading them keeps a
+    // program on the GPU, as u_pp_pm_* uniforms.
+    const std::string code =
+        "zoom = 1 + pm_beat_pulse*0.1 + pm_onset_lo*0.05 + pow(1 - pm_beat_phase, 4)*0.02;"
+        "rot = pm_bar_phase*0.1 + (pm_beat_index % 4)*0.01 + pm_section*0.001 + pm_section_change*0.01;"
+        "warp = pm_bpm*0.001 + pm_rhythm_conf*0.1 + pm_centroid*0.1 + pm_flatness*0.1 + pm_rms*0.1"
+        " + pm_onset*0.01 + pm_onset_mid*0.01 + pm_onset_hi*0.01;";
+    ExpectAgrees(code);
+
+    LoweredProgram lowered;
+    EXPECT_EQ(SliceOf(code, lowered), nullptr);
+    ASSERT_TRUE(lowered.lowering.lowered) << lowered.lowering.reason;
+    for (int index = 0; index < libprojectM::MilkdropPreset::RhythmVariables::Count; index++)
+    {
+        EXPECT_NE(lowered.lowering.uniforms & PerPixelGlslLowering::RhythmUniformFlag(index), 0u)
+            << libprojectM::MilkdropPreset::RhythmVariables::Names[index];
+        EXPECT_NE(lowered.lowering.glsl.find("uniform float " + PerPixelGlslLowering::RhythmUniformName(index) + ";"),
+                  std::string::npos);
+    }
+}
+
+TEST_F(PerPixelGlslLoweringTest, RhythmVariableAssignedByThePresetIsALocal)
+{
+    // A preset may use a pm_* name for its own value; assigned before it is read, it is a
+    // plain local on both paths and the uniform is not read.
+    const std::string code = "pm_bpm = x*3; zoom = 1 + pm_bpm*0.01;";
+    ExpectAgrees(code);
+    LoweredProgram lowered;
+    EXPECT_EQ(SliceOf(code, lowered), nullptr);
+    EXPECT_EQ(lowered.lowering.uniforms & PerPixelGlslLowering::RhythmUniformFlag(libprojectM::MilkdropPreset::RhythmVariables::Bpm), 0u);
 }
 
 TEST_F(PerPixelGlslLoweringTest, EmptyProgramPassesTheSeedsThrough)

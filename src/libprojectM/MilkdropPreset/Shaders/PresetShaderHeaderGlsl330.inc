@@ -26,6 +26,10 @@ uniform float4   _c12;          // .xyz = mip info for main image
                                 // .w = unused
 uniform float4   _c13;          // .xy = blur2_min, blur2_max
                                 // .zw = blur3_min, blur3_max
+uniform float4   _c14;          // projectM: pm_bpm, pm_beat_phase, pm_beat_pulse, pm_bar_phase
+uniform float4   _c15;          // projectM: pm_onset, pm_onset_lo, pm_onset_mid, pm_onset_hi
+uniform float4   _c16;          // projectM: pm_centroid, pm_flatness, pm_rms, pm_rhythm_conf
+uniform float4   _c17;          // projectM: pm_beat_index, pm_section, pm_section_change, unused
 uniform float4   _qa;           // q vars bank 1 [q1-q4]
 uniform float4   _qb;           // q vars bank 2 [q5-q8]
 uniform float4   _qc;           // q vars ...
@@ -86,6 +90,21 @@ uniform float4x3 rot_rand4;
 #define mid_att  _c4.y
 #define treb_att _c4.z
 #define vol_att  _c4.w
+#define pm_bpm            _c14.x
+#define pm_beat_phase     _c14.y
+#define pm_beat_pulse     _c14.z
+#define pm_bar_phase      _c14.w
+#define pm_onset          _c15.x
+#define pm_onset_lo       _c15.y
+#define pm_onset_mid      _c15.z
+#define pm_onset_hi       _c15.w
+#define pm_centroid       _c16.x
+#define pm_flatness       _c16.y
+#define pm_rms            _c16.z
+#define pm_rhythm_conf    _c16.w
+#define pm_beat_index     _c17.x
+#define pm_section        _c17.y
+#define pm_section_change _c17.z
 #define q1 _qa.x
 #define q2 _qa.y
 #define q3 _qa.z

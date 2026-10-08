@@ -22,3 +22,7 @@ PROJECTM_EXPORT void projectm_load_preset_file(projectm_handle, const char*,
                                bool)
 {
 }
+
+PROJECTM_EXPORT void projectm_set_preset_switch_policy(projectm_handle, projectm_preset_switch_policy, uint32_t)
+{
+}

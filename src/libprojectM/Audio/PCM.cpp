@@ -37,7 +37,9 @@ void PCM::AddToBuffer(
         {
             m_inputBufferR[bufferOffset] = m_inputBufferL[bufferOffset];
         }
+        m_rhythmRing[(m_rhythmWritten + i) % RhythmRingSamples] = (m_inputBufferL[bufferOffset] + m_inputBufferR[bufferOffset]) * (0.5f / 128.0f);
     }
+    m_rhythmWritten += sampleCount;
     // Release fence ensures all buffer writes are visible before the updated index is published to readers.
     m_start.store((writeStart + sampleCount) % AudioBufferSamples, std::memory_order_release);
 }
@@ -78,6 +80,32 @@ void PCM::UpdateFrameAudioData(double secondsSinceLastFrame, uint32_t frame)
     m_treble.Update(m_spectrumL, secondsSinceLastFrame, frame);
 }
 
+void PCM::UpdateRhythmAnalysis(double secondsSinceLastFrame)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_pcmMutex);
+        // If the producer lapped the ring, only its latest contents are still there.
+        m_rhythmRead = std::max(m_rhythmRead, m_rhythmWritten > RhythmRingSamples ? m_rhythmWritten - RhythmRingSamples : 0);
+        m_rhythmSamples.resize(static_cast<size_t>(m_rhythmWritten - m_rhythmRead));
+        for (size_t i = 0; i < m_rhythmSamples.size(); i++)
+        {
+            m_rhythmSamples[i] = m_rhythmRing[(m_rhythmRead + i) % RhythmRingSamples];
+        }
+        m_rhythmRead = m_rhythmWritten;
+    }
+    m_rhythm.Update(m_rhythmSamples.data(), m_rhythmSamples.size(), secondsSinceLastFrame);
+}
+
+void PCM::SetRhythmHint(float bpm)
+{
+    m_rhythm.SetTempoHint(bpm);
+}
+
+auto PCM::RhythmHint() const -> float
+{
+    return m_rhythm.TempoHint();
+}
+
 auto PCM::GetFrameAudioData() const -> FrameAudioData
 {
     FrameAudioData data{};
@@ -97,6 +125,8 @@ auto PCM::GetFrameAudioData() const -> FrameAudioData
 
     data.vol = (data.bass + data.mid + data.treb) * 0.333f;
     data.volAtt = (data.bassAtt + data.midAtt + data.trebAtt) * 0.333f;
+
+    data.rhythm = m_rhythm.Info();
 
     return data;
 }

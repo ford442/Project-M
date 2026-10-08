@@ -39,6 +39,7 @@ namespace Perf {
 enum class Field
 {
     AudioAnalysis,   //!< PCM::UpdateFrameAudioData() - FFT + loudness analysis.
+    RhythmAnalysis,  //!< PCM::UpdateRhythmAnalysis() - onsets, tempo, beat phase, sections.
     PerFrameEval,    //!< Per-frame equation evaluation (init/per-frame code).
     PerPixelEval,    //!< Per-pixel mesh evaluation and warp draw.
     Blur,            //!< Blur texture chain update.

@@ -699,6 +699,17 @@ void PerPixelMesh::SetPerPixelUniforms(const Renderer::Shader& shader,
         }
     }
 
+    // The pm_* musical-time variables, from the per-frame context so a per-frame assignment
+    // carries over exactly as it does on the CPU path.
+    for (int index = 0; index < RhythmVariables::Count; index++)
+    {
+        if ((uniforms & PerPixelGlslLowering::RhythmUniformFlag(index)) != 0u)
+        {
+            shader.SetUniformFloat(PerPixelGlslLowering::RhythmUniformName(index).c_str(),
+                                   static_cast<float>(perFrameContext.rhythm.Value(static_cast<RhythmVariables::Index>(index))));
+        }
+    }
+
     if (presetState.perPixelGpuQVectors != 0u)
     {
         // All eight vectors in one call; the ones the shader does not read cost nothing.

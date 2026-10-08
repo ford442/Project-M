@@ -74,6 +74,12 @@ typedef struct {
      * another with the same value here.
      */
     int per_pixel_eval_path;
+    /**
+     * PCM::UpdateRhythmAnalysis() - onset detection, tempo, beat phase and sections (the
+     * pm_* preset variables). Not included in audio_analysis_ms.
+     * Fork extension; appended so existing field offsets are unchanged.
+     */
+    double rhythm_analysis_ms;
 } projectm_perf_frame_timings;
 
 /**

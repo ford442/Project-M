@@ -299,6 +299,26 @@ test('setupRenderWorker dispatches ready/unsupported/error/stats messages from t
     clearMockWorkerEnv();
 });
 
+test('rhythm events reach every subscriber until it unsubscribes', () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    try {
+        const first = [];
+        const second = [];
+        const unsubscribeFirst = handle.onRhythmEvent((event) => first.push(event.beatIndex));
+        handle.onRhythmEvent((event) => second.push(event.beatIndex));
+
+        handle.worker.emit({ type: 'rhythm-event', event: { beat: true, beatIndex: 1 } });
+        unsubscribeFirst();
+        handle.worker.emit({ type: 'rhythm-event', event: { beat: true, beatIndex: 2 } });
+
+        assert.deepEqual(first, [1]);
+        assert.deepEqual(second, [1, 2]);
+    } finally {
+        clearMockWorkerEnv();
+    }
+});
+
 test('perf frames and the HUD toggle reach every subscriber, one frame at a time', () => {
     installMockWorkerEnv();
     const handle = setupRenderWorker({ canvas: makeCanvas() });

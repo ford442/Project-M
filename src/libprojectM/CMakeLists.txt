@@ -28,6 +28,8 @@ add_library(projectM_main OBJECT
         PresetFactoryManager.hpp
         PresetPrepareJob.cpp
         PresetPrepareJob.hpp
+        PresetSwitchScheduler.cpp
+        PresetSwitchScheduler.hpp
         ProjectM.cpp
         ProjectM.hpp
         ProjectMCWrapper.cpp
@@ -182,6 +184,8 @@ if(BUILD_SHARED_LIBS)
                     "${CMAKE_CURRENT_SOURCE_DIR}/Audio/Loudness.hpp"
                     "${CMAKE_CURRENT_SOURCE_DIR}/Audio/MilkdropFFT.hpp"
                     "${CMAKE_CURRENT_SOURCE_DIR}/Audio/PCM.hpp"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/Audio/RhythmAnalyzer.hpp"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/Audio/RhythmInfo.hpp"
                     "${CMAKE_CURRENT_SOURCE_DIR}/Audio/WaveformAligner.hpp"
                     "${CMAKE_CURRENT_SOURCE_DIR}/Renderer/RenderContext.hpp"
                     "${CMAKE_CURRENT_SOURCE_DIR}/Renderer/TextureTypes.hpp"
@@ -248,6 +252,8 @@ if(ENABLE_INSTALL)
                     Audio/Loudness.hpp
                     Audio/MilkdropFFT.hpp
                     Audio/PCM.hpp
+                    Audio/RhythmAnalyzer.hpp
+                    Audio/RhythmInfo.hpp
                     Audio/WaveformAligner.hpp
                     DESTINATION "${PROJECTM_INCLUDE_DIR}/projectM-4/Audio"
                     COMPONENT Devel

@@ -168,6 +168,10 @@ export function createModuleTransport(module) {
             return subscribeWasmCallback('pmSetPerfHudEnabled', listener);
         },
 
+        onRhythmEvent(listener) {
+            return subscribeWasmCallback('pmOnRhythmEvent', listener);
+        },
+
         async recoverContext(width = 0, height = 0) {
             // init() replaces whatever engine is left and refuses with 5 while
             // the context is still lost; nothing is built in that case.
@@ -251,6 +255,10 @@ export function createWorkerTransport(handle) {
 
         onPerfHudEnabled(listener) {
             return handle.onPerfHudEnabled(listener);
+        },
+
+        onRhythmEvent(listener) {
+            return handle.onRhythmEvent(listener);
         },
 
         recoverContext() {

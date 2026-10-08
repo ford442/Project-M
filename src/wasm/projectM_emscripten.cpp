@@ -208,6 +208,23 @@ static void ReapplyEngineSettings(WasmHost& host)
     {
         projectm_set_transparency_threshold(pm, *settings.transparencyThreshold);
     }
+    if (settings.rhythmHint)
+    {
+        projectm_set_rhythm_hint(pm, *settings.rhythmHint);
+    }
+    if (settings.presetSwitchPolicy)
+    {
+        projectm_set_preset_switch_policy(pm, static_cast<projectm_preset_switch_policy>(settings.presetSwitchPolicy->first),
+                                          settings.presetSwitchPolicy->second);
+    }
+    if (settings.transitionBeats)
+    {
+        projectm_set_soft_cut_duration_beats(pm, *settings.transitionBeats);
+    }
+    if (settings.hardCutOnBeat)
+    {
+        projectm_set_hard_cut_on_beat(pm, *settings.hardCutOnBeat);
+    }
     ReapplyQualityTierLimits();
 }
 

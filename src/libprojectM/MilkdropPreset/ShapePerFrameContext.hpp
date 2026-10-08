@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PresetState.hpp"
+#include "RhythmVariables.hpp"
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -70,6 +71,8 @@ public:
     PRJM_EVAL_F* progress{};
     PRJM_EVAL_F* q_vars[QVarCount]{};
     PRJM_EVAL_F* t_vars[TVarCount]{};
+    RhythmVariables rhythm; //!< The read-only pm_* musical-time variables.
+
     PRJM_EVAL_F* bass{};
     PRJM_EVAL_F* mid{};
     PRJM_EVAL_F* treb{};

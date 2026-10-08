@@ -115,6 +115,19 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _deterministic_now_ms
     _deterministic_frame_index
     _set_render_loop_paused
+    _get_rhythm_bpm
+    _get_rhythm_beat_phase
+    _get_rhythm_bar_phase
+    _get_rhythm_confidence
+    _get_rhythm_beat_index
+    _get_rhythm_section
+    _set_rhythm_hint
+    _set_preset_switch_policy
+    _get_preset_switch_policy
+    _transition_set_duration_beats
+    _transition_get_duration_beats
+    _set_hard_cut_on_beat
+    _set_rhythm_events
 )
 
 projectm_wasm_join_exported_functions() {

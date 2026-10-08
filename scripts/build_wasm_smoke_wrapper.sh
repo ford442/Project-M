@@ -118,6 +118,7 @@ wrapper_sources=(
     "$PROJECT_ROOT/src/wasm/WasmPerfGovernor.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPlaylistBridge.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPresetPrepare.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmRhythm.cpp"
     "$PROJECT_ROOT/src/wasm/WasmJsBindings.cpp"
     "$PROJECT_ROOT/src/wasm/WasmDeterminism.cpp"
 )

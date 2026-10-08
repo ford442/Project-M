@@ -99,7 +99,20 @@ function delimiterBalance(code) {
   };
 }
 
-const AUDIO_VARS = /\b(bass|mid|treb|bass_att|mid_att|treb_att|vol|vol_att)\b/;
+const AUDIO_VARS = /\b(bass|mid|treb|bass_att|mid_att|treb_att|vol|vol_att|pm_[a-z_]+)\b/;
+// projectM's read-only musical-time variables (src/libprojectM/MilkdropPreset/
+// RhythmVariables.hpp, docs/MILK_PRESET_GUIDE.md "Musical time"). Keep in sync with
+// RhythmVariables::Names. Every name is pm_-prefixed: over a hundred presets in the
+// corpus already use `beat` as a local, so the engine takes no un-prefixed name.
+const RHYTHM_VARS = new Set([
+  'pm_bpm', 'pm_beat_phase', 'pm_beat_pulse', 'pm_beat_index', 'pm_bar_phase',
+  'pm_onset', 'pm_onset_lo', 'pm_onset_mid', 'pm_onset_hi',
+  'pm_centroid', 'pm_flatness', 'pm_rms',
+  'pm_section', 'pm_section_change', 'pm_rhythm_conf',
+]);
+// `pm_name =` but not `==`, `<=`, `>=`, `!=`.
+const PM_ASSIGNMENT = /(?<![=<>!])\b(pm_[a-z_]+)\s*(?:[-+*/%]?=)(?!=)/g;
+const PM_REFERENCE = /\bpm_[a-z_]+\b/g;
 // HLSL that has landed in an equation block. per_frame_*/per_pixel_* are a scalar
 // expression language: they have no types, no swizzles and no `ret` output. When a
 // preset's visual program is written in HLSL but stored under per_pixel_*, the
@@ -398,6 +411,36 @@ function auditText(text, rel) {
     }
   }
 
+  // -- musical-time variables --
+  // A pm_* name the engine does not provide is a typo: it reads 0 forever, silently.
+  // Assigning a real one is legal (it acts as a local for the rest of the frame) but
+  // almost always a mistake, and it hides the engine's value from later code.
+  const pmLine = (name) => {
+    for (const pieces of [...Object.values(g), ...Object.values(model.shaderPieces)]) {
+      const hit = pieces.find((p) => stripLineComment(p.value).includes(name));
+      if (hit) return hit.line;
+    }
+    return 1;
+  };
+  const allShaderText = Object.values(model.shaderPieces).flat().map((p) => stripLineComment(p.value)).join('\n');
+  const eqCode = [...g.per_frame_init, ...g.per_frame, ...g.per_pixel].map((e) => stripLineComment(e.value)).join('\n');
+  const pmNames = new Set([...(eqCode + '\n' + allShaderText).matchAll(PM_REFERENCE)].map((m) => m[0]));
+  for (const name of pmNames) {
+    if (!RHYTHM_VARS.has(name)) {
+      add('warn', 'unknown-rhythm-variable',
+        `\`${name}\` is not a projectM musical-time variable and reads 0 — known: ${[...RHYTHM_VARS].join(', ')}`,
+        pmLine(name));
+    }
+  }
+  for (const match of eqCode.matchAll(PM_ASSIGNMENT)) {
+    if (RHYTHM_VARS.has(match[1])) {
+      add('warn', 'assigns-rhythm-variable',
+        `assigns \`${match[1]}\`, a read-only projectM musical-time variable — the preset's value replaces the engine's for the rest of the frame; use a local name instead`,
+        pmLine(match[1]));
+      break;
+    }
+  }
+
   // -- shader bodies --
   let shaderLines = 0, tex2d = 0;
   for (const [target, pieces] of Object.entries(model.shaderPieces)) {
@@ -499,6 +542,19 @@ function selfTest() {
     has('MILKDROP_PRESET_VERSION=201\nPSVERSION_COMP=3\n[preset00]\n' + SHADER, 'psversion-without-shader'));
   check('PSVERSION_WARP with a warp body is fine',
     !has('MILKDROP_PRESET_VERSION=201\nPSVERSION_WARP=3\n[preset00]\n' + SHADER, 'psversion-without-shader'));
+
+  // -- musical-time variables --
+  check('reading pm_* variables is clean and audio-reactive',
+    codesOf(HDR + SHADER + 'per_frame_1=zoom = 1 + 0.1*pm_beat_pulse + 0.01*pm_bar_phase;\n').length === 0 &&
+    auditText(HDR + SHADER + 'per_frame_1=zoom = 1 + 0.1*pm_beat_pulse;\n', 'selftest.milk').reactive);
+  check('pm_* in a shader is clean',
+    codesOf(HDR + 'comp_1=`ret = tex2D(sampler_main, uv).xyz * (1 + pm_onset_lo);\n').length === 0);
+  check('misspelled pm_* -> warn',
+    has(HDR + SHADER + 'per_frame_1=zoom = 1 + pm_beatphase;\n', 'unknown-rhythm-variable'));
+  check('assigning pm_* -> warn',
+    has(HDR + SHADER + 'per_frame_1=pm_bpm = 120;\n', 'assigns-rhythm-variable'));
+  check('comparing pm_* is not an assignment',
+    !has(HDR + SHADER + 'per_frame_1=q1 = if(pm_section_change == 1, 1, 0); q2 = pm_bpm >= 100;\n', 'assigns-rhythm-variable'));
 
   // -- waivers --
   const NOSHADER = HDR + 'per_frame_1=x=1;\n';

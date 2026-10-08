@@ -360,3 +360,128 @@ test('recoverContext() reports -1 before start and otherwise rebuilds through th
     assert.equal(await context.recoverContext(), 5, 'the init() status reaches the caller unchanged');
     assert.deepEqual(recovered, [[1024, 576]]);
 });
+
+/**
+ * A transport that records control ops and hands the test the rhythm listener the
+ * context subscribes with.
+ *
+ * @param {{ supported?: boolean }} [options]
+ */
+function rhythmTransport({ supported = true } = {}) {
+    const transport = {
+        topology: 'main',
+        calls: /** @type {unknown[][]} */ ([]),
+        /** @type {((event: any) => void) | null} */
+        listener: null,
+        unsubscribed: 0,
+        supports: () => supported,
+        callVoid: (/** @type {string} */ name, /** @type {unknown[]} */ ...args) => transport.calls.push([name, ...args]),
+        call: async (/** @type {string} */ name) => ({
+            getRhythmBpm: 128,
+            getRhythmBeatPhase: 0.5,
+            getRhythmBarPhase: 0.125,
+            getRhythmConfidence: 0.9,
+            getRhythmBeatIndex: 64,
+            getRhythmSection: 3,
+        })[name],
+        onRhythmEvent: (/** @type {(event: any) => void} */ listener) => {
+            transport.listener = listener;
+            return () => {
+                transport.unsubscribed++;
+                transport.listener = null;
+            };
+        },
+    };
+    return transport;
+}
+
+test('on(beat/bar/section) turns the engine events on for as long as someone listens', () => {
+    const context = new ProjectMContext({ canvas: makeCanvas('rhythm-on') });
+    const transport = rhythmTransport();
+    context.transport = /** @type {any} */ (transport);
+
+    const beats = [];
+    const bars = [];
+    const sections = [];
+    const offBeat = context.on('beat', (event) => beats.push(event.beatIndex));
+    const offBar = context.on('bar', (event) => bars.push(event.beatIndex));
+    const offSection = context.on('section', (event) => sections.push(event.sectionIndex));
+    assert.deepEqual(transport.calls, [['setRhythmEvents', true]], 'one engine switch for any number of listeners');
+
+    transport.listener?.({ host: 1, beat: true, bar: false, section: false, beatIndex: 3, sectionIndex: 0 });
+    transport.listener?.({ host: 1, beat: true, bar: true, section: true, beatIndex: 4, sectionIndex: 1 });
+    assert.deepEqual(beats, [3, 4]);
+    assert.deepEqual(bars, [4]);
+    assert.deepEqual(sections, [1]);
+
+    offBeat();
+    offBeat();
+    offBar();
+    assert.deepEqual(transport.calls, [['setRhythmEvents', true]], 'still one listener left');
+    offSection();
+    assert.deepEqual(transport.calls, [['setRhythmEvents', true], ['setRhythmEvents', false]]);
+    assert.equal(transport.unsubscribed, 1);
+});
+
+test('on() before the engine is up connects nothing, and other event types never touch the engine', () => {
+    const context = new ProjectMContext({ canvas: makeCanvas('rhythm-early') });
+    const off = context.on('beat', () => {});
+    const offReady = context.on('ready', () => {});
+    assert.equal(context.transport, null);
+    off();
+    offReady();
+
+    const transport = rhythmTransport();
+    context.transport = /** @type {any} */ (transport);
+    const offPreset = context.on('preset-changed', () => {});
+    offPreset();
+    assert.deepEqual(transport.calls, []);
+});
+
+test('a context on a shared Module only hears its own engine\'s rhythm events', () => {
+    const context = new ProjectMContext({ canvas: makeCanvas('rhythm-host') });
+    const transport = rhythmTransport();
+    context.transport = /** @type {any} */ (transport);
+    context.hostHandle = 42;
+
+    const beats = [];
+    context.on('beat', (event) => beats.push(event.host));
+    transport.listener?.({ host: 7, beat: true });
+    transport.listener?.({ host: 42, beat: true });
+    assert.deepEqual(beats, [42]);
+});
+
+test('rhythm controls map to the engine ops and skip a bundle without them', async () => {
+    const context = new ProjectMContext({ canvas: makeCanvas('rhythm-controls') });
+    const transport = rhythmTransport();
+    context.transport = /** @type {any} */ (transport);
+
+    context.setPresetSwitchPolicy('bars', 32);
+    context.setPresetSwitchPolicy('section');
+    context.setTransitionDurationBeats(2);
+    context.setTransitionDurationBeats(-1);
+    context.setRhythmHint(174);
+    context.setRhythmHint(Number.NaN);
+    context.setHardCutOnBeat(true);
+    assert.deepEqual(transport.calls, [
+        ['setPresetSwitchPolicy', 1, 32],
+        ['setPresetSwitchPolicy', 2, 16],
+        ['transitionSetDurationBeats', 2],
+        ['transitionSetDurationBeats', 0],
+        ['setRhythmHint', 174],
+        ['setRhythmHint', 0],
+        ['setHardCutOnBeat', true],
+    ]);
+    assert.throws(() => context.setPresetSwitchPolicy(/** @type {any} */ ('phrase')), RangeError);
+
+    assert.deepEqual(await context.getRhythmInfo(), {
+        bpm: 128, beatPhase: 0.5, barPhase: 0.125, confidence: 0.9, beatIndex: 64, section: 3,
+    });
+
+    const old = rhythmTransport({ supported: false });
+    context.transport = /** @type {any} */ (old);
+    context.setPresetSwitchPolicy('bars');
+    context.on('beat', () => {});
+    assert.deepEqual(old.calls, []);
+    assert.equal(await context.getRhythmInfo(), null);
+});

@@ -62,6 +62,7 @@ void WaveformPerFrameContext::RegisterBuiltinVariables()
     REG_VAR(b);
     REG_VAR(a);
     REG_VAR(samples);
+    rhythm.Register(perFrameCodeContext);
 }
 
 void WaveformPerFrameContext::LoadStateVariables(PresetState& state, const PerFrameContext& presetPerFrameContext, CustomWaveform& waveform)
@@ -76,6 +77,7 @@ void WaveformPerFrameContext::LoadStateVariables(PresetState& state, const PerFr
     *bass_att = static_cast<double>(state.audioData.bassAtt);
     *mid_att = static_cast<double>(state.audioData.midAtt);
     *treb_att = static_cast<double>(state.audioData.trebAtt);
+    rhythm.Load(state.audioData.rhythm);
 
     for (int q = 0; q < QVarCount; q++)
     {

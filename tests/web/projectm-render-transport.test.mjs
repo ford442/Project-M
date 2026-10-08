@@ -334,6 +334,26 @@ test('perf frames come off the WASM callback bus on the main thread and off the 
     assert.deepEqual(subscriptions, [['frame', frameListener], ['hud', hudListener]]);
 });
 
+test('rhythm events come off the WASM callback bus on the main thread and off the worker otherwise', () => {
+    const main = createModuleTransport(fakeModule());
+    const beats = [];
+    const unsubscribe = main.onRhythmEvent((event) => beats.push(event.beatIndex));
+    try {
+        globalThis.pmOnRhythmEvent({ beat: true, beatIndex: 9 });
+        assert.deepEqual(beats, [9]);
+    } finally {
+        unsubscribe();
+    }
+    assert.equal('pmOnRhythmEvent' in globalThis, false, 'the last listener gives the engine hook back');
+
+    const handle = fakeHandle();
+    const subscriptions = [];
+    handle.onRhythmEvent = (listener) => { subscriptions.push(listener); return () => {}; };
+    const listener = () => {};
+    createWorkerTransport(handle).onRhythmEvent(listener);
+    assert.deepEqual(subscriptions, [listener]);
+});
+
 test('installTransportPcmWriter points the baked worklet handler at the transport', () => {
     const handle = fakeHandle();
     const remove = installTransportPcmWriter(createWorkerTransport(handle));

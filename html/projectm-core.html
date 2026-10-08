@@ -1316,7 +1316,30 @@ function resolveRenderWorkerConfig() {
         meshQuality = (navigator.hardwareConcurrency || 1) < 4 ? 'low' : 'high';
     }
 
-    return { targetFps, governor, meshQuality };
+    // Musical scheduling (projectM-4/rhythm.h): ?switchOn=bars|section switches
+    // presets on phrase boundaries instead of the timer, ?switchBars=16|32 sets
+    // the phrase length, ?transitionBeats=1 makes crossfades a beat long and
+    // ?bpm=128 supplies a known tempo instead of the estimate.
+    const switchOnParam = params.get('switchOn');
+    const presetSwitchPolicy = switchOnParam === 'bars' || switchOnParam === 'section' ? switchOnParam : 'timer';
+    const bars = parseInt(params.get('switchBars') || '', 10);
+    const presetSwitchBars = Number.isFinite(bars) && bars > 0 ? bars : 16;
+    const beats = parseFloat(params.get('transitionBeats') || '');
+    const transitionBeats = Number.isFinite(beats) && beats > 0 ? beats : 0;
+    const bpm = parseFloat(params.get('bpm') || '');
+    const rhythmHint = Number.isFinite(bpm) && bpm > 0 ? bpm : 0;
+    const rhythmDebug = params.get('rhythmDebug') === '1';
+
+    return {
+        targetFps,
+        governor,
+        meshQuality,
+        presetSwitchPolicy,
+        presetSwitchBars,
+        transitionBeats,
+        rhythmHint,
+        rhythmDebug,
+    };
 }
 
 async function attemptInit() {
@@ -1363,6 +1386,10 @@ async function attemptInit() {
                 targetFps: workerConfig.targetFps,
                 qualityGovernor: workerConfig.governor,
                 meshQuality: workerConfig.meshQuality,
+                presetSwitchPolicy: workerConfig.presetSwitchPolicy,
+                presetSwitchBars: workerConfig.presetSwitchBars,
+                transitionBeats: workerConfig.transitionBeats,
+                rhythmHint: workerConfig.rhythmHint,
                 onRenderWorkerFallback: (reason) => {
                     console.warn('[ProjectM] Render worker unavailable, rendering on the main thread:', reason);
                 },
@@ -1374,6 +1401,16 @@ async function attemptInit() {
             await pmContext.start();
             Module = pmContext.module;
             globalThis.Module = Module;
+
+            if (workerConfig.rhythmDebug) {
+                // ?rhythmDebug=1: log the music's structure as the engine hears it.
+                pmContext.on('bar', (event) => {
+                    console.info(`[ProjectM] bar  beat #${event.beatIndex}  ${event.bpm.toFixed(1)} BPM  confidence ${event.confidence.toFixed(2)}`);
+                });
+                pmContext.on('section', (event) => {
+                    console.info(`[ProjectM] section ${event.sectionIndex} at beat #${event.beatIndex}`);
+                });
+            }
 
             flushQueuedExternalPCM();
             installMediaElementSourceHook();

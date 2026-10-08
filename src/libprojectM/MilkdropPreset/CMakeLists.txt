@@ -146,7 +146,7 @@ target_link_libraries(MilkdropPreset
         libprojectM::API # For export header
         PUBLIC
         hlslparser
-        GLM::GLM
+        glm::glm
         )
 
 get_property(PROJECTM_EVAL_INTERNAL_TREE GLOBAL PROPERTY PROJECTM_EVAL_INTERNAL_TREE)

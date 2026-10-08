@@ -65,8 +65,12 @@ jobs:
         run: |
           if("${{ matrix.libs }}" -eq "shared") {
             $shared_libs = "ON"
+            $applocal_deps = "ON"
           } else {
             $shared_libs = "OFF"
+            # Static triplets link everything (incl. CRT) statically, so there are no DLLs to deploy.
+            # Disabling applocal removes a proven file-lock race (MSB3073, exit 32) with zero benefit lost.
+            $applocal_deps = "OFF"
           }
           if("${{ matrix.fslib }}" -eq "boost") {
             $use_boost = "ON"
@@ -100,6 +104,7 @@ jobs:
             -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>$($runtime)" `
             -DCMAKE_VERBOSE_MAKEFILE=YES `
             -DBUILD_SHARED_LIBS="$($shared_libs)" `
+            -DVCPKG_APPLOCAL_DEPS="$($applocal_deps)" `
             -DENABLE_BOOST_FILESYSTEM="$($use_boost)" `
             -DENABLE_CXX_INTERFACE=YES `
             -DBUILD_TESTING=YES `
@@ -133,9 +138,12 @@ jobs:
           }
           if("${{ matrix.libs }}" -eq "shared") {
             $runtime = "DLL"
+            $applocal_deps = "ON"
           } else {
             $runtime = ""
             $triplet = $triplet + "-static"
+            # Same as above: nothing to deploy for static builds, only file-lock risk.
+            $applocal_deps = "OFF"
           }
           if("${{ matrix.runs-on }}" -eq "windows-2022") {
             $generator = "Visual Studio 17 2022"
@@ -151,6 +159,7 @@ jobs:
             -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>$($runtime)" `
             -DCMAKE_TOOLCHAIN_FILE="${Env:VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET="$($triplet)" `
+            -DVCPKG_APPLOCAL_DEPS="$($applocal_deps)" `
             -DENABLE_BOOST_FILESYSTEM="$($use_boost)" `
             -DCMAKE_VERBOSE_MAKEFILE=ON
           

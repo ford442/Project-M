@@ -204,11 +204,13 @@ checked against `vendor/projectm-eval/projectm-eval/TreeFunctions.c` and is cove
 a differential test in `tests/libprojectM/PerPixelGlslLoweringTest.cpp`, which runs the
 emitted GLSL on a real GL context and compares it against the evaluator.
 
-**The two epsilons.** The evaluator has `close_factor` (1e-5) and `close_factor_low`
-(1e-300 for the 64-bit build). Only `band`, `bor` and `sigmoid` use the large one. For
-the small one there is nothing to emit: no 32-bit float holds a magnitude between
-1e-300 and zero, so the faithful rendering is an exact comparison against zero, not a
-chosen epsilon.
+**The epsilon.** Since projectm-eval 1.0.7 the evaluator has one comparison epsilon,
+`COMPARE_CLOSEFACTOR` (1e-5, the same as ns-eel2), and uses it wherever it tests a value
+for "zero" or two values for equality: `!`, `==`, `!=`, `&&`, `||`, `band`, `bor`, `/`,
+`/=`, the zero-base check in `pow` and `sigmoid`. The emitted code spells it out as a
+literal `1e-5`. `if()`, `%` and `sign()` still compare exactly against 0. (Before 1.0.7
+most of these used `close_factor_low`, 1e-300, which a 32-bit float can only render as an
+exact comparison against zero.)
 
 | Eval node (`prjm_eval_func_*`) | GLSL | Notes |
 |--------------------------------|------|-------|
@@ -216,13 +218,13 @@ chosen epsilon.
 | `set` | `v = rhs` | The evaluator resolves the target reference first, then the right-hand side, then writes. Statement value is the assigned value |
 | `add_op` … `pow_op` | `v = v OP rhs` | The evaluator reads `v` **after** the right-hand side has run. Emit in that order |
 | `add` `sub` `mul` `neg` | `+ - * -` | |
-| `div`, `div_op` | `(b == 0.0) ? 0.0 : a / b` | **The evaluator returns 0 on a zero divisor.** Not a bare `/` |
+| `div`, `div_op` | `(abs(b) < 1e-5) ? 0.0 : a / b` | **The evaluator returns 0 for a divisor within 1e-5 of zero.** Not a bare `/` |
 | `mod`, `mod_op` | `fa - fb*trunc(fa/fb)` on `trunc()`ed operands, 0 when the divisor truncates to 0 | **Integer C remainder, not floating `mod()`.** The evaluator casts both operands to `PRJM_EVAL_I` and takes `%`. GLSL ES leaves integer `%` and `/` undefined for negative operands, so it is rebuilt in floating point |
-| `equal` `notequal` | `float(a == b)` / `float(a != b)` | The evaluator compares against `close_factor_low`; see above |
+| `equal` `notequal` | `float(abs(a - b) < 1e-5)` / `float(abs(a - b) > 1e-5)` | See the epsilon above |
 | `below` `above` `beloweq` `aboveeq` | `float(a < b)` etc. | Returns 0.0/1.0 floats, not bools |
-| `bnot` | `float(a == 0.0)` | |
-| `boolean_and_op` / `boolean_or_op` (`&&`, `||`) | `if` on the first operand, second emitted inside | The evaluator short-circuits these. Emitting a GLSL `&&` would be right for the value and wrong for any side effect in the second operand |
-| `boolean_and_func` / `boolean_or_func` (`band` / `bor`) | `abs(a) > 1e-5 && abs(b) > 1e-5` | Two differences from `&&`: both arguments always run, **and** they use the large epsilon |
+| `bnot` | `float(abs(a) < 1e-5)` | |
+| `boolean_and_op` / `boolean_or_op` (`&&`, `||`) | `if (abs(a) > 1e-5)` / `if (abs(a) < 1e-5)` on the first operand, second emitted inside | The evaluator short-circuits these. Emitting a GLSL `&&` would be right for the value and wrong for any side effect in the second operand |
+| `boolean_and_func` / `boolean_or_func` (`band` / `bor`) | `abs(a) > 1e-5 && abs(b) > 1e-5` | Unlike `&&`, both arguments always run |
 | `bitwise_and` `bitwise_or` (+ `_op`) | `float(int(a) & int(b))` | `(5&(x*10-0.5))` appears in the worklist. Exact only within 32 bits; the evaluator truncates to 64 |
 | `sin` `cos` `tan` `atan` `exp` `floor` `ceil` `abs` `min` `max` | same | `int()` is an alias of `floor` in `TreeFunctions.c`, not a truncation |
 | `sign` | `sign(x)` | GLSL `sign` returns 0 for 0; so does the evaluator. Exact match |
@@ -231,8 +233,8 @@ chosen epsilon.
 | `log` / `log10` | `(x <= 0.0) ? 0.0 : log(x)` / `* 0.4342944819032518` | **Both** clamp non-positive inputs to 0. GLSL ES 3.00 has no `log10` |
 | `asin` / `acos` | `(x < -1.0 \|\| x > 1.0) ? 0.0 : asin(x)` | Out of range returns **0**, not a clamp and not NaN |
 | `atan2` | `atan(a, b)`, with a signed-zero branch | GLSL leaves `atan(0,0)` undefined; C `atan2` is defined and sign-aware (`atan2(-0,-0)` is `-pi`). The mesh's exact centre vertex has `rad == 0`, so this case is reachable — it was a real bug caught by the differential test |
-| `pow`, `pow_op` | `prjm_pow()` helper | Four rules: zero base with a negative exponent is 0, `pow(0,0)` is 1, a **negative base with an integral exponent** keeps C's defined result (GLSL's `pow` does not), and NaN becomes 0 |
-| `sigmoid` | `t = 1 + exp(-a*b); abs(t) > 1e-5 ? 1/t : 0` | Two arguments, and the large epsilon |
+| `pow`, `pow_op` | `prjm_pow()` helper | Four rules: a base within 1e-5 of zero with a negative exponent is 0, `pow(0,0)` is 1, a **negative base with an integral exponent** keeps C's defined result (GLSL's `pow` does not), and NaN becomes 0 |
+| `sigmoid` | `t = 1 + exp(-a*b); abs(t) > 1e-5 ? 1/t : 0` | Two arguments |
 | `if` | `if (c != 0.0) { … } else { … }` writing a temp | Only the taken branch runs. A `mix()` lowering would execute both branches' assignments |
 | `exec2` `exec3`, `execute_list` | statement sequence, value of the last | |
 | `execute_loop` | `for` with a compile-time bound | With **zero** iterations the evaluator returns the loop-count value, not 0 |

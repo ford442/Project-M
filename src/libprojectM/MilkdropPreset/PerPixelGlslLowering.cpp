@@ -249,11 +249,11 @@ using VariableKey = const PRJM_EVAL_F*;
 using VariableSet = std::set<VariableKey>;
 
 /*
- * The evaluator has two comparison epsilons. COMPARE_CLOSEFACTOR (1e-5) is used only by
- * band(), bor() and sigmoid(), and is spelled out literally in those helpers. Everything
- * else uses close_factor_low, which is 1e-300 for the 64-bit evaluator this tree builds:
- * no 32-bit float holds a magnitude between 1e-300 and zero, so the faithful GLSL
- * rendering of that epsilon is an exact comparison against zero, not a chosen epsilon.
+ * The evaluator compares against COMPARE_CLOSEFACTOR (1e-5) wherever it tests a value for
+ * "zero" or two values for equality: !, ==, !=, &&, ||, band(), bor(), / and /=, the
+ * zero-base check in pow() and sigmoid(). The emitted code spells that epsilon out as a
+ * literal 1e-5. The exceptions compare exactly and are emitted exactly: if() tests its
+ * condition against 0, and % and sign() test against an exact 0.
  */
 
 /** @brief Variables re-seeded on every vertex by the CPU loop; free to read and write. */
@@ -354,8 +354,8 @@ enum Helper
 };
 
 const char* const kHelperSource[HelperCount] = {
-    // HelperDiv: the evaluator returns 0 instead of raising on a zero divisor.
-    "float prjm_div(float a, float b) { return (b == 0.0) ? 0.0 : a / b; }\n",
+    // HelperDiv: the evaluator returns 0 instead of dividing by a divisor within 1e-5 of zero.
+    "float prjm_div(float a, float b) { return (abs(b) < 1e-5) ? 0.0 : a / b; }\n",
     // HelperMod: the evaluator truncates both operands to integer and takes a C
     // remainder. GLSL ES leaves integer % undefined for negative operands, so the
     // same result is built from trunc() in floating point instead.
@@ -365,10 +365,11 @@ const char* const kHelperSource[HelperCount] = {
     "    float fa = trunc(a);\n"
     "    return fa - fb * trunc(fa / fb);\n"
     "}\n",
-    // HelperPow: matches the evaluator's zero-base and NaN handling, and keeps C
+    // HelperPow: matches the evaluator's near-zero-base and NaN handling, and keeps C
     // pow()'s defined behaviour for a negative base with an integral exponent,
     // which GLSL pow() leaves undefined.
     "float prjm_pow(float a, float b) {\n"
+    "    if (abs(a) < 1e-5 && b < 0.0) { return 0.0; }\n"
     "    if (a == 0.0) { return (b == 0.0) ? 1.0 : 0.0; }\n"
     "    if (a < 0.0) {\n"
     "        if (b == trunc(b)) {\n"
@@ -1196,9 +1197,9 @@ private:
             const auto first = EmitExpression(node->args[0], indent);
             const auto temp = NextTemp();
             Line(indent, "float " + temp + " = " + (isAnd ? "0.0;" : "1.0;"));
-            Line(indent, "if (" + first + (isAnd ? " != 0.0) {" : " == 0.0) {"));
+            Line(indent, "if (abs(" + first + (isAnd ? ") > 1e-5) {" : ") < 1e-5) {"));
             const auto second = EmitConditional(node->args[1], indent + 1);
-            Line(indent + 1, temp + " = (" + second.first + " != 0.0) ? 1.0 : 0.0;");
+            Line(indent + 1, temp + " = (abs(" + second.first + ") > 1e-5) ? 1.0 : 0.0;");
             Line(indent, "}");
             return temp;
         }
@@ -1348,7 +1349,7 @@ private:
     auto UnaryOperator(prjm_eval_expr_func_t* func) -> UnaryEmitter
     {
         if (func == prjm_eval_func_neg) { return [](const std::string& a) { return "-" + a; }; }
-        if (func == prjm_eval_func_bnot) { return [](const std::string& a) { return "float(" + a + " == 0.0)"; }; }
+        if (func == prjm_eval_func_bnot) { return [](const std::string& a) { return "float(abs(" + a + ") < 1e-5)"; }; }
         if (func == prjm_eval_func_sin) { return [](const std::string& a) { return "sin(" + a + ")"; }; }
         if (func == prjm_eval_func_cos) { return [](const std::string& a) { return "cos(" + a + ")"; }; }
         if (func == prjm_eval_func_tan) { return [](const std::string& a) { return "tan(" + a + ")"; }; }
@@ -1374,8 +1375,8 @@ private:
         if (func == prjm_eval_func_mul) { return [](const std::string& a, const std::string& b) { return "(" + a + " * " + b + ")"; }; }
         if (func == prjm_eval_func_min) { return [](const std::string& a, const std::string& b) { return "min(" + a + ", " + b + ")"; }; }
         if (func == prjm_eval_func_max) { return [](const std::string& a, const std::string& b) { return "max(" + a + ", " + b + ")"; }; }
-        if (func == prjm_eval_func_equal) { return [](const std::string& a, const std::string& b) { return "float(" + a + " == " + b + ")"; }; }
-        if (func == prjm_eval_func_notequal) { return [](const std::string& a, const std::string& b) { return "float(" + a + " != " + b + ")"; }; }
+        if (func == prjm_eval_func_equal) { return [](const std::string& a, const std::string& b) { return "float(abs(" + a + " - " + b + ") < 1e-5)"; }; }
+        if (func == prjm_eval_func_notequal) { return [](const std::string& a, const std::string& b) { return "float(abs(" + a + " - " + b + ") > 1e-5)"; }; }
         if (func == prjm_eval_func_below) { return [](const std::string& a, const std::string& b) { return "float(" + a + " < " + b + ")"; }; }
         if (func == prjm_eval_func_above) { return [](const std::string& a, const std::string& b) { return "float(" + a + " > " + b + ")"; }; }
         if (func == prjm_eval_func_beloweq) { return [](const std::string& a, const std::string& b) { return "float(" + a + " <= " + b + ")"; }; }

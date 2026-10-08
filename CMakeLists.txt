@@ -75,7 +75,7 @@ set(PROJECTM_SO_VERSION "4")
 set(PROJECTM_LIBRARY_BASE_OUTPUT_NAME "projectM-${PROJECT_VERSION_MAJOR}")
 
 # The actual (full) library version of projectM
-set(PROJECTM_LIB_VERSION "${CMAKE_PROJECT_VERSION}")
+set(PROJECTM_LIB_VERSION "${PROJECT_VERSION}")
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECTM_SOURCE_DIR}/cmake")
 
@@ -291,7 +291,6 @@ message(STATUS "    OpenMP parallelization:      ${ENABLE_OPENMP}")
 if(ENABLE_OPENMP AND OpenMP_CXX_FOUND)
     message(STATUS "        OpenMP version:          ${OpenMP_CXX_VERSION}")
 endif()
-message(STATUS "    Link UI with shared lib:     ${ENABLE_SHARED_LINKING}")
 message(STATUS "")
 message(STATUS "Targets and applications:")
 message(STATUS "==============================================")

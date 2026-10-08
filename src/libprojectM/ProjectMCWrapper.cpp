@@ -23,6 +23,8 @@
 #include <omp.h>
 #endif
 
+#include <exception>
+
 #include <cstring>
 #include <sstream>
 
@@ -87,6 +89,8 @@ projectm_handle projectm_create()
 
 projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const char*, void*), void* user_data)
 {
+    using libprojectM::Logging;
+
     try
     {
         // Init resolver to discover gl function pointers (guarded internally, valid to call multiple times)
@@ -106,8 +110,15 @@ projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const c
         auto* projectMInstance = new libprojectM::projectMWrapper();
         return reinterpret_cast<projectm_handle>(projectMInstance);
     }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("projectm_create_with_opengl_load_proc caught exception:");
+        LOG_ERROR(e.what());
+        return nullptr;
+    }
     catch (...)
     {
+        LOG_ERROR("projectm_create_with_opengl_load_proc caught unknown exception");
         return nullptr;
     }
 }
@@ -782,7 +793,7 @@ float projectm_get_transparency_threshold(projectm_handle instance)
 
 unsigned int projectm_pcm_get_max_samples()
 {
-    return libprojectM::Audio::WaveformSamples;
+    return libprojectM::Audio::AudioBufferSamples;
 }
 
 template<class BufferType>
@@ -867,6 +878,19 @@ uint32_t projectm_sprite_get_max_sprites(projectm_handle instance)
     return projectMInstance->UserSpriteLimit();
 }
 
+double projectm_sprite_get_var(projectm_handle instance, uint32_t sprite_id, const char* var_name)
+{
+    auto* projectMInstance = handle_to_instance(instance);
+
+    return projectMInstance->UserSpriteGetVariableValue(sprite_id, var_name);
+}
+
+void projectm_sprite_set_var(projectm_handle instance, uint32_t sprite_id, const char* var_name, double value)
+{
+    auto* projectMInstance = handle_to_instance(instance);
+
+    projectMInstance->UserSpriteSetVariableValue(sprite_id, var_name, value);
+}
 void projectm_set_log_callback(projectm_log_callback callback, bool current_thread_only, void* user_data)
 {
     if (current_thread_only)

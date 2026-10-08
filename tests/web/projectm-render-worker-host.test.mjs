@@ -21,6 +21,8 @@ import test from 'node:test';
 import {
     isRenderWorkerEnabled,
     isRenderWorkerSupported,
+    offscreenCanvasSupportsWebGL2,
+    renderWorkerUnsupportedReason,
     resolveRenderPathOverrides,
     setupRenderWorker,
 } from '../../html/projectm-render-worker-host.js';
@@ -41,9 +43,27 @@ class FakeWorker {
     }
 }
 
+/**
+ * An OffscreenCanvas that can give out a WebGL2 context, as Chromium, Firefox
+ * 105+ and Safari 17+ do. The context is a stub that records the probe's
+ * release of it.
+ */
+class WebGL2OffscreenCanvas {
+    static released = 0;
+
+    getContext(kind) {
+        if (kind !== 'webgl2') return null;
+        return {
+            getExtension: (name) => (name === 'WEBGL_lose_context'
+                ? { loseContext: () => { WebGL2OffscreenCanvas.released += 1; } }
+                : null),
+        };
+    }
+}
+
 function installMockWorkerEnv() {
     globalThis.Worker = FakeWorker;
-    globalThis.OffscreenCanvas = class {};
+    globalThis.OffscreenCanvas = WebGL2OffscreenCanvas;
 }
 
 function clearMockWorkerEnv() {
@@ -95,6 +115,64 @@ test('isRenderWorkerSupported requires transferControlToOffscreen, Worker, and O
     assert.equal(isRenderWorkerSupported(null), false);
     assert.equal(isRenderWorkerSupported({}), false, 'canvas without transferControlToOffscreen');
     clearMockWorkerEnv();
+});
+
+// The browser matrix (docs/PERFORMANCE.md "Render-worker browser matrix"):
+// Safari 16.4-16.x has OffscreenCanvas and transferControlToOffscreen() but only
+// a 2D context. Transferring there leaves the fallback without a canvas, so the
+// probe has to refuse *before* the transfer.
+test('a browser whose OffscreenCanvas has no WebGL2 (Safari < 17) keeps the canvas on the main thread', () => {
+    globalThis.Worker = FakeWorker;
+    globalThis.OffscreenCanvas = class { getContext(kind) { return kind === '2d' ? {} : null; } };
+    try {
+        let transferred = false;
+        const canvas = { transferControlToOffscreen() { transferred = true; return {}; } };
+        assert.equal(offscreenCanvasSupportsWebGL2(), false);
+        assert.equal(isRenderWorkerSupported(canvas), false);
+        assert.match(renderWorkerUnsupportedReason(canvas), /no WebGL2 context \(Safari < 17\)/);
+
+        let reason = null;
+        const handle = setupRenderWorker({ canvas, onUnsupported: (r) => { reason = r; } });
+        assert.equal(handle, null);
+        assert.match(reason, /no WebGL2 context/);
+        assert.equal(transferred, false, 'the canvas must still belong to the page');
+    } finally {
+        clearMockWorkerEnv();
+    }
+});
+
+test('the WebGL2 probe releases its context, is cached per constructor, and survives a throwing getContext', () => {
+    installMockWorkerEnv();
+    // A constructor no earlier test has probed: the answer is cached per constructor.
+    globalThis.OffscreenCanvas = class extends WebGL2OffscreenCanvas {};
+    try {
+        const releasedBefore = WebGL2OffscreenCanvas.released;
+        assert.equal(offscreenCanvasSupportsWebGL2(), true);
+        assert.equal(offscreenCanvasSupportsWebGL2(), true);
+        assert.equal(WebGL2OffscreenCanvas.released - releasedBefore, 1, 'probed once, context released');
+    } finally {
+        clearMockWorkerEnv();
+    }
+
+    globalThis.OffscreenCanvas = class { getContext() { throw new Error('SecurityError'); } };
+    try {
+        assert.equal(offscreenCanvasSupportsWebGL2(), false);
+    } finally {
+        clearMockWorkerEnv();
+    }
+    assert.equal(offscreenCanvasSupportsWebGL2(), false, 'no OffscreenCanvas at all');
+});
+
+test('the unsupported reason names the missing capability', () => {
+    clearMockWorkerEnv();
+    assert.match(renderWorkerUnsupportedReason({}), /transferControlToOffscreen/);
+    assert.match(renderWorkerUnsupportedReason(makeCanvas()), /^Worker unavailable/);
+    globalThis.Worker = FakeWorker;
+    try {
+        assert.match(renderWorkerUnsupportedReason(makeCanvas()), /^OffscreenCanvas unavailable/);
+    } finally {
+        clearMockWorkerEnv();
+    }
 });
 
 test('setupRenderWorker returns null and calls onUnsupported when the platform lacks support', () => {
@@ -219,6 +297,55 @@ test('setupRenderWorker dispatches ready/unsupported/error/stats messages from t
     assert.equal(events.error, 'worker crashed');
 
     clearMockWorkerEnv();
+});
+
+test('perf frames and the HUD toggle reach every subscriber, one frame at a time', () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    try {
+        const frames = [];
+        const toggles = [];
+        const unsubscribeFrames = handle.onPerfFrame((stats) => frames.push(stats.totalMs));
+        handle.onPerfHudEnabled((enabled) => toggles.push(enabled));
+        // A subscriber that throws must not starve the others or break the handler.
+        const originalError = console.error;
+        console.error = () => {};
+        const unsubscribeThrower = handle.onPerfFrame(() => { throw new Error('hud bug'); });
+        try {
+            handle.worker.emit({ type: 'perf-hud', enabled: true });
+            handle.worker.emit({ type: 'perf-frames', frames: [{ totalMs: 1 }, { totalMs: 2 }] });
+        } finally {
+            console.error = originalError;
+            unsubscribeThrower();
+        }
+        assert.deepEqual(toggles, [true]);
+        assert.deepEqual(frames, [1, 2], 'a batch is replayed in order');
+
+        unsubscribeFrames();
+        handle.worker.emit({ type: 'perf-frames', frames: [{ totalMs: 3 }] });
+        assert.deepEqual(frames, [1, 2]);
+    } finally {
+        clearMockWorkerEnv();
+    }
+});
+
+test('the last stats message is kept for late subscribers', () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    try {
+        assert.equal(handle.getLastStats(), null);
+        const seen = [];
+        const unsubscribe = handle.onStats((stats) => seen.push(stats.fboFormat));
+        handle.worker.emit({ type: 'stats', fps: 60, fboFormat: 2, qualityTier: 0 });
+        assert.equal(handle.getLastStats().fboFormat, 2);
+        assert.deepEqual(seen, [2]);
+        unsubscribe();
+        handle.worker.emit({ type: 'stats', fps: 60, fboFormat: 0, qualityTier: 0 });
+        assert.deepEqual(seen, [2]);
+        assert.equal(handle.getLastStats().fboFormat, 0);
+    } finally {
+        clearMockWorkerEnv();
+    }
 });
 
 test('setupRenderWorker.ccall resolves its promise from a matching ccall-result message', async () => {

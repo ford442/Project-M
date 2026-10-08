@@ -344,6 +344,50 @@ void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
     out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
 }
 
+// The C and C++ enums are two spellings of one list; this is what keeps them in step.
+static_assert(static_cast<int>(libprojectM::Perf::GpuStage::Count) == PROJECTM_PERF_GPU_STAGE_COUNT,
+              "projectm_perf_gpu_stage and libprojectM::Perf::GpuStage are out of sync");
+static_assert(static_cast<int>(libprojectM::Perf::GpuStage::Present) == PROJECTM_PERF_GPU_STAGE_PRESENT,
+              "projectm_perf_gpu_stage and libprojectM::Perf::GpuStage are out of sync");
+
+namespace {
+
+struct GpuStageCallbackBinding {
+    projectm_perf_gpu_stage_callback callback{nullptr};
+    void* userData{nullptr};
+};
+
+GpuStageCallbackBinding g_gpuStageBinding;
+
+void ForwardGpuStage(libprojectM::Perf::GpuStage stage, void* userData)
+{
+    const auto* binding = static_cast<const GpuStageCallbackBinding*>(userData);
+    if (binding->callback != nullptr)
+    {
+        binding->callback(static_cast<projectm_perf_gpu_stage>(stage), binding->userData);
+    }
+}
+
+} // namespace
+
+void projectm_perf_set_gpu_stage_callback(projectm_perf_gpu_stage_callback callback, void* user_data)
+{
+    g_gpuStageBinding.callback = callback;
+    g_gpuStageBinding.userData = user_data;
+    libprojectM::Perf::SetGpuStageCallback(callback != nullptr ? &ForwardGpuStage : nullptr, &g_gpuStageBinding);
+}
+
+projectm_perf_gpu_stage projectm_perf_enter_gpu_stage(projectm_perf_gpu_stage stage)
+{
+    const int index = static_cast<int>(stage);
+    if (index < 0 || index >= PROJECTM_PERF_GPU_STAGE_COUNT)
+    {
+        return static_cast<projectm_perf_gpu_stage>(libprojectM::Perf::CurrentGpuStage());
+    }
+    return static_cast<projectm_perf_gpu_stage>(
+        libprojectM::Perf::EnterGpuStage(static_cast<libprojectM::Perf::GpuStage>(index)));
+}
+
 void projectm_perf_get_openmp_info(projectm_perf_openmp_info* out_info)
 {
 #ifdef PRJM_ENABLE_OPENMP

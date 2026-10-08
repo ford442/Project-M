@@ -114,16 +114,16 @@ Use `html/projectm-core.html?perfhud=1` and `?benchmark=1&frames=500&preset=...`
 
 | HUD signal | Likely cause | Issue |
 |------------|--------------|-------|
-| High `compositeMs`/`gpuMs`, no transition | Old every-frame Dual blit, or Y-flip chain | #175, #176 |
-| High `blurMs` | Blur passes (the `glCopyTexSubImage2D` copies are gone as of #177) | #177 |
-| High `perPixelEvalMs` | 80×60 mesh / OpenMP pool | #178 (+ existing mesh/OpenMP work) |
-| Spike only during soft-cut | Dual FBO float bandwidth / double render | #175 |
+| High GPU `Y-flip copies` (`gpuCopyMs`) | Remaining Y-flip passes | #176 |
+| High GPU `Present` (`gpuPresentMs`), no transition | Old every-frame Dual blit (should be gone) | #175 |
+| High GPU `Blur` (`gpuBlurMs`) | Blur passes (the `glCopyTexSubImage2D` copies are gone as of #177) | #177 |
+| High CPU `perPixelEvalMs` | 80×60 mesh / OpenMP pool | #178 (+ existing mesh/OpenMP work) |
+| High GPU `Present` only during soft-cut | Dual FBO float bandwidth / double render | #175 |
 | Mobile-only `gpuMs` | Canvas MSAA + fill rate | #178 |
 
-> ⚠️ This mapping assumes the per-stage buckets measure GPU cost. They do not — see
+> Read stage costs off the HUD's **GPU** column (per-stage `TIME_ELAPSED` queries), not the
+> CPU column: the CPU buckets are submit time. See
 > [Measurement: what the HUD can and cannot tell you](#measurement-what-the-hud-can-and-cannot-tell-you).
-> `gpuMs` is real but whole-frame, so it answers "GPU-bound or CPU-bound?" and not
-> "which GPU stage?".
 
 ---
 
@@ -683,43 +683,64 @@ epic.
 
 ## Measurement: what the HUD can and cannot tell you
 
-Worth settling before anyone ranks suspects, because the cheat sheet above over-promises.
+Worth settling before anyone ranks suspects.
 
-**`gpuMs` is real.** `EXT_disjoint_timer_query_webgl2` is wired up
-(`WasmPerfGovernor.cpp:21-67`): one `TIME_ELAPSED` query wraps each `render_frame()`,
-results are polled non-blocking, and disjoint frames are discarded. It reports
-**whole-frame** GPU time.
+**`gpuMs` and the GPU stage column are real.** `EXT_disjoint_timer_query_webgl2` is wired
+up in `src/wasm/WasmPerfGovernor.cpp`. `TIME_ELAPSED` queries cannot nest, so instead of one query
+around `render_frame()` the frame is cut into consecutive segments, one query each, labelled with
+the libprojectM GPU stage current while it ran (`projectm_perf_set_gpu_stage_callback()`; stage
+scopes in `MilkdropPreset::RenderFrame()` / `ProjectM::RenderFrame()`, the Dual-FBO compositor
+marked from the host). Results are polled non-blocking and disjoint frames discarded, as before.
+`gpuWarpMs`, `gpuBlurMs`, `gpuShapesMs`, `gpuCopyMs` (the Y-flips), `gpuCompositeMs`,
+`gpuPresentMs` and `gpuOtherMs` tile the frame and sum to `gpuMs`.
 
-**The per-stage buckets are CPU time.** `PerfTimers.hpp` is a `steady_clock` scoped
-timer (`Field::Blur`, `Field::Composite`, `Field::PerPixelEval`, …), so each bucket
-measures how long it took to *submit* that stage's GL calls, not to execute them. GL is
-asynchronous and there is no `glFinish`/`glFlush` in the frame path, so fill-rate costs
-(MSAA resolve, RGBA32F bandwidth, extra fullscreen flips, blur fill) largely do not
-appear in the stage that caused them.
+**The CPU buckets are still CPU time.** `PerfTimers.hpp` is a `steady_clock` scoped timer, so each
+CPU bucket measures how long it took to *submit* that stage's GL calls. They remain the truth for
+`perPixelEvalMs` (on the CPU path) and `audioMs`, which are genuinely CPU work; they say nothing
+about fill rate.
 
 Practical consequences:
 
-- ✅ `totalMs` vs `gpuMs` reliably answers **CPU-bound or GPU-bound**.
-- ✅ `perPixelEvalMs` and `audioMs` are trustworthy — genuinely CPU work.
-- ❌ `compositeMs` will **not** rise when the Y-flip chain gets expensive; that cost
-  lands in `gpuMs`, undifferentiated.
-- ⚠️ `blurMs` is a **biased** estimator: it is visible only because
-  `glCopyTexSubImage2D` can force ordering. It flags blur because blur is the stage
-  that syncs, not because blur is necessarily the most expensive.
+- ✅ `totalMs` vs `gpuMs` answers **CPU-bound or GPU-bound**.
+- ✅ The GPU column ranks the GPU stages against each other — the question the CPU column could
+  not answer (`compositeMs` never rose with the Y-flip chain; `blurMs` was visible only because
+  `glCopyTexSubImage2D` forced ordering).
+- ✅ The HUD works in the default render-worker topology (`?perfhud=1`), not only with
+  `?renderWorker=0`: the worker relays the engine's perf frames.
+- ⚠️ Timer granularity and query overhead: a stage of a few microseconds is in the noise, and
+  each boundary is a query, so the HUD-on frame is slightly more expensive than a HUD-off one.
+  Compare like with like (HUD on in both runs).
+- ⚠️ Safari and most mobile browsers do not expose the extension; there every GPU field is `n/a`
+  and only the ablation route below is available.
 
-To actually rank #176 vs #177 vs #178 against each other, one of:
+The ablation switches stay as the second, independent route: `?copyPath=shader`,
+`?blurPath=copy`, `?perPixelEval=cpu`, then diff `gpuMs` across otherwise identical
+`?benchmark=1` runs.
 
-1. **Per-stage GPU queries** — nest `TIME_ELAPSED` queries per stage. Cleanest signal.
-   Note that timer queries cannot be nested in a single query object, so this means one
-   query per stage per frame and more polling bookkeeping; the existing
-   `Module.__pmPerfGpuByCtx` (per-context query ring) is the place to extend.
-2. **A/B ablation** — a runtime toggle per suspect (skip the third flip, force
-   `BlurLevel::None`, `antialias:false`, force RGBA16F, `?meshQuality=low`), then diff
-   `gpuMs` across otherwise identical `?benchmark=1` runs. Cruder, but needs no new
-   timing infrastructure and directly answers "what would I gain by fixing this?".
+### The remaining Y-flips: decided by measurement, not yet measured
 
-Option 2 is the cheaper first move and is the recommended way to satisfy the epic's
-"rank before coding" step.
+| Site | When | Status |
+|---|---|---|
+| Pre-warp `m_flipTexture.Draw(..., true)` | custom warp shader only | still a fullscreen pass (default warp folds it into `u_flipMainTex`, #176) |
+| Pre-composite flip | every frame | still a pass; `CopyTexture::TryBlit()` may hardware-blit it (`?copyPath=shader` forces the quad) |
+| Third flip | no composite shader | still a pass |
+
+All three are now timed as `gpuCopyMs`, and `tests/libprojectM/PerfGpuStageTest.cpp` pins how many
+each preset shape pays (two without a composite shader, one with, two with a custom warp). The
+rule: **if `gpuCopyMs` is in the noise next to `perPixelEvalMs`, stop** — record the
+measurement and leave the passes in, so #227 does not treat them as a reason to rewrite the
+renderer. Only if it is not:
+
+- fold the pre-composite flip into `FinalComposite` sample UVs (the default-warp trick);
+- keep a blit (not a shader quad) for the custom-warp `sampler_main` flip;
+- third flip: UV in the old-school composite, or `TryBlit` with an inverted destination.
+
+**Status:** no hardware run exists yet (every committed `benchmark-results/*.json` is
+`softwareGl: true`), so neither outcome is recorded and the passes are unchanged. The measurement
+is `formatGpuStageTable()`'s `copy / GPU` and `CPU per-pixel` columns on a hardware record from
+`presets/benchmark_hardware.json` — see
+[GRAPHICS_BENCHMARK_HARNESS.md "Hardware baseline"](GRAPHICS_BENCHMARK_HARNESS.md#hardware-baseline).
+Record the verdict here, with the record's commit and runner, when it exists.
 
 ---
 

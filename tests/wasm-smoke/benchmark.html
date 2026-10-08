@@ -15,6 +15,7 @@
   <div id="stat"></div>
   <script type="module">
     import { setupPerfTools } from '../../html/projectm-perf.js';
+    import { startTransitionWhenReady } from '../../html/projectm-transitions.js';
     import { feedPcmToModule, generateBeatPulse, PROJECTM_ANALYSIS_WINDOW } from '../../html/projectm-synthetic-audio.js';
 
     function percentile(sortedValues, p) {
@@ -115,6 +116,11 @@
         .split(',')
         .map((p) => p.trim())
         .filter(Boolean);
+      // Parallel to presetList: 'steady' (default) or 'crossfade', which samples
+      // only frames rendered while a soft cut from the previous preset blends —
+      // the Dual-FBO path a steady-state run never touches.
+      const modes = (params.get('modes') || '').split(',').map((m) => m.trim());
+      const targetFps = parseFloat(params.get('targetFps')) || 60;
 
       await loadScript(moduleSrc);
       if (typeof createModule !== 'function') {
@@ -149,6 +155,9 @@
       const frameSamples = [];
       const originalOnPerfFrame = window.pmOnPerfFrame;
       window.pmOnPerfFrame = (stats) => {
+        // Tagged when reported, i.e. right after the frame rendered: crossfade
+        // sampling keeps only frames drawn while a blend was in progress.
+        stats.inTransition = !!(Module._transition_is_active && Module._transition_is_active() !== 0);
         frameSamples.push(stats);
         if (typeof originalOnPerfFrame === 'function') {
           originalOnPerfFrame(stats);
@@ -165,10 +174,45 @@
         audioPhase += 1;
       }
 
+      const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
+
+      // Keeps soft cuts between `fromVfs` and `toVfs` going (back and forth) until
+      // `framesPerPreset` mid-blend frames are collected.
+      async function sampleCrossfade(fromVfs, toVfs) {
+        const collected = [];
+        const durationSec = Math.max(2, (framesPerPreset / targetFps) * 1.5);
+        let target = toVfs;
+        let other = fromVfs;
+        for (let attempt = 0; attempt < 12 && collected.length < framesPerPreset; attempt += 1) {
+          Module.ccall('load_preset_file', null, ['string'], [target]);
+          const started = await startTransitionWhenReady({ module: Module, durationSec, timeoutFrames: 1200 });
+          if (!started) {
+            throw new Error('crossfade to ' + target + ' never started (no dual-FBO transition API, or the preset never became ready)');
+          }
+          let seen = frameSamples.length;
+          while (collected.length < framesPerPreset) {
+            feedSyntheticAudio();
+            await nextFrame();
+            for (const sample of frameSamples.slice(seen)) {
+              if (sample.inTransition && collected.length < framesPerPreset) collected.push(sample);
+            }
+            seen = frameSamples.length;
+            if (!Module._transition_is_active()) break;
+          }
+          [target, other] = [other, target];
+        }
+        if (collected.length < framesPerPreset) {
+          throw new Error('crossfade sampling collected ' + collected.length + '/' + framesPerPreset + ' mid-blend frames');
+        }
+        return collected;
+      }
+
       const presetResults = [];
       const switchMs = [];
+      let previousVfsPath = null;
 
-      for (const presetUrl of presetList) {
+      for (const [presetIndex, presetUrl] of presetList.entries()) {
+        const mode = modes[presetIndex] === 'crossfade' ? 'crossfade' : 'steady';
         const vfsPath = vfsPathFromUrl(presetUrl);
         const presetBytes = await fetchPresetBytes(presetUrl);
         try { Module.FS.mkdir('/presets'); } catch (_) {}
@@ -182,37 +226,57 @@
         }
         Module.FS.writeFile(vfsPath, presetBytes);
 
-        const switchStart = performance.now();
-        const loadCallStart = performance.now();
-        Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
-        const loadCallMs = performance.now() - loadCallStart;
-        const readyMs = await waitForPresetReady(Module);
-        switchMs.push(readyMs);
+        let samples;
+        let loadCallMs = null;
+        if (mode === 'crossfade') {
+          if (!previousVfsPath) {
+            throw new Error('crossfade entry ' + presetUrl + ' has no previous preset to fade from');
+          }
+          samples = await sampleCrossfade(previousVfsPath, vfsPath);
+        } else {
+          const loadCallStart = performance.now();
+          Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
+          loadCallMs = performance.now() - loadCallStart;
+          const readyMs = await waitForPresetReady(Module);
+          switchMs.push(readyMs);
 
-        for (let i = 0; i < warmupFrames; ++i) {
-          feedSyntheticAudio();
-          await new Promise((r) => requestAnimationFrame(r));
+          for (let i = 0; i < warmupFrames; ++i) {
+            feedSyntheticAudio();
+            await nextFrame();
+          }
+
+          const beforeCount = frameSamples.length;
+          const targetCount = beforeCount + framesPerPreset;
+          while (frameSamples.length < targetCount) {
+            feedSyntheticAudio();
+            await nextFrame();
+          }
+          samples = frameSamples.slice(beforeCount, targetCount);
         }
+        previousVfsPath = vfsPath;
 
-        const beforeCount = frameSamples.length;
-        const targetCount = beforeCount + framesPerPreset;
-        while (frameSamples.length < targetCount) {
-          feedSyntheticAudio();
-          await new Promise((r) => requestAnimationFrame(r));
-        }
-
-        const samples = frameSamples.slice(beforeCount, targetCount);
         const totalMs = samples.map((s) => s.totalMs);
         const fps = samples.map((s) => s.fps);
-        const breakdownKeys = ['audioMs', 'perFrameEvalMs', 'perPixelEvalMs', 'blurMs', 'waveformsShapesMs', 'compositeMs', 'gpuMs'];
+        const cpuKeys = ['audioMs', 'perFrameEvalMs', 'perPixelEvalMs', 'blurMs', 'waveformsShapesMs', 'compositeMs'];
+        // Per-stage GPU time (WasmPerfGovernor.cpp); they sum to gpuMs. A GPU
+        // result lands a frame or two late and repeats until the next one, so
+        // only frames that resolved a new one (gpuFresh) are GPU samples.
+        // Bundles without the flag count every frame, as they always did.
+        const gpuKeys = ['gpuMs', 'gpuWarpMs', 'gpuBlurMs', 'gpuShapesMs', 'gpuCopyMs', 'gpuCompositeMs', 'gpuPresentMs', 'gpuOtherMs'];
+        const valid = (v) => typeof v === 'number' && v >= 0;
         const breakdownMs = {};
-        breakdownKeys.forEach((key) => {
-          breakdownMs[key] = summarize(samples.map((s) => s[key]).filter((v) => typeof v === 'number' && v >= 0));
+        cpuKeys.forEach((key) => {
+          breakdownMs[key] = summarize(samples.map((s) => s[key]).filter(valid));
+        });
+        const gpuSamples = samples.filter((s) => s.gpuFresh !== false);
+        gpuKeys.forEach((key) => {
+          breakdownMs[key] = summarize(gpuSamples.map((s) => s[key]).filter(valid));
         });
 
         presetResults.push({
           preset: vfsPath,
           presetUrl,
+          mode,
           governorTier: Module._get_quality_tier ? Module._get_quality_tier() : null,
           loadCallMs,
           switchReadyMs: summarize(switchMs.slice(-switchIterations)),
@@ -220,7 +284,7 @@
           totalMs: summarize(totalMs),
           fps: summarize(fps),
           breakdownMs,
-          metTargetFps: summarize(fps).median >= (parseFloat(params.get('targetFps')) || 60) * 0.95,
+          metTargetFps: summarize(fps).median >= targetFps * 0.95,
         });
       }
 

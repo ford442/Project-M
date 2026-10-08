@@ -7,10 +7,11 @@ see `docs/GRAPHICS_BENCHMARK_HARNESS.md`.
 
 | File | Committed? | What |
 |---|---|---|
-| `<sha>.json` | yes | Frame-budget record for that commit: per-preset p50/p95/p99, GPU time where the timer query is available, governor tier, and the provenance (runner, renderer string, `softwareGl`) that decides whether two records may be compared at all |
+| `<sha>.json` | yes | Frame-budget record for that commit: per-preset p50/p95/p99, GPU time (whole frame and per stage) where the timer query is available, governor tier, and the provenance (runner, renderer string, `softwareGl`) that decides whether two records may be compared at all |
 | `preset-benchmark.json` | no | Raw output of `scripts/benchmark_presets_wasm.mjs`, the input to the record |
 | `preset-benchmark-native.json` | no | Same, from the native benchmark |
 | `frame-budget-comparison.md` | no | Rendered comparison table for a run's step summary |
+| `gpu-stages.md` | no | Per-stage GPU table for the head record (`formatGpuStageTable()`), written even when there is no base to compare against |
 | `golden/` | no | Golden-gate report and failure triptychs |
 
 A record with `"softwareGl": true` came off a runner that fell back to a

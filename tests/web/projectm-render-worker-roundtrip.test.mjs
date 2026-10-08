@@ -150,7 +150,8 @@ async function connect({ shared = true } = {}) {
             return worker;
         }
     };
-    globalThis.OffscreenCanvas = class {};
+    // Hands out a (fake) WebGL2 context, so the pre-transfer probe passes.
+    globalThis.OffscreenCanvas = class { getContext() { return {}; } };
 
     const events = { ready: 0, errors: [], stats: [], fallbacks: [] };
     let handle;

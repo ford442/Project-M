@@ -14,6 +14,17 @@ name: Graphics Perf Benchmark
 # Results are recorded per commit under benchmark-results/ and compared against
 # the base record when one exists. The gate is relative (p95 up more than
 # --max-regression-pct against the same runner), never absolute.
+#
+# The preset set is presets/benchmark_hardware.json: one preset per render shape
+# the graphics work changes (no composite shader, custom warp, blur3, a Dual-FBO
+# soft cut). Each record also carries per-stage GPU time (one TIME_ELAPSED query
+# per libprojectM GPU stage), summarised on the run page — that table is the
+# measurement that decides whether the remaining Y-flip copies are worth
+# removing (docs/GRAPHICS_PERF_RECOVERY_PLAN.md).
+#
+# This job uploads the record; it does not commit it. To make a run the base
+# for later ones, download the artifact and commit benchmark-results/<sha>.json
+# to main (docs/GRAPHICS_BENCHMARK_HARNESS.md "Hardware baseline").
 
 on:
   schedule:
@@ -75,6 +86,8 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Run the preset benchmark
+        env:
+          PROJECTM_BENCH_MANIFEST: presets/benchmark_hardware.json
         run: |
           node scripts/benchmark_presets_wasm.mjs \
             "$PWD/cmake-build/wasm-smoke/projectm-v.030-thread.js" \
@@ -97,6 +110,20 @@ jobs:
           if node -e "process.exit(JSON.parse(require('fs').readFileSync('$record','utf8')).softwareGl ? 0 : 1)"; then
             echo "::warning::This runner rendered with a software rasterizer; the timings are not a performance measurement."
           fi
+
+      # Informational, never a gate, and written even when there is no base
+      # record yet: the first hardware run is exactly the one that answers
+      # "are the Y-flips in the noise?".
+      - name: Per-stage GPU breakdown
+        run: |
+          record="benchmark-results/$(git rev-parse HEAD).json"
+          node --input-type=module -e "
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { formatGpuStageTable } from './tests/wasm-smoke/lib/frame-budget.mjs';
+          const table = formatGpuStageTable(JSON.parse(readFileSync('$record', 'utf8')));
+          console.log(table);
+          writeFileSync('benchmark-results/gpu-stages.md', table + '\n');
+          "
 
       - name: Compare against the base record
         run: |
@@ -134,6 +161,9 @@ jobs:
         run: |
           if [[ -f benchmark-results/frame-budget-comparison.md ]]; then
             cat benchmark-results/frame-budget-comparison.md >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -f benchmark-results/gpu-stages.md ]]; then
+            # No base yet, so no comparison carried the stage table.
+            cat benchmark-results/gpu-stages.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload benchmark records

@@ -15,7 +15,7 @@
 // same-basename `.ts` would shadow the real `.js` module for every JS importer
 // during typecheck.
 
-import type { RenderWorkerHandle } from './projectm-render-worker-types.ts';
+import type { PerfFrameStats, RenderWorkerHandle } from './projectm-render-worker-types.ts';
 
 /** Which topology a transport is driving. */
 export type RenderTopology = 'main' | 'worker';
@@ -82,6 +82,20 @@ export interface RenderTransport {
      * Returns the unsubscribe function.
      */
     onContextEvent(listener: (event: 'lost' | 'restored') => void): () => void;
+
+    /**
+     * Subscribes to the engine's perf-HUD frames (`pmOnPerfFrame`), one call per
+     * rendered frame while `set_perf_hud(1)` is on. On the main thread that is
+     * the WASM callback bus; in the worker topology the worker relays the frames
+     * it hears in its own scope. Returns the unsubscribe function.
+     */
+    onPerfFrame(listener: (stats: PerfFrameStats) => void): () => void;
+
+    /**
+     * Subscribes to the engine's perf-HUD on/off notifications
+     * (`pmSetPerfHudEnabled`). Returns the unsubscribe function.
+     */
+    onPerfHudEnabled(listener: (enabled: boolean) => void): () => void;
 
     /**
      * Rebuild the engine on a restored WebGL context and start rendering again.

@@ -123,21 +123,26 @@ async function listen(server) {
 
 function loadManifest(path) {
   const manifest = JSON.parse(readFileSync(path, 'utf8'));
-  const presets = (manifest.presets || [])
-    .map((entry) => (typeof entry === 'string' ? entry : entry.path))
-    .filter(Boolean)
-    .map((rel) => resolve(projectRoot, rel))
-    .filter((abs) => {
-      if (!existsSync(abs)) {
-        console.warn(`[benchmark] skipping missing preset: ${abs}`);
+  // Entries are a path, or { path, label, category, mode }. `mode: "crossfade"`
+  // samples the soft cut from the previous entry to this one (Dual-FBO path).
+  const entries = (manifest.presets || [])
+    .map((entry) => (typeof entry === 'string' ? { path: entry } : entry))
+    .filter((entry) => entry && entry.path)
+    .map((entry) => ({ ...entry, abs: resolve(projectRoot, entry.path) }))
+    .filter((entry) => {
+      if (!existsSync(entry.abs)) {
+        console.warn(`[benchmark] skipping missing preset: ${entry.abs}`);
         return false;
       }
       return true;
     });
-  if (presets.length === 0) {
+  if (entries.length === 0) {
     throw new Error(`No benchmark presets found in ${path}`);
   }
-  return { manifest, presets };
+  if (entries[0].mode === 'crossfade') {
+    throw new Error(`${path}: the first preset cannot be a crossfade entry — it needs a preset to fade from`);
+  }
+  return { manifest, entries, presets: entries.map((entry) => entry.abs) };
 }
 
 function compareResults(baseline, current) {
@@ -172,7 +177,7 @@ if (!existsSync(wasmJs) || !existsSync(wasmBinary)) {
   process.exit(1);
 }
 
-const { manifest, presets } = loadManifest(opts.manifestPath);
+const { manifest, entries, presets } = loadManifest(opts.manifestPath);
 const server = createStaticServer();
 const port = await listen(server);
 const benchmarkPage = rootRelative(resolve(projectRoot, 'tests/wasm-smoke/benchmark.html'));
@@ -187,6 +192,7 @@ const query = new URLSearchParams({
   height: String(manifest.canvas?.height || 720),
   targetFps: String(manifest.targetFps || 60),
   switchIterations: String(manifest.switchBench?.iterations || 3),
+  modes: entries.map((entry) => (entry.mode === 'crossfade' ? 'crossfade' : 'steady')).join(','),
 });
 if (opts.audioLoad || manifest.audioBench?.enabled) {
   query.set('audioLoad', '1');
@@ -225,6 +231,15 @@ try {
     throw new Error(result.error || 'benchmark failed');
   }
 
+  // benchmark.html reports presets in manifest order; carry the manifest's
+  // description of each one into the record, so a reader knows which render
+  // shape a row measures without opening the manifest.
+  (result.presets || []).forEach((preset, index) => {
+    const entry = entries[index];
+    if (!entry) return;
+    if (entry.label) preset.label = entry.label;
+    if (entry.category) preset.category = entry.category;
+  });
   result.manifest = opts.manifestPath;
   result.module = wasmJs;
   result.audioLoad = !!(opts.audioLoad || manifest.audioBench?.enabled);

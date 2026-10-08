@@ -156,6 +156,60 @@ export type RenderWorkerHostMessage =
     | RenderWorkerCcallMessage
     | RenderWorkerRecoverContextMessage;
 
+/**
+ * One frame of perf-HUD stats, as `js_perf_report_frame()`
+ * (src/wasm/WasmPerfGovernor.cpp) builds it and hands to `pmOnPerfFrame`. Keep
+ * the keys in sync with that EM_JS block.
+ *
+ * The CPU fields (`audioMs` … `compositeMs`, `totalMs`) are `steady_clock`
+ * submit times. The `gpu*Ms` fields are EXT_disjoint_timer_query_webgl2
+ * TIME_ELAPSED results: `gpuMs` is the whole frame and the per-stage fields
+ * tile it (they sum to `gpuMs`). Every GPU field is negative when the
+ * extension is unavailable or no result has arrived yet.
+ */
+export interface PerfFrameStats {
+    totalMs: number;
+    audioMs: number;
+    perFrameEvalMs: number;
+    perPixelEvalMs: number;
+    blurMs: number;
+    waveformsShapesMs: number;
+    /** CPU submit time of the composite pass and the Y-flips around it. */
+    compositeMs: number;
+    gpuMs: number;
+    /** GPU stage: clears, user sprites and anything not attributed below. Absent from older bundles. */
+    gpuOtherMs?: number;
+    /** GPU stage: motion vectors + the warp mesh draw. */
+    gpuWarpMs?: number;
+    /** GPU stage: the blur chain. */
+    gpuBlurMs?: number;
+    /** GPU stage: custom shapes/waves, built-in waveform, darken center, border. */
+    gpuShapesMs?: number;
+    /** GPU stage: the Y-flip copy passes (#176) — the number that decides whether to remove them. */
+    gpuCopyMs?: number;
+    /** GPU stage: the final composite shader. */
+    gpuCompositeMs?: number;
+    /** GPU stage: output to the canvas — blit, transparency copy, or the dual-FBO compositor. */
+    gpuPresentMs?: number;
+    /**
+     * True only on the frame that resolved a new GPU result. GPU results arrive
+     * a frame or two late and repeat until the next one lands, so a sampler
+     * that wants distinct GPU samples skips frames where this is false. Absent
+     * from bundles that predate per-stage queries (treat as fresh).
+     */
+    gpuFresh?: boolean;
+    fps: number;
+    /** Absent from bundles that predate KHR_parallel_shader_compile support. */
+    shaderLinkPending?: boolean;
+    /**
+     * How the per-pixel equations were evaluated for this frame. `'gpu'` means
+     * they were compiled into the warp vertex shader and `perPixelEvalMs`
+     * covers only the draw submission; `'cpu'` means the evaluator ran once
+     * per warp mesh vertex. See docs/GPU_PERPIXEL_EVAL.md.
+     */
+    perPixelEvalPath?: 'gpu' | 'cpu';
+}
+
 /** Worker → host: module booted and the render loop is running. */
 export interface RenderWorkerReadyMessage {
     type: 'ready';
@@ -243,6 +297,29 @@ export interface RenderWorkerContextRecoveredMessage {
     status: number;
 }
 
+/**
+ * Worker → host: perf-HUD frames the engine reported in the worker.
+ *
+ * `js_perf_report_frame()` calls `globalThis.pmOnPerfFrame` — which in the
+ * worker is the worker's scope, where the page's HUD cannot hear it. The
+ * worker batches the frames (one message per ~100 ms, not one per frame) and
+ * the host replays them in order, so a benchmark sees every frame.
+ */
+export interface RenderWorkerPerfFramesMessage {
+    type: 'perf-frames';
+    frames: PerfFrameStats[];
+}
+
+/**
+ * Worker → host: `set_perf_hud()` switched the engine's perf instrumentation
+ * on or off (the worker-scope `pmSetPerfHudEnabled` call), so the page shows or
+ * hides its HUD.
+ */
+export interface RenderWorkerPerfHudMessage {
+    type: 'perf-hud';
+    enabled: boolean;
+}
+
 export type RenderWorkerMessage =
     | RenderWorkerContextLostMessage
     | RenderWorkerContextRestoredMessage
@@ -252,7 +329,9 @@ export type RenderWorkerMessage =
     | RenderWorkerErrorMessage
     | RenderWorkerStatsMessage
     | RenderWorkerPcmRingMessage
-    | RenderWorkerCcallResultMessage;
+    | RenderWorkerCcallResultMessage
+    | RenderWorkerPerfFramesMessage
+    | RenderWorkerPerfHudMessage;
 
 /** A context-loss notification relayed from the worker. */
 export type RenderWorkerContextEvent = 'lost' | 'restored';
@@ -271,6 +350,24 @@ export interface RenderWorkerHandle {
      * one round trip.
      */
     recoverContext(): Promise<number>;
+    /**
+     * Subscribes to the perf-HUD frames the worker relays (one call per frame,
+     * in order). Returns the unsubscribe function.
+     */
+    onPerfFrame(listener: (stats: PerfFrameStats) => void): () => void;
+    /**
+     * Subscribes to the engine's perf-HUD on/off notifications. Returns the
+     * unsubscribe function.
+     */
+    onPerfHudEnabled(listener: (enabled: boolean) => void): () => void;
+    /**
+     * The most recent `stats` message, or null before the first one. Lets a
+     * late subscriber (the FBO-format banner) read state the worker already
+     * reported.
+     */
+    getLastStats(): RenderWorkerStatsMessage | null;
+    /** Subscribes to the worker's periodic stats. Returns the unsubscribe function. */
+    onStats(listener: (stats: RenderWorkerStatsMessage) => void): () => void;
     /** Null until the worker posts a shareable ring, and when it never does. */
     getPcmRing(): PcmRingWriter | null;
     /** Writes to the ring when there is one, else posts the chunk. */

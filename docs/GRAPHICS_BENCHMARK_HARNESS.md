@@ -173,6 +173,64 @@ node scripts/compare_benchmark_results.mjs \
 narrow, stable shape the gate reads, keyed by commit, so `benchmark-results/`
 accumulates one record per commit.
 
+### Hardware baseline
+
+No number in `docs/GRAPHICS_PERF_RECOVERY_PLAN.md` has been measured on a real
+GPU yet, and every committed record so far is `softwareGl: true`. Until a
+hardware record is on `main`, nothing here supports a "60 FPS recovered" claim.
+
+**Preset set.** `presets/benchmark_hardware.json` — one preset per render shape
+the graphics work changes, so an A/B is not decided by which presets happened to
+be sampled:
+
+| Category | Preset | What it isolates |
+|---|---|---|
+| `baseline` | `presets/tests/000-empty.milk` | fixed per-frame cost |
+| `no-composite` | `presets/tests/110-per_pixel.milk` | old-school preset: two Y-flips (pre-composite + third flip) |
+| `custom-warp` | `custom_milk_fixed/milk012.milk` | custom warp shader: pre-warp flip + pre-composite flip |
+| `blur3` | `presets/tests/280-compshader-blur3.milk` | full blur chain every frame, one flip |
+| `dual-fbo-cut` | `milk012 → custom_milk_fixed/milk015.milk`, `mode: "crossfade"` | only frames rendered mid-blend: both presets into the Dual-FBO pair + the compositor |
+
+The flip counts per shape are pinned by `tests/libprojectM/PerfGpuStageTest.cpp`.
+The crossfade entry samples soft cuts from the previous entry, back and forth,
+counting a frame only if `transition_is_active()` when it was reported.
+
+**What a record carries** besides `frameMs`/`gpuMs`: `gpuStagesMs` — p50/p95 per
+GPU stage (`warp`, `blur`, `shapes`, `copy`, `composite`, `present`, `other`;
+one `TIME_ELAPSED` query each, so they sum to `gpuMs`) — and the CPU
+`perPixelEvalMs`, which is what the Y-flip copies are weighed against.
+`compare_benchmark_results.mjs` prints `formatGpuStageTable()` under the p95
+gate table; it is informational and never gates.
+
+**Running it.**
+
+- *CI*: `graphics_perf_bench.yml`, nightly and on dispatch, on a runner labelled
+  `[self-hosted, gpu]`. It uploads the record as an artifact; it does not commit.
+- *Manually*, on any machine with a GPU and Chrome (headed, so the browser uses the
+  real GPU — check the `gpu` field of the record and `softwareGl: false`):
+
+  ```bash
+  PROJECTM_BENCH_MANIFEST=presets/benchmark_hardware.json \
+    node scripts/benchmark_presets_wasm.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js \
+    --headed --out benchmark-results/preset-benchmark.json
+  node scripts/record_frame_budget.mjs --input benchmark-results/preset-benchmark.json \
+    --runner "<stable machine name>"
+  node --input-type=module -e "import { readFileSync } from 'node:fs';
+    import { formatGpuStageTable } from './tests/wasm-smoke/lib/frame-budget.mjs';
+    console.log(formatGpuStageTable(JSON.parse(readFileSync('benchmark-results/'
+      + process.argv[1] + '.json', 'utf8'))));" "$(git rev-parse HEAD)"
+  ```
+
+  (`PROJECTM_CHROMIUM_EXECUTABLE=/path/to/chrome` uses an installed Chrome
+  instead of Playwright's Chromium.)
+
+**Committing it.** Commit `benchmark-results/<sha>.json` for a commit on `main`
+(from the CI artifact or a manual run). The gate only ever compares records from
+the same `runner`, so keep the runner name stable per machine. A record with no
+`gpuStagesMs` came from a browser without `EXT_disjoint_timer_query_webgl2`
+(Safari, most mobile): it still gates `frameMs`, but cannot answer the Y-flip
+question.
+
 ---
 
 ## How the comparison decides
@@ -278,7 +336,8 @@ With those four fixed, all 13 presets are byte-identical across two runs.
 | `tests/wasm-smoke/golden/manifest.json` | Preset set, capture frames, tolerances |
 | `tests/wasm-smoke/lib/png.mjs` | Dependency-free PNG read/write |
 | `tests/wasm-smoke/lib/image-diff.mjs` | SSIM + per-pixel diff, tolerance policy, triptychs |
-| `tests/wasm-smoke/lib/frame-budget.mjs` | Percentiles, the regression gate, the Markdown table |
+| `tests/wasm-smoke/lib/frame-budget.mjs` | Percentiles, the regression gate, the Markdown tables (p95 gate, per-stage GPU) |
+| `presets/benchmark_hardware.json` | The hardware baseline's preset set, one per render shape |
 | `tests/wasm-smoke/lib/harness-runtime.mjs` | Static server (COOP/COEP), Chromium launch modes |
 | `scripts/record_frame_budget.mjs` | Benchmark run → per-commit record |
 | `scripts/compare_benchmark_results.mjs` | Base vs head → table + exit code |

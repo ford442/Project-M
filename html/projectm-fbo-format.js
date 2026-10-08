@@ -85,3 +85,44 @@ export function setupFboFormatIndicator(Module) {
 
     return formatName;
 }
+
+/**
+ * The same indicator for the render-worker topology, where the format lives in
+ * the worker's module and reaches the page in the worker's periodic `stats`
+ * messages (`fboFormat`, the same `dual_fbo_get_format()` index). The banner is
+ * shown from the first stats that carry a format; until then, and on a bundle
+ * that reports -1, the format is unknown.
+ *
+ * @param {Pick<import('./projectm-render-worker-types.ts').RenderWorkerHandle, 'getLastStats' | 'onStats'>} handle
+ * @returns {{ format: () => FboFormatName | null, dispose: () => void }}
+ */
+export function setupWorkerFboFormatIndicator(handle) {
+    /** @type {FboFormatName | null} */
+    let formatName = null;
+
+    /** @param {import('./projectm-render-worker-types.ts').RenderWorkerStatsMessage | null} stats */
+    const apply = (stats) => {
+        const formatIndex = stats ? stats.fboFormat : -1;
+        if (formatName !== null || typeof formatIndex !== 'number' || formatIndex < 0) {
+            return false;
+        }
+        formatName = FORMAT_NAMES[formatIndex] || 'RGBA8';
+        if (formatIndex === 2) {
+            ensureBanner().style.display = 'block';
+        }
+        return true;
+    };
+
+    // The format is fixed at init(), so the first report settles it.
+    let unsubscribe = () => {};
+    if (!apply(handle.getLastStats())) {
+        unsubscribe = handle.onStats((stats) => {
+            if (apply(stats)) unsubscribe();
+        });
+    }
+
+    return {
+        format: () => formatName,
+        dispose: () => unsubscribe(),
+    };
+}

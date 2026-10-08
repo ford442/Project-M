@@ -23,7 +23,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildBenchmarkRecord } from '../tests/wasm-smoke/lib/frame-budget.mjs';
+import { GPU_STAGES, buildBenchmarkRecord } from '../tests/wasm-smoke/lib/frame-budget.mjs';
 import { detectRepoRoot } from '../tests/wasm-smoke/lib/harness-runtime.mjs';
 
 const root = resolve(process.env.PROJECTM_ROOT || detectRepoRoot(dirname(fileURLToPath(import.meta.url))));
@@ -88,9 +88,30 @@ const commit = options.commit ?? gitCommit();
 // would let SwiftShader timings gate a PR.
 const softwareGl = options.softwareGl ?? Boolean(raw.gl?.softwareGl);
 
+/** benchmark.html's breakdown key for each GPU stage in the record. */
+const GPU_STAGE_KEYS = {
+    warp: 'gpuWarpMs',
+    blur: 'gpuBlurMs',
+    shapes: 'gpuShapesMs',
+    copy: 'gpuCopyMs',
+    composite: 'gpuCompositeMs',
+    present: 'gpuPresentMs',
+    other: 'gpuOtherMs',
+};
+
+/** @param {any} summary */
+const hasSamples = (summary) => !!summary && (summary.count ?? 0) > 0;
+
 const presets = (raw.presets ?? []).map((preset) => {
     const frameMs = preset.totalMs ?? {};
     const gpuMs = preset.breakdownMs?.gpuMs;
+    // Only stages that produced samples: a runner without the timer extension
+    // leaves the whole map out rather than writing zeros that read as "free".
+    const gpuStagesMs = Object.fromEntries(
+        GPU_STAGES.filter((stage) => hasSamples(preset.breakdownMs?.[GPU_STAGE_KEYS[stage]]))
+            .map((stage) => [stage, preset.breakdownMs[GPU_STAGE_KEYS[stage]]]),
+    );
+    const perPixelEvalMs = preset.breakdownMs?.perPixelEvalMs;
     return {
         preset: preset.presetUrl ?? preset.preset,
         frameMs: {
@@ -105,6 +126,11 @@ const presets = (raw.presets ?? []).map((preset) => {
             max: frameMs.max ?? 0,
         },
         ...(gpuMs ? { gpuMs } : {}),
+        ...(Object.keys(gpuStagesMs).length > 0 ? { gpuStagesMs } : {}),
+        ...(hasSamples(perPixelEvalMs) ? { perPixelEvalMs } : {}),
+        ...(preset.mode ? { mode: preset.mode } : {}),
+        ...(preset.label ? { label: preset.label } : {}),
+        ...(preset.category ? { category: preset.category } : {}),
         ...(preset.governorTier === null || preset.governorTier === undefined
             ? {} : { governorTier: preset.governorTier }),
     };

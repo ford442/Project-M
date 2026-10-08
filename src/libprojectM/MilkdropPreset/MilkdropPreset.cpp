@@ -146,6 +146,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // Only do it after drawing one frame after init or resize.
     if (!m_isFirstFrame)
     {
+        PROJECTM_PERF_GPU_STAGE(Warp);
         m_motionVectors.Draw(m_perFrameContext, m_motionVectorUVMap->Texture());
     }
 
@@ -158,6 +159,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // pre-flip is still needed for those presets.
     if (m_perPixelMesh.HasCustomWarpShader())
     {
+        PROJECTM_PERF_GPU_STAGE(Copy);
         m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), nullptr, true, false);
         m_state.mainTexture = m_flipTexture.Texture();
     }
@@ -175,6 +177,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // Draw previous frame image warped via per-pixel mesh and warp shader
     {
         PROJECTM_PERF_SCOPE(PerPixelEval);
+        PROJECTM_PERF_GPU_STAGE(Warp);
         // On the GPU path the bucket below covers only the draw submission, not the
         // equations, so the reader has to know which path produced the number.
         libprojectM::Perf::SetPerPixelPath(m_state.perPixelGpuGlsl.empty()
@@ -189,6 +192,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // Update blur textures
     {
         PROJECTM_PERF_SCOPE(Blur);
+        PROJECTM_PERF_GPU_STAGE(Blur);
         const auto warpedImage = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
         assert(warpedImage.get());
         m_state.blurTexture.SetLevelCap(renderContext.maxBlurLevel);
@@ -199,6 +203,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // Draw audio-data-related stuff
     {
         PROJECTM_PERF_SCOPE(WaveformsShapes);
+        PROJECTM_PERF_GPU_STAGE(Shapes);
         for (auto& shape : m_customShapes)
         {
             shape->Draw();
@@ -220,18 +225,27 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // y-flip the image for final compositing again
     {
         PROJECTM_PERF_SCOPE(Composite);
-        m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_currentFrameBuffer, 0), nullptr, true, false);
+        // The CPU bucket covers the flips and the composite together; on the GPU they
+        // are separate stages, because the flips are what #176 wants to rank.
+        {
+            PROJECTM_PERF_GPU_STAGE(Copy);
+            m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_currentFrameBuffer, 0), nullptr, true, false);
+        }
         m_state.mainTexture = m_flipTexture.Texture();
 
         // We no longer need the previous frame image, use it to render the final composite.
         m_framebuffer.BindRead(m_currentFrameBuffer);
         m_framebuffer.BindDraw(m_previousFrameBuffer);
 
-        m_finalComposite.Draw(m_state, m_perFrameContext);
+        {
+            PROJECTM_PERF_GPU_STAGE(Composite);
+            m_finalComposite.Draw(m_state, m_perFrameContext);
+        }
 
         if (!m_finalComposite.HasCompositeShader())
         {
             // Flip texture again in "previous" framebuffer as old-school effects are still upside down.
+            PROJECTM_PERF_GPU_STAGE(Copy);
             m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), m_framebuffer, m_previousFrameBuffer, true, false);
         }
     }

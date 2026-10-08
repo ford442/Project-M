@@ -538,11 +538,11 @@ import { installMediaElementSourceHook } from './projectm-audio-element-source.j
 import { createAudioSourceRouter } from './projectm-audio-source-router.js';
 import { ProjectMContext } from './projectm-context.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
-import { setupFboFormatIndicator } from './projectm-fbo-format.js';
+import { setupFboFormatIndicator, setupWorkerFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
 import { checkCrossOriginIsolation, setupInitErrorHandling } from './projectm-init-errors.js';
 import { setupMeshQuality } from './projectm-mesh-quality.js';
-import { setupPerfTools } from './projectm-perf.js';
+import { setupPerfTools, setupTransportPerfTools } from './projectm-perf.js';
 import { setupAudioTestPanel } from './projectm-synthetic-audio.js';
 import { setupExperimentalBridge } from './projectm-experimental-bridge.js';
 import { setupPresetDevTools } from './projectm-preset-dev.js';
@@ -1385,11 +1385,11 @@ async function attemptInit() {
             }
 
             // The panels below read and write engine state through a module
-            // object on this thread: the perf HUD, the preset dev tools, the
-            // experimental bridge, the FBO indicator. In the worker topology
-            // there is no such object here, so they stay unbuilt rather than
-            // throwing — porting them onto the transport is what remains of
-            // making this page fully topology-agnostic.
+            // object on this thread: the preset dev tools and the experimental
+            // bridge. In the worker topology there is no such object here, so
+            // they stay unbuilt rather than throwing (?renderWorker=0 brings
+            // them back). The perf HUD and the FBO-format banner are diagnostics
+            // for the topology we ship, so they run on the transport in both.
             if (Module) {
                 // Give the baked EM_JS worklet handler and the media-element export
                 // their host implementations, so both go through the one PCM ring
@@ -1418,7 +1418,14 @@ async function attemptInit() {
                 exposeExperimentalGlobals(setupExperimentalBridge(Module));
                 setupAudioTestPanel(() => getModule());
             } else {
-                console.info('[ProjectM] Rendering in the render worker; main-thread dev panels are inactive (use ?renderWorker=0 for them).');
+                // ?perfhud=1 / ?benchmark=1: frames are relayed from the worker.
+                setupTransportPerfTools(pmContext.transport);
+                const workerHandle = pmContext.transport.workerHandle;
+                if (workerHandle) {
+                    const fboFormat = setupWorkerFboFormatIndicator(workerHandle);
+                    exposeFboFormatGlobals(() => fboFormat.format());
+                }
+                console.info('[ProjectM] Rendering in the render worker; the preset dev tools and experimental bridge are inactive (use ?renderWorker=0 for them).');
             }
 
             if (!window._pmStartupPresetsLoaded) {

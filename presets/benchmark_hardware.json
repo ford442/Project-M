@@ -1,0 +1,48 @@
+{
+  "$comment": "Hardware frame-budget preset set: one preset per render shape whose GPU cost the Y-flip / blur / Dual-FBO work changes. Read by scripts/benchmark_presets_wasm.mjs via PROJECTM_BENCH_MANIFEST in .github/workflows/graphics_perf_bench.yml. The flip counts are pinned by tests/libprojectM/PerfGpuStageTest.cpp. See docs/GRAPHICS_BENCHMARK_HARNESS.md \"Hardware baseline\".",
+  "targetFps": 60,
+  "framesPerPreset": 600,
+  "warmupFrames": 60,
+  "canvas": { "width": 1920, "height": 1080 },
+  "switchBench": {
+    "enabled": true,
+    "iterations": 3
+  },
+  "audioBench": {
+    "enabled": true,
+    "comment": "Synthetic 120 BPM PCM, so audio-reactive stages do real work."
+  },
+  "presets": [
+    {
+      "path": "presets/tests/000-empty.milk",
+      "label": "empty baseline",
+      "category": "baseline",
+      "comment": "Default warp, no composite shader: the fixed per-frame cost every preset pays."
+    },
+    {
+      "path": "presets/tests/110-per_pixel.milk",
+      "label": "no composite shader (old-school)",
+      "category": "no-composite",
+      "comment": "Two Y-flips per frame: before the composite and the third flip after it."
+    },
+    {
+      "path": "custom_milk_fixed/milk012.milk",
+      "label": "custom warp + composite shader",
+      "category": "custom-warp",
+      "comment": "Two Y-flips: the pre-warp flip sampler_main needs, and the pre-composite flip."
+    },
+    {
+      "path": "presets/tests/280-compshader-blur3.milk",
+      "label": "composite shader sampling blur1-3",
+      "category": "blur3",
+      "comment": "Full blur chain every frame, one Y-flip (pre-composite)."
+    },
+    {
+      "path": "custom_milk_fixed/milk015.milk",
+      "label": "Dual-FBO soft cut (milk012 -> milk015)",
+      "category": "dual-fbo-cut",
+      "mode": "crossfade",
+      "comment": "Samples only frames rendered while a crossfade from the previous entry is blending: both presets render into the Dual-FBO pair and the compositor presents them."
+    }
+  ]
+}

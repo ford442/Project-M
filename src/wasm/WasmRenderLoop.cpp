@@ -331,9 +331,13 @@ void render_frame()
     g_dualFbo.SwapPresetB();
 
     // --- Step 3: Composite to the default framebuffer (browser canvas) ---
+    // Timed as the Present stage, like libprojectM's own output blit: with the
+    // perf HUD on, this is the soft-cut cost gpuPresentMs carries.
+    const projectm_perf_gpu_stage previousStage = projectm_perf_enter_gpu_stage(PROJECTM_PERF_GPU_STAGE_PRESENT);
     g_compositorShader.Draw(g_dualFbo.GetAReadTex(), g_dualFbo.GetBReadTex(),
                             g_transitionBlend, w, h, ditherOutput,
                             transparencyMode, transparencyThreshold);
+    projectm_perf_enter_gpu_stage(previousStage);
 
     // --- Step 4: Advance blend timer ---
     float newBlend;

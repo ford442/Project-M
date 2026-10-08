@@ -104,6 +104,74 @@ PROJECTM_EXPORT bool projectm_perf_is_enabled();
 PROJECTM_EXPORT void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings);
 
 /**
+ * @brief GPU stage the GL commands issued from now on belong to.
+ *
+ * The CPU timings above measure how long each stage took to *submit*. GL is
+ * asynchronous, so the GPU cost of a fullscreen pass lands wherever the driver
+ * executes it. To time stages on the GPU, a host installs a callback with
+ * projectm_perf_set_gpu_stage_callback(): libprojectM reports every change of
+ * stage while rendering, and the host ends its current timer query
+ * (GL_TIME_ELAPSED / EXT_disjoint_timer_query) and begins the next.
+ *
+ * The stages tile a frame -- every GL command is in exactly one -- so their sum
+ * is the whole-frame GPU time. A frame starts in PROJECTM_PERF_GPU_STAGE_OTHER.
+ * Fork extension.
+ *
+ * @since 4.2.0
+ */
+typedef enum {
+    /** Anything not attributed below: clears, user sprites, state changes. */
+    PROJECTM_PERF_GPU_STAGE_OTHER = 0,
+    /** Motion vectors and the per-pixel warp mesh draw. */
+    PROJECTM_PERF_GPU_STAGE_WARP = 1,
+    /** Blur texture chain update. */
+    PROJECTM_PERF_GPU_STAGE_BLUR = 2,
+    /** Custom shapes, custom waveforms, built-in waveform, darken center, border. */
+    PROJECTM_PERF_GPU_STAGE_SHAPES = 3,
+    /** Y-flip copy passes inside the Milkdrop preset's frame. */
+    PROJECTM_PERF_GPU_STAGE_COPY = 4,
+    /** The final composite shader pass. */
+    PROJECTM_PERF_GPU_STAGE_COMPOSITE = 5,
+    /** Output to the target framebuffer (blit, copy, transition) and a host's own compositor. */
+    PROJECTM_PERF_GPU_STAGE_PRESENT = 6,
+    /** Number of stages; not a stage. */
+    PROJECTM_PERF_GPU_STAGE_COUNT = 7
+} projectm_perf_gpu_stage;
+
+/**
+ * @brief Receives every GPU stage change. Called on the rendering thread, with
+ *        the GL context current, from inside the render call.
+ * @since 4.2.0
+ */
+typedef void (*projectm_perf_gpu_stage_callback)(projectm_perf_gpu_stage stage, void* user_data);
+
+/**
+ * @brief Installs the GPU stage callback, or removes it when @p callback is NULL.
+ *
+ * Process-global, like the rest of this header. Stage changes are only reported
+ * while perf timers are enabled (projectm_perf_set_enabled()), so an installed
+ * callback costs nothing otherwise.
+ *
+ * @param callback Called on every stage change, or NULL to remove.
+ * @param user_data Passed back to @p callback unchanged.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_perf_set_gpu_stage_callback(projectm_perf_gpu_stage_callback callback, void* user_data);
+
+/**
+ * @brief Attributes the GL commands that follow to @p stage, for GL work the host
+ *        issues itself (e.g. its own compositor pass).
+ *
+ * Reports the change to the installed callback like any internal one, and
+ * returns the previous stage so the host can restore it afterwards.
+ *
+ * @param stage The stage to enter.
+ * @return The stage that was current before the call.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT projectm_perf_gpu_stage projectm_perf_enter_gpu_stage(projectm_perf_gpu_stage stage);
+
+/**
  * @brief OpenMP build/runtime information for profiling and benchmark reports.
  *
  * @param out_info Pointer to a struct that will receive OpenMP status. Must not be NULL.

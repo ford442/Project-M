@@ -20,6 +20,7 @@ import { createPcmRingWriter } from './projectm-pcm-ring.js';
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} RenderWorkerContextConfig
  * @typedef {import('./projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextEvent} RenderWorkerContextEvent
+ * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
  */
 
 /**
@@ -74,19 +75,88 @@ export function isRenderWorkerEnabled({ search = location.search, storage = (() 
 }
 
 /**
+ * Probe results, per OffscreenCanvas constructor (a page has one; tests swap it).
+ *
+ * @type {WeakMap<object, boolean>}
+ */
+const offscreenWebgl2Probes = new WeakMap();
+
+/**
+ * Whether an OffscreenCanvas can give out a WebGL2 context at all.
+ *
+ * This is the check that has to happen *before* the transfer.
+ * `transferControlToOffscreen()` is one-way: once the canvas belongs to the
+ * worker, a worker that then fails to create its context leaves the main-thread
+ * fallback with a canvas it can no longer draw into. Safari 16.4–16.x — inside
+ * this bundle's browser floor — ships OffscreenCanvas and the transfer but only
+ * the 2D context; WebGL on OffscreenCanvas arrived in Safari 17. Without this
+ * probe such a browser would transfer the canvas and render nothing.
+ *
+ * Probed on this thread: no shipping browser offers WebGL2 on a worker's
+ * OffscreenCanvas but not on the main thread's, or the other way round. The
+ * probe context is released immediately and the answer cached.
+ *
+ * @returns {boolean}
+ */
+export function offscreenCanvasSupportsWebGL2() {
+    if (typeof OffscreenCanvas === 'undefined') {
+        return false;
+    }
+    const cached = offscreenWebgl2Probes.get(OffscreenCanvas);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let supported = false;
+    try {
+        const probe = new OffscreenCanvas(1, 1);
+        const gl = /** @type {WebGL2RenderingContext | null} */ (probe.getContext('webgl2'));
+        supported = !!gl;
+        // Contexts are a scarce per-page resource; do not keep this one.
+        gl?.getExtension?.('WEBGL_lose_context')?.loseContext();
+    } catch (_) {
+        supported = false;
+    }
+    offscreenWebgl2Probes.set(OffscreenCanvas, supported);
+    return supported;
+}
+
+/**
+ * Why this browser cannot host the render worker, or null when it can. The
+ * reason is what `onUnsupported` reports, so a fallback says which capability
+ * was missing instead of a generic list.
+ *
+ * @param {HTMLCanvasElement | null | undefined} canvas
+ * @returns {string | null}
+ */
+export function renderWorkerUnsupportedReason(canvas) {
+    if (!canvas || typeof canvas.transferControlToOffscreen !== 'function') {
+        return 'canvas.transferControlToOffscreen() unavailable';
+    }
+    if (typeof Worker === 'undefined') {
+        return 'Worker unavailable';
+    }
+    if (typeof OffscreenCanvas === 'undefined') {
+        return 'OffscreenCanvas unavailable';
+    }
+    if (!offscreenCanvasSupportsWebGL2()) {
+        return 'OffscreenCanvas has no WebGL2 context (Safari < 17); keeping the canvas on the main thread';
+    }
+    return null;
+}
+
+/**
  * Doubles as the narrowing guard for {@link setupRenderWorker}: past this
  * check, `canvas` is present and can be transferred offscreen.
+ *
+ * Matches the browser matrix in docs/PERFORMANCE.md ("Render-worker browser
+ * matrix"): Chromium and Firefox 105+ pass; Safari passes from 17, when WebGL on
+ * OffscreenCanvas shipped, and falls back to the main thread before that.
  *
  * @param {HTMLCanvasElement | null | undefined} canvas
  * @returns {canvas is HTMLCanvasElement}
  */
 export function isRenderWorkerSupported(canvas) {
-    return !!(
-        canvas &&
-        typeof canvas.transferControlToOffscreen === 'function' &&
-        typeof Worker !== 'undefined' &&
-        typeof OffscreenCanvas !== 'undefined'
-    );
+    return renderWorkerUnsupportedReason(canvas) === null;
 }
 
 // Transfers `canvas` to a new render worker and starts the WASM module
@@ -131,7 +201,7 @@ export function setupRenderWorker({
     onStats
 } = {}) {
     if (!isRenderWorkerSupported(canvas)) {
-        if (onUnsupported) onUnsupported('OffscreenCanvas/transferControlToOffscreen/Worker unavailable');
+        if (onUnsupported) onUnsupported(renderWorkerUnsupportedReason(canvas) ?? 'render worker unsupported');
         return null;
     }
 
@@ -170,6 +240,48 @@ export function setupRenderWorker({
         }
     };
 
+    // Perf HUD relay. The engine reports to the worker's own globalThis, and the
+    // worker forwards it; whoever draws the HUD subscribes here after boot.
+    /** @type {Set<(stats: PerfFrameStats) => void>} */
+    const perfFrameListeners = new Set();
+    /** @type {Set<(enabled: boolean) => void>} */
+    const perfHudListeners = new Set();
+    /** @type {Set<(stats: RenderWorkerStatsMessage) => void>} */
+    const statsListeners = new Set();
+    /** @type {RenderWorkerStatsMessage | null} */
+    let lastStats = null;
+
+    /**
+     * Subscribers are page code (the HUD, a benchmark); one that throws must
+     * not take the worker's message handler down with it.
+     *
+     * @template T
+     * @param {Set<(value: T) => void>} listeners
+     * @param {T} value
+     */
+    const notify = (listeners, value) => {
+        for (const listener of [...listeners]) {
+            try {
+                listener(value);
+            } catch (error) {
+                console.error('[projectM] render worker listener threw:', error);
+            }
+        }
+    };
+
+    /**
+     * @template T
+     * @param {Set<(value: T) => void>} listeners
+     * @param {(value: T) => void} listener
+     * @returns {() => void}
+     */
+    const subscribe = (listeners, listener) => {
+        listeners.add(listener);
+        return () => {
+            listeners.delete(listener);
+        };
+    };
+
     worker.onmessage = (event) => {
         const msg = /** @type {RenderWorkerMessage} */ (event.data);
         switch (msg.type) {
@@ -183,7 +295,17 @@ export function setupRenderWorker({
                 if (onError) onError(msg.message);
                 break;
             case 'stats':
+                lastStats = msg;
                 if (onStats) onStats(msg);
+                notify(statsListeners, msg);
+                break;
+            case 'perf-frames':
+                for (const frame of msg.frames) {
+                    notify(perfFrameListeners, frame);
+                }
+                break;
+            case 'perf-hud':
+                notify(perfHudListeners, msg.enabled);
                 break;
             case 'pcm-ring':
                 try {
@@ -261,6 +383,35 @@ export function setupRenderWorker({
                 worker.postMessage({ type: 'recover-context' });
             }
             return pendingRecovery;
+        },
+
+        /**
+         * @param {(stats: PerfFrameStats) => void} listener
+         * @returns {() => void}
+         */
+        onPerfFrame(listener) {
+            return subscribe(perfFrameListeners, listener);
+        },
+
+        /**
+         * @param {(enabled: boolean) => void} listener
+         * @returns {() => void}
+         */
+        onPerfHudEnabled(listener) {
+            return subscribe(perfHudListeners, listener);
+        },
+
+        /** @returns {RenderWorkerStatsMessage | null} */
+        getLastStats() {
+            return lastStats;
+        },
+
+        /**
+         * @param {(stats: RenderWorkerStatsMessage) => void} listener
+         * @returns {() => void}
+         */
+        onStats(listener) {
+            return subscribe(statsListeners, listener);
         },
 
         /** @returns {PcmRingWriter | null} */

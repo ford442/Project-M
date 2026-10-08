@@ -114,6 +114,21 @@ auto TranspilePresetShader(ShaderTranspiler::ShaderType type, std::string code) 
     auto samplerNames = ShaderTranspiler::GetReferencedSamplers(code);
     auto sampler3DNames = DetectSampler3DNames(code);
 
+    // The engine declares the blur samplers from the highest GetBlurN() the code calls
+    // (MilkdropShader's maxBlurLevelRequired), not from a sampler_blurN reference, so
+    // GetReferencedSamplers() never sees them. Mirror that, or every GetBlur preset fails here.
+    for (int level = 3; level >= 1; level--)
+    {
+        if (code.find("GetBlur" + std::to_string(level)) != std::string::npos)
+        {
+            for (int declared = 1; declared <= level; declared++)
+            {
+                samplerNames.insert("blur" + std::to_string(declared));
+            }
+            break;
+        }
+    }
+
     try
     {
         ShaderTranspiler::PreprocessPresetShader(type, code);

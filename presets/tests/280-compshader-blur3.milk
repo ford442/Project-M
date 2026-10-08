@@ -1,0 +1,27 @@
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_COMP=3
+[preset00]
+per_frame_1000=// blur3 composite: forces the whole blur chain (Blur1 -> Blur2 -> Blur3)
+
+// Benchmark fixture for the GPU stage timers (docs/GRAPHICS_PERF_RECOVERY_PLAN.md).
+// The composite shader samples all three blur levels, so BlurTexture computes the
+// full chain every frame and gpuBlurMs carries its real cost. Default warp, so no
+// pre-warp Y-flip: the frame pays exactly one copy (before the composite).
+fDecay=0.98
+zoom=1.01
+rot=0.01
+warp=0.5
+wave_mode=0
+wave_a=1
+wave_r=0.9
+wave_g=0.6
+wave_b=0.2
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = GetPixel(uv) * 0.25;
+comp_4=`ret += GetBlur1(uv) * 0.25;
+comp_5=`ret += GetBlur2(uv) * 0.25;
+comp_6=`ret += GetBlur3(uv) * 0.25;
+comp_7=`}

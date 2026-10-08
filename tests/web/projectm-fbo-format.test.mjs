@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getFboFormatName, setupFboFormatIndicator } from '../../html/projectm-fbo-format.js';
+import { getFboFormatName, setupFboFormatIndicator, setupWorkerFboFormatIndicator } from '../../html/projectm-fbo-format.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const BANNER_ID = 'pm-degraded-mode-banner';
@@ -65,6 +65,57 @@ test('only the RGBA8 fallback shows the degraded-mode banner', () => {
         // A second call reuses the existing banner instead of stacking another.
         setupFboFormatIndicator(fakeModule(2));
         assert.equal(dom.document.body.children.filter((el) => el.id === BANNER_ID).length, 1);
+    } finally {
+        dom.restore();
+    }
+});
+
+// The render worker owns the module, so the format reaches the page in its
+// periodic stats (`fboFormat`, the same index) rather than through a call.
+
+/** A worker handle whose stats a test pushes by hand. */
+function fakeWorkerHandle(lastStats = null) {
+    const listeners = new Set();
+    return {
+        getLastStats: () => lastStats,
+        onStats: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+        push(stats) {
+            lastStats = stats;
+            listeners.forEach((listener) => listener(stats));
+        },
+        listeners,
+    };
+}
+
+test('the worker indicator waits for the first stats that carry a format, then stops listening', () => {
+    const dom = installFakeDom();
+    try {
+        const handle = fakeWorkerHandle();
+        const indicator = setupWorkerFboFormatIndicator(handle);
+        assert.equal(indicator.format(), null, 'unknown until the worker reports');
+
+        // A bundle without dual_fbo_get_format() reports -1: still unknown.
+        handle.push({ type: 'stats', fboFormat: -1 });
+        assert.equal(indicator.format(), null);
+
+        handle.push({ type: 'stats', fboFormat: 2 });
+        assert.equal(indicator.format(), 'RGBA8');
+        assert.equal(dom.document.getElementById(BANNER_ID).style.display, 'block');
+        assert.equal(handle.listeners.size, 0, 'the format is fixed at init(), so one report settles it');
+    } finally {
+        dom.restore();
+    }
+});
+
+test('the worker indicator reads stats that arrived before it was set up', () => {
+    const dom = installFakeDom();
+    try {
+        const handle = fakeWorkerHandle({ type: 'stats', fboFormat: 0 });
+        const indicator = setupWorkerFboFormatIndicator(handle);
+        assert.equal(indicator.format(), 'RGBA16F');
+        assert.equal(handle.listeners.size, 0);
+        assert.equal(dom.document.getElementById(BANNER_ID), null, 'a full-quality format shows no banner');
+        indicator.dispose();
     } finally {
         dom.restore();
     }

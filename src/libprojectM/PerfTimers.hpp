@@ -61,6 +61,37 @@ enum class PerPixelPath
 };
 
 /**
+ * @brief GPU-side stage a stretch of GL commands belongs to.
+ *
+ * Not a CPU bucket. The CPU fields above measure how long a stage took to
+ * *submit*; GL is asynchronous, so fill-rate costs land wherever the driver
+ * happens to execute them. These stages exist so a host with GPU timer queries
+ * (the WASM build's EXT_disjoint_timer_query_webgl2) can time each one on the
+ * GPU: libprojectM announces every stage change through the callback set with
+ * SetGpuStageCallback(), and the host ends one timer query and begins the next.
+ *
+ * The stages tile the frame -- every GL command is in exactly one -- so their
+ * sum is the whole-frame GPU time. Values match projectm_perf_gpu_stage in
+ * projectm_perf.h; keep the two in order.
+ */
+enum class GpuStage
+{
+    Other = 0, //!< Anything not attributed below: clears, user sprites, state changes.
+    Warp,      //!< Motion vectors + the per-pixel warp mesh draw.
+    Blur,      //!< Blur texture chain update.
+    Shapes,    //!< Custom shapes, custom waveforms, built-in waveform, darken center, border.
+    Copy,      //!< Y-flip copies (CopyTexture passes) inside MilkdropPreset::RenderFrame().
+    Composite, //!< The final composite shader pass.
+    Present,   //!< Output to the target framebuffer: blit/copy/transition, and a host's own compositor.
+    Count
+};
+
+/**
+ * @brief Called whenever the GPU stage changes. See GpuStage.
+ */
+using GpuStageCallback = void (*)(GpuStage stage, void* userData);
+
+/**
  * @brief One frame's worth of CPU timings plus the derived FPS.
  */
 struct FrameTimings
@@ -88,6 +119,9 @@ inline bool g_enabled = false;
 inline FrameTimings g_current{};
 inline FrameTimings g_last{};
 inline std::chrono::steady_clock::time_point g_frameStart{};
+inline GpuStageCallback g_gpuStageCallback{nullptr};
+inline void* g_gpuStageUserData{nullptr};
+inline GpuStage g_gpuStage{GpuStage::Other};
 
 } // namespace detail
 
@@ -171,10 +205,77 @@ inline FrameTimings GetLastFrame()
 }
 
 /**
- * @brief RAII helper that adds the elapsed wall-clock time to a Field when destroyed.
+ * @brief Installs (or, with nullptr, removes) the GPU stage change callback.
  *
- * No-op (does not even call the clock) when perf timers are disabled.
+ * Resets the current stage to GpuStage::Other, which is where a host's
+ * per-frame timer starts. Stage changes are only reported while perf timers are
+ * enabled.
  */
+inline void SetGpuStageCallback(GpuStageCallback callback, void* userData)
+{
+    detail::g_gpuStageCallback = callback;
+    detail::g_gpuStageUserData = userData;
+    detail::g_gpuStage = GpuStage::Other;
+}
+
+/// The stage GL commands issued now are attributed to.
+inline GpuStage CurrentGpuStage()
+{
+    return detail::g_gpuStage;
+}
+
+/**
+ * @brief Attributes the GL commands that follow to `stage`.
+ *
+ * Calls the callback only on an actual change, so nested scopes for the same
+ * stage cost nothing. Returns the stage that was current before.
+ */
+inline GpuStage EnterGpuStage(GpuStage stage)
+{
+    const GpuStage previous = detail::g_gpuStage;
+    if (!detail::g_enabled || detail::g_gpuStageCallback == nullptr || stage == previous)
+    {
+        return previous;
+    }
+    detail::g_gpuStage = stage;
+    detail::g_gpuStageCallback(stage, detail::g_gpuStageUserData);
+    return previous;
+}
+
+/**
+ * @brief RAII helper that attributes the GL commands in its scope to one GpuStage
+ * and restores the previous stage on exit.
+ *
+ * No-op when perf timers are disabled or no host installed a callback.
+ */
+class GpuStageScope
+{
+public:
+    explicit GpuStageScope(GpuStage stage)
+        : m_active(detail::g_enabled && detail::g_gpuStageCallback != nullptr)
+    {
+        if (m_active)
+        {
+            m_previous = EnterGpuStage(stage);
+        }
+    }
+
+    ~GpuStageScope()
+    {
+        if (m_active)
+        {
+            EnterGpuStage(m_previous);
+        }
+    }
+
+    GpuStageScope(const GpuStageScope&) = delete;
+    auto operator=(const GpuStageScope&) -> GpuStageScope& = delete;
+
+private:
+    bool m_active;
+    GpuStage m_previous{GpuStage::Other};
+};
+
 /**
  * @brief RAII helper for the whole RenderFrame() call.
  *
@@ -199,6 +300,11 @@ public:
     auto operator=(const FrameGuard&) -> FrameGuard& = delete;
 };
 
+/**
+ * @brief RAII helper that adds the elapsed wall-clock time to a Field when destroyed.
+ *
+ * No-op (does not even call the clock) when perf timers are disabled.
+ */
 class ScopedTimer
 {
 public:
@@ -239,3 +345,7 @@ private:
 /// Times the remainder of the enclosing scope into libprojectM::Perf::Field::field.
 #define PROJECTM_PERF_SCOPE(field) \
     ::libprojectM::Perf::ScopedTimer PROJECTM_PERF_SCOPE_CONCAT(_projectm_perf_timer_, __LINE__)(::libprojectM::Perf::Field::field)
+
+/// Attributes the GL commands in the rest of the enclosing scope to libprojectM::Perf::GpuStage::stage.
+#define PROJECTM_PERF_GPU_STAGE(stage) \
+    ::libprojectM::Perf::GpuStageScope PROJECTM_PERF_SCOPE_CONCAT(_projectm_perf_gpu_stage_, __LINE__)(::libprojectM::Perf::GpuStage::stage)

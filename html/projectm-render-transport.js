@@ -16,7 +16,8 @@ import {
 import * as wasmApi from './generated/projectm-wasm-api.js';
 import { claimGlobal } from './projectm-globals.js';
 import { feedPcmThroughRing } from './projectm-pcm-ring.js';
-import { isRenderWorkerSupported, setupRenderWorker } from './projectm-render-worker-host.js';
+import { isRenderWorkerSupported, renderWorkerUnsupportedReason, setupRenderWorker } from './projectm-render-worker-host.js';
+import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 /**
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
@@ -157,6 +158,16 @@ export function createModuleTransport(module) {
             return () => {};
         },
 
+        onPerfFrame(listener) {
+            // The engine calls the global on this thread; the bus lets several
+            // listeners share it.
+            return subscribeWasmCallback('pmOnPerfFrame', listener);
+        },
+
+        onPerfHudEnabled(listener) {
+            return subscribeWasmCallback('pmSetPerfHudEnabled', listener);
+        },
+
         async recoverContext(width = 0, height = 0) {
             // init() replaces whatever engine is left and refuses with 5 while
             // the context is still lost; nothing is built in that case.
@@ -232,6 +243,14 @@ export function createWorkerTransport(handle) {
 
         onContextEvent(listener) {
             return handle.onContextEvent(listener);
+        },
+
+        onPerfFrame(listener) {
+            return handle.onPerfFrame(listener);
+        },
+
+        onPerfHudEnabled(listener) {
+            return handle.onPerfHudEnabled(listener);
         },
 
         recoverContext() {
@@ -341,7 +360,10 @@ export function selectRenderTopology({
         return Promise.resolve(null);
     }
     if (!canUseRenderWorker({ canvas })) {
-        onFallback?.('OffscreenCanvas, Worker, or cross-origin isolation unavailable');
+        const reason = globalThis.crossOriginIsolated === false
+            ? 'page is not cross-origin isolated'
+            : renderWorkerUnsupportedReason(canvas);
+        onFallback?.(`OffscreenCanvas, Worker, or cross-origin isolation unavailable: ${reason}`);
         return Promise.resolve(null);
     }
 

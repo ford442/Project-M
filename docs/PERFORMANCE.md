@@ -40,22 +40,55 @@ timer is a single boolean check — no clock calls, no measurable overhead.
 
 ## GPU timing
 
-The WASM build additionally measures GPU time for the whole `render_frame()` call using the
-`EXT_disjoint_timer_query_webgl2` extension, when available (`js_perf_gpu_begin_frame` /
-`js_perf_gpu_end_frame` in `projectM_emscripten.cpp`). GPU results arrive asynchronously (usually
-1–2 frames later) and are reported as `gpuMs` in the per-frame stats; if the extension isn't
-available (e.g. on some mobile browsers), `gpuMs` is reported as `-1` ("n/a" in the HUD).
+The WASM build additionally measures GPU time with the `EXT_disjoint_timer_query_webgl2`
+extension, when available (`js_perf_gpu_begin_frame` / `js_perf_gpu_enter_stage` /
+`js_perf_gpu_end_frame` in `src/wasm/WasmPerfGovernor.cpp`). GPU results arrive asynchronously
+(usually 1–2 frames later); if the extension isn't available (e.g. on some mobile browsers), every
+GPU field is reported as `-1` ("n/a" in the HUD).
+
+**Per stage, not just per frame.** `TIME_ELAPSED` queries cannot nest — only one may be
+active per context — so the frame is cut into consecutive segments, one query each.
+libprojectM announces every change of GPU stage through `projectm_perf_set_gpu_stage_callback()`
+(`projectm_perf.h`; the stage markers are `PROJECTM_PERF_GPU_STAGE` scopes in
+`MilkdropPreset::RenderFrame()` and `ProjectM::RenderFrame()`), and the host ends one query and
+begins the next. The stages tile the frame, so they sum to `gpuMs`:
+
+| Field | GPU stage | CPU counterpart |
+|-------|-----------|-----------------|
+| `gpuWarpMs` | motion vectors + warp mesh draw | `perPixelEvalMs` |
+| `gpuBlurMs` | blur chain | `blurMs` |
+| `gpuShapesMs` | custom shapes/waves, built-in waveform, darken center, border | `waveformsShapesMs` |
+| `gpuCopyMs` | the Y-flip `CopyTexture` passes (#176) | none — inside `compositeMs` |
+| `gpuCompositeMs` | final composite shader | `compositeMs` (with the flips) |
+| `gpuPresentMs` | output blit / transparency copy / libprojectM transition, and the Dual-FBO compositor during a soft cut | none |
+| `gpuOtherMs` | everything else (clears, user sprites) | none |
+| `gpuMs` | whole frame (their sum) | `totalMs` |
+
+`gpuFresh` is true only on the frame whose report resolved a new GPU result. The values repeat
+until the next result lands, so the benchmark samples GPU fields only from fresh frames (bundles
+without the flag count every frame, as before). `tests/libprojectM/PerfGpuStageTest.cpp` pins where
+the stages and the Y-flips fall: two copies for a preset without a composite shader, one with a
+composite shader, two with a custom warp shader.
 
 ## On-screen HUD
 
 Call `Module._set_perf_hud(1)` to enable both the CPU/GPU timers and an on-screen HUD
-(`#pm-perf-hud`, top-right corner) showing FPS, total frame time, and a bar for each of the
-buckets above (CPU buckets + GPU). Call `Module._set_perf_hud(0)` to disable both.
+(`#pm-perf-hud`, top-right corner) showing FPS, total frame time, and one row per stage with a
+**CPU** column (submit time) and a **GPU** column (timer query). Each row's two bars are that
+stage's share of `totalMs` and of `gpuMs` respectively. `-` means that side has no bucket for the
+stage (audio issues no GL; the flips have no CPU bucket of their own); `n/a` means no number yet.
+Call `Module._set_perf_hud(0)` to disable both.
 
-In `html/projectm-core.html`, append `?perfhud=1` to the page URL to enable the HUD on load.
+In `html/projectm-core.html`, append `?perfhud=1` to the page URL to enable the HUD on load. It
+works in **both** render topologies: in the default render-worker topology the engine's
+`pmOnPerfFrame` / `pmSetPerfHudEnabled` calls land in the worker's scope, and the worker relays
+them (`perf-frames`, batched every ~100 ms, and `perf-hud` in
+`projectm-render-worker-types.ts`). The title shows `· worker` when the numbers came from there.
+`?renderWorker=0` still works and is the topology for the preset dev tools.
 
-The HUD implementation lives in `html/projectm-perf.js` (`setupPerfTools()`), which also wires up
-the `window.pmOnPerfFrame` / `window.pmSetPerfHudEnabled` hooks called from C++.
+The HUD implementation lives in `html/projectm-perf.js`: `setupPerfTools(Module)` on the main
+thread, `setupTransportPerfTools(transport)` for whichever topology a `ProjectMContext` picked.
+Both listen through the WASM callback bus / the render transport and write nothing to `window`.
 
 ## Headless benchmark mode
 
@@ -84,6 +117,11 @@ Append the following query parameters to `projectm-core.html`:
 - `crossfadeSec` — crossfade duration in seconds when `crossfade=1` (default 20).
 - `crossfadePresets` — comma-separated preset paths to cycle through in crossfade mode. Defaults
   to `?preset=` if given, otherwise the first two featured-pack presets.
+
+In the render-worker topology `benchmark=1`, `frames` and `preset` work the same way (the frames
+are relayed from the worker and the report says `"topology": "worker"`). `crossfade=1` and
+`presetSwitchBench=1` poll engine state synchronously, so they need `?renderWorker=0`; in the
+worker topology they log that and are skipped rather than sampling the wrong frames.
 
 Once `frames` samples have been collected, `projectm-perf.js`:
 
@@ -1276,13 +1314,15 @@ commands and UI resize/events only" requirement):
   both steps on its side. `ProjectMContext.loadPresetUrl()` /
   `loadPresetFile()` / `addPreset()` and `fetchApiPreset({ writeBytes })` are
   topology-agnostic.
-- Still main-thread-only: the FBO-format degraded-mode banner
-  (`projectm-fbo-format.js`), the on-screen perf HUD (`projectm-perf.js`), the
-  preset dev tools and the experimental bridge. All four read engine state
-  through a module object on the page and drive the DOM from it; in worker mode
-  they stay unbuilt rather than throwing, and `?renderWorker=0` brings them
-  back. Porting them onto `RenderTransport` is what remains of making
-  `projectm-core.html` fully topology-agnostic.
+- The perf HUD and the FBO-format degraded-mode banner work in worker mode:
+  the worker relays the engine's perf frames and HUD toggle
+  (`perf-frames` / `perf-hud`), and the banner reads `fboFormat` from the
+  worker's `stats` (`setupTransportPerfTools()`,
+  `setupWorkerFboFormatIndicator()`). Still main-thread-only: the preset dev
+  tools and the experimental bridge, which read and write engine state
+  synchronously through a module object on the page; in worker mode they stay
+  unbuilt and `?renderWorker=0` brings them back. The `crossfade=1` and
+  `presetSwitchBench=1` benchmarks are main-thread-only for the same reason.
 - **Nested OpenMP/pthread workers** (confirmed working on Chromium, 2026-09;
   see the browser matrix below): the WASM module is built with
   `-pthread -fopenmp` and `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'`.
@@ -1305,6 +1345,33 @@ commands and UI resize/events only" requirement):
   by the Emscripten runtime itself, so no extra code was needed here, but the
   resulting frame pacing on a `setTimeout` fallback has not been measured.
 
+#### Render-worker browser matrix
+
+What `isRenderWorkerSupported()` (`html/projectm-render-worker-host.js`) decides
+per browser, and what has actually been observed. The decision is made **before**
+`transferControlToOffscreen()`, because the transfer is one-way: a worker that
+fails to create its WebGL2 context afterwards leaves the main-thread fallback
+with a canvas it can no longer draw into. So besides the API checks it probes
+`new OffscreenCanvas(1, 1).getContext('webgl2')` once (the probe context is
+released immediately), and `canUseRenderWorker()` additionally requires
+cross-origin isolation.
+
+| Browser | Expected | Why | Verified |
+|---|---|---|---|
+| Chrome / Edge ≥ 91 (bundle floor) | **worker** | OffscreenCanvas + WebGL2 in workers since 69; nested Workers supported | ✅ headless Chromium + SwiftShader, 2026-09 (`scripts/test_audio_reactivity_wasm.mjs`, both topologies) |
+| Firefox ≥ 105 | **worker** | OffscreenCanvas (incl. WebGL) in workers shipped in 105; nested Workers long supported | ❌ not run — expected from release notes only |
+| Firefox 89–104 | **fallback** (main thread) | no `transferControlToOffscreen` | ❌ not run |
+| Safari ≥ 17 | **worker** | WebGL on OffscreenCanvas shipped in 17; nested dedicated Workers since 15.5 | ❌ not run — the OpenMP pool's nested Workers are the open question |
+| Safari 16.4–16.x (bundle floor) | **fallback** (main thread) | OffscreenCanvas exists but has only a 2D context; the WebGL2 probe fails and the canvas is never transferred | ❌ not run — before this probe it would have transferred and rendered nothing |
+| Any browser, page not cross-origin isolated | **fallback** | no SharedArrayBuffer (the pthread build cannot start anyway) | ✅ covered by `tests/web/` |
+
+"Expected" is what the code will do given the vendors' documented support; a
+❌ in the last column means nobody has opened the page in that browser yet. A
+fallback is logged with its reason (`onRenderWorkerFallback`, e.g.
+`OffscreenCanvas has no WebGL2 context (Safari < 17)`), so a manual check is:
+open `projectm-core.html?perfhud=1`, and look for either `· worker` in the HUD
+title or the fallback warning in the console.
+
 **Browser matrix tested**: headless Chromium with SwiftShader (software GL),
 2026-09, via `scripts/test_audio_reactivity_wasm.mjs`. The render-worker
 topology boots, creates its GL context on the transferred `OffscreenCanvas`,
@@ -1323,12 +1390,14 @@ unverified. To test by hand:
    `startLocalProjectMTestSender()`.
 3. Firefox: same as above (`OffscreenCanvas`/`transferControlToOffscreen`
    supported since Firefox 105).
-4. Safari: `transferControlToOffscreen()` support and nested-Worker behavior
-   for the OpenMP pool are the main unknowns — check the console for
-   `{ type: 'unsupported' }`/`{ type: 'error' }` messages from
-   `projectm-render-worker-host.js`'s `onUnsupported`/`onError` callbacks (logged
-   via `console.warn`/`console.error`), which should trigger the main-thread
-   fallback.
+4. Safari: nested-Worker behavior for the OpenMP pool is the main unknown on 17+;
+   16.x should fall back before the transfer (see the matrix above). Check the
+   console for the fallback reason and for `{ type: 'unsupported' }`/`{ type: 'error' }`
+   messages from `projectm-render-worker-host.js`'s `onUnsupported`/`onError`
+   callbacks. Note that an error *after* the canvas was transferred cannot be
+   rescued by the main-thread fallback (the page no longer owns the canvas) — if
+   one shows up, the pre-transfer probe is missing a capability and needs
+   extending, and the matrix above needs a row.
 5. With `?renderWorker=0`: confirm the main-thread path still behaves as it
    always did, including the dev panels, which only exist there.
 

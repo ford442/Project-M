@@ -29,8 +29,17 @@
 // used to be one Module-wide record that cached the first context's extension
 // and query list for every later context.)
 //
-// Begins a GPU timer query for the upcoming render_frame() call, if the
-// EXT_disjoint_timer_query_webgl2 extension is available. No-op otherwise.
+// Per-stage GPU time. TIME_ELAPSED queries cannot nest: only one
+// can be active per context. So instead of one query around the whole frame,
+// the frame is cut into consecutive segments, one query each, and every
+// segment is labelled with the libprojectM GPU stage that was current while it
+// ran (projectm_perf_gpu_stage, reported through OnGpuStageChange() below). A
+// frame's stage times are the sums of its segments' times, and gpuMs — still
+// whole-frame GPU time — is the sum of all of them. Stage indices match
+// projectm_perf_gpu_stage; the JS names are in __pmPerfGpuStageKeys.
+//
+// Begins the first segment (stage OTHER) for the upcoming render_frame()
+// call, if EXT_disjoint_timer_query_webgl2 is available. No-op otherwise.
 // clang-format off
 EM_JS(void, js_perf_gpu_begin_frame, (), {
     if (typeof GLctx === 'undefined' || !GLctx) {
@@ -38,55 +47,111 @@ EM_JS(void, js_perf_gpu_begin_frame, (), {
     }
     if (!Module.__pmPerfGpuByCtx) {
         Module.__pmPerfGpuByCtx = new WeakMap();
+        Module.__pmPerfGpuStageKeys = [
+            'gpuOtherMs', 'gpuWarpMs', 'gpuBlurMs', 'gpuShapesMs', 'gpuCopyMs', 'gpuCompositeMs', 'gpuPresentMs',
+        ];
     }
     let gpu = Module.__pmPerfGpuByCtx.get(GLctx);
     if (!gpu) {
-        gpu = { ext: GLctx.getExtension('EXT_disjoint_timer_query_webgl2'), queries: [], lastMs: -1 };
+        gpu = {
+            ext: GLctx.getExtension('EXT_disjoint_timer_query_webgl2'),
+            // Submitted frames whose queries have not all resolved yet, oldest first.
+            pending: [],
+            // The frame being recorded: { segments: [{ stage, query }] }, or null.
+            open: null,
+            // Last resolved frame: whole-frame ms and per-stage ms, -1 = none yet.
+            lastMs: -1,
+            lastStageMs: Module.__pmPerfGpuStageKeys.map(() => -1),
+            // True only on the end_frame() that resolved a new frame, so a
+            // benchmark can tell a fresh GPU sample from a repeat of the last one.
+            fresh: false,
+        };
         Module.__pmPerfGpuByCtx.set(GLctx, gpu);
     }
     if (!gpu.ext) {
         return;
     }
+    if (gpu.open) {
+        // An unbalanced begin (end_frame never ran): close it so the next
+        // beginQuery does not fail with a query already active.
+        GLctx.endQuery(gpu.ext.TIME_ELAPSED_EXT);
+        gpu.open.segments.forEach((segment) => GLctx.deleteQuery(segment.query));
+    }
+    gpu.open = { segments: [] };
     const query = GLctx.createQuery();
     GLctx.beginQuery(gpu.ext.TIME_ELAPSED_EXT, query);
-    gpu.queries.push(query);
+    gpu.open.segments.push({ stage: 0, query: query });
 });
 // clang-format on
 
-// Ends the GPU timer query started by js_perf_gpu_begin_frame() and polls
-// previously submitted queries (without blocking) for completed results.
+// Closes the current segment and opens one for `stage`. Called from
+// libprojectM on every GPU stage change while perf timers are enabled; a no-op
+// outside a frame opened by js_perf_gpu_begin_frame() (e.g. a host that calls
+// render_frame() directly, without the HUD's frame bracket).
+// clang-format off
+EM_JS(void, js_perf_gpu_enter_stage, (int stage), {
+    const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
+        ? Module.__pmPerfGpuByCtx.get(GLctx) : null;
+    if (!gpu || !gpu.ext || !gpu.open) {
+        return;
+    }
+    GLctx.endQuery(gpu.ext.TIME_ELAPSED_EXT);
+    const query = GLctx.createQuery();
+    GLctx.beginQuery(gpu.ext.TIME_ELAPSED_EXT, query);
+    gpu.open.segments.push({ stage: stage, query: query });
+});
+// clang-format on
+
+// Ends the frame's last segment and polls previously submitted frames
+// (without blocking) for completed results. A frame resolves once every one
+// of its segment queries has; a disjoint frame is discarded, as before.
 // clang-format off
 EM_JS(void, js_perf_gpu_end_frame, (), {
     const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
         ? Module.__pmPerfGpuByCtx.get(GLctx) : null;
-    if (!gpu || !gpu.ext) {
+    if (!gpu || !gpu.ext || !gpu.open) {
         return;
     }
     GLctx.endQuery(gpu.ext.TIME_ELAPSED_EXT);
+    gpu.pending.push(gpu.open);
+    gpu.open = null;
+    gpu.fresh = false;
     // GPU timer queries complete asynchronously, often a frame or two later.
-    while (gpu.queries.length > 0) {
-        const oldest = gpu.queries[0];
-        if (!GLctx.getQueryParameter(oldest, GLctx.QUERY_RESULT_AVAILABLE)) {
+    while (gpu.pending.length > 0) {
+        const oldest = gpu.pending[0];
+        const ready = oldest.segments.every(
+            (segment) => GLctx.getQueryParameter(segment.query, GLctx.QUERY_RESULT_AVAILABLE));
+        if (!ready) {
             break;
         }
         const disjoint = GLctx.getParameter(gpu.ext.GPU_DISJOINT_EXT);
         if (!disjoint) {
-            const ns = GLctx.getQueryParameter(oldest, GLctx.QUERY_RESULT);
-            gpu.lastMs = ns / 1e6;
+            const stageMs = Module.__pmPerfGpuStageKeys.map(() => 0);
+            let totalMs = 0;
+            oldest.segments.forEach((segment) => {
+                const ms = GLctx.getQueryParameter(segment.query, GLctx.QUERY_RESULT) / 1e6;
+                if (segment.stage >= 0 && segment.stage < stageMs.length) {
+                    stageMs[segment.stage] += ms;
+                }
+                totalMs += ms;
+            });
+            gpu.lastMs = totalMs;
+            gpu.lastStageMs = stageMs;
+            gpu.fresh = true;
         }
-        GLctx.deleteQuery(oldest);
-        gpu.queries.shift();
+        oldest.segments.forEach((segment) => GLctx.deleteQuery(segment.query));
+        gpu.pending.shift();
     }
-    // Don't let unresolved queries pile up if results never arrive.
-    while (gpu.queries.length > 8) {
-        GLctx.deleteQuery(gpu.queries.shift());
+    // Don't let unresolved frames pile up if results never arrive.
+    while (gpu.pending.length > 8) {
+        gpu.pending.shift().segments.forEach((segment) => GLctx.deleteQuery(segment.query));
     }
 });
 // clang-format on
 
 // Returns the current context's most recently completed GPU frame time in
-// milliseconds, or -1 if the timer query extension is unavailable or no result
-// has arrived yet.
+// milliseconds (the sum of its stage segments), or -1 if the timer query
+// extension is unavailable or no result has arrived yet.
 // clang-format off
 EM_JS(double, js_perf_gpu_get_last_ms, (), {
     const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
@@ -94,6 +159,14 @@ EM_JS(double, js_perf_gpu_get_last_ms, (), {
     return (gpu && gpu.ext) ? gpu.lastMs : -1;
 });
 // clang-format on
+
+// libprojectM's GPU stage callback (projectm_perf_set_gpu_stage_callback()).
+// Installed by set_perf_hud(); libprojectM only calls it while perf timers are
+// enabled, so it costs nothing otherwise.
+static void OnGpuStageChange(projectm_perf_gpu_stage stage, void* /*userData*/)
+{
+    js_perf_gpu_enter_stage(static_cast<int>(stage));
+}
 
 // Notifies the host page that perf timer collection was enabled/disabled, so
 // it can show or hide the on-screen HUD. See html/projectm-perf.js.
@@ -116,6 +189,13 @@ EM_JS(void, js_perf_report_frame, (
     int perPixelEvalPath
 ), {
     if (typeof globalThis.pmOnPerfFrame === 'function') {
+        const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
+            ? Module.__pmPerfGpuByCtx.get(GLctx) : null;
+        const gpuStages = {};
+        (Module.__pmPerfGpuStageKeys || []).forEach((key, index) => {
+            gpuStages[key] = (gpu && gpu.ext) ? gpu.lastStageMs[index] : -1;
+        });
+        const gpuFresh = !!(gpu && gpu.ext && gpu.fresh);
         globalThis.pmOnPerfFrame({
             totalMs: totalMs,
             audioMs: audioMs,
@@ -125,6 +205,13 @@ EM_JS(void, js_perf_report_frame, (
             waveformsShapesMs: waveformsShapesMs,
             compositeMs: compositeMs,
             gpuMs: gpuMs,
+            // Per-stage GPU time for the same resolved frame as gpuMs (they sum
+            // to it), -1 each when there is no timer query or no result yet.
+            // gpuFresh is true only on the frame whose call resolved a new GPU
+            // frame: GPU results arrive a frame or two late and are repeated
+            // until the next one, so a sampler must skip the repeats.
+            ...gpuStages,
+            gpuFresh: gpuFresh,
             fps: fps,
             shaderLinkPending: shaderLinkPending !== 0,
             // 'gpu' when the preset's per_pixel_* code was compiled into the warp
@@ -431,7 +518,7 @@ int get_governor_blur_cap()
 
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
 // enabled, CPU timers (libprojectM's projectm_perf API) and, if available,
-// a WebGL GPU timer query are collected each frame and reported to the host
+// WebGL GPU timer queries (whole frame and per stage) are collected each frame and reported to the host
 // page via js_perf_report_frame()/globalThis.pmOnPerfFrame. See
 // docs/PERFORMANCE.md and html/projectm-perf.js.
 EMSCRIPTEN_KEEPALIVE
@@ -441,6 +528,9 @@ void set_perf_hud(int enabled)
     auto& g_perfHudEnabled = H.perfHudEnabled;
     g_perfHudEnabled = enabled != 0;
     projectm_perf_set_enabled(g_perfHudEnabled);
+    // Per-stage GPU timing (js_perf_gpu_enter_stage()). Process-global like the
+    // perf timers themselves; each call lands on whichever host is rendering.
+    projectm_perf_set_gpu_stage_callback(g_perfHudEnabled ? &OnGpuStageChange : nullptr, nullptr);
     js_perf_hud_set_enabled(enabled);
     return;
 }

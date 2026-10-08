@@ -151,6 +151,8 @@ function loadWorker({
     return {
         posted,
         importedScripts,
+        /** The worker's global scope, where the engine's EM_JS callbacks land. */
+        scope: self,
         /** Fires the interval callback the worker registered for stats. */
         tickStats: () => intervals.forEach((fn) => fn()),
         /** @param {any} data */
@@ -617,7 +619,7 @@ test('both implementations cover every message type declared in the wire protoco
         workerToHost.slice().sort(),
         [
             'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
-            'error', 'pcm-ring', 'ready', 'stats', 'unsupported',
+            'error', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'stats', 'unsupported',
         ],
     );
 
@@ -642,6 +644,52 @@ test('both implementations cover every message type declared in the wire protoco
             `projectm-render-worker.js never posts a '${type}' message`,
         );
     }
+});
+
+// ---- Perf HUD relay ------------------------------------------------------------
+//
+// js_perf_report_frame() calls globalThis.pmOnPerfFrame, which in the worker is
+// the worker's scope. Without the relay ?perfhud=1 showed nothing in the default
+// topology.
+
+test('perf frames reported in the worker reach the host in order, batched', async () => {
+    const worker = loadWorker({ createModule: async () => fakeRingModule() });
+    // init() starts the stats interval this test drives with tickStats().
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+    const frame = (totalMs) => ({ totalMs, gpuMs: -1, fps: 60 });
+
+    // The first frame flushes at once; the next ones wait for the batch window.
+    worker.scope.pmOnPerfFrame(frame(1));
+    worker.scope.pmOnPerfFrame(frame(2));
+    worker.scope.pmOnPerfFrame(frame(3));
+    // Arrays built inside the vm carry its Array.prototype; Array.from() brings them into this realm.
+    const totals = (message) => Array.from(message.frames, (f) => f.totalMs);
+    assert.deepEqual(worker.posted.map((m) => m.type), ['perf-frames']);
+    assert.deepEqual(totals(worker.posted[0]), [1]);
+    assert.deepEqual({ ...worker.posted[0].frames[0] }, frame(1));
+
+    // The stats interval drains a partial batch, so a stalled loop strands nothing.
+    worker.tickStats();
+    const batches = () => worker.posted.filter((m) => m.type === 'perf-frames');
+    assert.equal(batches().length, 2);
+    assert.deepEqual(totals(batches()[1]), [2, 3]);
+
+    worker.tickStats();
+    assert.equal(batches().length, 2, 'an empty batch is not posted');
+});
+
+test('the HUD toggle is relayed, and switching it off flushes what was measured', () => {
+    const worker = loadWorker();
+    worker.scope.pmSetPerfHudEnabled(true);
+    worker.scope.pmOnPerfFrame({ totalMs: 1 });
+    worker.scope.pmOnPerfFrame({ totalMs: 2 });
+    worker.scope.pmSetPerfHudEnabled(false);
+
+    assert.deepEqual(worker.posted.map((m) => m.type), ['perf-hud', 'perf-frames', 'perf-frames', 'perf-hud']);
+    assert.equal(worker.posted[0].enabled, true);
+    assert.deepEqual(Array.from(worker.posted[2].frames, (f) => f.totalMs), [2]);
+    assert.equal(worker.posted[3].enabled, false);
 });
 
 // ---- WebGL context loss ------------------------------------------------------

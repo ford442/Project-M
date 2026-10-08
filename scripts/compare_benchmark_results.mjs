@@ -20,7 +20,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { compareBenchmarks, formatMarkdownTable } from '../tests/wasm-smoke/lib/frame-budget.mjs';
+import { compareBenchmarks, formatGpuStageTable, formatMarkdownTable } from '../tests/wasm-smoke/lib/frame-budget.mjs';
 
 function parseArgs(argv) {
     const options = {
@@ -67,10 +67,15 @@ const comparison = compareBenchmarks(base, head, {
     minAbsoluteDeltaMs: options.minAbsoluteDeltaMs,
 });
 
-const markdown = formatMarkdownTable(comparison, {
-    includeUnchanged: options.includeUnchanged,
-    title: `Frame budget (p95) — ${String(base.commit).slice(0, 8)} → ${String(head.commit).slice(0, 8)}`,
-});
+// The gate is the p95 table; the stage breakdown below it is the head run's
+// measurement, reported so the Y-flip decision has a number to point at.
+const markdown = [
+    formatMarkdownTable(comparison, {
+        includeUnchanged: options.includeUnchanged,
+        title: `Frame budget (p95) — ${String(base.commit).slice(0, 8)} → ${String(head.commit).slice(0, 8)}`,
+    }),
+    formatGpuStageTable(head, { title: `GPU time per stage (p50) — ${String(head.commit).slice(0, 8)}` }),
+].join('\n\n');
 
 console.log(markdown);
 if (options.markdown) {

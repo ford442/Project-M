@@ -114,6 +114,7 @@ benchmark-results/golden/
 benchmark-results/preset-benchmark.json
 benchmark-results/preset-benchmark-native.json
 benchmark-results/frame-budget-comparison.md
+benchmark-results/gpu-stages.md
 
 # Cloned on demand by scripts/build_libomp_emscripten.sh (LLVM OpenMP sources)
 /vendor/llvm-project/

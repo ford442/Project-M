@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    buildBenchmarkRecord, compareBenchmarks, formatMarkdownTable, percentile, summarize,
+    GPU_STAGES, buildBenchmarkRecord, compareBenchmarks, formatGpuStageTable, formatMarkdownTable, percentile, summarize,
 } from '../wasm-smoke/lib/frame-budget.mjs';
 
 function record(presets, extra = {}) {
@@ -109,4 +109,53 @@ test('an all-clear comparison says so instead of printing an empty table', () =>
     const table = formatMarkdownTable(compareBenchmarks(record([['a.milk', 10]]), record([['a.milk', 10]])));
     assert.match(table, /No preset moved/);
     assert.match(table, /\*\*Result: pass/);
+});
+
+// ---- Per-stage GPU breakdown -----------------------------------------------------
+
+/** @param {number} p50 */
+const stat = (p50) => ({ count: 10, mean: p50, min: p50, p50, p95: p50, p99: p50, max: p50 });
+
+test('the stage table puts the copies beside the CPU per-pixel bucket and as a share of GPU time', () => {
+    const head = buildBenchmarkRecord({
+        commit: 'cafef00d',
+        presets: [
+            {
+                preset: '/presets/tests/110-per_pixel.milk',
+                label: 'no composite shader (old-school)',
+                category: 'no-composite',
+                frameMs: stat(8),
+                gpuMs: stat(4),
+                gpuStagesMs: { warp: stat(1), blur: stat(0.5), copy: stat(1), composite: stat(1), present: stat(0.5) },
+                perPixelEvalMs: stat(3),
+            },
+            {
+                preset: '/custom_milk_fixed/milk015.milk',
+                category: 'dual-fbo-cut',
+                mode: 'crossfade',
+                frameMs: stat(9),
+                gpuMs: stat(6),
+                gpuStagesMs: { copy: stat(0.3) },
+            },
+            // No timer extension on this one: no stage map, so no row.
+            { preset: '/presets/tests/000-empty.milk', frameMs: stat(2) },
+        ],
+    });
+
+    const table = formatGpuStageTable(head);
+    const lines = table.split('\n');
+    assert.match(lines[2], /\| GPU total \| warp \| blur \| shapes \| copy \| composite \| present \| other \| copy \/ GPU \| CPU per-pixel \|/);
+    const oldSchool = lines.find((line) => line.includes('no composite shader'));
+    // 1 ms of copies in a 4 ms GPU frame, next to 3 ms of CPU per-pixel work.
+    assert.match(oldSchool, /\| no-composite \| 4\.00 \| 1\.00 \| 0\.50 \| — \| 1\.00 \| 1\.00 \| 0\.50 \| — \| 25\.0% \| 3\.00 \|$/);
+    const cut = lines.find((line) => line.includes('milk015'));
+    assert.match(cut, /dual-fbo-cut, crossfade/);
+    assert.match(cut, /\| 5\.0% \| — \|$/);
+    assert.equal(lines.some((line) => line.includes('000-empty')), false);
+});
+
+test('a record without stage timings says why instead of printing an empty table', () => {
+    const table = formatGpuStageTable(record([['a.milk', 10]]));
+    assert.match(table, /No per-stage GPU timings in this record/);
+    assert.equal(GPU_STAGES.length, 7, 'one per projectm_perf_gpu_stage');
 });

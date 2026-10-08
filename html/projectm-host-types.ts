@@ -7,6 +7,7 @@
 // `generated/projectm-wasm-api.ts` and the globals set from `projectM_emscripten.cpp`.
 
 import type { ProjectMModule } from './generated/projectm-wasm-api.ts';
+import type { PerfFrameStats } from './projectm-render-worker-types.ts';
 
 /**
  * The subset of the Emscripten module instance the host modules touch, before
@@ -115,29 +116,11 @@ declare global {
          * Perf HUD hooks, engine callbacks that projectm-perf.js listens to through
          * projectm-wasm-callbacks.js. `pmOnPerfFrame` is called once per frame from
          * `js_perf_report_frame()` (WasmPerfGovernor.cpp) — the stats shape is
-         * defined there.
+         * defined there and typed as `PerfFrameStats` in
+         * projectm-render-worker-types.ts, since the render worker relays it.
          */
         pmSetPerfHudEnabled?: (enabled: boolean) => void;
-        pmOnPerfFrame?: (stats: {
-            totalMs: number;
-            audioMs: number;
-            perFrameEvalMs: number;
-            perPixelEvalMs: number;
-            blurMs: number;
-            waveformsShapesMs: number;
-            compositeMs: number;
-            gpuMs: number;
-            fps: number;
-            /** Absent from bundles that predate KHR_parallel_shader_compile support. */
-            shaderLinkPending?: boolean;
-            /**
-             * How the per-pixel equations were evaluated for this frame. `'gpu'` means
-             * they were compiled into the warp vertex shader and `perPixelEvalMs`
-             * covers only the draw submission; `'cpu'` means the evaluator ran once
-             * per warp mesh vertex. See docs/GPU_PERPIXEL_EVAL.md.
-             */
-            perPixelEvalPath?: 'gpu' | 'cpu';
-        }) => void;
+        pmOnPerfFrame?: (stats: PerfFrameStats) => void;
     }
 
     /**

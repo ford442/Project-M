@@ -42,6 +42,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <optional>
 
 namespace libprojectM {
 
@@ -333,6 +334,11 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     }
 #endif
 
+    // Everything from here to the sprites puts the preset's output into the target
+    // framebuffer: a blit, a transparency copy, or a transition blend.
+    std::optional<Perf::GpuStageScope> presentStage;
+    presentStage.emplace(Perf::GpuStage::Present);
+
     if (m_transition != nullptr && m_transitioningPreset != nullptr)
     {
         m_transition->SetTransparencyMode(m_transparencyMode);
@@ -361,6 +367,8 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
                               true,
                               m_transparencyThreshold);
     }
+
+    presentStage.reset();
 
     // Draw user sprites
     m_spriteManager->Draw(audioData, renderContext, targetFramebufferObject, {m_activePreset, m_transitioningPreset});

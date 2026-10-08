@@ -299,7 +299,8 @@ export function installLifecycleEnv({
     define('location', window.location);
     define('crossOriginIsolated', crossOriginIsolated);
     define('Worker', FakeWorker);
-    define('OffscreenCanvas', class FakeOffscreenCanvas {});
+    // getContext() answers the render worker's pre-transfer WebGL2 probe.
+    define('OffscreenCanvas', class FakeOffscreenCanvas { getContext() { return {}; } });
     define('BroadcastChannel', FakeBroadcastChannel);
     define('fetch', async (url) => ({
         ok: true,

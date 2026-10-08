@@ -26,6 +26,8 @@
 //   { type: 'context-lost' }                          // webglcontextlost on the OffscreenCanvas
 //   { type: 'context-restored' }                      // webglcontextrestored; engine not rebuilt yet
 //   { type: 'context-recovered', status }             // outcome of 'recover-context' (init() code)
+//   { type: 'perf-frames', frames }                   // perf-HUD frames, batched (~100 ms)
+//   { type: 'perf-hud', enabled }                     // set_perf_hud() toggled the instrumentation
 //
 // Audio: the module owns its PCM ring (src/wasm/WasmPcmRing.cpp) and drains it
 // in render_frame(), exactly as on the main thread. This worker's only jobs are
@@ -41,6 +43,7 @@
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerCcallMessage} RenderWorkerCcallMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerPresetMessage} RenderWorkerPresetMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
+ * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
 
@@ -138,6 +141,46 @@ const onGovernorRenderScaleChange = (scale) => {
     applySurfaceSize();
 };
 /** @type {any} */ (self).pmOnGovernorRenderScaleChange = onGovernorRenderScaleChange;
+
+// The perf HUD (html/projectm-perf.js) lives on the page, but the engine reports
+// to `globalThis.pmOnPerfFrame` / `pmSetPerfHudEnabled` — this scope. Relay both,
+// so `?perfhud=1` works in the default topology rather than only with
+// `?renderWorker=0`.
+//
+// Frames are batched: the HUD repaints at most every 200 ms, and a postMessage
+// per frame would be 60+ structured clones a second for nothing. A benchmark
+// still sees every frame, because the host replays the batch in order.
+const PERF_FLUSH_INTERVAL_MS = 100;
+/** @type {PerfFrameStats[]} */
+let perfFrames = [];
+let perfLastFlush = 0;
+
+function flushPerfFrames() {
+    if (perfFrames.length === 0) return;
+    const frames = perfFrames;
+    perfFrames = [];
+    perfLastFlush = performance.now();
+    postToHost({ type: 'perf-frames', frames });
+}
+
+/** @param {PerfFrameStats} stats */
+const onPerfFrame = (stats) => {
+    perfFrames.push(stats);
+    if (performance.now() - perfLastFlush >= PERF_FLUSH_INTERVAL_MS) {
+        flushPerfFrames();
+    }
+};
+/** @type {any} */ (self).pmOnPerfFrame = onPerfFrame;
+
+/** @param {boolean} enabled */
+const onPerfHudEnabled = (enabled) => {
+    if (!enabled) {
+        // Whatever is buffered was measured; hand it over before the HUD goes.
+        flushPerfFrames();
+    }
+    postToHost({ type: 'perf-hud', enabled: !!enabled });
+};
+/** @type {any} */ (self).pmSetPerfHudEnabled = onPerfHudEnabled;
 
 /**
  * Reads the module's PCM ring descriptor. Mirrors readPcmRingDescriptor() in
@@ -279,6 +322,9 @@ function recoverContext() {
 }
 
 function postStats() {
+    // A render loop that stopped (hidden tab, lost context) would otherwise
+    // strand the last partial batch until it resumed.
+    flushPerfFrames();
     if (!Module) return;
 
     const now = performance.now();

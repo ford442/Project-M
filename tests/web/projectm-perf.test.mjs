@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 
-import { setHudVisible, setupPerfTools } from '../../html/projectm-perf.js';
+import { setHudVisible, setupPerfTools, setupTransportPerfTools } from '../../html/projectm-perf.js';
 import { countWasmCallbackSubscribers } from '../../html/projectm-wasm-callbacks.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
@@ -88,16 +88,20 @@ test('the HUD renders per-stage bars, throttles DOM writes, and hides on demand'
         assert.equal(hud.querySelector('[data-key="fps"]').textContent, '60');
         assert.equal(hud.querySelector('[data-key="totalMs"]').textContent, '10.00');
 
-        const audioRow = hud.querySelector('.pm-perf-hud-row[data-key="audioMs"]');
+        const audioRow = hud.querySelector('.pm-perf-hud-row[data-key="audio"]');
         assert.equal(audioRow.querySelector('.pm-perf-hud-value').textContent, '2.00ms');
         // 2 ms of a 10 ms frame.
         assert.equal(audioRow.querySelector('.pm-perf-hud-bar-fill').style.width, '20%');
+        // Audio analysis issues no GL: there is no GPU column to show, which is
+        // not the same as an unavailable timer.
+        assert.equal(audioRow.querySelector('.pm-perf-hud-gpu').textContent, '-');
 
         // A negative gpuMs means EXT_disjoint_timer_query is missing — that is
         // reported as unavailable, not as a 0 ms stage.
-        const gpuRow = hud.querySelector('.pm-perf-hud-row[data-key="gpuMs"]');
-        assert.equal(gpuRow.querySelector('.pm-perf-hud-value').textContent, 'n/a');
-        assert.equal(gpuRow.querySelector('.pm-perf-hud-bar-fill').style.width, '0%');
+        const totalRow = hud.querySelector('.pm-perf-hud-row[data-key="total"]');
+        assert.equal(totalRow.querySelector('.pm-perf-hud-value').textContent, '10.00ms');
+        assert.equal(totalRow.querySelector('.pm-perf-hud-gpu').textContent, 'n/a');
+        assert.equal(totalRow.querySelector('.pm-perf-hud-bar-fill-gpu').style.width, '0%');
 
         // The HUD repaints at most every 200 ms, so this frame is dropped...
         globalThis.pmOnPerfFrame(frame({ fps: 12, totalMs: 83 }));
@@ -140,7 +144,7 @@ test('the HUD names the per-pixel path, and the benchmark records it', () => {
         globalThis.pmSetPerfHudEnabled(true);
         const hud = dom.document.getElementById('pm-perf-hud');
         const label = () => hud
-            .querySelector('.pm-perf-hud-row[data-key="perPixelEvalMs"]')
+            .querySelector('.pm-perf-hud-row[data-key="perPixel"]')
             .querySelector('.pm-perf-hud-label').textContent;
 
         globalThis.pmOnPerfFrame(frame({ perPixelEvalPath: 'gpu' }));
@@ -151,6 +155,76 @@ test('the HUD names the per-pixel path, and the benchmark records it', () => {
         assert.equal(dom.posted[0].result.perPixelEvalPath, 'gpu');
     } finally {
         setHudVisible(false);
+        dom.restore();
+    }
+});
+
+test('the HUD shows each stage on the CPU and on the GPU side by side', () => {
+    // Fill-rate costs only show on the GPU side: the flips have no CPU bucket of
+    // their own at all, and the GPU bars are shares of gpuMs, not of totalMs.
+    const dom = installFakeDom({ search: '?perfhud=1', now: 2_000_000 });
+    try {
+        startPerfTools(fakeModule());
+        globalThis.pmSetPerfHudEnabled(true);
+        globalThis.pmOnPerfFrame(frame({
+            gpuMs: 8,
+            gpuWarpMs: 2,
+            gpuBlurMs: 1,
+            gpuShapesMs: 0.5,
+            gpuCopyMs: 4,
+            gpuCompositeMs: 0.25,
+            gpuPresentMs: 0.25,
+            gpuOtherMs: 0,
+        }));
+        const hud = dom.document.getElementById('pm-perf-hud');
+        const row = (id) => hud.querySelector(`.pm-perf-hud-row[data-key="${id}"]`);
+
+        assert.equal(row('perPixel').querySelector('.pm-perf-hud-value').textContent, '3.00ms');
+        assert.equal(row('perPixel').querySelector('.pm-perf-hud-gpu').textContent, '2.00ms');
+        assert.equal(row('copy').querySelector('.pm-perf-hud-value').textContent, '-');
+        assert.equal(row('copy').querySelector('.pm-perf-hud-gpu').textContent, '4.00ms');
+        assert.equal(row('copy').querySelector('.pm-perf-hud-bar-fill-gpu').style.width, '50%');
+        assert.equal(row('present').querySelector('.pm-perf-hud-gpu').textContent, '0.25ms');
+        assert.equal(row('other').querySelector('.pm-perf-hud-gpu').textContent, '0.00ms');
+        assert.equal(row('total').querySelector('.pm-perf-hud-gpu').textContent, '8.00ms');
+        assert.equal(hud.querySelector('[data-key="topology"]').textContent, '');
+    } finally {
+        setHudVisible(false);
+        dom.restore();
+    }
+});
+
+test('the benchmark keeps fresh GPU samples only, and summarizes every GPU stage', () => {
+    // GPU results arrive late and repeat until the next one lands; counting the
+    // repeats would weight whichever result happened to linger.
+    const dom = installFakeDom({ search: '?benchmark=1&frames=3' });
+    try {
+        startPerfTools(fakeModule());
+        globalThis.pmOnPerfFrame(frame({ gpuMs: 4, gpuCopyMs: 1, gpuFresh: true }));
+        globalThis.pmOnPerfFrame(frame({ gpuMs: 4, gpuCopyMs: 1, gpuFresh: false }));
+        globalThis.pmOnPerfFrame(frame({ gpuMs: 6, gpuCopyMs: 3, gpuFresh: true }));
+
+        const { breakdownMs } = dom.posted[0].result;
+        assert.deepEqual(breakdownMs.gpuMs, { mean: 5, median: 6, p95: 6, min: 4, max: 6 });
+        assert.deepEqual(breakdownMs.gpuCopyMs, { mean: 2, median: 3, p95: 3, min: 1, max: 3 });
+        // CPU buckets are not gated on GPU freshness: all three frames count.
+        assert.equal(dom.posted[0].result.frames, 3);
+        assert.equal(dom.posted[0].result.topology, 'main');
+        // A stage that never reported is an empty summary, not a missing key.
+        assert.deepEqual(breakdownMs.gpuPresentMs, { mean: 0, median: 0, p95: 0, min: 0, max: 0 });
+    } finally {
+        dom.restore();
+    }
+});
+
+test('a bundle without the freshness flag keeps every GPU sample, as before', () => {
+    const dom = installFakeDom({ search: '?benchmark=1&frames=2' });
+    try {
+        startPerfTools(fakeModule());
+        globalThis.pmOnPerfFrame(frame({ gpuMs: 4 }));
+        globalThis.pmOnPerfFrame(frame({ gpuMs: 4 }));
+        assert.equal(dom.posted[0].result.breakdownMs.gpuMs.mean, 4);
+    } finally {
         dom.restore();
     }
 });
@@ -450,6 +524,118 @@ test('a disposed controller stops sampling and ends the crossfade pump', async (
         const loadsAfter = module.ccalls.length;
         await new Promise((resolve) => setTimeout(resolve, 250));
         assert.equal(module.ccalls.length, loadsAfter, 'no more preset loads after dispose');
+    } finally {
+        dom.restore();
+    }
+});
+
+// ---- Worker topology: the same tools over a render transport --------------------
+//
+// The render worker is the default topology, and the engine's perf callbacks fire
+// in the worker's scope. These drive setupTransportPerfTools() with a fake worker
+// transport the way projectm-render-transport.js builds one.
+
+function fakeWorkerTransport({ lastStats = null, omp = [1, 8, 4, 0] } = {}) {
+    const frameListeners = new Set();
+    const hudListeners = new Set();
+    /** @type {Array<{ name: string, args: unknown[] }>} */
+    const voidCalls = [];
+    const answers = {
+        getOmpEnabled: omp[0], getOmpMaxThreads: omp[1], getOmpThreadCountInParallel: omp[2], getOmpBlocktime: omp[3],
+    };
+    return {
+        topology: 'worker',
+        module: null,
+        workerHandle: { getLastStats: () => lastStats },
+        call: async (name) => answers[name],
+        callVoid: (name, ...args) => voidCalls.push({ name, args }),
+        onPerfFrame: (listener) => { frameListeners.add(listener); return () => frameListeners.delete(listener); },
+        onPerfHudEnabled: (listener) => { hudListeners.add(listener); return () => hudListeners.delete(listener); },
+        emitFrame: (stats) => frameListeners.forEach((listener) => listener(stats)),
+        emitHud: (enabled) => hudListeners.forEach((listener) => listener(enabled)),
+        voidCalls,
+        frameListeners,
+    };
+}
+
+test('?perfhud=1 in the worker topology turns the engine HUD on over the transport and paints relayed frames', () => {
+    const dom = installFakeDom({ search: '?perfhud=1', now: 3_000_000 });
+    const transport = fakeWorkerTransport();
+    try {
+        const tools = setupTransportPerfTools(transport);
+        started.push(tools);
+        assert.deepEqual(transport.voidCalls, [{ name: 'setPerfHud', args: [1] }]);
+        // Nothing went onto the main-thread callback bus: the engine is not here.
+        assert.equal(countWasmCallbackSubscribers('pmOnPerfFrame'), 0);
+
+        transport.emitHud(true);
+        transport.emitFrame(frame({ gpuMs: 5, gpuCopyMs: 1 }));
+        const hud = dom.document.getElementById('pm-perf-hud');
+        assert.equal(hud.classList.contains('visible'), true);
+        assert.equal(hud.querySelector('[data-key="fps"]').textContent, '60');
+        assert.equal(hud.querySelector('[data-key="topology"]').textContent, ' · worker');
+        assert.equal(
+            hud.querySelector('.pm-perf-hud-row[data-key="copy"]').querySelector('.pm-perf-hud-gpu').textContent,
+            '1.00ms',
+        );
+
+        tools.dispose();
+        assert.equal(transport.frameListeners.size, 0, 'dispose unsubscribes from the transport');
+    } finally {
+        setHudVisible(false);
+        dom.restore();
+    }
+});
+
+test('a worker-topology benchmark loads its preset over the transport and records the worker\'s format and OpenMP', async () => {
+    const dom = installFakeDom({ search: '?benchmark=1&frames=1&preset=/presets/x.milk' });
+    const transport = fakeWorkerTransport({ lastStats: { type: 'stats', fboFormat: 0 } });
+    try {
+        started.push(setupTransportPerfTools(transport));
+        assert.deepEqual(transport.voidCalls, [
+            { name: 'setPerfHud', args: [1] },
+            { name: 'loadPresetFile', args: ['/presets/x.milk'] },
+        ]);
+        // Let the OpenMP queries answer, as they do long before a run ends.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        transport.emitFrame(frame());
+        const report = dom.posted[0].result;
+        assert.equal(report.topology, 'worker');
+        assert.equal(report.fboFormat, 'RGBA16F');
+        assert.deepEqual(report.openmp, { compiled: true, maxThreads: 8, parallelThreadsObserved: 4, blocktimeMs: 0 });
+        assert.deepEqual(transport.voidCalls.at(-1), { name: 'setPerfHud', args: [0] });
+    } finally {
+        dom.restore();
+    }
+});
+
+test('the crossfade and preset-switch benchmarks say they need the main thread instead of misreporting', () => {
+    const dom = installFakeDom({ search: '?benchmark=1&crossfade=1&presetSwitchBench=1&frames=1' });
+    const originalWarn = console.warn;
+    /** @type {string[]} */
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+        const tools = setupTransportPerfTools(fakeWorkerTransport());
+        started.push(tools);
+        assert.equal(tools.crossfadeBench, false);
+        assert.equal(tools.presetSwitchBench, false);
+        assert.ok(warnings.some((w) => w.includes('crossfade mode needs the main-thread topology')));
+        assert.ok(warnings.some((w) => w.includes('presetSwitchBench needs the main-thread topology')));
+    } finally {
+        console.warn = originalWarn;
+        dom.restore();
+    }
+});
+
+test('a main-thread transport gets the module-based tools', () => {
+    const dom = installFakeDom({ search: '?perfhud=1' });
+    const module = fakeModule();
+    try {
+        started.push(setupTransportPerfTools({ topology: 'main', module, workerHandle: null }));
+        assert.deepEqual(module.perfHudCalls, [1]);
+        assert.equal(countWasmCallbackSubscribers('pmOnPerfFrame'), 1);
     } finally {
         dom.restore();
     }

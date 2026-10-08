@@ -303,6 +303,37 @@ test('destroy tears down the module on the main thread and the worker otherwise'
     assert.equal(handle.worker.terminated, true);
 });
 
+test('perf frames come off the WASM callback bus on the main thread and off the worker otherwise', () => {
+    // The engine calls globalThis.pmOnPerfFrame on whichever thread runs it; the
+    // transport is what lets the HUD stop caring which one that is.
+    const main = createModuleTransport(fakeModule());
+    const mainFrames = [];
+    const mainToggles = [];
+    const unsubscribeFrames = main.onPerfFrame((stats) => mainFrames.push(stats.totalMs));
+    const unsubscribeToggles = main.onPerfHudEnabled((enabled) => mainToggles.push(enabled));
+    try {
+        globalThis.pmOnPerfFrame({ totalMs: 7 });
+        globalThis.pmSetPerfHudEnabled(true);
+        assert.deepEqual(mainFrames, [7]);
+        assert.deepEqual(mainToggles, [true]);
+    } finally {
+        unsubscribeFrames();
+        unsubscribeToggles();
+    }
+    assert.equal('pmOnPerfFrame' in globalThis, false, 'the last listener gives the engine hook back');
+
+    const handle = fakeHandle();
+    const subscriptions = [];
+    handle.onPerfFrame = (listener) => { subscriptions.push(['frame', listener]); return () => {}; };
+    handle.onPerfHudEnabled = (listener) => { subscriptions.push(['hud', listener]); return () => {}; };
+    const worker = createWorkerTransport(handle);
+    const frameListener = () => {};
+    const hudListener = () => {};
+    worker.onPerfFrame(frameListener);
+    worker.onPerfHudEnabled(hudListener);
+    assert.deepEqual(subscriptions, [['frame', frameListener], ['hud', hudListener]]);
+});
+
 test('installTransportPcmWriter points the baked worklet handler at the transport', () => {
     const handle = fakeHandle();
     const remove = installTransportPcmWriter(createWorkerTransport(handle));
@@ -318,7 +349,8 @@ test('installTransportPcmWriter points the baked worklet handler at the transpor
 test('canUseRenderWorker requires cross-origin isolation as well as the APIs', () => {
     const canvas = { transferControlToOffscreen() { return {}; } };
     globalThis.Worker = class {};
-    globalThis.OffscreenCanvas = class {};
+    // A browser whose OffscreenCanvas hands out WebGL2 (the pre-transfer probe).
+    globalThis.OffscreenCanvas = class { getContext() { return {}; } };
     try {
         assert.equal(canUseRenderWorker({ canvas, crossOriginIsolated: true }), true);
         // No SharedArrayBuffer means no shared module heap: the ring would

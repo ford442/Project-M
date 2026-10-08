@@ -73,10 +73,28 @@ export function summarize(values) {
 }
 
 /**
+ * The GPU stages a record breaks gpuMs into, in display order. Matches
+ * projectm_perf_gpu_stage (src/api/include/projectM-4/projectm_perf.h).
+ *
+ * @typedef {'warp' | 'blur' | 'shapes' | 'copy' | 'composite' | 'present' | 'other'} GpuStage
+ * @type {ReadonlyArray<GpuStage>}
+ */
+export const GPU_STAGES = ['warp', 'blur', 'shapes', 'copy', 'composite', 'present', 'other'];
+
+/**
  * @typedef {object} PresetBudget
  * @property {string} preset
  * @property {SampleSummary} frameMs Wall-clock frame time.
  * @property {SampleSummary} [gpuMs] EXT_disjoint_timer_query_webgl2, when available.
+ * @property {Partial<Record<GpuStage, SampleSummary>>} [gpuStagesMs] Per-stage GPU
+ *   time (one TIME_ELAPSED query per libprojectM GPU stage; they sum to gpuMs).
+ *   Absent on runners without the timer extension and on older bundles.
+ * @property {SampleSummary} [perPixelEvalMs] CPU per-pixel bucket — what the
+ *   Y-flip copies are weighed against (docs/GRAPHICS_PERF_RECOVERY_PLAN.md).
+ * @property {'steady' | 'crossfade'} [mode] `crossfade` samples only mid-blend
+ *   frames (the Dual-FBO path).
+ * @property {string} [label]
+ * @property {string} [category] Render shape: baseline, no-composite, custom-warp, blur3, dual-fbo-cut.
  * @property {number} [heapBytesPeak]
  * @property {number} [governorTier] Quality tier the governor settled on.
  */
@@ -275,5 +293,57 @@ export function formatMarkdownTable(comparison, { includeUnchanged = false, titl
         ? '**Result: pass.**'
         : '**Result: fail — a preset regressed past the frame-budget threshold.**');
 
+    return lines.join('\n');
+}
+
+/**
+ * Renders one record's per-stage GPU breakdown (p50 per stage) as Markdown.
+ *
+ * Informational, never a gate: it is the measurement that decides whether the
+ * remaining Y-flip copies are worth removing (#176). `copy` is set beside
+ * the CPU per-pixel bucket and as a share of the whole-frame GPU time, which is
+ * the comparison the plan asks for: if the copies are in the noise next to
+ * per-pixel evaluation, they stay.
+ *
+ * @param {BenchmarkRecord} record
+ * @param {object} [options]
+ * @param {string} [options.title]
+ * @returns {string}
+ */
+export function formatGpuStageTable(record, { title = 'GPU time per stage (p50)' } = {}) {
+    const lines = [`### ${title}`, ''];
+    const rows = (record?.presets ?? []).filter((preset) => preset.gpuStagesMs
+        && Object.values(preset.gpuStagesMs).some((summary) => summary && summary.count > 0));
+
+    if (rows.length === 0) {
+        lines.push('_No per-stage GPU timings in this record: the runner has no '
+            + 'EXT_disjoint_timer_query_webgl2, or the bundle predates per-stage queries._');
+        return lines.join('\n');
+    }
+
+    /** @param {SampleSummary | undefined} summary */
+    const ms = (summary) => (summary && summary.count > 0 ? summary.p50.toFixed(2) : '—');
+
+    lines.push(`| Preset | Shape | GPU total | ${GPU_STAGES.join(' | ')} | copy / GPU | CPU per-pixel |`);
+    lines.push(`|---|---|---:|${GPU_STAGES.map(() => '---:').join('|')}|---:|---:|`);
+    for (const preset of rows) {
+        const stages = preset.gpuStagesMs ?? {};
+        const total = preset.gpuMs;
+        const copy = stages.copy;
+        const share = total && total.count > 0 && total.p50 > 0 && copy && copy.count > 0
+            ? `${((copy.p50 / total.p50) * 100).toFixed(1)}%`
+            : '—';
+        const shape = [preset.category, preset.mode === 'crossfade' ? 'crossfade' : null].filter(Boolean).join(', ');
+        lines.push(
+            `| \`${preset.label ?? preset.preset}\` | ${shape || '—'} | ${ms(total)} | `
+            + `${GPU_STAGES.map((stage) => ms(stages[stage])).join(' | ')} | ${share} | ${ms(preset.perPixelEvalMs)} |`,
+        );
+    }
+    lines.push('');
+    lines.push('_Milliseconds, p50 over frames that resolved a fresh GPU result. Stages tile the frame, so they sum to the GPU total._');
+    if (record.softwareGl) {
+        lines.push('');
+        lines.push('> Software rasterizer: these are not GPU timings.');
+    }
     return lines.join('\n');
 }

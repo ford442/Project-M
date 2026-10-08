@@ -292,6 +292,33 @@ Generators live in `html/projectm-synthetic-audio.js`.
 Player-side helper: `html/flac-player/projectm-pcm-bridge.js` (`createPcmSender`,
 `installProjectMPcmBridge`).
 
+#### FLAC player decoding (`html/flac-player/decode-guard.js`)
+
+The vendored FLAC player bundle decodes buffered files (AudioWorklet and Web
+Audio modes; Streaming plays through an `<audio>` element) in a Worker running
+`@wasm-audio-decoders/flac`. That decoder returns **0 samples** for FLACs whose
+frame headers take the sample rate and sample size "from STREAMINFO" (codes
+`0000` / `000`, first frame e.g. `ff f8 c0 10`), which every other decoder
+accepts — `songs/Claws of the Angel.flac` is one. `index.html` installs
+`decode-guard.js` before the bundle, which:
+
+- strips an ID3v2 prefix and rewrites STREAMINFO-coded frame headers to explicit
+  codes (in place, recomputing CRC-8 / CRC-16);
+- sends such rewritten streams to the browser's decoder first
+  (`OfflineAudioContext.decodeAudioData` at the STREAMINFO rate), because the
+  WASM decoder still rejects some of that encoder's frames, and falls back to
+  the WASM decoder with the rewritten headers;
+- sends ordinary FLACs to the WASM decoder first and falls back to the browser's
+  decoder on an error, an empty result, or fewer samples than STREAMINFO
+  promises (the worker drops the decoder's error list);
+- turns a decode nothing could recover into an error reply, so the player never
+  builds a 0-channel `AudioWorkletNode`.
+
+`tests/web/flac-decode-claws.test.mjs` covers this with small STREAMINFO-coded
+fixtures in `tests/web/fixtures/flac/`. The shell's `index.html` is not
+content-hashed, so `withProjectMAudioFlag()` adds `?rev=FLAC_PLAYER_SHELL_REV`
+to the FLAC player URL; bump that constant whenever `html/flac-player/` changes.
+
 ### Message shape (sender → host)
 
 ```javascript

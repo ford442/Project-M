@@ -45,6 +45,11 @@ function showBootError(message) {
   console.error('[projectM FLAC player]', message);
 }
 
+// ?rev= (FLAC_PLAYER_SHELL_REV in projectm-audio-player.js) versions the
+// shell's own modules, which are not content-hashed like the bundle.
+const shellRev = new URLSearchParams(window.location.search).get('rev');
+const revQuery = shellRev ? `?rev=${encodeURIComponent(shellRev)}` : '';
+
 async function loadBufferCtor() {
   try {
     const mod = await import('./vendor/buffer.bundle.mjs');
@@ -58,7 +63,7 @@ async function loadBufferCtor() {
 
 async function loadPcmBridge() {
   try {
-    return await import('./projectm-pcm-bridge.js');
+    return await import(`./projectm-pcm-bridge.js${revQuery}`);
   } catch (localError) {
     console.warn('[projectM FLAC player] local PCM bridge missing:', localError);
     return null;
@@ -74,7 +79,7 @@ try {
   window.Buffer = Buffer;
 
   try {
-    const guardMod = await import('./decode-guard.js');
+    const guardMod = await import(`./decode-guard.js${revQuery}`);
     window.__projectMFlacDecodeGuard = guardMod.installFlacPlayerDecodeGuard(window);
   } catch (guardError) {
     console.warn('[projectM FLAC player] decode guard unavailable:', guardError);

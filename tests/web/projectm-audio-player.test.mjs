@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     FLAC_PLAYER_BASE_URL,
+    FLAC_PLAYER_SHELL_REV,
     MOD_PLAYER_BASE_URL,
     createPopupAudioPlayerController,
     createSectionAudioPlayerController,
@@ -61,6 +62,21 @@ test('withProjectMAudioFlag adds projectm and optional track url', () => {
         assert.equal(parsed.pathname, '/flac-player/');
         assert.equal(parsed.searchParams.get('projectm'), '1');
         assert.equal(parsed.searchParams.get('url'), 'https://example.com/song.flac');
+        assert.equal(parsed.searchParams.get('rev'), FLAC_PLAYER_SHELL_REV);
+    } finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('withProjectMAudioFlag versions only the FLAC player shell', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = { location: { href: 'https://projectm.1ink.us/' } };
+    try {
+        const flac = new URL(withProjectMAudioFlag('./flac-player/index.html'));
+        assert.equal(flac.searchParams.get('rev'), FLAC_PLAYER_SHELL_REV);
+        const mod = new URL(withProjectMAudioFlag(MOD_PLAYER_BASE_URL));
+        assert.equal(mod.searchParams.get('rev'), null);
+        assert.equal(mod.searchParams.get('projectm'), '1');
     } finally {
         globalThis.window = previousWindow;
     }

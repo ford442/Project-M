@@ -4,6 +4,7 @@
   "description": "Shared browser host modules for projectM (typecheck only; not published)",
   "type": "module",
   "devDependencies": {
+    "@wasm-audio-decoders/flac": "0.2.11",
     "typescript": "5.8.3"
   },
   "scripts": {

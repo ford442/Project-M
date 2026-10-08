@@ -916,15 +916,29 @@ TEST_F(PerPixelGlslLoweringTest, ShortCircuitOperatorsSkipTheirRightHandSide)
                  "warp = a + c;");
 }
 
-TEST_F(PerPixelGlslLoweringTest, BandAndBorEvaluateBothArgumentsWithTheLargeEpsilon)
+TEST_F(PerPixelGlslLoweringTest, BandAndBorEvaluateBothArgumentsWithTheEpsilon)
 {
-    // band()/bor() differ from &&/|| twice over: both arguments always run, and they
-    // compare against 1e-5 rather than against zero.
+    // Unlike &&/||, band()/bor() always run both arguments. Like them, they compare
+    // against 1e-5 rather than against zero.
     ExpectAgrees("a = 0; c = 0;"
                  "zoom = 1 + band(above(x, 0.5), exec2(a = 1, 1))*0.1;"
                  "rot = bor(above(x, 0.5), exec2(c = 1, 1))*0.1;"
                  "warp = a + c;"
                  "sx = 1 + band(0.000001, 1) + bor(0.000001, 0.000001);");
+}
+
+TEST_F(PerPixelGlslLoweringTest, ZeroAndEqualityTestsUseTheEvaluatorEpsilon)
+{
+    // projectm-eval 1.0.7 treats anything within 1e-5 of zero as zero (and two values within
+    // 1e-5 of each other as equal) for !, ==, !=, &&, ||, /, /= and the zero-base check in
+    // pow() and ^=, where it used to compare exactly. if() still compares exactly against 0.
+    ExpectAgrees("t = 0.000001; a = 0;"
+                 "zoom = 1 + equal(x, x + t)*0.1 + bnot(t)*0.01;"
+                 "rot = (x == x + t)*0.1 + (!t)*0.01 + (x != x + t)*0.001;"
+                 "warp = (t && 1) + (t || 0)*0.1 + (t && exec2(a = 1, 1))*0.01;"
+                 "b = x; b /= t; c = t; c ^= -1;"
+                 "sx = 1 + (x / t)*0.1 + b*0.01 + pow(t, -1)*0.01 + (t ^ -2)*0.001 + c*0.001;"
+                 "sy = 1 + if(t, 0.1, 0.2) + a*0.01;");
 }
 
 TEST_F(PerPixelGlslLoweringTest, LoopWithConstantBoundUnrolls)

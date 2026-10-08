@@ -149,22 +149,33 @@ fork-specific surrounding code.
 | 2026-08-01 | `149bfc439` CI actions v4→v7 | **Deferred** | Native/upstream-shaped jobs already `@v7`; fork-only workflows still mixed v4/v7; no library impact |
 | 2026-08-01 | `76c8ff7e8` / `83292ed44` / `98101f56f` / `7778852ff` | **Backported** | Unchanged since [#142](https://github.com/ford442/Project-M/pull/142) (HLSLParser stack, sampler-in-comments, FBO detach, projectm-eval 1.0.6) |
 | 2026-08-01 | GLAD + `projectm_create_with_opengl_load_proc` | **Rejected** | Unchanged: desktop-only; fork already ships GLAD + resolver |
+| 2026-10-08 | `1952761b9` projectm-eval 1.0.7 | **Backported** | Submodule at `22fb0cf`. 1.0.7 switches `!`/`==`/`!=`/`&&`/`||`/`/`/`/=`/`pow` from a 1e-300 to the ns-eel2 1e-5 epsilon; `PerPixelGlslLowering` emits the same comparisons (new differential test `ZeroAndEqualityTestsUseTheEvaluatorEpsilon`) |
+| 2026-10-08 | `6f64807` custom waveform OOB read, `4fcb73e` stb_image decoder pointer guards, `c1469f0` self-referential shader macro loop | **Backported** | Clean cherry-picks; all three reachable from untrusted preset/texture input |
+| 2026-10-08 | `0517660` HLSL `%` types + operator precedence, `a4e86cd` hlslparser number tokenizer (quadratic → linear) | **Backported** | `a4e86cd` test file merged by hand (fork has extra preprocessor tests) |
+| 2026-10-08 | `494269e` beat detection from L+R | **Backported** | Ported by hand (context conflict); `RhythmAnalyzer` already reads L+R and is unaffected |
+| 2026-10-08 | `dd89dfb` `projectm_pcm_get_max_samples()` returns 576 | **Backported** | No fork caller depended on 480 |
+| 2026-10-08 | `411811b` log C API creation exceptions, `a03a37a` GLResolver app-managed EGL fallback, `e98fca8` GLES 3.0 minimum | **Backported** | `e98fca8` matches WebGL2 (GLES 3.0) |
+| 2026-10-08 | `88f23c7` user sprite expression variable API | **Backported** | New C API; not exported to WASM yet |
+| 2026-10-08 | `0550c3b` GLM 1.0.3, `2496241` vendored GLM target fix | **Backported** | Clean; WASM build verified by CI only |
+| 2026-10-08 | `60376df` playlist wrapper arg, `397f15e` build metadata, `c3ae07d`, `359bf78`, `d896766`, `1e7ef78`, `fea4963` | **Backported** | Small CMake/vcpkg/CI/README fixes. `397f15e` also drops the fork's undefined `ENABLE_SHARED_LINKING` summary line |
+| 2026-10-08 | `6dc41fa` / `bc78b7f` build-doc consolidation | **Skipped** | Fork removed `BUILDING*.md`/`EMSCRIPTEN.md` and keeps its own `AGENTS.md` + `docs/` |
+| 2026-10-08 | `2fc0d00` PNG oxipng | **Skipped** | Fork deleted those `docs/web/` images |
 
 *Update this table after each sync review.*
 
-### Latest sync snapshot (2026-08-01)
+### Latest sync snapshot (2026-10-08)
 
 ```
-Merge-base: 4d2849333 (2026-05-08)
-Upstream since merge-base: 2 commits (4.2.0 version bump, CI actions v4→v7)
-Fork-only since merge-base: 3823 commits
-Upstream release: unknown (gh release/issue/PR queries failed in the monthly report; do not assume a v4.2.0 tag)
+Merge-base: 2f2441413 (2026-07-15, libprojectM 4.2.0)
+Upstream master: e98fca8 (24 commits since merge-base)
+Backported: 22 (1 hand-ported, 4 with merged test/CMake conflicts); skipped: 3 (docs, PNGs)
 ```
 
-Verification on this review (docs only; no `src/libprojectM/` delta):
-
-- No cherry-picks. `ctest -R PresetCompat` and WASM smoke were not re-run.
-- Version string in `CMakeLists.txt` already matches upstream `4.2.0`.
+Verification on this review: Linux Debug build (gcc, `ENABLE_WERROR_RATCHET=ON`,
+vendored projectm-eval) with full `ctest` under `xvfb-run` — `projectM-unittest`,
+`PresetCompat`, `PerPixelGlslLowering`, `PerPixelGpuRender`, transitions and the playlist
+tests. `scripts/check_cpp_format.sh` clean. No local Emscripten build or WASM smoke run
+(no emsdk); CI's `build_emscripten.yml` covers GLM 1.0.3 and the GLES 3.0 loader change.
 
 ## GitHub Action
 

@@ -5,7 +5,7 @@ export const FLAC_PLAYER_BASE_URL = './flac-player/';
 // content-hashed, so without a new URL a browser can keep serving a cached
 // copy that loads an old bundle (e.g. bundle.d896f*.js, which needs a global
 // Buffer) or an old decode-guard.js. index.html forwards it to its own imports.
-export const FLAC_PLAYER_SHELL_REV = '2';
+export const FLAC_PLAYER_SHELL_REV = '3';
 export const MOD_PLAYER_BASE_URL = 'https://test.1ink.us/xm-player/';
 
 /**

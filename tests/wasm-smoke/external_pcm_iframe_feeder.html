@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>External PCM feeder iframe</title>
+</head>
+<body>
+  <!--
+    Plays a tone through Web Audio with the real FLAC player bridge installed,
+    the way html/flac-player/index.html does, plus a stand-in for the vendored
+    player bundle's own untagged sender (an AnalyserNode polled per frame,
+    posted to the parent and the BroadcastChannel). The host must feed the
+    bridge's stream once, at real time, and drop the rest.
+  -->
+  <script type="module">
+    import { installProjectMPcmBridge } from '../../html/flac-player/projectm-pcm-bridge.js';
+
+    const bridge = installProjectMPcmBridge();
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    osc.frequency.value = 220;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.5;
+    osc.connect(gain);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    gain.connect(analyser);
+    analyser.connect(ctx.destination); // the bridge taps this connection
+    osc.start();
+    ctx.resume();
+
+    const channel = new BroadcastChannel('projectm-audio');
+    const legacy = new Float32Array(2048);
+    let legacySent = 0;
+    const pump = () => {
+      analyser.getFloatTimeDomainData(legacy);
+      const msg = { type: 'pcm', buffer: legacy.slice(), channels: 1 };
+      parent.postMessage(msg, '*');
+      channel.postMessage(msg);
+      legacySent += 1;
+      setTimeout(pump, 16);
+    };
+    pump();
+
+    window.__feeder = { bridge: () => bridge.stats(), contextState: () => ctx.state, legacySent: () => legacySent };
+  </script>
+</body>
+</html>

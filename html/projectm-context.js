@@ -19,6 +19,7 @@ import {
     setExternalPcmTransport,
     setupExternalAudioReceiver,
 } from './projectm-external-pcm.js';
+import { setupPcmHud } from './projectm-pcm-hud.js';
 import { getGovernorRenderScale, setQualityGovernorEnabled, setTargetFps } from './projectm-fps-governor.js';
 import {
     buildWasmBundlePaths,
@@ -614,6 +615,8 @@ export class ProjectMContext {
             // engine to hand the samples to. A claim, not an assignment: the
             // release below leaves a sibling context's registration alone.
             this.#own(setExternalPcmTransport(transport));
+            // PCM-rate readout (host ingress, engine/worker drain); overlay with ?pcmhud=1.
+            this.#own(setupPcmHud({ transport, windowRef: this.options.windowRef, documentRef: this.options.documentRef }));
 
             this.audioRouter = this.#attachAudioRouter(existingAudioRouter, transport, audioSource, onAudioSourceChange);
 

@@ -575,6 +575,33 @@ test('the stats tick reports fps and the render-quality state', async () => {
     }
 });
 
+test('the stats tick carries the PCM ring counters the engine published', async () => {
+    const module = fakeRingModule();
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+
+    Atomics.store(module.header, 0, 9); // written
+    Atomics.store(module.header, 2, 7); // drained by the engine
+    Atomics.store(module.header, 3, 1); // overruns
+    worker.tickStats();
+
+    const ring = { ...worker.posted[0].pcmRing };
+    assert.equal(typeof ring.sampledAt, 'number');
+    delete ring.sampledAt;
+    assert.deepEqual(ring, { writeIndex: 9, readIndex: 7, overruns: 1, capacityFrames: 4, indexModulus: 16 });
+});
+
+test('stats omit the PCM ring when the bundle has none', async () => {
+    const module = fakeRingModule();
+    delete module._get_pcm_ring_data_ptr;
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+    worker.tickStats();
+    assert.equal('pcmRing' in worker.posted[0], false);
+});
+
 test('stats fall back to -1 when the bundle lacks the quality exports', async () => {
     const module = fakeRingModule();
     const worker = loadWorker({ createModule: async () => module });

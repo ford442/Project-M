@@ -276,6 +276,26 @@ function writePcmToRing(buffer, channels) {
 }
 
 /**
+ * The ring header counters for the stats message. Mirrors readPcmRingCounters()
+ * in html/projectm-pcm-ring.js.
+ *
+ * @returns {import('./projectm-render-worker-types.ts').PcmRingCounters | undefined}
+ */
+function readPcmRingCounters() {
+    const descriptor = readPcmRingDescriptor();
+    if (!descriptor) return undefined;
+    const header = new Int32Array(descriptor.memory, descriptor.headerPtr, 4);
+    return {
+        writeIndex: Atomics.load(header, 0),
+        readIndex: Atomics.load(header, 2),
+        overruns: Atomics.load(header, 3),
+        capacityFrames: descriptor.capacityFrames,
+        indexModulus: descriptor.indexModulus,
+        sampledAt: performance.now(),
+    };
+}
+
+/**
  * `webglcontextlost` / `webglcontextrestored` fire on the OffscreenCanvas, which
  * lives in this scope — the page gave the canvas away and cannot hear them. So
  * this side does what the main-thread path does in the page (preventDefault so
@@ -347,6 +367,7 @@ function postStats() {
     }
     lastFrameTime = now;
 
+    const pcmRing = readPcmRingCounters();
     postToHost({
         type: 'stats',
         fps: lastFps,
@@ -354,6 +375,7 @@ function postStats() {
         qualityTier: Module._get_quality_tier ? Module._get_quality_tier() : -1,
         renderScale,
         renderPathOverrides: Module._get_render_path_overrides ? Module._get_render_path_overrides() : -1,
+        ...(pcmRing ? { pcmRing } : {}),
     });
 }
 

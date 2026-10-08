@@ -1,6 +1,11 @@
 // Prefer same-origin players when co-deployed with projectM; libopenmpt MOD shell
 // remains on test.1ink.us until xm-player assets are vendored in-repo.
 export const FLAC_PLAYER_BASE_URL = './flac-player/';
+// Bump when html/flac-player/ changes. The shell's index.html is not
+// content-hashed, so without a new URL a browser can keep serving a cached
+// copy that loads an old bundle (e.g. bundle.d896f*.js, which needs a global
+// Buffer) or an old decode-guard.js. index.html forwards it to its own imports.
+export const FLAC_PLAYER_SHELL_REV = '2';
 export const MOD_PLAYER_BASE_URL = 'https://test.1ink.us/xm-player/';
 
 /**
@@ -172,8 +177,9 @@ export function openPlayerForPcmFeed(url, target = 'projectm-player', documentRe
  * @param {string | null | undefined} url
  * @param {object} [options]
  * @param {string} [options.trackUrl] Optional track URL forwarded as `?url=`.
- * @returns {string | null | undefined} `url` with `?projectm=1`, or unchanged
- *   if it is falsy or not parseable.
+ * @returns {string | null | undefined} `url` with `?projectm=1` (and, for the
+ *   FLAC player shell, `rev=`{@link FLAC_PLAYER_SHELL_REV}), or unchanged if it
+ *   is falsy or not parseable.
  */
 export function withProjectMAudioFlag(url, { trackUrl } = {}) {
     if (!url) return url;
@@ -183,6 +189,9 @@ export function withProjectMAudioFlag(url, { trackUrl } = {}) {
             : 'https://localhost/';
         const parsed = new URL(url, base);
         parsed.searchParams.set('projectm', '1');
+        if (/\/flac-player\/(index\.html)?$/.test(parsed.pathname)) {
+            parsed.searchParams.set('rev', FLAC_PLAYER_SHELL_REV);
+        }
         if (trackUrl) {
             parsed.searchParams.set('url', trackUrl);
         }

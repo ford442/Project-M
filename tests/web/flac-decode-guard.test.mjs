@@ -43,7 +43,7 @@ test('AudioWorkletNode guard rewrites a 0-channel output count', () => {
     undo();
 });
 
-test('worker decode guard strips ID3 before transfer', () => {
+test('worker decode guard strips ID3 before posting', () => {
     const posted = [];
     function FakeWorker() {}
     FakeWorker.prototype.postMessage = function (message, transfer) {
@@ -54,10 +54,14 @@ test('worker decode guard strips ID3 before transfer', () => {
     const payload = new Uint8Array(20);
     payload.set([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, 4]);
     payload.set([0x66, 0x4c, 0x61, 0x43], 14);
-    FakeWorker.prototype.postMessage({
+    const worker = new windowRef.Worker('decoder.js');
+    worker.postMessage({
         type: 'decode',
         data: { arrayBuffer: payload.buffer },
     }, [payload.buffer]);
     assert.equal(isFlacMagic(posted[0].message.data.arrayBuffer), true);
+    // Posted as a structured clone: the guard keeps the bytes for its fallback.
+    assert.equal(posted[0].transfer, undefined);
     undo();
+    assert.equal(windowRef.Worker, FakeWorker);
 });

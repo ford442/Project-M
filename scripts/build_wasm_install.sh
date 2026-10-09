@@ -14,7 +14,7 @@
 #     scripts/build_wasm_install.sh
 #
 # Then:
-#   PROJECTM_WASM_VERSION=038 INSTALL_DIR=install \
+#   PROJECTM_WASM_VERSION=039 INSTALL_DIR=install \
 #     OUT_DIR=cmake-build/wasm-smoke scripts/prepare_deploy_bundle.sh
 
 set -euo pipefail

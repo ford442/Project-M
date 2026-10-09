@@ -17,7 +17,7 @@ test('PROJECTM_WASM_BUNDLE matches version constant', () => {
 });
 
 test('host default is a selectable version (may lag the latest bundle)', () => {
-    assert.equal(PROJECTM_WASM_DEFAULT_VERSION, '032');
+    assert.equal(PROJECTM_WASM_DEFAULT_VERSION, '039');
     assert.equal(PROJECTM_WASM_SELECTABLE_VERSIONS.includes(PROJECTM_WASM_DEFAULT_VERSION), true);
 });
 
@@ -85,4 +85,10 @@ test('remapSmokeWasmArtifactName rewrites smoke tag to deploy bundle', () => {
         remapSmokeWasmArtifactName('projectm-v.030-thread.wasm', 'projectm-v.030-thread'),
         'projectm-v.030-thread.wasm'
     );
+});
+
+test('038 and 039 resolve UTF-8 .js glue; older tags stay on .1ijs', () => {
+    assert.equal(buildWasmBundlePaths('039').pmScript, './pm/projectm-v.039-thread.js');
+    assert.equal(buildWasmBundlePaths('038').glueExt, 'js');
+    assert.equal(buildWasmBundlePaths('037').glueExt, '1ijs');
 });

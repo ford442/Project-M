@@ -318,7 +318,7 @@ The link passes `--emit-symbol-map`, which writes `<bundle>.js.symbols` (`index:
 next to the glue; the `.wasm` is byte-identical with or without it. `prepare_deploy_bundle.sh`
 stages it as `projectm-v.<version>-thread.symbols` at the repo root. It is gitignored and
 `deploy.py` does not upload it, so keep the file for every version you deploy. A frame such as
-`wasm-function[1234]` resolves with `grep '^1234:' projectm-v.038-thread.symbols | c++filt`.
+`wasm-function[1234]` resolves with `grep '^1234:' projectm-v.039-thread.symbols | c++filt`.
 The index includes imports, so use the number exactly as the browser printed it.
 
 ## Deploy staleness guard

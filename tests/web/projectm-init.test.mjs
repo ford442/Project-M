@@ -26,7 +26,7 @@ test('ensureDefaultWasmQueryParam adds wasm when missing', () => {
         ensureDefaultWasmQueryParam({ locationRef }),
         true
     );
-    assert.deepEqual(calls, ['/1ink.1ink?mode=weeks_on_fire&wasm=032#panel']);
+    assert.deepEqual(calls, ['/1ink.1ink?mode=weeks_on_fire&wasm=039#panel']);
 });
 
 test('ensureDefaultWasmQueryParam is a no-op when wasm is present', () => {

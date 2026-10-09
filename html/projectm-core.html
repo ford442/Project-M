@@ -555,7 +555,7 @@ import {
     exposePresetDevGlobals,
     patchBroadcastChannel,
 } from './projectm-legacy-globals.js';
-import { LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
+import { getConfiguredPresetApiBase, LOCAL_PRESET_LAST_NAME_KEY, loadLocalPresetFile, loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi, updatePresetDisplay } from './projectm-presets.js';
 import { setupPresetPicker } from './projectm-preset-picker.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 import {
@@ -768,22 +768,44 @@ async function handleLocalPresetSelection(file) {
 }
 
 // ====== API PRESET HELPERS ======
-async function loadStartupApiPresets(count) {
+// Where fetched preset bytes go. Direct topology: the main-thread module's
+// VFS (fetchApiPreset writes it). Render-worker topology: the VFS is in the
+// worker, so route through the transport, which writes and loads/adds there.
+function presetWriterFor(mode) {
+    const module = getModule();
+    if (module && module.FS) return undefined;
+    if (pmContext?.transport?.writePreset) {
+        return (vfsPath, bytes) => pmContext.transport.writePreset(vfsPath, bytes, mode);
+    }
+    return undefined;
+}
+
+async function loadStartupApiPresets(options) {
     return loadStartupPresetsFromApi({
-        module: getModule(),
-        count,
-        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
-        requireDir: true
+        apiBase: getConfiguredPresetApiBase(),
+        requireDir: true,
+        ...options
     });
 }
 
 async function loadRandomPresetFromRemote() {
-    return loadRandomPresetFromApi({
+    const writeBytes = presetWriterFor('load');
+    const result = await loadRandomPresetFromApi({
         module: getModule(),
-        apiBase: localStorage.getItem('apiBase') || 'https://storage.noahcohn.com',
+        apiBase: getConfiguredPresetApiBase(),
         requireDir: true,
-        startTransitionWhenReady
+        startTransitionWhenReady: writeBytes ? undefined : startTransitionWhenReady,
+        writeBytes
     });
+    if (!result && pmContext) {
+        // API down: cycle the bundled local presets instead.
+        try {
+            pmContext.nextPreset();
+        } catch (error) {
+            console.warn('[ProjectM] local preset fallback failed:', error);
+        }
+    }
+    return result;
 }
 
 // ====== BUTTON HANDLERS ======
@@ -1479,12 +1501,10 @@ async function attemptInit() {
                         module: Module,
                         count: 5,
                         updateDisplayMode: 'first',
-                        writeBytes: Module
-                            ? undefined
-                            : (vfsPath, bytes) => pmContext.transport.writePreset(vfsPath, bytes, 'add'),
+                        writeBytes: presetWriterFor('add'),
                     });
                     if (startupResults.length > 0) {
-                        if (Module) {
+                        if (Module && Module.FS) {
                             loadPresetFile(Module, startupResults[0].vfsPath);
                             updatePresetDisplay(startupResults[0].filename);
                             for (let i = 1; i < startupResults.length; i++) {

@@ -36,9 +36,10 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  */
 
 export const DEFAULT_PRESET_API_BASE = 'https://storage.noahcohn.com';
+// storage.1ink.us used to be listed here; its /api/presets/random returns 404
+// (checked 2026-10-07), so it only added a failing request to every load.
 export const FALLBACK_PRESET_API_BASES = [
-    'https://storage.noahcohn.com',
-    'https://storage.1ink.us'
+    'https://storage.noahcohn.com'
 ];
 export const LOCAL_PRESET_MAX_BYTES = 2 * 1024 * 1024;
 export const LOCAL_PRESET_LAST_NAME_KEY = 'projectm:lastLocalPresetName';
@@ -99,11 +100,49 @@ export function getPresetApiBases({
     includeStorageOverride = true,
     fallbacks = [DEFAULT_PRESET_API_BASE]
 } = {}) {
-    const fromStorage = includeStorageOverride ? localStorage.getItem('apiBase') : null;
+    let fromStorage = null;
+    try {
+        fromStorage = includeStorageOverride && typeof localStorage !== 'undefined' ? localStorage.getItem('apiBase') : null;
+    } catch (_) {
+        // Storage blocked.
+    }
     return [...new Set(
         /** @type {string[]} */ ([preferred, fromStorage, ...fallbacks].filter(Boolean))
     )];
 }
+
+/**
+ * The preset API base for this page: `?presetApi=<url>` wins, then
+ * `window.PROJECTM_PRESET_API_BASE`, then the `apiBase` localStorage key, then
+ * {@link DEFAULT_PRESET_API_BASE}.
+ * @param {{ windowRef?: any; storage?: { getItem(key: string): string | null } | null }} [options]
+ * @returns {string}
+ */
+export function getConfiguredPresetApiBase({
+    windowRef = typeof window !== 'undefined' ? window : undefined,
+    storage = typeof localStorage !== 'undefined' ? localStorage : null
+} = {}) {
+    try {
+        const search = windowRef?.location?.search;
+        const fromQuery = search ? new URLSearchParams(search).get('presetApi') : null;
+        if (fromQuery) return fromQuery.replace(/\/+$/, '');
+    } catch (_) {
+        // Malformed query: fall through.
+    }
+    if (typeof windowRef?.PROJECTM_PRESET_API_BASE === 'string' && windowRef.PROJECTM_PRESET_API_BASE) {
+        return windowRef.PROJECTM_PRESET_API_BASE.replace(/\/+$/, '');
+    }
+    let fromStorage = null;
+    try {
+        fromStorage = storage ? storage.getItem('apiBase') : null;
+    } catch (_) {
+        // Storage blocked (private mode, sandboxed iframe).
+    }
+    return fromStorage || DEFAULT_PRESET_API_BASE;
+}
+
+/** Bases already reported as failing, so a dead endpoint warns once, not per load. */
+const warnedPresetApiBases = new Set();
 
 /**
  * Readiness check for the raw `_load_preset_file` Emscripten export. Not part of the
@@ -183,6 +222,12 @@ export async function fetchApiPreset({
     warnOnFallback = true,
     writeBytes
 } = {}) {
+    // Check where the bytes go before touching the network. In the
+    // render-worker topology the main-thread module has no FS; the caller
+    // must route the write through the render transport.
+    if (!writeBytes && !(module && module.FS)) {
+        throw new Error('fetchApiPreset: no VFS on this thread; pass writeBytes (render-worker topology) or a module with FS');
+    }
     const dir = presetDir || getPresetDir();
     const bases = apiBases || getPresetApiBases({ preferred: apiBase, fallbacks: fallbackApiBases });
     let lastError = null;
@@ -211,8 +256,7 @@ export async function fetchApiPreset({
             if (writeBytes) {
                 writeBytes(vfsPath, bytes);
             } else {
-                if (!module || !module.FS) throw new Error('Module.FS not available');
-                module.FS.writeFile(vfsPath, bytes);
+                /** @type {NonNullable<ProjectMModuleLike['FS']>} */ (module?.FS).writeFile(vfsPath, bytes);
             }
 
             return {
@@ -225,8 +269,9 @@ export async function fetchApiPreset({
             };
         } catch (error) {
             lastError = error;
-            if (warnOnFallback) {
-                console.warn('[ProjectM] preset API attempt failed:', base, error);
+            if (warnOnFallback && !warnedPresetApiBases.has(base)) {
+                warnedPresetApiBases.add(base);
+                console.warn('[ProjectM] preset API unavailable, falling back:', base, error instanceof Error ? error.message : error);
             }
         }
     }
@@ -271,7 +316,10 @@ export async function loadStartupApiPresets({
                 console.log('Startup API preset', i, 'loaded:', result.filename);
             }
         } catch (error) {
-            console.error('Failed to load startup API preset', i, error);
+            // Every base failed (fetchApiPreset already warned once per base);
+            // the rest of the batch would fail the same way.
+            console.warn('[ProjectM] startup API presets unavailable; using bundled presets.', error instanceof Error ? error.message : error);
+            break;
         }
     }
     return results;
@@ -290,10 +338,14 @@ export async function loadRandomApiPreset({
     vfsPathForPreset,
     startTransitionWhenReady,
     updateDisplay = true,
-    logLoaded = false
+    logLoaded = false,
+    presetDir,
+    writeBytes
 }) {
-    if (!module || !module.FS || !isPresetLoadReady(module)) {
-        console.error('Module not ready');
+    // With `writeBytes` the caller owns both the write and the load (the
+    // render transport's writePreset does both in the worker).
+    if (!writeBytes && (!module || !module.FS || !isPresetLoadReady(module))) {
+        console.warn('[ProjectM] random API preset skipped: module not ready');
         return null;
     }
 
@@ -304,9 +356,11 @@ export async function loadRandomApiPreset({
             apiBases,
             fallbackApiBases,
             requireDir,
-            vfsPathForPreset
+            vfsPathForPreset,
+            presetDir,
+            writeBytes
         });
-        loadPresetFile(module, result.vfsPath);
+        if (!writeBytes && module) loadPresetFile(module, result.vfsPath);
         if (startTransitionWhenReady) {
             startTransitionWhenReady({ module });
         }
@@ -318,7 +372,8 @@ export async function loadRandomApiPreset({
         }
         return result;
     } catch (error) {
-        console.error('Failed to load API preset:', error);
+        // fetchApiPreset already warned per failing base; callers fall back
+        // to the bundled presets on null.
         return null;
     }
 }

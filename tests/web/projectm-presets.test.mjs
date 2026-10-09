@@ -138,6 +138,30 @@ test('fetchApiPreset rejects up front, without fetching, when there is no VFS an
     }
 });
 
+test('fetchApiPreset uses projectMWritePreset when the worker owns the VFS', async () => {
+    const originalFetch = globalThis.fetch;
+    const writes = [];
+    globalThis.projectMWritePreset = (path, bytes, mode) => writes.push({ path, bytes, mode });
+    globalThis.fetch = async (url) => {
+        if (String(url).includes('/api/presets/random')) {
+            return { ok: true, json: async () => ({ url: 'https://cdn.test/y.milk', filename: 'y.milk', dir: 'd' }) };
+        }
+        return { ok: true, arrayBuffer: async () => new Uint8Array([4, 5]).buffer };
+    };
+    try {
+        const result = await fetchApiPreset({ module: {}, apiBases: ['https://a.test'], presetDir: 'any', writeMode: 'add' });
+        assert.equal(writes.length, 1);
+        assert.equal(writes[0].mode, 'add');
+        assert.equal(writes[0].path, result.vfsPath);
+        const random = await loadRandomApiPreset({ module: {}, apiBases: ['https://a.test'], presetDir: 'any', updateDisplay: false });
+        assert.equal(random.filename, 'y.milk');
+        assert.equal(writes[1].mode, 'load');
+    } finally {
+        delete globalThis.projectMWritePreset;
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('fetchApiPreset routes bytes through writeBytes when the module has no FS (render worker)', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {

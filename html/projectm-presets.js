@@ -211,6 +211,24 @@ export function getLocalPresetVfsPath(filename) {
  * @param {PresetApiOptions} [options]
  * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string; bytes: Uint8Array }>}
  */
+
+/**
+ * Writer for preset bytes when this thread has no module FS.
+ *
+ * Context start() publishes `projectMWritePreset` via installTransportPresetWriter.
+ * An explicit `writeBytes` still wins (it already closed over load vs add).
+ *
+ * @param {((vfsPath: string, bytes: Uint8Array) => void) | undefined} writeBytes
+ * @param {'load' | 'load-hard' | 'add'} mode
+ * @returns {((vfsPath: string, bytes: Uint8Array) => void) | null}
+ */
+function resolvePresetWriter(writeBytes, mode) {
+    if (typeof writeBytes === 'function') return writeBytes;
+    const registered = globalThis.projectMWritePreset;
+    if (typeof registered !== 'function') return null;
+    return (vfsPath, bytes) => registered(vfsPath, bytes, mode);
+}
+
 export async function fetchApiPreset({
     module,
     apiBase,
@@ -220,12 +238,14 @@ export async function fetchApiPreset({
     requireDir = false,
     vfsPathForPreset,
     warnOnFallback = true,
-    writeBytes
+    writeBytes,
+    writeMode = 'load'
 } = {}) {
     // Check where the bytes go before touching the network. In the
     // render-worker topology the main-thread module has no FS; the caller
     // must route the write through the render transport.
-    if (!writeBytes && !(module && module.FS)) {
+    const writer = resolvePresetWriter(writeBytes, writeMode);
+    if (!writer && !(module && module.FS)) {
         throw new Error('fetchApiPreset: no VFS on this thread; pass writeBytes (render-worker topology) or a module with FS');
     }
     const dir = presetDir || getPresetDir();
@@ -253,8 +273,8 @@ export async function fetchApiPreset({
             // `writeBytes` is how the render-worker topology gets presets: the
             // VFS is in the worker, so the caller supplies the write instead of
             // this function reaching for a module that is not on this thread.
-            if (writeBytes) {
-                writeBytes(vfsPath, bytes);
+            if (writer) {
+                writer(vfsPath, bytes);
             } else {
                 /** @type {NonNullable<ProjectMModuleLike['FS']>} */ (module?.FS).writeFile(vfsPath, bytes);
             }
@@ -306,7 +326,8 @@ export async function loadStartupApiPresets({
                 fallbackApiBases,
                 requireDir,
                 vfsPathForPreset,
-                writeBytes
+                writeBytes,
+                writeMode: writeBytes ? 'load' : (i === 0 ? 'load' : 'add')
             });
             results.push(returnPaths ? result.vfsPath : result);
             if (updateDisplayMode === 'all' || (updateDisplayMode === 'first' && i === 0)) {
@@ -344,7 +365,8 @@ export async function loadRandomApiPreset({
 }) {
     // With `writeBytes` the caller owns both the write and the load (the
     // render transport's writePreset does both in the worker).
-    if (!writeBytes && (!module || !module.FS || !isPresetLoadReady(module))) {
+    const writer = resolvePresetWriter(writeBytes, 'load');
+    if (!writer && (!module || !module.FS || !isPresetLoadReady(module))) {
         console.warn('[ProjectM] random API preset skipped: module not ready');
         return null;
     }
@@ -358,9 +380,10 @@ export async function loadRandomApiPreset({
             requireDir,
             vfsPathForPreset,
             presetDir,
-            writeBytes
+            writeBytes,
+            writeMode: 'load'
         });
-        if (!writeBytes && module) loadPresetFile(module, result.vfsPath);
+        if (!writer && module) loadPresetFile(module, result.vfsPath);
         if (startTransitionWhenReady) {
             startTransitionWhenReady({ module });
         }

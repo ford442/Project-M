@@ -284,6 +284,30 @@ export function createWorkerTransport(handle) {
  * @param {RenderTransport} transport
  * @returns {() => void} Removes the writer again.
  */
+/**
+ * Point `globalThis.projectMWritePreset` at this transport.
+ *
+ * Preset fetches run on the host page. In the render-worker topology there is
+ * no module FS on that thread, so `fetchApiPreset` / `loadRandomApiPreset`
+ * write through this function (vfs path + bytes + 'load'|'add') instead of
+ * skipping with "module not ready". Same claim stack as the PCM writer.
+ *
+ * @param {RenderTransport} transport
+ * @returns {() => void}
+ */
+export function installTransportPresetWriter(transport) {
+    return claimGlobal(
+        globalThis,
+        'projectMWritePreset',
+        /**
+         * @param {string} vfsPath
+         * @param {Uint8Array} bytes
+         * @param {'load' | 'load-hard' | 'add'} [mode]
+         */
+        (vfsPath, bytes, mode = 'load') => transport.writePreset(vfsPath, bytes, mode)
+    );
+}
+
 export function installTransportPcmWriter(transport) {
     // The engine's worklet ingest calls this global by name, so there is one per
     // page. Claimed rather than assigned: destroying one context must not

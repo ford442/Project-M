@@ -31,6 +31,7 @@ import {
 import {
     createModuleTransport,
     installTransportPcmWriter,
+    installTransportPresetWriter,
     selectRenderTopology,
 } from './projectm-render-transport.js';
 import { isRenderWorkerEnabled, resolveRenderPathOverrides } from './projectm-render-worker-host.js';
@@ -625,6 +626,8 @@ export class ProjectMContext {
             // The worklet runs on this thread in both topologies; this is what
             // decides where its PCM goes.
             this.#own(installTransportPcmWriter(transport));
+            // Preset milk is fetched on this thread; the worker owns the VFS.
+            this.#own(installTransportPresetWriter(transport));
             // Both topologies: on the main thread the canvas is heard here, in
             // the worker the loss is relayed through the transport.
             this.#own(setupContextLossRecovery(this, {

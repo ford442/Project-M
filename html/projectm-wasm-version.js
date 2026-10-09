@@ -6,15 +6,15 @@
  * - scripts/verify_deploy_urls.sh (default bundle name)
  * - scripts/verify_wasm_version_sync.sh (CI check)
  */
-export const PROJECTM_WASM_VERSION = '038';
+export const PROJECTM_WASM_VERSION = '039';
 
 /**
  * First-party host default for `?wasm=` (redirect + picker fallback).
  * May temporarily lag `PROJECTM_WASM_VERSION` when the latest bundle has
- * known regressions. 032 is the current default while the 036/037 audio and
- * framerate issues are investigated.
+ * known regressions. 039 carries the audio-playback/visualization fixes
+ * (tracking issue for #269-#274), so the default follows the latest bundle.
  */
-export const PROJECTM_WASM_DEFAULT_VERSION = '032';
+export const PROJECTM_WASM_DEFAULT_VERSION = '039';
 
 /** Threaded pthread build suffix used by deploy and hosts. */
 export const PROJECTM_WASM_BUNDLE = `projectm-v.${PROJECTM_WASM_VERSION}-thread`;
@@ -29,7 +29,7 @@ export const PROJECTM_WASM_SMOKE_BUNDLE = 'projectm-v.030-thread';
 /**
  * Historical + current threaded bundles selectable from first-party hosts
  * (`?wasm=033` or the panel picker). Older tags usually only exist as UTF-16
- * `.1ijs` at the site root; current (`038`) prefers UTF-8 `.js` under `pm/`.
+ * `.1ijs` at the site root; current (`038`+) prefer UTF-8 `.js` under `pm/`.
  */
 export const PROJECTM_WASM_SELECTABLE_VERSIONS = Object.freeze([
     '030',
@@ -41,7 +41,14 @@ export const PROJECTM_WASM_SELECTABLE_VERSIONS = Object.freeze([
     '036',
     '037',
     '038',
+    '039',
 ]);
+
+/**
+ * Tags deployed with UTF-8 `.js` glue. Everything else only exists as the
+ * legacy UTF-16 `.1ijs`, which DreamHost gzips into ERR_CONTENT_DECODING_FAILED.
+ */
+export const PROJECTM_WASM_UTF8_GLUE_VERSIONS = Object.freeze(['038', '039']);
 
 /** localStorage key for the last selected WASM version (URL `?wasm=` wins). */
 export const PROJECTM_WASM_VERSION_STORAGE_KEY = 'projectm-wasm-version';
@@ -92,7 +99,8 @@ export function buildWasmBundlePaths(version = PROJECTM_WASM_VERSION) {
     const normalized = normalizeWasmVersion(version) || PROJECTM_WASM_VERSION;
     const bundle = `projectm-v.${normalized}-thread`;
     // Canonical deploy ships UTF-8 `.js`; older CDN tags are UTF-16 `.1ijs` only.
-    const glueExt = normalized === PROJECTM_WASM_VERSION ? 'js' : '1ijs';
+    const glueExt =
+        normalized === PROJECTM_WASM_VERSION || PROJECTM_WASM_UTF8_GLUE_VERSIONS.includes(normalized) ? 'js' : '1ijs';
     return {
         version: normalized,
         bundle,

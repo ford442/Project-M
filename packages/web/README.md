@@ -33,10 +33,10 @@ JS modules do **not** include the `.wasm` blob. Host one of:
 
 | Layout | Glue script | Binary |
 |--------|-------------|--------|
-| Canonical (recommended) | `./pm/projectm-v.038-thread.js` | `./pm/projectm-v.038-thread.wasm` |
-| Legacy root mirror | `./projectm-v.038-thread.js` | `./projectm-v.038-thread.wasm` |
+| Canonical (recommended) | `./pm/projectm-v.039-thread.js` | `./pm/projectm-v.039-thread.wasm` |
+| Legacy root mirror | `./projectm-v.039-thread.js` | `./projectm-v.039-thread.wasm` |
 
-Pin the bundle version with `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-version.js` (currently **`038`**). Override per element with `wasm-base-url` or `wasm-script-url`.
+Pin the bundle version with `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-version.js` (currently **`039`**). Override per element with `wasm-base-url` or `wasm-script-url`.
 
 First-party CDN default: `https://projectm.1ink.us` (see `buildProjectMWasmUrls()`).
 
@@ -62,7 +62,7 @@ that directory is all the wiring needed:
 <!-- with files served from /pm/ -->
 ```
 
-> **Version note.** `--version` defaults to `038`, the tag the runtime resolver
+> **Version note.** `--version` defaults to `039`, the tag the runtime resolver
 > asks for. The first-party hosts still default to `032`
 > (`PROJECTM_WASM_DEFAULT_VERSION`) until the current tag passes an audio-reactivity
 > check and a GPU `?benchmark=1` p95 no worse than 032 on the same machine; 036's

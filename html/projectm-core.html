@@ -808,6 +808,28 @@ async function loadRandomPresetFromRemote() {
     return result;
 }
 
+// The engine timer only calls play_next() on the worker playlist. A playlist
+// of one (the preset just loaded) makes that a no-op, which is why the visual
+// stayed put until the random-preset button fetched a new milk file. This
+// timer is that button. Lock skips it. ?presetDuration= seconds, default 40
+// (the engine's own window is 27–57).
+const PRESET_AUTOSWITCH_MS = (() => {
+    const raw = new URLSearchParams(location.search).get('presetDuration');
+    const seconds = Number(raw);
+    return ((Number.isFinite(seconds) && seconds >= 5) ? seconds : 40) * 1000;
+})();
+let presetAutoSwitchTimer = 0;
+
+function startPresetAutoSwitch() {
+    if (presetAutoSwitchTimer || weeksOnFireMode) return;
+    presetAutoSwitchTimer = setInterval(() => {
+        if (isPresetLocked || document.hidden) return;
+        console.info('[ProjectM] auto preset switch');
+        loadRandomPresetFromRemote();
+    }, PRESET_AUTOSWITCH_MS);
+    console.info(`[ProjectM] auto preset switch every ${PRESET_AUTOSWITCH_MS / 1000}s (lock pauses it)`);
+}
+
 // ====== BUTTON HANDLERS ======
 function startChangeSong() {
     console.log('[ProjectM] Start/Change Song');
@@ -1527,6 +1549,7 @@ async function attemptInit() {
                     console.log('[ProjectM] Weeks on fire: preset playlist seeded by WASM bootstrap');
                 }
             }
+            startPresetAutoSwitch();
         }
     } catch (err) {
         console.error('projectM initialization failed:', err);

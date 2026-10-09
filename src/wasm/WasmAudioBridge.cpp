@@ -170,6 +170,20 @@ EM_JS(void, js_install_worklet_pcm_handler, (), {
 // clang-format off
 EM_JS(void, js_initialize_worklet_system_once, (), {
     if (globalThis.projectMAudioContext_Global_Cpp) { return; }
+    // In a pthread or the OffscreenCanvas render worker
+    // (html/projectm-render-worker.js) there is no Web Audio by design: the
+    // host page's main thread owns audio and writes PCM into this engine's
+    // ring (external players, the worklet transport). Say so once instead of
+    // warning that something is missing.
+    const inWorker = (typeof ENVIRONMENT_IS_PTHREAD !== 'undefined' && ENVIRONMENT_IS_PTHREAD)
+        || (typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlobalScope);
+    if (inWorker) {
+        if (!globalThis.projectMAudioInitWorkerNoticeShown) {
+            globalThis.projectMAudioInitWorkerNoticeShown = true;
+            console.info("JS Audio Init: engine runs in a worker; audio is captured on the host page's main thread and fed into the PCM ring.");
+        }
+        return;
+    }
     try {
         const AudioContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext;
         if (!AudioContextCtor) {

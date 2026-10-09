@@ -292,6 +292,48 @@ Generators live in `html/projectm-synthetic-audio.js`.
 Player-side helper: `html/flac-player/projectm-pcm-bridge.js` (`createPcmSender`,
 `installProjectMPcmBridge`).
 
+#### FLAC player PCM capture (`html/flac-player/projectm-pcm-bridge.js`)
+
+The bridge patches `AudioNode.prototype.connect` before the player bundle builds
+its graph. Any node connected to `context.destination` is also connected to a
+per-context capture node: an `AudioWorkletNode` (ScriptProcessor fallback) that
+sees every rendered sample once. That covers all three player modes: Streaming
+(`<audio>` → `MediaElementSource`), Web Audio (`AudioBufferSourceNode`) and
+AudioWorklet (the bundle's own processor). It posts interleaved stereo blocks of
+1024 frames at the context's sample rate, tagged
+`producer: 'projectm-flac-bridge'` with an increasing `seq` and the buffer
+transferred, to the opener or parent. It uses the BroadcastChannel only when there is
+no window to post to. Silent blocks are not sent.
+
+It replaced an `AnalyserNode` polled once per animation frame. That poll re-sent
+the newest 2048 mono samples on every frame, overlapping (~2.8x real time). It ran
+alongside the bundle's own analyser pump and AudioWorklet PCM callback, each
+posted to both the parent and the BroadcastChannel, so a same-origin host fed
+~3.5x real-time audio into the engine's ring. The ring overran constantly
+and presets stopped following the beat.
+
+The host enforces one producer and one transport (`acceptExternalPcmChunk()` in
+`html/projectm-external-pcm.js`):
+
+- A tagged chunk whose `(producer, seq)` was seen recently is a duplicate and
+  is dropped. This covers a sender that posts on both transports.
+- Untagged chunks are dropped for `TAGGED_PRODUCER_HOLD_MS` (1 s) after the last
+  tagged one. The bundle's own senders cannot be switched off without rebuilding it.
+- Untagged BroadcastChannel chunks are dropped while untagged postMessage
+  chunks are arriving (same stream, second transport).
+
+#### PCM HUD (`html/projectm-pcm-hud.js`)
+
+`ProjectMContext` starts it in both topologies. `globalThis.projectMPcmStats()`
+returns the host ingress rate, the rate handed to the engine, the ring write
+rate, the engine's drain rate (in the worker topology, read from the ring header
+the render worker reports in its `stats` message) and the ring overrun count.
+Add `?pcmhud=1` (or set `localStorage['projectm-pcm-hud'] = '1'`) for an
+on-screen line. Every stage should read close to the sample rate: a host rate
+well above it means several producers, a worker rate of 0 means nothing reaches
+the worker, and climbing overruns mean the ring is drained more slowly than it
+is written.
+
 #### FLAC player decoding (`html/flac-player/decode-guard.js`)
 
 The vendored FLAC player bundle decodes buffered files (AudioWorklet and Web
@@ -326,7 +368,9 @@ to the FLAC player URL; bump that constant whenever `html/flac-player/` changes.
   type: 'pcm',              // required discriminator
   buffer: Float32Array,     // interleaved when channels === 2
   channels: 1 | 2,          // default stereo if omitted
-  sampleRate: 44100         // optional metadata (not resampled by host)
+  sampleRate: 44100,        // optional metadata (not resampled by host)
+  producer: 'my-player',    // optional: tags a real-time stream (see above)
+  seq: 1                    // with producer: increases by one per chunk
 }
 ```
 
@@ -364,8 +408,14 @@ Optional Playwright host-layer smoke (no WASM build required):
 node scripts/test_external_pcm_router_playwright.mjs
 ```
 
-See `tests/wasm-smoke/external_pcm_router.html` — mock `postMessage` producer +
-`AudioSourceRouter` gate against a stub `Module`.
+Two scenarios. `tests/wasm-smoke/external_pcm_router.html` runs a mock
+`postMessage` producer and the `AudioSourceRouter` gate against a stub `Module`.
+`tests/wasm-smoke/external_pcm_iframe_host.html` runs iframe → host → worker: a
+feeder iframe plays a tone through the real FLAC bridge next to a stand-in for
+the bundle's untagged sender, the host runs the real receiver on a worker
+transport, and a stand-in render worker counts what arrives. The script checks
+that the worker receives stereo at real time (0.8–1.25x the sample rate), that it
+gets exactly what the host fed, and that the untagged duplicates were dropped.
 
 ## WASM initialization
 
@@ -613,8 +663,10 @@ function sendPcmToProjectM(analyserNode, sampleRate) {
 // Call sendPcmToProjectM() once per render frame (requestAnimationFrame).
 ```
 
-See `html/flac-player/projectm-pcm-bridge.js` for the full bridge used by the
-FLAC player, including `AudioNode.connect` tap and automatic opener/parent detection.
+This one-window-per-frame pattern is fine for a player that is the only sender.
+`html/flac-player/projectm-pcm-bridge.js` shows the better pattern: an
+AudioWorklet capture that sends every sample once, in stereo, tagged with
+`producer`/`seq`.
 
 ### Queue and backpressure
 

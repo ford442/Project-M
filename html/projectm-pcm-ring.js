@@ -215,6 +215,26 @@ export function createPcmRingWriter(descriptor) {
 }
 
 /**
+ * Reads the ring header counters. `readIndex` is published by the engine on
+ * every drain, so its rate is the PCM the engine actually consumed.
+ *
+ * @param {PcmRingDescriptor | null | undefined} descriptor
+ * @returns {import('./projectm-render-worker-types.ts').PcmRingCounters | null}
+ */
+export function readPcmRingCounters(descriptor) {
+    if (!descriptor) return null;
+    const header = new Int32Array(descriptor.memory, descriptor.headerPtr, 4);
+    return {
+        writeIndex: Atomics.load(header, 0),
+        readIndex: Atomics.load(header, 2),
+        overruns: Atomics.load(header, 3),
+        capacityFrames: descriptor.capacityFrames,
+        indexModulus: descriptor.indexModulus,
+        sampledAt: performance.now(),
+    };
+}
+
+/**
  * The writer for `module`'s ring, cached per module and host handle. Re-derived
  * when the WASM heap has grown (which detaches the old views) or the ring was
  * reallocated (or, for handle 0, a different host became active).

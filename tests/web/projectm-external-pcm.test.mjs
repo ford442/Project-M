@@ -7,7 +7,10 @@ import test from 'node:test';
 
 import {
      DEFAULT_EXTERNAL_PCM_ORIGINS,
+     TAGGED_PRODUCER_HOLD_MS,
+     acceptExternalPcmChunk,
      defaultFeedPCMToModule,
+     getExternalPcmStats,
      feedPCMToModule,
      flushQueuedExternalPCM,
      getExternalPcmReceiverCount,
@@ -778,6 +781,114 @@ test('setConfiguredAllowedOrigins tightens the policy of an already-open receive
     } finally {
         receiver.close();
         delete globalThis.window;
+        resetExternalPcmStateForTests();
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Ingress policy: one producer, one transport
+// ---------------------------------------------------------------------------
+
+test('a tagged producer supersedes untagged PCM, and repeated sequence numbers are dropped', () => {
+    resetExternalPcmStateForTests();
+    const win = fakeWindow();
+    globalThis.window = win;
+    const channel = installFakeChannel();
+    const fed = [];
+    const receiver = setupExternalAudioReceiver({
+        allowedOrigins: ['https://player.example'],
+        onFeed: (buffer, channels, sampleRate, samplesPerChannel) => {
+            fed.push({ channels, sampleRate, samplesPerChannel });
+            return true;
+        },
+    });
+    const bc = channel.instances[channel.instances.length - 1];
+    const tagged = (seq) => ({
+        type: 'pcm', buffer: new Float32Array([0.1, 0.2, 0.3, 0.4]), channels: 2, sampleRate: 48000,
+        producer: 'projectm-flac-bridge', seq,
+    });
+    const untagged = () => ({ type: 'pcm', buffer: new Float32Array(2048).fill(0.5), channels: 1 });
+
+    try {
+        // Before any tagged producer, the bundle's own (untagged) sender is fed.
+        win.dispatch('message', { origin: 'https://player.example', data: untagged() });
+        assert.equal(fed.length, 1);
+
+        // The same untagged stream over the BroadcastChannel is a duplicate.
+        bc.onmessage({ data: untagged() });
+        assert.equal(fed.length, 1);
+
+        win.dispatch('message', { origin: 'https://player.example', data: tagged(1) });
+        assert.equal(fed.length, 2);
+        assert.deepEqual(fed[1], { channels: 2, sampleRate: 48000, samplesPerChannel: 2 });
+
+        // Untagged PCM is now superseded, on either transport.
+        win.dispatch('message', { origin: 'https://player.example', data: untagged() });
+        bc.onmessage({ data: untagged() });
+        assert.equal(fed.length, 2);
+
+        // The same tagged block arriving twice (an older bridge posting on both) feeds once.
+        bc.onmessage({ data: tagged(2) });
+        win.dispatch('message', { origin: 'https://player.example', data: tagged(2) });
+        assert.equal(fed.length, 3);
+
+        // Untrusted origins are counted too.
+        win.dispatch('message', { origin: 'https://evil.example', data: tagged(3) });
+
+        const stats = getExternalPcmStats();
+        assert.equal(stats.chunksReceived, 7);
+        assert.equal(stats.chunksFed, 3);
+        assert.equal(stats.framesFed, 2048 + 2 + 2);
+        assert.equal(stats.framesReceived, 2048 + 2 + 2);
+        assert.deepEqual(stats.dropped, { origin: 1, duplicate: 2, superseded: 2, invalid: 0, gated: 0, queued: 0 });
+        assert.equal(stats.lastProducer, 'projectm-flac-bridge');
+        assert.equal(stats.lastSampleRate, 48000);
+        assert.equal(stats.lastChannels, 2);
+        assert.equal(stats.lastVia, 'broadcast'); // tagged(2) won the race over the channel
+        assert.ok(Math.abs(stats.lastPeak - 0.4) < 1e-6);
+    } finally {
+        receiver.close();
+        channel.restore();
+        delete globalThis.window;
+        resetExternalPcmStateForTests();
+    }
+});
+
+test('untagged PCM is accepted again once the tagged producer has gone quiet', () => {
+    resetExternalPcmStateForTests();
+    const tagged = { type: 'pcm', buffer: new Float32Array(2), channels: 2, producer: 'p', seq: 1 };
+    const untagged = { type: 'pcm', buffer: new Float32Array(2), channels: 2 };
+    assert.equal(acceptExternalPcmChunk(tagged, 'postMessage', 1000), true);
+    assert.equal(acceptExternalPcmChunk(untagged, 'postMessage', 1000 + TAGGED_PRODUCER_HOLD_MS - 1), false);
+    assert.equal(acceptExternalPcmChunk(untagged, 'postMessage', 1000 + TAGGED_PRODUCER_HOLD_MS + 1), true);
+    // A restarted producer (reloaded player) starts its sequence over; that is
+    // fine once the remembered window has moved past those numbers.
+    for (let seq = 2; seq < 200; seq++) {
+        assert.equal(acceptExternalPcmChunk({ ...tagged, seq }, 'postMessage', 5000), true);
+    }
+    assert.equal(acceptExternalPcmChunk({ ...tagged, seq: 1 }, 'postMessage', 5000), true);
+    resetExternalPcmStateForTests();
+});
+
+test('direct feedPCMToModule calls count fed, gated and invalid chunks', () => {
+    resetExternalPcmStateForTests();
+    let open = false;
+    const receiver = setupExternalAudioReceiver({ feedGate: () => open, onFeed: () => true });
+    try {
+        feedPCMToModule(new Float32Array(4), 2);
+        feedPCMToModule([1, 2], 2);
+        open = true;
+        feedPCMToModule(new Float32Array(4), 2);
+        const stats = getExternalPcmStats();
+        assert.equal(stats.dropped.gated, 1);
+        assert.equal(stats.dropped.invalid, 1);
+        assert.equal(stats.chunksFed, 1);
+        assert.equal(stats.framesFed, 2);
+        // A snapshot, not a live view.
+        stats.dropped.gated = 99;
+        assert.equal(getExternalPcmStats().dropped.gated, 1);
+    } finally {
+        receiver.close();
         resetExternalPcmStateForTests();
     }
 });

@@ -280,6 +280,30 @@ export interface RenderWorkerStatsMessage {
      * or -1 on a bundle without the export.
      */
     renderPathOverrides: number;
+    /**
+     * The engine's PCM ring counters, read in the worker. `readIndex` is what
+     * the engine has drained, so its rate is the PCM the worker actually
+     * consumed; the PCM HUD (html/projectm-pcm-hud.js) turns deltas into
+     * frames per second. Absent before the ring exists.
+     */
+    pcmRing?: PcmRingCounters;
+}
+
+/** A snapshot of a PCM ring's header (html/projectm-pcm-ring.js layout). */
+export interface PcmRingCounters {
+    /** Frames written, modulo `indexModulus`. */
+    writeIndex: number;
+    /** Frames drained by the engine, modulo `indexModulus`. */
+    readIndex: number;
+    /** Drains that skipped unread frames because a producer lapped the reader. */
+    overruns: number;
+    capacityFrames: number;
+    indexModulus: number;
+    /**
+     * `performance.now()` on the thread that read the header. Only differences
+     * between two readings from the same thread mean anything.
+     */
+    sampledAt?: number;
 }
 
 /**

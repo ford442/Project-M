@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>External PCM iframe → host → worker smoke</title>
+</head>
+<body>
+  <!--
+    The host half of scripts/test_external_pcm_router_playwright.mjs's
+    iframe scenario: the real external-PCM receiver and PCM HUD counters on
+    this page, a stand-in render worker that counts what reaches it, and the
+    feeder iframe (external_pcm_iframe_feeder.html) running the real FLAC
+    player bridge over a live Web Audio graph.
+  -->
+  <script type="module">
+    import { getExternalPcmStats, setExternalPcmTransport, setupExternalAudioReceiver } from '../../html/projectm-external-pcm.js';
+    import { setupPcmHud } from '../../html/projectm-pcm-hud.js';
+
+    const worker = new Worker('./external_pcm_iframe_worker.js');
+    let workerCounts = { frames: 0, chunks: 0, channels: null };
+    worker.onmessage = (event) => { workerCounts = event.data; };
+
+    // The worker topology's transport contract: samples cross to the worker once.
+    const transport = {
+      topology: 'worker',
+      module: null,
+      workerHandle: null,
+      feedPcm(samples, channels) {
+        const copy = new Float32Array(samples);
+        worker.postMessage({ type: 'pcm', buffer: copy, channels }, [copy.buffer]);
+      },
+    };
+    setExternalPcmTransport(transport);
+    setupExternalAudioReceiver({});
+    setupPcmHud({ transport, intervalMs: 250 });
+
+    const frame = document.createElement('iframe');
+    frame.allow = 'autoplay';
+    frame.src = './external_pcm_iframe_feeder.html';
+    document.body.appendChild(frame);
+
+    window.__projectMIframeWorkerSmoke = {
+      hostStats: () => getExternalPcmStats(),
+      workerCounts: () => workerCounts,
+      feeder: () => {
+        const f = frame.contentWindow?.__feeder;
+        return f ? { bridge: f.bridge(), contextState: f.contextState(), legacySent: f.legacySent() } : null;
+      },
+      pcmRates: () => globalThis.projectMPcmStats?.() ?? null,
+    };
+  </script>
+</body>
+</html>

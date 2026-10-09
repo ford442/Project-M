@@ -81,6 +81,44 @@ test('ensureWorkletReady returns false when AudioContext never appears', async (
     clearMockAudioEnv();
 });
 
+test('ensureWorkletReady creates a host AudioContext when the worker did not', async () => {
+    clearMockAudioEnv();
+    class FakeAudioContext {
+        constructor() {
+            this.state = 'running';
+            this.destination = {};
+            this.audioWorklet = { addModule: async () => {} };
+        }
+        resume = async () => {
+            this.state = 'running';
+        };
+    }
+    class FakeNode {
+        constructor() {
+            this.port = { onmessage: null, postMessage() {} };
+            this.connect = () => {};
+            this.disconnect = () => {};
+        }
+    }
+    globalThis.AudioContext = FakeAudioContext;
+    globalThis.AudioWorkletNode = FakeNode;
+    const writes = [];
+    globalThis.projectMWritePcmRing = (buffer, channels) => writes.push({ buffer, channels });
+    try {
+        assert.equal(await ensureWorkletReady({ timeoutMs: 500, pollMs: 10 }), true);
+        assert.ok(globalThis.projectMAudioContext_Global_Cpp instanceof FakeAudioContext);
+        const node = globalThis.projectMWorkletNode_Global_Cpp;
+        assert.ok(node instanceof FakeNode);
+        node.port.onmessage({ data: { type: 'pcmData', audioData: new Float32Array([0.1, 0.2]), channelsForPM: 2 } });
+        assert.equal(writes.length, 1);
+        assert.equal(writes[0].channels, 2);
+    } finally {
+        delete globalThis.AudioContext;
+        delete globalThis.projectMWritePcmRing;
+        clearMockAudioEnv();
+    }
+});
+
 // ---- Router notification (the worklet path reads the router the host registered)
 
 /** A decodable stub context: enough for loadWavBytesIntoWorklet(). */

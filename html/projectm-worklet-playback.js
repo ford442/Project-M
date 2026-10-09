@@ -9,6 +9,13 @@
 // Hosts should call `ensureWorkletReady()` from the music-button gesture (and
 // after init). This module can also repair a failed worklet setup without a
 // WASM rebuild.
+//
+// Render-worker builds (projectm-v.*-thread.js) never create
+// `projectMAudioContext_Global_Cpp` / `projectMWorkletNode_Global_Cpp` on this
+// thread — the engine logs that audio is captured here and fed into the PCM
+// ring. `ensureWorkletReady()` therefore creates the context and the node
+// itself, and the processor's `pcmData` posts land in `projectMWritePcmRing`
+// (installTransportPcmWriter), which is `transport.feedPcm`.
 
 import { ensureAudioRunning, getAudioContext } from './projectm-audio-bootstrap.js';
 import { claimGlobal } from './projectm-globals.js';
@@ -30,6 +37,36 @@ import {
 // agree there; packages/web copies the processor next to its bundle to match.
 const PROCESSOR_URL = new URL('projectm_audio_processor.js', import.meta.url).href;
 const PROCESSOR_NAME = 'projectm-audio-processor';
+
+/**
+ * AudioContext for this page. Worker topology does not create the C++ global,
+ * so the first user gesture (Start/Change Song) creates one here and publishes
+ * it under the same name the rest of the host already reads.
+ *
+ * Must run synchronously inside the gesture: an AudioContext constructed after
+ * the first await is born suspended and `resume()` is no longer a gesture.
+ * @returns {AudioContext | null}
+ */
+function ensureHostAudioContext() {
+    const existing = globalThis.projectMAudioContext_Global_Cpp;
+    if (existing) return existing;
+    const Ctor = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (typeof Ctor !== 'function') return null;
+    try {
+        const ctx = new Ctor();
+        globalThis.projectMAudioContext_Global_Cpp = ctx;
+        if (ctx.state === 'suspended') {
+            ctx.resume().catch((err) => {
+                console.warn('[projectM] host AudioContext.resume() failed:', err);
+            });
+        }
+        console.info('[projectM] host AudioContext created (render-worker topology has no C++ context on this thread)');
+        return ctx;
+    } catch (err) {
+        console.warn('[projectM] host AudioContext construction failed:', err);
+        return null;
+    }
+}
 
 /** @type {Promise<boolean> | null} */
 let workletSetupPromise = null;
@@ -82,11 +119,23 @@ function attachPcmHandler(workletNode) {
             return;
         }
         // Re-resolved per message: the WASM heap can grow, which detaches views.
+        const channels = event.data.channelsForPM === 1 ? 1 : 2;
         const writer = getPcmRingWriter(currentModule());
-        if (!writer) {
+        if (writer) {
+            writer.write(event.data.audioData, channels);
             return;
         }
-        writer.write(event.data.audioData, event.data.channelsForPM === 1 ? 1 : 2);
+        // Worker topology: the ring lives in the render worker. Context start()
+        // points this global at transport.feedPcm (shared ring, else postMessage).
+        const transportWrite = globalThis.projectMWritePcmRing;
+        if (typeof transportWrite === 'function') {
+            transportWrite(event.data.audioData, channels);
+            return;
+        }
+        if (!attachPcmHandler.warned) {
+            attachPcmHandler.warned = true;
+            console.warn('[projectM] worklet PCM dropped: no ring on this thread and projectMWritePcmRing is not installed');
+        }
     };
 }
 
@@ -220,6 +269,8 @@ export async function ensureWorkletReady({
     timeoutMs = 12000,
     pollMs = 50,
 } = {}) {
+    // Before any await, so a music-button click still counts as the gesture.
+    ensureHostAudioContext();
     await ensureAudioRunning();
 
     if (globalThis.projectMWorkletNode_Global_Cpp) {

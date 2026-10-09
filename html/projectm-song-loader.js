@@ -6,9 +6,10 @@
 //
 // This module owns the music button: it plays FLAC/MP3/WAV/OGG in-page via
 // fetch + decodeAudioData → the shared worklet (no player popup). MOD files stay
-// on the Audio Player button, not Start/Change Song. If native FLAC decode
-// fails, we fall back to the legacy ./flac/ BroadcastChannel path with a delayed
-// 'sng' post so the decoder page has time to subscribe.
+// on the Audio Player button, not Start/Change Song. If in-page FLAC decode
+// cannot feed the engine, we open ./flac-player/?projectm=1 (PCM bridge) rather
+// than the legacy ./flac/ BroadcastChannel decoder, which the render worker
+// never hears. ./flac/ remains only if that shell cannot be opened.
 //
 // Intercepting the glue's own 'sng' post used to mean replacing
 // `globalThis.BroadcastChannel` for every script on the page. That patch now
@@ -18,6 +19,11 @@
 // `wrapSongChannel()` for the patch.
 
 import { ensureWorkletReady, loadWavBytesIntoWorklet } from './projectm-worklet-playback.js';
+import {
+    FLAC_PLAYER_BASE_URL,
+    openPlayerForPcmFeed,
+    withProjectMAudioFlag,
+} from './projectm-audio-player.js';
 
 /**
  * Property the legacy global patch stamps on its replacement constructor,
@@ -303,10 +309,51 @@ export function openModSong(trackUrl) {
 }
 
 /**
- * Legacy ./flac/ path: open the decoder and post the URL after it can subscribe.
+ * In-repo FLAC shell that installs projectm-pcm-bridge.js before its bundle.
+ * Ignores a stored flacPlayerUrl: that override is how a cached
+ * bundle.d896f*.js shell (no bridge) kept getting opened.
+ * @param {string} [trackUrl]
+ * @returns {string}
+ */
+export function bridgedFlacPlayerUrl(trackUrl) {
+    let base = FLAC_PLAYER_BASE_URL;
+    try {
+        base = new URL(FLAC_PLAYER_BASE_URL, globalThis.location?.href || 'https://projectm.1ink.us/').href;
+    } catch {
+        // keep the relative default
+    }
+    return withProjectMAudioFlag(base, { trackUrl }) || base;
+}
+
+/**
+ * Open ./flac-player/?projectm=1&rev=…&url= so the shell posts PCM to this page.
+ * Same-origin becomes an iframe (COOP-safe); cross-origin becomes a tab.
+ * @param {string} url
+ * @returns {Window | HTMLIFrameElement | null}
+ */
+export function openBridgedFlacPlayer(url) {
+    const shell = bridgedFlacPlayerUrl(url);
+    const opened = openPlayerForPcmFeed(shell, 'flac-player');
+    if (opened) {
+        console.info('[projectM song loader] FLAC player shell opened for PCM bridge:', shell);
+    } else {
+        console.warn('[projectM song loader] FLAC player shell did not open:', shell);
+    }
+    return opened || null;
+}
+
+/**
+ * FLAC fallback when in-page decode cannot feed the engine.
+ *
+ * Prefer the bridged ./flac-player/ shell. The old ./flac/ decoder plays locally
+ * and posts BroadcastChannel('sng'/'file'), which the render worker never hears.
+ * That path remains only if the shell cannot be opened.
  * @param {string} url
  */
 export async function openLegacyFlacDecoder(url) {
+    if (openBridgedFlacPlayer(url)) {
+        return;
+    }
     if (typeof globalThis.openWeeksFlacDecoder === 'function') {
         globalThis.openWeeksFlacDecoder();
     }
@@ -348,9 +395,9 @@ export async function routeSongUrl(url) {
             if (ok) {
                 return 'handled';
             }
-            console.warn('[projectM song loader] native FLAC decode returned false, falling back to ./flac/');
+            console.warn('[projectM song loader] in-page FLAC decode did not feed projectM, opening ./flac-player/ bridge');
         } catch (error) {
-            console.warn('[projectM song loader] native FLAC decode failed, falling back to ./flac/:', error);
+            console.warn('[projectM song loader] in-page FLAC decode failed, opening ./flac-player/ bridge:', error);
         }
         await openLegacyFlacDecoder(url);
         return 'handled';

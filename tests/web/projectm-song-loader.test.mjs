@@ -12,6 +12,8 @@ import {
     routeSongUrl,
     songExtension,
     wrapSongChannel,
+    openLegacyFlacDecoder,
+    bridgedFlacPlayerUrl,
 } from '../../html/projectm-song-loader.js';
 
 test('songExtension extracts extension from URLs', () => {
@@ -231,4 +233,29 @@ test('Start/Change Song catalog excludes tracker modules', () => {
     assert.equal(isWorkletCatalogSong('https://x/a.mp3'), true);
     assert.equal(isWorkletCatalogSong('https://x/a.xm'), false);
     assert.equal(isWorkletCatalogSong('https://x/a.mod'), false);
+});
+
+test('FLAC fallback opens the bridged player, not ./flac/', async () => {
+    const opened = [];
+    const previousOpen = globalThis.open;
+    globalThis.open = (url) => {
+        opened.push(url);
+        return { closed: false };
+    };
+    globalThis.openWeeksFlacDecoder = () => {
+        throw new Error('legacy ./flac/ decoder must not open when the shell opens');
+    };
+    try {
+        await openLegacyFlacDecoder('https://projectm.1ink.us/songs/carol.flac');
+        assert.equal(opened.length, 1);
+        const url = new URL(opened[0]);
+        assert.match(url.pathname, /\/flac-player\/?$/);
+        assert.equal(url.searchParams.get('projectm'), '1');
+        assert.equal(url.searchParams.get('rev'), '3');
+        assert.equal(url.searchParams.get('url'), 'https://projectm.1ink.us/songs/carol.flac');
+        assert.match(bridgedFlacPlayerUrl('https://example.com/a.flac'), /projectm=1/);
+    } finally {
+        globalThis.open = previousOpen;
+        delete globalThis.openWeeksFlacDecoder;
+    }
 });

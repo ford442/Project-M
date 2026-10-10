@@ -1,3 +1,6 @@
+// @ts-nocheck — outside html/tsconfig.json's projectm-*.js glob and never
+// annotated; html/projectm-display-capture.js imports it, which would otherwise
+// pull it into the strict program. Its exports' JSDoc still types callers.
 // projectM PCM bridge for the in-repo FLAC player shell (html/flac-player/index.html).
 //
 // Why this exists: the FLAC player's own (externally-built, minified) bundle only
@@ -41,6 +44,10 @@ export const AUDIO_CHANNEL_NAME = 'projectm-audio';
 
 // The window the player should feed: the opener (popup case) or the embedding
 // parent (iframe case). Null when the page is standalone (nothing to feed).
+/**
+ * @param {any} win
+ * @returns {any}
+ */
 export function resolveFeedTarget(win) {
     if (win.opener && win.opener !== win) return win.opener;
     if (win.parent && win.parent !== win) return win.parent;
@@ -135,6 +142,10 @@ export function interleaveStereo(inputBuffer) {
 // transferred; falls back to the BroadcastChannel (same-origin hosts only) when
 // there is no target. Never both: a same-origin host hears both and would feed
 // every block twice.
+/**
+ * @param {{ target?: { postMessage: Function } | null, broadcastChannel?: { postMessage: Function } | null, producer?: string }} [options]
+ * @returns {(buffer: Float32Array, channels: number, sampleRate: number) => void}
+ */
 export function createPcmSender({ target, broadcastChannel = null, producer = PCM_BRIDGE_PRODUCER } = {}) {
     let seq = 0;
     return function send(buffer, channels, sampleRate) {

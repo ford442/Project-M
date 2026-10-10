@@ -74,6 +74,7 @@ DEPLOY_HTML_GLOBS: list = [
     "html/projectm-core.html",
     "html/projectm-core.css",
     "html/embed-demo.html",
+    "html/audio-capture.html",  # tab/system audio capture popup (projectm-display-capture.js)
     "html/.htaccess",  # no-gzip for legacy UTF-16 .1ijs (Chrome ERR_CONTENT_DECODING_FAILED)
     # External PCM feeders co-deployed with the host (same-origin ./flac-player/).
     # Use **/* — a trailing ** matches only directories on Python 3.12+

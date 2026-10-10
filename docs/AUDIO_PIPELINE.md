@@ -322,6 +322,20 @@ The host enforces one producer and one transport (`acceptExternalPcmChunk()` in
 - Untagged BroadcastChannel chunks are dropped while untagged postMessage
   chunks are arriving (same stream, second transport).
 
+#### Tab / system audio capture (`html/audio-capture.html`)
+
+The **TAB** launcher in `projectm-core.html` (`window.openAudioCapture()`) opens
+`audio-capture.html` as a same-origin popup. Its Start button calls
+`getDisplayMedia()` (`html/projectm-display-capture.js`), stops the video
+track at once, and runs the audio track through the FLAC bridge's capture
+worklet (ScriptProcessor fallback). It sends the same 1024-frame interleaved
+stereo blocks, tagged `producer: 'projectm-display-capture'`, to the opener,
+or on the BroadcastChannel when the opener is gone (a standalone tab, or COOP
+severed it). Ending the share from the browser's own UI stops the capture.
+If nothing loud arrives for 4 s, the status line says the audio is silent.
+DRM-protected tabs (Spotify web, Netflix, …) usually capture as silence,
+because the browser blanks Encrypted Media Extensions output.
+
 #### PCM HUD (`html/projectm-pcm-hud.js`)
 
 `ProjectMContext` starts it in both topologies. `globalThis.projectMPcmStats()`

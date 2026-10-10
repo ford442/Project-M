@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<!--
+  projectM tab / system audio capture.
+
+  Opened by the "TAB" launcher in projectm-core.html (window.openAudioCapture()).
+  Shares a browser tab — or a screen with system audio — through
+  getDisplayMedia() and streams its audio to the visualizer as external PCM
+  (html/projectm-display-capture.js → html/projectm-external-pcm.js).
+
+  DRM / Spotify limitation: tab capture of protected media (Spotify, Netflix,
+  Apple Music … web players use Encrypted Media Extensions) usually yields
+  digital silence — the browser blanks EME output in captures. The capture
+  then runs but carries no signal, and this page says so after a few seconds.
+  Unprotected tabs (YouTube, SoundCloud, Bandcamp, web radios, …) work. For a
+  desktop app, share the whole screen with "Share system audio" (Chrome on
+  Windows / ChromeOS only).
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>projectM — Tab Audio Capture</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 16px; background: #0b0f14; color: #cfe;
+      font: 13px/1.45 'Lucida Console', monospace;
+    }
+    h1 { font-size: 15px; margin: 0 0 10px; color: #0f0; }
+    .row { display: flex; gap: 8px; margin: 10px 0; }
+    button {
+      flex: 1; padding: 9px 10px; font: inherit; cursor: pointer;
+      background: #222; color: #0f0; border: 1px solid #0a0; border-radius: 4px;
+    }
+    button:hover:not(:disabled) { background: #111; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #status {
+      padding: 8px 10px; border-radius: 4px; border: 1px solid #334; background: #11161d;
+      min-height: 2.9em;
+    }
+    #status[data-state="capturing"] { border-color: #0a0; color: #8f8; }
+    #status[data-state="silent"], #status[data-state="no-audio"] { border-color: #a80; color: #fc6; }
+    #status[data-state="denied"], #status[data-state="error"], #status[data-state="unsupported"] { border-color: #a33; color: #f88; }
+    #stats { color: #789; font-size: 11px; margin-top: 6px; min-height: 1.3em; }
+    .note { color: #789; font-size: 11px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Tab / system audio → projectM</h1>
+  <div class="row">
+    <button id="startBtn" type="button">Start Capture</button>
+    <button id="stopBtn" type="button" disabled>Stop</button>
+  </div>
+  <div id="status" data-state="idle" role="status" aria-live="polite">Idle. Click Start Capture, pick a tab and tick “Share tab audio”.</div>
+  <div id="stats"></div>
+  <p class="note">
+    Keep this window open while capturing. DRM-protected players (e.g. Spotify web) usually capture as silence;
+    unprotected tabs work. For desktop apps, share a screen with “Share system audio” (Chrome, Windows/ChromeOS).
+  </p>
+
+  <script type="module">
+    import { startDisplayAudioCapture } from './projectm-display-capture.js';
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusEl = document.getElementById('status');
+    const statsEl = document.getElementById('stats');
+
+    let capture = null;
+    let statsTimer = 0;
+
+    function setStatus({ state, message }) {
+      statusEl.dataset.state = state;
+      statusEl.textContent = message;
+      const running = state === 'capturing' || state === 'silent' || state === 'requesting';
+      startBtn.disabled = running;
+      stopBtn.disabled = !running || state === 'requesting';
+      if (!running) {
+        capture = null;
+        if (statsTimer) { clearInterval(statsTimer); statsTimer = 0; }
+      }
+    }
+
+    function renderStats() {
+      if (!capture) { statsEl.textContent = ''; return; }
+      const s = capture.stats();
+      const seconds = s.sampleRate ? (s.frames / s.sampleRate).toFixed(1) : '0.0';
+      statsEl.textContent = `${s.captureKind} · ${s.sampleRate || '?'} Hz · ${s.blocks} blocks · ${seconds}s sent via ${s.via}`;
+    }
+
+    // Must run straight from the click: getDisplayMedia() needs a user gesture.
+    startBtn.addEventListener('click', async () => {
+      if (capture) return;
+      const handle = await startDisplayAudioCapture({ onStatus: setStatus });
+      if (!handle) return;
+      capture = handle;
+      statsTimer = setInterval(renderStats, 500);
+      renderStats();
+    });
+
+    stopBtn.addEventListener('click', () => {
+      if (capture) capture.stop();
+    });
+
+    window.addEventListener('pagehide', () => {
+      if (capture) capture.stop();
+    });
+  </script>
+</body>
+</html>

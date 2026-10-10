@@ -1230,7 +1230,37 @@ function ensurePlayerLaunchButtons() {
     flacBtn2.style.top = '8px';
     flacBtn2.onclick = () => window.openFlacPlayer && window.openFlacPlayer();
     document.body.appendChild(flacBtn2);
+
+    const captureBtn = document.createElement('button');
+    captureBtn.id = 'audioCaptureLaunchBtn';
+    captureBtn.className = 'pm-ext-player-btn';
+    captureBtn.textContent = 'TAB';
+    captureBtn.title = 'Capture tab / system audio (getDisplayMedia) — sends PCM via postMessage';
+    captureBtn.style.left = '72px';
+    captureBtn.style.top = '8px';
+    captureBtn.onclick = () => window.openAudioCapture();
+    document.body.appendChild(captureBtn);
 }
+
+// Tab / system audio capture (html/audio-capture.html). A popup, not the
+// same-origin iframe the MOD/FLAC players use: the share picker needs its own
+// user gesture, and the page has to stay open while the user switches to the
+// tab they shared. It posts PCM to window.opener; if COOP severs the opener it
+// falls back to BroadcastChannel("projectm-audio"), which this same-origin
+// receiver also hears.
+let audioCaptureWindow = null;
+window.openAudioCapture = function openAudioCapture() {
+    if (audioCaptureWindow && !audioCaptureWindow.closed) {
+        audioCaptureWindow.focus();
+        return audioCaptureWindow;
+    }
+    const url = new URL('./audio-capture.html', location.href).toString();
+    audioCaptureWindow = window.open(url, 'projectm-audio-capture', 'popup,width=440,height=340');
+    if (!audioCaptureWindow) {
+        console.warn('[projectM] audio capture popup blocked; allow popups or open', url);
+    }
+    return audioCaptureWindow;
+};
 
 // Run after first paint so the rest of the UI is there.
 setTimeout(ensurePlayerLaunchButtons, 1200);

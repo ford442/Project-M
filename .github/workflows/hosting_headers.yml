@@ -1,0 +1,73 @@
+name: Hosting Headers
+
+# What projectm.1ink.us sends for the WASM bundle, its manifest, the host page
+# and the song library (docs/adr/0001-wasm-and-media-hosting.md):
+#
+#  - htaccess: html/.htaccess served by a local Apache configured like
+#    DreamHost (on-the-fly deflate, Vary: User-Agent, .js as
+#    application/x-javascript, auto-indexes on), checked with
+#    scripts/check_production_headers.mjs. Gates changes to the rules before
+#    they are deployed.
+#  - production: the same check against the live site, daily and on demand,
+#    so a server-side change (or a deploy that skipped a step) shows up here
+#    rather than as a user's ERR_CONTENT_DECODING_FAILED.
+
+on:
+  push:
+    paths:
+      - 'html/.htaccess'
+      - 'html/projectm-wasm-version.js'
+      - 'scripts/check_production_headers.mjs'
+      - 'scripts/test_htaccess_apache.sh'
+      - 'scripts/generate_wasm_builds_manifest.mjs'
+      - 'scripts/generate_songs_manifest.mjs'
+      - '.github/workflows/hosting_headers.yml'
+  pull_request:
+    paths:
+      - 'html/.htaccess'
+      - 'html/projectm-wasm-version.js'
+      - 'scripts/check_production_headers.mjs'
+      - 'scripts/test_htaccess_apache.sh'
+      - 'scripts/generate_wasm_builds_manifest.mjs'
+      - 'scripts/generate_songs_manifest.mjs'
+      - '.github/workflows/hosting_headers.yml'
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Site to check'
+        default: 'https://projectm.1ink.us'
+
+jobs:
+  htaccess:
+    name: html/.htaccess on a DreamHost-like Apache
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Apache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apache2
+          sudo systemctl stop apache2 || true
+      - name: Serve the fixture site and check it
+        run: scripts/test_htaccess_apache.sh --fixture 18081
+
+  production:
+    name: Live site headers
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # Checks the builds pm/builds.json names as default and latest.
+      - name: Check production
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url || 'https://projectm.1ink.us' }}
+        run: node scripts/check_production_headers.mjs "$BASE_URL"

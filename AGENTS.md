@@ -59,6 +59,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── WasmRhythm.cpp          # Tempo/beat readouts, musical preset scheduling, beat events
 │   ├── WasmPlaylistBridge.cpp  # Preset callbacks + playlist path helpers
 │   ├── WasmPresetPrepare.cpp   # Per-host preset prepare thread (no ASYNCIFY)
+│   ├── WasmPresent.cpp         # Flash-limiter switches, per-host frame capture, commit counter
 │   └── WasmJsBindings.cpp      # EM_JS DOM/VFS bootstrap + host-page notifications
 ├── CMakeLists.txt          # Root build configuration
 ├── vcpkg.json              # vcpkg dependency manifest
@@ -77,8 +78,11 @@ export, see [`docs/EMSCRIPTEN.md`](docs/EMSCRIPTEN.md#where-to-add-a-wasm-export
 Keep the repo root source-focused. Policy for binary/build artifacts:
 
 - **Never commit built WASM bundles** (`projectm-v.*-thread.{js,wasm,1ijs,3ijs,worker.js}`,
-  `pm/projectm-v.*-thread.*`). These are build+deploy output — produced by
+  `pm/projectm-v.*-thread.*`, `pm/builds.json*`). These are build+deploy output — produced by
   `scripts/prepare_deploy_bundle.sh` and uploaded via `deploy.py`, never checked in.
+  Only UTF-8 `.js` glue is deployed now; hosts find each build through the
+  `pm/builds.json` manifest (see [`docs/adr/0001-wasm-and-media-hosting.md`](docs/adr/0001-wasm-and-media-hosting.md)
+  for the manifest, `.htaccess` headers, song indexes, and the header checks).
   `.gitignore` matches any version (`projectm-v.*-thread.*`), not just one. The
   canonical current version is `PROJECTM_WASM_BUNDLE` in `html/projectm-init.js`
   (also the default in `scripts/verify_deploy_urls.sh` and
@@ -341,7 +345,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 | Directory | Framework | Coverage |
 |-----------|-----------|----------|
-| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + EGL + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
+| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + EGL + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
 

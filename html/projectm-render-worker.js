@@ -10,14 +10,19 @@
 // Message protocol (host -> worker):
 //   { type: 'init', canvas, scriptSrc, width, height, targetFps, governor, meshQuality,
 //     contextConfig, renderPathOverrides }
-//   { type: 'resize', width, height }
+//   { type: 'resize', width, height, host }
 //   { type: 'pcm', buffer, channels }                 // only when the ring cannot be shared
-//   { type: 'preset', vfsPath, bytes, mode }
-//   { type: 'ccall', name, returnType, argTypes, args, requestId }
-//   { type: 'recover-context' }                       // rebuild the engine after a context loss
+//   { type: 'preset', vfsPath, bytes, mode, host }
+//   { type: 'ccall', name, returnType, argTypes, args, requestId, host }
+//   { type: 'recover-context', host }                 // rebuild the engine after a context loss
+//   { type: 'set-flash-limit', enabled, threshold, host }   // the engine's flash limiter
+//   { type: 'capture-frame', requestId, renderFrame, timeoutMs, host }  // read back the next frame
+//
+//   `host` is the engine the message is for (what 'ready' reported); the worker
+//   selects it before acting. Absent or 0 means the worker's own engine.
 //
 // Message protocol (worker -> host):
-//   { type: 'ready' }
+//   { type: 'ready', host }                           // host = this worker's engine handle
 //   { type: 'unsupported', reason }
 //   { type: 'error', message }
 //   { type: 'stats', fps, fboFormat, qualityTier, renderScale, renderPathOverrides }
@@ -29,6 +34,7 @@
 //   { type: 'perf-frames', frames }                   // perf-HUD frames, batched (~100 ms)
 //   { type: 'perf-hud', enabled }                     // set_perf_hud() toggled the instrumentation
 //   { type: 'rhythm-event', event }                   // a beat/bar/section (set_rhythm_events(1))
+//   { type: 'frame-captured', requestId, width, height, pixels, frameIndex } | { ..., error }
 //
 // Audio: the module owns its PCM ring (src/wasm/WasmPcmRing.cpp) and drains it
 // in render_frame(), exactly as on the main thread. This worker's only jobs are
@@ -46,6 +52,8 @@
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
  * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
  * @typedef {import('./projectm-render-worker-types.ts').RhythmEvent} RhythmEvent
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerCaptureFrameMessage} RenderWorkerCaptureFrameMessage
+ * @typedef {import('./projectm-render-worker-types.ts').FlashLimitSettings} FlashLimitSettings
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
 
@@ -80,13 +88,16 @@ function getCreateModule() {
  * through {@link RenderWorkerMessage} turns that into a build error.
  *
  * @param {RenderWorkerMessage} message
+ * @param {Transferable[]} [transfer]
  */
-function postToHost(message) {
-    self.postMessage(message);
+function postToHost(message, transfer = []) {
+    self.postMessage(message, transfer);
 }
 
 /** @type {ProjectMModule | null} */
 let Module = null;
+/** This worker's engine: create_host_with_config()'s handle, 0 until it exists. */
+let engineHost = 0;
 let statsInterval = 0;
 let lastFrameTime = 0;
 let lastFps = 0;
@@ -133,13 +144,56 @@ function applySurfaceSize() {
     }
 }
 
+/**
+ * Makes `host` (or this worker's engine, for 0/absent) the active one before a
+ * control message acts on it. Mirrors bindModuleToHost() on the main thread:
+ * with two engines in this module, which one a call reaches must come from the
+ * message, not from whichever was activated last.
+ *
+ * @param {number | undefined} host
+ */
+function selectEngine(host) {
+    const target = host || engineHost;
+    if (!target || !Module) return;
+    // The common case — one engine, already active — costs no make-current.
+    const module = /** @type {any} */ (Module);
+    if (typeof module._get_active_host === 'function' && module._get_active_host() === target) return;
+    try {
+        Module.ccall('set_active_host', null, ['number'], [target]);
+    } catch (_) {
+        // A bundle without the export has one engine; nothing to select.
+    }
+}
+
+/**
+ * Reads an engine callback in either bundle shape — 040+ passes the engine's
+ * handle first, older ones only the payload (`fieldCount` values) — and says
+ * whether it is about this worker's engine. Mirrors decodeWasmCallback() in
+ * html/projectm-wasm-callbacks.js; duplicated because this classic worker
+ * cannot import it.
+ *
+ * @param {unknown[]} args
+ * @param {number} fieldCount
+ * @returns {{ ours: boolean, values: unknown[] }}
+ */
+function engineCallback(args, fieldCount) {
+    const scoped = args.length > fieldCount;
+    const host = scoped ? Number(args[0]) : null;
+    // Before create_host_with_config() returns, engineHost is still 0 and the
+    // engine being created is the only one there is.
+    const ours = host === null || !engineHost || host === engineHost;
+    return { ours, values: scoped ? args.slice(1) : args };
+}
+
 // WasmPerfGovernor.cpp pushes tier changes through globalThis — which in a
 // worker is this scope, not a window. That is the whole point of the
 // globalThis migration in src/wasm/: the same C++ hook reaches the host in
 // either topology, and governor v2 is no longer main-thread-only.
-/** @param {number} scale */
-const onGovernorRenderScaleChange = (scale) => {
-    renderScale = scale || 1;
+/** @param {unknown[]} args `(host, scale)`, or `(scale)` before bundle 040. */
+const onGovernorRenderScaleChange = (...args) => {
+    const { ours, values } = engineCallback(args, 1);
+    if (!ours) return;
+    renderScale = Number(values[0]) || 1;
     applySurfaceSize();
 };
 /** @type {any} */ (self).pmOnGovernorRenderScaleChange = onGovernorRenderScaleChange;
@@ -167,6 +221,7 @@ function flushPerfFrames() {
 
 /** @param {PerfFrameStats} stats */
 const onPerfFrame = (stats) => {
+    if (typeof stats?.host === 'number' && engineHost && stats.host !== engineHost) return;
     perfFrames.push(stats);
     if (performance.now() - perfLastFlush >= PERF_FLUSH_INTERVAL_MS) {
         flushPerfFrames();
@@ -174,13 +229,16 @@ const onPerfFrame = (stats) => {
 };
 /** @type {any} */ (self).pmOnPerfFrame = onPerfFrame;
 
-/** @param {boolean} enabled */
-const onPerfHudEnabled = (enabled) => {
+/** @param {unknown[]} args `(host, enabled)`, or `(enabled)` before bundle 040. */
+const onPerfHudEnabled = (...args) => {
+    const { ours, values } = engineCallback(args, 1);
+    if (!ours) return;
+    const enabled = !!values[0];
     if (!enabled) {
         // Whatever is buffered was measured; hand it over before the HUD goes.
         flushPerfFrames();
     }
-    postToHost({ type: 'perf-hud', enabled: !!enabled });
+    postToHost({ type: 'perf-hud', enabled });
 };
 /** @type {any} */ (self).pmSetPerfHudEnabled = onPerfHudEnabled;
 
@@ -189,6 +247,7 @@ const onPerfHudEnabled = (enabled) => {
 // a second, and batching them would make every beat arrive late.
 /** @param {RhythmEvent} event */
 const onRhythmEvent = (event) => {
+    if (engineHost && event.host !== engineHost) return;
     postToHost({ type: 'rhythm-event', event: { ...event } });
 };
 /** @type {any} */ (self).pmOnRhythmEvent = onRhythmEvent;
@@ -329,7 +388,8 @@ function installContextLossHandlers(canvas) {
  * at the surface's current size. The PCM ring is re-published because a host
  * that lost its ring writer with the engine must be able to map it again.
  */
-function recoverContext() {
+/** @param {number | undefined} host */
+function recoverContext(host) {
     if (!Module || !surface) {
         postToHost({ type: 'context-recovered', status: -1 });
         return;
@@ -337,6 +397,7 @@ function recoverContext() {
 
     let status;
     try {
+        selectEngine(host);
         status = Module._init();
         if (status === 0) {
             Module._start_render(surface.width, surface.height);
@@ -437,6 +498,86 @@ function handleCcall(module, msg) {
     }
 }
 
+/**
+ * Turns the selected engine's flash limiter on or off, threshold first, so a
+ * limiter switched on never runs a frame on the previous threshold. Mirrors the
+ * main-thread transport's setFlashLimit(). A bundle without the limiter ignores it.
+ *
+ * @param {FlashLimitSettings} settings
+ */
+function applyFlashLimit(settings) {
+    const m = /** @type {any} */ (Module);
+    if (!m || typeof m._set_flash_limit_enabled !== 'function') return;
+    if (typeof settings.threshold === 'number' && Number.isFinite(settings.threshold)) {
+        m._set_flash_limit_threshold(settings.threshold);
+    }
+    m._set_flash_limit_enabled(settings.enabled ? 1 : 0);
+}
+
+/** capture_frame_status() values (FrameCaptureStatus in src/wasm/WasmHost.hpp). */
+const CAPTURE_IDLE = 0;
+const CAPTURE_READY = 3;
+const CAPTURE_FAILED = 4;
+const DEFAULT_CAPTURE_TIMEOUT_MS = 5000;
+
+/**
+ * Reads back the next frame the engine presents and posts its pixels to the
+ * host. Mirrors captureFrameFromModule() in html/projectm-frame-capture.js,
+ * duplicated for the same no-imports reason as the PCM ring helpers. Only this
+ * side can read the frame: the drawing buffer is this worker's, and only holds
+ * the image inside the render_frame() that drew it, which is where the engine
+ * takes it (src/wasm/WasmPresent.cpp).
+ *
+ * @param {RenderWorkerCaptureFrameMessage} msg
+ */
+async function captureFrame(msg) {
+    const m = /** @type {any} */ (Module);
+    /** @param {string} error */
+    const fail = (error) => postToHost({ type: 'frame-captured', requestId: msg.requestId, error });
+    if (!m || typeof m._capture_frame_request !== 'function') {
+        fail('this projectM bundle predates frame capture (capture_frame_request)');
+        return;
+    }
+    selectEngine(msg.host);
+    if (!m._capture_frame_request()) {
+        fail('captureFrame(): the engine has no WebGL context');
+        return;
+    }
+    if (msg.renderFrame) {
+        m._render_frame();
+    }
+    const timeoutMs = typeof msg.timeoutMs === 'number' ? msg.timeoutMs : DEFAULT_CAPTURE_TIMEOUT_MS;
+    const deadline = performance.now() + timeoutMs;
+    for (;;) {
+        // The render loop (or a sibling message) may have selected another
+        // engine while this waited; the capture is this engine's.
+        selectEngine(msg.host);
+        const status = m._capture_frame_resolve(msg.renderFrame ? 1 : 0);
+        if (status === CAPTURE_READY) break;
+        if (status === CAPTURE_FAILED || status === CAPTURE_IDLE) {
+            fail(`captureFrame(): the frame could not be read (status ${status})`);
+            return;
+        }
+        if (performance.now() >= deadline) {
+            m._capture_frame_release();
+            fail(`captureFrame(): no frame was rendered within ${timeoutMs} ms`);
+            return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 4));
+    }
+    const width = m._capture_frame_width();
+    const height = m._capture_frame_height();
+    const ptr = m._capture_frame_data_ptr();
+    const frameIndex = m._capture_frame_index();
+    const length = width * height * 4;
+    // Copied out of the (shared) heap into a buffer of its own, which is then
+    // transferred rather than cloned.
+    const pixels = new ArrayBuffer(length);
+    new Uint8Array(pixels).set(m.HEAPU8.subarray(ptr, ptr + length));
+    m._capture_frame_release();
+    postToHost({ type: 'frame-captured', requestId: msg.requestId, width, height, pixels, frameIndex }, [pixels]);
+}
+
 /** @param {RenderWorkerInitMessage} msg */
 async function init(msg) {
     if (typeof OffscreenCanvas === 'undefined' || typeof importScripts !== 'function') {
@@ -529,32 +670,51 @@ async function init(msg) {
     }
     targets['#mcanvas'] = msg.canvas;
 
-    // Both are decided when init() runs — the context attributes are baked into
-    // the context it creates, the render paths are fixed before the first
-    // preset — and neither can be read from here: this scope has no page URL.
-    const cfg = msg.contextConfig;
-    if (cfg) {
-        Module.ccall('set_context_config', null,
-            ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
-            [cfg.antialias, cfg.preserveDrawingBuffer, cfg.depth, cfg.stencil, cfg.alpha,
-                cfg.powerPreference, cfg.fboPrecision]);
-    }
+    // Both are decided when the engine is created — the context attributes are
+    // baked into the context it creates, the render paths are fixed before the
+    // first preset — and neither can be read from here: this scope has no page
+    // URL. The render paths go first; the context config is an argument of the
+    // create call itself, the same shape the main thread passes.
     const overrides = msg.renderPathOverrides;
     if (overrides && Module._set_render_path_overrides) {
         Module._set_render_path_overrides(overrides.blurCopyPath ? 1 : 0,
             overrides.copyShaderPath ? 1 : 0, overrides.perPixelForceCpu ? 1 : 0);
     }
 
-    const initStatus = Module._init();
-    if (initStatus !== 0) {
-        postToHost({ type: 'error', message: `projectM init() failed in the render worker (code ${initStatus})` });
+    if (typeof /** @type {any} */ (Module)._create_host_with_config !== 'function') {
+        // The host falls back to the main thread, which still drives bundles
+        // like this one through the old configure-then-init exports.
+        postToHost({
+            type: 'unsupported',
+            reason: 'bundle predates create_host_with_config(); rebuild, or render on the main thread',
+        });
         return;
     }
+    const cfg = msg.contextConfig;
+    const host = Module.ccall('create_host_with_config', 'number',
+        ['string', 'string', 'number', 'number', 'number'],
+        ['#mcanvas', '', cfg.flags, cfg.powerPreference, cfg.fboPrecision]);
+    if (!host) {
+        const code = Module._get_last_init_error ? Module._get_last_init_error() : -1;
+        postToHost({
+            type: 'error',
+            message: `projectM engine creation failed in the render worker (init code ${code})`,
+            code,
+        });
+        return;
+    }
+    engineHost = Number(host);
 
     surface = msg.canvas;
     installContextLossHandlers(msg.canvas);
     surfaceWidth = msg.width;
     surfaceHeight = msg.height;
+
+    // Before start_render(): a viewer who needs the limiter must never be shown
+    // an unlimited frame.
+    if (msg.flashLimit) {
+        applyFlashLimit(msg.flashLimit);
+    }
 
     Module._start_render(msg.width, msg.height);
 
@@ -577,7 +737,7 @@ async function init(msg) {
 
     statsInterval = setInterval(postStats, 500);
 
-    postToHost({ type: 'ready' });
+    postToHost({ type: 'ready', host: engineHost });
 }
 
 self.onmessage = (event) => {
@@ -591,6 +751,7 @@ self.onmessage = (event) => {
             // the governor's render scale, and only this side can set it.
             surfaceWidth = msg.width;
             surfaceHeight = msg.height;
+            selectEngine(msg.host);
             applySurfaceSize();
             break;
         case 'pcm':
@@ -600,16 +761,27 @@ self.onmessage = (event) => {
             break;
         case 'preset':
             if (Module) {
+                selectEngine(msg.host);
                 handlePreset(Module, msg);
             }
             break;
         case 'ccall':
             if (Module) {
+                selectEngine(msg.host);
                 handleCcall(Module, msg);
             }
             break;
         case 'recover-context':
-            recoverContext();
+            recoverContext(msg.host);
+            break;
+        case 'set-flash-limit':
+            if (Module) {
+                selectEngine(msg.host);
+                applyFlashLimit(msg);
+            }
+            break;
+        case 'capture-frame':
+            captureFrame(msg);
             break;
         default:
             break;

@@ -15,6 +15,7 @@
 // same-basename `.ts` would shadow the real `.js` module for every JS importer
 // during typecheck.
 
+import type { ProjectMCapturedFrame, ProjectMCaptureFrameOptions } from './projectm-context-types.ts';
 import type { PerfFrameStats, RenderWorkerHandle, RhythmEvent } from './projectm-render-worker-types.ts';
 
 /** Which topology a transport is driving. */
@@ -39,6 +40,17 @@ export interface RenderTransport {
      * has not been ported yet.
      */
     readonly module: unknown | null;
+
+    /**
+     * The engine this transport drives: create_host*()'s handle, 0 for the
+     * default host of a single-engine Module. Every call a transport makes —
+     * `call`, `callVoid`, `writePreset`, `resize`, `feedPcm`, `recoverContext` —
+     * selects this engine first (on the main thread through the generated
+     * `bindModuleToHost()`, in the worker through the `host` field on each
+     * control message), so a caller that awaited in between still reaches its
+     * own engine. The event subscriptions below hear only this engine.
+     */
+    readonly host: number;
 
     /** The worker handle, or null on the main thread. */
     readonly workerHandle: RenderWorkerHandle | null;
@@ -74,6 +86,21 @@ export interface RenderTransport {
     resize(width: number, height: number): void;
 
     /**
+     * Turn the engine's temporal flash limiter on or off, and set its threshold
+     * when one is given (docs/FLASH_LIMITER.md). Ignored by a bundle that
+     * predates the limiter.
+     */
+    setFlashLimit(enabled: boolean, threshold?: number): void;
+
+    /**
+     * Read back the next frame this engine presents (or, with `renderFrame`,
+     * render one and read it). Rejects on a bundle without frame capture, when
+     * the frame cannot be read, or after `timeoutMs`. The pixels are a copy the
+     * caller owns.
+     */
+    captureFrame(options?: ProjectMCaptureFrameOptions): Promise<ProjectMCapturedFrame>;
+
+    /**
      * Subscribes to WebGL context loss/restore notifications that the transport
      * itself can see. In the worker topology the context lives in the worker, so
      * the transport relays what the worker reports. On the main thread the
@@ -101,8 +128,8 @@ export interface RenderTransport {
      * Subscribes to the engine's beat/bar/section events (`pmOnRhythmEvent`),
      * reported while `set_rhythm_events(1)` is on. On the main thread that is
      * the WASM callback bus; in the worker topology the worker relays them.
-     * Every engine in a shared Module reports here; `event.host` tells them
-     * apart. Returns the unsubscribe function.
+     * Only this transport's engine (`host`); a sibling engine in the same
+     * Module is filtered out. Returns the unsubscribe function.
      */
     onRhythmEvent(listener: (event: RhythmEvent) => void): () => void;
 

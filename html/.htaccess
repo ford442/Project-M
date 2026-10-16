@@ -1,14 +1,135 @@
 # projectM CDN (projectm.1ink.us) Apache helpers.
 #
-# Legacy `.1ijs` / `.3ijs` glue is UTF-16/UTF-32 (iconv). When mod_deflate gzip-
-# compresses those binaries, Chrome often reports net::ERR_CONTENT_DECODING_FAILED
-# on the script (and on pthread workers that re-fetch the same URL), which then
-# surfaces as RuntimeError: null function from `_init`. Prefer the UTF-8 `.js`
-# glue (hosts default there now); also disable compression for the multi-byte
-# legacy extensions.
+# Design and rationale: docs/adr/0001-wasm-and-media-hosting.md.
+# scripts/check_production_headers.sh asserts the result against a live host;
+# scripts/test_htaccess_apache.sh runs the same check against a local Apache
+# serving this file.
+#
+# Rules, in order:
+#   1. A legacy UTF-16/32 glue URL (.1ijs/.3ijs) redirects to the UTF-8 .js of
+#      the same build when that is deployed (they are the same text; see
+#      scripts/transcode_legacy_glue.sh).
+#   2. WASM bundle files and pm/builds.json are served from a precompressed
+#      .br / .gz sibling when the client accepts it and the sibling exists
+#      (scripts/generate_wasm_builds_manifest.mjs --precompress writes them).
+#      Exactly one Content-Encoding: mod_deflate never runs on these, so there
+#      is no on-the-fly layer to stack on top or to get wrong. Without a
+#      sibling the file goes out as-is (identity).
+#   3. Content types and charsets; caching; cross-origin isolation.
+#   4. No auto-generated directory listings for the song folders: the deploy
+#      writes index.html / index.json there (scripts/generate_songs_manifest.mjs).
+#
+# Why no on-the-fly compression for bundle files: browsers (and every pthread
+# worker that re-fetches the glue) reported net::ERR_CONTENT_DECODING_FAILED
+# on these URLs with mod_deflate in the path (a `...-gzip` ETag plus
+# `Vary: User-Agent` makes caches and range re-fetches fragile), which then
+# surfaces as RuntimeError: null function from `_init`.
 
+# This file replaces the live one on every deploy (deploy.py ships it), so it
+# has to carry every rule the site needs, including the ones that used to live
+# only in a hand-uploaded copy: the index page, the HTTPS redirect, CORS, the
+# 404 page.
+DirectoryIndex 1ink.1ink index.html
+ErrorDocument 404 https://www.noahcohn.com/404.1ink
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Force HTTPS (not for a local test server on loopback).
+    RewriteCond %{HTTPS} off
+    RewriteCond %{HTTP_HOST} !^(?:localhost|127\.0\.0\.1)(?::[0-9]+)?$
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # 1. projectm-v.NNN-thread.1ijs -> projectm-v.NNN-thread.js (same directory).
+    RewriteCond %{REQUEST_FILENAME} ^(.+/projectm-v\.[0-9a-z]+-thread)\.(?:1ijs|3ijs)$
+    RewriteCond %1.js -f
+    RewriteCond %{REQUEST_URI} ^(.+)\.(?:1ijs|3ijs)$
+    RewriteRule \.(?:1ijs|3ijs)$ %1.js [R=301,L]
+
+    # 2. Precompressed siblings. Brotli first; gzip for clients without it.
+    RewriteCond %{HTTP:Accept-Encoding} (?:^|[\s,])br(?:[\s,;]|$)
+    RewriteCond %{REQUEST_FILENAME} (?:/projectm-v\.[0-9a-z]+-thread\.(?:js|wasm)|/pm/builds\.json)$
+    RewriteCond %{REQUEST_FILENAME}.br -f
+    RewriteRule ^(.+)$ $1.br [L,E=PM_PRECOMPRESSED:br]
+
+    RewriteCond %{HTTP:Accept-Encoding} (?:^|[\s,])gzip(?:[\s,;]|$)
+    RewriteCond %{REQUEST_FILENAME} (?:/projectm-v\.[0-9a-z]+-thread\.(?:js|wasm)|/pm/builds\.json)$
+    RewriteCond %{REQUEST_FILENAME}.gz -f
+    RewriteRule ^(.+)$ $1.gz [L,E=PM_PRECOMPRESSED:gzip]
+</IfModule>
+
+# No mod_deflate for bundle files (served as uploaded, or precompressed above),
+# for anything already compressed, or for audio.
 <IfModule mod_deflate.c>
+    # On-the-fly compression for pages and styles only.
+    AddOutputFilterByType DEFLATE text/html text/css
     SetEnvIfNoCase Request_URI "\.(1ijs|3ijs)$" no-gzip dont-vary
+    SetEnvIfNoCase Request_URI "/projectm-v\.[0-9a-z]+-thread\.[0-9a-z.]+$" no-gzip dont-vary
+    SetEnvIfNoCase Request_URI "/pm/builds\.json$" no-gzip dont-vary
+    SetEnvIfNoCase Request_URI "\.(br|gz|flac|mp3|ogg|opus|m4a|wav)$" no-gzip dont-vary
+</IfModule>
+
+# 3. Types. The precompressed siblings keep the type of the file they encode;
+# their extension only sets Content-Encoding.
+<IfModule mod_mime.c>
+    AddType "application/javascript; charset=utf-16" .1ijs
+    AddType "application/javascript; charset=utf-32" .3ijs
+    AddType "text/javascript; charset=utf-8" .js .mjs
+    AddType "application/json; charset=utf-8" .json
+    AddType application/wasm .wasm
+    AddType audio/flac .flac
+    # Host pages: deploy.py ships them as UTF-8 with a BOM. Browsers decode by
+    # the BOM before any header, so the pages already on the server as UTF-16
+    # LE + BOM keep working under this charset too.
+    AddType "text/html; charset=utf-8" .1ink
+    # UTF-16 stylesheets still on the server (not produced by deploy.py).
+    AddType "text/css; charset=utf-16" .1iss
+    RemoveType .br .gz
+    AddEncoding br .br
+    AddEncoding gzip .gz
+
+    # Production served .js as application/x-javascript even with the AddType
+    # above (something in the server config wins for .js); ForceType takes
+    # precedence. scripts/check_production_headers.sh checks the live result.
+    <FilesMatch "\.m?js(\.br|\.gz)?$">
+        ForceType "text/javascript; charset=utf-8"
+    </FilesMatch>
+    <FilesMatch "\.wasm(\.br|\.gz)?$">
+        ForceType application/wasm
+    </FilesMatch>
+    <FilesMatch "\.json(\.br|\.gz)?$">
+        ForceType "application/json; charset=utf-8"
+    </FilesMatch>
+</IfModule>
+
+# Caching. `Header set` (not `always`) on purpose: it applies to 2xx only, so
+# a missing optional file (the 302 to the 404 page) is never cached for a year.
+# An explicit max-age also stops mod_expires appending its own.
+#
+# A bundle version is a distinct filename, so a *frozen* version is immutable.
+# The newest version is still redeployed under the same name (deploy.py always
+# re-uploads it, and the glue's ASM_CONSTS must match the .wasm from the same
+# build), so it is revalidated (ETag/304) instead. When a version stops being
+# redeployed, add it to the frozen pattern (a version left out only caches less,
+# which is the safe failure). HTML, host pages and the manifests are no-cache:
+# they are how a new build or song reaches clients.
+<IfModule mod_headers.c>
+    <FilesMatch "^projectm-v\.[0-9a-z]+-thread\.">
+        Header set Cache-Control "public, max-age=0, must-revalidate"
+        # One representation per Accept-Encoding (precompressed or not), and
+        # nothing else: drop the server's `Vary: User-Agent`.
+        Header set Vary "Accept-Encoding"
+    </FilesMatch>
+    <FilesMatch "^projectm-v\.(030b?|03[1-8])-thread\.">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    <FilesMatch "^builds\.json(\.br|\.gz)?$">
+        Header set Cache-Control "no-cache"
+        Header set Vary "Accept-Encoding"
+    </FilesMatch>
+    <FilesMatch "(\.html|\.1ink|^index\.json)$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
 </IfModule>
 
 # Pthread / SharedArrayBuffer build requires cross-origin isolation on the host page.
@@ -17,16 +138,12 @@
     Header always set Cross-Origin-Opener-Policy "same-origin"
     Header always set Cross-Origin-Embedder-Policy "require-corp"
     Header always set Cross-Origin-Resource-Policy "cross-origin"
+    # Other origins (embeds, the npm package's CDN default) fetch bundles and songs.
+    Header set Access-Control-Allow-Origin "*"
+    Header set Accept-Ranges bytes
 </IfModule>
 
-# Explicit charset for multi-byte glue when clients still load them.
-# Host pages (.1ink): deploy.py ships UTF-16 LE + BOM to match DreamHost's
-# historical .1ink handling. Declaring charset=utf-8 here makes browsers
-# mis-decode the page (blank / broken). Keep utf-16.
-<IfModule mod_mime.c>
-    AddType "application/javascript; charset=utf-16" .1ijs
-    AddType "application/javascript; charset=utf-32" .3ijs
-    AddType "application/javascript; charset=utf-8" .js
-    AddType "text/html; charset=utf-16" .1ink
-    AddType application/wasm .wasm
-</IfModule>
+# 4. Song folders are listed by their generated index.html / index.json only.
+<If "%{REQUEST_URI} =~ m#/(?:songs|mp3_songs|mod_songs)/#">
+    Options -Indexes
+</If>

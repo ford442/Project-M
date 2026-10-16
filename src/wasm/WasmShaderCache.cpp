@@ -69,10 +69,10 @@ WasmHost* HostForNamespacedKey(const std::string& namespacedKey)
 } // namespace
 
 // clang-format off
-EM_JS(void, js_on_transpiled_shader_stored, (const char* key, int kind, const char* glsl), {
+EM_JS(void, js_on_transpiled_shader_stored, (double host, const char* key, int kind, const char* glsl), {
     if (typeof globalThis.pmOnTranspiledShaderStored === 'function')
     {
-        globalThis.pmOnTranspiledShaderStored(UTF8ToString(key), kind, UTF8ToString(glsl));
+        globalThis.pmOnTranspiledShaderStored(host, UTF8ToString(key), kind, UTF8ToString(glsl));
     }
 });
 // clang-format on
@@ -101,12 +101,15 @@ void InstallShaderTranspileCacheHooks()
             // entries stay shareable across hosts and visits.
             if (const WasmHost* host = HostForNamespacedKey(key))
             {
-                js_on_transpiled_shader_stored(host->shaderCache.key.c_str(), shaderType, glsl.c_str());
+                js_on_transpiled_shader_stored(EventHostHandle(*host), host->shaderCache.key.c_str(), shaderType,
+                                               glsl.c_str());
                 return;
             }
             const auto separator = key.find('|');
             const std::string hostKey = separator == std::string::npos ? key : key.substr(separator + 1);
-            js_on_transpiled_shader_stored(hostKey.c_str(), shaderType, glsl.c_str());
+            // No live host armed this key (it was released mid-load): still
+            // worth persisting, but it belongs to no engine.
+            js_on_transpiled_shader_stored(kNoEventHost, hostKey.c_str(), shaderType, glsl.c_str());
         });
 }
 

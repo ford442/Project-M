@@ -478,6 +478,74 @@ PROJECTM_EXPORT void projectm_set_transparency_threshold(projectm_handle instanc
  */
 PROJECTM_EXPORT float projectm_get_transparency_threshold(projectm_handle instance);
 
+/**
+ * @brief Enables or disables the temporal flash limiter.
+ *
+ * The limiter is a photosensitivity safety pass at the end of each frame, before the frame
+ * reaches the target framebuffer. It measures the frame's mean relative luminance on the GPU
+ * and, when the frame would step further from the previously presented frame than the
+ * threshold allows (or drift too far from the luminance of the last third of a second), it
+ * blends the frame toward the previous one by just enough to stay within the limit.
+ *
+ * Disabled by default. While disabled nothing is allocated and frames are presented exactly
+ * as they would be without the limiter. Enabling it restarts the luminance history and the
+ * clamped-frame count. User sprites are drawn after the limiter and are not limited.
+ *
+ * The limit is on the mean luminance of the whole frame: a small bright strobe on a dark
+ * background can stay under it, and red flashes are not treated specially. It is a
+ * mitigation, not a WCAG 2.3.1 conformance check. See docs/FLASH_LIMITER.md.
+ *
+ * @param instance The projectM instance handle.
+ * @param enabled True to limit flashes, false to present frames unchanged.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_flash_limit_enabled(projectm_handle instance, bool enabled);
+
+/**
+ * @brief Returns whether the temporal flash limiter is enabled.
+ * @param instance The projectM instance handle.
+ * @return True if the flash limiter is enabled.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT bool projectm_get_flash_limit_enabled(projectm_handle instance);
+
+/**
+ * @brief Sets the flash limiter's maximum per-frame step of mean relative luminance.
+ *
+ * Relative luminance as WCAG defines it, 0 (black) to 1 (white). Default 0.08, just under the
+ * 10% change WCAG 2.3.1 counts towards a flash. The presented luminance may also stray at most
+ * twice this far from its average over the last third of a second, so a ramp spread over
+ * several frames is bounded too. Clamped to [0.005, 1]; 1 effectively turns limiting off.
+ *
+ * @param instance The projectM instance handle.
+ * @param threshold Maximum per-frame luminance step, 0.005..1. Default: 0.08
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_flash_limit_threshold(projectm_handle instance, float threshold);
+
+/**
+ * @brief Returns the flash limiter's threshold.
+ * @param instance The projectM instance handle.
+ * @return The maximum per-frame luminance step.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT float projectm_get_flash_limit_threshold(projectm_handle instance);
+
+/**
+ * @brief Returns how many frames the flash limiter blended toward the previous frame.
+ *
+ * Counts since the limiter was last enabled; after it is disabled, the count at that time.
+ *
+ * The count lives on the GPU. Reading it after new frames were rendered waits for those
+ * frames to finish, so poll it a few times a second at most, never every frame. Must be
+ * called from the thread that renders, with the OpenGL context current.
+ *
+ * @param instance The projectM instance handle.
+ * @return Frames limited since the limiter was enabled.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT uint32_t projectm_get_flash_limit_clamped_frames(projectm_handle instance);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

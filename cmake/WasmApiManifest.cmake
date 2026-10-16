@@ -22,12 +22,14 @@ set(PROJECTM_WASM_API_MANIFEST
     "get_projectm_handle|internal|direct|number||Opaque projectM handle pointer"
     "init|public|direct|number||Initialize EGL/WebGL and projectM, returns 0 on success"
     "set_canvas_selectors|public|ccall|void|primary:string,secondary:string|Set primary/secondary canvas CSS selectors (default #mcanvas/#scanvas)"
-    "set_context_config|public|ccall|void|antialias:number,preserveDrawingBuffer:number,depth:number,stencil:number,alpha:number,powerPreference:number,fboPrecision:number|Configure WebGL context attributes and the preferred dual-FBO format (fboPrecision: 0=RGBA16F, 1=RGBA32F, 2=RGBA8, as dual_fbo_get_format returns) — call before init/init_with_canvases/create_host"
+    "set_context_config|public|ccall|void|antialias:number,preserveDrawingBuffer:number,depth:number,stencil:number,alpha:number,powerPreference:number,fboPrecision:number|Deprecated shim for host JS that predates create_host_with_config(): sets the active host's config if it has no context yet, else holds it for the next context created (fboPrecision: 0=RGBA16F, 1=RGBA32F, 2=RGBA8)"
     "set_render_path_overrides|public|direct|void|blurCopyPath:boolean,copyShaderPath:boolean,perPixelForceCpu:boolean|Set the ?blurPath=copy / ?copyPath=shader / ?perPixelEval=cpu ablation switches from the host (call before init — overrides the URL and is the only way they reach the render worker)"
     "get_render_path_overrides|public|direct|number||Render-path switches in effect as a bitmask (1=blurPath copy, 2=copyPath shader, 4=perPixelEval cpu)"
     "init_with_canvases|public|ccall|number|primary:string,secondary:string|Set canvas selectors then init (returns 0 on success)"
     "rebind_canvases|public|ccall|number|primary:string,secondary:string|Tear down and re-init against new canvas selectors (single-instance)"
     "create_host|public|ccall|number|primary:string,secondary:string|Create and init a new engine instance on the given canvases, returning an opaque host handle (0 if at the instance cap or init failed)"
+    "create_host_with_config|public|ccall|number|primary:string,secondary:string,flags:number,powerPreference:number,fboPrecision:number|Create and init an engine instance whose WebGL context uses this config (flags: bitmask of CONTEXT_CONFIG_FLAGS, powerPreference 0 default/1 low-power/2 high-performance, fboPrecision 0=RGBA16F/1=RGBA32F/2=RGBA8), returning its host handle or 0 (see get_last_init_error)"
+    "get_last_init_error|public|direct|number||Code of the most recent init()/create_host*() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes)"
     "set_active_host|public|ccall|void|handle:number|Select which host subsequent no-handle exports operate on and make its WebGL context current (0 = default host)"
     "get_active_host|public|direct|number||Opaque handle of the active host (0 if none)"
     "destroy_host|public|ccall|void|handle:number|Tear down and free a host created with create_host()"
@@ -133,4 +135,36 @@ set(PROJECTM_WASM_API_MANIFEST
     "transition_get_duration_beats|public|direct|number||Configured crossfade length in beats (0 = seconds)"
     "set_hard_cut_on_beat|public|direct|void|enabled:boolean|Make beat-detection hard cuts wait for the next beat"
     "set_rhythm_events|public|direct|void|enabled:boolean|Report beats, bars and section changes to globalThis.pmOnRhythmEvent (off by default)"
+    "set_flash_limit_enabled|public|direct|void|enabled:boolean|Turn the temporal flash limiter on or off (off by default, see docs/FLASH_LIMITER.md)"
+    "get_flash_limit_enabled|public|direct|boolean||Whether the flash limiter is on"
+    "set_flash_limit_threshold|public|direct|void|threshold:number|Span of mean relative luminance (0.005..1, default 0.06) the presented frames may cover within the limiter's ~1/3 s memory"
+    "get_flash_limit_threshold|public|direct|number||The flash limiter's threshold"
+    "get_flash_limit_clamped_frames|public|direct|number||Frames the flash limiter blended toward the previous frame since it was enabled (reads back from the GPU: poll a few times a second at most)"
+    "get_committed_frame_count|public|direct|number||emscripten_webgl_commit_frame() calls since the host was created (0 unless the host presents manually)"
+    "capture_frame_request|public|direct|number||Read back the next rendered frame (1 accepted, 0 no context), replacing an unclaimed capture"
+    "capture_frame_status|public|direct|number||Capture state: 0 idle, 1 requested, 2 pending (GPU read in flight), 3 ready, 4 failed (never waits)"
+    "capture_frame_resolve|public|direct|number|wait:boolean|capture_frame_status(), but wait=true takes a pending capture now, waiting for the GPU if it must"
+    "capture_frame_data_ptr|public|direct|number||Heap address of the ready capture's RGBA8 pixels, top row first (0 unless ready)"
+    "capture_frame_width|public|direct|number||Width in pixels of the last capture"
+    "capture_frame_height|public|direct|number||Height in pixels of the last capture"
+    "capture_frame_index|public|direct|number||get_rendered_frame_count() right after the captured frame"
+    "capture_frame_release|public|direct|void||Free the captured pixels"
+)
+
+# Exports that act on the host registry rather than on the active host's engine.
+# Everything else in the manifest operates on whichever host set_active_host()
+# selected last, so the generated bindModuleToHost() activates its host before
+# any other call; these are passed through untouched (activating first would be
+# wrong for get_active_host and pointless for the rest).
+set(PROJECTM_WASM_API_HOST_REGISTRY
+    malloc
+    free
+    create_host
+    create_host_with_config
+    get_last_init_error
+    set_active_host
+    get_active_host
+    destroy_host
+    host_count
+    max_host_count
 )

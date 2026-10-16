@@ -41,15 +41,16 @@ export interface PcmRingDescriptor {
 }
 
 /**
- * `set_context_config()`'s arguments. Attributes are baked into the WebGL
- * context when `init()` creates it, so the worker applies these first.
+ * `create_host_with_config()`'s context arguments — the one shape both
+ * topologies use. `resolveWasmContextConfig()` (projectm-context-config.js)
+ * builds it from `ProjectMContextOptions`; the main thread passes it to the
+ * export, the render worker gets it in its `init` message and passes the same
+ * three numbers. Attributes are baked into the WebGL context when the host is
+ * created.
  */
-export interface RenderWorkerContextConfig {
-    antialias: number;
-    preserveDrawingBuffer: number;
-    depth: number;
-    stencil: number;
-    alpha: number;
+export interface WasmContextConfig {
+    /** Bitmask of `CONTEXT_CONFIG_FLAGS` (mirrors `WasmContextConfigFlag` in WasmWebGLContext.hpp). */
+    flags: number;
     /** 0 default, 1 low-power, 2 high-performance. */
     powerPreference: number;
     /** Preferred dual-FBO format: 0 RGBA16F, 1 RGBA32F, 2 RGBA8 (as `dual_fbo_get_format()` reports). */
@@ -77,14 +78,40 @@ export interface RenderWorkerInitMessage {
     targetFps?: number;
     governor?: boolean;
     meshQuality?: string;
-    /** Applied with `set_context_config()` before `init()`. */
-    contextConfig?: RenderWorkerContextConfig;
+    /**
+     * Passed to `create_host_with_config()`, which creates the worker's engine.
+     * Required: a bundle without that export answers `unsupported`, and the
+     * host falls back to the main thread.
+     */
+    contextConfig: WasmContextConfig;
     /** Applied with `set_render_path_overrides()` before `init()`. */
     renderPathOverrides?: RenderPathOverrides;
+    /**
+     * The flash limiter, applied to the engine before its first frame. Absent
+     * means off. Later changes travel as {@link RenderWorkerSetFlashLimitMessage}.
+     */
+    flashLimit?: FlashLimitSettings;
+}
+
+/** The flash limiter's switch and threshold, as both topologies apply them. */
+export interface FlashLimitSettings {
+    enabled: boolean;
+    /** Omitted keeps the engine's current threshold. */
+    threshold?: number;
+}
+
+/**
+ * The engine a host → worker control message is for: the handle the worker
+ * reported in {@link RenderWorkerReadyMessage}. The worker selects it before
+ * acting, so a call never depends on which engine happened to be active last.
+ * 0 (or absent, from an older host page) means the worker's only engine.
+ */
+export interface RenderWorkerEngineScoped {
+    host?: number;
 }
 
 /** Host → worker: canvas size changed. */
-export interface RenderWorkerResizeMessage {
+export interface RenderWorkerResizeMessage extends RenderWorkerEngineScoped {
     type: 'resize';
     width: number;
     height: number;
@@ -107,7 +134,7 @@ export interface RenderWorkerPcmMessage {
  * nothing else — which is most of what "the worker is a second implementation"
  * used to mean in practice.
  */
-export interface RenderWorkerPresetMessage {
+export interface RenderWorkerPresetMessage extends RenderWorkerEngineScoped {
     type: 'preset';
     /** Path to write inside the worker module's FS, e.g. `/presets/url_x.milk`. */
     vfsPath: string;
@@ -124,7 +151,7 @@ export interface RenderWorkerPresetMessage {
  * Host → worker: proxy a `Module.ccall`. `requestId` is omitted for
  * fire-and-forget calls (`ccallVoid`), in which case no result is posted back.
  */
-export interface RenderWorkerCcallMessage {
+export interface RenderWorkerCcallMessage extends RenderWorkerEngineScoped {
     type: 'ccall';
     name: string;
     returnType: string | null;
@@ -141,11 +168,33 @@ export interface RenderWorkerCcallMessage {
  * {@link RenderWorkerContextRecoveredMessage}. `init()` is the documented
  * re-init export: it tears down whatever engine is left and rebuilds one, and
  * it refuses with code 5 while the context is still lost. The transferred
- * canvas, its `#mcanvas` registration, `set_context_config()` and the PCM ring
+ * canvas, its `#mcanvas` registration, the host's context config and the PCM ring
  * all survive a context loss, so nothing else has to be replayed.
  */
-export interface RenderWorkerRecoverContextMessage {
+export interface RenderWorkerRecoverContextMessage extends RenderWorkerEngineScoped {
     type: 'recover-context';
+}
+
+/**
+ * Host → worker: turn the engine's flash limiter on or off (and set its
+ * threshold). A message of its own rather than two ccalls so the switch and
+ * the threshold land on the engine together.
+ */
+export interface RenderWorkerSetFlashLimitMessage extends RenderWorkerEngineScoped, FlashLimitSettings {
+    type: 'set-flash-limit';
+}
+
+/**
+ * Host → worker: read back the next frame the engine presents (or render one
+ * first, with `renderFrame`). Answered with a {@link RenderWorkerFrameCapturedMessage}
+ * carrying the same `requestId`. The pixels cannot be read on the host's side:
+ * the drawing buffer is the worker's, and only valid inside the frame that drew it.
+ */
+export interface RenderWorkerCaptureFrameMessage extends RenderWorkerEngineScoped {
+    type: 'capture-frame';
+    requestId: number;
+    renderFrame?: boolean;
+    timeoutMs?: number;
 }
 
 export type RenderWorkerHostMessage =
@@ -154,7 +203,9 @@ export type RenderWorkerHostMessage =
     | RenderWorkerPcmMessage
     | RenderWorkerPresetMessage
     | RenderWorkerCcallMessage
-    | RenderWorkerRecoverContextMessage;
+    | RenderWorkerRecoverContextMessage
+    | RenderWorkerSetFlashLimitMessage
+    | RenderWorkerCaptureFrameMessage;
 
 /**
  * One frame of perf-HUD stats, as `js_perf_report_frame()`
@@ -168,6 +219,12 @@ export type RenderWorkerHostMessage =
  * extension is unavailable or no result has arrived yet.
  */
 export interface PerfFrameStats {
+    /**
+     * The engine that rendered the frame: create_host*()'s handle, 0 for the
+     * legacy default host. Absent from bundles before 040; the callback bus
+     * (projectm-wasm-callbacks.js) fills it in as null for those.
+     */
+    host?: number | null;
     totalMs: number;
     audioMs: number;
     /**
@@ -203,6 +260,12 @@ export interface PerfFrameStats {
      * from bundles that predate per-stage queries (treat as fresh).
      */
     gpuFresh?: boolean;
+    /**
+     * Frames this engine's flash limiter clamped since it was enabled (read back
+     * about twice a second), or -1 while the limiter is off. Absent from bundles
+     * that predate the limiter.
+     */
+    flashClampedFrames?: number;
     fps: number;
     /** Absent from bundles that predate KHR_parallel_shader_compile support. */
     shaderLinkPending?: boolean;
@@ -223,7 +286,10 @@ export interface PerfFrameStats {
  * `set_rhythm_events(1)` is on.
  */
 export interface RhythmEvent {
-    /** The engine host it came from (create_host()'s handle; nonzero for the default host too). */
+    /**
+     * The engine host it came from: create_host*()'s handle, 0 for the legacy
+     * default host (bundles before 040 sent the default host's address instead).
+     */
     host: number;
     /** A beat landed on this frame. */
     beat: boolean;
@@ -246,6 +312,11 @@ export interface RhythmEvent {
 /** Worker → host: module booted and the render loop is running. */
 export interface RenderWorkerReadyMessage {
     type: 'ready';
+    /**
+     * The worker engine's host handle (create_host_with_config()'s return).
+     * The host stamps it on every control message it sends back.
+     */
+    host: number;
 }
 
 /** Worker → host: this browser/worker cannot run the offscreen path. */
@@ -258,6 +329,12 @@ export interface RenderWorkerUnsupportedMessage {
 export interface RenderWorkerErrorMessage {
     type: 'error';
     message: string;
+    /**
+     * Init error code (docs/EMSCRIPTEN.md "Init Error Codes") when the failure
+     * was creating the engine: 2 no WebGL 2, 6 canvas missing, 7 make-current
+     * failed, 8 software context refused, 9 explicit swap unavailable.
+     */
+    code?: number;
 }
 
 /** Worker → host: periodic render statistics. */
@@ -387,6 +464,21 @@ export interface RenderWorkerRhythmEventMessage {
     event: RhythmEvent;
 }
 
+/**
+ * Worker → host: the answer to a {@link RenderWorkerCaptureFrameMessage}. Either
+ * `width`/`height`/`pixels`/`frameIndex` (RGBA8, top row first; `pixels` is
+ * transferred) or `error`.
+ */
+export interface RenderWorkerFrameCapturedMessage {
+    type: 'frame-captured';
+    requestId: number;
+    width?: number;
+    height?: number;
+    pixels?: ArrayBuffer;
+    frameIndex?: number;
+    error?: string;
+}
+
 export type RenderWorkerMessage =
     | RenderWorkerContextLostMessage
     | RenderWorkerContextRestoredMessage
@@ -399,7 +491,8 @@ export type RenderWorkerMessage =
     | RenderWorkerCcallResultMessage
     | RenderWorkerPerfFramesMessage
     | RenderWorkerPerfHudMessage
-    | RenderWorkerRhythmEventMessage;
+    | RenderWorkerRhythmEventMessage
+    | RenderWorkerFrameCapturedMessage;
 
 /** A context-loss notification relayed from the worker. */
 export type RenderWorkerContextEvent = 'lost' | 'restored';
@@ -407,6 +500,11 @@ export type RenderWorkerContextEvent = 'lost' | 'restored';
 /** The handle `setupRenderWorker()` hands back to the host. */
 export interface RenderWorkerHandle {
     worker: Worker;
+    /**
+     * The worker engine's host handle, from its 'ready' message (0 before
+     * then). Every control message this handle posts carries it.
+     */
+    engineHost(): number;
     /**
      * Subscribes to the worker's context-loss notifications. Returns the
      * unsubscribe function.
@@ -449,6 +547,18 @@ export interface RenderWorkerHandle {
     postPcm(buffer: Float32Array, channels: number): void;
     /** Writes `bytes` into the worker module's VFS at `vfsPath`, then acts on it. */
     postPreset(vfsPath: string, bytes: Uint8Array, mode?: 'load' | 'load-hard' | 'add'): void;
+    /** Turns the worker engine's flash limiter on or off (`set-flash-limit`). */
+    postFlashLimit(enabled: boolean, threshold?: number): void;
+    /**
+     * Asks the worker for the next presented frame (`capture-frame`) and resolves
+     * with its pixels, or rejects with the worker's error.
+     */
+    captureFrame(options?: { renderFrame?: boolean; timeoutMs?: number }): Promise<{
+        width: number;
+        height: number;
+        data: Uint8ClampedArray;
+        frameIndex: number;
+    }>;
     ccall(
         name: string,
         returnType: string | null,

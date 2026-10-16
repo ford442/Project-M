@@ -58,7 +58,7 @@ WasmHost& Host()
 // A host Host() conjured for a legacy export that has never been brought up
 // (or has been torn down since): no engine, no WebGL context. create_host()
 // adopts such a host instead of allocating past it, so a stray legacy call
-// before the first create_host() — set_canvas_selectors(), set_context_config()
+// before the first create_host*() — set_canvas_selectors(), set_context_config()
 // — does not permanently occupy one of the kMaxHosts slots.
 static bool IsUnusedImplicitDefault(const WasmHost* host)
 {
@@ -172,6 +172,16 @@ uintptr_t HostHandle(const WasmHost& host)
     return reinterpret_cast<uintptr_t>(&host);
 }
 
+double EventHostHandle(const WasmHost& host)
+{
+    return host.implicitDefault ? 0.0 : static_cast<double>(HostHandle(host));
+}
+
+double ActiveEventHostHandle()
+{
+    return g_activeHost != nullptr ? EventHostHandle(*g_activeHost) : kNoEventHost;
+}
+
 WasmHost* HostFromHandle(uintptr_t handle)
 {
     if (handle == 0)
@@ -222,14 +232,12 @@ int LiveHostCount()
 // =============================================================================
 extern "C" {
 
-// Creates a new engine instance bound to the given canvas selectors, makes it
-// the active host, and initialises it. Returns the opaque host handle (a
-// WasmHost* as an integer) on success, or 0 if the Module is already at the
-// kMaxHosts cap or initialisation failed. The previously-active host is
-// restored on failure so a rejected create_host() has no side effects on the
-// caller's current instance.
-EMSCRIPTEN_KEEPALIVE
-uintptr_t create_host(const char* primary, const char* secondary)
+} // extern "C"
+
+// Shared body of create_host() and create_host_with_config(). `config` is the
+// new host's context config; null means the legacy create_host() inheritance
+// (a pending legacy set_context_config(), else the previous host's config).
+static uintptr_t CreateHost(const char* primary, const char* secondary, const WasmContextConfig* config)
 {
     WasmHost* previous = g_activeHost;
 
@@ -241,19 +249,35 @@ uintptr_t create_host(const char* primary, const char* secondary)
     if (host == nullptr)
     {
         fprintf(stderr, "create_host: refused – already at kMaxHosts (%d) instances.\n", kMaxHosts);
-        js_report_init_error(4, "Maximum projectM instances per Module reached");
+        // No engine exists to name: the active host is the caller's previous
+        // one, and this failure is not its.
+        js_report_init_error_for_host(kNoEventHost, 4, "Maximum projectM instances per Module reached");
         return 0;
     }
     host->implicitDefault = false;
 
-    // Start from the previous host's context config so a Module configured once
-    // keeps that config for every engine. A set_context_config() issued just
-    // before this call (while `previous` was active and already had a context)
-    // is pending and overrides this snapshot inside init(), right before the
-    // context is created — see WasmWebGLContext.cpp.
-    if (previous != nullptr && !adopted)
+    if (config != nullptr)
     {
-        host->contextConfig = previous->contextConfig;
+        // The config is an argument of this call: stored on the new host before
+        // init() creates its context, so no other caller can get between them.
+        host->contextConfig = *config;
+        host->hasLegacyPendingContextConfig = false;
+    }
+    else if (previous != nullptr && !adopted)
+    {
+        // Legacy: start from the previous host's config so a Module configured
+        // once keeps that config for every engine. A set_context_config() issued
+        // just before this call, while `previous` was active and already had a
+        // context, was parked on `previous` for exactly this hand-off.
+        if (previous->hasLegacyPendingContextConfig)
+        {
+            host->contextConfig = previous->legacyPendingContextConfig;
+            previous->hasLegacyPendingContextConfig = false;
+        }
+        else
+        {
+            host->contextConfig = previous->contextConfig;
+        }
     }
 
     SetActiveHost(host);
@@ -274,6 +298,34 @@ uintptr_t create_host(const char* primary, const char* secondary)
     }
 
     return HostHandle(*host);
+}
+
+extern "C" {
+
+// Creates a new engine instance bound to the given canvas selectors, makes it
+// the active host, and initialises it. Returns the opaque host handle (a
+// WasmHost* as an integer) on success, or 0 if the Module is already at the
+// kMaxHosts cap or initialisation failed (get_last_init_error() says which).
+// The previously-active host is restored on failure so a rejected create has no
+// side effects on the caller's current instance.
+//
+// `flags` is a WasmContextConfigFlag bitmask (WasmWebGLContext.hpp);
+// powerPreference 0 default / 1 low-power / 2 high-performance; fboPrecision
+// 0 RGBA16F / 1 RGBA32F / 2 RGBA8. The config belongs to this host alone.
+EMSCRIPTEN_KEEPALIVE
+uintptr_t create_host_with_config(const char* primary, const char* secondary, int flags,
+                                  int powerPreference, int fboPrecision)
+{
+    const WasmContextConfig cfg = WasmContextConfigFromArgs(flags, powerPreference, fboPrecision);
+    return CreateHost(primary, secondary, &cfg);
+}
+
+// Legacy form: the new host inherits the previous host's config, or one a
+// set_context_config() parked for it. Prefer create_host_with_config().
+EMSCRIPTEN_KEEPALIVE
+uintptr_t create_host(const char* primary, const char* secondary)
+{
+    return CreateHost(primary, secondary, nullptr);
 }
 
 // Selects which host subsequent no-handle exports operate on and makes its

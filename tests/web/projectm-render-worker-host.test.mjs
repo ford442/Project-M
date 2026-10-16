@@ -17,6 +17,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { resolveWasmContextConfig } from '../../html/projectm-context-config.js';
 
 import {
     isRenderWorkerEnabled,
@@ -227,7 +228,9 @@ test('setupRenderWorker posts an init message transferring the offscreen canvas'
     assert.equal(msg.governor, true);
     assert.equal(msg.meshQuality, 'low');
     assert.equal(msg.pcm, undefined, 'the host no longer allocates a ring; the worker owns it');
-    assert.equal(msg.contextConfig, undefined);
+    // No options of its own: the worker still gets the defaults to create its
+    // engine with (contextAlpha + premultipliedAlpha, high-performance, RGBA16F).
+    assert.deepEqual(msg.contextConfig, { flags: 48, powerPreference: 2, fboPrecision: 0 });
     assert.equal(msg.renderPathOverrides, undefined);
     assert.deepEqual(transfer, [offscreen]);
 
@@ -237,10 +240,7 @@ test('setupRenderWorker posts an init message transferring the offscreen canvas'
 
 test('setupRenderWorker forwards the context config and render-path switches in the init message', () => {
     installMockWorkerEnv();
-    const contextConfig = {
-        antialias: 0, preserveDrawingBuffer: 1, depth: 0, stencil: 0,
-        alpha: 1, powerPreference: 2, fboPrecision: 2,
-    };
+    const contextConfig = resolveWasmContextConfig({ preserveDrawingBuffer: true, fboPrecision: 'byte' });
     const renderPathOverrides = resolveRenderPathOverrides('?blurPath=copy');
     const handle = setupRenderWorker({
         canvas: makeCanvas({ offscreen: {} }),
@@ -368,6 +368,65 @@ test('the last stats message is kept for late subscribers', () => {
     }
 });
 
+test('setupRenderWorker sends the flash limiter in the init message, and only when asked', () => {
+    installMockWorkerEnv();
+    const limited = setupRenderWorker({ canvas: makeCanvas(), flashLimit: { enabled: true, threshold: 0.05 } });
+    assert.deepEqual(limited.worker.posted[0].msg.flashLimit, { enabled: true, threshold: 0.05 });
+    const plain = setupRenderWorker({ canvas: makeCanvas() });
+    assert.equal('flashLimit' in plain.worker.posted[0].msg, false);
+    clearMockWorkerEnv();
+});
+
+test('postFlashLimit posts set-flash-limit, with the threshold only when one is given', () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    handle.postFlashLimit(true, 0.1);
+    handle.postFlashLimit(false);
+    handle.postFlashLimit(true, Number.NaN);
+    assert.deepEqual(handle.worker.posted.slice(1).map((p) => p.msg), [
+        { type: 'set-flash-limit', enabled: true, threshold: 0.1, host: 0 },
+        { type: 'set-flash-limit', enabled: false, host: 0 },
+        { type: 'set-flash-limit', enabled: true, host: 0 },
+    ]);
+    clearMockWorkerEnv();
+});
+
+test('captureFrame resolves each request from its own frame-captured reply', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+
+    const first = handle.captureFrame({ timeoutMs: 100 });
+    const second = handle.captureFrame({ renderFrame: true });
+    const [a, b] = handle.worker.posted.slice(1).map((p) => p.msg);
+    assert.deepEqual([a.type, a.renderFrame, a.timeoutMs], ['capture-frame', false, 100]);
+    assert.deepEqual([b.type, b.renderFrame, 'timeoutMs' in b], ['capture-frame', true, false]);
+    assert.notEqual(a.requestId, b.requestId);
+
+    // Answered out of order: each promise takes its own reply.
+    handle.worker.emit({ type: 'frame-captured', requestId: b.requestId, width: 1, height: 1, pixels: Uint8Array.of(9, 9, 9, 255).buffer, frameIndex: 8 });
+    handle.worker.emit({ type: 'frame-captured', requestId: a.requestId, width: 2, height: 1, pixels: new Uint8Array(8).fill(1).buffer, frameIndex: 7 });
+    const [frameA, frameB] = await Promise.all([first, second]);
+    assert.equal(frameA.width, 2);
+    assert.equal(frameA.frameIndex, 7);
+    assert.ok(frameA.data instanceof Uint8ClampedArray);
+    assert.deepEqual([...frameA.data], new Array(8).fill(1));
+    assert.deepEqual([...frameB.data], [9, 9, 9, 255]);
+
+    // A stray reply for nothing pending is ignored.
+    assert.doesNotThrow(() => handle.worker.emit({ type: 'frame-captured', requestId: 999, error: 'late' }));
+    clearMockWorkerEnv();
+});
+
+test('captureFrame rejects with the worker\'s error', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    const pending = handle.captureFrame();
+    const { requestId } = handle.worker.posted[1].msg;
+    handle.worker.emit({ type: 'frame-captured', requestId, error: 'captureFrame(): no frame was rendered within 5000 ms' });
+    await assert.rejects(pending, /no frame was rendered/);
+    clearMockWorkerEnv();
+});
+
 test('setupRenderWorker.ccall resolves its promise from a matching ccall-result message', async () => {
     installMockWorkerEnv();
     const handle = setupRenderWorker({ canvas: makeCanvas() });
@@ -401,12 +460,37 @@ test('setupRenderWorker.ccallVoid fires and forgets: no requestId, no pending pr
     clearMockWorkerEnv();
 });
 
+test('every control message carries the engine the worker announced in ready', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    assert.equal(handle.engineHost(), 0, 'nothing announced yet');
+    handle.worker.emit({ type: 'ready', host: 5 });
+    assert.equal(handle.engineHost(), 5);
+
+    const before = handle.worker.posted.length;
+    handle.postResize(320, 240);
+    handle.postPreset('/presets/a.milk', Uint8Array.of(1), 'load');
+    handle.ccallVoid('switch_preset', [], []);
+    void handle.ccall('get_quality_tier', 'number', [], []);
+    void handle.recoverContext();
+    handle.postFlashLimit(true);
+    void handle.captureFrame().catch(() => {});
+    const sent = handle.worker.posted.slice(before).map((p) => [p.msg.type, p.msg.host]);
+    assert.deepEqual(sent, [
+        ['resize', 5], ['preset', 5], ['ccall', 5], ['ccall', 5], ['recover-context', 5],
+        ['set-flash-limit', 5], ['capture-frame', 5],
+    ]);
+
+    clearMockWorkerEnv();
+});
+
 test('setupRenderWorker.postResize and postPcm post the expected messages', () => {
     installMockWorkerEnv();
     const handle = setupRenderWorker({ canvas: makeCanvas() });
 
     handle.postResize(320, 240);
-    assert.deepEqual(handle.worker.posted[1].msg, { type: 'resize', width: 320, height: 240 });
+    // host: the engine 'ready' reported, 0 before it (this handle never got one).
+    assert.deepEqual(handle.worker.posted[1].msg, { type: 'resize', width: 320, height: 240, host: 0 });
 
     const buf = new Float32Array([1, 2, 3, 4]);
     handle.postPcm(buf, 2);
@@ -537,7 +621,7 @@ test('recoverContext posts recover-context once and resolves with the init statu
     const first = handle.recoverContext();
     const second = handle.recoverContext();
     assert.equal(first, second, 'overlapping requests share one round trip');
-    assert.deepEqual(handle.worker.posted.slice(initial).map((p) => p.msg), [{ type: 'recover-context' }]);
+    assert.deepEqual(handle.worker.posted.slice(initial).map((p) => p.msg), [{ type: 'recover-context', host: 0 }]);
 
     handle.worker.emit({ type: 'context-recovered', status: 5 });
     assert.equal(await first, 5);

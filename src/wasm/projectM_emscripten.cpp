@@ -159,6 +159,7 @@ static void DestroyEngineAndPlaylist()
 static void ReleaseGraphics()
 {
     WasmHost& H = Host();
+    ReleaseFrameCapture(H);
     H.compositorShader.Release();
     H.dualFbo.ReleaseAll();
     H.glBaseline.reset();
@@ -224,6 +225,14 @@ static void ReapplyEngineSettings(WasmHost& host)
     if (settings.hardCutOnBeat)
     {
         projectm_set_hard_cut_on_beat(pm, *settings.hardCutOnBeat);
+    }
+    if (settings.flashLimitThreshold)
+    {
+        projectm_set_flash_limit_threshold(pm, *settings.flashLimitThreshold);
+    }
+    if (settings.flashLimitEnabled)
+    {
+        projectm_set_flash_limit_enabled(pm, *settings.flashLimitEnabled);
     }
     ReapplyQualityTierLimits();
 }
@@ -348,9 +357,11 @@ int init()
     ConfigureWasmOpenMPThreadCount();
     WasmWebGLApplyModuleCanvasSelectorsIfPresent();
     js_init_projectm_dom();
-    if (!WasmWebGLCreateAndActivateContext())
+    // Canvas missing / create failed / make-current failed / software context
+    // refused each have their own code (WasmWebGLContext.hpp), already reported.
+    if (const int contextRc = WasmWebGLCreateAndActivateContext(); contextRc != 0)
     {
-        return 2;
+        return contextRc;
     }
 
     // Phase 2: Detect the best available floating-point texture format for the

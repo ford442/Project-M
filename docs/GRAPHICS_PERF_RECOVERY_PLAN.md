@@ -20,7 +20,7 @@ now landed in-tree** — see [§179 implementation notes](#179-implementation-no
 for the WebGL2 outcomes and the **defer** decision on WebGPU.
 **#227's later-on design and WGSL spike are now in-tree as docs** — see
 [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) and [§227](#227-gpu-per-pixel-eval--wgsl-path-later-on-not-this-sprint)
-below. **No Phase 1 compiler code until #224 leftovers (`FULL_ES3=0`) are measured.**
+below. (The #224 leftover that gated Phase 1, `FULL_ES3=0`, has since landed — see §A5.)
 **No sub-issue has before/after benchmark JSON yet** — that requires a GPU and a
 browser, and every code-truth finding here (including #178's) was reached by reading/
 writing the tree, not by measuring. **The machinery for changing that has now landed**:
@@ -276,8 +276,8 @@ the WASM module — no host wiring needed, unlike the render-scale tier.
 ### 5. Canvas MSAA — narrower than it looks (#178)
 
 **Status (updated #128):** canvas MSAA now defaults **off** and is host-controlled.
-`ProjectMDefaultWebGLAttributes()` (`WasmWebGLContext.cpp`) reads
-`attrs.antialias` from the `WasmContextConfig` set via `set_context_config()` (default
+`ProjectMWebGLAttributes()` (`WasmWebGLContext.cpp`) reads
+`attrs.antialias` from the host's `WasmContextConfig`, passed to `create_host_with_config()` (default
 `0`), not from a hard-coded `EM_TRUE` and no longer by scraping `?aa=` / `canvasAA` in
 C++. Hosts opt in with `antialias: true` on `ProjectMContext` (`projectm-core.html`
 parses `?aa=1` / `localStorage.canvasAA` and forwards it). The analysis below is why the
@@ -374,7 +374,7 @@ records either what landed or what must be measured before it can land.
 | A2 | Attach textures directly / MRT | ✅ **Already done**, no further cheap win — see below |
 | A3 | `WEBGL_get_program_binary` cache | ❌ **No-go**, not a deferral — see below |
 | A4 | Default the render worker | ✅ **Done** — default ON, `?renderWorker=0` opts out; verified on headless Chromium, see below |
-| A5 | `FULL_ES3=0`, Closure | ⏸ **Deferred**, needs in-browser verification — see below |
+| A5 | `FULL_ES3=0`, Closure | ✅ `FULL_ES2=0` / `FULL_ES3=0` **landed**; Closure still ⏸ deferred — see below |
 | A6 | JSPI / ASYNCIFY isolation | ➡ Owned by [#173](https://github.com/ford442/Project-M/issues/173), not touched here |
 
 #### A1 — `glBlitFramebuffer` resolves (landed)
@@ -467,33 +467,25 @@ without the worker on one machine. Also unverified: Safari (`transferControlToOf
 and nested Workers for the OpenMP pool) and Firefox. Cross-reference: issue
 [#81](https://github.com/ford442/Project-M/issues/81).
 
-#### A5 — `FULL_ES3=0` and Closure (deferred)
+#### A5 — `FULL_ES3=0` (landed) and Closure (deferred)
 
-`cmake/EmscriptenWasmFlags.cmake` still sets `FULL_ES3=1` alongside
-`MIN_WEBGL_VERSION=2`/`MAX_WEBGL_VERSION=2`. `PERFORMANCE.md`'s deferred-flags table already
-measured the build side: `FULL_ES3=0` links cleanly and saves ~10 KB of JS (-4.4%), with
-`GL_MAX_TEMP_BUFFER_SIZE` / `GL_POOL_TEMP_BUFFERS=0` to be re-evaluated together with it.
+`cmake/EmscriptenWasmFlags.cmake` now links with `FULL_ES2=0` and `FULL_ES3=0` alongside
+`MIN_WEBGL_VERSION=2`/`MAX_WEBGL_VERSION=2` — no GL emulation layer. (This section used to say
+the flag was still `1`; it is not.) `FULL_ES3=1` forced `FULL_ES2=1`, which only added
+client-side vertex-array emulation and the `glMapBufferRange` / `glGetBufferSubData` shims;
+libprojectM draws from bound VBOs/EBOs only and calls neither, and `glBlitFramebuffer` — the
+Y-inverted `CopyTexture::TryBlit()` resolve (A1) that was the recorded blocker below — is a plain
+passthrough either way. The flip was verified against the golden set (all 26 goldens
+byte-identical) and the smoke test (dual-FBO soft cut, blur3, warp/no-composite A/B with
+`?copyPath=shader`). Those run on software GL; no real-GPU JSON has been recorded under
+`benchmark-results/` for it. `GL_POOL_TEMP_BUFFERS` / `GL_MAX_TEMP_BUFFER_SIZE` no longer reach the
+glue at all with the fixed heap (see the comment in `EmscriptenWasmFlags.cmake`).
 
-The reason it has not landed is unchanged and is *not* laziness about size: nothing has
-rendered a frame with it. The risk is a GL call that silently depends on ES3-emulation-on-top-
-of-WebGL2 rather than failing to link. A1 makes this slightly more pressing, not less —
-`glBlitFramebuffer` with an inverted destination rectangle is precisely the kind of call where
-an emulation layer and native WebGL2 could differ. **Verify A1 and `FULL_ES3=0` in the same
-browser session**, in that order.
-
-**Status (#128 context-config PR):** that PR did the *contract* half of this item — WebGL
-context attributes and dual-FBO precision are now host-driven (`set_context_config()`), so a
-browser session can flip attributes without rebuilding — but it deliberately **did not** flip
-`FULL_ES3=1 → 0`. Per this issue's acceptance criteria ("`FULL_ES3=0` either lands with a
-recorded in-browser pass, **or** the issue records a concrete GL call that still needs the
-emulation layer"), the concrete blocker is recorded and remains:
-`CopyTexture::TryBlit()` (A1) issues `glBlitFramebuffer(src, 0,h,w,0 → dst, 0,0,w,h)` — a
-Y-inverted resolve — every frame that flips a same-size color attachment. That inverted-rect
-blit is the call most likely to behave differently between Emscripten's ES3 emulation and raw
-WebGL2's `blitFramebuffer`, and it has not been rendered with `FULL_ES3=0` on a real GPU. Until
-a session renders the A1 blit + blur3 + a no-composite-shader preset + a composite-shader
-preset + a soft-cut with `FULL_ES3=0` and records the JSON under `benchmark-results/`, the flag
-stays at `1`. The build-side measurement (−4.4% JS glue) is not sufficient on its own.
+**History (#128 context-config PR):** that PR made WebGL context attributes and dual-FBO
+precision host-driven (then `set_context_config()`, now an argument of
+`create_host_with_config()` — see `docs/EMSCRIPTEN.md` "WebGL context attributes") but
+deliberately kept `FULL_ES3=1` until the inverted-rect blit above had been rendered with the
+emulation layer off. That is what the golden pass above did.
 
 Closure is the same shape of bet (JS-side size, needs a smoke test with the full host stack
 including the worker path) and should ride along with the same verification session.

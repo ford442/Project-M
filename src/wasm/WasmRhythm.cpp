@@ -78,7 +78,7 @@ void FlushRhythmEvents(WasmHost& host)
         return;
     }
     const auto info = CurrentRhythm(host);
-    js_report_rhythm_event(static_cast<double>(HostHandle(host)), events, static_cast<double>(info.bpm),
+    js_report_rhythm_event(EventHostHandle(host), events, static_cast<double>(info.bpm),
                            static_cast<double>(info.beat_index), static_cast<double>(info.bar_phase), info.section,
                            static_cast<double>(info.confidence));
 }

@@ -199,13 +199,15 @@ export function setupFpsGovernor(Module, options = {}) {
     let currentBlurCap = getGovernorBlurCap(Module);
 
     const unsubscribers = [
-        subscribeWasmCallback('pmOnGovernorRenderScaleChange', (/** @type {number} */ scale) => {
+        // Page-wide (no engineHost filter): this governor drives the page's one
+        // Module. A page with two engines in it scopes per ProjectMContext.
+        subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => {
             currentRenderScale = scale;
             if (typeof onRenderScaleChange === 'function') {
                 onRenderScaleChange(scale);
             }
         }),
-        subscribeWasmCallback('pmOnGovernorBlurCapChange', (/** @type {number} */ cap) => {
+        subscribeWasmCallback('pmOnGovernorBlurCapChange', ({ cap }) => {
             currentBlurCap = cap;
         }),
     ];

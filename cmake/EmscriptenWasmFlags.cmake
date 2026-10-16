@@ -77,6 +77,8 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _init_with_canvases
         _rebind_canvases
         _create_host
+        _create_host_with_config
+        _get_last_init_error
         _set_active_host
         _get_active_host
         _destroy_host
@@ -182,6 +184,20 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _transition_get_duration_beats
         _set_hard_cut_on_beat
         _set_rhythm_events
+        _set_flash_limit_enabled
+        _get_flash_limit_enabled
+        _set_flash_limit_threshold
+        _get_flash_limit_threshold
+        _get_flash_limit_clamped_frames
+        _get_committed_frame_count
+        _capture_frame_request
+        _capture_frame_status
+        _capture_frame_resolve
+        _capture_frame_data_ptr
+        _capture_frame_width
+        _capture_frame_height
+        _capture_frame_index
+        _capture_frame_release
         )
 
 list(JOIN PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "," PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS_STR)
@@ -198,6 +214,9 @@ set(PROJECTM_WASM_EXPORTED_RUNTIME_METHODS
         # engine rendering to silence. Since #235 made the ring the only ingest,
         # this view is part of the host API, not a debugging convenience.
         HEAPF32
+        # captureFrame() copies the frame's RGBA8 pixels out of the heap
+        # (html/projectm-frame-capture.js, html/projectm-render-worker.js).
+        HEAPU8
         )
 
 # Extra runtime methods for the final browser wrapper link (VFS preset loading).
@@ -277,6 +296,10 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         # below (maximum under 2 GB) the WebGL2 garbage-free upload APIs are on,
         # glUniform*v reads HEAPF32 by offset, and neither setting reaches the
         # glue any more (linked both ways: byte-identical .js and .wasm).
+        # Production default. A failed GL call (e.g. from a bad context
+        # attribute) shows as a black canvas; relink with PROJECTM_WASM_GL_DEBUG=1
+        # (scripts/build_wasm_smoke_wrapper.sh) for GL_TRACK_ERRORS=1 +
+        # GL_ASSERTIONS=1. That flavor is never deployed.
         "GL_TRACK_ERRORS=0"
         # libprojectM's GLResolver (Renderer/Platform/GLResolver.cpp) resolves GL
         # entry points through emscripten_webgl{,2}_get_proc_address() on the
@@ -304,6 +327,13 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "INITIAL_MEMORY=256mb"
         "MALLOC=mimalloc"
         "FORCE_FILESYSTEM=1"
+        # OFFSCREENCANVAS_SUPPORT is intentionally unset: it proxies GL from a
+        # pthread back to the main thread, which undoes the OffscreenCanvas render
+        # worker (that worker owns its module and registers the transferred
+        # canvas on specialHTMLTargets['#mcanvas'] instead). Do not "fix" this.
+        # OFFSCREEN_FRAMEBUFFER is unset too; explicitSwapControl needs it, so
+        # manual present is a separate flavor (PROJECTM_WASM_EXPLICIT_SWAP=1 on
+        # scripts/build_wasm_smoke_wrapper.sh), not the deployed bundle.
         )
 
 # -s settings applied only on the final projectM_emscripten.cpp wrapper link (shell).

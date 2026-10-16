@@ -198,22 +198,63 @@ FakeBroadcastChannel.instances = [];
 /**
  * A Module whose every `_symbol` is a no-op and whose `ccall` is recorded.
  *
+ * It models the C++ host registry (src/wasm/WasmHost.cpp) as far as the host
+ * layer can observe it: a successful create makes the new host live and
+ * active, `set_active_host` switches to a live host and ignores a stale one,
+ * `destroy_host` frees one, and `_get_active_host` reads it back.
+ * `engineCalls` records which host was active when each call ran, which is
+ * what a test of "this landed on the right engine" asserts on.
+ *
  * @param {object} [options]
- * @param {number} [options.hostHandle] What `create_host` returns; 0 fails it.
+ * @param {number} [options.hostHandle] What `create_host_with_config` / `create_host` returns; 0 fails it.
+ * @param {number} [options.initError] What `get_last_init_error` reports after a failed create.
  * @param {(name: string, args: unknown[]) => unknown} [options.onCall] Overrides a call's result.
  */
-export function makeFakeModule({ hostHandle = 7, onCall } = {}) {
+export function makeFakeModule({ hostHandle = 7, initError = 4, onCall } = {}) {
     /** @type {{ name: string, args: unknown[] }[]} */
     const calls = [];
+    /** @type {{ name: string, host: number }[]} */
+    const engineCalls = [];
+    /** @type {Set<number>} */
+    const liveHosts = new Set();
+    let activeHost = 0;
+    let lastInitError = 0;
+    const firstLive = () => liveHosts.values().next().value ?? 0;
     const target = {
         calls,
+        engineCalls,
+        liveHosts,
         destructed: false,
+        get activeHost() {
+            return activeHost;
+        },
         ccall(name, _returnType, _argTypes, args = []) {
             calls.push({ name, args });
+            engineCalls.push({ name, host: activeHost });
             const override = onCall?.(name, args);
-            if (override !== undefined) return override;
-            if (name === 'create_host') return hostHandle;
-            return 0;
+            let result = override !== undefined ? override : 0;
+            if (override === undefined && isCreateHostCall(name)) result = hostHandle;
+            if (isCreateHostCall(name)) {
+                lastInitError = result ? 0 : initError;
+                if (result) {
+                    liveHosts.add(Number(result));
+                    activeHost = Number(result);
+                }
+            } else if (name === 'set_active_host') {
+                const handle = Number(args[0]);
+                if (handle === 0) activeHost = firstLive();
+                else if (liveHosts.has(handle)) activeHost = handle;
+            } else if (name === 'destroy_host') {
+                liveHosts.delete(Number(args[0]));
+                if (activeHost === Number(args[0])) activeHost = firstLive();
+            }
+            return result;
+        },
+        _get_active_host() {
+            return activeHost;
+        },
+        _get_last_init_error() {
+            return lastInitError;
         },
         _destruct() {
             target.destructed = true;
@@ -226,12 +267,18 @@ export function makeFakeModule({ hostHandle = 7, onCall } = {}) {
             if (typeof property === 'string' && property.startsWith('_')) {
                 return (...args) => {
                     calls.push({ name: property, args });
+                    engineCalls.push({ name: property, host: activeHost });
                     return 0;
                 };
             }
             return undefined;
         },
     });
+}
+
+/** Both create exports: the config-taking one and the legacy one. */
+export function isCreateHostCall(name) {
+    return name === 'create_host_with_config' || name === 'create_host';
 }
 
 const GLOBAL_NAMES = [

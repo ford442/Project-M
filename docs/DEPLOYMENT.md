@@ -17,18 +17,30 @@ VPS (`storage.noahcohn.com`, currently `173.249.14.134` — not every Contabo bo
 Until that env var is set and the deploy service restarted, `python deploy.py
 --target prod` cannot update DreamHost production.
 
-`1ink.1ink` is packaged as a UTF-16 copy of `projectm_panel2.1ink` at zip time —
-do not hand-edit production `1ink.1ink`.
+`1ink.1ink` is packaged as a copy of `projectm_panel2.1ink` (UTF-8 with a BOM) at
+zip time — do not hand-edit production `1ink.1ink`.
+
+How builds, glue, songs and headers fit together, and why, is recorded in
+[`adr/0001-wasm-and-media-hosting.md`](adr/0001-wasm-and-media-hosting.md).
 
 ## What gets deployed
 
 WASM artifacts at the **repo root** (after `scripts/prepare_deploy_bundle.sh`):
 
 - `projectm-v.<ver>-thread.wasm`
-- `projectm-v.<ver>-thread.js` (UTF-8 glue; preferred by hosts)
-- `projectm-v.<ver>-thread.1ijs` (UTF-16 wrapper around the `.js` glue)
-- `projectm-v.<ver>-thread.3ijs`
+- `projectm-v.<ver>-thread.js` (UTF-8 glue; the only glue format deployed now)
 - `projectm-v.<ver>-thread.worker.js` (when Emscripten emits a separate worker)
+- `pm/builds.json`: the build manifest hosts load (glue/wasm paths, sha256,
+  exported API, status, default version), from
+  `scripts/generate_wasm_builds_manifest.mjs`
+- `.br` / `.gz` siblings of the `pm/` glue, wasm and manifest, which
+  `html/.htaccess` serves to clients that accept them
+
+UTF-16/32 `.1ijs` / `.3ijs` glue is no longer produced
+(`PROJECTM_DEPLOY_LEGACY_GLUE=1` brings it back). The four builds that only
+ever existed as `.1ijs` (030b, 032, 033, 034) are converted once with
+`scripts/transcode_legacy_glue.sh`, and `html/.htaccess` redirects every
+`.1ijs`/`.3ijs` URL to the `.js` next to it.
 
 Each WASM artifact is uploaded **twice**: once at the site root and again under
 `pm/`. Hosts prefer `./pm/projectm-v.<ver>-thread.js`; the `.wasm` sibling is
@@ -39,27 +51,35 @@ the `pm/` mirror) produces HTTP 404 HTML responses and the browser error
 `scripts/build_wasm_smoke_wrapper.sh` always emits `projectm-v.030-thread.*`
 (CI smoke tag). `prepare_deploy_bundle.sh` renames those files to the deploy
 version **and rewrites** the Emscripten `locateFile("projectm-v.030-thread.wasm")`
-string inside the glue JS before running `iconv`. Renaming alone leaves the
+string inside the glue JS. Renaming alone leaves the
 browser fetching `./pm/projectm-v.030-thread.wasm`, which soft-404s as UTF-16
 HTML (WASM magic `3c 00 21 00`) and aborts instantiation.
 
 Shared browser modules and demo hosts from `html/` (flattened to the deploy
 root, because hosts `import './projectm-*.js'`):
 
-- `projectm-*.js`, `projectm-*.1ink` (iconv'd to UTF-16 LE at zip time),
-  `1ink.1ink` (alias of `projectm_panel2.1ink`), `projectm-core.html`,
-  `projectm-core.css`
+- `projectm-*.js`, `projectm-*.1ink` (re-encoded as UTF-8 with a BOM at zip
+  time; earlier deploys wrote UTF-16 LE, which still renders because a BOM
+  decides the encoding before the header charset), `1ink.1ink` (alias of
+  `projectm_panel2.1ink`), `projectm-core.html`, `projectm-core.css`
+- `songs/`, `mp3_songs/`, `mod_songs/`: `deploy.py` regenerates each folder's
+  `index.json` + `index.html` (`scripts/generate_songs_manifest.mjs`) from the
+  target's file list. The songs themselves are uploaded out of band;
+  `--no-song-index` skips this step.
 
 The active bundle version is defined once in `html/projectm-wasm-version.js`
 (`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.039-thread`).
 Keep it aligned with `scripts/prepare_deploy_bundle.sh` and
 `scripts/verify_deploy_urls.sh` (checked by `scripts/verify_wasm_version_sync.sh`).
 
-First-party hosts also expose a WASM version picker (`?wasm=030|030b|032|033|034|035|036|037|038|039`).
-Each version is a distinct filename (`projectm-v.<ver>-thread.*`), so deploying a new
-tag does not overwrite older CDN artifacts. The host default (`?wasm=` when omitted)
-is `PROJECTM_WASM_DEFAULT_VERSION` in `html/projectm-wasm-version.js` (currently `032`)
-and may temporarily lag the latest bundle when that tag has known regressions.
+First-party hosts also expose a WASM version picker (`?wasm=<ver>`), listing the
+builds in `pm/builds.json` (or the built-in list when the manifest cannot be
+fetched). Each version is a distinct filename (`projectm-v.<ver>-thread.*`), so
+deploying a new tag does not overwrite older CDN artifacts. The host default
+(`?wasm=` when omitted) is the manifest's `default`, which falls back to
+`PROJECTM_WASM_DEFAULT_VERSION` in `html/projectm-wasm-version.js`; pass
+`PROJECTM_BUILDS_ARGS="--default <ver>"` to `prepare_deploy_bundle.sh` to change
+it without touching any host page.
 
 ## Usage
 
@@ -227,11 +247,55 @@ console on the deployed page: `crossOriginIsolated` should be `true`.
 | Root WASM 200 but `pm/` + `projectm-*.js` 302 | Legacy SFTP uploaded only `.wasm`/`.1ijs` to site root | Run `python deploy.py` (not a legacy direct-SFTP script). It zips root WASM, auto-mirrors under `pm/`, and flattens `html/projectm-*.js` + `projectm_panel2.1ink` to the deploy root. Preview with `python deploy.py --dry-run`. |
 | Duplicate script tags (root + `pm/`) | Custom host loads `./projectm-v.*.1ijs` and `./pm/…` | Load **only** from `./pm/` via `PROJECTM_WASM_SCRIPT` in `projectm-init.js` |
 | `verify_deploy_urls.sh` green but browser still fails | Old verifier only checked HTTP 200 | Current script rejects `text/html` soft-404s, checks WASM magic `00 61 73 6d`, and ensures the glue references `${BUNDLE}.wasm` rather than a stale `projectm-v.030-thread.wasm` |
+| `net::ERR_CONTENT_DECODING_FAILED` on `pm/projectm-v.*-thread.{js,wasm,1ijs,3ijs}` (init error / `null function from _init`) | A bad `Content-Encoding` on the response: on-the-fly `mod_deflate` (`…-gzip` ETag, `Vary: User-Agent`), a second encoding layer, or a truncated/corrupt gzip body. `deploy.py` itself uploads uncompressed bytes. | `html/.htaccess` turns `mod_deflate` off for bundle artifacts and serves precompressed `.br`/`.gz` siblings instead. Run `node scripts/check_production_headers.mjs <base> --all-builds`; it fetches with Chrome's `Accept-Encoding` and names the failure (extra layer, undecodable body, wrong magic bytes, wrong `Content-Type`, sha256 not matching `pm/builds.json`). Then hard-reload and retest from a warm cache. |
 | `init()` throws `TypeError: ASM_CONSTS[code] is not a function` | A stale `.wasm` (or `.js`) sibling was left on the server from a previous deploy of the same version tag, so the `.wasm`'s compiled-in `ASM_CONSTS` call-site indices no longer match the `ASM_CONSTS` array baked into the currently-served `.js` glue — Emscripten does not guarantee stable `ASM_CONSTS` ordering across builds, even for small unrelated code changes | Redeploy: re-run `prepare_deploy_bundle.sh` (same or bumped version) then `python deploy.py`. `deploy.py`'s bandwidth-saving skip-by-size optimization (see `fetch_remote_sizes`) never applies to `projectm-v.*-thread.{wasm,js,1ijs,3ijs,worker.js}` — a same-size-but-different-content rebuild would otherwise silently leave one half of the pair stale. If you still see this after redeploying, hard-refresh (bypass any CDN/browser cache) so the browser doesn't mix a cached `.js` with a freshly fetched `.wasm` or vice versa. |
 
 Custom hosts on other domains must mirror the full `pm/` directory locally (or
 symlink to `https://projectm.1ink.us/pm/…` with CORP headers). Loading from
 `js.1ink.us` only works if that host also carries the complete `pm/` tree.
+
+### Bundle transport and caching (`html/.htaccess`)
+
+`deploy.py` ships `html/.htaccess` to the site root, so it covers `pm/` and the
+song folders too. The rules and their rationale are in
+[ADR 0001](adr/0001-wasm-and-media-hosting.md#3-correct-headers-implemented); in
+short:
+
+- bundle files and `pm/builds.json` go out as their precompressed `.br` / `.gz`
+  sibling when the client accepts it, else as uploaded. `mod_deflate` never runs
+  on them, so there is exactly one `Content-Encoding`;
+- the newest bundle version is `max-age=0, must-revalidate` (it is redeployed
+  under the same name); frozen versions are `immutable` (add a version to the
+  frozen `FilesMatch` when it stops being redeployed); HTML, `.1ink` and the
+  manifests are `no-cache`;
+- `.js` is forced to `text/javascript; charset=utf-8`; `.1ijs`/`.3ijs` redirect
+  to the `.js`;
+- the song folders are not auto-indexed (their generated `index.html` is the
+  listing).
+
+Check a deploy with:
+
+```bash
+node scripts/check_production_headers.mjs https://projectm.1ink.us --all-builds
+scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.039-thread
+```
+
+`check_production_headers.mjs` sends Chrome's `Accept-Encoding` and decodes the
+response itself, so it names the actual failure (two encoding layers, an
+undecodable body, a stale file whose sha256 no longer matches `pm/builds.json`,
+`Vary: User-Agent`, a missing CORP header, an auto-indexed `/songs/`).
+`scripts/test_htaccess_apache.sh` runs the same check against a local Apache
+configured like DreamHost, so `.htaccess` changes can be tested before they are
+deployed; `.github/workflows/hosting_headers.yml` runs it on every change and
+checks production daily.
+
+The FLAC player end to end (every player mode, real FLACs, the PCM reaching the
+engine, the beat tracker reacting):
+
+```bash
+node scripts/test_flac_player_modes_playwright.mjs --base https://projectm.1ink.us \
+    --song "Claws of the Angel.flac" --wasm 039,038 --modes streaming,web-audio,worklet
+```
 
 ## Other deploy-related scripts (legacy / audit)
 

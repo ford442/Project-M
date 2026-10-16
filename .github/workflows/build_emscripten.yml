@@ -197,6 +197,35 @@ jobs:
       - name: Run WebGL Context-Loss Recovery Test
         run: node scripts/test_context_loss_playwright.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
 
+      # create_host_with_config() against a real browser context, kept out of
+      # the default smoke: every attribute read back from the context, one host
+      # with failIfMajorPerformanceCaveat (must agree with the browser's own
+      # answer — headless Chromium accepts SwiftShader), and explicitSwapControl
+      # refused with init code 9 by this (non-explicit-swap) bundle.
+      - name: WebGL context attributes
+        run: node tests/wasm-smoke/context_attributes.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" --check
+
+      # The present pass (#286, docs/FLASH_LIMITER.md): the flash limiter clamps
+      # the 15 Hz strobe preset and nothing else, counts nothing while off, and
+      # leaves a calm preset's frames unchanged; each engine reads back its own
+      # frame. This bundle must refuse manual present with init code 9.
+      - name: Present pass (flash limiter, frame capture)
+        run: node tests/wasm-smoke/present_pass.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
+
+      # Manual present only exists in the explicit-swap link flavor
+      # (OFFSCREEN_FRAMEBUFFER; never deployed): N deterministic ticks must be N
+      # commits, and its capture must go through the asynchronous pack buffer.
+      - name: Build WASM Smoke Wrapper (explicit-swap flavor)
+        env:
+          PROJECTM_WASM_WERROR: '1'
+          PROJECTM_WASM_EXPLICIT_SWAP: '1'
+          INSTALL_DIR: ${{ github.workspace }}/install
+          OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke-explicit-swap
+        run: scripts/build_wasm_smoke_wrapper.sh
+
+      - name: Present pass (manual present)
+        run: node tests/wasm-smoke/present_pass.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke-explicit-swap/projectm-v.030-thread.js" --explicit-swap
+
       # Debug leg: the same wrapper relinked with Emscripten's runtime checks.
       # SAFE_HEAP traps on a null or wild pointer the release build would
       # silently read through, which is how the host lifecycle bugs (playlist

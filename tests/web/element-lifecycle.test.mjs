@@ -101,10 +101,10 @@ test('registerProjectMElement defines a custom tag once', async () => {
 
 test('a boot failure is exactly one pm-error and no unhandled rejection', async () => {
     await withEnv({}, async (env) => {
-        // create_host() returns 0: the failure surfaces from inside context.start().
+        // create_host_with_config() returns 0: the failure surfaces from inside context.start().
         const element = env.mount({}, { sharedModule: makeFakeModule({ hostHandle: 0 }) });
 
-        await assert.rejects(element.ready(), /create_host\(\) failed/);
+        await assert.rejects(element.ready(), /create_host_with_config\(\) failed/);
         await settle();
 
         assert.equal(element.count('pm-error'), 1, 'the event used to fire twice: from onError, and again from the boot\'s catch');

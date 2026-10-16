@@ -216,6 +216,79 @@
     }
 
     /**
+     * Records the engine's page callbacks raw — every argument, as the engine
+     * passed it — until `stop()` puts the previous hooks back.
+     */
+    function recordEngineEvents() {
+      const NAMES = ['pmHideInitError', 'pmReportInitError', 'pmSetPerfHudEnabled', 'pmOnPerfFrame'];
+      const saved = NAMES.map((name) => [name, globalThis[name]]);
+      const calls = [];
+      for (const name of NAMES) {
+        globalThis[name] = (...args) => calls.push({ name, args });
+      }
+      return {
+        calls,
+        of: (name) => calls.filter((call) => call.name === name).map((call) => call.args),
+        stop() {
+          for (const [name, value] of saved) globalThis[name] = value;
+        },
+      };
+    }
+
+    /**
+     * Bundle 040: every page callback names the engine it came from, so two
+     * engines in one Module can be told apart — 0 for the default host init()
+     * brought up, create_host*()'s handle otherwise, -1 for a create refused
+     * before any engine existed. Checks the shapes the real engine emits.
+     */
+    async function checkScopedEngineEvents(Module, events, { hostA, hostB }) {
+      const select = (h) => Module.ccall('set_active_host', null, ['number'], [h]);
+      try {
+        // The create of host B reported success for B, by its handle.
+        const hides = events.of('pmHideInitError');
+        if (hides.length === 0 || hides[0].length === 0) {
+          mark('engine events carry no host (bundle before 040); skipped');
+          return;
+        }
+        if (!hides.some((args) => args[0] === hostB)) {
+          throw new Error('pmHideInitError never named host B: ' + JSON.stringify(hides));
+        }
+
+        // A third create is refused at kMaxHosts before any engine exists.
+        const third = Module.ccall('create_host', 'number', ['string', 'string'], ['#pm-smoke-main-2', '']);
+        if (third) throw new Error('a third host was created past kMaxHosts');
+        const refused = events.of('pmReportInitError').at(-1);
+        if (!refused || refused[0] !== -1 || refused[1] !== 4) {
+          throw new Error('the cap refusal should be pmReportInitError(-1, 4, ...): ' + JSON.stringify(refused));
+        }
+
+        // Perf frames and the HUD toggle, per engine. A is the default host.
+        const eventHostA = 0; // init() brought A up without a create_host*() handle
+        select(hostA); Module._set_perf_hud(1);
+        select(hostB); Module._set_perf_hud(1);
+        select(hostA);
+        const toggles = events.of('pmSetPerfHudEnabled').map((args) => args.join(':'));
+        if (toggles.join(',') !== eventHostA + ':true,' + hostB + ':true') {
+          throw new Error('pmSetPerfHudEnabled hosts: ' + toggles.join(','));
+        }
+        const deadline = performance.now() + 5000;
+        const frameHosts = () => new Set(events.of('pmOnPerfFrame').map((args) => args[0].host));
+        while ((!frameHosts().has(eventHostA) || !frameHosts().has(hostB)) && performance.now() < deadline) {
+          await sleep(16);
+        }
+        if (!frameHosts().has(eventHostA) || !frameHosts().has(hostB)) {
+          throw new Error('pmOnPerfFrame hosts seen: ' + JSON.stringify([...frameHosts()]));
+        }
+        select(hostB); Module._set_perf_hud(0);
+        select(hostA); Module._set_perf_hud(0);
+        mark('engine events name their host (default 0, B ' + hostB + ', refused create -1)');
+      } finally {
+        events.stop();
+        select(hostA);
+      }
+    }
+
+    /**
      * Counts live WebGL programs on `gl` from here on by wrapping its
      * createProgram/deleteProgram. Emscripten's GL layer calls those methods on
      * the context object it created, which is the one getContext() returns.
@@ -617,17 +690,28 @@
 
           const before = Module._host_count();
           const defaultHandle = Module._get_active_host();
-          // #246: per-host context config. Issued while the default host is
-          // active (and already has a context), exactly like ProjectMContext
-          // does before create_host(); it must land on the new host only.
-          // Args: antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo (2 = byte).
-          if (typeof Module._set_context_config === 'function') {
-            Module.ccall('set_context_config', null,
-              ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
-              [0, 1, 1, 0, 1, 2, 2]);
+          const engineEvents = recordEngineEvents();
+          // #246: per-host context config, created while the default host is
+          // active (and already has a context); it must land on the new host
+          // only. create_host_with_config() takes it as an argument: flags
+          // preserveDrawingBuffer(2) + depth(4) + contextAlpha(16) +
+          // premultipliedAlpha(32), high-performance, fbo 2 = RGBA8.
+          // Older bundles: the legacy set_context_config() + create_host() pair.
+          let handle;
+          if (typeof Module._create_host_with_config === 'function') {
+            handle = Module.ccall('create_host_with_config', 'number',
+              ['string', 'string', 'number', 'number', 'number'],
+              ['#pm-smoke-main-2', '#pm-smoke-secondary-2', 2 | 4 | 16 | 32, 2, 2]);
+          } else {
+            if (typeof Module._set_context_config === 'function') {
+              // Args: antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo.
+              Module.ccall('set_context_config', null,
+                ['number', 'number', 'number', 'number', 'number', 'number', 'number'],
+                [0, 1, 1, 0, 1, 2, 2]);
+            }
+            handle = Module.ccall('create_host', 'number', ['string', 'string'],
+              ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
           }
-          const handle = Module.ccall('create_host', 'number', ['string', 'string'],
-            ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
           if (!handle) throw new Error('create_host() returned 0 (init failed or at cap)');
           if (Module._host_count() !== before + 1) {
             throw new Error('host_count did not increment after create_host (' + before + ' -> ' + Module._host_count() + ')');
@@ -649,6 +733,7 @@
           Module._render_frame();
 
           await checkPerHostState(Module, { hostA: defaultHandle, hostB: handle });
+          await checkScopedEngineEvents(Module, engineEvents, { hostA: defaultHandle, hostB: handle });
 
           // Tear the second engine down; the first must survive.
           Module.ccall('destroy_host', null, ['number'], [handle]);

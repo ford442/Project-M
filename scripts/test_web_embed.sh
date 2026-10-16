@@ -55,9 +55,9 @@ fi
 # every version. packages/** is excluded for the same reason: the package test
 # imports the minified bundle, and letting a 44 kB generated artifact into the
 # "all files" row would make the floor measure the bundler.
-COVERAGE_LINES_MIN=84.0
-COVERAGE_BRANCHES_MIN=82.9
-COVERAGE_FUNCTIONS_MIN=75.5
+COVERAGE_LINES_MIN=86.5
+COVERAGE_BRANCHES_MIN=83.5
+COVERAGE_FUNCTIONS_MIN=78.0
 
 # Modules the run is expected NOT to load; see the file's header.
 UNTESTED_LEDGER="tests/web/untested-modules.txt"
@@ -92,7 +92,8 @@ all_modules="$(find html -name '*.js' \
     -not -path 'html/node_modules/*' \
     -not -name 'bundle.*.js' | sort)"
 untested_modules="$(comm -23 <(echo "$all_modules") <(echo "$loaded_modules"))"
-expected_untested="$(grep -v '^[[:space:]]*#' "$UNTESTED_LEDGER" | grep -v '^[[:space:]]*$' | sort -u)"
+# `|| true`: an empty ledger is the goal, and grep exits 1 on no output.
+expected_untested="$(grep -v '^[[:space:]]*#' "$UNTESTED_LEDGER" | grep -v '^[[:space:]]*$' | sort -u || true)"
 
 ledger_status=0
 newly_untested="$(comm -23 <(echo "$untested_modules") <(echo "$expected_untested"))"

@@ -17,7 +17,11 @@ Core behavior belongs in shared modules:
 - `projectm-preset-tweaker.js`: header param sliders (decay, zoom, warp, wave RGB) used by the dev panel.
 - `projectm-external-pcm.js`: external MOD/FLAC `postMessage` PCM contract, origin allowlist, queued feeding, and preallocated transfer buffers.
 - `projectm-audio-source-router.js`: exclusive single-active-source policy (element / external / worklet).
-- `projectm-context.js`: typed **embed context API** (`ProjectMContext`) — WASM bootstrap, resize/DPR, presets, audio modes, transparency.
+- `projectm-context.js`: typed **embed context API** (`ProjectMContext`) — lifecycle, resize/DPR, presets, audio modes, transparency.
+- `projectm-context-boot.js`: `ProjectMContext#start()`'s boot as ordered, named steps (`{ name, run(ctx, signal, own), undo() }`). A step registers every release it needs as it acquires it; a failure or an abort between steps undoes every started step newest first, and `destroy()` runs the same undos. Also `bootProjectMSharedModule()` and `syncCanvasSize()`.
+- `projectm-rhythm-facade.js`: the context's beat/bar/section events and tempo / switch-policy / crossfade-in-beats controls (`on()`, `setRhythmHint()`, … delegate here).
+- `projectm-host-config.js`: **every URL flag the hosts honour** (`HOST_FLAGS`), read with `readHostFlag(name)` / `getHostConfig()` — query → element attribute → page global → localStorage → default, first value the flag accepts wins. No module parses `location.search` itself (`tests/web/projectm-host-config.test.mjs` enforces it); the table in [`docs/HOST_FLAGS.md`](../docs/HOST_FLAGS.md) is generated from the registry.
+- `projectm-core-host.js`: the script of `projectm-core.html` (it was a 1061-line inline module there, invisible to `tsc`, the tests and the globals gate). Buttons name their handler in `data-action`.
 - `projectm-element.js`: **`<project-m-visualizer>`** custom element + lifecycle events (`pm-ready`, `pm-preset-changed`, `pm-error`, `pm-fps`).
 - `projectm-wasm-version.js`: canonical WASM bundle version + CDN URL helpers (keep in sync with deploy scripts).
 - `projectm-transitions.js`: readiness polling before starting dual-FBO transitions.
@@ -45,7 +49,7 @@ Full UI features such as GLTF, depth, image pipelines, and experimental render c
 
 - `projectm-experimental-bridge.js`: opt-in (`?experimental=1`) bridge from Depth Anything / glTF / `BroadcastChannel` hooks to preset textures and metadata. See `docs/EXPERIMENTAL_PRESET_HOOKS.md`.
 
-Keep remote asset endpoints configurable. Existing pages read `localStorage.apiBase`; new modules should continue accepting explicit API bases or localStorage-derived values.
+Keep remote asset endpoints configurable. The preset API base is the `presetApi` host flag (`?presetApi=` → `window.PROJECTM_PRESET_API_BASE` → `localStorage.apiBase` → default); new modules should accept an explicit base and fall back to `getConfiguredPresetApiBase()` / `readHostFlag('presetApi')`.
 
 ## Host Roles
 
@@ -110,7 +114,14 @@ There are two kinds of `pm*` name, handled differently:
 
 `scripts/check_host_globals.sh` fails on a new `window.pm*` / legacy-name /
 `BroadcastChannel` assignment (or a `claimGlobal()` of a literal `pm*` name) in any
-`html/projectm-*.js` or first-party host page outside those two modules. It runs in
+`html/projectm-*.js` or first-party host page outside those two modules, and on an
+assignment of **any other** property of `window` / `globalThis` / `windowRef` / `self`
+unless its file/name pair is in the script's `PAGE_GLOBAL_ALLOWLIST` with the reason it
+must be a page global (the WASM glue reads it by name, a once-per-page guard, panel2's
+inline `onclick=` handlers). An allowlist entry whose write is gone fails too, so the list
+only shrinks. The core host's console names (`updatePresetDisplay`, `presetPicker`,
+`openAudioCapture`, `feedPCMToModuleForDebug`, the test sender) go through
+`exposeHostPageGlobals()` in the shim. It runs in
 `host_layer_gate.yml` and `web_host_tests.yml` (`npm run check:globals`), and
 `tests/web/projectm-legacy-globals.test.mjs` runs it as part of `npm test`.
 `projectm-render-worker.js` is the one explicit exception: a classic worker script cannot import
@@ -169,7 +180,8 @@ Known limits, deliberately not papered over:
 
 ### Core / canonical
 
-- `projectm-core.html`: reference core shell. Markup + panel chrome only; boots via
+- `projectm-core.html`: reference core shell. Markup only (styles in `projectm-core.css`,
+  script in `projectm-core-host.js`); boots via
   **`ProjectMContext`** (`projectm-context.js`) for init, resize, preset lock and
   transparency in **both** render topologies — the context picks between the
   main-thread and render-worker transports itself
@@ -253,8 +265,9 @@ back into the dual-source problem this migration started from:
 
 ### Coverage
 
-**All 36 `html/projectm-*.js` modules are checkJs-clean and in the `include` of
-one of the two tsconfigs** — there is no unconverted backlog. Add new modules to
+**Every `html/projectm-*.js` module is checkJs-clean and in the `include` of
+one of the two tsconfigs** (both are globs, so a new module is picked up
+without editing them; this README used to carry a module count that drifted) — there is no unconverted backlog. Add new modules to
 `tsconfig.json` in the same commit that creates them; a module left out is not
 checked, and (as `projectm-worklet-playback.js` and then
 `projectm-song-loader.js` both showed) being *reachable* from a checked module

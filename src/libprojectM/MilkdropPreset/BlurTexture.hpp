@@ -183,6 +183,7 @@ private:
     // because each pass targets a differently sized blur texture.
     GLuint m_directFramebufferId{};                                                 //!< FBO used to render blur passes straight into the blur textures.
     RenderPath m_renderPath{RenderPath::Undecided};                                 //!< How blur results reach the blur textures.
+    bool m_copyPathForced{false};                                                   //!< PROJECTM_RENDER_PATH_BLUR_COPY was set at Initialize().
     std::shared_ptr<Renderer::Sampler> m_blurSampler;                               //!< The blur sampler.
     std::array<std::shared_ptr<Renderer::Texture>, NumBlurTextures> m_blurTextures; //!< The blur textures for each pass.
     BlurLevel m_blurLevel{BlurLevel::None};                                         //!< Current blur level.

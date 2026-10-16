@@ -3,6 +3,7 @@
 // Does not modify Milkdrop parsing; only injects host-side assets via the WASM VFS.
 
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { getHostConfig } from './projectm-host-config.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
@@ -246,7 +247,8 @@ export async function captureCanvasForDepth(module, canvas, options = {}) {
 
 /**
  * Build Milkdrop user-sprite code that layers the depth texture as a parallax overlay.
- * Call via create_sprite-style host API when available; otherwise useful as a template.
+ * There is no WASM export that spawns arbitrary sprite code (only the
+ * debug_create_sprite test hook's hard-coded demo), so this is a template.
  * @param {{ image?: string, scale?: number, blendmode?: number }} opts
  */
 export function buildDepthSpriteCode(opts = {}) {
@@ -281,12 +283,12 @@ export function buildDepthSpriteCode(opts = {}) {
  * @returns {{ enabled: boolean } & Record<string, unknown>}
  */
 export function setupExperimentalBridge(module, options = {}) {
-    const params = options.params || new URLSearchParams(location.search);
-    if (params.get('experimental') !== '1') {
+    const config = getHostConfig(options.params ? { search: options.params } : {});
+    if (!config.experimental) {
         return { enabled: false };
     }
 
-    const depthModuleUrl = params.get('depthModule') || DEFAULT_DEPTH_MODULE_URL;
+    const depthModuleUrl = config.depthModule || DEFAULT_DEPTH_MODULE_URL;
     const state = {
         enabled: true,
         lastMetadata: {},
@@ -346,12 +348,12 @@ export function setupExperimentalBridge(module, options = {}) {
             return path;
         },
         /**
-         * Attempt user-sprite overlay via the hard-coded create_sprite export if present,
-         * after rewriting is not available — logs sprite code for manual use.
+         * Logs the depth-sprite code for manual use: no WASM export spawns
+         * arbitrary user-sprite code.
          */
         spawnDepthSpriteHint() {
             const code = buildDepthSpriteCode();
-            console.info('[pm:experimental] depth sprite template (paste into create_sprite host or Milkdrop sprite):\n', code);
+            console.info('[pm:experimental] depth sprite template (paste into a Milkdrop sprite definition):\n', code);
             setStatus('Depth sprite template logged to console');
             return code;
         }

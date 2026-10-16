@@ -75,7 +75,7 @@ function hasTransitionApi(moduleInstance) {
  * actually blend rather than bail out into a hard cut.
  *
  * Neither pair is resident at startup, and the preset-A pair is reclaimed again
- * once it has been idle past `dual_fbo_set_idle_release_seconds()`, so a cold
+ * once it has been idle for 5 s (a fixed threshold in the WASM host), so a cold
  * start and a long-idle session both need `dual_fbo_begin_transition()` to bring
  * A *and* B up before the blend is armed. `_dual_fbo_is_preset_a_allocated` is
  * absent on bundles built before that export existed; there the B check alone is

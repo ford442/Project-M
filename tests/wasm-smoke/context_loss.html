@@ -39,7 +39,7 @@
     // exists, 0 after pm_handle_context_loss() has torn it down. It is the
     // observable difference between "the overlay is showing" and "the engine
     // really was rebuilt".
-    const engineHandle = () => context.transport.call('getProjectmHandle');
+    const engineHandle = () => context.transport.call('debugGetProjectmHandle');
 
     // WEBGL_lose_context is the only way a page can lose a context on purpose,
     // and it has to be called where the context lives: on the canvas here, or

@@ -89,10 +89,10 @@
     async function waitForPresetReady(Module, timeoutMs = 120000) {
       const start = performance.now();
       while (performance.now() - start < timeoutMs) {
-        if (Module._preset_switch_failed && Module._preset_switch_failed() !== 0) {
+        if (Module._debug_preset_switch_failed && Module._debug_preset_switch_failed() !== 0) {
           throw new Error('preset_switch_failed');
         }
-        if (Module._is_preset_ready && Module._is_preset_ready() !== 0) {
+        if (Module._debug_is_preset_ready && Module._debug_is_preset_ready() !== 0) {
           return performance.now() - start;
         }
         await new Promise((r) => setTimeout(r, 16));
@@ -138,6 +138,14 @@
           return prefix + path;
         }
       });
+
+      // Bundles from before the debug_ test hooks (baseline A/B runs) export
+      // them under their old names.
+      for (const name of ['is_preset_ready', 'preset_switch_failed']) {
+        if (typeof Module['_debug_' + name] !== 'function' && typeof Module['_' + name] === 'function') {
+          Module['_debug_' + name] = Module['_' + name];
+        }
+      }
 
       const initResult = Module._init();
       if (initResult !== 0) {

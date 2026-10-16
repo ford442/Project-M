@@ -21,11 +21,11 @@ import {
     PROJECTM_WASM_SCRIPT_PM,
     PROJECTM_WASM_SCRIPT_ROOT,
     PROJECTM_WASM_SMOKE_BUNDLE,
-    PROJECTM_WASM_VERSION_STORAGE_KEY,
     buildWasmBundlePaths,
     normalizeWasmVersion,
     remapSmokeWasmArtifactName,
 } from './projectm-wasm-version.js';
+import { readHostFlag } from './projectm-host-config.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
@@ -514,20 +514,11 @@ export function resolveSelectedWasmVersion({
     storage = typeof localStorage !== 'undefined' ? localStorage : null,
     fallback = PROJECTM_WASM_DEFAULT_VERSION,
 } = {}) {
-    const params = typeof searchParams === 'string'
-        ? new URLSearchParams(searchParams.startsWith('?') ? searchParams.slice(1) : searchParams)
-        : (searchParams || new URLSearchParams());
-    const fromUrl = normalizeWasmVersion(params.get('wasm'));
-    if (fromUrl) {
-        return fromUrl;
-    }
-    try {
-        const fromStorage = normalizeWasmVersion(storage?.getItem?.(PROJECTM_WASM_VERSION_STORAGE_KEY));
-        if (fromStorage) {
-            return fromStorage;
-        }
-    } catch {
-        // Ignore quota / private-mode storage failures.
+    // ?wasm=, else the stored pick (projectm-host-config.js); each normalized,
+    // so an unknown tag falls through rather than winning.
+    const fromConfig = readHostFlag('wasm', { search: searchParams, storage, globals: null });
+    if (fromConfig) {
+        return fromConfig;
     }
     return normalizeWasmVersion(fallback) || PROJECTM_WASM_DEFAULT_VERSION;
 }

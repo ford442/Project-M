@@ -31,6 +31,15 @@ public:
     void SetTransparencyThreshold(float threshold);
 
     /**
+     * @brief Allows or forbids the glBlitFramebuffer fast path (default allowed).
+     *
+     * Forbidden, every copy draws a fullscreen textured quad: the pre-#179 behaviour,
+     * selected by PROJECTM_RENDER_PATH_COPY_SHADER (projectm_set_render_path()) so the
+     * blit can be A/B'd against it on a single build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+     */
+    void SetBlitEnabled(bool enabled);
+
+    /**
      * @brief Copies the original texture into the currently bound framebuffer.
      * @param shaderCache The global shader cache instance.
      * @param originalTexture The texture to be copied.
@@ -152,6 +161,7 @@ private:
     int m_height{};                       //!< Last known framebuffer/texture height
     bool m_transparencyMode{false};       //!< Near-black transparency for final blit.
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold.
+    bool m_blitEnabled{true};             //!< TryBlit() may use glBlitFramebuffer (SetBlitEnabled()).
     std::shared_ptr<Shader> BindShader(ShaderCache& shaderCache);
 };
 

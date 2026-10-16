@@ -3,56 +3,43 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INC="$PROJECT_ROOT/scripts/wasm_link_common.inc.sh"
-HEADER="$PROJECT_ROOT/cmake/generated/ProjectMWasmBuildConfig.hpp"
-TS_API="$PROJECT_ROOT/html/generated/projectm-wasm-api.ts"
-JS_API="$PROJECT_ROOT/html/generated/projectm-wasm-api.js"
-TMP_INC="$(mktemp)"
-TMP_HEADER="$(mktemp)"
-TMP_TS="$(mktemp)"
-TMP_JS="$(mktemp)"
 
-cp "$INC" "$TMP_INC"
-if [[ -f "$HEADER" ]]; then
-    cp "$HEADER" "$TMP_HEADER"
-fi
-if [[ -f "$TS_API" ]]; then
-    cp "$TS_API" "$TMP_TS"
-fi
-if [[ -f "$JS_API" ]]; then
-    cp "$JS_API" "$TMP_JS"
-fi
+# Every file cmake/GenerateWasmLinkCommon.cmake writes, with the source it is
+# generated from (for the error message).
+GENERATED=(
+    "scripts/wasm_link_common.inc.sh|cmake/EmscriptenWasmFlags.cmake"
+    "cmake/generated/ProjectMWasmBuildConfig.hpp|cmake/EmscriptenWasmFlags.cmake"
+    "cmake/generated/ProjectMWasmInitErrors.hpp|cmake/WasmApiManifest.cmake"
+    "html/generated/projectm-wasm-api.ts|cmake/WasmApiManifest.cmake"
+    "html/generated/projectm-wasm-api.js|cmake/WasmApiManifest.cmake"
+    "html/generated/projectm-init-error-codes.js|cmake/WasmApiManifest.cmake"
+)
+
+SNAPSHOT_DIR="$(mktemp -d)"
+trap 'rm -rf "$SNAPSHOT_DIR"' EXIT
+
+for entry in "${GENERATED[@]}"; do
+    file="${entry%%|*}"
+    mkdir -p "$SNAPSHOT_DIR/$(dirname "$file")"
+    if [[ -f "$PROJECT_ROOT/$file" ]]; then
+        cp "$PROJECT_ROOT/$file" "$SNAPSHOT_DIR/$file"
+    fi
+done
 
 "$PROJECT_ROOT/scripts/sync_wasm_link_common.sh"
 
 failed=0
-if ! diff -q "$TMP_INC" "$INC" >/dev/null; then
-    echo "ERROR: $INC is out of sync with cmake/EmscriptenWasmFlags.cmake" >&2
-    failed=1
-fi
+for entry in "${GENERATED[@]}"; do
+    file="${entry%%|*}"
+    source_file="${entry##*|}"
+    if [[ ! -f "$SNAPSHOT_DIR/$file" ]] || ! diff -q "$SNAPSHOT_DIR/$file" "$PROJECT_ROOT/$file" >/dev/null; then
+        echo "ERROR: $file is out of sync with $source_file" >&2
+        failed=1
+    fi
+done
 
-if ! diff -q "$TMP_HEADER" "$HEADER" >/dev/null; then
-    echo "ERROR: $HEADER is out of sync with cmake/EmscriptenWasmFlags.cmake" >&2
-    failed=1
-fi
-
-if ! diff -q "$TMP_TS" "$TS_API" >/dev/null; then
-    echo "ERROR: $TS_API is out of sync with cmake/WasmApiManifest.cmake" >&2
-    failed=1
-fi
-
-if ! diff -q "$TMP_JS" "$JS_API" >/dev/null; then
-    echo "ERROR: $JS_API is out of sync with cmake/WasmApiManifest.cmake" >&2
-    failed=1
-fi
-
-rm -f "$TMP_INC" "$TMP_HEADER" "$TMP_TS" "$TMP_JS"
-
-# ASYNCIFY is gone from every link (preset loading runs on a prepare thread);
-# the settings must not be reintroduced in the canonical flags or the generated
-# wrapper link. scripts/check_no_asyncify.sh checks a built bundle.
-if grep -nE 'ASYNCIFY' "$PROJECT_ROOT/cmake/EmscriptenWasmFlags.cmake" "$INC" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#'; then
-    echo "ERROR: an ASYNCIFY setting is back in cmake/EmscriptenWasmFlags.cmake or $INC" >&2
+if grep -nE 'ASYNCIFY' "$PROJECT_ROOT/cmake/EmscriptenWasmFlags.cmake" "$PROJECT_ROOT/scripts/wasm_link_common.inc.sh" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#'; then
+    echo "ERROR: an ASYNCIFY setting is back in cmake/EmscriptenWasmFlags.cmake or scripts/wasm_link_common.inc.sh" >&2
     failed=1
 fi
 

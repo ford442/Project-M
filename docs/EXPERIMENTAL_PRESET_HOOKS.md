@@ -79,7 +79,7 @@ required to reference depth, glTF, or Transformers.js.
 |-----------|----------|-------------------|
 | VFS `/textures/` + depth PNG inject | experimental bridge | `shapecode_N_image=pm_depth_map.png` |
 | VFS `/textures/` scan + download | `projectM_emscripten.cpp` `scanTextures()` | `shapecode_N_image=foo.png`, `textured=1` |
-| `projectm_sprite_create` / `create_sprite` | WASM export | User-sprite `img=` sections (hard-coded demo; bridge logs a depth template) |
+| `projectm_sprite_create` / `debug_create_sprite` | C API / WASM test hook (`PROJECTM_WASM_DEBUG_EXPORTS` builds only) | User-sprite `img=` sections (hard-coded demo; bridge logs a depth template) |
 | Header metadata (`// tags:`, `// tier:`) | `docs/PRESET_METADATA.md` | Demo UX only — not renderer |
 | `// pm:experimental …` | experimental bridge | Host orchestration only |
 
@@ -176,7 +176,7 @@ textured shapes (see `CustomShape.cpp`).
 | Preset metadata drives depth | `// pm:experimental depth=auto` on load | **Done** |
 | Input vs result channel split | Inputs: `role=depth-input`; results: `#resultImage` / `role=depth-result` | **Done** |
 | glTF export coordinator flag | `gltf-export=true` sets host mode only | **Done** |
-| User-sprite parallax template | `buildDepthSpriteCode()` + console helper | **Done** (template; full create_sprite API still hard-coded in C++) |
+| User-sprite parallax template | `buildDepthSpriteCode()` + console helper | **Done** (template; the only sprite export is the hard-coded `debug_create_sprite` test hook) |
 | Hidden `#resultImage` on core | Bridge creates if missing | **Done** |
 | Milk text on preset load | `updatePresetDisplay({ text })` + `pm:preset-text` | **Done** |
 
@@ -186,7 +186,7 @@ textured shapes (see `CustomShape.cpp`).
 |------|-------|
 | Warp/composite `sampler` for depth | Inject custom texture + HLSL `tex2D` in `shader_body` (PSVERSION 3); needs stable sampler naming in transpiler |
 | Beat-synced depth refresh | Re-capture canvas on `bass_att` threshold; throttle to ≤2 Hz (host timer) |
-| Parameterized `create_sprite(code)` WASM export | Replace hard-coded `create_sprite()` in `projectM_emscripten.cpp` so JS can spawn depth sprites |
+| Parameterized sprite WASM export | Replace the hard-coded `debug_create_sprite()` test hook in `projectM_emscripten.cpp` with a public `create_sprite(code)` so JS can spawn depth sprites |
 | Lazy-load shared depth wrapper | Dedupe `getDepth()` from `.1ink` hosts into the bridge only |
 | Featured pack tag `experimental` | Filter in `projectm-preset-library.js` when ready for demos |
 

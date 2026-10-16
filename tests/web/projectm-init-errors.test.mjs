@@ -2,12 +2,15 @@
 // detail shapes. Run with: node --test tests/web/projectm-init-errors.test.mjs
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { INIT_ERROR } from '../../html/generated/projectm-init-error-codes.js';
 import {
     INIT_CONTEXT_LOST,
     checkCrossOriginIsolation,
     checkInit,
+    describeInitError,
     hideInitError,
     setupInitErrorHandling,
     showInitError,
@@ -140,6 +143,54 @@ test('showInitError maps known codes to stable title and hint lists', () => {
     assert.match(message?.textContent ?? '', /detail string/);
     assert.ok((hints?.children?.length ?? 0) >= 2, 'code 4 should include troubleshooting hints');
     assert.equal(overlay.classList.contains('visible'), true);
+});
+
+test('the JS init-error codes are the C++ enum, and each failure has its own overlay', () => {
+    // Both are generated from PROJECTM_WASM_INIT_ERRORS; this catches a stale
+    // copy of either (scripts/verify_wasm_link_common.sh catches it in CI too).
+    const header = readFileSync(new URL('../../cmake/generated/ProjectMWasmInitErrors.hpp', import.meta.url), 'utf8');
+    const cpp = Object.fromEntries([...header.matchAll(/^\s*k(\w+) = (\d+),/gm)]
+        .map(([, name, code]) => [name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase(), Number(code)]));
+    assert.deepEqual(cpp, { ...INIT_ERROR });
+    assert.equal(INIT_CONTEXT_LOST, INIT_ERROR.CONTEXT_LOST);
+
+    const generic = describeInitError(-1);
+    const titles = new Set();
+    for (const [name, code] of Object.entries(INIT_ERROR)) {
+        if (code === INIT_ERROR.OK || code === INIT_ERROR.CONTEXT_LOST) {
+            continue; // Success, and "wait for the restore": neither is an overlay.
+        }
+        const info = describeInitError(code);
+        assert.notEqual(info, generic, `${name} (${code}) falls back to the generic overlay`);
+        assert.equal(titles.has(info.title), false, `${name} reuses the title "${info.title}"`);
+        titles.add(info.title);
+    }
+});
+
+test('the instance cap shows its own overlay, not the cross-origin isolation one', () => {
+    // Bundles before 040 reported the kMaxHosts refusal as code 4, which this
+    // page renders as "Cross-Origin Isolation Unavailable".
+    hideInitError();
+    const module = {
+        _create_host_with_config: () => 0,
+        _get_last_init_error: () => INIT_ERROR.INSTANCE_LIMIT,
+        ccall(name) {
+            return this[`_${name}`]();
+        },
+    };
+    let reported = null;
+    const ok = checkInit(module, {
+        primaryCanvasSelector: '#mcanvas',
+        contextConfig: { flags: 0, powerPreference: 2, fboPrecision: 0 },
+        onCode: (code) => { reported = code; },
+    });
+    assert.equal(ok, false);
+    assert.equal(reported, INIT_ERROR.INSTANCE_LIMIT);
+    const overlay = nodes.get('pm-init-error');
+    assert.equal(overlay.classList.contains('visible'), true);
+    assert.equal(overlay.querySelector('.pm-init-error-title').textContent, 'Too Many Visualizers');
+    assert.notEqual(describeInitError(INIT_ERROR.INSTANCE_LIMIT).title,
+        describeInitError(INIT_ERROR.CROSS_ORIGIN_ISOLATION).title);
 });
 
 test('checkInit keeps quiet while the context is lost, and reports any other failure', () => {

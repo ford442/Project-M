@@ -30,6 +30,8 @@
 
 #include "pmSDL.hpp"
 
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace {
@@ -38,6 +40,35 @@ auto dispatchLoadProc(const char* name, void* userData) -> void*
     // Dispatch load proc to SDL
     return SDL_GL_GetProcAddress(name);
 }
+
+auto envEquals(const char* name, const char* value) -> bool
+{
+    const char* const current = std::getenv(name);
+    return current != nullptr && std::strcmp(current, value) == 0;
+}
+
+// The render-path ablation switches (projectm_set_render_path()) from the
+// environment, so this developer UI can A/B a native build against its own
+// alternative paths without a rebuild. The library itself reads no environment;
+// the browser host takes the same switches from ?blurPath=copy / ?copyPath=shader /
+// ?perPixelEval=cpu. See docs/PERFORMANCE.md.
+auto renderPathFromEnvironment() -> uint32_t
+{
+    uint32_t flags = PROJECTM_RENDER_PATH_DEFAULT;
+    if (envEquals("PROJECTM_BLUR_COPY_PATH", "1"))
+    {
+        flags |= PROJECTM_RENDER_PATH_BLUR_COPY;
+    }
+    if (envEquals("PROJECTM_COPY_SHADER_PATH", "1"))
+    {
+        flags |= PROJECTM_RENDER_PATH_COPY_SHADER;
+    }
+    if (envEquals("PROJECTM_PER_PIXEL_EVAL", "cpu"))
+    {
+        flags |= PROJECTM_RENDER_PATH_PER_PIXEL_CPU;
+    }
+    return flags;
+}
 } // namespace
 
 projectMSDL::projectMSDL(SDL_GLContext glCtx, const std::string& presetPath)
@@ -45,6 +76,7 @@ projectMSDL::projectMSDL(SDL_GLContext glCtx, const std::string& presetPath)
     , _projectM(projectm_create_with_opengl_load_proc(&dispatchLoadProc, nullptr))
     , _playlist(projectm_playlist_create(_projectM))
 {
+    projectm_set_render_path(_projectM, renderPathFromEnvironment());
     projectm_get_window_size(_projectM, &_width, &_height);
     projectm_playlist_set_preset_switched_event_callback(_playlist, &projectMSDL::presetSwitchedEvent, static_cast<void*>(this));
     projectm_playlist_add_path(_playlist, presetPath.c_str(), true, false);

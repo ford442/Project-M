@@ -46,7 +46,8 @@ function parseHeaderValue(milkText, key) {
  */
 function patchHeaderValue(milkText, key, value) {
     const re = new RegExp(`^${key}=[-\\d.]+`, 'm');
-    const line = `${key}=${value.toFixed(6).replace(/\\.?0+$/, '')}`;
+    // Six decimals, trailing zeros dropped (0.960000 -> 0.96, 1.000000 -> 1).
+    const line = `${key}=${value.toFixed(6).replace(/\.?0+$/, '')}`;
     if (re.test(milkText)) {
         return milkText.replace(re, line);
     }

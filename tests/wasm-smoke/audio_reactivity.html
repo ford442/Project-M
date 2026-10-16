@@ -60,9 +60,9 @@
     function ringStats(read) {
       return {
         capacityFrames: read('get_pcm_ring_capacity_frames'),
-        readIndex: read('get_pcm_ring_read_index'),
-        writeIndex: read('get_pcm_ring_write_index'),
-        overruns: read('get_pcm_ring_overruns'),
+        readIndex: read('debug_get_pcm_ring_read_index'),
+        writeIndex: read('debug_get_pcm_ring_write_index'),
+        overruns: read('debug_get_pcm_ring_overruns'),
       };
     }
 
@@ -145,9 +145,9 @@
 
       const stats = {
         capacityFrames: await read('get_pcm_ring_capacity_frames'),
-        readIndex: await read('get_pcm_ring_read_index'),
-        writeIndex: await read('get_pcm_ring_write_index'),
-        overruns: await read('get_pcm_ring_overruns'),
+        readIndex: await read('debug_get_pcm_ring_read_index'),
+        writeIndex: await read('debug_get_pcm_ring_write_index'),
+        overruns: await read('debug_get_pcm_ring_overruns'),
         renderedFrames: await read('get_rendered_frame_count'),
       };
 
@@ -212,7 +212,7 @@
       for (let i = 0; i < 600; i += 1) {
         Module._render_frame?.();
         await new Promise((r) => requestAnimationFrame(r));
-        if (i >= 30 && Module._is_preset_ready?.(10)) break;
+        if (i >= 30 && Module._debug_is_preset_ready?.(10)) break;
       }
 
       await renderWithPcm(Module, () => generateSilence(PROJECTM_ANALYSIS_WINDOW), 60);

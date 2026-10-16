@@ -229,8 +229,8 @@ test('setupRenderWorker posts an init message transferring the offscreen canvas'
     assert.equal(msg.meshQuality, 'low');
     assert.equal(msg.pcm, undefined, 'the host no longer allocates a ring; the worker owns it');
     // No options of its own: the worker still gets the defaults to create its
-    // engine with (contextAlpha + premultipliedAlpha, high-performance, RGBA16F).
-    assert.deepEqual(msg.contextConfig, { flags: 48, powerPreference: 2, fboPrecision: 0 });
+    // engine with (premultipliedAlpha on an opaque canvas, high-performance, RGBA16F).
+    assert.deepEqual(msg.contextConfig, { flags: 32, powerPreference: 2, fboPrecision: 0 });
     assert.equal(msg.renderPathOverrides, undefined);
     assert.deepEqual(transfer, [offscreen]);
 

@@ -87,7 +87,13 @@ See [WASM_JS_API.md](WASM_JS_API.md) for generated helpers.
 
 Documented in [EMSCRIPTEN.md](EMSCRIPTEN.md#webgl-context-attributes):
 
-- `alpha: true`
+- `alpha: true` — no longer the default: `ProjectMContext`'s `contextAlpha` follows
+  `transparent`, so a page that starts opaque and turns transparency on later must pass
+  `contextAlpha: true` up front (the attribute cannot change once the context exists;
+  `setTransparent(true)` warns otherwise). `projectm-core.html` does, and
+  `<project-m-visualizer>` keeps the channel unless `context-alpha="false"`. While
+  transparency mode is off on such a context, `render_frame()` writes alpha 1 so the page does
+  not show through.
 - `premultipliedAlpha: true`
 
 For near-black pixels, premultiplied RGB ≈ 0, so compositing matches straight-alpha expectations.

@@ -296,6 +296,21 @@ test('attribute changes reach the running context', async () => {
     });
 });
 
+test('the canvas keeps an alpha channel for a later transparent toggle unless context-alpha="false"', async () => {
+    // ProjectMContext defaults the WebGL alpha bit to `transparent`; the element
+    // observes `transparent`, so it asks for the channel up front instead.
+    await withEnv({}, async (env) => {
+        const element = env.mount({}, { sharedModule: makeFakeModule() });
+        const context = await element.ready();
+        assert.equal(context.options.contextAlpha, true);
+    });
+    await withEnv({}, async (env) => {
+        const element = env.mount({ 'context-alpha': 'false' }, { sharedModule: makeFakeModule() });
+        const context = await element.ready();
+        assert.equal(context.options.contextAlpha, false);
+    });
+});
+
 test('a failing preset-url change is reported as a pm-error, not left unhandled', async () => {
     await withEnv({}, async (env) => {
         const element = env.mount({}, { sharedModule: makeFakeModule() });

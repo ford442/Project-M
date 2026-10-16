@@ -60,10 +60,8 @@ double WasmNow()
     return active != nullptr ? active->virtualNowMs : 0.0;
 }
 
-void DeterministicFrameTick()
+void DeterministicFrameTick(WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     if (!g_deterministicClock)
     {
         return;
@@ -71,19 +69,21 @@ void DeterministicFrameTick()
     // Frame N is defined to happen at N / fps seconds. Set the clock before the
     // frame renders so the engine's per-frame evaluation and this TU's own
     // WasmNow() readers agree on when "now" is for this frame.
-    H.virtualNowMs = static_cast<double>(H.deterministicFrameIndex) * g_msPerFrame;
-    if (pm != nullptr)
+    host.virtualNowMs = static_cast<double>(host.deterministicFrameIndex) * g_msPerFrame;
+    if (projectm_handle engine = host.appData.Engine())
     {
-        projectm_set_frame_time(pm, H.virtualNowMs / 1000.0);
+        projectm_set_frame_time(engine, host.virtualNowMs / 1000.0);
     }
-    H.deterministicFrameIndex++;
+    host.deterministicFrameIndex++;
 }
 
 extern "C" {
 
 /**
  * Pins libprojectM's RNG. Safe to call before or after init(); the seed policy
- * is process-global and survives engine re-creation.
+ * is process-global and survives engine re-creation. Every live host's
+ * preset-duration RNG (set_preset_duration()) is reseeded from it too, so
+ * timer-driven preset switches happen at the same moments run to run.
  */
 EMSCRIPTEN_KEEPALIVE
 void set_deterministic_seed(int enabled, unsigned int seed)
@@ -96,6 +96,14 @@ void set_deterministic_seed(int enabled, unsigned int seed)
     else
     {
         projectm_clear_deterministic_seed();
+    }
+    const int slots = HostSlotCount();
+    for (int i = 0; i < slots; ++i)
+    {
+        if (WasmHost* host = HostSlot(i))
+        {
+            SeedPresetDurationRng(*host);
+        }
     }
 }
 
@@ -120,9 +128,9 @@ void set_deterministic_clock(int enabled, double fps)
     }
     const auto reset = [](WasmHost& host) {
         ResetVirtualClock(host);
-        if (host.appData.projectm_engine != nullptr)
+        if (host.appData.Engine() != nullptr)
         {
-            projectm_set_frame_time(host.appData.projectm_engine, g_deterministicClock ? 0.0 : -1.0);
+            projectm_set_frame_time(host.appData.Engine(), g_deterministicClock ? 0.0 : -1.0);
         }
     };
     const int slots = HostSlotCount();

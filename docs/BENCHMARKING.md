@@ -74,7 +74,7 @@ Per preset, collects:
 | **audioMs** | `PCM::UpdateFrameAudioData` |
 | **blurMs / compositeMs / gpuMs** | Remaining render stages |
 | **loadCallMs** | `load_preset_file` sync call time |
-| **switchReadyMs** | Until `is_preset_ready()` (shader compile + first frame) |
+| **switchReadyMs** | Until `debug_is_preset_ready()` (shader compile + first frame) |
 | **openmp** | `_get_omp_enabled`, thread counts |
 
 With `--audio-load`, each frame feeds synthetic 120 BPM beat PCM

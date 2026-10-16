@@ -150,12 +150,6 @@ auto PerPixelGlslLowering::RhythmUniformName(int index) -> const std::string&
     return names.at(static_cast<size_t>(index));
 }
 
-auto PerPixelGlslLowering::ForcedToCpu() -> bool
-{
-    const char* const setting = std::getenv("PROJECTM_PER_PIXEL_EVAL");
-    return setting != nullptr && std::string(setting) == "cpu";
-}
-
 auto PerPixelGlslLowering::CpuSlice::ValueCount() const -> int
 {
     return m_valueCount;

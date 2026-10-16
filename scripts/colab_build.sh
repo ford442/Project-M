@@ -137,10 +137,12 @@ PROJECT_ROOT="$PROJECT_ROOT" \
     bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
 
 echo "=== Building final WASM/JS wrapper ==="
+# Deployable: without the test-hook exports (PROJECTM_WASM_DEBUG_EXPORTS).
 PROJECT_ROOT="$PROJECT_ROOT" \
     INSTALL_DIR="$INSTALL_DIR" \
     CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
     OUT_DIR="$OUT_DIR" \
+    PROJECTM_WASM_DEBUG_EXPORTS=0 \
     bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
 
 echo "=== Staging deploy artifacts (${bundle}) ==="

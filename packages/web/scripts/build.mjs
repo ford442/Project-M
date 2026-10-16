@@ -25,6 +25,7 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { computeModuleClosure } from './module-closure.mjs';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const htmlRoot = resolve(packageRoot, '..', '..', 'html');
@@ -35,19 +36,18 @@ const distRoot = join(packageRoot, 'dist');
 // Entry module of the custom element; everything reachable from here ships.
 const ENTRY = 'projectm-element.js';
 
-// Modules that are reachable at RUN time but not through the static import
-// graph, so the closure scan below cannot see them.
+// Files a module loads by URL that live outside html/, mapped to where the
+// build copies them from. computeModuleClosure() reports every reference it
+// cannot resolve under html/; one that is not listed here fails the build
+// rather than shipping a package that 404s for it.
 //
-// projectm-render-worker.js is loaded as `new Worker(new URL('./projectm-render-
-// worker.js', import.meta.url))` from projectm-render-worker-host.js. It is a
-// *classic* worker (importScripts, no ES imports), which is why it has no
-// imports of its own to follow and why it must stay a separate sibling file
-// rather than being bundled into anything. Until now it was simply absent from
-// the package, so the worker render topology 404'd for every npm consumer and
-// silently fell back to the main thread.
-const EXTRA_RUNTIME_MODULES = ['projectm-render-worker.js'];
+// projectm_audio_processor.js (the AudioWorklet processor) sits at the repo
+// root because the first-party hosts serve it from the site root;
+// html/projectm-worklet-playback.js resolves it against its own module URL.
+const EXTERNAL_RUNTIME_FILES = {
+  'projectm_audio_processor.js': resolve(packageRoot, '..', '..', 'projectm_audio_processor.js'),
+};
 
-const IMPORT_RE = /from\s+['"](\.\/[^'"]+)['"]/g;
 const TYPES_IMPORT_RE = /import\(['"](\.\/[^'"]+\.ts)['"]\)/g;
 
 async function exists(path) {
@@ -59,23 +59,19 @@ async function exists(path) {
   }
 }
 
-/** Compute the transitive closure of relative `.js` imports starting at ENTRY. */
+/**
+ * Compute the transitive closure of everything ENTRY can load: static imports,
+ * dynamic `import()`, and `new URL(..., import.meta.url)` (which is how the
+ * render worker is reached). See module-closure.mjs.
+ */
 async function computeClosure() {
-  const seen = new Set();
-  const stack = [ENTRY, ...EXTRA_RUNTIME_MODULES];
-  while (stack.length) {
-    const rel = stack.pop();
-    if (seen.has(rel)) continue;
-    seen.add(rel);
-    const src = await readFile(join(htmlRoot, rel), 'utf8');
-    let m;
-    while ((m = IMPORT_RE.exec(src))) {
-      // Resolve relative to the importing module's directory.
-      const target = join(dirname(rel), m[1].replace(/^\.\//, ''));
-      stack.push(target.split('\\').join('/'));
-    }
+  const { modules, unresolved } = await computeModuleClosure(htmlRoot, [ENTRY]);
+  const unknown = unresolved.filter((ref) => !(ref.specifier.replace(/^\.\//, '') in EXTERNAL_RUNTIME_FILES));
+  if (unknown.length) {
+    const lines = unknown.map((ref) => `  ${ref.from}: ${ref.kind} reference to ${ref.specifier}`);
+    throw new Error(`Module closure has references that resolve to nothing under html/:\n${lines.join('\n')}`);
   }
-  return [...seen].sort();
+  return modules;
 }
 
 /** Collect `*-types.ts` companions referenced from JSDoc in the module closure. */
@@ -260,10 +256,9 @@ async function main() {
   // reaches it. html/projectm-worklet-playback.js resolves it against its own
   // module URL (import.meta.url), i.e. against dist/ — without this copy an npm
   // consumer's worklet repair asked their site for a file that was never shipped.
-  await copyFile(
-    resolve(packageRoot, '..', '..', 'projectm_audio_processor.js'),
-    join(distRoot, 'projectm_audio_processor.js'),
-  );
+  for (const [name, source] of Object.entries(EXTERNAL_RUNTIME_FILES)) {
+    await copyFile(source, join(distRoot, name));
+  }
   const outputs = Object.keys(esm.metafile.outputs)
     .filter((f) => f.endsWith('.js'))
     .sort();

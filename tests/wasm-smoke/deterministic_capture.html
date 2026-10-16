@@ -185,7 +185,7 @@
       requireExports(Module, [
         '_init', '_start_render', '_render_frame', '_load_preset_file',
         '_set_deterministic_seed', '_set_deterministic_clock', '_set_render_loop_paused',
-        '_is_preset_ready', '_preset_switch_failed',
+        '_debug_is_preset_ready', '_debug_preset_switch_failed',
       ]);
 
       // Before init(): PresetState's hue offsets and the noise textures are
@@ -258,7 +258,7 @@
       // preparation took.
       const loadDeadline = 600; // event-loop turns, not frames
       let loadTurns = 0;
-      while (Module._preset_switch_failed() === 0 && Module._is_preset_ready(0) === 0) {
+      while (Module._debug_preset_switch_failed() === 0 && Module._debug_is_preset_ready(0) === 0) {
         if (loadTurns >= loadDeadline) {
           throw new Error(`Preset load did not complete after ${loadDeadline} event-loop turns`);
         }
@@ -278,7 +278,7 @@
       // shader did not compile in `settleFrames`, the run is not slow — it is
       // not comparable to the golden, and silently capturing a half-loaded
       // preset is how a golden gate starts lying.
-      if (Module._preset_switch_failed() !== 0) {
+      if (Module._debug_preset_switch_failed() !== 0) {
         throw new Error('Preset switch failed during settle');
       }
       // A capture that fed no audio is a capture of the renderer on silence —
@@ -293,7 +293,7 @@
           + 'check EXPORTED_RUNTIME_METHODS in cmake/EmscriptenWasmFlags.cmake.',
         );
       }
-      if (Module._is_preset_ready(1) === 0) {
+      if (Module._debug_is_preset_ready(1) === 0) {
         throw new Error(
           `Preset not ready after ${settleFrames} settle frames. Raise settleFrames for this `
           + 'preset in the manifest rather than making the settle adaptive.',
@@ -331,8 +331,8 @@
         if (error !== gl.NO_ERROR) throw new Error('WebGL error 0x' + error.toString(16));
       }
 
-      if (Module._get_pcm_ring_overruns) result.ringOverruns = Module._get_pcm_ring_overruns();
-      result.presetSwitchFailed = Module._preset_switch_failed() !== 0;
+      if (Module._debug_get_pcm_ring_overruns) result.ringOverruns = Module._debug_get_pcm_ring_overruns();
+      result.presetSwitchFailed = Module._debug_preset_switch_failed() !== 0;
       result.ok = !result.presetSwitchFailed;
       setStat(`done: ${result.captures.length} capture(s), ${result.framesRendered} frames`);
     }

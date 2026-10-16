@@ -3,6 +3,7 @@
 
 import { getLocalPresetVfsPath, updatePresetDisplay } from './projectm-presets.js';
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { getHostConfig } from './projectm-host-config.js';
 import { setupPresetTweaker } from './projectm-preset-tweaker.js';
 
 /**
@@ -149,8 +150,8 @@ async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenRead
  * @returns {{ enabled: boolean } & Record<string, unknown>}
  */
 export function setupPresetDevTools(Module, options = {}) {
-    const params = options.params || new URLSearchParams(location.search);
-    const enabled = params.get('devPreset') === '1' || params.get('localPresets') === '1';
+    const config = getHostConfig(options.params ? { search: options.params } : {});
+    const enabled = config.devPreset || config.localPresets;
     if (!enabled) {
         return { enabled: false };
     }
@@ -181,8 +182,8 @@ export function setupPresetDevTools(Module, options = {}) {
     const urlInput = /** @type {HTMLInputElement} */ (requireEl(panel, '#pm-dev-url'));
     const pollBtn = /** @type {HTMLButtonElement} */ (requireEl(panel, '#pm-dev-poll-toggle'));
 
-    const devUrl = params.get('devPresetUrl') || '';
-    const pollMs = Math.max(500, parseInt(params.get('devPollMs') ?? '', 10) || 2000);
+    const devUrl = config.devPresetUrl;
+    const pollMs = Math.max(500, config.devPollMs);
     if (devUrl) urlInput.value = devUrl;
 
     /** @type {ReturnType<typeof setInterval> | null} */
@@ -282,7 +283,7 @@ export function setupPresetDevTools(Module, options = {}) {
         },
     });
 
-    if (params.get('devPoll') === '1' && devUrl) {
+    if (config.devPoll && devUrl) {
         setTimeout(() => pollBtn.click(), 500);
     }
 

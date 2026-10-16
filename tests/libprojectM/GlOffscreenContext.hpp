@@ -6,6 +6,8 @@
  * @brief Minimal EGL pbuffer context for headless OpenGL unit tests.
  *
  * Skips initialization when EGL is unavailable (e.g. some CI images without a GPU stack).
+ * Only desktop Linux has a backend; everywhere else the constructor leaves IsValid() false
+ * and Reason() says why, so callers can GTEST_SKIP().
  */
 class GlOffscreenContext
 {

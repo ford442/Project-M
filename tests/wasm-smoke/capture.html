@@ -153,7 +153,7 @@
       capture.presetSwitchFailed = capture.presetSwitchFailed
         || Boolean(window.projectMPresetSwitchFailed)
         || Boolean(window.projectMPresetSwitchFailure)
-        || Boolean(module && module._preset_switch_failed && module._preset_switch_failed() !== 0);
+        || Boolean(module && module._debug_preset_switch_failed && module._debug_preset_switch_failed() !== 0);
       window.__projectMPresetCapture = capture;
     }
 
@@ -213,9 +213,9 @@
         capture.frames += 1;
         fallbackFramesSinceLoad += 1;
 
-        const failed = Module._preset_switch_failed ? Module._preset_switch_failed() !== 0 : false;
-        const ready = Module._is_preset_ready
-          ? Module._is_preset_ready(minFrames) !== 0
+        const failed = Module._debug_preset_switch_failed ? Module._debug_preset_switch_failed() !== 0 : false;
+        const ready = Module._debug_is_preset_ready
+          ? Module._debug_is_preset_ready(minFrames) !== 0
           : (Module._dual_fbo_is_preset_b_ready ? Module._dual_fbo_is_preset_b_ready() !== 0 : true)
             && fallbackFramesSinceLoad >= minFrames;
         if (failed) return { failed, timedOut: false };
@@ -282,6 +282,14 @@
         }
       });
       window.__projectMModule = Module;
+
+      // Bundles from before the debug_ test hooks (baseline A/B runs) export
+      // them under their old names.
+      for (const name of ['is_preset_ready', 'preset_switch_failed']) {
+        if (typeof Module['_debug_' + name] !== 'function' && typeof Module['_' + name] === 'function') {
+          Module['_debug_' + name] = Module['_' + name];
+        }
+      }
 
       for (const name of ['_init', '_start_render', 'FS', 'ccall', '_projectm_pcm_add_float_wrapper']) {
         if (!Module[name]) throw new Error('Missing Module.' + name);
@@ -360,7 +368,7 @@
         capture.nonBlackFraction = stats.nonBlackFraction;
       }
       capture.presetSwitchFailed = presetSwitchFailedDuringWait
-        || (Module._preset_switch_failed ? Module._preset_switch_failed() !== 0 : false);
+        || (Module._debug_preset_switch_failed ? Module._debug_preset_switch_failed() !== 0 : false);
 
       finish(true);
     }

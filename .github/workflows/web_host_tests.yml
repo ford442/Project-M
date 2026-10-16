@@ -12,30 +12,11 @@ name: Web Host Tests
 # whose version it holds to account.
 
 on:
+  # No `paths:` filter, on purpose. This check is required on main, and a required
+  # check that a path filter skips never reports a status, which blocks the merge
+  # instead of passing it. It is cheap enough to run on every change.
   push:
-    paths:
-      - 'html/**'
-      - 'tests/web/**'
-      - 'packages/web/**'
-      - 'package.json'
-      - 'scripts/test_web_embed.sh'
-      - 'scripts/check_html_types.sh'
-      - 'scripts/check_wasm_public_api.sh'
-      - 'scripts/check_host_globals.sh'
-      - 'cmake/WasmApiManifest.cmake'
-      - '.github/workflows/web_host_tests.yml'
   pull_request:
-    paths:
-      - 'html/**'
-      - 'tests/web/**'
-      - 'packages/web/**'
-      - 'package.json'
-      - 'scripts/test_web_embed.sh'
-      - 'scripts/check_html_types.sh'
-      - 'scripts/check_wasm_public_api.sh'
-      - 'scripts/check_host_globals.sh'
-      - 'cmake/WasmApiManifest.cmake'
-      - '.github/workflows/web_host_tests.yml'
   workflow_dispatch: {}
 
 jobs:
@@ -64,8 +45,10 @@ jobs:
         run: npm run typecheck
 
       # Fails on a removed or re-signatured `public` manifest entry that has not
-      # been paired with a version bump in packages/web/package.json.
-      - name: Public WASM API surface gate
+      # been paired with a version bump in packages/web/package.json, and
+      # (--no-orphans) on any manifest export that nothing in html/,
+      # packages/web/src/ or tests/ calls.
+      - name: Public WASM API surface + orphan-export gate
         run: npm run check:api
 
       # Fails on a `window.pm*` / legacy popup-player / BroadcastChannel write

@@ -66,7 +66,7 @@
       if (typeof Module._dual_fbo_is_preset_b_ready === 'function' && Module._dual_fbo_is_preset_b_ready()) {
         return true;
       }
-      if (typeof Module._is_preset_ready === 'function' && Module._is_preset_ready()) {
+      if (typeof Module._debug_is_preset_ready === 'function' && Module._debug_is_preset_ready()) {
         return true;
       }
       return false;
@@ -83,7 +83,7 @@
           mark(label + ' ready');
           return;
         }
-        if (typeof Module._preset_switch_failed === 'function' && Module._preset_switch_failed()) {
+        if (typeof Module._debug_preset_switch_failed === 'function' && Module._debug_preset_switch_failed()) {
           throw new Error(label + ': preset_switch_failed');
         }
         await sleep(16);
@@ -180,15 +180,15 @@
       mark('per-host context config (A depth=0 pdb=0, B depth=1 pdb=1 fbo=RGBA8)');
 
       // 2. Independent PCM rings: a write to B is drained by B only.
-      if (typeof Module._pcm_ring_drain === 'function') {
+      if (typeof Module._debug_pcm_ring_drain === 'function') {
         const heap = Module.HEAPF32.buffer;
         select(hostA);
         const headerA = Module._get_pcm_ring_header_ptr();
-        Module._pcm_ring_drain();
+        Module._debug_pcm_ring_drain();
         select(hostB);
         const headerB = Module._get_pcm_ring_header_ptr();
         const dataB = Module._get_pcm_ring_data_ptr();
-        Module._pcm_ring_drain();
+        Module._debug_pcm_ring_drain();
         if (!headerA || !headerB || headerA === headerB) {
           throw new Error('hosts share a PCM ring (A=' + headerA + ', B=' + headerB + ')');
         }
@@ -199,9 +199,9 @@
         ringB.fill(0.25);
         Atomics.store(hdrB, 0, start + frames);
         select(hostA);
-        const drainedA = Module._pcm_ring_drain();
+        const drainedA = Module._debug_pcm_ring_drain();
         select(hostB);
-        const drainedB = Module._pcm_ring_drain();
+        const drainedB = Module._debug_pcm_ring_drain();
         if (drainedA !== 0 || drainedB !== frames) {
           throw new Error('PCM ring drain crossed hosts (A drained ' + drainedA + ', B drained ' + drainedB + ')');
         }
@@ -254,12 +254,17 @@
           throw new Error('pmHideInitError never named host B: ' + JSON.stringify(hides));
         }
 
-        // A third create is refused at kMaxHosts before any engine exists.
+        // A third create is refused at kMaxHosts before any engine exists, with
+        // its own code (WasmInitError::kInstanceLimit = 10; bundles before 040
+        // reused 4, the cross-origin-isolation code, which showed the wrong overlay).
         const third = Module.ccall('create_host', 'number', ['string', 'string'], ['#pm-smoke-main-2', '']);
         if (third) throw new Error('a third host was created past kMaxHosts');
         const refused = events.of('pmReportInitError').at(-1);
-        if (!refused || refused[0] !== -1 || refused[1] !== 4) {
-          throw new Error('the cap refusal should be pmReportInitError(-1, 4, ...): ' + JSON.stringify(refused));
+        if (!refused || refused[0] !== -1 || refused[1] !== 10) {
+          throw new Error('the cap refusal should be pmReportInitError(-1, 10, ...): ' + JSON.stringify(refused));
+        }
+        if (Module._get_last_init_error() !== 10) {
+          throw new Error('get_last_init_error() after the cap refusal: ' + Module._get_last_init_error());
         }
 
         // Perf frames and the HUD toggle, per engine. A is the default host.
@@ -316,8 +321,8 @@
     const MAX_FRAMES_PER_SECOND = 250;
     const EM_TIMING_RAF = 1;
     async function checkMainLoopPacing(Module) {
-      if (typeof Module._get_main_loop_timing_mode === 'function') {
-        const mode = Module._get_main_loop_timing_mode();
+      if (typeof Module._debug_get_main_loop_timing_mode === 'function') {
+        const mode = Module._debug_get_main_loop_timing_mode();
         if (mode !== EM_TIMING_RAF) {
           throw new Error('main loop timing mode is ' + mode + ', expected EM_TIMING_RAF (' + EM_TIMING_RAF + ')');
         }
@@ -347,10 +352,10 @@
     async function checkHostLifecycle(Module) {
       const gl = document.getElementById('pm-smoke-main').getContext('webgl2');
       const handleA = Module._get_active_host();
-      const countsPlaylists = typeof Module._live_playlist_count === 'function';
+      const countsPlaylists = typeof Module._debug_live_playlist_count === 'function';
       const expectPlaylists = (expected, what) => {
-        if (countsPlaylists && Module._live_playlist_count() !== expected) {
-          throw new Error(what + ': ' + Module._live_playlist_count() + ' live playlist(s), expected ' + expected);
+        if (countsPlaylists && Module._debug_live_playlist_count() !== expected) {
+          throw new Error(what + ': ' + Module._debug_live_playlist_count() + ' live playlist(s), expected ' + expected);
         }
       };
 
@@ -369,7 +374,7 @@
       // because headless Chromium refuses restoreContext() after a synthetic
       // WEBGL_lose_context loss, and the C++ bookkeeping is the same either way.
       // A setting the page applied must survive the engine being re-created.
-      const playlists = countsPlaylists ? Module._live_playlist_count() : 0;
+      const playlists = countsPlaylists ? Module._debug_live_playlist_count() : 0;
       Module._set_transparency_mode(1);
       Module._pm_handle_context_loss();
       expectPlaylists(playlists - 1, 'after pm_handle_context_loss');
@@ -389,7 +394,7 @@
         ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
       if (!handleB) throw new Error('create_host() for the lifecycle check failed');
       // Kept for step 7: an engine handle that stops being valid below.
-      const staleEngine = Module._get_projectm_handle();
+      const staleEngine = Module._debug_get_projectm_handle();
       expectPlaylists(playlists + 1, 'after create_host');
       Module.ccall('destroy_host', null, ['number'], [handleB]);
       expectPlaylists(playlists, 'after destroy_host');
@@ -491,7 +496,7 @@
       if (Module._get_active_host() !== doomed) {
         throw new Error('context loss did not select the host that owns the lost canvas');
       }
-      if (Module._get_projectm_handle() !== 0) {
+      if (Module._debug_get_projectm_handle() !== 0) {
         throw new Error('the lost host kept its engine');
       }
       const initWhileLost = Module._init();
@@ -502,7 +507,7 @@
       Module._render_frame();
 
       Module.ccall('set_active_host', null, ['number'], [healthy]);
-      if (Module._get_projectm_handle() === 0) {
+      if (Module._debug_get_projectm_handle() === 0) {
         throw new Error('context loss on a sibling tore down the healthy host');
       }
       const before = Module._get_rendered_frame_count();
@@ -512,6 +517,41 @@
       }
       for (const h of [doomed, healthy]) Module.ccall('destroy_host', null, ['number'], [h]);
       mark('real context loss: lost host torn down, sibling kept rendering, init() refused (5)');
+    }
+
+    /**
+     * The preset duration is the host's policy (set_preset_duration()), not a
+     * hidden random 27-57 s redrawn on every switch, and its random part comes
+     * from the seeded RNG, so a pinned seed pins auto-switch timing (#262).
+     */
+    function checkPresetDuration(Module) {
+      if (typeof Module._set_preset_duration !== 'function' || typeof Module._debug_get_preset_duration !== 'function') {
+        mark('preset duration policy: bundle predates set_preset_duration(); skipped');
+        return;
+      }
+      const initial = Module._debug_get_preset_duration();
+      if (initial !== 30) {
+        throw new Error('default preset duration is ' + initial + ' s, expected a fixed 30 s');
+      }
+      const seededDraw = () => {
+        Module._set_deterministic_seed(1, 4242);
+        Module._set_preset_duration(10, 20);
+        return Module._debug_get_preset_duration();
+      };
+      const first = seededDraw();
+      const second = seededDraw();
+      if (first !== second) {
+        throw new Error('a pinned seed drew two different preset durations: ' + first + ' / ' + second);
+      }
+      if (!(first >= 10 && first < 30)) {
+        throw new Error('set_preset_duration(10, 20) drew ' + first + ' s, outside [10, 30)');
+      }
+      Module._set_deterministic_seed(0, 0);
+      Module._set_preset_duration(30, 0);
+      if (Module._debug_get_preset_duration() !== 30) {
+        throw new Error('set_preset_duration(30, 0) did not give back a fixed 30 s');
+      }
+      mark('preset duration policy: fixed 30 s by default, seeded draw ' + first.toFixed(3) + ' s reproduced');
     }
 
     /**
@@ -525,12 +565,12 @@
       Module.ccall('add_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
       Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
       Module._set_mesh(32, 24);
-      Module._create_sprite();
+      Module._debug_create_sprite();
       Module._start_render(64, 64);
       Module._set_window_size(64, 64);
       Module._render_frame();
       const bytes = Module._malloc(64);
-      Module._add_audio_data(bytes, 64);
+      Module._debug_add_audio_data(bytes, 64);
       const floats = Module._malloc(64 * 4);
       for (const handle of [staleEngine, 12345]) {
         Module._projectm_pcm_add_float_wrapper(handle, floats, 32, 2);
@@ -604,6 +644,7 @@
       if (!gl) throw new Error('webgl2 context is unavailable after init');
       assertNoGlError(gl, 'after cold preset load');
       mark('webgl error check passed');
+      checkPresetDuration(Module);
 
       // Soft-cut / dual-FBO path: second load prepared while live, then transition.
       const hasDualFbo =
@@ -645,8 +686,8 @@
         mark('soft-cut render_frame x8');
         assertNoGlError(gl, 'after soft-cut frames');
 
-        if (typeof Module._dual_fbo_end_transition === 'function') {
-          Module._dual_fbo_end_transition();
+        if (typeof Module._debug_dual_fbo_end_transition === 'function') {
+          Module._debug_dual_fbo_end_transition();
         }
         mark('dual-FBO soft-cut path passed');
 
@@ -659,8 +700,8 @@
         Module.ccall('load_preset_file', null, ['string'], ['/presets/heavy.milk']);
         let framesWhileLoading = 0;
         const heavyDeadline = performance.now() + PRESET_READY_TIMEOUT_MS;
-        while (Module._is_preset_ready(0) === 0) {
-          if (Module._preset_switch_failed()) throw new Error('heavy preset: preset_switch_failed');
+        while (Module._debug_is_preset_ready(0) === 0) {
+          if (Module._debug_preset_switch_failed()) throw new Error('heavy preset: preset_switch_failed');
           if (performance.now() > heavyDeadline) throw new Error('heavy preset: timed out waiting for ready');
           framesWhileLoading = Module._get_rendered_frame_count() - framesAtRequest;
           await sleep(4);
@@ -755,14 +796,14 @@
       // PresetFactoryManager rethrows it as PresetFactoryException, and
       // ProjectM::LoadPresetFile catches it and raises the switch-failed event. If
       // catching is broken the throw aborts the module instead of setting the flag.
-      if (typeof Module._preset_switch_failed === 'function') {
+      if (typeof Module._debug_preset_switch_failed === 'function') {
         globalThis.projectMPresetSwitchFailed = false;
         Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/does-not-exist.milk']);
         const failDeadline = performance.now() + PRESET_READY_TIMEOUT_MS;
-        while (!Module._preset_switch_failed() && performance.now() < failDeadline) {
+        while (!Module._debug_preset_switch_failed() && performance.now() < failDeadline) {
           await sleep(16);
         }
-        if (!Module._preset_switch_failed()) {
+        if (!Module._debug_preset_switch_failed()) {
           throw new Error('known-bad preset: preset_switch_failed() never reported the thrown load error');
         }
         if (globalThis.projectMPresetSwitchFailed !== true) {

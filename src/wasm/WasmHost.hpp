@@ -24,8 +24,12 @@
 #include "WasmPresetPrepare.hpp"
 #include "WasmWebGLContext.hpp"
 
+#include <RandomSeed.hpp>
+
+#include <cstdlib>
 #include <memory>
 #include <optional>
+#include <random>
 #include <utility>
 
 // Maximum simultaneous engines in one Module. v1 targets 2 (A/B, compare-two-
@@ -40,18 +44,50 @@
 // before going past 2.
 constexpr int kMaxHosts = 2;
 
+// RandomSeed domain of WasmHost::presetDurationRng.
+constexpr const char* kPresetDurationRngDomain = "WasmPresetDuration";
+
 // =============================================================================
 // PcmRingState – one host's WASM-owned PCM ring (#246). Layout and threading
 // contract are documented in WasmPcmRing.cpp.
 // =============================================================================
-struct PcmRingState {
-    int32_t* header = nullptr;
-    float* data = nullptr;
+struct FreeDeleter {
+    void operator()(void* allocation) const
+    {
+        free(allocation);
+    }
+};
+
+// One ring allocation: calloc()ed, so a fresh ring reads as silence with zeroed
+// indices. Owned by its host's PcmRingState, or parked among the retired rings
+// (WasmPcmRing.cpp) after the host let go of it.
+struct PcmRingStorage {
+    std::unique_ptr<int32_t[], FreeDeleter> header;
+    std::unique_ptr<float[], FreeDeleter> data;
     int capacityFrames = 0;
+};
+
+struct PcmRingState {
+    PcmRingStorage storage;
     int readIndex = 0;
     int indexModulus = 0;
     // Reused across drains so the per-frame ingest does not allocate.
     std::vector<float> drainScratch;
+
+    int32_t* Header() const
+    {
+        return storage.header.get();
+    }
+
+    float* Data() const
+    {
+        return storage.data.get();
+    }
+
+    int CapacityFrames() const
+    {
+        return storage.capacityFrames;
+    }
 };
 
 // =============================================================================
@@ -117,13 +153,12 @@ struct FrameCaptureState {
 // =============================================================================
 // WasmHost – ownership record for one projectM engine instance.
 //
-// Field groups mirror the former global clusters so the per-function reference
-// aliases in each TU read the same as the old code (e.g. `auto& pm =
-// H.appData.projectm_engine;`).
+// Field groups mirror the former global clusters. Owned by the host registry
+// (WasmHost.cpp); everything it holds is released with it.
 // =============================================================================
 struct WasmHost {
     // ---- Core engine (was pm / app_data / playlist) ----
-    AppData appData{}; // { projectm_engine, playlist, loading }
+    AppData appData; // { engine, playlist, loading }
 
     // ---- Async preset loading / transition gating ----
     bool presetBReady = false;
@@ -153,7 +188,6 @@ struct WasmHost {
     float transitionBlend = 0.0f;
     double transitionStartTime = 0.0;
     double transitionEndTime = 0.0;
-    float dualFboIdleReleaseSec = 5.0f;
 
     // ---- Engine settings the page applied (re-applied by init()) ----
     // Engine state is lost whenever the engine is re-created (context loss,
@@ -192,6 +226,24 @@ struct WasmHost {
     bool qualityTierInitialized = false;
     int overBudgetFrames = 0;
     int underBudgetFrames = 0;
+    // The context can only be software-rendered (WasmWebGLSoftwareRendererOnly()):
+    // the governor starts on its cheapest tier.
+    bool softwareRenderer = false;
+
+    // ---- Render-path ablation switches (WasmRenderPathOverrides.cpp) ----
+    // projectm_render_path_flags for this host's engine, from create_host_with_config()
+    // or set_render_path_overrides(); while not explicit, init() reads the page URL.
+    uint32_t renderPathFlags = 0;
+    bool renderPathExplicit = false;
+
+    // ---- Preset duration policy (set_preset_duration(), WasmPlaylistBridge.cpp) ----
+    // Every preset runs presetDurationSeconds plus a draw from
+    // [0, presetDurationRandomExtra). The draw comes from presetDurationRng, which
+    // init() seeds from libprojectM's RandomSeed, so set_deterministic_seed() pins
+    // auto-switch timing like every other random choice.
+    double presetDurationSeconds = 30.0;
+    double presetDurationRandomExtra = 0.0;
+    std::mt19937 presetDurationRng{libprojectM::RandomSeed::Get(kPresetDurationRngDomain)};
 
     // ---- WebGL context + graphics (was g_glCtx / g_dualFbo / g_compositorShader) ----
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE glCtx = 0;
@@ -265,6 +317,7 @@ void ReleaseHost(WasmHost* host);
 int HostSlotCount();           //!< kMaxHosts (fixed-size slot array).
 WasmHost* HostSlot(int index); //!< Live host in slot, or nullptr.
 int LiveHostCount();           //!< Number of currently-allocated hosts.
+int LivePlaylistCount();       //!< Hosts that hold a playlist (test hook: teardown frees it with the engine).
 
 // The active host without lazily creating the default (nullptr if none), for
 // callers that need to restore the selection after iterating hosts.

@@ -9,7 +9,7 @@
 // See WasmHost.hpp and docs/EMSCRIPTEN.md ("Multi-instance host state").
 #include "WasmHost.hpp"
 
-#include <new>
+#include <array>
 
 // Engine lifecycle entry points defined in projectM_emscripten.cpp. They
 // operate on the active host, so callers here SetActiveHost() first.
@@ -24,18 +24,18 @@ extern "C" void destruct();
 // (at most kMaxHosts) live instances. All engine/GL/transition state lives in
 // the WasmHost structs they point at, not here.
 // =============================================================================
-static WasmHost* g_hosts[kMaxHosts] = {nullptr};
+static std::array<std::unique_ptr<WasmHost>, kMaxHosts> g_hosts;
 static WasmHost* g_activeHost = nullptr;
 bool g_mainLoopRegistered = false;
 
 WasmHost* AllocateHost()
 {
-    for (int i = 0; i < kMaxHosts; ++i)
+    for (auto& slot : g_hosts)
     {
-        if (g_hosts[i] == nullptr)
+        if (!slot)
         {
-            g_hosts[i] = new (std::nothrow) WasmHost();
-            return g_hosts[i];
+            slot = std::make_unique<WasmHost>();
+            return slot.get();
         }
     }
     return nullptr; // at capacity
@@ -63,7 +63,7 @@ WasmHost& Host()
 static bool IsUnusedImplicitDefault(const WasmHost* host)
 {
     return host != nullptr && host->implicitDefault &&
-           host->appData.projectm_engine == nullptr && host->glCtx == 0;
+           host->appData.Engine() == nullptr && host->glCtx == 0;
 }
 
 void SetActiveHost(WasmHost* host)
@@ -75,7 +75,7 @@ void SetActiveHost(WasmHost* host)
         // host, so set_active_host(0) used to be a silent no-op.)
         for (int i = 0; i < kMaxHosts && host == nullptr; ++i)
         {
-            host = g_hosts[i];
+            host = g_hosts[i].get();
         }
         if (host == nullptr)
         {
@@ -111,17 +111,6 @@ void ReleaseHost(WasmHost* host)
     ArmShaderCacheKeyForHost(*host);
     destruct();
 
-    int freedSlot = -1;
-    for (int i = 0; i < kMaxHosts; ++i)
-    {
-        if (g_hosts[i] == host)
-        {
-            g_hosts[i] = nullptr;
-            freedSlot = i;
-            break;
-        }
-    }
-
     if (g_activeHost == host)
     {
         g_activeHost = nullptr;
@@ -130,18 +119,24 @@ void ReleaseHost(WasmHost* host)
     // destruct() released the dual FBOs and the compositor under this host's
     // own context before destroying it, so their destructors find nothing left
     // to delete and issue no GL calls.
-    delete host;
-    (void) freedSlot;
+    for (auto& slot : g_hosts)
+    {
+        if (slot.get() == host)
+        {
+            slot.reset();
+            break;
+        }
+    }
 
     // Re-point the active host at any surviving instance so subsequent legacy
     // exports keep working; Host() will lazily recreate a default if none.
     if (g_activeHost == nullptr)
     {
-        for (int i = 0; i < kMaxHosts; ++i)
+        for (auto& slot : g_hosts)
         {
-            if (g_hosts[i] != nullptr)
+            if (slot)
             {
-                SetActiveHost(g_hosts[i]);
+                SetActiveHost(slot.get());
                 break;
             }
         }
@@ -159,7 +154,7 @@ WasmHost* HostSlot(int index)
     {
         return nullptr;
     }
-    return g_hosts[index];
+    return g_hosts[static_cast<size_t>(index)].get();
 }
 
 WasmHost* ActiveHostOrNull()
@@ -188,11 +183,11 @@ WasmHost* HostFromHandle(uintptr_t handle)
     {
         return nullptr;
     }
-    for (int i = 0; i < kMaxHosts; ++i)
+    for (auto& slot : g_hosts)
     {
-        if (g_hosts[i] != nullptr && HostHandle(*g_hosts[i]) == handle)
+        if (slot && HostHandle(*slot) == handle)
         {
-            return g_hosts[i];
+            return slot.get();
         }
     }
     return nullptr;
@@ -204,11 +199,11 @@ projectm_handle EngineFromHandle(uintptr_t engineHandle)
     {
         return nullptr;
     }
-    for (int i = 0; i < kMaxHosts; ++i)
+    for (auto& slot : g_hosts)
     {
-        if (g_hosts[i] != nullptr && reinterpret_cast<uintptr_t>(g_hosts[i]->appData.projectm_engine) == engineHandle)
+        if (slot && reinterpret_cast<uintptr_t>(slot->appData.Engine()) == engineHandle)
         {
-            return g_hosts[i]->appData.projectm_engine;
+            return slot->appData.Engine();
         }
     }
     return nullptr;
@@ -216,28 +211,25 @@ projectm_handle EngineFromHandle(uintptr_t engineHandle)
 
 int LiveHostCount()
 {
-    int n = 0;
-    for (int i = 0; i < kMaxHosts; ++i)
-    {
-        if (g_hosts[i] != nullptr)
-        {
-            ++n;
-        }
-    }
-    return n;
+    return static_cast<int>(std::count_if(g_hosts.begin(), g_hosts.end(),
+                                          [](const auto& slot) { return slot != nullptr; }));
 }
 
-// =============================================================================
-// C exports (multi-instance API)
-// =============================================================================
-extern "C" {
-
-} // extern "C"
+int LivePlaylistCount()
+{
+    return static_cast<int>(std::count_if(g_hosts.begin(), g_hosts.end(), [](const auto& slot) {
+        return slot != nullptr && slot->appData.Playlist() != nullptr;
+    }));
+}
 
 // Shared body of create_host() and create_host_with_config(). `config` is the
 // new host's context config; null means the legacy create_host() inheritance
 // (a pending legacy set_context_config(), else the previous host's config).
-static uintptr_t CreateHost(const char* primary, const char* secondary, const WasmContextConfig* config)
+// `renderPath`, when given, is the new host's render-path switches; otherwise
+// it keeps what set_render_path_overrides() put on an adopted default host, or
+// reads them from the URL at init().
+static uintptr_t CreateHost(const char* primary, const char* secondary, const WasmContextConfig* config,
+                            std::optional<uint32_t> renderPath)
 {
     WasmHost* previous = g_activeHost;
 
@@ -248,10 +240,10 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
     WasmHost* host = adopted ? previous : AllocateHost();
     if (host == nullptr)
     {
-        fprintf(stderr, "create_host: refused – already at kMaxHosts (%d) instances.\n", kMaxHosts);
         // No engine exists to name: the active host is the caller's previous
         // one, and this failure is not its.
-        js_report_init_error_for_host(kNoEventHost, 4, "Maximum projectM instances per Module reached");
+        js_report_init_error_for_host(kNoEventHost, WasmInitError::kInstanceLimit,
+                                      "Maximum projectM instances per Module reached");
         return 0;
     }
     host->implicitDefault = false;
@@ -280,15 +272,20 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
         }
     }
 
-    SetActiveHost(host);
-    // Writes selectors into the now-active host, marking them explicit so
-    // init() does not overwrite them from Module factory config.
-    WasmWebGLSetCanvasSelectors(primary, secondary);
-
-    const int rc = init();
-    if (rc != 0)
+    if (renderPath)
     {
-        fprintf(stderr, "create_host: init() failed (rc=%d); rolling back.\n", rc);
+        host->renderPathFlags = *renderPath;
+        host->renderPathExplicit = true;
+    }
+
+    SetActiveHost(host);
+    // Writes selectors into the new host, marking them explicit so init() does
+    // not overwrite them from Module factory config.
+    WasmWebGLSetCanvasSelectors(*host, primary, secondary);
+
+    // A failure is already reported (pmReportInitError, get_last_init_error()).
+    if (init() != static_cast<int>(WasmInitError::kOk))
+    {
         ReleaseHost(host);
         if (previous != nullptr && !adopted)
         {
@@ -309,15 +306,16 @@ extern "C" {
 // The previously-active host is restored on failure so a rejected create has no
 // side effects on the caller's current instance.
 //
-// `flags` is a WasmContextConfigFlag bitmask (WasmWebGLContext.hpp);
-// powerPreference 0 default / 1 low-power / 2 high-performance; fboPrecision
-// 0 RGBA16F / 1 RGBA32F / 2 RGBA8. The config belongs to this host alone.
+// `flags` is a WasmContextConfigFlag bitmask (WasmWebGLContext.hpp), which
+// also carries the host's render-path switches; powerPreference 0 default /
+// 1 low-power / 2 high-performance; fboPrecision 0 RGBA16F / 1 RGBA32F /
+// 2 RGBA8. The config belongs to this host alone.
 EMSCRIPTEN_KEEPALIVE
 uintptr_t create_host_with_config(const char* primary, const char* secondary, int flags,
                                   int powerPreference, int fboPrecision)
 {
     const WasmContextConfig cfg = WasmContextConfigFromArgs(flags, powerPreference, fboPrecision);
-    return CreateHost(primary, secondary, &cfg);
+    return CreateHost(primary, secondary, &cfg, RenderPathFromContextFlags(flags));
 }
 
 // Legacy form: the new host inherits the previous host's config, or one a
@@ -325,7 +323,7 @@ uintptr_t create_host_with_config(const char* primary, const char* secondary, in
 EMSCRIPTEN_KEEPALIVE
 uintptr_t create_host(const char* primary, const char* secondary)
 {
-    return CreateHost(primary, secondary, nullptr);
+    return CreateHost(primary, secondary, nullptr, std::nullopt);
 }
 
 // Selects which host subsequent no-handle exports operate on and makes its
@@ -344,8 +342,8 @@ void set_active_host(uintptr_t handle)
     WasmHost* host = HostFromHandle(handle);
     if (host == nullptr)
     {
-        fprintf(stderr, "set_active_host: ignoring unknown or destroyed host handle %lu.\n",
-                static_cast<unsigned long>(handle));
+        LOG_WARN(WasmLogFormat("set_active_host: ignoring unknown or destroyed host handle %lu",
+                               static_cast<unsigned long>(handle)));
         return;
     }
     SetActiveHost(host);

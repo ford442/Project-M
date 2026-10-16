@@ -34,13 +34,24 @@
 
 struct WasmHost;
 
+struct PresetPrepareJobDeleter {
+    void operator()(projectm_preset_prepare_job_handle job) const
+    {
+        projectm_preset_prepare_free(job);
+    }
+};
+
+// A libprojectM prepare job. projectm_load_prepared_preset() takes ownership:
+// pass it `job.release()`. Freed when dropped otherwise.
+using PresetPrepareJob = std::unique_ptr<projectm_preset_prepare_job, PresetPrepareJobDeleter>;
+
 // What the host needs to finish a load once its job has run.
 struct PresetPrepareRequest {
-    uint64_t generation = 0;                          //!< Post() order; only the latest is activated.
-    projectm_preset_prepare_job_handle job = nullptr; //!< The libprojectM job (owned by whoever holds the request).
-    std::string path;                                 //!< Preset path, for failure reports.
-    bool hardCut = false;                             //!< Hard cut instead of a soft transition.
-    std::optional<uint32_t> playlistIndex;            //!< Playlist index the load was for, if any.
+    uint64_t generation = 0;               //!< Post() order; only the latest is activated.
+    PresetPrepareJob job;                  //!< The libprojectM job.
+    std::string path;                      //!< Preset path, for failure reports.
+    bool hardCut = false;                  //!< Hard cut instead of a soft transition.
+    std::optional<uint32_t> playlistIndex; //!< Playlist index the load was for, if any.
 };
 
 // A switch the engine has accepted but not made yet: with KHR_parallel_shader_compile,

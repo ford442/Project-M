@@ -30,9 +30,9 @@ constexpr int kRhythmEventSection = 4;
 auto CurrentRhythm(const WasmHost& host) -> projectm_rhythm_info
 {
     projectm_rhythm_info info{};
-    if (host.appData.projectm_engine != nullptr)
+    if (projectm_handle engine = host.appData.Engine())
     {
-        projectm_get_rhythm_info(host.appData.projectm_engine, &info);
+        projectm_get_rhythm_info(engine, &info);
     }
     return info;
 }
@@ -159,11 +159,11 @@ EMSCRIPTEN_KEEPALIVE
 void set_rhythm_hint(float bpm)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
+    projectm_handle engine = H.appData.Engine();
     H.engineSettings.rhythmHint = bpm;
-    if (pm)
+    if (engine != nullptr)
     {
-        projectm_set_rhythm_hint(pm, bpm);
+        projectm_set_rhythm_hint(engine, bpm);
     }
 }
 
@@ -175,29 +175,14 @@ EMSCRIPTEN_KEEPALIVE
 void set_preset_switch_policy(int policy, int bars)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
+    projectm_handle engine = H.appData.Engine();
     const int clampedPolicy = policy >= 0 && policy <= 2 ? policy : 0;
     const auto clampedBars = static_cast<uint32_t>(std::max(bars, 0));
     H.engineSettings.presetSwitchPolicy = std::make_pair(clampedPolicy, clampedBars);
-    if (pm)
+    if (engine != nullptr)
     {
-        projectm_set_preset_switch_policy(pm, static_cast<projectm_preset_switch_policy>(clampedPolicy), clampedBars);
+        projectm_set_preset_switch_policy(engine, static_cast<projectm_preset_switch_policy>(clampedPolicy), clampedBars);
     }
-}
-
-/**
- * @brief The preset switch policy (0 timer, 1 bars, 2 section).
- */
-EMSCRIPTEN_KEEPALIVE
-int get_preset_switch_policy()
-{
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
-    {
-        return H.engineSettings.presetSwitchPolicy ? H.engineSettings.presetSwitchPolicy->first : 0;
-    }
-    return static_cast<int>(projectm_get_preset_switch_policy(pm, nullptr));
 }
 
 /**
@@ -211,22 +196,13 @@ EMSCRIPTEN_KEEPALIVE
 void transition_set_duration_beats(float beats)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
+    projectm_handle engine = H.appData.Engine();
     H.transitionBeats = std::isfinite(beats) && beats > 0.0f ? beats : 0.0f;
     H.engineSettings.transitionBeats = H.transitionBeats;
-    if (pm)
+    if (engine != nullptr)
     {
-        projectm_set_soft_cut_duration_beats(pm, H.transitionBeats);
+        projectm_set_soft_cut_duration_beats(engine, H.transitionBeats);
     }
-}
-
-/**
- * @brief Crossfade length in beats, 0 if crossfades use seconds.
- */
-EMSCRIPTEN_KEEPALIVE
-float transition_get_duration_beats()
-{
-    return Host().transitionBeats;
 }
 
 /**
@@ -236,11 +212,11 @@ EMSCRIPTEN_KEEPALIVE
 void set_hard_cut_on_beat(bool enabled)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
+    projectm_handle engine = H.appData.Engine();
     H.engineSettings.hardCutOnBeat = enabled;
-    if (pm)
+    if (engine != nullptr)
     {
-        projectm_set_hard_cut_on_beat(pm, enabled);
+        projectm_set_hard_cut_on_beat(engine, enabled);
     }
 }
 

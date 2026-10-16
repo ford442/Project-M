@@ -36,6 +36,13 @@ export const CONTEXT_CONFIG_FLAGS = Object.freeze({
     failIfMajorPerformanceCaveat: 1 << 6,
     explicitSwapControl: 1 << 7,
     desynchronized: 1 << 8,
+    // Not context attributes: the engine's render-path ablation switches
+    // (projectm_set_render_path()), sent with the create call so they reach
+    // that engine and no other. Read only when renderPathSet is present.
+    blurCopyPath: 1 << 9,
+    copyShaderPath: 1 << 10,
+    perPixelForceCpu: 1 << 11,
+    renderPathSet: 1 << 12,
 });
 
 /** @type {Record<string, number>} */
@@ -52,24 +59,40 @@ const FBO_PRECISION = { 'half': 0, 'high': 1, 'byte': 2 };
  * `explicitSwapControl: true`.
  *
  * `options.alpha` is deliberately not read: it is the canvas-CSS compositing
- * hint. The WebGL alpha bit is `contextAlpha` (default on — transparency
- * overlays need it).
+ * hint. The WebGL alpha bit is `contextAlpha`, which defaults to `transparent`:
+ * an opaque canvas unless the context starts in transparency mode. Opaque is
+ * what the browser composites cheapest, and a canvas with an alpha channel
+ * shows the page through every pixel a preset leaves at alpha < 1. A host that
+ * turns transparency on later (setTransparent()) must ask for `contextAlpha:
+ * true` up front: the attribute cannot change once the context exists.
+ *
+ * `renderPathOverrides`, when given, become the engine's render-path switches
+ * (they ride on the same `flags`); without it the engine reads them from its
+ * page's URL.
  *
  * @param {Partial<ProjectMContextOptions>} [options]
+ * @param {import('./projectm-render-worker-types.ts').RenderPathOverrides} [renderPathOverrides]
  * @returns {WasmContextConfig}
  */
-export function resolveWasmContextConfig(options = {}) {
+export function resolveWasmContextConfig(options = {}, renderPathOverrides = undefined) {
     const f = CONTEXT_CONFIG_FLAGS;
+    const renderPathFlags = renderPathOverrides
+        ? f.renderPathSet
+            | (renderPathOverrides.blurCopyPath ? f.blurCopyPath : 0)
+            | (renderPathOverrides.copyShaderPath ? f.copyShaderPath : 0)
+            | (renderPathOverrides.perPixelForceCpu ? f.perPixelForceCpu : 0)
+        : 0;
     const flags = (options.antialias ? f.antialias : 0)
         | (options.preserveDrawingBuffer ? f.preserveDrawingBuffer : 0)
         | (options.depth ? f.depth : 0)
         | (options.stencil ? f.stencil : 0)
-        | ((options.contextAlpha ?? true) ? f.contextAlpha : 0)
+        | ((options.contextAlpha ?? !!options.transparent) ? f.contextAlpha : 0)
         | ((options.premultipliedAlpha ?? true) ? f.premultipliedAlpha : 0)
         | (options.failIfMajorPerformanceCaveat ? f.failIfMajorPerformanceCaveat : 0)
         // presentMode: 'manual' is the same request as explicitSwapControl.
         | ((options.explicitSwapControl || options.presentMode === 'manual') ? f.explicitSwapControl : 0)
-        | (options.desynchronized ? f.desynchronized : 0);
+        | (options.desynchronized ? f.desynchronized : 0)
+        | renderPathFlags;
     return {
         flags,
         powerPreference: POWER_PREFERENCE[options.powerPreference ?? 'high-performance'] ?? 2,
@@ -108,6 +131,16 @@ const LEGACY_EXPRESSIBLE = CONTEXT_CONFIG_FLAGS.antialias
     | CONTEXT_CONFIG_FLAGS.contextAlpha;
 
 /**
+ * The render-path bits. A bundle without create_host_with_config() gets the
+ * switches from set_render_path_overrides() instead (ProjectMContext calls it
+ * for exactly those bundles), so they are not a reason to refuse it.
+ */
+const RENDER_PATH_BITS = CONTEXT_CONFIG_FLAGS.blurCopyPath
+    | CONTEXT_CONFIG_FLAGS.copyShaderPath
+    | CONTEXT_CONFIG_FLAGS.perPixelForceCpu
+    | CONTEXT_CONFIG_FLAGS.renderPathSet;
+
+/**
  * Create and init an engine whose context uses `config`, in one call: there is
  * no "configure, then create" window for another context to land in.
  *
@@ -136,7 +169,7 @@ export function createConfiguredHost(module, { primary, secondary, config, creat
     // set_context_config() always meant premultipliedAlpha on and everything
     // added since off; any other request would be silently dropped.
     const premultiplied = CONTEXT_CONFIG_FLAGS.premultipliedAlpha;
-    if ((config.flags & ~(LEGACY_EXPRESSIBLE | premultiplied)) !== 0 || (config.flags & premultiplied) === 0) {
+    if ((config.flags & ~(LEGACY_EXPRESSIBLE | premultiplied | RENDER_PATH_BITS)) !== 0 || (config.flags & premultiplied) === 0) {
         console.warn('[projectM] this WASM bundle predates create_host_with_config(); '
             + 'premultipliedAlpha / failIfMajorPerformanceCaveat / explicitSwapControl / desynchronized '
             + 'cannot be applied, so the engine was not created');

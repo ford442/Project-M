@@ -118,8 +118,8 @@ async function measurePreset(page, presetAbsPath, presetIndex) {
     // steady-state frames below run the preset, not the idle one.
     Module.ccall('load_preset_file', null, ['string'], [vfsPath]);
     const readyDeadline = performance.now() + 60000;
-    while (Module._is_preset_ready(0) === 0) {
-      if (Module._preset_switch_failed()) throw new Error('preset_switch_failed: ' + vfsPath);
+    while (Module._debug_is_preset_ready(0) === 0) {
+      if (Module._debug_preset_switch_failed()) throw new Error('preset_switch_failed: ' + vfsPath);
       if (performance.now() > readyDeadline) throw new Error('timed out waiting for ' + vfsPath);
       Module._render_frame();
       await new Promise((r) => setTimeout(r, 4));
@@ -136,13 +136,13 @@ async function measurePreset(page, presetAbsPath, presetIndex) {
     if (peaks.postSteadyState === 0) peaks.postSteadyState = heapBytes();
 
     if (typeof Module._dual_fbo_begin_transition === 'function' &&
-        typeof Module._dual_fbo_render_preset_a === 'function' &&
-        typeof Module._dual_fbo_render_preset_b === 'function') {
+        typeof Module._debug_dual_fbo_render_preset_a === 'function' &&
+        typeof Module._debug_dual_fbo_render_preset_b === 'function') {
       Module._dual_fbo_begin_transition();
-      Module._dual_fbo_render_preset_a();
-      Module._dual_fbo_render_preset_b();
-      if (typeof Module._dual_fbo_end_transition === 'function') {
-        Module._dual_fbo_end_transition();
+      Module._debug_dual_fbo_render_preset_a();
+      Module._debug_dual_fbo_render_preset_b();
+      if (typeof Module._debug_dual_fbo_end_transition === 'function') {
+        Module._debug_dual_fbo_end_transition();
       }
       peaks.postTransition = heapBytes();
     }

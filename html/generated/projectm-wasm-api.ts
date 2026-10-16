@@ -15,9 +15,9 @@ export interface EmscriptenModule {
 }
 
 export type ProjectMModule = EmscriptenModule & {
-    _add_audio_data: (data: number, len: number) => void;
+    _debug_add_audio_data: (data: number, len: number) => void;
     _destruct: () => void;
-    _get_projectm_handle: () => number;
+    _debug_get_projectm_handle: () => number;
     _init: () => number;
     _set_render_path_overrides: (blurCopyPath: number, copyShaderPath: number, perPixelForceCpu: number) => void;
     _get_render_path_overrides: () => number;
@@ -26,45 +26,42 @@ export type ProjectMModule = EmscriptenModule & {
     _host_count: () => number;
     _max_host_count: () => number;
     _switch_preset: () => void;
+    _set_preset_duration: (seconds: number, randomExtraSeconds: number) => void;
     _set_aspect_correction: (enabled: number) => void;
     _render_frame: () => void;
     _start_render: (width: number, height: number) => void;
     _set_window_size: (width: number, height: number) => void;
     _set_mesh: (width: number, height: number) => void;
-    _add_preset_path: () => void;
-    _add_existing_vfs_presets: () => void;
-    _add_custom_milk_paths: (count: number) => void;
     _projectm_pcm_add_float_wrapper: (pmHandle: number, audioPtr: number, samplesPerChannel: number, channels: number) => void;
     _pcm_ring_init: (capacityFrames: number) => number;
-    _pcm_ring_shutdown: () => void;
-    _pcm_ring_drain: () => number;
+    _debug_pcm_ring_drain: () => number;
     _get_pcm_ring_header_ptr: () => number;
     _get_pcm_ring_data_ptr: () => number;
     _get_pcm_ring_capacity_frames: () => number;
     _get_pcm_ring_index_modulus: () => number;
-    _get_pcm_ring_write_index: () => number;
-    _get_pcm_ring_read_index: () => number;
-    _get_pcm_ring_overruns: () => number;
+    _debug_get_pcm_ring_write_index: () => number;
+    _debug_get_pcm_ring_read_index: () => number;
+    _debug_get_pcm_ring_overruns: () => number;
     _attach_worklet_ingest: () => void;
-    _create_sprite: () => void;
+    _debug_create_sprite: () => void;
     _stop_worklet_playback: () => void;
     _set_audio_source_to_stream: (isStreaming: number) => void;
     _set_preset_locked: (locked: number) => void;
     _set_transparency_mode: (enabled: number) => void;
     _get_transparency_mode: () => boolean;
     _set_transparency_threshold: (threshold: number) => void;
-    _get_transparency_threshold: () => number;
     _set_perf_hud: (enabled: number) => void;
     _set_target_fps: (fps: number) => void;
     _set_quality_governor: (enabled: number) => void;
     _get_quality_tier: () => number;
     _get_governor_render_scale: () => number;
     _get_governor_blur_cap: () => number;
-    _is_preset_ready: (minFramesSinceReady: number) => number;
+    _debug_is_preset_ready: (minFramesSinceReady: number) => number;
     _get_rendered_frame_count: () => number;
-    _preset_switch_failed: () => number;
-    _live_playlist_count: () => number;
-    _get_main_loop_timing_mode: () => number;
+    _debug_preset_switch_failed: () => number;
+    _debug_get_preset_duration: () => number;
+    _debug_live_playlist_count: () => number;
+    _debug_get_main_loop_timing_mode: () => number;
     _get_omp_enabled: () => number;
     _get_omp_max_threads: () => number;
     _get_omp_thread_count_in_parallel: () => number;
@@ -73,32 +70,17 @@ export type ProjectMModule = EmscriptenModule & {
     _get_glsl_generator_version: () => number;
     _pm_handle_context_loss: () => void;
     _dual_fbo_begin_transition: () => boolean;
-    _dual_fbo_end_transition: () => void;
+    _debug_dual_fbo_end_transition: () => void;
     _dual_fbo_cancel_transition: () => void;
-    _dual_fbo_swap_preset_a: () => void;
-    _dual_fbo_swap_preset_b: () => void;
-    _dual_fbo_get_a_read_fbo: () => number;
-    _dual_fbo_get_a_write_fbo: () => number;
-    _dual_fbo_get_a_read_tex: () => number;
-    _dual_fbo_get_a_write_tex: () => number;
-    _dual_fbo_get_b_read_fbo: () => number;
-    _dual_fbo_get_b_write_fbo: () => number;
-    _dual_fbo_get_b_read_tex: () => number;
-    _dual_fbo_get_b_write_tex: () => number;
     _dual_fbo_is_preset_a_allocated: () => boolean;
     _dual_fbo_is_preset_b_allocated: () => boolean;
-    _dual_fbo_set_idle_release_seconds: (seconds: number) => void;
-    _dual_fbo_get_idle_release_seconds: () => number;
     _dual_fbo_is_preset_b_ready: () => boolean;
     _dual_fbo_get_format: () => number;
-    _dual_fbo_render_preset_a: () => void;
-    _dual_fbo_render_preset_b: () => void;
+    _debug_dual_fbo_render_preset_a: () => void;
+    _debug_dual_fbo_render_preset_b: () => void;
     _transition_start: () => void;
-    _transition_cancel: () => void;
     _transition_is_active: () => boolean;
-    _transition_get_blend: () => number;
     _transition_set_duration: (seconds: number) => void;
-    _transition_get_duration: () => number;
     _set_deterministic_seed: (enabled: number, seed: number) => void;
     _is_deterministic_seed: () => boolean;
     _set_deterministic_clock: (enabled: number, fps: number) => void;
@@ -114,9 +96,7 @@ export type ProjectMModule = EmscriptenModule & {
     _get_rhythm_section: () => number;
     _set_rhythm_hint: (bpm: number) => void;
     _set_preset_switch_policy: (policy: number, bars: number) => void;
-    _get_preset_switch_policy: () => number;
     _transition_set_duration_beats: (beats: number) => void;
-    _transition_get_duration_beats: () => number;
     _set_hard_cut_on_beat: (enabled: number) => void;
     _set_rhythm_events: (enabled: number) => void;
     _set_flash_limit_enabled: (enabled: number) => void;
@@ -137,10 +117,10 @@ export type ProjectMModule = EmscriptenModule & {
 
 /** C symbol names for render-worker ccall proxying. */
 export const WASM_API_SYMBOLS = {
-    addAudioData: 'add_audio_data',
+    debugAddAudioData: 'debug_add_audio_data',
     pl: 'pl',
     destruct: 'destruct',
-    getProjectmHandle: 'get_projectm_handle',
+    debugGetProjectmHandle: 'debug_get_projectm_handle',
     init: 'init',
     setCanvasSelectors: 'set_canvas_selectors',
     setContextConfig: 'set_context_config',
@@ -159,47 +139,43 @@ export const WASM_API_SYMBOLS = {
     loadPresetFile: 'load_preset_file',
     loadPresetFileHard: 'load_preset_file_hard',
     switchPreset: 'switch_preset',
+    setPresetDuration: 'set_preset_duration',
     setAspectCorrection: 'set_aspect_correction',
     renderFrame: 'render_frame',
     startRender: 'start_render',
     setWindowSize: 'set_window_size',
     setMesh: 'set_mesh',
-    addPresetPath: 'add_preset_path',
-    addExistingVfsPresets: 'add_existing_vfs_presets',
     addPresetFile: 'add_preset_file',
-    addCustomMilkPaths: 'add_custom_milk_paths',
     projectmPcmAddFloatWrapper: 'projectm_pcm_add_float_wrapper',
     pcmRingInit: 'pcm_ring_init',
-    pcmRingShutdown: 'pcm_ring_shutdown',
-    pcmRingDrain: 'pcm_ring_drain',
+    debugPcmRingDrain: 'debug_pcm_ring_drain',
     getPcmRingHeaderPtr: 'get_pcm_ring_header_ptr',
     getPcmRingDataPtr: 'get_pcm_ring_data_ptr',
     getPcmRingCapacityFrames: 'get_pcm_ring_capacity_frames',
     getPcmRingIndexModulus: 'get_pcm_ring_index_modulus',
-    getPcmRingWriteIndex: 'get_pcm_ring_write_index',
-    getPcmRingReadIndex: 'get_pcm_ring_read_index',
-    getPcmRingOverruns: 'get_pcm_ring_overruns',
+    debugGetPcmRingWriteIndex: 'debug_get_pcm_ring_write_index',
+    debugGetPcmRingReadIndex: 'debug_get_pcm_ring_read_index',
+    debugGetPcmRingOverruns: 'debug_get_pcm_ring_overruns',
     attachWorkletIngest: 'attach_worklet_ingest',
-    connectMediaElementSource: 'connect_media_element_source',
-    createSprite: 'create_sprite',
+    debugCreateSprite: 'debug_create_sprite',
     stopWorkletPlayback: 'stop_worklet_playback',
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
     setTransparencyMode: 'set_transparency_mode',
     getTransparencyMode: 'get_transparency_mode',
     setTransparencyThreshold: 'set_transparency_threshold',
-    getTransparencyThreshold: 'get_transparency_threshold',
     setPerfHud: 'set_perf_hud',
     setTargetFps: 'set_target_fps',
     setQualityGovernor: 'set_quality_governor',
     getQualityTier: 'get_quality_tier',
     getGovernorRenderScale: 'get_governor_render_scale',
     getGovernorBlurCap: 'get_governor_blur_cap',
-    isPresetReady: 'is_preset_ready',
+    debugIsPresetReady: 'debug_is_preset_ready',
     getRenderedFrameCount: 'get_rendered_frame_count',
-    presetSwitchFailed: 'preset_switch_failed',
-    livePlaylistCount: 'live_playlist_count',
-    getMainLoopTimingMode: 'get_main_loop_timing_mode',
+    debugPresetSwitchFailed: 'debug_preset_switch_failed',
+    debugGetPresetDuration: 'debug_get_preset_duration',
+    debugLivePlaylistCount: 'debug_live_playlist_count',
+    debugGetMainLoopTimingMode: 'debug_get_main_loop_timing_mode',
     getOmpEnabled: 'get_omp_enabled',
     getOmpMaxThreads: 'get_omp_max_threads',
     getOmpThreadCountInParallel: 'get_omp_thread_count_in_parallel',
@@ -210,32 +186,17 @@ export const WASM_API_SYMBOLS = {
     getGlslGeneratorVersion: 'get_glsl_generator_version',
     pmHandleContextLoss: 'pm_handle_context_loss',
     dualFboBeginTransition: 'dual_fbo_begin_transition',
-    dualFboEndTransition: 'dual_fbo_end_transition',
+    debugDualFboEndTransition: 'debug_dual_fbo_end_transition',
     dualFboCancelTransition: 'dual_fbo_cancel_transition',
-    dualFboSwapPresetA: 'dual_fbo_swap_preset_a',
-    dualFboSwapPresetB: 'dual_fbo_swap_preset_b',
-    dualFboGetAReadFbo: 'dual_fbo_get_a_read_fbo',
-    dualFboGetAWriteFbo: 'dual_fbo_get_a_write_fbo',
-    dualFboGetAReadTex: 'dual_fbo_get_a_read_tex',
-    dualFboGetAWriteTex: 'dual_fbo_get_a_write_tex',
-    dualFboGetBReadFbo: 'dual_fbo_get_b_read_fbo',
-    dualFboGetBWriteFbo: 'dual_fbo_get_b_write_fbo',
-    dualFboGetBReadTex: 'dual_fbo_get_b_read_tex',
-    dualFboGetBWriteTex: 'dual_fbo_get_b_write_tex',
     dualFboIsPresetAAllocated: 'dual_fbo_is_preset_a_allocated',
     dualFboIsPresetBAllocated: 'dual_fbo_is_preset_b_allocated',
-    dualFboSetIdleReleaseSeconds: 'dual_fbo_set_idle_release_seconds',
-    dualFboGetIdleReleaseSeconds: 'dual_fbo_get_idle_release_seconds',
     dualFboIsPresetBReady: 'dual_fbo_is_preset_b_ready',
     dualFboGetFormat: 'dual_fbo_get_format',
-    dualFboRenderPresetA: 'dual_fbo_render_preset_a',
-    dualFboRenderPresetB: 'dual_fbo_render_preset_b',
+    debugDualFboRenderPresetA: 'debug_dual_fbo_render_preset_a',
+    debugDualFboRenderPresetB: 'debug_dual_fbo_render_preset_b',
     transitionStart: 'transition_start',
-    transitionCancel: 'transition_cancel',
     transitionIsActive: 'transition_is_active',
-    transitionGetBlend: 'transition_get_blend',
     transitionSetDuration: 'transition_set_duration',
-    transitionGetDuration: 'transition_get_duration',
     setDeterministicSeed: 'set_deterministic_seed',
     isDeterministicSeed: 'is_deterministic_seed',
     setDeterministicClock: 'set_deterministic_clock',
@@ -251,9 +212,7 @@ export const WASM_API_SYMBOLS = {
     getRhythmSection: 'get_rhythm_section',
     setRhythmHint: 'set_rhythm_hint',
     setPresetSwitchPolicy: 'set_preset_switch_policy',
-    getPresetSwitchPolicy: 'get_preset_switch_policy',
     transitionSetDurationBeats: 'transition_set_duration_beats',
-    transitionGetDurationBeats: 'transition_get_duration_beats',
     setHardCutOnBeat: 'set_hard_cut_on_beat',
     setRhythmEvents: 'set_rhythm_events',
     setFlashLimitEnabled: 'set_flash_limit_enabled',
@@ -290,10 +249,10 @@ export interface WasmApiSignature {
  * which uses it to issue the same call over either topology.
  */
 export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
-    addAudioData: { symbol: 'add_audio_data', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    debugAddAudioData: { symbol: 'debug_add_audio_data', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
     pl: { symbol: 'pl', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
     destruct: { symbol: 'destruct', returnType: null, argTypes: [], paramTypes: [] },
-    getProjectmHandle: { symbol: 'get_projectm_handle', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugGetProjectmHandle: { symbol: 'debug_get_projectm_handle', returnType: 'number', argTypes: [], paramTypes: [] },
     init: { symbol: 'init', returnType: 'number', argTypes: [], paramTypes: [] },
     setCanvasSelectors: { symbol: 'set_canvas_selectors', returnType: null, argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
     setContextConfig: { symbol: 'set_context_config', returnType: null, argTypes: ['number', 'number', 'number', 'number', 'number', 'number', 'number'], paramTypes: ['number', 'number', 'number', 'number', 'number', 'number', 'number'] },
@@ -312,47 +271,43 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     loadPresetFile: { symbol: 'load_preset_file', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
     loadPresetFileHard: { symbol: 'load_preset_file_hard', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
     switchPreset: { symbol: 'switch_preset', returnType: null, argTypes: [], paramTypes: [] },
+    setPresetDuration: { symbol: 'set_preset_duration', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
     setAspectCorrection: { symbol: 'set_aspect_correction', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     renderFrame: { symbol: 'render_frame', returnType: null, argTypes: [], paramTypes: [] },
     startRender: { symbol: 'start_render', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
     setWindowSize: { symbol: 'set_window_size', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
     setMesh: { symbol: 'set_mesh', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
-    addPresetPath: { symbol: 'add_preset_path', returnType: null, argTypes: [], paramTypes: [] },
-    addExistingVfsPresets: { symbol: 'add_existing_vfs_presets', returnType: null, argTypes: [], paramTypes: [] },
     addPresetFile: { symbol: 'add_preset_file', returnType: null, argTypes: ['string'], paramTypes: ['string'] },
-    addCustomMilkPaths: { symbol: 'add_custom_milk_paths', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
     projectmPcmAddFloatWrapper: { symbol: 'projectm_pcm_add_float_wrapper', returnType: null, argTypes: ['number', 'number', 'number', 'number'], paramTypes: ['number', 'number', 'number', 'number'] },
     pcmRingInit: { symbol: 'pcm_ring_init', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
-    pcmRingShutdown: { symbol: 'pcm_ring_shutdown', returnType: null, argTypes: [], paramTypes: [] },
-    pcmRingDrain: { symbol: 'pcm_ring_drain', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugPcmRingDrain: { symbol: 'debug_pcm_ring_drain', returnType: 'number', argTypes: [], paramTypes: [] },
     getPcmRingHeaderPtr: { symbol: 'get_pcm_ring_header_ptr', returnType: 'number', argTypes: [], paramTypes: [] },
     getPcmRingDataPtr: { symbol: 'get_pcm_ring_data_ptr', returnType: 'number', argTypes: [], paramTypes: [] },
     getPcmRingCapacityFrames: { symbol: 'get_pcm_ring_capacity_frames', returnType: 'number', argTypes: [], paramTypes: [] },
     getPcmRingIndexModulus: { symbol: 'get_pcm_ring_index_modulus', returnType: 'number', argTypes: [], paramTypes: [] },
-    getPcmRingWriteIndex: { symbol: 'get_pcm_ring_write_index', returnType: 'number', argTypes: [], paramTypes: [] },
-    getPcmRingReadIndex: { symbol: 'get_pcm_ring_read_index', returnType: 'number', argTypes: [], paramTypes: [] },
-    getPcmRingOverruns: { symbol: 'get_pcm_ring_overruns', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugGetPcmRingWriteIndex: { symbol: 'debug_get_pcm_ring_write_index', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugGetPcmRingReadIndex: { symbol: 'debug_get_pcm_ring_read_index', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugGetPcmRingOverruns: { symbol: 'debug_get_pcm_ring_overruns', returnType: 'number', argTypes: [], paramTypes: [] },
     attachWorkletIngest: { symbol: 'attach_worklet_ingest', returnType: null, argTypes: [], paramTypes: [] },
-    connectMediaElementSource: { symbol: 'connect_media_element_source', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
-    createSprite: { symbol: 'create_sprite', returnType: null, argTypes: [], paramTypes: [] },
+    debugCreateSprite: { symbol: 'debug_create_sprite', returnType: null, argTypes: [], paramTypes: [] },
     stopWorkletPlayback: { symbol: 'stop_worklet_playback', returnType: null, argTypes: [], paramTypes: [] },
     setAudioSourceToStream: { symbol: 'set_audio_source_to_stream', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setPresetLocked: { symbol: 'set_preset_locked', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setTransparencyMode: { symbol: 'set_transparency_mode', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     getTransparencyMode: { symbol: 'get_transparency_mode', returnType: 'boolean', argTypes: [], paramTypes: [] },
     setTransparencyThreshold: { symbol: 'set_transparency_threshold', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
-    getTransparencyThreshold: { symbol: 'get_transparency_threshold', returnType: 'number', argTypes: [], paramTypes: [] },
     setPerfHud: { symbol: 'set_perf_hud', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
     setTargetFps: { symbol: 'set_target_fps', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
     setQualityGovernor: { symbol: 'set_quality_governor', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     getQualityTier: { symbol: 'get_quality_tier', returnType: 'number', argTypes: [], paramTypes: [] },
     getGovernorRenderScale: { symbol: 'get_governor_render_scale', returnType: 'number', argTypes: [], paramTypes: [] },
     getGovernorBlurCap: { symbol: 'get_governor_blur_cap', returnType: 'number', argTypes: [], paramTypes: [] },
-    isPresetReady: { symbol: 'is_preset_ready', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
+    debugIsPresetReady: { symbol: 'debug_is_preset_ready', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
     getRenderedFrameCount: { symbol: 'get_rendered_frame_count', returnType: 'number', argTypes: [], paramTypes: [] },
-    presetSwitchFailed: { symbol: 'preset_switch_failed', returnType: 'number', argTypes: [], paramTypes: [] },
-    livePlaylistCount: { symbol: 'live_playlist_count', returnType: 'number', argTypes: [], paramTypes: [] },
-    getMainLoopTimingMode: { symbol: 'get_main_loop_timing_mode', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugPresetSwitchFailed: { symbol: 'debug_preset_switch_failed', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugGetPresetDuration: { symbol: 'debug_get_preset_duration', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugLivePlaylistCount: { symbol: 'debug_live_playlist_count', returnType: 'number', argTypes: [], paramTypes: [] },
+    debugGetMainLoopTimingMode: { symbol: 'debug_get_main_loop_timing_mode', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpEnabled: { symbol: 'get_omp_enabled', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpMaxThreads: { symbol: 'get_omp_max_threads', returnType: 'number', argTypes: [], paramTypes: [] },
     getOmpThreadCountInParallel: { symbol: 'get_omp_thread_count_in_parallel', returnType: 'number', argTypes: [], paramTypes: [] },
@@ -363,32 +318,17 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     getGlslGeneratorVersion: { symbol: 'get_glsl_generator_version', returnType: 'number', argTypes: [], paramTypes: [] },
     pmHandleContextLoss: { symbol: 'pm_handle_context_loss', returnType: null, argTypes: [], paramTypes: [] },
     dualFboBeginTransition: { symbol: 'dual_fbo_begin_transition', returnType: 'boolean', argTypes: [], paramTypes: [] },
-    dualFboEndTransition: { symbol: 'dual_fbo_end_transition', returnType: null, argTypes: [], paramTypes: [] },
+    debugDualFboEndTransition: { symbol: 'debug_dual_fbo_end_transition', returnType: null, argTypes: [], paramTypes: [] },
     dualFboCancelTransition: { symbol: 'dual_fbo_cancel_transition', returnType: null, argTypes: [], paramTypes: [] },
-    dualFboSwapPresetA: { symbol: 'dual_fbo_swap_preset_a', returnType: null, argTypes: [], paramTypes: [] },
-    dualFboSwapPresetB: { symbol: 'dual_fbo_swap_preset_b', returnType: null, argTypes: [], paramTypes: [] },
-    dualFboGetAReadFbo: { symbol: 'dual_fbo_get_a_read_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboGetAWriteFbo: { symbol: 'dual_fbo_get_a_write_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboGetAReadTex: { symbol: 'dual_fbo_get_a_read_tex', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboGetAWriteTex: { symbol: 'dual_fbo_get_a_write_tex', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboGetBReadFbo: { symbol: 'dual_fbo_get_b_read_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboGetBWriteFbo: { symbol: 'dual_fbo_get_b_write_fbo', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboGetBReadTex: { symbol: 'dual_fbo_get_b_read_tex', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboGetBWriteTex: { symbol: 'dual_fbo_get_b_write_tex', returnType: 'number', argTypes: [], paramTypes: [] },
     dualFboIsPresetAAllocated: { symbol: 'dual_fbo_is_preset_a_allocated', returnType: 'boolean', argTypes: [], paramTypes: [] },
     dualFboIsPresetBAllocated: { symbol: 'dual_fbo_is_preset_b_allocated', returnType: 'boolean', argTypes: [], paramTypes: [] },
-    dualFboSetIdleReleaseSeconds: { symbol: 'dual_fbo_set_idle_release_seconds', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
-    dualFboGetIdleReleaseSeconds: { symbol: 'dual_fbo_get_idle_release_seconds', returnType: 'number', argTypes: [], paramTypes: [] },
     dualFboIsPresetBReady: { symbol: 'dual_fbo_is_preset_b_ready', returnType: 'boolean', argTypes: [], paramTypes: [] },
     dualFboGetFormat: { symbol: 'dual_fbo_get_format', returnType: 'number', argTypes: [], paramTypes: [] },
-    dualFboRenderPresetA: { symbol: 'dual_fbo_render_preset_a', returnType: null, argTypes: [], paramTypes: [] },
-    dualFboRenderPresetB: { symbol: 'dual_fbo_render_preset_b', returnType: null, argTypes: [], paramTypes: [] },
+    debugDualFboRenderPresetA: { symbol: 'debug_dual_fbo_render_preset_a', returnType: null, argTypes: [], paramTypes: [] },
+    debugDualFboRenderPresetB: { symbol: 'debug_dual_fbo_render_preset_b', returnType: null, argTypes: [], paramTypes: [] },
     transitionStart: { symbol: 'transition_start', returnType: null, argTypes: [], paramTypes: [] },
-    transitionCancel: { symbol: 'transition_cancel', returnType: null, argTypes: [], paramTypes: [] },
     transitionIsActive: { symbol: 'transition_is_active', returnType: 'boolean', argTypes: [], paramTypes: [] },
-    transitionGetBlend: { symbol: 'transition_get_blend', returnType: 'number', argTypes: [], paramTypes: [] },
     transitionSetDuration: { symbol: 'transition_set_duration', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
-    transitionGetDuration: { symbol: 'transition_get_duration', returnType: 'number', argTypes: [], paramTypes: [] },
     setDeterministicSeed: { symbol: 'set_deterministic_seed', returnType: null, argTypes: ['number', 'number'], paramTypes: ['boolean', 'number'] },
     isDeterministicSeed: { symbol: 'is_deterministic_seed', returnType: 'boolean', argTypes: [], paramTypes: [] },
     setDeterministicClock: { symbol: 'set_deterministic_clock', returnType: null, argTypes: ['number', 'number'], paramTypes: ['boolean', 'number'] },
@@ -404,9 +344,7 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     getRhythmSection: { symbol: 'get_rhythm_section', returnType: 'number', argTypes: [], paramTypes: [] },
     setRhythmHint: { symbol: 'set_rhythm_hint', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
     setPresetSwitchPolicy: { symbol: 'set_preset_switch_policy', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
-    getPresetSwitchPolicy: { symbol: 'get_preset_switch_policy', returnType: 'number', argTypes: [], paramTypes: [] },
     transitionSetDurationBeats: { symbol: 'transition_set_duration_beats', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
-    transitionGetDurationBeats: { symbol: 'transition_get_duration_beats', returnType: 'number', argTypes: [], paramTypes: [] },
     setHardCutOnBeat: { symbol: 'set_hard_cut_on_beat', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setRhythmEvents: { symbol: 'set_rhythm_events', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setFlashLimitEnabled: { symbol: 'set_flash_limit_enabled', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
@@ -505,8 +443,8 @@ export function feedPcmFloat(
 }
 
 /** Legacy uint8 PCM feed */
-export function addAudioData(module: ProjectMModule, data: number, len: number): void {
-    module._add_audio_data(data, len);
+export function debugAddAudioData(module: ProjectMModule, data: number, len: number): void {
+    module._debug_add_audio_data(data, len);
 }
 
 /** Play audio file from VFS path */
@@ -520,8 +458,8 @@ export function destruct(module: ProjectMModule): void {
 }
 
 /** Opaque projectM handle pointer */
-export function getProjectmHandle(module: ProjectMModule): number {
-    return module._get_projectm_handle();
+export function debugGetProjectmHandle(module: ProjectMModule): number {
+    return module._debug_get_projectm_handle();
 }
 
 /** Initialize EGL/WebGL and projectM, returns 0 on success */
@@ -614,6 +552,11 @@ export function switchPreset(module: ProjectMModule): void {
     module._switch_preset();
 }
 
+/** How long each preset runs before the timer switches: seconds plus a uniform random 0..randomExtraSeconds from the seeded RNG (default 30 s, no random part) */
+export function setPresetDuration(module: ProjectMModule, seconds: number, randomExtraSeconds: number): void {
+    module._set_preset_duration(seconds, randomExtraSeconds);
+}
+
 /** Enable bezel/aspect correction */
 export function setAspectCorrection(module: ProjectMModule, enabled: boolean): void {
     module._set_aspect_correction(enabled ? 1 : 0);
@@ -639,24 +582,9 @@ export function setMesh(module: ProjectMModule, width: number, height: number): 
     module._set_mesh(width, height);
 }
 
-/** Register default /presets/ playlist directory */
-export function addPresetPath(module: ProjectMModule): void {
-    module._add_preset_path();
-}
-
-/** Bulk-add numbered presets from VFS */
-export function addExistingVfsPresets(module: ProjectMModule): void {
-    module._add_existing_vfs_presets();
-}
-
 /** Add preset file to playlist */
 export function addPresetFile(module: ProjectMModule, vfsPath: string): void {
     module.ccall('add_preset_file', null, ['string'], [vfsPath]);
-}
-
-/** Add custom_milk_fixed presets by count */
-export function addCustomMilkPaths(module: ProjectMModule, count: number): void {
-    module._add_custom_milk_paths(count);
 }
 
 /** Feed interleaved float PCM (use feedPcmFloat helper) */
@@ -669,14 +597,9 @@ export function pcmRingInit(module: ProjectMModule, capacityFrames: number): num
     return module._pcm_ring_init(capacityFrames);
 }
 
-/** Release the PCM ring */
-export function pcmRingShutdown(module: ProjectMModule): void {
-    module._pcm_ring_shutdown();
-}
-
 /** Feed every frame written since the last drain, returns frames fed */
-export function pcmRingDrain(module: ProjectMModule): number {
-    return module._pcm_ring_drain();
+export function debugPcmRingDrain(module: ProjectMModule): number {
+    return module._debug_pcm_ring_drain();
 }
 
 /** Byte offset of the ring's int32 header in the WASM heap */
@@ -700,18 +623,18 @@ export function getPcmRingIndexModulus(module: ProjectMModule): number {
 }
 
 /** Current producer write index, in frames */
-export function getPcmRingWriteIndex(module: ProjectMModule): number {
-    return module._get_pcm_ring_write_index();
+export function debugGetPcmRingWriteIndex(module: ProjectMModule): number {
+    return module._debug_get_pcm_ring_write_index();
 }
 
 /** Current drain read index, in frames */
-export function getPcmRingReadIndex(module: ProjectMModule): number {
-    return module._get_pcm_ring_read_index();
+export function debugGetPcmRingReadIndex(module: ProjectMModule): number {
+    return module._debug_get_pcm_ring_read_index();
 }
 
 /** Drains that skipped unread audio because producers lapped the ring */
-export function getPcmRingOverruns(module: ProjectMModule): number {
-    return module._get_pcm_ring_overruns();
+export function debugGetPcmRingOverruns(module: ProjectMModule): number {
+    return module._debug_get_pcm_ring_overruns();
 }
 
 /** Hand the audio worklet its ring descriptor and install the postMessage fallback */
@@ -719,14 +642,9 @@ export function attachWorkletIngest(module: ProjectMModule): void {
     module._attach_worklet_ingest();
 }
 
-/** Route an <audio>/<video> element into the worklet (returns 1 on success) */
-export function connectMediaElementSource(module: ProjectMModule, selector: string): number {
-    return module.ccall('connect_media_element_source', 'number', ['string'], [selector]) as number;
-}
-
 /** Create demo user sprite */
-export function createSprite(module: ProjectMModule): void {
-    module._create_sprite();
+export function debugCreateSprite(module: ProjectMModule): void {
+    module._debug_create_sprite();
 }
 
 /** Stop audio worklet playback */
@@ -757,11 +675,6 @@ export function getTransparencyMode(module: ProjectMModule): boolean {
 /** Set RGB threshold for transparency mode (default 0.01) */
 export function setTransparencyThreshold(module: ProjectMModule, threshold: number): void {
     module._set_transparency_threshold(threshold);
-}
-
-/** Current transparency threshold */
-export function getTransparencyThreshold(module: ProjectMModule): number {
-    return module._get_transparency_threshold();
 }
 
 /** Toggle on-canvas performance HUD */
@@ -795,8 +708,8 @@ export function getGovernorBlurCap(module: ProjectMModule): number {
 }
 
 /** Whether preset shaders are ready */
-export function isPresetReady(module: ProjectMModule, minFramesSinceReady: number): number {
-    return module._is_preset_ready(minFramesSinceReady);
+export function debugIsPresetReady(module: ProjectMModule, minFramesSinceReady: number): number {
+    return module._debug_is_preset_ready(minFramesSinceReady);
 }
 
 /** Total frames rendered since init */
@@ -805,18 +718,23 @@ export function getRenderedFrameCount(module: ProjectMModule): number {
 }
 
 /** Whether last preset switch failed (0/1) */
-export function presetSwitchFailed(module: ProjectMModule): number {
-    return module._preset_switch_failed();
+export function debugPresetSwitchFailed(module: ProjectMModule): number {
+    return module._debug_preset_switch_failed();
+}
+
+/** Current preset duration in seconds as the engine timer sees it (set_preset_duration() test hook) */
+export function debugGetPresetDuration(module: ProjectMModule): number {
+    return module._debug_get_preset_duration();
 }
 
 /** Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook) */
-export function livePlaylistCount(module: ProjectMModule): number {
-    return module._live_playlist_count();
+export function debugLivePlaylistCount(module: ProjectMModule): number {
+    return module._debug_live_playlist_count();
 }
 
 /** Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook) */
-export function getMainLoopTimingMode(module: ProjectMModule): number {
-    return module._get_main_loop_timing_mode();
+export function debugGetMainLoopTimingMode(module: ProjectMModule): number {
+    return module._debug_get_main_loop_timing_mode();
 }
 
 /** Whether OpenMP was compiled in (0/1) */
@@ -870,63 +788,13 @@ export function dualFboBeginTransition(module: ProjectMModule): boolean {
 }
 
 /** Finalize dual-FBO transition */
-export function dualFboEndTransition(module: ProjectMModule): void {
-    module._dual_fbo_end_transition();
+export function debugDualFboEndTransition(module: ProjectMModule): void {
+    module._debug_dual_fbo_end_transition();
 }
 
 /** Cancel in-progress dual-FBO transition */
 export function dualFboCancelTransition(module: ProjectMModule): void {
     module._dual_fbo_cancel_transition();
-}
-
-/** Swap preset A ping-pong buffers */
-export function dualFboSwapPresetA(module: ProjectMModule): void {
-    module._dual_fbo_swap_preset_a();
-}
-
-/** Swap preset B ping-pong buffers */
-export function dualFboSwapPresetB(module: ProjectMModule): void {
-    module._dual_fbo_swap_preset_b();
-}
-
-/** Preset A read FBO handle */
-export function dualFboGetAReadFbo(module: ProjectMModule): number {
-    return module._dual_fbo_get_a_read_fbo();
-}
-
-/** Preset A write FBO handle */
-export function dualFboGetAWriteFbo(module: ProjectMModule): number {
-    return module._dual_fbo_get_a_write_fbo();
-}
-
-/** Preset A read texture handle */
-export function dualFboGetAReadTex(module: ProjectMModule): number {
-    return module._dual_fbo_get_a_read_tex();
-}
-
-/** Preset A write texture handle */
-export function dualFboGetAWriteTex(module: ProjectMModule): number {
-    return module._dual_fbo_get_a_write_tex();
-}
-
-/** Preset B read FBO handle */
-export function dualFboGetBReadFbo(module: ProjectMModule): number {
-    return module._dual_fbo_get_b_read_fbo();
-}
-
-/** Preset B write FBO handle */
-export function dualFboGetBWriteFbo(module: ProjectMModule): number {
-    return module._dual_fbo_get_b_write_fbo();
-}
-
-/** Preset B read texture handle */
-export function dualFboGetBReadTex(module: ProjectMModule): number {
-    return module._dual_fbo_get_b_read_tex();
-}
-
-/** Preset B write texture handle */
-export function dualFboGetBWriteTex(module: ProjectMModule): number {
-    return module._dual_fbo_get_b_write_tex();
 }
 
 /** Whether preset-A FBO is allocated (lazily allocated per transition) */
@@ -937,16 +805,6 @@ export function dualFboIsPresetAAllocated(module: ProjectMModule): boolean {
 /** Whether preset-B FBO is allocated */
 export function dualFboIsPresetBAllocated(module: ProjectMModule): boolean {
     return !!module._dual_fbo_is_preset_b_allocated();
-}
-
-/** Idle seconds before the preset-A FBO pair is reclaimed (0=immediate, <0=never) */
-export function dualFboSetIdleReleaseSeconds(module: ProjectMModule, seconds: number): void {
-    module._dual_fbo_set_idle_release_seconds(seconds);
-}
-
-/** Configured preset-A idle release threshold in seconds */
-export function dualFboGetIdleReleaseSeconds(module: ProjectMModule): number {
-    return module._dual_fbo_get_idle_release_seconds();
 }
 
 /** Whether preset-B shaders are ready */
@@ -960,13 +818,13 @@ export function dualFboGetFormat(module: ProjectMModule): number {
 }
 
 /** Render preset A into dual FBO */
-export function dualFboRenderPresetA(module: ProjectMModule): void {
-    module._dual_fbo_render_preset_a();
+export function debugDualFboRenderPresetA(module: ProjectMModule): void {
+    module._debug_dual_fbo_render_preset_a();
 }
 
 /** Render preset B into dual FBO */
-export function dualFboRenderPresetB(module: ProjectMModule): void {
-    module._dual_fbo_render_preset_b();
+export function debugDualFboRenderPresetB(module: ProjectMModule): void {
+    module._debug_dual_fbo_render_preset_b();
 }
 
 /** Start visual preset transition blend */
@@ -974,29 +832,14 @@ export function transitionStart(module: ProjectMModule): void {
     module._transition_start();
 }
 
-/** Cancel active transition */
-export function transitionCancel(module: ProjectMModule): void {
-    module._transition_cancel();
-}
-
 /** Whether a transition is in progress */
 export function transitionIsActive(module: ProjectMModule): boolean {
     return !!module._transition_is_active();
 }
 
-/** Current transition blend factor 0..1 */
-export function transitionGetBlend(module: ProjectMModule): number {
-    return module._transition_get_blend();
-}
-
 /** Set transition duration in seconds */
 export function transitionSetDuration(module: ProjectMModule, seconds: number): void {
     module._transition_set_duration(seconds);
-}
-
-/** Configured transition duration in seconds */
-export function transitionGetDuration(module: ProjectMModule): number {
-    return module._transition_get_duration();
 }
 
 /** Pin libprojectM's RNG to a seed so a preset renders identical pixels run to run */
@@ -1074,19 +917,9 @@ export function setPresetSwitchPolicy(module: ProjectMModule, policy: number, ba
     module._set_preset_switch_policy(policy, bars);
 }
 
-/** Preset switch policy (0 timer, 1 bars, 2 section) */
-export function getPresetSwitchPolicy(module: ProjectMModule): number {
-    return module._get_preset_switch_policy();
-}
-
 /** Crossfade length in beats, resolved against the tempo when each crossfade starts (0 = use seconds) */
 export function transitionSetDurationBeats(module: ProjectMModule, beats: number): void {
     module._transition_set_duration_beats(beats);
-}
-
-/** Configured crossfade length in beats (0 = seconds) */
-export function transitionGetDurationBeats(module: ProjectMModule): number {
-    return module._transition_get_duration_beats();
 }
 
 /** Make beat-detection hard cuts wait for the next beat */
@@ -1189,6 +1022,7 @@ export const PUBLIC_WASM_API = [
     loadPresetFile,
     loadPresetFileHard,
     switchPreset,
+    setPresetDuration,
     setAspectCorrection,
     renderFrame,
     startRender,
@@ -1202,12 +1036,10 @@ export const PUBLIC_WASM_API = [
     getPcmRingCapacityFrames,
     getPcmRingIndexModulus,
     attachWorkletIngest,
-    connectMediaElementSource,
     setPresetLocked,
     setTransparencyMode,
     getTransparencyMode,
     setTransparencyThreshold,
-    getTransparencyThreshold,
     setTargetFps,
     setQualityGovernor,
     getQualityTier,
@@ -1218,16 +1050,11 @@ export const PUBLIC_WASM_API = [
     dualFboBeginTransition,
     dualFboIsPresetAAllocated,
     dualFboIsPresetBAllocated,
-    dualFboSetIdleReleaseSeconds,
-    dualFboGetIdleReleaseSeconds,
     dualFboIsPresetBReady,
     dualFboGetFormat,
     transitionStart,
-    transitionCancel,
     transitionIsActive,
-    transitionGetBlend,
     transitionSetDuration,
-    transitionGetDuration,
     setDeterministicSeed,
     isDeterministicSeed,
     setDeterministicClock,
@@ -1243,9 +1070,7 @@ export const PUBLIC_WASM_API = [
     getRhythmSection,
     setRhythmHint,
     setPresetSwitchPolicy,
-    getPresetSwitchPolicy,
     transitionSetDurationBeats,
-    transitionGetDurationBeats,
     setHardCutOnBeat,
     setRhythmEvents,
     setFlashLimitEnabled,

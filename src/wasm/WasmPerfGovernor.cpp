@@ -16,12 +16,9 @@
 
 // Per-instance host state (#168 Phase B). The perf HUD flag and the entire
 // adaptive-quality governor (enabled flag, target FPS, current tier, hysteresis
-// counters, post-load grace) were process-global; they are now WasmHost members
-// so each engine governs its own quality independently (acceptance: "governor v2
-// works per instance, not process-wide"). Each body binds same-named local
-// references to the active host's members (`auto& g_qualityTier =
-// H.qualityTier;`). Governor entry points (UpdateQualityGovernor /
-// ResetGovernorCounters / renderLoop) run under the active host.
+// counters, post-load grace) are WasmHost members, so each engine governs its
+// own quality independently. The governor entry points take the host they act
+// on; render_frame() calls them with that host active.
 
 // GPU timer state lives per WebGL context, keyed on the context object: two
 // hosts each render on their own context, and a context re-created after a
@@ -272,10 +269,6 @@ EM_JS(void, js_perf_report_frame, (
 //     permanent downgrade.
 // =============================================================================
 
-// (g_governorEnabled / g_targetFps / g_qualityTier / g_qualityTierInitialized /
-// g_overBudgetFrames / g_underBudgetFrames / g_postLoadGraceFrames
-// are now per-host WasmHost members mapped to macros at the top of this file.)
-
 constexpr double kOverBudgetRatio = 1.3;       //!< Step down once frame time exceeds 1.3x budget...
 constexpr int kOverBudgetFrameThreshold = 15;  //!< ...for this many consecutive frames (~0.25s @ 60fps).
 constexpr double kUnderBudgetRatio = 0.8;      //!< Step back up once frame time is under 0.8x budget...
@@ -339,128 +332,130 @@ EM_JS(void, js_governor_report_blur_cap, (double host, int cap), {
 });
 // clang-format on
 
-static void ApplyQualityTier(int tier)
+static void ApplyQualityTier(WasmHost& host, int tier)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& g_qualityTier = H.qualityTier;
+    projectm_handle engine = host.appData.Engine();
     tier = std::max(0, std::min(kMaxQualityTier, tier));
-    g_qualityTier = tier;
+    host.qualityTier = tier;
     const QualityTierSettings& settings = kQualityTiers[tier];
-    projectm_set_mesh_size(pm, settings.meshWidth, settings.meshHeight);
+    projectm_set_mesh_size(engine, settings.meshWidth, settings.meshHeight);
     // The tier now owns the mesh size; a re-created engine should get it back.
-    H.engineSettings.meshSize = std::make_pair(settings.meshWidth, settings.meshHeight);
-    projectm_set_max_blur_level(pm, settings.maxBlurLevel);
-    projectm_set_blur_resolution_scale(pm, static_cast<float>(settings.blurResolutionScale));
-    const double host = EventHostHandle(H);
-    js_governor_report_tier(host, tier);
-    js_governor_report_render_scale(host, settings.renderScale);
-    js_governor_report_blur_cap(host, settings.maxBlurLevel);
+    host.engineSettings.meshSize = std::make_pair(settings.meshWidth, settings.meshHeight);
+    projectm_set_max_blur_level(engine, settings.maxBlurLevel);
+    projectm_set_blur_resolution_scale(engine, static_cast<float>(settings.blurResolutionScale));
+    const double eventHost = EventHostHandle(host);
+    js_governor_report_tier(eventHost, tier);
+    js_governor_report_render_scale(eventHost, settings.renderScale);
+    js_governor_report_blur_cap(eventHost, settings.maxBlurLevel);
 }
 
-void ReapplyQualityTierLimits()
+void ReapplyQualityTierLimits(WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm || !H.qualityTierInitialized)
+    projectm_handle engine = host.appData.Engine();
+    if (engine == nullptr || !host.qualityTierInitialized)
     {
         return;
     }
-    const QualityTierSettings& settings = kQualityTiers[std::max(0, std::min(kMaxQualityTier, H.qualityTier))];
-    projectm_set_max_blur_level(pm, settings.maxBlurLevel);
-    projectm_set_blur_resolution_scale(pm, static_cast<float>(settings.blurResolutionScale));
+    const QualityTierSettings& settings = kQualityTiers[std::max(0, std::min(kMaxQualityTier, host.qualityTier))];
+    projectm_set_max_blur_level(engine, settings.maxBlurLevel);
+    projectm_set_blur_resolution_scale(engine, static_cast<float>(settings.blurResolutionScale));
 }
 
 // Resets the consecutive over/under-budget frame counters. Called whenever
 // the governor's configuration changes or a tier transition happens, so a
 // single step doesn't immediately trigger another one based on stale counts.
-void ResetGovernorCounters()
+void ResetGovernorCounters(WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& g_overBudgetFrames = H.overBudgetFrames;
-    auto& g_underBudgetFrames = H.underBudgetFrames;
-    g_overBudgetFrames = 0;
-    g_underBudgetFrames = 0;
+    host.overBudgetFrames = 0;
+    host.underBudgetFrames = 0;
+}
+
+// Picks the tier the governor starts from, on the host's first rendered frame.
+static void InitializeQualityTier(WasmHost& host)
+{
+    host.qualityTierInitialized = true;
+
+    // A software renderer (SwiftShader, llvmpipe) would be stepped down to the
+    // cheapest tier within the first second anyway, one sluggish tier at a time.
+    // Start there. Only while the governor runs: a host that turned it off (a
+    // golden capture, a benchmark) keeps the mesh it chose.
+    if (host.softwareRenderer && host.governorEnabled)
+    {
+        ApplyQualityTier(host, kMaxQualityTier);
+        return;
+    }
+
+    size_t width = 0;
+    size_t height = 0;
+    projectm_get_mesh_size(host.appData.Engine(), &width, &height);
+    // Find the lowest tier whose mesh width is still >= the current mesh width,
+    // so startup syncs to whatever html/projectm-mesh-quality.js already applied
+    // (tiers are ordered high -> low, so this picks the first tier at or below it).
+    host.qualityTier = 0;
+    for (int tier = kMaxQualityTier; tier >= 0; tier--)
+    {
+        if (width <= kQualityTiers[tier].meshWidth)
+        {
+            host.qualityTier = tier;
+            break;
+        }
+    }
 }
 
 // Evaluates one frame's wall-clock time against the budget and steps the
 // quality tier up or down if warranted. No-op if the governor is disabled or
 // the frame falls within the post-load grace period.
-void UpdateQualityGovernor(double frameMs)
+void UpdateQualityGovernor(WasmHost& host, double frameMs)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& g_postLoadGraceFrames = H.postLoadGraceFrames;
-    auto& g_governorEnabled = H.governorEnabled;
-    auto& g_targetFps = H.targetFps;
-    auto& g_qualityTier = H.qualityTier;
-    auto& g_qualityTierInitialized = H.qualityTierInitialized;
-    auto& g_overBudgetFrames = H.overBudgetFrames;
-    auto& g_underBudgetFrames = H.underBudgetFrames;
-    // renderLoop() calls this for every started host, including one whose
+    // render_frame() calls this for every started host, including one whose
     // engine is gone (context lost, mid-rebind).
-    if (!pm)
+    if (host.appData.Engine() == nullptr)
     {
         return;
     }
-    if (!g_qualityTierInitialized)
+    if (!host.qualityTierInitialized)
     {
-        size_t width = 0;
-        size_t height = 0;
-        projectm_get_mesh_size(pm, &width, &height);
-        // Find the lowest tier whose mesh width is still >= the current mesh width,
-        // so startup syncs to whatever html/projectm-mesh-quality.js already applied
-        // (tiers are ordered high -> low, so this picks the first tier at or below it).
-        g_qualityTier = 0;
-        for (int tier = kMaxQualityTier; tier >= 0; tier--)
-        {
-            if (width <= kQualityTiers[tier].meshWidth)
-            {
-                g_qualityTier = tier;
-                break;
-            }
-        }
-        g_qualityTierInitialized = true;
+        InitializeQualityTier(host);
     }
 
-    if (g_postLoadGraceFrames > 0)
+    if (host.postLoadGraceFrames > 0)
     {
-        g_postLoadGraceFrames--;
+        host.postLoadGraceFrames--;
         return;
     }
 
-    if (!g_governorEnabled)
+    if (!host.governorEnabled)
     {
         return;
     }
 
-    const double budgetMs = 1000.0 / static_cast<double>(g_targetFps > 0 ? g_targetFps : 60);
+    const double budgetMs = 1000.0 / static_cast<double>(host.targetFps > 0 ? host.targetFps : 60);
 
     if (frameMs > budgetMs * kOverBudgetRatio)
     {
-        g_overBudgetFrames++;
-        g_underBudgetFrames = 0;
+        host.overBudgetFrames++;
+        host.underBudgetFrames = 0;
     }
     else if (frameMs < budgetMs * kUnderBudgetRatio)
     {
-        g_underBudgetFrames++;
-        g_overBudgetFrames = 0;
+        host.underBudgetFrames++;
+        host.overBudgetFrames = 0;
     }
     else
     {
-        g_overBudgetFrames = 0;
-        g_underBudgetFrames = 0;
+        host.overBudgetFrames = 0;
+        host.underBudgetFrames = 0;
     }
 
-    if (g_overBudgetFrames >= kOverBudgetFrameThreshold && g_qualityTier < kMaxQualityTier)
+    if (host.overBudgetFrames >= kOverBudgetFrameThreshold && host.qualityTier < kMaxQualityTier)
     {
-        ApplyQualityTier(g_qualityTier + 1);
-        ResetGovernorCounters();
+        ApplyQualityTier(host, host.qualityTier + 1);
+        ResetGovernorCounters(host);
     }
-    else if (g_underBudgetFrames >= kUnderBudgetFrameThreshold && g_qualityTier > 0)
+    else if (host.underBudgetFrames >= kUnderBudgetFrameThreshold && host.qualityTier > 0)
     {
-        ApplyQualityTier(g_qualityTier - 1);
-        ResetGovernorCounters();
+        ApplyQualityTier(host, host.qualityTier - 1);
+        ResetGovernorCounters(host);
     }
 }
 
@@ -472,19 +467,16 @@ EMSCRIPTEN_KEEPALIVE
 void set_target_fps(int fps)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& g_targetFps = H.targetFps;
     if (fps <= 0)
     {
         fps = 60;
     }
-    g_targetFps = fps;
-    if (pm)
+    H.targetFps = fps;
+    if (projectm_handle engine = H.appData.Engine())
     {
-        projectm_set_fps(pm, fps);
+        projectm_set_fps(engine, fps);
     }
-    ResetGovernorCounters();
-    return;
+    ResetGovernorCounters(H);
 }
 
 // Enables/disables the adaptive quality governor (see UpdateQualityGovernor
@@ -494,10 +486,8 @@ EMSCRIPTEN_KEEPALIVE
 void set_quality_governor(int enabled)
 {
     WasmHost& H = Host();
-    auto& g_governorEnabled = H.governorEnabled;
-    g_governorEnabled = enabled != 0;
-    ResetGovernorCounters();
-    return;
+    H.governorEnabled = enabled != 0;
+    ResetGovernorCounters(H);
 }
 
 // Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48,
@@ -505,9 +495,7 @@ void set_quality_governor(int enabled)
 EMSCRIPTEN_KEEPALIVE
 int get_quality_tier()
 {
-    WasmHost& H = Host();
-    auto& g_qualityTier = H.qualityTier;
-    return g_qualityTier;
+    return Host().qualityTier;
 }
 
 // Returns the current tier's internal render scale (1.0/0.75/0.5). Pull
@@ -517,9 +505,7 @@ int get_quality_tier()
 EMSCRIPTEN_KEEPALIVE
 double get_governor_render_scale()
 {
-    WasmHost& H = Host();
-    auto& g_qualityTier = H.qualityTier;
-    return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].renderScale;
+    return kQualityTiers[std::max(0, std::min(kMaxQualityTier, Host().qualityTier))].renderScale;
 }
 
 // Returns the current tier's blur-level cap (-1 = uncapped, else 0-3). See
@@ -527,9 +513,7 @@ double get_governor_render_scale()
 EMSCRIPTEN_KEEPALIVE
 int get_governor_blur_cap()
 {
-    WasmHost& H = Host();
-    auto& g_qualityTier = H.qualityTier;
-    return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].maxBlurLevel;
+    return kQualityTiers[std::max(0, std::min(kMaxQualityTier, Host().qualityTier))].maxBlurLevel;
 }
 
 // Toggles the frame-time profiling HUD/benchmark instrumentation. When
@@ -541,14 +525,12 @@ EMSCRIPTEN_KEEPALIVE
 void set_perf_hud(int enabled)
 {
     WasmHost& H = Host();
-    auto& g_perfHudEnabled = H.perfHudEnabled;
-    g_perfHudEnabled = enabled != 0;
-    projectm_perf_set_enabled(g_perfHudEnabled);
+    H.perfHudEnabled = enabled != 0;
+    projectm_perf_set_enabled(H.perfHudEnabled);
     // Per-stage GPU timing (js_perf_gpu_enter_stage()). Process-global like the
     // perf timers themselves; each call lands on whichever host is rendering.
-    projectm_perf_set_gpu_stage_callback(g_perfHudEnabled ? &OnGpuStageChange : nullptr, nullptr);
+    projectm_perf_set_gpu_stage_callback(H.perfHudEnabled ? &OnGpuStageChange : nullptr, nullptr);
     js_perf_hud_set_enabled(EventHostHandle(H), enabled);
-    return;
 }
 
 // OpenMP introspection for benchmark reports and runtime verification.

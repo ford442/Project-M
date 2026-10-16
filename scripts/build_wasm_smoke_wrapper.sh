@@ -43,6 +43,10 @@ projectm_resolve_cmake_build_dir() {
 CMAKE_BUILD_DIR="$(projectm_resolve_cmake_build_dir)"
 LIBPROJECTM_GENERATED_INCLUDE="$CMAKE_BUILD_DIR/src/libprojectM"
 LIBPROJECTM_SOURCE_INCLUDE="$PROJECT_ROOT/src/libprojectM"
+# projectM-4/projectM_cxx_export.h, which libprojectM's internal headers (the
+# wrapper logs through Logging.hpp) include; not installed without
+# ENABLE_CXX_INTERFACE.
+LIBPROJECTM_GENERATED_API_INCLUDE="$CMAKE_BUILD_DIR/src/api/include"
 
 projectm_wasm_wrapper_include_args() {
     local -n _out=$1
@@ -53,6 +57,7 @@ projectm_wasm_wrapper_include_args() {
         -I "$PROJECT_ROOT/omp"
         -I "$LIBPROJECTM_SOURCE_INCLUDE"
         -I "$LIBPROJECTM_GENERATED_INCLUDE"
+        -I "$LIBPROJECTM_GENERATED_API_INCLUDE"
         -I "$PROJECT_ROOT/vendor/hlslparser/src"
         -I "$PROJECT_ROOT/vendor/glad/include"
         -I "$PROJECT_ROOT/vendor"
@@ -83,11 +88,21 @@ else
     echo "Warning: libomp.a not found; OpenMP runtime will not be linked" >&2
 fi
 
+# Test hooks (the `debug` exports of cmake/WasmApiManifest.cmake: is_preset_ready,
+# live_playlist_count, ...) are exported by default here, because the smoke and
+# golden harnesses drive them. A bundle built with them is not deployable: its
+# build-id says so, and scripts/prepare_deploy_bundle.sh links with
+# PROJECTM_WASM_DEBUG_EXPORTS=0.
+export PROJECTM_WASM_DEBUG_EXPORTS="${PROJECTM_WASM_DEBUG_EXPORTS:-1}"
+
 common_args=()
 projectm_wasm_common_link_args common_args
 
 simd_compile_args=()
 projectm_wasm_simd_compile_args simd_compile_args
+
+wrapper_compile_args=()
+projectm_wasm_wrapper_compile_args wrapper_compile_args
 
 wrapper_include_args=()
 projectm_wasm_wrapper_include_args wrapper_include_args
@@ -154,6 +169,9 @@ fi
 flavor_compile_args=()
 flavor_link_args=()
 build_id_suffix=""
+if [[ "$PROJECTM_WASM_DEBUG_EXPORTS" == "1" ]]; then
+    build_id_suffix+="+debug-exports"
+fi
 if [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" ]]; then
     flavor_link_args+=(-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1)
     build_id_suffix+="+gl-debug"
@@ -164,37 +182,36 @@ if [[ "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" ]]; then
     build_id_suffix+="+explicit-swap"
 fi
 
-# LTO (PROJECTM_WASM_LTO=1, see cmake/EmscriptenWasmFlags.cmake): the static
-# libs are LLVM bitcode and the link optimises across them. The wrapper TUs are
-# still compiled to native wasm objects first: Emscripten 6.0.6 does not register
+# The wrapper TUs are compiled to objects first, all at once, then linked in
+# one em++ call. (One em++ call over the sources compiled them one after the
+# other.) With LTO (PROJECTM_WASM_LTO=1, see cmake/EmscriptenWasmFlags.cmake)
+# the static libs are LLVM bitcode and the link optimises across them; the
+# wrapper objects stay native wasm even then: Emscripten 6.0.6 does not register
 # EM_JS functions defined in bitcode as JS imports, so an -flto compile of
-# WasmJsBindings.cpp & co. leaves every EM_JS call an undefined symbol at link.
-wrapper_inputs=("${wrapper_sources[@]}")
-if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
-    obj_dir="$OUT_DIR/obj"
-    mkdir -p "$obj_dir"
-    compile_args=()
-    for arg in "${common_args[@]}"; do
-        [[ "$arg" == "-flto" ]] || compile_args+=("$arg")
-    done
-    wrapper_inputs=()
-    compile_pids=()
-    for src in "${wrapper_sources[@]}"; do
-        obj="$obj_dir/$(basename "${src%.cpp}").o"
-        "${emxx_cmd[@]}" -c "$src" \
-            "${wrapper_include_args[@]}" \
-            "${wrapper_warning_args[@]}" \
-            "${simd_compile_args[@]}" \
-            "${flavor_compile_args[@]}" \
-            "${compile_args[@]}" \
-            -o "$obj" &
-        compile_pids+=("$!")
-        wrapper_inputs+=("$obj")
-    done
-    # A bare `wait` returns 0 whatever the jobs did; check each one.
-    for pid in "${compile_pids[@]}"; do
-        wait "$pid"
-    done
+# WasmJsBindings.cpp & co. would leave every EM_JS call an undefined symbol.
+obj_dir="$OUT_DIR/obj"
+mkdir -p "$obj_dir"
+wrapper_inputs=()
+compile_pids=()
+for src in "${wrapper_sources[@]}"; do
+    obj="$obj_dir/$(basename "${src%.cpp}").o"
+    "${emxx_cmd[@]}" -c "$src" \
+        "${wrapper_include_args[@]}" \
+        "${wrapper_warning_args[@]}" \
+        "${wrapper_compile_args[@]}" \
+        "${flavor_compile_args[@]}" \
+        -o "$obj" &
+    compile_pids+=("$!")
+    wrapper_inputs+=("$obj")
+done
+# A bare `wait` returns 0 whatever the jobs did; check each one.
+compile_failed=0
+for pid in "${compile_pids[@]}"; do
+    wait "$pid" || compile_failed=1
+done
+if [[ "$compile_failed" -ne 0 ]]; then
+    echo "ERROR: a wrapper translation unit failed to compile" >&2
+    exit 1
 fi
 
 # Extra em++ link flags, whitespace-separated — e.g. the debug CI leg's
@@ -203,11 +220,9 @@ extra_link_args=()
 read -r -a extra_link_args <<< "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}"
 
 "${emxx_cmd[@]}" "${wrapper_inputs[@]}" \
-    "${wrapper_include_args[@]}" \
     "${wrapper_warning_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \
-    "${flavor_compile_args[@]}" \
     "${flavor_link_args[@]}" \
     "${extra_link_args[@]}" \
     -s INVOKE_RUN=0 \

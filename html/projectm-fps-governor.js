@@ -30,27 +30,17 @@ import {
     setQualityGovernor as wasmSetQualityGovernor,
     setTargetFps as wasmSetTargetFps,
 } from './generated/projectm-wasm-api.js';
+import { readHostFlag } from './projectm-host-config.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 const DEFAULT_TARGET_FPS = 60;
 
 /**
  * `localStorage` throws on *access* in a sandboxed iframe (opaque origin) and in
- * some private modes, not just on getItem/setItem, so every touch goes through
- * these two. A page that cannot persist a preference still gets the preference
- * for the current load.
- *
- * @param {string} key
- * @returns {string | null}
+ * some private modes, not just on setItem, so writes are guarded. A page that
+ * cannot persist a preference still gets it for the current load. (Reads go
+ * through projectm-host-config.js, which guards them the same way.)
  */
-function readStoredSetting(key) {
-    try {
-        return globalThis.localStorage.getItem(key);
-    } catch {
-        return null;
-    }
-}
-
 /**
  * @param {string} key
  * @param {string} value
@@ -79,20 +69,6 @@ const activeGovernors = new WeakMap();
 function resolveTargetFps(value) {
     const fps = parseInt(String(value), 10);
     return Number.isFinite(fps) && fps > 0 ? fps : DEFAULT_TARGET_FPS;
-}
-
-/**
- * @param {string | null | undefined} value
- * @returns {boolean}
- */
-function resolveGovernorEnabled(value) {
-    if (value === '0' || value === 'false') {
-        return false;
-    }
-    if (value === '1' || value === 'true') {
-        return true;
-    }
-    return true;
 }
 
 /**
@@ -181,19 +157,14 @@ export function getGovernorBlurCap(Module) {
  */
 export function setupFpsGovernor(Module, options = {}) {
     const { onRenderScaleChange } = options;
-    const params = options.params || new URLSearchParams(location.search);
+    // ?targetFps= / ?governor=, else the stored preference (projectm-host-config.js).
+    const sources = options.params ? { search: options.params } : {};
 
     activeGovernors.get(Module)?.();
 
-    const targetFps = setTargetFps(
-        Module,
-        params.get('targetFps') || readStoredSetting('targetFps') || DEFAULT_TARGET_FPS
-    );
+    const targetFps = setTargetFps(Module, readHostFlag('targetFps', sources));
 
-    const governorEnabled = setQualityGovernorEnabled(
-        Module,
-        resolveGovernorEnabled(params.get('governor') || readStoredSetting('qualityGovernor'))
-    );
+    const governorEnabled = setQualityGovernorEnabled(Module, readHostFlag('governor', sources));
 
     let currentRenderScale = getGovernorRenderScale(Module);
     let currentBlurCap = getGovernorBlurCap(Module);

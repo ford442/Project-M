@@ -153,8 +153,9 @@ residency for Preset A in non-transition playback.
 **#199 follow-up.** Cold-start laziness alone only bought the window before the first
 preset switch: `PromoteBtoA()` left the pair resident for the rest of the session
 afterwards, even though the compositor gate is false between transitions. The pair is
-now reclaimed by `ReleaseDualFboIfIdle()` after a grace period
-(`dual_fbo_set_idle_release_seconds()`, default 5 s), so steady-state residency is 0 B
+now reclaimed by `ReleaseDualFboIfIdle()` after a fixed 5 s grace period (it was tunable
+through `dual_fbo_set_idle_release_seconds()` until that uncalled export was removed), so
+steady-state residency is 0 B
 at every point, not just before the first transition. Three wedge/leak paths were
 closed alongside it: `transition_start()` no longer arms a blend the compositor cannot
 run (which pinned `g_transitionActive` at true and both pairs resident forever),
@@ -260,8 +261,9 @@ Two behavioural details worth knowing:
   same domain as the source. The option defaults to `OFF`, so default builds are
   unaffected.
 
-**Ablation switch:** `?blurPath=copy` (WASM, `src/wasm/WasmRenderPathOverrides.cpp`) or `PROJECTM_BLUR_COPY_PATH=1` (native)
-forces the legacy copy path, so before/after can be benchmarked **on a single build**.
+**Ablation switch:** `?blurPath=copy` (WASM, `src/wasm/WasmRenderPathOverrides.cpp`) or
+`projectm_set_render_path(PROJECTM_RENDER_PATH_BLUR_COPY)` (native; the SDL developer UI maps
+`PROJECTM_BLUR_COPY_PATH=1` onto it) forces the legacy copy path, so before/after can be benchmarked **on a single build**.
 This is the recommended way to produce #177's before/after `?benchmark=1` JSON —
 and note the `blurMs` caveat above: that bucket will fall further than frame time does.
 
@@ -410,8 +412,9 @@ It deliberately falls back to the quad whenever the blit would **not** be equiva
   `shared_ptr` without re-issuing `glFramebufferTexture2D` and so is not a straightforward
   render-to-target (pre-existing behaviour; not changed here).
 
-**Ablation switch:** `?copyPath=shader` (WASM, `src/wasm/WasmRenderPathOverrides.cpp`) or `PROJECTM_COPY_SHADER_PATH=1` (native)
-restores the all-quad behaviour on the same build, mirroring `?blurPath=copy` from #177.
+**Ablation switch:** `?copyPath=shader` (WASM, `src/wasm/WasmRenderPathOverrides.cpp`) or
+`projectm_set_render_path(PROJECTM_RENDER_PATH_COPY_SHADER)` (native; the SDL developer UI maps
+`PROJECTM_COPY_SHADER_PATH=1` onto it) restores the all-quad behaviour on the same build, mirroring `?blurPath=copy` from #177.
 
 **Not measured.** The A/B that sizes this must use an old-school preset with a **custom warp
 shader and no composite shader** — that is the only preset shape that pays all three quads.
@@ -543,7 +546,7 @@ is also the largest piece of new work.
    directly by preset code (`glBlitFramebuffer`, `glFramebufferTexture2D` and raw enums appear
    in preset-level files, including in A1 above). There is no device abstraction to implement
    a second backend behind; introducing one is the actual XL, independent of WGSL.
-4. **Emscripten integration is a separate world.** The build is `USE_WEBGL2=1` +
+4. **Emscripten integration is a separate world.** The build is
    `MIN/MAX_WEBGL_VERSION=2` with glad-style GL entry points. WebGPU means emdawnwebgpu /
    `navigator.gpu` and a different (asynchronous) device/adapter acquisition path — which
    collides with the ASYNCIFY/JSPI work in [#173](https://github.com/ford442/Project-M/issues/173)

@@ -30,7 +30,6 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
-        FlashLimiterTest.cpp
         FramebufferTest.cpp
         HeadlessGlContext.cpp
         GlOffscreenContext.cpp
@@ -49,8 +48,6 @@ add_executable(projectM-unittest
         PCMAudioReactivityTest.cpp
         PCMAudioBenchTest.cpp
         PerfGpuStageTest.cpp
-        PerPixelGlslLoweringTest.cpp
-        PerPixelGpuRenderTest.cpp
         RhythmAnalyzerTest.cpp
         ShaderCacheTest.cpp
         WaveformAlignerTest.cpp
@@ -63,6 +60,20 @@ add_executable(projectM-unittest
         $<TARGET_OBJECTS:stb_image>
         $<TARGET_OBJECTS:projectM_main>
         )
+
+# These drive a real desktop GL 3.3 context through <glad/gl.h>. Under USE_GLES (Emscripten,
+# Android, ENABLE_GLES) the engine headers pull in <glad/gles2.h> instead, and glad refuses to
+# share a translation unit with the desktop header ("gl3.h header already included"), nor does
+# that build link glad's desktop loader. HeadlessGlContext has no backend there either, so they
+# could only ever skip; the browser smoke/golden steps cover the GLES path.
+if(NOT USE_GLES)
+    target_sources(projectM-unittest
+            PRIVATE
+            FlashLimiterTest.cpp
+            PerPixelGlslLoweringTest.cpp
+            PerPixelGpuRenderTest.cpp
+            )
+endif()
 
 target_compile_definitions(projectM-unittest
         PRIVATE
@@ -97,14 +108,15 @@ target_link_libraries(projectM-unittest
         projectM::Eval
         glad
         OpenGL::GL
-        EGL
         GTest::gtest
         GTest::gtest_main
         )
 
 if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
     find_package(SDL2 REQUIRED)
-    target_link_libraries(projectM-unittest PRIVATE SDL2::SDL2 glad)
+    # EGL backs GlOffscreenContext.cpp, which compiles to a stub everywhere else (macOS and
+    # Windows have no <EGL/egl.h>).
+    target_link_libraries(projectM-unittest PRIVATE SDL2::SDL2 glad EGL)
 endif()
 
 find_program(XVFB_RUN_EXECUTABLE NAMES xvfb-run)
@@ -118,25 +130,27 @@ endif()
 # Allows running just the preset compatibility harness via "ctest -R PresetCompat".
 add_test(NAME PresetCompat COMMAND projectM-unittest --gtest_filter=*PresetCompat*)
 
-# GPU per-pixel compiler: CPU evaluator vs. the generated shader (see
-# docs/GPU_PERPIXEL_EVAL.md). Needs a GL context, so it follows the xvfb pattern.
-if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
-    add_test(NAME PerPixelGlslLowering
-            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
-            --gtest_filter=*PerPixelGlslLowering*)
-else()
-    add_test(NAME PerPixelGlslLowering
-            COMMAND projectM-unittest --gtest_filter=*PerPixelGlslLowering*)
-endif()
+if(NOT USE_GLES)
+    # GPU per-pixel compiler: CPU evaluator vs. the generated shader (see
+    # docs/GPU_PERPIXEL_EVAL.md). Needs a GL context, so it follows the xvfb pattern.
+    if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+        add_test(NAME PerPixelGlslLowering
+                COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+                --gtest_filter=*PerPixelGlslLowering*)
+    else()
+        add_test(NAME PerPixelGlslLowering
+                COMMAND projectM-unittest --gtest_filter=*PerPixelGlslLowering*)
+    endif()
 
-# End-to-end: the same preset rendered on the CPU and GPU per-pixel paths.
-if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
-    add_test(NAME PerPixelGpuRender
-            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
-            --gtest_filter=*PerPixelGpuRender*)
-else()
-    add_test(NAME PerPixelGpuRender
-            COMMAND projectM-unittest --gtest_filter=*PerPixelGpuRender*)
+    # End-to-end: the same preset rendered on the CPU and GPU per-pixel paths.
+    if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+        add_test(NAME PerPixelGpuRender
+                COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+                --gtest_filter=*PerPixelGpuRender*)
+    else()
+        add_test(NAME PerPixelGpuRender
+                COMMAND projectM-unittest --gtest_filter=*PerPixelGpuRender*)
+    endif()
 endif()
 
 # Multi-pass transition tests (subset of projectM-unittest).

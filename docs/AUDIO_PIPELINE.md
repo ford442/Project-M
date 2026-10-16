@@ -16,7 +16,7 @@ flowchart LR
   end
   subgraph wasm [WASM / libprojectM]
     PCMRING[(PCM ring\n16384 stereo frames\nWasmPcmRing.cpp)]
-    DRAIN[render_frame\npcm_ring_drain]
+    DRAIN[render_frame\nPcmRingDrain]
     ADD[projectm_pcm_add_float\nPCM::Add]
     RING[(576-sample ring\nper channel)]
     UPD[PCM::UpdateFrameAudioData]
@@ -234,7 +234,8 @@ engine.
 - **`ProjectMContext`** creates a router from `audioSource` (`element` /
   `external` / `none`) and wires `projectm-external-pcm.js` through
   `feedGate` + `wrapExternalFeed`.
-- **`projectm-core.html`** shares one router with `autoSwitchOnFeed: true` so
+- **`projectm-core.html`** (its script is `html/projectm-core-host.js`) shares
+  one router with `autoSwitchOnFeed: true` so
   the first FLAC/MOD PCM chunk or `pl()` call promotes that path and mutes the
   others.
 - Status is exposed as `context.getAudioSourceStatus()` and the custom-element
@@ -249,7 +250,7 @@ There is no "mix" mode; see [Mixing](#mixing-not-implemented).
 | **Media element** | `html/projectm-audio-element-source.js` → the same worklet | 128-frame quantum, stereo | none |
 | **External PCM** | `html/projectm-external-pcm.js` | whole chunk, stereo | optional `externalPcmGain` |
 | **Synthetic** | `html/projectm-synthetic-audio.js` | whole chunk | none |
-| **Legacy uint8** | `add_audio_data()` | variable | Mono 8-bit centered at 128 (does not use the ring) |
+| **Legacy uint8** (test hook) | `debug_add_audio_data()` | variable | Mono 8-bit centered at 128 (does not use the ring). Exported only by `PROJECTM_WASM_DEBUG_EXPORTS=1` builds |
 
 FLAC “Start/Change Song” uses the worklet path: the `./flac/` decoder posts a WAV on
 `BroadcastChannel('file')`, WASM writes it to MEMFS and calls `pl()`. If
@@ -275,10 +276,13 @@ See `docs/EMSCRIPTEN.md` § External Audio Sources for manual parity checks agai
 | Tool | Enable | Purpose |
 |------|--------|---------|
 | `?audioTest=1` | `projectm-core.html` | Panel: silence / bass / mid / treble / beat / sweep |
-| `?debugSender=1` | `projectm-core.html` | Local tone/mic → external PCM bridge |
+| `?debugSender` (or localhost) | `projectm-core.html` | Local tone/mic → external PCM bridge (`window.startLocalProjectMTestSender(useMic)` / `stopLocalProjectMTestSender()`) |
 | `window.feedPCMToModuleForDebug(buf, ch)` | always in core | Direct feed from console |
 
-Generators live in `html/projectm-synthetic-audio.js`.
+Generators live in `html/projectm-synthetic-audio.js`. The console names are
+published by `exposeHostPageGlobals()` (`html/projectm-legacy-globals.js`), the
+only way a host module may put a name on `window` (`scripts/check_host_globals.sh`).
+Every `?flag` above, with its fallbacks, is listed in [`docs/HOST_FLAGS.md`](HOST_FLAGS.md).
 
 ## External PCM sender / receiver contract
 
@@ -325,7 +329,9 @@ The host enforces one producer and one transport (`acceptExternalPcmChunk()` in
 #### Tab / system audio capture (`html/audio-capture.html`)
 
 The **TAB** launcher in `projectm-core.html` (`window.openAudioCapture()`) opens
-`audio-capture.html` as a same-origin popup. The production bezel
+`audio-capture.html` as a same-origin popup, through the same popup
+audio-player controller as the panel's audio button, so the controller owns
+the window and its `dispose()` closes it. The production bezel
 (`projectm_panel2.1ink`, served as `1ink.1ink`) reaches the same popup from
 the audio-player button: the cycle is FLAC, MOD, tab/system capture, then
 hide. Its Start button calls

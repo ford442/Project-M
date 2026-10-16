@@ -316,3 +316,156 @@ test('audio cycle opens tab/system capture as a popup and closes it on the next 
         globalThis.localStorage = previousLocalStorage;
     }
 });
+
+/**
+ * Just enough page for the controllers: a window.open that records what it was
+ * given, and a document whose iframe feeders can be told apart when removed.
+ * Returns the recorders and a restore().
+ */
+function installPlayerPage() {
+    const saved = {
+        open: globalThis.open,
+        document: globalThis.document,
+        window: globalThis.window,
+        location: globalThis.location,
+        localStorage: globalThis.localStorage,
+    };
+    const windows = [];
+    const frames = [];
+    const sections = {
+        flacPlayerSection: { style: { display: 'none' }, querySelector: () => null },
+        modPlayerSection: { style: { display: 'none' }, querySelector: () => null },
+    };
+
+    globalThis.location = { href: 'https://projectm.1ink.us/projectm-core.html', origin: 'https://projectm.1ink.us' };
+    globalThis.window = { location: globalThis.location };
+    globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+    globalThis.open = (url, name) => {
+        const handle = {
+            name,
+            url,
+            closed: false,
+            close() { this.closed = true; },
+            focus() {},
+        };
+        windows.push(handle);
+        return handle;
+    };
+    globalThis.document = {
+        getElementById(id) {
+            if (id === 'flacPlayerUrl') return { textContent: './flac-player/' };
+            if (id === 'modPlayerUrl') return { textContent: 'https://test.1ink.us/xm-player/' };
+            return frames.find((frame) => frame.id === id) ?? sections[id] ?? null;
+        },
+        querySelector() { return null; },
+        querySelectorAll() { return Object.values(sections); },
+        createElement() {
+            return {
+                id: '',
+                src: '',
+                style: { display: '' },
+                removed: false,
+                setAttribute() {},
+                getAttribute() { return ''; },
+                remove() { this.removed = true; },
+            };
+        },
+        body: { appendChild(node) { frames.push(node); } },
+    };
+
+    return {
+        windows,
+        frames,
+        sections,
+        restore() {
+            globalThis.open = saved.open;
+            globalThis.document = saved.document;
+            globalThis.window = saved.window;
+            globalThis.location = saved.location;
+            globalThis.localStorage = saved.localStorage;
+        },
+    };
+}
+
+test('the section controller disposes the capture popup it opened, once', () => {
+    const page = installPlayerPage();
+    try {
+        const section = createSectionAudioPlayerController({ updateUi() {} });
+        assert.equal(typeof section.dispose, 'function');
+
+        section.showAudioPlayer('capture');
+        assert.equal(page.windows.length, 1);
+        assert.equal(page.windows[0].closed, false);
+        page.sections.flacPlayerSection.style.display = 'block';
+
+        section.dispose();
+        assert.equal(page.windows[0].closed, true);
+        assert.equal(
+            page.sections.flacPlayerSection.style.display,
+            'block',
+            'the page owns its inline sections; disposal leaves them alone'
+        );
+
+        // Nothing is tracked any more: a second dispose must not touch a handle
+        // the page has since reused for something else.
+        page.windows[0].closed = false;
+        section.dispose();
+        assert.equal(page.windows[0].closed, false);
+    } finally {
+        page.restore();
+    }
+});
+
+test('the popup controller disposes every window and feeder frame it opened', () => {
+    const page = installPlayerPage();
+    try {
+        const popup = createPopupAudioPlayerController({ updateUi() {} });
+        assert.equal(typeof popup.dispose, 'function');
+
+        popup.showAudioPlayer('flac'); // same-origin: an iframe feeder, never a window
+        assert.equal(page.frames.length, 1);
+        assert.equal(page.windows.length, 0);
+
+        popup.showAudioPlayer('mod'); // cross-origin: a real window; the flac frame is only hidden
+        assert.equal(page.windows.length, 1);
+        assert.equal(page.frames[0].style.display, 'none');
+        assert.equal(page.frames[0].removed, false, 'switching sources keeps the feeder loaded');
+
+        popup.showAudioPlayer('capture');
+        assert.equal(page.windows.length, 2);
+        assert.equal(page.windows[0].closed, true, 'switching sources closes the previous window');
+        const captureWindow = page.windows[1];
+
+        popup.dispose();
+        assert.equal(captureWindow.closed, true);
+        assert.equal(
+            page.frames[0].removed,
+            true,
+            'disposal removes a feeder that was only hidden by an earlier switch, not just the live one'
+        );
+
+        // Idempotent: a second call finds nothing left to release.
+        page.frames[0].removed = false;
+        popup.dispose();
+        assert.equal(page.frames[0].removed, false);
+    } finally {
+        page.restore();
+    }
+});
+
+test('showing a popup source again focuses its window rather than replacing it', () => {
+    const page = installPlayerPage();
+    try {
+        const popup = createPopupAudioPlayerController({ updateUi() {} });
+        popup.showAudioPlayer('capture');
+        popup.showAudioPlayer('capture');
+        assert.equal(page.windows.length, 1);
+        assert.equal(page.windows[0].closed, false);
+
+        // The shared release loop must still track the reused window.
+        popup.dispose();
+        assert.equal(page.windows[0].closed, true);
+    } finally {
+        page.restore();
+    }
+});

@@ -178,15 +178,15 @@ void ReleaseFrameCapture(WasmHost& host)
 
 double FlashClampedFramesForHud(WasmHost& host)
 {
-    projectm_handle pm = host.appData.projectm_engine;
-    if (pm == nullptr || !projectm_get_flash_limit_enabled(pm))
+    projectm_handle engine = host.appData.Engine();
+    if (engine == nullptr || !projectm_get_flash_limit_enabled(engine))
     {
         return -1.0;
     }
     const double now = emscripten_get_now();
     if (host.flashClampedFramesReadMs < 0.0 || now - host.flashClampedFramesReadMs >= kFlashCountRefreshMs)
     {
-        host.flashClampedFrames = projectm_get_flash_limit_clamped_frames(pm);
+        host.flashClampedFrames = projectm_get_flash_limit_clamped_frames(engine);
         host.flashClampedFramesReadMs = now;
     }
     return static_cast<double>(host.flashClampedFrames);
@@ -202,27 +202,27 @@ EMSCRIPTEN_KEEPALIVE
 void set_flash_limit_enabled(bool enabled)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
+    projectm_handle engine = H.appData.Engine();
     H.engineSettings.flashLimitEnabled = enabled;
     H.flashClampedFrames = 0;
     H.flashClampedFramesReadMs = -1.0;
-    if (!pm)
+    if (engine == nullptr)
     {
         return;
     }
-    projectm_set_flash_limit_enabled(pm, enabled);
+    projectm_set_flash_limit_enabled(engine, enabled);
 }
 
 EMSCRIPTEN_KEEPALIVE
 bool get_flash_limit_enabled()
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
+    projectm_handle engine = H.appData.Engine();
+    if (engine == nullptr)
     {
         return H.engineSettings.flashLimitEnabled.value_or(false);
     }
-    return projectm_get_flash_limit_enabled(pm);
+    return projectm_get_flash_limit_enabled(engine);
 }
 
 /** The limiter's threshold (projectm_set_flash_limit_threshold()). */
@@ -230,25 +230,25 @@ EMSCRIPTEN_KEEPALIVE
 void set_flash_limit_threshold(float threshold)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
+    projectm_handle engine = H.appData.Engine();
     H.engineSettings.flashLimitThreshold = threshold;
-    if (!pm)
+    if (engine == nullptr)
     {
         return;
     }
-    projectm_set_flash_limit_threshold(pm, threshold);
+    projectm_set_flash_limit_threshold(engine, threshold);
 }
 
 EMSCRIPTEN_KEEPALIVE
 float get_flash_limit_threshold()
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
+    projectm_handle engine = H.appData.Engine();
+    if (engine == nullptr)
     {
         return H.engineSettings.flashLimitThreshold.value_or(0.0f);
     }
-    return projectm_get_flash_limit_threshold(pm);
+    return projectm_get_flash_limit_threshold(engine);
 }
 
 /**
@@ -259,12 +259,12 @@ EMSCRIPTEN_KEEPALIVE
 unsigned int get_flash_limit_clamped_frames()
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
+    projectm_handle engine = H.appData.Engine();
+    if (engine == nullptr)
     {
         return H.flashClampedFrames;
     }
-    H.flashClampedFrames = projectm_get_flash_limit_clamped_frames(pm);
+    H.flashClampedFrames = projectm_get_flash_limit_clamped_frames(engine);
     H.flashClampedFramesReadMs = emscripten_get_now();
     return H.flashClampedFrames;
 }

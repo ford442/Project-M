@@ -30,6 +30,8 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Module.ccall public-API calls. Add new hosts here as they are created.
 HOSTS=(
     "$PROJECT_ROOT/html/projectm-core.html"
+    # projectm-core.html's page script (it used to be inline).
+    "$PROJECT_ROOT/html/projectm-core-host.js"
     "$PROJECT_ROOT/html/embed-demo.html"
     "$PROJECT_ROOT/html/embed-multi-iframe.html"
     "$PROJECT_ROOT/html/embed-multi-same-module.html"

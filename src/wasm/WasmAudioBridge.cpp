@@ -32,7 +32,7 @@ static projectm_handle ResolvePcmTargetEngine(uintptr_t pm_handle_value)
     {
         return EngineFromHandle(pm_handle_value);
     }
-    return Host().appData.projectm_engine;
+    return Host().appData.Engine();
 }
 
 // Per-host ring registry + worklet hand-off (#246).
@@ -330,46 +330,6 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
 
 extern "C" {
 
-// Routes an <audio>/<video> element into the worklet via a
-// MediaElementAudioSourceNode, so element playback is not a special case with
-// its own analyser and its own sampling behaviour -- it is the same producer
-// writing the same ring as everything else.
-//
-// Prefers a host implementation (html/projectm-audio-element-source.js) when the
-// page provides one, so the wiring is deployable without a WASM rebuild.
-// clang-format off
-EM_JS(int, js_connect_media_element_source, (const char* selector), {
-    const sel = UTF8ToString(selector);
-    if (typeof globalThis.projectMConnectMediaElement === 'function') {
-        return globalThis.projectMConnectMediaElement(sel) ? 1 : 0;
-    }
-
-    // Resolved once, and never dereferenced when absent: in the render worker
-    // there is no DOM, and an element source is not reachable from there.
-    const doc = globalThis.document;
-    const audioContext = globalThis.projectMAudioContext_Global_Cpp;
-    const node = globalThis.projectMWorkletNode_Global_Cpp;
-    if (!doc || !audioContext || !node) { return 0; }
-
-    const element = doc.querySelector(sel);
-    if (!element) {
-        console.warn('JS Element Source: no element matched', sel);
-        return 0;
-    }
-
-    globalThis.projectMElementSources = globalThis.projectMElementSources || new WeakMap();
-    // createMediaElementSource() throws if the element already has a source node,
-    // so reuse the one made earlier for this element.
-    let source = globalThis.projectMElementSources.get(element);
-    if (!source) {
-        source = audioContext.createMediaElementSource(element);
-        globalThis.projectMElementSources.set(element, source);
-    }
-    source.connect(node);
-    return 1;
-});
-// clang-format on
-
 // Hands the worklet every live host's ring descriptor and installs the
 // postMessage fallback. Exported because html/projectm-worklet-playback.js
 // repairs a failed worklet setup on a later user gesture and must re-attach
@@ -381,27 +341,17 @@ void attach_worklet_ingest()
     js_post_pcm_rings_to_worklet();
 }
 
-// Connects a media element (CSS selector) to the worklet. Returns 1 on success.
-EMSCRIPTEN_KEEPALIVE
-int connect_media_element_source(const char* selector)
-{
-    return js_connect_media_element_source(selector);
-}
-
 void pl(const char* song_path_in_vfs)
 {
-    printf("C++: pl() called for unique path: %s\n", song_path_in_vfs);
     js_load_song_into_worklet(song_path_in_vfs, true, true);
-    return;
 }
 
 // Kept for the audio router's contract (html/projectm-audio-source-router.js).
 // Nothing reads the answer any more: every source writes the same PCM ring, so
 // which one is live is JS-side state only (docs/AUDIO_PIPELINE.md).
 EMSCRIPTEN_KEEPALIVE
-void set_audio_source_to_stream(bool is_streaming)
+void set_audio_source_to_stream([[maybe_unused]] bool is_streaming)
 {
-    printf("C++: Audio source set to stream: %s\n", is_streaming ? "true" : "false");
 }
 
 // clang-format off
@@ -423,16 +373,15 @@ void stop_worklet_playback()
 
 extern "C" {
 
-void add_audio_data(uint8_t* data, int len)
+// Test hook (PROJECTM_WASM_DEBUG_EXPORTS): the legacy 8-bit mono PCM feed,
+// straight into the active host's engine, bypassing the ring.
+EMSCRIPTEN_KEEPALIVE
+void debug_add_audio_data(uint8_t* data, int len)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
+    if (projectm_handle engine = Host().appData.Engine())
     {
-        return;
+        projectm_pcm_add_uint8(engine, data, len, PROJECTM_MONO);
     }
-    projectm_pcm_add_uint8(pm, data, len, PROJECTM_MONO);
-    return;
 }
 }
 
@@ -445,8 +394,9 @@ void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data
     projectm_handle current_pm_handle = ResolvePcmTargetEngine(pm_handle_value);
     if (!current_pm_handle)
     {
-        fprintf(stderr, "Error: no live projectM engine for handle %lu in pcm_add_float_wrapper.\n",
-                static_cast<unsigned long>(pm_handle_value));
+        // Audio rate: a stale handle would log once per block.
+        LOG_DEBUG(WasmLogFormat("projectm_pcm_add_float_wrapper: no live engine for handle %lu",
+                                static_cast<unsigned long>(pm_handle_value)));
         return;
     }
     projectm_pcm_add_float(current_pm_handle, audio_data, num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));

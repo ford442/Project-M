@@ -422,6 +422,7 @@ void ProjectM::Initialize()
     m_transitionShaderManager = std::make_unique<Renderer::TransitionShaderManager>();
 
     m_textureCopier = std::make_unique<Renderer::CopyTexture>();
+    m_textureCopier->SetBlitEnabled((m_renderPathFlags & PROJECTM_RENDER_PATH_COPY_SHADER) == 0);
     m_flashLimiter = std::make_unique<Renderer::FlashLimiter>();
 
     m_spriteManager = std::make_unique<UserSprites::SpriteManager>();
@@ -680,6 +681,20 @@ auto ProjectM::FlashLimitThreshold() const -> float
 auto ProjectM::FlashLimitClampedFrames() -> uint32_t
 {
     return m_flashLimiter->ClampedFrames();
+}
+
+void ProjectM::SetRenderPathFlags(uint32_t flags)
+{
+    m_renderPathFlags = flags & (PROJECTM_RENDER_PATH_BLUR_COPY | PROJECTM_RENDER_PATH_COPY_SHADER | PROJECTM_RENDER_PATH_PER_PIXEL_CPU);
+    if (m_textureCopier)
+    {
+        m_textureCopier->SetBlitEnabled((m_renderPathFlags & PROJECTM_RENDER_PATH_COPY_SHADER) == 0);
+    }
+}
+
+auto ProjectM::RenderPathFlags() const -> uint32_t
+{
+    return m_renderPathFlags;
 }
 
 void ProjectM::SetFrameTime(double secondsSinceStart)
@@ -942,6 +957,7 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
     ctx.perPixelMeshY = static_cast<int>(m_meshY);
     ctx.maxBlurLevel = m_maxBlurLevel;
     ctx.blurResolutionScale = m_blurResolutionScale;
+    ctx.renderPathFlags = m_renderPathFlags;
 
     ctx.texelOffsetX = m_texelOffsetX;
     ctx.texelOffsetY = m_texelOffsetY;

@@ -35,15 +35,6 @@ struct PresetPrepareQueue::Shared {
 
 namespace {
 
-void FreeRequest(std::optional<PresetPrepareRequest>& request)
-{
-    if (request)
-    {
-        projectm_preset_prepare_free(request->job);
-        request.reset();
-    }
-}
-
 // A macrotask on the main runtime thread, with no C++ frames below it. The
 // host may be gone by now (or its address reused by a new host); activation
 // only takes a result the host's own queue holds, so either way this is safe.
@@ -86,16 +77,14 @@ void PrepareThreadMain(const std::shared_ptr<PresetPrepareQueue::Shared>& shared
         lock.unlock();
 
         // The expensive part: parse and HLSL-to-GLSL transpile.
-        projectm_preset_prepare_run(request.job);
+        projectm_preset_prepare_run(request.job.get());
 
         lock.lock();
         if (shared->stop || request.generation != shared->latestGeneration)
         {
-            // Superseded or abandoned while it ran.
-            projectm_preset_prepare_free(request.job);
+            // Superseded or abandoned while it ran; `request` frees the job.
             continue;
         }
-        FreeRequest(shared->completed);
         shared->completed = std::move(request);
 
         const uintptr_t hostHandle = shared->hostHandle;
@@ -105,8 +94,8 @@ void PrepareThreadMain(const std::shared_ptr<PresetPrepareQueue::Shared>& shared
         lock.lock();
     }
 
-    FreeRequest(shared->pending);
-    FreeRequest(shared->completed);
+    shared->pending.reset();
+    shared->completed.reset();
 }
 
 } // namespace
@@ -126,8 +115,8 @@ PresetPrepareQueue::~PresetPrepareQueue()
     {
         std::lock_guard<std::mutex> lock(m_shared->mutex);
         m_shared->stop = true;
-        FreeRequest(m_shared->pending);
-        FreeRequest(m_shared->completed);
+        m_shared->pending.reset();
+        m_shared->completed.reset();
     }
     m_shared->wake.notify_all();
 }
@@ -139,9 +128,8 @@ uint64_t PresetPrepareQueue::Post(PresetPrepareRequest request)
         std::lock_guard<std::mutex> lock(m_shared->mutex);
         generation = ++m_shared->latestGeneration;
         request.generation = generation;
-        FreeRequest(m_shared->pending);
-        // A completed result is stale now too.
-        FreeRequest(m_shared->completed);
+        // Replaces (and frees) a pending request; a completed result is stale now too.
+        m_shared->completed.reset();
         m_shared->pending = std::move(request);
     }
     m_shared->wake.notify_one();
@@ -157,7 +145,7 @@ std::optional<PresetPrepareRequest> PresetPrepareQueue::TakeCompleted()
     }
     if (m_shared->completed->generation != m_shared->latestGeneration)
     {
-        FreeRequest(m_shared->completed);
+        m_shared->completed.reset();
         return std::nullopt;
     }
     std::optional<PresetPrepareRequest> result = std::move(m_shared->completed);
@@ -169,8 +157,8 @@ void PresetPrepareQueue::DiscardAll()
 {
     std::lock_guard<std::mutex> lock(m_shared->mutex);
     ++m_shared->latestGeneration;
-    FreeRequest(m_shared->pending);
-    FreeRequest(m_shared->completed);
+    m_shared->pending.reset();
+    m_shared->completed.reset();
 }
 
 // =============================================================================
@@ -198,8 +186,8 @@ static bool ReadWholeFile(const char* path, std::string& contents)
 
 void RequestPresetPrepare(WasmHost& host, const char* path, bool hardCut, std::optional<uint32_t> playlistIndex)
 {
-    auto& pm = host.appData.projectm_engine;
-    if (pm == nullptr || host.presetPrepare == nullptr || path == nullptr)
+    projectm_handle engine = host.appData.Engine();
+    if (engine == nullptr || host.presetPrepare == nullptr || path == nullptr)
     {
         return;
     }
@@ -228,11 +216,11 @@ void RequestPresetPrepare(WasmHost& host, const char* path, bool hardCut, std::o
     std::string contents;
     if (ReadWholeFile(path, contents))
     {
-        request.job = projectm_preset_prepare_begin_file_contents(pm, path, contents.data(), contents.size());
+        request.job.reset(projectm_preset_prepare_begin_file_contents(engine, path, contents.data(), contents.size()));
     }
     else
     {
-        request.job = projectm_preset_prepare_begin_file(pm, path);
+        request.job.reset(projectm_preset_prepare_begin_file(engine, path));
     }
     request.path = path;
     request.hardCut = hardCut;
@@ -258,7 +246,7 @@ static void CompletePresetSwitch(WasmHost& host, const PendingPresetSwitch& pres
 
     if (!host.presetSwitchFailed)
     {
-        if (presetSwitch.playlistIndex && host.appData.playlist != nullptr)
+        if (presetSwitch.playlistIndex && host.appData.Playlist() != nullptr)
         {
             load_preset_callback_done(presetSwitch.hardCut, *presetSwitch.playlistIndex, &host);
         }
@@ -269,14 +257,14 @@ static void CompletePresetSwitch(WasmHost& host, const PendingPresetSwitch& pres
         // The switch (GL compile, or the link result) lands in this frame's cost;
         // keep the quality governor from reacting to it.
         host.postLoadGraceFrames = kPostLoadGraceFrames;
-        ResetGovernorCounters();
+        ResetGovernorCounters(host);
     }
-    else if (deferredSwitch && host.appData.playlist != nullptr)
+    else if (deferredSwitch && host.appData.Playlist() != nullptr)
     {
         // The engine asked for a switch while this load was in flight and was
         // told to wait. The load failed, so nothing reset its switch timer:
         // honour the request now or automatic switching stops for good.
-        projectm_playlist_play_next(host.appData.playlist, deferredHardCut);
+        projectm_playlist_play_next(host.appData.Playlist(), deferredHardCut);
     }
 }
 
@@ -300,8 +288,8 @@ static void PollPendingSwitch(WasmHost& host)
         return;
     }
 
-    auto& pm = host.appData.projectm_engine;
-    if (pm != nullptr && !host.presetSwitchFailed && projectm_poll_pending_preset(pm))
+    projectm_handle engine = host.appData.Engine();
+    if (engine != nullptr && !host.presetSwitchFailed && projectm_poll_pending_preset(engine))
     {
         if (!host.linkPollScheduled)
         {
@@ -336,10 +324,10 @@ void ActivatePreparedPreset(WasmHost& host)
         SetActiveHost(&host);
     }
 
-    auto& pm = host.appData.projectm_engine;
-    if (prepared && pm == nullptr)
+    projectm_handle engine = host.appData.Engine();
+    if (prepared && engine == nullptr)
     {
-        projectm_preset_prepare_free(prepared->job);
+        prepared.reset();
         host.appData.loading = EM_FALSE;
     }
     else if (prepared)
@@ -350,7 +338,7 @@ void ActivatePreparedPreset(WasmHost& host)
         // on_preset_switch_failed(), which clears `loading` and tells the page.
         // A switch still pending from an older load is superseded, in the engine
         // and here.
-        projectm_load_prepared_preset(pm, prepared->job, !prepared->hardCut);
+        projectm_load_prepared_preset(engine, prepared->job.release(), !prepared->hardCut);
         host.pendingSwitch = PendingPresetSwitch{prepared->hardCut, prepared->playlistIndex};
     }
     PollPendingSwitch(host);

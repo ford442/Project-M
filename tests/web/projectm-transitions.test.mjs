@@ -170,7 +170,7 @@ test('startTransitionWhenReady waits for preset B, allocates it, then starts onc
 // --- Lazy preset-A allocation ordering (issue #199) --------------------------
 //
 // Neither FBO pair is allocated at startup, and the preset-A pair is reclaimed
-// again after it has been idle past dual_fbo_set_idle_release_seconds(). The
+// again after it has been idle for 5 s (fixed in the WASM host). The
 // readiness gate therefore has to drive the on-demand allocation to completion
 // *before* arming the blend — transition_start() with a pair missing bails out
 // in C and the crossfade silently becomes a hard cut.

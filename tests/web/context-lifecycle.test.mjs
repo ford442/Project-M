@@ -458,7 +458,6 @@ function installAudioGraph({ withNode }) {
             delete globalThis.projectMAudioContext_Global_Cpp;
             delete globalThis.projectMWorkletNode_Global_Cpp;
             delete globalThis.projectMWorkletReady;
-            delete globalThis.projectMConnectMediaElement;
         },
     };
 }
@@ -604,9 +603,10 @@ test('two contexts on one shared Module each get the context config they asked f
 
         assert.equal(module.calls.filter((call) => call.name === 'set_context_config').length, 0);
         assert.notEqual(a.hostHandle, b.hostHandle);
-        // [flags, powerPreference, fboPrecision]: 48 = contextAlpha + premultipliedAlpha, +1 antialias.
-        assert.deepEqual(configByHandle.get(a.hostHandle), [48, 2, 0]);
-        assert.deepEqual(configByHandle.get(b.hostHandle), [49, 2, 2]);
+        // [flags, powerPreference, fboPrecision]: 4128 = premultipliedAlpha(32)
+        // + renderPathSet(4096) (opaque canvas: no contextAlpha), +1 antialias.
+        assert.deepEqual(configByHandle.get(a.hostHandle), [4128, 2, 0]);
+        assert.deepEqual(configByHandle.get(b.hostHandle), [4129, 2, 2]);
     });
 });
 

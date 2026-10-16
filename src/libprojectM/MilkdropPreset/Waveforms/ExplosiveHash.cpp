@@ -27,7 +27,7 @@ void ExplosiveHash::GenerateVertices(const PresetState& presetState, const PerFr
     const float sineRotation = sinf(presetState.renderContext.time * 0.3f);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinWaveformLoopIters)
 #endif
     for (int i = 0; i < m_samples; i++)
     {

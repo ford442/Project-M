@@ -14,6 +14,7 @@
 // the `?meshQuality=high|low|auto` query parameter.
 
 import { setMesh as wasmSetMesh } from './generated/projectm-wasm-api.js';
+import { readHostFlag } from './projectm-host-config.js';
 
 const MESH_SIZES = {
     low: [64, 48],
@@ -52,20 +53,9 @@ export function setMeshQuality(Module, quality) {
 
 /**
  * `localStorage` throws on *access* in a sandboxed iframe (opaque origin) and in
- * some private modes, so both directions are guarded; a page that cannot persist
- * the choice still gets it for the current load.
- *
- * @param {string} key
- * @returns {string | null}
+ * some private modes, so writes are guarded; a page that cannot persist the
+ * choice still gets it for the current load.
  */
-function readStoredQuality(key) {
-    try {
-        return globalThis.localStorage.getItem(key);
-    } catch {
-        return null;
-    }
-}
-
 /**
  * @param {string} key
  * @param {string} value
@@ -91,8 +81,8 @@ function writeStoredQuality(key, value) {
  *   that was actually applied, and a setter that persists and applies a new one.
  */
 export function setupMeshQuality(Module, options = {}) {
-    const params = options.params || new URLSearchParams(location.search);
-    const requested = params.get('meshQuality') || readStoredQuality('meshQuality') || 'auto';
+    // ?meshQuality=, else the stored choice, else auto (projectm-host-config.js).
+    const requested = readHostFlag('meshQuality', options.params ? { search: options.params } : {});
     const resolved = setMeshQuality(Module, requested);
 
     return {

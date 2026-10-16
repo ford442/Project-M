@@ -19,9 +19,17 @@
 # a major bump at >= 1.0.0, or a minor bump pre-1.0 (semver's 0.x convention,
 # where the minor is the breaking position).
 #
+# --no-orphans also fails the run for any manifest export (public, internal or
+# debug) that nothing calls: no reference in html/ (outside html/generated/),
+# packages/web/src/ or tests/, comment lines excluded. An export with no caller
+# is dead surface; remove it from the manifest (and the C++), do not keep it
+# "just in case". A reference is the C symbol (`_name`), the name as a string
+# (ccall, transport), or the generated wrapper's camelCase name.
+#
 # Usage:
-#   scripts/check_wasm_public_api.sh            # verify (CI)
-#   scripts/check_wasm_public_api.sh --update   # re-bless the surface
+#   scripts/check_wasm_public_api.sh                # verify (CI)
+#   scripts/check_wasm_public_api.sh --no-orphans   # ...and require a caller per export
+#   scripts/check_wasm_public_api.sh --update       # re-bless the surface
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,11 +38,68 @@ BASELINE="$PROJECT_ROOT/packages/web/wasm-public-api.baseline"
 PKG_JSON="$PROJECT_ROOT/packages/web/package.json"
 
 UPDATE=0
-if [[ "${1:-}" == "--update" ]]; then
-    UPDATE=1
-elif [[ $# -gt 0 ]]; then
-    echo "Usage: $0 [--update]" >&2
-    exit 2
+NO_ORPHANS=0
+for arg in "$@"; do
+    case "$arg" in
+        --update) UPDATE=1 ;;
+        --no-orphans) NO_ORPHANS=1 ;;
+        *)
+            echo "Usage: $0 [--update] [--no-orphans]" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# --- orphans ----------------------------------------------------------------
+if [[ "$NO_ORPHANS" -eq 1 ]]; then
+    corpus="$(mktemp)"
+    trap 'rm -f "$corpus"' EXIT
+    (
+        cd "$PROJECT_ROOT"
+        find html packages/web/src tests -type f \
+            \( -name '*.js' -o -name '*.mjs' -o -name '*.ts' -o -name '*.html' -o -name '*.1ink' \) \
+            -not -path '*/node_modules/*' -not -path 'html/generated/*' -print0 |
+            xargs -0 grep -IhvE '^[[:space:]]*(//|\*|/\*)' || true
+    ) > "$corpus"
+    orphans=()
+    while IFS='|' read -r name visibility; do
+        [[ "$visibility" == "runtime" ]] && continue
+        camel="$(echo "$name" | sed -E 's/_([a-z0-9])/\U\1/g')"
+        if ! grep -qE "(\b_${name}\b|['\"\`]${name}['\"\`]|\b${camel}\b)" "$corpus"; then
+            orphans+=("$name ($visibility)")
+        fi
+    done < <(sed -nE 's/^[[:space:]]*"([a-zA-Z_][a-zA-Z0-9_]*)\|([a-z]+)\|.*/\1|\2/p' "$MANIFEST")
+    if [[ "${#orphans[@]}" -gt 0 ]]; then
+        echo "WASM exports with no caller in html/, packages/web/src/ or tests/:" >&2
+        printf '  - %s\n' "${orphans[@]}" >&2
+        echo "Remove them from cmake/WasmApiManifest.cmake and src/wasm/, or call them." >&2
+        exit 1
+    fi
+    echo "Every WASM export has a caller."
+
+    # The `debug` exports (test hooks) are missing from a deployed bundle: host
+    # code that calls one works in the smoke build and breaks in production.
+    host_corpus="$(mktemp)"
+    trap 'rm -f "$corpus" "$host_corpus"' EXIT
+    (
+        cd "$PROJECT_ROOT"
+        find html packages/web/src -type f \
+            \( -name '*.js' -o -name '*.mjs' -o -name '*.ts' -o -name '*.html' -o -name '*.1ink' \) \
+            -not -path '*/node_modules/*' -not -path 'html/generated/*' -print0 |
+            xargs -0 grep -IHnvE '^[[:space:]]*(//|\*|/\*)' || true
+    ) > "$host_corpus"
+    debug_calls=""
+    while IFS='|' read -r name visibility; do
+        [[ "$visibility" == "debug" ]] || continue
+        camel="$(echo "$name" | sed -E 's/_([a-z0-9])/\U\1/g')"
+        debug_calls+="$(grep -E "(\b_${name}\b|['\"\`]${name}['\"\`]|\b${camel}\b)" "$host_corpus" || true)"
+    done < <(sed -nE 's/^[[:space:]]*"([a-zA-Z_][a-zA-Z0-9_]*)\|([a-z]+)\|.*/\1|\2/p' "$MANIFEST")
+    if [[ -n "$debug_calls" ]]; then
+        echo "Host code calls a debug_ test hook (exported only by PROJECTM_WASM_DEBUG_EXPORTS builds):" >&2
+        echo "$debug_calls" >&2
+        exit 1
+    fi
+    echo "No host code calls a debug_ test hook."
 fi
 
 # --- current surface --------------------------------------------------------

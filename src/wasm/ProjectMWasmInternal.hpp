@@ -14,6 +14,7 @@
 #pragma once
 
 #include "ProjectMWasmBuildConfig.hpp"
+#include "ProjectMWasmInitErrors.hpp"
 #include "omp.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -34,10 +35,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include <Logging.hpp>
 #include <MilkdropPreset/MilkdropStaticShaders.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
 
@@ -75,32 +78,80 @@
 #endif
 
 // =============================================================================
+// Logging.
+//
+// The wrapper logs through libprojectM's LOG_* macros (Logging.hpp), like the
+// library itself; InstallWasmLogSink() (called once by init()) routes both to
+// the browser console. LOG_DEBUG / LOG_TRACE compile away unless the build
+// defines ENABLE_DEBUG_LOGGING, so per-frame and per-call chatter costs nothing
+// in a release bundle; the sink drops anything below Warning there as well.
+// Init failures are not logged here: js_report_init_error() is their channel to
+// the page (the overlay and ProjectMContext's `error` event).
+// =============================================================================
+
+// The LOG_* macros name the class unqualified.
+using libprojectM::Logging;
+
+// printf-style formatting for a LOG_*() message. The macros only evaluate their
+// argument when the level is enabled, so a disabled message is never formatted.
+std::string WasmLogFormat(const char* format, ...) __attribute__((format(printf, 1, 2)));
+
+// Registers the console sink as libprojectM's global log callback. Idempotent.
+void InstallWasmLogSink();
+
+// =============================================================================
 // AppData – per-instance engine/playlist/loading triple.
 //
 // Formerly a process-global. As of #168 Phase B it is a member of WasmHost
 // (see WasmHost.hpp), one per engine instance, so two visualizers can share a
 // single Module without iframes. The former g_* host-state globals (transition
 // timeline, dual-FBO manager, quality governor, audio-source flag, WebGL
-// context, canvas selectors) are likewise WasmHost members now; each TU reaches
-// them through `WasmHost& H = Host();` plus same-named reference aliases so the
-// export bodies read unchanged.
+// context, canvas selectors) are likewise WasmHost members now: an export
+// resolves the active host once (`WasmHost& H = Host();`) and passes it on to
+// whatever it calls.
 // =============================================================================
-typedef struct {
-    projectm_handle projectm_engine;
-    projectm_playlist_handle playlist;
-    EM_BOOL loading; //!< A preset preparation is in flight (rendering continues).
-} AppData;
+struct EngineDeleter {
+    void operator()(projectm_handle engine) const
+    {
+        projectm_destroy(engine);
+    }
+};
+
+struct PlaylistDeleter {
+    void operator()(projectm_playlist_handle playlist) const
+    {
+        projectm_playlist_destroy(playlist);
+    }
+};
+
+struct AppData {
+    // Members are destroyed in reverse order, so the playlist goes first: it
+    // holds the engine handle and unregisters its callbacks from it.
+    std::unique_ptr<projectm, EngineDeleter> engine;
+    std::unique_ptr<projectm_playlist, PlaylistDeleter> playlist;
+    EM_BOOL loading = EM_FALSE; //!< A preset preparation is in flight (rendering continues).
+
+    projectm_handle Engine() const
+    {
+        return engine.get();
+    }
+
+    projectm_playlist_handle Playlist() const
+    {
+        return playlist.get();
+    }
+};
 
 // ---- PCM ring (defined in WasmPcmRing.cpp) --------------------------------
 // The single audio ingest path. render_frame() drains it once per frame; JS
 // producers write into it at audio rate. See WasmPcmRing.cpp for the layout.
-// One ring per WasmHost (#246): every export operates on the active host's
-// ring, so draining host A never consumes host B's writes.
-extern "C" {
-int pcm_ring_init(int capacity_frames);
-void pcm_ring_shutdown();
-int pcm_ring_drain();
-}
+// One ring per WasmHost (#246), so draining host A never consumes host B's
+// writes. PcmRingInit() returns 1 on success (idempotent for an unchanged
+// capacity, 0 = the default); PcmRingDrain() returns the frames it fed.
+struct WasmHost;
+int PcmRingInit(WasmHost& host, int capacityFrames);
+void PcmRingShutdown(WasmHost& host);
+int PcmRingDrain(WasmHost& host);
 
 // ---- Worklet ring hand-off (defined in WasmAudioBridge.cpp) ---------------
 // Publishes / withdraws one host's ring descriptor, tagged with its host
@@ -125,7 +176,7 @@ double WasmNow();
 
 // Advances the virtual clock by one frame and pushes it into the engine.
 // Called once per frame from render_frame(); a no-op unless enabled.
-void DeterministicFrameTick();
+void DeterministicFrameTick(WasmHost& host);
 
 // ---- Render loop (defined in WasmRenderLoop.cpp) ---------------------------
 // render_frame() is the single per-frame entry point: the Emscripten main loop
@@ -136,7 +187,6 @@ void render_frame();
 }
 
 // ---- Musical-time events (defined in WasmRhythm.cpp) -----------------------
-struct WasmHost;
 // CollectRhythmEvents() runs after every engine render inside render_frame() and
 // remembers the beat/bar/section events of the frame; FlushRhythmEvents() runs once
 // at the end of render_frame() and reports them to the page, if it asked for them
@@ -168,18 +218,21 @@ double FlashClampedFramesForHud(WasmHost& host);
 void InstallShaderTranspileCacheHooks();
 
 // ---- Render-path ablation switches (defined in WasmRenderPathOverrides.cpp) -
-// Applied once from init(), before the first preset renders: whatever the host
-// set with set_render_path_overrides(), or else the page's own query string.
-// See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
-void ApplyRenderPathOverrides();
+// Applied from init(), before the first preset renders: whatever the host set
+// with the create call or set_render_path_overrides(), or else the page's own
+// query string. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+void ApplyRenderPathOverrides(WasmHost& host);
+// create_host_with_config()'s render-path bits as projectm_render_path_flags,
+// or nullopt when the caller did not send them (kContextFlagRenderPathSet).
+std::optional<uint32_t> RenderPathFromContextFlags(int flags);
 
 // ---- Quality governor entry points (defined in WasmPerfGovernor.cpp) -------
-void ResetGovernorCounters();
-void UpdateQualityGovernor(double frameMs);
-// Re-applies the active host's current tier's blur cap and blur resolution to a
+void ResetGovernorCounters(WasmHost& host);
+void UpdateQualityGovernor(WasmHost& host, double frameMs);
+// Re-applies the host's current tier's blur cap and blur resolution to a
 // freshly created engine (the tier's mesh travels in EngineSettings). No-op
 // until the governor has picked a tier.
-void ReapplyQualityTierLimits();
+void ReapplyQualityTierLimits(WasmHost& host);
 
 // ---- Preset switch callbacks (defined in WasmPlaylistBridge.cpp) -----------
 // Registered with projectM/projectM-playlist from init() in
@@ -189,6 +242,13 @@ void load_preset_callback_done(bool is_hard_cut, unsigned int index, void* user_
 bool on_playlist_preset_load(unsigned int index, const char* filename, bool hard_cut, void* user_data);
 void on_preset_switch_requested(bool is_hard_cut, void* user_data);
 void on_preset_switch_failed(const char* preset_filename, const char* message, void* user_data);
+
+// The host's preset-duration policy (set_preset_duration()): the duration the
+// preset just switched to should run, drawing the random part from the host's
+// RNG; and (re)seeding that RNG from libprojectM's RandomSeed, which init() and
+// set_deterministic_seed() do.
+double NextPresetDuration(WasmHost& host);
+void SeedPresetDurationRng(WasmHost& host);
 
 // ---- EM_JS host-page hooks called across TU boundaries ---------------------
 // Each is implemented via EM_JS (C linkage) in the TU noted; declared here so
@@ -211,8 +271,11 @@ void js_perf_report_frame(double host, double totalMs, double audioMs, double pe
 void js_update_preset_name(const char* name);
 void js_report_preset_switch_failed(const char* preset_filename, const char* message);
 void js_init_projectm_dom();
-// Both report for the active host (EventHostHandle()); _for_host names it.
-void js_report_init_error(int code, const char* detail);
-void js_report_init_error_for_host(double host, int code, const char* detail);
 void js_report_init_success();
 } // extern "C"
+
+// Reports an init() / create_host*() failure to the page (pmReportInitError) and
+// records it for get_last_init_error(). Both report for the active host
+// (EventHostHandle()); _for_host names it. Defined in WasmJsBindings.cpp.
+void js_report_init_error(WasmInitError code, const char* detail);
+void js_report_init_error_for_host(double host, WasmInitError code, const char* detail);

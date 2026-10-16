@@ -10,11 +10,8 @@
 PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _malloc
     _free
-    _main
-    _add_audio_data
     _pl
     _destruct
-    _get_projectm_handle
     _init
     _set_canvas_selectors
     _set_context_config
@@ -33,47 +30,33 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _load_preset_file
     _load_preset_file_hard
     _switch_preset
+    _set_preset_duration
     _set_aspect_correction
     _render_frame
     _start_render
     _set_window_size
     _set_mesh
-    _add_preset_path
-    _add_existing_vfs_presets
     _add_preset_file
-    _add_custom_milk_paths
     _projectm_pcm_add_float_wrapper
     _pcm_ring_init
-    _pcm_ring_shutdown
-    _pcm_ring_drain
     _get_pcm_ring_header_ptr
     _get_pcm_ring_data_ptr
     _get_pcm_ring_capacity_frames
     _get_pcm_ring_index_modulus
-    _get_pcm_ring_write_index
-    _get_pcm_ring_read_index
-    _get_pcm_ring_overruns
     _attach_worklet_ingest
-    _connect_media_element_source
-    _create_sprite
     _stop_worklet_playback
     _set_audio_source_to_stream
     _set_preset_locked
     _set_transparency_mode
     _get_transparency_mode
     _set_transparency_threshold
-    _get_transparency_threshold
     _set_perf_hud
     _set_target_fps
     _set_quality_governor
     _get_quality_tier
     _get_governor_render_scale
     _get_governor_blur_cap
-    _is_preset_ready
     _get_rendered_frame_count
-    _preset_switch_failed
-    _live_playlist_count
-    _get_main_loop_timing_mode
     _get_omp_enabled
     _get_omp_max_threads
     _get_omp_thread_count_in_parallel
@@ -84,32 +67,14 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _get_glsl_generator_version
     _pm_handle_context_loss
     _dual_fbo_begin_transition
-    _dual_fbo_end_transition
     _dual_fbo_cancel_transition
-    _dual_fbo_swap_preset_a
-    _dual_fbo_swap_preset_b
-    _dual_fbo_get_a_read_fbo
-    _dual_fbo_get_a_write_fbo
-    _dual_fbo_get_a_read_tex
-    _dual_fbo_get_a_write_tex
-    _dual_fbo_get_b_read_fbo
-    _dual_fbo_get_b_write_fbo
-    _dual_fbo_get_b_read_tex
-    _dual_fbo_get_b_write_tex
     _dual_fbo_is_preset_a_allocated
     _dual_fbo_is_preset_b_allocated
-    _dual_fbo_set_idle_release_seconds
-    _dual_fbo_get_idle_release_seconds
     _dual_fbo_is_preset_b_ready
     _dual_fbo_get_format
-    _dual_fbo_render_preset_a
-    _dual_fbo_render_preset_b
     _transition_start
-    _transition_cancel
     _transition_is_active
-    _transition_get_blend
     _transition_set_duration
-    _transition_get_duration
     _set_deterministic_seed
     _is_deterministic_seed
     _set_deterministic_clock
@@ -125,9 +90,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _get_rhythm_section
     _set_rhythm_hint
     _set_preset_switch_policy
-    _get_preset_switch_policy
     _transition_set_duration_beats
-    _transition_get_duration_beats
     _set_hard_cut_on_beat
     _set_rhythm_events
     _set_flash_limit_enabled
@@ -146,9 +109,33 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _capture_frame_release
 )
 
+# Test hooks (`debug` entries of cmake/WasmApiManifest.cmake): exported only
+# with PROJECTM_WASM_DEBUG_EXPORTS=1.
+PROJECTM_WASM_DEBUG_EXPORTED_FUNCTIONS=(
+    _debug_add_audio_data
+    _debug_get_projectm_handle
+    _debug_pcm_ring_drain
+    _debug_get_pcm_ring_write_index
+    _debug_get_pcm_ring_read_index
+    _debug_get_pcm_ring_overruns
+    _debug_create_sprite
+    _debug_is_preset_ready
+    _debug_preset_switch_failed
+    _debug_get_preset_duration
+    _debug_live_playlist_count
+    _debug_get_main_loop_timing_mode
+    _debug_dual_fbo_end_transition
+    _debug_dual_fbo_render_preset_a
+    _debug_dual_fbo_render_preset_b
+)
+
 projectm_wasm_join_exported_functions() {
     local IFS=,
-    echo "${PROJECTM_WASM_EXPORTED_FUNCTIONS[*]}"
+    local functions=("${PROJECTM_WASM_EXPORTED_FUNCTIONS[@]}")
+    if [[ "${PROJECTM_WASM_DEBUG_EXPORTS:-0}" == "1" ]]; then
+        functions+=("${PROJECTM_WASM_DEBUG_EXPORTED_FUNCTIONS[@]}")
+    fi
+    echo "${functions[*]}"
 }
 
 # EXPORTED_RUNTIME_METHODS for the final wrapper link (common + VFS FS helper).
@@ -156,10 +143,10 @@ projectm_wasm_exported_runtime_methods() {
     echo "ccall,cwrap,HEAPF32,HEAPU8,FS,specialHTMLTargets"
 }
 
-# SIMD + atomics compile flags for the final emcc link of projectM_emscripten.cpp.
-# Must stay in sync with projectm_apply_emscripten_lib_compile_flags() in
-# cmake/EmscriptenWasmFlags.cmake so the wrapper TU and prebuilt libprojectM-4.a
-# agree on wasm32 feature levels.
+# Wasm target features, for the wrapper link (an LTO link generates code and
+# must see them). Same list projectm_apply_emscripten_lib_compile_flags() in
+# cmake/EmscriptenWasmFlags.cmake compiles the static libs with, so the wrapper
+# and prebuilt libprojectM-4.a agree on wasm32 feature levels.
 projectm_wasm_simd_compile_args() {
     local -n _out=$1
     _out=(
@@ -169,8 +156,28 @@ projectm_wasm_simd_compile_args() {
         -matomics
         -mnontrapping-fptoint
         -msign-ext
+    )
+}
+
+# Everything a wrapper TU is compiled with, besides include paths, warnings and
+# link-flavor defines: language level, optimisation, code generation, target
+# features, threads/OpenMP and the exception ABI.
+projectm_wasm_wrapper_compile_args() {
+    local -n _out=$1
+    _out=(
+        -std=c++20
+        -O3
         -fno-strict-aliasing
         -fno-math-errno
+        -msimd128
+        -mmutable-globals
+        -mbulk-memory
+        -matomics
+        -mnontrapping-fptoint
+        -msign-ext
+        -pthread
+        -fopenmp=libomp
+        -fwasm-exceptions
     )
 }
 
@@ -212,7 +219,6 @@ projectm_wasm_common_link_args() {
 
     _out=(
         "${lto_args[@]}"
-        -std=c++20
         -O3
         -pthread
         -fopenmp=libomp
@@ -220,13 +226,12 @@ projectm_wasm_common_link_args() {
         -s SHARED_MEMORY=1
         -s MIN_WEBGL_VERSION=2
         -s MAX_WEBGL_VERSION=2
-        -s USE_WEBGL2=1
         -s FULL_ES2=0
         -s FULL_ES3=0
         -s GL_TRACK_ERRORS=0
         -s GL_ENABLE_GET_PROC_ADDRESS=1
         -s ALLOW_MEMORY_GROWTH=0
-        -s INITIAL_MEMORY=256mb
+        -s INITIAL_MEMORY=128mb
         -s MALLOC=mimalloc
         -s FORCE_FILESYSTEM=1
         -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"
@@ -234,6 +239,8 @@ projectm_wasm_common_link_args() {
         -s EXPORT_NAME=createModule
         -s MODULARIZE=1
         -s DEFAULT_TO_CXX=1
+        -s STACK_SIZE=1mb
+        -s DEFAULT_PTHREAD_STACK_SIZE=1mb
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"
         --pre-js "${pthread_script_url_pre_js}"

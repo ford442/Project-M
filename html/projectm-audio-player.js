@@ -37,6 +37,9 @@ export const MOD_PLAYER_BASE_URL = 'https://test.1ink.us/xm-player/';
  * @property {(sourceId: string, options?: { trackUrl?: string }) => void} showAudioPlayer
  * @property {() => void} cycleAudioPlayer
  * @property {() => void} closeAudioPlayer
+ * @property {() => void} dispose Release everything this controller opened: popup
+ *   windows are closed and feeder iframes it created are removed. Idempotent, and
+ *   it leaves the page's own inline player sections as they are.
  * @property {(trackUrl?: string) => void} [openFlacPlayer]
  * @property {(trackUrl?: string) => void} [openModPlayer]
  */
@@ -266,6 +269,48 @@ function defaultUpdateUi(source, {
 }
 
 /**
+ * Release one player handle. A popup window is closed. A same-origin iframe
+ * feeder is hidden so a later switch back re-opens it quickly, or removed
+ * outright when `remove` is set (disposal: nothing may outlive the controller).
+ *
+ * @param {Window | HTMLIFrameElement | null | undefined} handle
+ * @param {boolean} [remove]
+ * @returns {boolean} Whether the handle is gone for good (closed or removed)
+ *   and can be forgotten. A merely hidden feeder returns false: it stays
+ *   reachable so `dispose()` can still remove it later.
+ */
+function releasePlayerHandle(handle, remove = false) {
+    if (!handle) return true;
+    if ('close' in handle && typeof handle.close === 'function' && 'closed' in handle) {
+        if (!handle.closed) handle.close();
+        return true;
+    }
+    if (remove && 'remove' in handle && typeof handle.remove === 'function') {
+        handle.remove();
+        return true;
+    }
+    if ('style' in handle && handle.style) {
+        handle.style.display = 'none';
+    }
+    return false;
+}
+
+/**
+ * Release every handle a controller owns and forget the ones that are gone.
+ * Passing `exceptId` leaves that source's handle up (and tracked), so a second
+ * click focuses an open window instead of tearing a share down.
+ *
+ * @param {Map<string, Window | HTMLIFrameElement>} handles
+ * @param {{ exceptId?: string; remove?: boolean }} [options]
+ */
+function releasePlayerHandles(handles, { exceptId, remove = false } = {}) {
+    for (const [id, handle] of handles) {
+        if (id === exceptId) continue;
+        if (releasePlayerHandle(handle, remove)) handles.delete(id);
+    }
+}
+
+/**
  * Controller for hosts that embed the players as inline `.ext-player-section`
  * elements (panel2).
  *
@@ -307,21 +352,6 @@ export function createSectionAudioPlayerController({
     }
 
     /**
-     * Close script-opened capture popups. Passing `exceptId` leaves that one
-     * up so a second click focuses it instead of tearing the share down.
-     * @param {string} [exceptId]
-     */
-    function closeOwnedPopups(exceptId) {
-        for (const [id, handle] of ownedPopups) {
-            if (id === exceptId) continue;
-            if (handle && 'close' in handle && typeof handle.close === 'function' && 'closed' in handle && !handle.closed) {
-                handle.close();
-            }
-            ownedPopups.delete(id);
-        }
-    }
-
-    /**
      * @param {AudioPlayerSource} source
      * @param {string} url
      * @returns {Window | null}
@@ -357,14 +387,15 @@ export function createSectionAudioPlayerController({
         hideAllAudioPlayers();
 
         if (source.presentation === 'popup') {
-            closeOwnedPopups(source.id);
+            // Leave this source's own window up: a second click focuses it.
+            releasePlayerHandles(ownedPopups, { exceptId: source.id });
             const url = withProjectMAudioFlag(sourceUrl(source), options);
             if (url) openOwnedPopup(source, url);
             updateUi(source);
             return;
         }
 
-        closeOwnedPopups();
+        releasePlayerHandles(ownedPopups);
 
         if (source.sectionId) {
             if (menuId) {
@@ -408,7 +439,10 @@ export function createSectionAudioPlayerController({
     const controller = {
         showAudioPlayer,
         cycleAudioPlayer,
-        closeAudioPlayer
+        closeAudioPlayer,
+        dispose() {
+            releasePlayerHandles(ownedPopups, { remove: true });
+        },
     };
 
     return controller;
@@ -495,25 +529,6 @@ export function createPopupAudioPlayerController({
     }
 
     /**
-     * @param {Window | HTMLIFrameElement} [exceptHandle] Leave this window open.
-     */
-    function closeAllAudioPlayers(exceptHandle) {
-        for (const handle of popups.values()) {
-            if (!handle || handle === exceptHandle) continue;
-            // Window popup/tab
-            if ('close' in handle && typeof handle.close === 'function' && 'closed' in handle) {
-                if (!handle.closed) handle.close();
-                continue;
-            }
-            // Same-origin iframe feeder — hide, keep loaded for quick re-open
-            if ('style' in handle && handle.style) {
-                handle.style.display = 'none';
-            }
-        }
-        popups.clear();
-    }
-
-    /**
      * @param {string} sourceId
      * @param {{ trackUrl?: string }} [options]
      */
@@ -522,9 +537,8 @@ export function createPopupAudioPlayerController({
         activeAudioSourceIndex = popupSources.findIndex((entry) => entry.id === source.id);
         const existing = popups.get(source.id);
         const reuse = source.presentation === 'popup' && existing && 'closed' in existing && !existing.closed;
-        closeAllAudioPlayers(reuse ? existing : undefined);
+        releasePlayerHandles(popups, { exceptId: reuse ? source.id : undefined });
         if (reuse) {
-            popups.set(source.id, existing);
             if ('focus' in existing && typeof existing.focus === 'function') {
                 existing.focus();
             }
@@ -548,6 +562,9 @@ export function createPopupAudioPlayerController({
         showAudioPlayer,
         cycleAudioPlayer,
         closeAudioPlayer,
+        dispose() {
+            releasePlayerHandles(popups, { remove: true });
+        },
         /** @param {string} [trackUrl] */
         openFlacPlayer: (trackUrl) => showAudioPlayer('flac', { trackUrl }),
         /** @param {string} [trackUrl] */

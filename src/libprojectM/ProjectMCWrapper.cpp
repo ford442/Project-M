@@ -821,6 +821,18 @@ uint32_t projectm_get_flash_limit_clamped_frames(projectm_handle instance)
     return projectMInstance->FlashLimitClampedFrames();
 }
 
+void projectm_set_render_path(projectm_handle instance, uint32_t flags)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetRenderPathFlags(flags);
+}
+
+uint32_t projectm_get_render_path(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->RenderPathFlags();
+}
+
 unsigned int projectm_pcm_get_max_samples()
 {
     return libprojectM::Audio::AudioBufferSamples;

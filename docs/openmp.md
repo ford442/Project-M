@@ -10,8 +10,10 @@ This document lists candidate hotspots for OpenMP parallelization, suggested pra
 
 Thresholds are centralized in `src/libprojectM/OpenMpConfig.hpp`:
 
-- `kMinParallelLoopIters = 512` — waveform loops, FFT output, small noise rows
-- `kMinPerPixelMeshVerts = 1000` — per-pixel mesh, composite grids, large custom waveforms
+- `kMinParallelLoopIters = 512` — FFT output, small noise rows
+- `kMinPerPixelMeshVerts = 1000` — per-pixel mesh, composite grids, custom-wave smoothing
+- `kMinWaveformLoopIters = 1 << 16` — waveform sample loops, which therefore stay serial (a
+  region's wake-up costs ~100 µs more than 512 samples of work; numbers in `OpenMpConfig.hpp`)
 
 Loops below the threshold use OpenMP's `if(...)` clause or run serially. `Loudness::SumBand`
 (~85 samples) and `WaveformAligner` cross-correlation inner loops are **always serial** (fork/join

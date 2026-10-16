@@ -20,45 +20,46 @@
 #include "WasmHost.hpp"
 #include "WasmWebGLContext.hpp"
 
+// Preset A idle release (see ReleaseDualFboIfIdle()): the pair is reclaimed
+// once this many seconds have passed since the last transition ended.
+constexpr double kDualFboIdleReleaseSeconds = 5.0;
+
 // Renders one frame for the currently-active host. renderLoop() makes each
 // started host active in turn and calls this.
 //
 // A preset load no longer pauses this: the preset is prepared on the host's
 // prepare thread while the current one keeps rendering, and render_frame()
 // switches to it once it is ready (see WasmPresetPrepare.cpp).
-static void RenderActiveHostFrame()
+static void RenderActiveHostFrame(WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& g_perfHudEnabled = H.perfHudEnabled;
     // Real clock, deliberately: this measures how long the frame actually took,
     // which is what the governor steps quality on. WasmNow() may be virtual.
     const double frameStartMs = emscripten_get_now();
     // Phase 5: Route through render_frame(). Steady-state frames render directly
     // to the canvas; the dual-FBO compositor runs only during preset crossfades.
-    if (g_perfHudEnabled)
+    if (host.perfHudEnabled)
     {
         js_perf_gpu_begin_frame();
     }
     render_frame();
-    if (g_perfHudEnabled)
+    if (host.perfHudEnabled)
     {
         js_perf_gpu_end_frame();
     }
     // The compositor (and the legacy fallback) both leave the composited frame
     // in the default framebuffer (FBO 0). The browser presents the canvas directly;
     // no eglSwapBuffers() is required on wasm.
-    if (g_perfHudEnabled)
+    if (host.perfHudEnabled)
     {
         projectm_perf_frame_timings timings;
         projectm_perf_get_frame_timings(&timings);
         js_perf_report_frame(
-            EventHostHandle(H), timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
+            EventHostHandle(host), timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
             timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
             timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps, timings.shader_link_pending,
-            timings.per_pixel_eval_path, timings.rhythm_analysis_ms, FlashClampedFramesForHud(H));
+            timings.per_pixel_eval_path, timings.rhythm_analysis_ms, FlashClampedFramesForHud(host));
     }
-    UpdateQualityGovernor(emscripten_get_now() - frameStartMs);
-    return;
+    UpdateQualityGovernor(host, emscripten_get_now() - frameStartMs);
 }
 
 // The single Emscripten main loop services every started host. With one host
@@ -83,7 +84,7 @@ static void renderLoop()
             continue;
         }
         SetActiveHost(h);
-        RenderActiveHostFrame();
+        RenderActiveHostFrame(*h);
     }
     if (previous != nullptr && ActiveHostOrNull() != previous)
     {
@@ -96,19 +97,27 @@ EMSCRIPTEN_KEEPALIVE
 void start_render(int width, int height)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& g_dualFbo = H.dualFbo;
-    auto& g_compositorShader = H.compositorShader;
+    projectm_handle engine = H.appData.Engine();
     // No engine means no context to set state on (init() failed, or the
     // context was lost and not yet restored).
-    if (!pm)
+    if (engine == nullptr)
     {
-        fprintf(stderr, "start_render: no engine on this host; call init() first.\n");
+        LOG_WARN("start_render: no engine on this host; call init() first");
         return;
     }
-    // glClearColor( 1.0, 1.0, 1.0, 0.0 );
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    printf("Setting window size: %i x %i\n", width, height);
+    // The canvas only has the buffers its context was created with (depth and
+    // stencil are opt-in, see WasmContextConfig); clearing bits it lacks is a
+    // no-op at best.
+    GLbitfield clearBits = GL_COLOR_BUFFER_BIT;
+    if (H.contextConfig.depth != 0)
+    {
+        clearBits |= GL_DEPTH_BUFFER_BIT;
+    }
+    if (H.contextConfig.stencil != 0)
+    {
+        clearBits |= GL_STENCIL_BUFFER_BIT;
+    }
+    glClear(clearBits);
     glViewport(0, 0, width, height); //  viewport/scissor after UsePrg runs at full resolution
     glEnable(GL_SCISSOR_TEST);
     glScissor(0, 0, width, height);
@@ -119,7 +128,7 @@ void start_render(int width, int height)
     // degraded RGBA8 dual-FBO fallback (DetectFormat() already ran in init())
     // every bit of extra entropy on the final blit helps hide 8-bit banding, so
     // leave it enabled in that case instead of unconditionally disabling it.
-    if (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8)
+    if (H.dualFbo.GetFormat() == FboFloatFormat::RGBA8)
     {
         glEnable(GL_DITHER);
     }
@@ -131,15 +140,15 @@ void start_render(int width, int height)
     glCullFace(GL_BACK);
     // app_data.loading is left alone: it means "a preset preparation is in
     // flight", and starting the render loop does not change that.
-    projectm_set_window_size(pm, width, height);
+    projectm_set_window_size(engine, width, height);
     // Phase 2: Persist dual-FBO dimensions now that the viewport is known.
     // Preset A/B textures are lazily allocated on first transition request.
-    g_dualFbo.Resize(width, height);
+    H.dualFbo.Resize(width, height);
     // Phase 5: Compile and link the compositing blend shader now that the GL
     // context is current.
-    if (!g_compositorShader.Init())
+    if (!H.compositorShader.Init())
     {
-        fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
+        LOG_ERROR("start_render: CompositingBlendShader failed to initialise; transitions will hard-cut");
     }
 
     // The state everything above established is what each preset render is
@@ -163,8 +172,6 @@ void start_render(int width, int height)
         emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
         g_mainLoopRegistered = true;
     }
-
-    return;
 }
 
 // The shared main loop's Emscripten timing mode (EM_TIMING_RAF = 1), or -1
@@ -172,7 +179,7 @@ void start_render(int width, int height)
 // rasteriser a frame costs more than a display refresh, so the frame rate
 // alone cannot tell rAF pacing from EM_TIMING_SETIMMEDIATE.
 EMSCRIPTEN_KEEPALIVE
-int get_main_loop_timing_mode()
+int debug_get_main_loop_timing_mode()
 {
     if (!g_mainLoopRegistered)
     {
@@ -189,16 +196,12 @@ int get_main_loop_timing_mode()
 // Steady-state playback renders directly to the canvas (one pass); the
 // offscreen ping-pong FBO + fullscreen compositor blit is only used while a
 // preset crossfade is active.
-static bool ShouldUseDualFboCompositor()
+static bool ShouldUseDualFboCompositor(const WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& g_dualFbo = H.dualFbo;
-    auto& g_compositorShader = H.compositorShader;
-    auto& g_transitionActive = H.transitionActive;
-    return g_transitionActive &&
-           g_dualFbo.IsPresetAAllocated() &&
-           g_dualFbo.IsPresetBAllocated() &&
-           g_compositorShader.IsInitialized();
+    return host.transitionActive &&
+           host.dualFbo.IsPresetAAllocated() &&
+           host.dualFbo.IsPresetBAllocated() &&
+           host.compositorShader.IsInitialized();
 }
 
 // Reclaims the Preset A ping-pong pair once it has been idle long enough.
@@ -207,16 +210,10 @@ static bool ShouldUseDualFboCompositor()
 // render_frame() renders straight to the default framebuffer and never samples
 // it, so a resident pair is ~14 MB of VRAM (1280x720 RGBA16F; ~31 MB at
 // 1920x1080) that nothing reads for the rest of the session. The grace period
-// keeps back-to-back preset switches from thrashing glTexImage2D; hosts can tune
-// or disable it via dual_fbo_set_idle_release_seconds().
-static void ReleaseDualFboIfIdle()
+// keeps back-to-back preset switches from thrashing glTexImage2D.
+static void ReleaseDualFboIfIdle(WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& g_dualFbo = H.dualFbo;
-    auto& g_transitionActive = H.transitionActive;
-    auto& g_transitionEndTime = H.transitionEndTime;
-    auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
-    if (g_dualFboIdleReleaseSec < 0.0f || g_transitionActive || !g_dualFbo.IsPresetAAllocated())
+    if (host.transitionActive || !host.dualFbo.IsPresetAAllocated())
     {
         return;
     }
@@ -224,21 +221,53 @@ static void ReleaseDualFboIfIdle()
     // dual_fbo_begin_transition() has run and the host is still polling before
     // transition_start(). Pulling A out from under it would make that
     // transition_start() bail and degrade the crossfade into a hard cut.
-    if (g_dualFbo.IsPresetBAllocated())
+    if (host.dualFbo.IsPresetBAllocated())
     {
         return;
     }
     // No transition has ever ended, so nothing has established an idle baseline.
-    if (g_transitionEndTime <= 0.0)
+    if (host.transitionEndTime <= 0.0)
     {
         return;
     }
-    const double idleMs = WasmNow() - g_transitionEndTime;
-    if (idleMs < static_cast<double>(g_dualFboIdleReleaseSec) * 1000.0)
+    const double idleMs = WasmNow() - host.transitionEndTime;
+    if (idleMs < kDualFboIdleReleaseSeconds * 1000.0)
     {
         return;
     }
-    g_dualFbo.ReleasePresetA();
+    host.dualFbo.ReleasePresetA();
+}
+
+// A canvas whose context has an alpha channel lets the page show through every
+// pixel the frame left with alpha < 1, and presets' composite shaders routinely
+// write one: the image comes out dimmed (or tinted by the page background).
+// That is only wanted in transparency mode, so otherwise the frame's alpha is
+// set to 1 before the browser composites it. glClearBufferfv touches no clear
+// color state, and with only the alpha channel unmasked it leaves the image
+// alone. Hosts without context alpha (the default) skip this entirely.
+static void MakeCanvasOpaqueUnlessTransparent(const WasmHost& host)
+{
+    if (host.contextConfig.alpha == 0 || projectm_get_transparency_mode(host.appData.Engine()))
+    {
+        return;
+    }
+    static const GLfloat kOpaque[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+    glClearBufferfv(GL_COLOR, 0, kOpaque);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
+// The end of every rendered frame, whichever path drew it.
+static void FinishFrame(WasmHost& host)
+{
+    MakeCanvasOpaqueUnlessTransparent(host);
+    FlushRhythmEvents(host);
+    // A requested capture reads what was just drawn, before the commit.
+    TakeRequestedFrameCapture(host);
+    // explicitSwapControl hosts present here, once per frame.
+    WasmWebGLCommitFrameIfExplicit(host);
+    host.renderedFrameCount++;
 }
 
 extern "C" {
@@ -246,17 +275,7 @@ EMSCRIPTEN_KEEPALIVE
 void render_frame()
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& g_dualFbo = H.dualFbo;
-    auto& g_compositorShader = H.compositorShader;
-    auto& g_transitionActive = H.transitionActive;
-    auto& g_transitionBlend = H.transitionBlend;
-    auto& g_transitionDuration = H.activeTransitionDuration;
-    auto& g_transitionStartTime = H.transitionStartTime;
-    auto& g_transitionEndTime = H.transitionEndTime;
-    auto& g_presetBReady = H.presetBReady;
-    auto& g_renderedFrameCount = H.renderedFrameCount;
-    if (!pm)
+    if (H.appData.Engine() == nullptr)
     {
         return;
     }
@@ -265,21 +284,22 @@ void render_frame()
     // (preset objects, shader compile + link) runs here, on this host's context,
     // between frames of the current preset rather than in place of them.
     ActivatePreparedPreset(H);
-    if (!pm)
+    projectm_handle engine = H.appData.Engine();
+    if (engine == nullptr)
     {
         return;
     }
 
     // Deterministic-clock tick (no-op unless the harness enabled it): pins this
     // frame to N/fps before anything reads the time.
-    DeterministicFrameTick();
+    DeterministicFrameTick(H);
 
     // Single audio ingest: drain everything JS producers wrote into the PCM ring
     // since the last frame and hand it to the engine as one stereo block. Done
     // here rather than in renderLoop() so the render-worker path (which drives
     // render_frame() from its own loop) and any host calling render_frame()
     // directly get identical audio, with no window/AnalyserNode involved.
-    pcm_ring_drain();
+    PcmRingDrain(H);
 
     // Phase 5: Integrated dual-FBO render pipeline (transitions only).
     //
@@ -295,25 +315,25 @@ void render_frame()
     // the dual-FBO work landed — avoiding an extra FBO resolve + fullscreen blit
     // every frame.
 
-    if (!ShouldUseDualFboCompositor())
+    if (!ShouldUseDualFboCompositor(H))
     {
         // Direct-to-canvas path (steady state, startup, or compositor unavailable).
-        ReleaseDualFboIfIdle();
-        GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
-        projectm_opengl_render_frame(pm);
+        ReleaseDualFboIfIdle(H);
+        {
+            GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+            projectm_opengl_render_frame(engine);
+        }
         CollectRhythmEvents(H);
-        FlushRhythmEvents(H);
-        TakeRequestedFrameCapture(H);
-        WasmWebGLCommitFrameIfExplicit();
-        g_renderedFrameCount++;
+        FinishFrame(H);
         return;
     }
 
-    const int w = g_dualFbo.Width();
-    const int h = g_dualFbo.Height();
-    const bool ditherOutput = (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8);
-    const bool transparencyMode = projectm_get_transparency_mode(pm);
-    const float transparencyThreshold = projectm_get_transparency_threshold(pm);
+    DualPingPongFramebuffer& dualFbo = H.dualFbo;
+    const int w = dualFbo.Width();
+    const int h = dualFbo.Height();
+    const bool ditherOutput = (dualFbo.GetFormat() == FboFloatFormat::RGBA8);
+    const bool transparencyMode = projectm_get_transparency_mode(engine);
+    const float transparencyThreshold = projectm_get_transparency_threshold(engine);
 
     // --- Step 1: Render Preset A into its Write FBO ---
     // Note: projectm_opengl_render_frame() hardcodes its final composite blit to
@@ -322,32 +342,32 @@ void render_frame()
     // lands in our Write FBO instead of clobbering the canvas directly.
     {
         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
-        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
+        projectm_opengl_render_frame_fbo(engine, dualFbo.GetAWriteFBO());
     }
     CollectRhythmEvents(H);
-    g_dualFbo.SwapPresetA();
+    dualFbo.SwapPresetA();
 
     // --- Step 2: Render Preset B into its Write FBO ---
     gl_reset_state_between_pipelines();
     {
         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
-        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
+        projectm_opengl_render_frame_fbo(engine, dualFbo.GetBWriteFBO());
     }
     CollectRhythmEvents(H);
-    g_dualFbo.SwapPresetB();
+    dualFbo.SwapPresetB();
 
     // --- Step 3: Composite to the default framebuffer (browser canvas) ---
     // Timed as the Present stage, like libprojectM's own output blit: with the
     // perf HUD on, this is the soft-cut cost gpuPresentMs carries.
     const projectm_perf_gpu_stage previousStage = projectm_perf_enter_gpu_stage(PROJECTM_PERF_GPU_STAGE_PRESENT);
-    g_compositorShader.Draw(g_dualFbo.GetAReadTex(), g_dualFbo.GetBReadTex(),
-                            g_transitionBlend, w, h, ditherOutput,
+    H.compositorShader.Draw(dualFbo.GetAReadTex(), dualFbo.GetBReadTex(),
+                            H.transitionBlend, w, h, ditherOutput,
                             transparencyMode, transparencyThreshold);
     projectm_perf_enter_gpu_stage(previousStage);
 
     // --- Step 4: Advance blend timer ---
     float newBlend;
-    if (g_transitionDuration <= 0.0f)
+    if (H.activeTransitionDuration <= 0.0f)
     {
         // Hard cut: jump immediately to full B.
         newBlend = 1.0f;
@@ -356,51 +376,43 @@ void render_frame()
     {
         // Time-based blend (WasmNow() returns milliseconds).
         const double now = WasmNow();
-        newBlend = static_cast<float>((now - g_transitionStartTime) / (static_cast<double>(g_transitionDuration) * 1000.0));
+        newBlend = static_cast<float>((now - H.transitionStartTime) / (static_cast<double>(H.activeTransitionDuration) * 1000.0));
     }
-    g_transitionBlend = newBlend < 1.0f ? newBlend : 1.0f;
+    H.transitionBlend = newBlend < 1.0f ? newBlend : 1.0f;
 
-    if (g_transitionBlend >= 1.0f)
+    if (H.transitionBlend >= 1.0f)
     {
         // Transition complete: promote B → A, release B's FBOs, reset state.
-        g_dualFbo.PromoteBtoA();
-        g_transitionBlend = 0.0f;
-        g_transitionActive = false;
-        g_presetBReady = false;
+        dualFbo.PromoteBtoA();
+        H.transitionBlend = 0.0f;
+        H.transitionActive = false;
+        H.presetBReady = false;
         // Start the Preset A idle clock: from here nothing samples the pair
         // until the next transition, so ReleaseDualFboIfIdle() can reclaim it.
-        g_transitionEndTime = WasmNow();
-        fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
+        H.transitionEndTime = WasmNow();
+        LOG_DEBUG("Transition complete: preset B promoted to A");
     }
-    FlushRhythmEvents(H);
-    // A requested capture reads what the compositor just drew, before the commit.
-    TakeRequestedFrameCapture(H);
-    // explicitSwapControl hosts present here, once, after the compositor.
-    WasmWebGLCommitFrameIfExplicit();
-    g_renderedFrameCount++;
-    return;
+    FinishFrame(H);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void set_window_size(int width, int height)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& g_dualFbo = H.dualFbo;
-    if (!pm)
+    projectm_handle engine = H.appData.Engine();
+    if (engine == nullptr)
     {
         return;
     }
-    WasmWebGLResizeCanvases(width, height);
+    WasmWebGLResizeCanvases(H, width, height);
     glViewport(0, 0, width, height);
     glScissor(0, 0, width, height);
     if (H.glBaseline)
     {
         H.glBaseline->SetViewportAndScissor(width, height);
     }
-    projectm_set_window_size(pm, width, height);
+    projectm_set_window_size(engine, width, height);
     // Phase 2: Resize all allocated dual ping-pong FBOs to match the new viewport.
-    g_dualFbo.Resize(width, height);
-    return;
+    H.dualFbo.Resize(width, height);
 }
 } // extern "C"

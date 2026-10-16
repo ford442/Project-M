@@ -13,6 +13,7 @@ import {
     transitionIsActive,
 } from './generated/projectm-wasm-api.js';
 import { FORMAT_NAMES, getFboFormatName } from './projectm-fbo-format.js';
+import { getHostConfig } from './projectm-host-config.js';
 import { measurePresetSwitchTimings } from './projectm-shader-cache.js';
 import { fetchFeaturedManifest, loadPresetEntry } from './projectm-preset-library.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -517,18 +518,18 @@ function startPerfTools(source) {
     activePerfTools.get(source.key)?.();
     const Module = source.module;
 
-    const params = new URLSearchParams(location.search);
-    const benchmarkRequested = params.get('benchmark') === '1';
-    const showHud = params.get('perfhud') === '1' || benchmarkRequested;
-    const frameTarget = Math.max(1, parseInt(params.get('frames') ?? '', 10) || 500);
-    const presetPath = params.get('preset');
-    const crossfadeRequested = benchmarkRequested && params.get('crossfade') === '1';
+    const config = getHostConfig();
+    const benchmarkRequested = config.benchmark;
+    const showHud = config.perfhud || benchmarkRequested;
+    const frameTarget = config.frames;
+    const presetPath = config.preset;
+    const crossfadeRequested = benchmarkRequested && config.crossfade;
     // Polls transition_is_active() every frame, which needs the module here.
     const crossfadeBench = crossfadeRequested && !!Module;
     if (crossfadeRequested && !Module) {
         console.warn('[projectM benchmark] crossfade mode needs the main-thread topology (?renderWorker=0); sampling steady-state frames instead');
     }
-    const crossfadeSec = Math.max(0.5, parseFloat(params.get('crossfadeSec') ?? '') || 20);
+    const crossfadeSec = Math.max(0.5, config.crossfadeSec);
 
     /**
      * @type {{
@@ -646,7 +647,7 @@ function startPerfTools(source) {
         console.log('[projectM benchmark] ' + JSON.stringify(result, null, 2));
         window.postMessage({ type: 'pm-benchmark-result', result: result }, '*');
 
-        if (params.get('perfhud') !== '1') {
+        if (!config.perfhud) {
             source.setPerfHud(0);
         }
     }
@@ -698,7 +699,8 @@ function startPerfTools(source) {
                     if (typeof entry === 'string') {
                         loadPresetFile(Module, entry);
                     } else {
-                        await loadPresetEntry(entry, {});
+                        // The benchmark starts the transition itself, below.
+                        await loadPresetEntry(entry, { module: Module, startTransitionWhenReady: () => {} });
                     }
                     await startTransitionWhenReady({ module: Module, durationSec: crossfadeSec });
                 } catch (err) {
@@ -715,12 +717,8 @@ function startPerfTools(source) {
      * first two featured-pack presets.
      */
     async function resolveCrossfadePresets() {
-        const explicit = (params.get('crossfadePresets') || '')
-            .split(',')
-            .map((p) => p.trim())
-            .filter(Boolean);
-        if (explicit.length) {
-            return explicit;
+        if (config.crossfadePresets.length) {
+            return config.crossfadePresets;
         }
         if (presetPath) {
             return [presetPath];
@@ -734,7 +732,7 @@ function startPerfTools(source) {
         }
     }
 
-    const presetSwitchRequested = params.get('presetSwitchBench') === '1';
+    const presetSwitchRequested = config.presetSwitchBench;
     // Drives loads and polls readiness through the module on this thread.
     const presetSwitchBench = presetSwitchRequested && !!Module;
     if (presetSwitchRequested && !Module) {

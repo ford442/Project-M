@@ -78,7 +78,6 @@ emcmake cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr/local \
     -DSDL_PTHREADS=1 \
-    -DUSE_PTHREADS=1 \
     -DBOOST_HAS_THREADS=1 \
     -DBOOST_UBLAS_USE_LONG_DOUBLE=1 \
     -DBOOST_UBLAS_NDEBUG=1 \
@@ -98,7 +97,7 @@ cd "${PROJECT_DIR}"
 export JVM_HEAP_SIZE=${JVM_HEAP_SIZE}
 source "/root/emsdk/emsdk_env.sh"
 
-INSTALL_DIR=/usr/local OUT_DIR="${PROJECT_DIR}" PROJECT_ROOT="${PROJECT_DIR}" \
+INSTALL_DIR=/usr/local OUT_DIR="${PROJECT_DIR}" PROJECT_ROOT="${PROJECT_DIR}" PROJECTM_WASM_DEBUG_EXPORTS=0 \
     bash "${PROJECT_DIR}/scripts/build_wasm_smoke_wrapper.sh"
 
 # 7. Run optimize.sh + iconv conversions (as in original Colab)

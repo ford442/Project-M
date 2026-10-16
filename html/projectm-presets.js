@@ -1,4 +1,5 @@
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { DEFAULT_PRESET_API_BASE, HOST_FLAGS, readHostFlag } from './projectm-host-config.js';
 
 /**
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModuleLike
@@ -24,6 +25,9 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  *   fetched preset should be written. Supplied by hosts whose engine (and
  *   therefore whose virtual filesystem) is not on this thread; when omitted the
  *   bytes go straight into `module.FS`.
+ * @property {'load' | 'load-hard' | 'add'} [writeMode] How a preset written
+ *   through the render transport is handed to the engine; ignored when
+ *   `writeBytes` is given (that writer already closed over its mode).
  */
 
 /**
@@ -35,7 +39,7 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  * @property {string} [text]
  */
 
-export const DEFAULT_PRESET_API_BASE = 'https://storage.noahcohn.com';
+export { DEFAULT_PRESET_API_BASE };
 // storage.1ink.us used to be listed here; its /api/presets/random returns 404
 // (checked 2026-10-07), so it only added a failing request to every load.
 export const FALLBACK_PRESET_API_BASES = [
@@ -102,7 +106,7 @@ export function getPresetApiBases({
 } = {}) {
     let fromStorage = null;
     try {
-        fromStorage = includeStorageOverride && typeof localStorage !== 'undefined' ? localStorage.getItem('apiBase') : null;
+        fromStorage = includeStorageOverride && typeof localStorage !== 'undefined' ? localStorage.getItem(/** @type {string} */ (HOST_FLAGS.presetApi.storage)) : null;
     } catch (_) {
         // Storage blocked.
     }
@@ -122,23 +126,13 @@ export function getConfiguredPresetApiBase({
     windowRef = typeof window !== 'undefined' ? window : undefined,
     storage = typeof localStorage !== 'undefined' ? localStorage : null
 } = {}) {
+    let search = '';
     try {
-        const search = windowRef?.location?.search;
-        const fromQuery = search ? new URLSearchParams(search).get('presetApi') : null;
-        if (fromQuery) return fromQuery.replace(/\/+$/, '');
+        search = windowRef?.location?.search ?? '';
     } catch (_) {
-        // Malformed query: fall through.
+        // No location: the query tier is empty.
     }
-    if (typeof windowRef?.PROJECTM_PRESET_API_BASE === 'string' && windowRef.PROJECTM_PRESET_API_BASE) {
-        return windowRef.PROJECTM_PRESET_API_BASE.replace(/\/+$/, '');
-    }
-    let fromStorage = null;
-    try {
-        fromStorage = storage ? storage.getItem('apiBase') : null;
-    } catch (_) {
-        // Storage blocked (private mode, sandboxed iframe).
-    }
-    return fromStorage || DEFAULT_PRESET_API_BASE;
+    return readHostFlag('presetApi', { search, globals: windowRef ?? null, storage });
 }
 
 /** Bases already reported as failing, so a dead endpoint warns once, not per load. */
@@ -208,11 +202,6 @@ export function getLocalPresetVfsPath(filename) {
 }
 
 /**
- * @param {PresetApiOptions} [options]
- * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string; bytes: Uint8Array }>}
- */
-
-/**
  * Writer for preset bytes when this thread has no module FS.
  *
  * Context start() publishes `projectMWritePreset` via installTransportPresetWriter.
@@ -229,6 +218,10 @@ function resolvePresetWriter(writeBytes, mode) {
     return (vfsPath, bytes) => registered(vfsPath, bytes, mode);
 }
 
+/**
+ * @param {PresetApiOptions} [options]
+ * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string; bytes: Uint8Array }>}
+ */
 export async function fetchApiPreset({
     module,
     apiBase,

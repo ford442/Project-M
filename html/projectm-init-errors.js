@@ -4,14 +4,18 @@
 // setup), instead of leaving the user with a blank canvas and console-only errors.
 //
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
+// The numbering is INIT_ERROR, generated from the same list as the C++
+// `enum class WasmInitError` (PROJECTM_WASM_INIT_ERRORS in cmake/WasmApiManifest.cmake).
 
+import { INIT_ERROR } from './generated/projectm-init-error-codes.js';
 import { init as wasmInit, initWithCanvases } from './generated/projectm-wasm-api.js';
 import { createConfiguredHost } from './projectm-context-config.js';
+import { readHostFlag } from './projectm-host-config.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 /** @type {Record<number, { title: string; message: string; hints: string[] }>} */
 const ERROR_INFO = {
-    2: {
+    [INIT_ERROR.CONTEXT_CREATE_FAILED]: {
         title: 'WebGL 2 Unavailable',
         message: 'projectM needs WebGL 2 with floating-point texture support, which your browser or GPU could not provide.',
         hints: [
@@ -20,7 +24,7 @@ const ERROR_INFO = {
             'On iOS, update to a recent Safari version with WebGL2 support.',
         ],
     },
-    3: {
+    [INIT_ERROR.ENGINE_CREATE_FAILED]: {
         title: 'projectM Failed to Start',
         message: 'The visualization engine could not start, even though the graphics context was created.',
         hints: [
@@ -29,7 +33,7 @@ const ERROR_INFO = {
             'If the problem persists, reload the page.',
         ],
     },
-    4: {
+    [INIT_ERROR.CROSS_ORIGIN_ISOLATION]: {
         title: 'Cross-Origin Isolation Unavailable',
         message: 'This build uses shared memory (SharedArrayBuffer) for audio and worker threads, which requires the page to be served with Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers.',
         hints: [
@@ -37,21 +41,21 @@ const ERROR_INFO = {
             'Reloading will not fix this — it depends on how the server sends this page.',
         ],
     },
-    6: {
+    [INIT_ERROR.CANVAS_MISSING]: {
         title: 'Canvas Not Found',
         message: 'projectM could not find the canvas element it was told to render into.',
         hints: [
             'This is a page bug: check the canvas selector passed to projectM.',
         ],
     },
-    7: {
+    [INIT_ERROR.MAKE_CURRENT_FAILED]: {
         title: 'WebGL Context Unusable',
         message: 'A WebGL 2 context was created but could not be activated for rendering.',
         hints: [
             'Reload the page; if it persists, restart the browser to reset the GPU process.',
         ],
     },
-    8: {
+    [INIT_ERROR.PERFORMANCE_CAVEAT]: {
         title: 'Hardware Graphics Required',
         message: 'Only a software WebGL 2 renderer is available, and this page asked for hardware acceleration.',
         hints: [
@@ -59,11 +63,19 @@ const ERROR_INFO = {
             'Update your graphics drivers, or check whether the GPU is blocklisted (chrome://gpu).',
         ],
     },
-    9: {
+    [INIT_ERROR.EXPLICIT_SWAP_UNAVAILABLE]: {
         title: 'Manual Present Unavailable',
         message: 'This page asked for explicit swap control, which this build of projectM does not support.',
         hints: [
             'This is a deployment problem: the page needs a bundle linked with PROJECTM_WASM_EXPLICIT_SWAP=1.',
+        ],
+    },
+    [INIT_ERROR.INSTANCE_LIMIT]: {
+        title: 'Too Many Visualizers',
+        message: 'This page already runs as many projectM visualizers as one engine module supports, so another one could not start.',
+        hints: [
+            'Close or remove another visualizer on this page, then press Retry.',
+            'This is a page bug if it happens without you adding visualizers: one is probably being created without the previous one being destroyed.',
         ],
     },
 };
@@ -73,7 +85,7 @@ const ERROR_INFO = {
  * restored). Not an error to show: the context-loss overlay is already up, and
  * the browser's "webglcontextrestored" retries init() (projectm-context-loss.js).
  */
-export const INIT_CONTEXT_LOST = 5;
+export const INIT_CONTEXT_LOST = INIT_ERROR.CONTEXT_LOST;
 
 const GENERIC_ERROR_INFO = {
     title: 'Initialization Failed',
@@ -210,13 +222,24 @@ function ensureOverlay() {
 }
 
 /**
+ * What the overlay says for an init error code: its own entry, or the generic
+ * one for a code this page does not know (a newer bundle's).
+ *
+ * @param {number} code
+ * @returns {{ title: string; message: string; hints: string[] }}
+ */
+export function describeInitError(code) {
+    return ERROR_INFO[code] || GENERIC_ERROR_INFO;
+}
+
+/**
  * Shows the init-error overlay for the given error code (see docs/EMSCRIPTEN.md#init-error-codes).
  * @param {number} code The error code returned by `Module._init()`.
  * @param {string} [detail] Optional extra detail string from the C++ side.
  */
 export function showInitError(code, detail) {
     const el = ensureOverlay();
-    const info = ERROR_INFO[code] || GENERIC_ERROR_INFO;
+    const info = describeInitError(code);
 
     const titleEl = el.querySelector('.pm-init-error-title');
     if (titleEl) titleEl.textContent = info.title;
@@ -277,7 +300,7 @@ export function setupInitErrorHandling(onRetry) {
     ensureOverlay();
 
     const state = {
-        simulate: new URLSearchParams(location.search).get('simulateInitFail') === '1',
+        simulate: readHostFlag('simulateInitFail'),
         dispose() {
             for (const unsubscribe of unsubscribers) {
                 unsubscribe();
@@ -289,14 +312,15 @@ export function setupInitErrorHandling(onRetry) {
     };
 
     if (state.simulate) {
-        showInitError(2, 'Simulated failure via ?simulateInitFail=1');
+        showInitError(INIT_ERROR.CONTEXT_CREATE_FAILED, 'Simulated failure via ?simulateInitFail=1');
     }
 
     return state;
 }
 
 /**
- * Checks `window.crossOriginIsolated` and shows the init-error overlay (code 4) if it is
+ * Checks `window.crossOriginIsolated` and shows the init-error overlay (code 4,
+ * INIT_ERROR.CROSS_ORIGIN_ISOLATION) if it is
  * false. This build is compiled with `-s SHARED_MEMORY=1 -pthread`
  * (see CMakeLists.txt and docs/DEPLOYMENT.md), which requires the page to be served with
  * `Cross-Origin-Opener-Policy: same-origin` and a `Cross-Origin-Embedder-Policy` header —
@@ -311,7 +335,7 @@ export function setupInitErrorHandling(onRetry) {
  */
 export function checkCrossOriginIsolation() {
     if (typeof window.crossOriginIsolated !== 'undefined' && !window.crossOriginIsolated) {
-        showInitError(4);
+        showInitError(INIT_ERROR.CROSS_ORIGIN_ISOLATION);
         return false;
     }
     return true;
@@ -355,7 +379,7 @@ export function checkInit(Module, {
             : wasmInit(Module);
     }
     onCode?.(code);
-    if (code !== 0) {
+    if (code !== INIT_ERROR.OK) {
         if (code !== INIT_CONTEXT_LOST && (!overlayEl || !overlayEl.classList.contains('visible'))) {
             showInitError(code);
         }

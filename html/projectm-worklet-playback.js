@@ -50,7 +50,7 @@ const PROCESSOR_NAME = 'projectm-audio-processor';
 function ensureHostAudioContext() {
     const existing = globalThis.projectMAudioContext_Global_Cpp;
     if (existing) return existing;
-    const Ctor = globalThis.AudioContext || globalThis.webkitAudioContext;
+    const Ctor = globalThis.AudioContext || Reflect.get(globalThis, 'webkitAudioContext');
     if (typeof Ctor !== 'function') return null;
     try {
         const ctx = new Ctor();
@@ -83,6 +83,9 @@ function sleep(ms) {
 function currentModule() {
     return globalThis.Module || null;
 }
+
+/** Warn once per page when worklet PCM has nowhere to go; not once per message. */
+let warnedPcmDropped = false;
 
 /**
  * Wire a repaired worklet node into the PCM ring.
@@ -132,8 +135,8 @@ function attachPcmHandler(workletNode) {
             transportWrite(event.data.audioData, channels);
             return;
         }
-        if (!attachPcmHandler.warned) {
-            attachPcmHandler.warned = true;
+        if (!warnedPcmDropped) {
+            warnedPcmDropped = true;
             console.warn('[projectM] worklet PCM dropped: no ring on this thread and projectMWritePcmRing is not installed');
         }
     };

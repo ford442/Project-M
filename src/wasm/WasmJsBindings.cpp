@@ -12,6 +12,8 @@
 #include "ProjectMWasmInternal.hpp"
 #include "WasmHost.hpp"
 
+#include <cstdarg>
+
 // clang-format off
 EM_JS(void, js_update_preset_name, (const char* name), {
     const presetName = UTF8ToString(name);
@@ -676,29 +678,92 @@ EM_JS(void, js_notify_init_success, (double host), {
 // tells "no WebGL 2" from "software renderer refused" from "selector typo"
 // without listening for pmReportInitError. Init runs on one thread at a time
 // (the main thread, or the render worker's own module), so one value suffices.
-static int g_lastInitError = 0;
+static WasmInitError g_lastInitError = WasmInitError::kOk;
 
-extern "C" {
-void js_report_init_error_for_host(double host, int code, const char* detail)
+void js_report_init_error_for_host(double host, WasmInitError code, const char* detail)
 {
     g_lastInitError = code;
-    js_notify_init_error(host, code, detail);
+    js_notify_init_error(host, static_cast<int>(code), detail);
 }
 
-void js_report_init_error(int code, const char* detail)
+void js_report_init_error(WasmInitError code, const char* detail)
 {
     js_report_init_error_for_host(ActiveEventHostHandle(), code, detail);
 }
 
+extern "C" {
 void js_report_init_success()
 {
-    g_lastInitError = 0;
+    g_lastInitError = WasmInitError::kOk;
     js_notify_init_success(ActiveEventHostHandle());
 }
 
 EMSCRIPTEN_KEEPALIVE
 int get_last_init_error()
 {
-    return g_lastInitError;
+    return static_cast<int>(g_lastInitError);
 }
 } // extern "C"
+
+// =============================================================================
+// Console log sink (see "Logging" in ProjectMWasmInternal.hpp).
+// =============================================================================
+std::string WasmLogFormat(const char* format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    va_list measure;
+    va_copy(measure, args);
+    const int length = std::vsnprintf(nullptr, 0, format, measure);
+    va_end(measure);
+    std::string message;
+    if (length > 0)
+    {
+        message.resize(static_cast<size_t>(length));
+        std::vsnprintf(message.data(), message.size() + 1, format, args);
+    }
+    va_end(args);
+    return message;
+}
+
+namespace {
+
+void WasmConsoleLogSink(const char* message, projectm_log_level level, void* /*userData*/)
+{
+    int flags = EM_LOG_CONSOLE;
+    switch (level)
+    {
+        case PROJECTM_LOG_LEVEL_FATAL:
+        case PROJECTM_LOG_LEVEL_ERROR:
+            flags |= EM_LOG_ERROR;
+            break;
+        case PROJECTM_LOG_LEVEL_WARN:
+            flags |= EM_LOG_WARN;
+            break;
+        case PROJECTM_LOG_LEVEL_INFO:
+            flags |= EM_LOG_INFO;
+            break;
+        default:
+            flags |= EM_LOG_DEBUG;
+            break;
+    }
+    emscripten_log(flags, "[projectM] %s", message);
+}
+
+} // namespace
+
+void InstallWasmLogSink()
+{
+    static bool installed = false;
+    if (installed)
+    {
+        return;
+    }
+    installed = true;
+    projectm_set_log_callback(&WasmConsoleLogSink, false, nullptr);
+#ifdef ENABLE_DEBUG_LOGGING
+    projectm_set_log_level(PROJECTM_LOG_LEVEL_DEBUG, false);
+#else
+    projectm_set_log_level(PROJECTM_LOG_LEVEL_WARN, false);
+#endif
+}

@@ -388,8 +388,10 @@ side on one thread for the same reason.
 
 **`PerPixelGpuRenderTest`** — is it wired into the frame correctly? Each preset is
 rendered twice through the whole engine at a fixed seed and a fixed frame clock, once
-with `PROJECTM_PER_PIXEL_EVAL=cpu` and once on the default path, and the framebuffers
-are compared. `presets/tests/110-per_pixel.milk` is pixel-identical over 40 frames, and
+with `PROJECTM_RENDER_PATH_PER_PIXEL_CPU` set on its instance and once on the default
+path, and the framebuffers are compared. `RenderPathSwitchIsPerInstance` checks that the
+switch really keeps a preset on the CPU (the perf timings' `per_pixel_eval_path`) and that
+a sibling instance does not inherit it, so the comparison cannot pass vacuously. `presets/tests/110-per_pixel.milk` is pixel-identical over 40 frames, and
 across a mid-run resize and mesh-size change (the static grid is only re-uploaded then).
 A synthetic preset whose carried accumulator drives `dx`/`dy` over a visible border checks
 `RunCpuSlice()` and the attribute layout end to end (0% differing pixels at 8 and 40
@@ -412,10 +414,12 @@ records `perPixelEvalPath` so the A/B cannot be run against the wrong baseline.
 
 ### Ablation
 
-`?perPixelEval=cpu` (WASM) sets `PROJECTM_PER_PIXEL_EVAL=cpu`, which
-`PerPixelGlslLowering::ForcedToCpu()` reads; the same environment variable works
-natively and is what the render test uses to capture both paths. It is read once per
-preset load, so it is a switch for an A/B run rather than a live toggle. There is no
+`?perPixelEval=cpu` (WASM) sets the engine's `PROJECTM_RENDER_PATH_PER_PIXEL_CPU`
+render-path flag (`projectm_set_render_path()`, per instance), which
+`MilkdropPreset::LowerPerPixelCodeToGlsl()` reads from the `RenderContext`; natively the
+render test calls the same API, and the SDL developer UI maps `PROJECTM_PER_PIXEL_EVAL=cpu`
+onto it (libprojectM itself reads no environment variable). It is read when each preset is
+initialized, so it is a switch for an A/B run rather than a live toggle. There is no
 `=gpu`: a preset the compiler refuses cannot be forced onto the GPU, and one it accepts
 is already there.
 

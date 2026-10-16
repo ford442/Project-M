@@ -35,7 +35,7 @@ void Milkdrop2077WaveStar::GenerateVertices(const PresetState& presetState,
     float const tenthSamples = static_cast<float>(m_samples) * 0.1f;
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinWaveformLoopIters)
 #endif
     for (int sample = 0; sample < m_samples; sample++)
     {

@@ -61,7 +61,14 @@ if hits=$(grep -rnE '^[[:space:]]*#[[:space:]]*define[[:space:]]+g_[A-Za-z0-9_]*
     report "#define g_* macros in src/wasm/ (only ${ALLOWED_G_DEFINES[*]} is allowed):" "$hits"
 fi
 
+# The per-host refactor's last step: no export opens with a block of
+# `auto& g_foo = H.foo;` references that keep the old global names alive. Use
+# the host's members (H.foo) or pass the WasmHost& on.
+if hits=$(grep -rnE '&[[:space:]]*g_[A-Za-z0-9_]*[[:space:]]*=[[:space:]]*[A-Za-z_]+(\.|->)' src/wasm/); then
+    report "g_* reference aliases of host members in src/wasm/:" "$hits"
+fi
+
 if [[ $status -eq 0 ]]; then
-    echo "OK: src/wasm/ has no per-host alias macros (#246)."
+    echo "OK: src/wasm/ has no per-host alias macros or g_* member aliases (#246)."
 fi
 exit $status

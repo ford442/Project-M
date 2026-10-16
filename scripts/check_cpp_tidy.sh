@@ -139,6 +139,7 @@ COMPILE_ARGS=(
     -I "$PROJECT_ROOT/omp"
     -I "$PROJECT_ROOT/src/libprojectM"
     -I "$BUILD_DIR/src/libprojectM"
+    -I "$BUILD_DIR/src/api/include"
     -I "$PROJECT_ROOT/vendor/hlslparser/src"
     -I "$PROJECT_ROOT/vendor/glad/include"
     -I "$PROJECT_ROOT/vendor"

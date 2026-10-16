@@ -3,6 +3,7 @@
  * Used by ?audioTest=1 debug panel and tests/wasm-smoke/audio_reactivity.html.
  */
 
+import { readHostFlag } from './projectm-host-config.js';
 import { feedPcmThroughRing } from './projectm-pcm-ring.js';
 
 // projectM's internal analysis buffer size (AudioBufferSamples). Kept as the
@@ -268,8 +269,7 @@ export function startSyntheticFeed(module, mode = 'bass', {
  * @returns {HTMLDivElement | null} The panel, or null when not enabled.
  */
 export function setupAudioTestPanel(moduleRef, { documentRef = document } = {}) {
-    const params = new URLSearchParams(globalThis.location?.search || '');
-    if (params.get('audioTest') !== '1') return null;
+    if (!readHostFlag('audioTest')) return null;
 
     const panel = documentRef.createElement('div');
     panel.id = 'pm-audio-test';

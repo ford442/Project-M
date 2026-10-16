@@ -82,6 +82,7 @@ void MilkdropPreset::Initialize(const Renderer::RenderContext& renderContext)
 {
     assert(renderContext.textureManager);
     m_state.renderContext = renderContext;
+    m_flipTexture.SetBlitEnabled(!renderContext.CopyShaderPath());
     m_state.blurTexture.Initialize(renderContext);
     m_state.LoadShaders();
 
@@ -123,6 +124,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
 {
     m_state.audioData = audioData;
     m_state.renderContext = renderContext;
+    m_flipTexture.SetBlitEnabled(!renderContext.CopyShaderPath());
 
     // Update framebuffer and u/v texture size if needed
     if (m_framebuffer.SetSize(renderContext.viewportSizeX, renderContext.viewportSizeY))
@@ -431,9 +433,9 @@ void MilkdropPreset::LowerPerPixelCodeToGlsl()
         return;
     }
 
-    if (PerPixelGlslLowering::ForcedToCpu())
+    if (m_state.renderContext.PerPixelForceCpu())
     {
-        m_state.perPixelGpuReason = "forced to the CPU path by PROJECTM_PER_PIXEL_EVAL=cpu";
+        m_state.perPixelGpuReason = "forced to the CPU path by PROJECTM_RENDER_PATH_PER_PIXEL_CPU";
         return;
     }
 

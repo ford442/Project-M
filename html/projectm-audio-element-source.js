@@ -10,9 +10,8 @@
 // shared AudioWorkletNode → the ring. Same path, same timing, same stereo as
 // worklet playback and external PCM.
 //
-// Installing this module also gives the baked EM_JS
-// (`connect_media_element_source` in src/wasm/WasmAudioBridge.cpp) a host
-// implementation to prefer, so the wiring can change without a WASM rebuild.
+// This module owns that path entirely: the WASM host has no element export
+// of its own any more, and hosts call connectMediaElement() directly.
 
 import { getAudioContext } from './projectm-audio-bootstrap.js';
 
@@ -105,18 +104,6 @@ export function disconnectMediaElement(target, { documentRef } = {}) {
         return false;
     }
     return true;
-}
-
-/**
- * Installs `globalThis.projectMConnectMediaElement`, which the WASM
- * `connect_media_element_source()` export prefers over its own inline fallback.
- *
- * @returns {void}
- */
-export function installMediaElementSourceHook() {
-    /** @type {any} */ (globalThis).projectMConnectMediaElement =
-    /** @param {string} selector */
-    (selector) => connectMediaElement(selector);
 }
 
 /**

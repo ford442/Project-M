@@ -10,7 +10,6 @@
 #include <Renderer/ShaderCache.hpp>
 
 #include <array>
-#include <cstdlib>
 
 // Not defined by every GLES2-era header, but valid on every target we render blur on.
 #ifndef GL_RGB8
@@ -94,6 +93,12 @@ void BlurTexture::Initialize(const Renderer::RenderContext& renderContext)
 
     m_blur1Shader = blur1Shader;
     m_blur2Shader = blur2Shader;
+
+    // Ablation switch for benchmarking (projectm_set_render_path()'s
+    // PROJECTM_RENDER_PATH_BLUR_COPY): keep the render-to-scratch + glCopyTexSubImage2D
+    // behaviour, so the direct path can be A/B'd against it on a single build. See
+    // docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+    m_copyPathForced = renderContext.BlurCopyPath();
 }
 
 void BlurTexture::SetRequiredBlurLevel(BlurTexture::BlurLevel level)
@@ -329,23 +334,6 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
     Renderer::Shader::Unbind();
 }
 
-namespace {
-
-/**
- * @brief Returns true if the legacy copy path was requested via the environment.
- *
- * Ablation switch for benchmarking: setting PROJECTM_BLUR_COPY_PATH=1 restores the
- * render-to-scratch + glCopyTexSubImage2D behaviour, so the direct path can be A/B'd
- * against it on a single build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
- */
-auto CopyPathForcedByEnvironment() -> bool
-{
-    const char* const value = std::getenv("PROJECTM_BLUR_COPY_PATH");
-    return value != nullptr && value[0] == '1' && value[1] == '\0';
-}
-
-} // namespace
-
 auto BlurTexture::EnsureRenderTarget() -> bool
 {
     if (!m_blurTextures[0] || m_blurTextures[0]->TextureID() == 0)
@@ -356,7 +344,7 @@ auto BlurTexture::EnsureRenderTarget() -> bool
     GLint origReadFramebuffer{};
     GLint origDrawFramebuffer{};
 
-    if (m_renderPath == RenderPath::Undecided && CopyPathForcedByEnvironment())
+    if (m_renderPath == RenderPath::Undecided && m_copyPathForced)
     {
         m_renderPath = RenderPath::Copy;
     }

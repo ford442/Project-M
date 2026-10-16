@@ -85,7 +85,9 @@ else
     fi
     INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
         bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
-    INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" OUT_DIR="$OUT_DIR" \
+    # Without the test-hook exports the smoke wrapper links by default
+    # (cmake/WasmApiManifest.cmake `debug` entries): never deployed.
+    INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" OUT_DIR="$OUT_DIR" PROJECTM_WASM_DEBUG_EXPORTS=0 \
         bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
 fi
 

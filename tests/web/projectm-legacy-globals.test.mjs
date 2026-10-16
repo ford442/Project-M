@@ -422,3 +422,43 @@ test('the repository passes its own gate', () => {
     const result = spawnSync('bash', [gateScript], { encoding: 'utf8', cwd: repoRoot });
     assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
+
+test('the gate fails any other page-global write unless its file/name pair is allowlisted', () => {
+    const leaky = runGateOn({ 'html/projectm-leaky.js': "window.presetPicker = picker;\nglobalThis['debugHook'] = 1;\n" });
+    assert.equal(leaky.status, 1, leaky.out);
+    assert.match(leaky.out, /projectm-leaky\.js assigns the page global 'presetPicker'/);
+    assert.match(leaky.out, /'debugHook'/);
+
+    // Allowlisted: the WASM glue reads these by name. (Only that file is in the
+    // scratch tree, so the other allowlist entries' files are absent and not stale.)
+    const allowed = runGateOn({
+        'html/projectm-worklet-playback.js': [
+            'globalThis.projectMAudioContext_Global_Cpp = ctx;',
+            'globalThis.projectMWorkletNode_Global_Cpp = node;',
+            "globalThis.projectMSongLoadState = 'loading';",
+            'globalThis.__projectMSongLoadToken = token;',
+        ].join('\n'),
+    });
+    assert.equal(allowed.status, 0, allowed.out);
+
+    // ...but only in that file, and a property of a property is not a page global.
+    const elsewhere = runGateOn({
+        'html/projectm-other.js': "globalThis.projectMSongLoadState = 'x';\nwindow.location.search = q;\n",
+    });
+    assert.equal(elsewhere.status, 1);
+    assert.doesNotMatch(elsewhere.out, /'location'/);
+});
+
+test('an allowlist entry whose write is gone fails the gate', () => {
+    const { status, out } = runGateOn({ 'html/projectm-worklet-playback.js': 'export const nothing = 1;\n' });
+    assert.equal(status, 1);
+    assert.match(out, /projectm-worklet-playback\.js\|projectMAudioContext_Global_Cpp' matches no write/);
+});
+
+test('the gate sees JSDoc-cast writes and values on the next line', () => {
+    const { status, out } = runGateOn({
+        'html/projectm-leaky.js': '/** @type {any} */ (globalThis).castLeak =\n    () => 1;\n',
+    });
+    assert.equal(status, 1, out);
+    assert.match(out, /'castLeak'/);
+});

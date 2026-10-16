@@ -74,6 +74,14 @@ export interface ProjectMRhythmInfo {
  */
 export type ProjectMPresentMode = 'browser' | 'manual';
 
+/** The engine's preset duration; see `ProjectMContextOptions.presetDuration`. */
+export interface ProjectMPresetDuration {
+    /** Seconds every preset is shown at least. */
+    seconds: number;
+    /** Up to this many seconds more, uniformly drawn per preset. Default 0. */
+    randomExtra?: number;
+}
+
 /** Settings of the temporal flash limiter; see `ProjectMContextOptions.flashLimit`. */
 export interface ProjectMFlashLimitOptions {
     /**
@@ -193,7 +201,13 @@ export interface ProjectMContextOptions {
      * parse the query string and pass these instead (see `projectm-core.html`).
      * Each engine in a shared Module keeps its own attributes (#246).
      */
-    /** WebGL `alpha` attribute: an alpha channel in the drawing buffer (default true — transparency overlays). */
+    /**
+     * WebGL `alpha` attribute: an alpha channel in the drawing buffer. Defaults
+     * to `transparent`, so a canvas is opaque (cheapest to composite, and no
+     * page shows through pixels a preset leaves at alpha < 1) unless it starts
+     * in transparency mode. Fixed at creation: a host that calls
+     * `setTransparent(true)` later must pass `contextAlpha: true`.
+     */
     contextAlpha?: boolean;
     /**
      * WebGL `premultipliedAlpha` (default true). Hosts that key on canvas
@@ -256,6 +270,14 @@ export interface ProjectMContextOptions {
     renderPathOverrides?: import('./projectm-render-worker-types.ts').RenderPathOverrides;
     presetUrl?: string;
     presetLocked?: boolean;
+    /**
+     * How long the engine's own timer shows each preset: `seconds`, plus up to
+     * `randomExtra` more drawn from the engine's seeded RNG (so a deterministic
+     * seed makes the timing repeat too). A number is `{ seconds }`. Applied
+     * once the engine is up, in both topologies; skipped on a bundle without
+     * `set_preset_duration()`. Default: the engine's (a fixed 30 s).
+     */
+    presetDuration?: number | ProjectMPresetDuration;
     /** When the playlist switches presets. Default `'timer'`. */
     presetSwitchPolicy?: ProjectMPresetSwitchPolicy;
     /** Bars per preset (`'bars'`) or the shortest preset in bars (`'section'`). Default 16. */

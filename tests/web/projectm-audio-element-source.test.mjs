@@ -9,7 +9,6 @@ import test from 'node:test';
 import {
     connectMediaElement,
     disconnectMediaElement,
-    installMediaElementSourceHook,
     resetMediaElementSourcesForTests,
 } from '../../html/projectm-audio-element-source.js';
 
@@ -121,24 +120,3 @@ test('disconnectMediaElement disconnects a connected element and no-ops otherwis
     resetMediaElementSourcesForTests(element);
 });
 
-test('installMediaElementSourceHook gives the WASM export a host implementation', () => {
-    const element = fakeElement();
-    const audioContext = fakeAudioContext();
-    const workletNode = { name: 'worklet' };
-    globalThis.projectMWorkletNode_Global_Cpp = workletNode;
-    globalThis.document = fakeDocument({ '#track': element });
-    try {
-        installMediaElementSourceHook();
-        assert.equal(typeof globalThis.projectMConnectMediaElement, 'function');
-        // The hook resolves the AudioContext through the bootstrap module, which
-        // has none here, so this reports failure without throwing — the EM_JS
-        // caller treats that as "not connected" and retries later.
-        assert.equal(globalThis.projectMConnectMediaElement('#track'), false);
-        assert.equal(audioContext.created.length, 0);
-    } finally {
-        delete globalThis.projectMConnectMediaElement;
-        delete globalThis.projectMWorkletNode_Global_Cpp;
-        delete globalThis.document;
-        resetMediaElementSourcesForTests(element);
-    }
-});

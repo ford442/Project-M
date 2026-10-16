@@ -49,6 +49,25 @@ export const LEGACY_GLOBAL_NAMES = Object.freeze([
     'openFlacPlayer',
     'openModPlayer',
     'BroadcastChannel',
+    // exposeHostPageGlobals()
+    'updatePresetDisplay',
+    'presetPicker',
+    'toggleTransparencyMode',
+    'openAudioCapture',
+    'feedPCMToModuleForDebug',
+    'startLocalProjectMTestSender',
+    'stopLocalProjectMTestSender',
+]);
+
+/** The names exposeHostPageGlobals() accepts. */
+const HOST_PAGE_GLOBAL_NAMES = Object.freeze([
+    'updatePresetDisplay',
+    'presetPicker',
+    'toggleTransparencyMode',
+    'openAudioCapture',
+    'feedPCMToModuleForDebug',
+    'startLocalProjectMTestSender',
+    'stopLocalProjectMTestSender',
 ]);
 
 /**
@@ -99,7 +118,7 @@ export function exposeMeshQualityGlobals(meshQuality, host = globalThis) {
 /**
  * `window.pmGetFboFormat`.
  *
- * @param {() => string} getFormat Returns 'RGBA32F' | 'RGBA16F' | 'RGBA8'.
+ * @param {() => string | null} getFormat Returns 'RGBA32F' | 'RGBA16F' | 'RGBA8' (null until known).
  * @param {any} [host]
  * @returns {() => void}
  */
@@ -162,6 +181,33 @@ export function exposeAudioPlayerGlobals(controller, host = globalThis) {
     }
     if (controller.openModPlayer) {
         entries.openModPlayer = controller.openModPlayer;
+    }
+    return claimAll(host, entries);
+}
+
+/**
+ * The first-party core host's page names (html/projectm-core-host.js):
+ *
+ *   updatePresetDisplay          looked up by name by the WASM glue
+ *                                (src/wasm/WasmJsBindings.cpp) and the
+ *                                experimental bridge to label the current preset
+ *   presetPicker, toggleTransparencyMode, openAudioCapture,
+ *   feedPCMToModuleForDebug, start/stopLocalProjectMTestSender
+ *                                console API documented in docs/AUDIO_PIPELINE.md
+ *                                and docs/EMSCRIPTEN.md
+ *
+ * Only those names: anything else throws, so this cannot become a way around
+ * scripts/check_host_globals.sh.
+ *
+ * @param {Partial<Record<(typeof HOST_PAGE_GLOBAL_NAMES)[number], unknown>>} entries
+ * @param {any} [host]
+ * @returns {() => void}
+ */
+export function exposeHostPageGlobals(entries, host = globalThis) {
+    for (const key of Object.keys(entries)) {
+        if (!HOST_PAGE_GLOBAL_NAMES.includes(/** @type {any} */ (key))) {
+            throw new Error(`exposeHostPageGlobals: ${key} is not a host page global`);
+        }
     }
     return claimAll(host, entries);
 }

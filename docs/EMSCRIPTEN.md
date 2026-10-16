@@ -29,12 +29,23 @@ everything twice for it, and it has been removed.
 
 | Flag | Purpose |
 |------|---------|
-| `-s USE_WEBGL2=1` | Target WebGL 2.0 — required for MRTs and float texture support |
-| `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2` | Strictly target WebGL 2.0 and avoid fallback to WebGL 1.0 |
+| `-s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2` | WebGL 2.0 only (MRTs, float textures), no fallback to WebGL 1.0. (`-s USE_WEBGL2=1`, a deprecated alias of `MAX_WEBGL_VERSION=2`, is no longer passed.) |
 | `-s FULL_ES2=0 -s FULL_ES3=0` | Native WebGL 2 only; no GL emulation layer (libprojectM uses no client-side arrays or buffer mapping) |
-| `-O3` | Wrapper link; the static libs take their level from `CMAKE_BUILD_TYPE` (Release by default) |
-| `-s INITIAL_MEMORY=256mb -s ALLOW_MEMORY_GROWTH=0` | Fixed heap, sized from a measured high-water mark — see [Heap model](#heap-model) |
+| `-O3` | Wrapper TU compile and wrapper link (the link's `-O3` is wasm-opt's level). The static libs take their level from `CMAKE_BUILD_TYPE` (Release by default), at compile *and* link: `-O3`, `-std=c++20`, `-fno-strict-aliasing` and `-fno-math-errno` are compile-only lists now, so a Debug lib configure no longer links at `-O3` |
+| `-s INITIAL_MEMORY=128mb -s ALLOW_MEMORY_GROWTH=0` | Fixed heap, sized from a measured high-water mark — see [Heap model](#heap-model) |
 | `-pthread`, `PTHREAD_POOL_SIZE` | Presets are prepared (parsed, shaders transpiled) on a per-host pthread while the render loop keeps running — see [Preset loading](#preset-loading) |
+| `-s STACK_SIZE=1mb -s DEFAULT_PTHREAD_STACK_SIZE=1mb` | Wrapper link. The shadow stack (address-taken locals; wasm's own call stack is separate) of the main thread and every pthread, 64 KiB by default. The prepare threads run the recursive-descent HLSL parser and transpiler, and so does the main thread when it loads a preset nobody prepared; a deeply nested shader expression must not walk off the stack into the heap. Six threads cost ~6 MiB |
+
+Two settings were tried and are **not** used:
+
+- `PTHREAD_POOL_SIZE_STRICT=2` (pool exhaustion as a hard error). A destroyed host's prepare thread
+  is detached, and its Worker only returns to the pool once the main thread next yields to the
+  event loop; a page that destroys and re-creates hosts in one task (the smoke test does) finds the
+  pool empty and `std::thread` throws. The default (`1`, warn and create a Worker lazily) is
+  harmless for a thread nobody waits on synchronously; the OpenMP team, which is waited on, never
+  churns.
+- `EVAL_CTORS`: emsdk 6.0.2 refuses it with pthreads ("EVAL_CTORS is not compatible with pthreads
+  yet (passive segments)").
 
 There is no `-s ASYNCIFY`: nothing suspends the wasm stack. The build used ASYNCIFY for a single
 `emscripten_sleep(0)` before each preset compile; that yield is gone now the compile's CPU half
@@ -60,10 +71,19 @@ preset-load hook (`on_playlist_preset_load()`) turns each of these into a reques
 
 - **Latest wins.** Each host has one pending slot and one completed slot. A newer request
   replaces a pending one, and a result is only activated if nothing newer has been posted.
-- **Readiness.** `app_data.loading` means "a preparation is in flight". It gates
-  `is_preset_ready()` and timer-driven switches, but no longer pauses the render loop.
-  `load_preset_callback_done()` runs, and `is_preset_ready()` turns true, once the switch has
-  happened.
+- **Readiness.** `appData.loading` means "a preparation is in flight". It gates the
+  `debug_is_preset_ready()` test hook and timer-driven switches, but no longer pauses the render
+  loop. `load_preset_callback_done()` runs, and `debug_is_preset_ready()` turns true, once the
+  switch has happened.
+- **Preset duration.** `load_preset_callback_done()` sets the engine's preset duration for the
+  preset just switched to, from the host's `set_preset_duration(seconds, randomExtraSeconds)`
+  policy: `seconds` plus a uniform draw from `[0, randomExtraSeconds)`, taken from a per-host
+  `std::mt19937` seeded from libprojectM's `RandomSeed` (domain `WasmPresetDuration`) when the
+  engine is created and reseeded by `set_deterministic_seed()`, so timer-driven switches land on
+  the same frames run to run. The default is a fixed 30 s. (It used to be a hidden random 27–57 s
+  drawn from `emscripten_random()` on every switch, which overrode the host and ignored the seed.)
+  `ProjectMContext` takes it as the `presetDuration` option (`number` or
+  `{ seconds, randomExtra }`); `projectm-core.html` asks for `{ seconds: 27, randomExtra: 30 }`.
 - **No reentrancy.** When a job finishes, the prepare thread wakes the main runtime thread by
   proxying a call that only schedules a zero-delay timer. A main thread blocked on a futex (a
   contended mutex, or an OpenMP barrier mid-frame) runs proxied calls inside the wait
@@ -93,8 +113,8 @@ The config is stored on that `WasmHost` before `emscripten_webgl_create_context`
 topologies use the same shape (`WasmContextConfig` in `html/projectm-render-worker-types.ts`): the main
 thread calls the export through `createConfiguredHost()` (`html/projectm-context-config.js`), the
 OffscreenCanvas render worker receives `{ flags, powerPreference, fboPrecision }` in its `init`
-message and passes the same three numbers. `resolveWasmContextConfig(options)` turns
-`ProjectMContextOptions` into it; `CONTEXT_CONFIG_FLAGS` names the bits (both are re-exported from
+message and passes the same three numbers. `resolveWasmContextConfig(options, renderPathOverrides)` turns
+`ProjectMContextOptions` (and the page's render-path switches, see below) into it; `CONTEXT_CONFIG_FLAGS` names the bits (both are re-exported from
 `projectm-context.js`, i.e. `@projectm/web/context`). The C++ side does not scrape `window.location` /
 `localStorage` — query-string parsing (`?aa=1`, `?capture=1`, `?fboPrecision=high`) lives in the host JS
 layer (`projectm-core.html`).
@@ -106,20 +126,31 @@ layer (`projectm-core.html`).
 | `preserveDrawingBuffer` | `1 << 1` | `preserveDrawingBuffer` | `false` | Screenshot/capture hosts set `true` (`?capture=1`) for a stable back-buffer |
 | `depth` | `1 << 2` | `depth` | `false` | Milkdrop's depth use lives on preset FBOs (#246). Sprites that depth-test against the canvas opt in (`?depth=1`) |
 | `stencil` | `1 << 3` | `stencil` | `false` | Same reasoning as `depth`; `?depth=1` restores both |
-| `alpha` | `1 << 4` | `contextAlpha` | `true` | Transparency overlays (#135). The `alpha` option is a **separate** canvas-CSS compositing hint and never sets this bit. |
+| `alpha` | `1 << 4` | `contextAlpha` | `transparent` (so `false` unless the context starts in transparency mode) | An opaque canvas is what the browser composites cheapest, and a canvas with an alpha channel shows the page through every pixel a preset leaves at alpha < 1 (most composite shaders do: 88% of `000-empty`'s pixels). Transparency mode (#135) needs the channel, and it cannot be added once the context exists, so a host that turns transparency on later asks for `contextAlpha: true` up front: `projectm-core.html` does, and `<project-m-visualizer>` does unless `context-alpha="false"`. `ProjectMContext#setTransparent(true)` on a context without it warns once. The `alpha` option is a **separate** canvas-CSS compositing hint and never sets this bit. The C++ default (legacy `init()` without a config) is off too. |
 | `premultipliedAlpha` | `1 << 5` | `premultipliedAlpha` | `true` | Browser compositing default; transparency-keying hosts with straight alpha turn it off |
 | `failIfMajorPerformanceCaveat` | `1 << 6` | `failIfMajorPerformanceCaveat` | `false` | Off so software GL still starts (smoke, goldens). Production hosts opt in to refuse a software renderer: init code `8`. Whether a renderer counts as a caveat is the browser's call — headless Chromium 151 with `--use-angle=swiftshader` (CI) accepts SwiftShader even for a plain `getContext()` with the flag, so the refusal path is not exercised there. |
 | `explicitSwapControl` | `1 << 7` | `explicitSwapControl`, or `presentMode: 'manual'` | `false` | Manual present; needs the explicit-swap link flavor (see [Link flavors](#link-flavors)), otherwise init code `9` |
 | `desynchronized` | `1 << 8` | `desynchronized` | `false` | Low-latency present hint for live hosts (may tear). The pinned Emscripten's `EmscriptenWebGLContextAttributes` has the field, so it is passed straight through; no JS-side `getContext` exists beside the C++ path. |
-| `enableExtensionsByDefault` | — | (fixed on) | `true` | Lets projectM probe float/half-float FBO formats |
+| `enableExtensionsByDefault` | — | (fixed on) | `true` | Enables everything float rendering needs (`EXT_color_buffer_float`, `EXT_float_blend`, `OES_texture_float_linear`); there is no separate explicit enable any more. `DualPingPongFramebuffer::DetectFormat()` probes the FBO formats and reports a missing one |
 | `proxyContextToMainThread` | — | (fixed) | `EMSCRIPTEN_WEBGL_CONTEXT_PROXY_DISALLOW` | The context is created on the thread that renders it (main thread, or the render worker). OpenMP helpers and preset prepare threads never issue GL; a GL call from the wrong thread is a bug, not something to paper over with proxying. (Only takes effect in a link with `OFFSCREEN_FRAMEBUFFER`, i.e. the explicit-swap flavor.) |
 | `powerPreference` | (own arg) | `powerPreference` | `high-performance` | `0` default, `1` low-power, `2` high-performance |
 | dual-FBO precision | (own arg) | `fboPrecision` | `half` (RGBA16F) | `0` RGBA16F, `1` RGBA32F, `2` RGBA8 (`FboFloatFormat`, as `dual_fbo_get_format()` reports); consumed by `DualPingPongFramebuffer::DetectFormat()` |
+| render-path switches (not context attributes) | `1 << 9` blur copy, `1 << 10` copy shader, `1 << 11` per-pixel CPU, `1 << 12` set | `renderPathOverrides` (else the page URL) | none | The engine's `projectm_set_render_path()` flags (see [Render-path switches](#render-path-switches)), sent with the create call so they reach this engine and no other. Read only when bit 12 is present, so a host JS that predates them leaves `set_render_path_overrides()` in charge; a bundle without `create_host_with_config()` gets them from that export instead |
 
 Attributes are baked into the WebGL context and cannot change afterward; each host keeps its own
 (#246) — see [Multi-instance host state](#multi-instance-host-state). `create_host_with_config()`
 returns `0` on failure; `get_last_init_error()` then gives the [init error code](#init-error-codes)
-(`4` instance cap, `2` / `6` / `7` / `8` / `9` context stage).
+(`10` instance cap, `2` / `6` / `7` / `8` / `9` context stage).
+
+**What reaches the canvas.** With context alpha on and transparency mode off, `render_frame()`
+sets the frame's alpha to 1 before the browser composites it (`MakeCanvasOpaqueUnlessTransparent()`:
+`glClearBufferfv` with only the alpha channel unmasked, so no clear-color state is touched);
+otherwise the page would show through and the image would look dimmed. `start_render()` clears
+only the depth/stencil bits the context was created with. And when a context was allowed to be
+software-rendered, a one-time probe per Module (`WasmWebGLSoftwareRendererOnly()`: a throwaway 1x1
+`OffscreenCanvas` asked for WebGL 2 with and without `failIfMajorPerformanceCaveat`) tells the
+quality governor, which then starts that host on its cheapest tier (if the governor is enabled
+when the first frame renders) instead of stepping down to it over the first few hundred frames.
 
 **Legacy exports.** `set_context_config(antialias, preserveDrawingBuffer, depth, stencil, alpha,
 powerPreference, fboPrecision)` and `create_host()` stay exported for host pages written against
@@ -165,23 +196,26 @@ redirected to Emscripten's offscreen back buffer.
 
 ### Link flavors
 
-`scripts/build_wasm_smoke_wrapper.sh` links the production bundle by default. Two opt-in flavors
-change the link and tag the build-id (`+gl-debug`, `+explicit-swap`), so
-`scripts/prepare_deploy_bundle.sh` and `deploy.py` refuse to ship them:
+`scripts/build_wasm_smoke_wrapper.sh` links the smoke/test bundle by default: the production
+link plus the `debug_*` test-hook exports. Each flavor that differs from production tags the
+build-id (`+debug-exports`, `+gl-debug`, `+explicit-swap`), so `scripts/prepare_deploy_bundle.sh`
+and `deploy.py` refuse to ship it. `prepare_deploy_bundle.sh`, `build_projectm.sh` and
+`colab_build.sh` link with `PROJECTM_WASM_DEBUG_EXPORTS=0`:
 
 | Variable | Adds | For |
 |----------|------|-----|
+| `PROJECTM_WASM_DEBUG_EXPORTS=1` (default here) | The `debug` entries of `cmake/WasmApiManifest.cmake` in `EXPORTED_FUNCTIONS` | Test hooks the smoke, golden and benchmark pages drive (`debug_is_preset_ready`, `debug_live_playlist_count`, ...). No code change: the C functions are always compiled in |
 | `PROJECTM_WASM_GL_DEBUG=1` | `-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1` | A bad context attribute or GL call is reported instead of showing as a black canvas. Production keeps `GL_TRACK_ERRORS=0`. |
 | `PROJECTM_WASM_EXPLICIT_SWAP=1` | `-sOFFSCREEN_FRAMEBUFFER=1`, `-DPROJECTM_WASM_OFFSCREEN_FRAMEBUFFER=1` | `explicitSwapControl` (manual present) |
 
 The production `-s` settings are otherwise unchanged: `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`,
 `FULL_ES3=0`, `GL_ENABLE_GET_PROC_ADDRESS=1`, `GL_TRACK_ERRORS=0`, `ALLOW_MEMORY_GROWTH=0`,
-`INITIAL_MEMORY=256mb`, `MALLOC=mimalloc`, no `ASYNCIFY`, and **no `OFFSCREENCANVAS_SUPPORT`** — the
+`INITIAL_MEMORY=128mb`, `MALLOC=mimalloc`, no `ASYNCIFY`, and **no `OFFSCREENCANVAS_SUPPORT`** — the
 worker path registers the transferred canvas on `specialHTMLTargets['#mcanvas']` on purpose, and
 turning that setting on would proxy GL back to the main thread.
 
-Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, half-float samplers) are enabled
-explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
+The float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, half-float samplers) come from
+`enableExtensionsByDefault`. Browser presentation does **not** call `eglSwapBuffers()` — frames are
 presented when the WebGL canvas is composited by the browser (or, with `explicitSwapControl`, when committed).
 
 ### Canvas color space (sRGB)
@@ -199,6 +233,31 @@ precision/feedback choice and are **not** Display-P3 or HDR output. Do **not**
 set `drawingBufferColorSpace = "display-p3"` without a final sRGB→P3 convert in
 the compositor — that would change preset appearance. `ENABLE_HDR_RENDERING` /
 `ENABLE_HDR_P3` are separate libprojectM fidelity flags and are off by default.
+
+## Render-path switches
+
+`?blurPath=copy`, `?copyPath=shader` and `?perPixelEval=cpu` put one render stage back on its older
+implementation so a build can be A/B'd against itself (see
+[GRAPHICS_PERF_RECOVERY_PLAN.md](GRAPHICS_PERF_RECOVERY_PLAN.md)). They are per-engine
+`projectm_render_path_flags` (`projectm_set_render_path()`, `projectM-4/parameters.h`), carried to
+presets in the `RenderContext`; libprojectM reads no environment variable for them any more. (They
+used to be `PROJECTM_*` environment variables set with `setenv()`, which two engines in one Module
+had to share, and which the library read once in one place and on every call in two others.)
+
+| Switch | `projectm_render_path_flags` bit | Takes effect |
+|--------|----------------------------------|--------------|
+| `?blurPath=copy` | `PROJECTM_RENDER_PATH_BLUR_COPY` (1) | Presets initialized afterwards |
+| `?copyPath=shader` | `PROJECTM_RENDER_PATH_COPY_SHADER` (2) | Next frame |
+| `?perPixelEval=cpu` | `PROJECTM_RENDER_PATH_PER_PIXEL_CPU` (4) | Presets initialized afterwards |
+
+The host page is the one that knows its URL. `ProjectMContext` sends the switches with
+`create_host_with_config()` (flag bits 9–12, see the attribute table above), so they reach that
+engine only; that is also the only way they reach the render worker, whose `location` carries no
+query. `set_render_path_overrides(blur, copy, perPixel)` sets them on the **active** host (for
+bundles without `create_host_with_config()`, and the render worker's own Module). A host that does
+neither gets them from the page's own query string when `init()` creates its engine.
+`get_render_path_overrides()` reports what the active host's engine actually uses (same bit
+numbering).
 
 ## Configurable canvas selectors
 
@@ -228,11 +287,11 @@ key) lives in a heap-allocated `WasmHost` — see
 
 | Approach | Supported? | Memory notes |
 |----------|:----------:|--------------|
-| One Module, one visualizer, configurable selectors | **yes** | One `INITIAL_MEMORY` reservation (default **256mb**, growable to 4gb) |
+| One Module, one visualizer, configurable selectors | **yes** | One `INITIAL_MEMORY` reservation (fixed **128mb**) |
 | One Module, `rebind_canvases()` to switch surfaces | **yes** | Same Module; only one surface active |
 | Two visualizers in one document sharing one Module (`create_host()`) | **yes** (cap 2) | One `INITIAL_MEMORY` reservation; two engines + two dual-FBO pairs on the same heap |
 | Three+ engines in one Module | **no** | `create_host()` past `max_host_count()` returns 0 with a typed error rather than sharing GL state |
-| Two Module instantiations in one document | **avoid** | ≈256 MiB+ each (`INITIAL_MEMORY`); can still OOM low-RAM mobile |
+| Two Module instantiations in one document | **avoid** | ≈128 MiB+ each (`INITIAL_MEMORY`); can still OOM low-RAM mobile |
 | Multi-embed via **cross-origin-isolated iframes** | **yes** | One Module per iframe; isolate COOP/COEP on the iframe origin |
 
 For A/B in one Module, boot one Module with `bootProjectMSharedModule()` and give each
@@ -245,8 +304,8 @@ remains the escape hatch for full isolation or more than two engines.
 
 Every former process-global host variable now lives in a heap `WasmHost`
 (`src/wasm/WasmHost.hpp`). `src/wasm/WasmHost.cpp` owns a small registry (the ONE remaining
-host-level global: the active-host pointer + a slot array capped at `kMaxHosts`) and exposes
-the multi-instance C exports:
+host-level global: the active-host pointer + `std::array<std::unique_ptr<WasmHost>, kMaxHosts>`)
+and exposes the multi-instance C exports:
 
 | Export | Purpose |
 |--------|---------|
@@ -275,7 +334,7 @@ ring and the shader-cache key are per-host:
   before its context is created; nothing process-wide. A host's config is never rewritten once its
   context exists. The legacy `create_host()` inherits the previous host's config, or one a legacy
   `set_context_config()` parked on the previous host (see [WebGL context attributes](#webgl-context-attributes)).
-- **PCM ring.** Each host owns its ring; `pcm_ring_*` / `get_pcm_ring_*` and the per-frame
+- **PCM ring.** Each host owns its ring; `pcm_ring_init` / `get_pcm_ring_*` and the per-frame
   drain operate on the active host, so draining host A never consumes host B's writes. JS picks
   a ring with `feedPcmThroughRing(module, buf, { hostHandle })` / `getPcmRingWriter(module,
   hostHandle)` (`html/projectm-pcm-ring.js`). Released rings are retired and reused rather than
@@ -298,19 +357,34 @@ Still shared, by design:
   until the in-page audio engine (#228) lands.
 - **Emscripten main loop** (`g_mainLoopRegistered`): one loop services every started host.
 
+**Ownership.** A `WasmHost` owns everything it holds and releases it with itself: `AppData` holds
+the engine and playlist as `unique_ptr`s with `projectm_destroy` / `projectm_playlist_destroy`
+deleters, declared so the playlist (which unregisters its callbacks from the engine) goes first;
+a prepare job is a `PresetPrepareJob` (`unique_ptr`, freed with `projectm_preset_prepare_free`,
+`release()`d into `projectm_load_prepared_preset()`, which takes ownership); the PCM ring's
+`calloc` storage is a `PcmRingStorage` of `unique_ptr`s with a `free` deleter. The playlist count
+the smoke test checks (`debug_live_playlist_count()`) is read off the registry, not kept in a
+separate counter. Inside `src/wasm/` an export resolves the active host once
+(`WasmHost& H = Host();`) and passes it on: helpers take a `WasmHost&` instead of calling `Host()`
+themselves, and there are no `auto& g_foo = H.foo;` aliases of host state.
+
 `kMaxHosts` stays **2** until #228 settles the audio story. `scripts/check_wasm_host_globals.sh`
 (run by the C++ format gate) rejects object-like `#define` aliases of `WasmHost` state in
 `src/wasm/`.
 
 ## Emscripten flag single source of truth
 
-WASM compile/link flags, `EXPORTED_FUNCTIONS`, and the OpenMP/pthread pool cap are defined in
-`cmake/EmscriptenWasmFlags.cmake`. That module drives:
+WASM compile/link flags and the OpenMP/pthread pool cap are defined in
+`cmake/EmscriptenWasmFlags.cmake`; `EXPORTED_FUNCTIONS` and the init error codes come from
+`cmake/WasmApiManifest.cmake`, which it includes. Together they drive:
 
 - The `ENABLE_EMSCRIPTEN` block in `CMakeLists.txt` (static lib build)
-- The generated `scripts/wasm_link_common.inc.sh` (final `projectM_emscripten.cpp` wrapper link)
+- The generated `scripts/wasm_link_common.inc.sh` (final wrapper link: the export arrays, the
+  wrapper TUs' compile flags, the link flags)
 - The generated `cmake/generated/ProjectMWasmBuildConfig.hpp` (`kWasmOpenMpThreads`,
   `kWasmPresetPrepareThreads`, `kWasmPthreadPoolSize`)
+- The generated `cmake/generated/ProjectMWasmInitErrors.hpp` and
+  `html/generated/projectm-init-error-codes.js` (see [Init Error Codes](#init-error-codes))
 
 Regenerate derived artifacts after editing the CMake module:
 
@@ -357,15 +431,21 @@ the link pulls in (`omp/libomp.a`). Browser minimums above are from
 
 ## Heap model
 
-The heap is fixed: `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0`. The measured high-water mark is
-**19.25 MiB**, runtime and pthread stacks included. It was measured with
+The heap is fixed: `INITIAL_MEMORY=128mb`, `ALLOW_MEMORY_GROWTH=0`. The measured high-water mark
+(2026-09-25, with Emscripten's 64 KiB thread stacks) was **19.25 MiB**, runtime and pthread stacks
+included. It was measured with
 `tests/wasm-smoke/measure-heap.mjs` on a relink with `-sINITIAL_MEMORY=16mb`, so any allocation past
 16 MiB shows up as growth, and it was the same at 1920x1080 and 3840x2160 for `000-empty`,
 `110-per_pixel`, `261-compshader-noisevol_lq`, `270-compshader-solid-color`, and the heavy
 `custom_milk_fixed/` presets `milk001_variant`, `milk011` and `fractal_tunnel_grok`, across a
 dual-FBO transition. Framebuffers and textures live in GPU memory, not the heap. A forced 64 MB
-`malloc` did show up (19.25 to 89.5 MiB), so the probe does see growth. 256 MB is about 13x the
-high-water mark and the same initial reservation as before, so nothing that fit before can fail now.
+`malloc` did show up (19.25 to 89.5 MiB), so the probe does see growth. The heap was 256 MB then,
+about 13x that.
+
+With the 1 MiB thread stacks (see the flag table at the top) the same presets, at 3840x2160 and
+across a transition, still run in a fixed `-sINITIAL_MEMORY=32mb` (2026-10-16). The heap is
+128 MB now: 4x that, and half the old reservation. The shared memory is allocated whole at
+startup, and on low-memory iOS Safari it is the first allocation to be refused.
 
 The old `ALLOW_MEMORY_GROWTH=1` + `MAXIMUM_MEMORY=4gb` cost three things:
 
@@ -380,9 +460,12 @@ Together with dropping embind, the JS glue went from 208,899 to 187,681 bytes (-
 `-sGROWABLE_ARRAYBUFFERS` is not needed now that nothing grows.
 
 To re-measure after a change that could allocate much more (bigger meshes, image textures, more
-hosts), relink with `PROJECTM_WASM_EXTRA_LINK_FLAGS=-sINITIAL_MEMORY=16mb` and run
-`measure-heap.mjs` with `PROJECTM_HEAP_WIDTH`/`PROJECTM_HEAP_HEIGHT`. Raise `INITIAL_MEMORY` if the
-high-water mark gets within 4x of it; turn growth back on only if a real workload cannot be bounded.
+hosts), relink with a small fixed heap (`PROJECTM_WASM_EXTRA_LINK_FLAGS=-sINITIAL_MEMORY=32mb`) and
+run `measure-heap.mjs` with `PROJECTM_HEAP_WIDTH`/`PROJECTM_HEAP_HEIGHT`, one preset per process at
+4K: a heap that is too small aborts. (Measuring growth on a `-sALLOW_MEMORY_GROWTH=1` relink no
+longer works: current Chrome refuses WebGL uploads from a resizable `SharedArrayBuffer`.) Keep
+`INITIAL_MEMORY` at 4x or more of what is needed; turn growth back on only if a real workload
+cannot be bounded.
 
 ## Symbolizing a production stack trace
 
@@ -413,23 +496,23 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 
 | File | Responsibility |
 |------|----------------|
-| `projectM_emscripten.cpp` | Engine lifecycle: init / rebind / destruct / context-loss, engine setters, `main()` |
+| `projectM_emscripten.cpp` | Engine lifecycle: init / rebind / destruct / context-loss, engine setters. No `main()`: the glue is linked with `INVOKE_RUN=0` and nothing exports `_main` (a `callMain()` would have double-initialised the default host) |
 | `WasmHost.hpp` / `WasmHost.cpp` | Per-instance `WasmHost` struct (all former host globals), the host registry + active-host pointer, and the `create_host` / `set_active_host` / `destroy_host` multi-instance exports (#168 Phase B) |
 | `WasmRenderLoop.cpp` | Emscripten main loop (iterates started hosts), `start_render()`, the dual-FBO compositor decision, `render_frame()`, `set_window_size()` |
 | `WasmShaderCache.cpp` | Transpiled-GLSL cache hooks (host-page store/lookup), `shader_cache_*` and `get_glsl_generator_version()` exports |
-| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, applied once from `init()` |
-| `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
+| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches as per-host `projectm_set_render_path()` flags: from the create call or `set_render_path_overrides()`, else the page URL (see [Render-path switches](#render-path-switches)) |
+| `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, configurable canvas CSS selectors, the one-time software-renderer probe |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
-| `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
+| `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports, and the `debug_dual_fbo_*` test hooks (per-host FBO/compositor instances live on `WasmHost`) |
 | `WasmPresent.cpp` | The end of a frame: flash-limiter switches (forwarding to libprojectM's C API), per-host frame readback (`capture_frame_*`, taken in `render_frame()` before a manual-present commit) and the commit counter. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
 | `WasmDeterminism.cpp` | Virtual clock (`WasmNow()`, `DeterministicFrameTick()`), deterministic RNG switch, main-loop pause — `set_deterministic_*` / `set_render_loop_paused` exports. See [GRAPHICS_BENCHMARK_HARNESS.md](GRAPHICS_BENCHMARK_HARNESS.md) |
 | `WasmAudioBridge.cpp` | Audio worklet + media-element EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
-| `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
+| `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain (`PcmRingDrain()`, called by `render_frame()`) |
 | `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
 | `WasmRhythm.cpp` | Musical time: `get_rhythm_*` readouts, `set_rhythm_hint`, `set_preset_switch_policy`, `transition_set_duration_beats`, `set_hard_cut_on_beat`, and the `set_rhythm_events` → `pmOnRhythmEvent` beat/bar/section events (see [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis)) |
-| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
+| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, `add_preset_file()`, `load_preset_file()`, the `set_preset_duration()` policy, preset-readiness test hooks |
 | `WasmPresetPrepare.hpp` / `WasmPresetPrepare.cpp` | Per-host preset prepare thread and its single-slot queue; activation of prepared presets from `render_frame()` (see [Preset loading](#preset-loading)) |
-| `WasmJsBindings.cpp` | EM_JS clusters: DOM/VFS bootstrap (`js_init_projectm_dom`), preset download helpers, host-page notifications |
+| `WasmJsBindings.cpp` | EM_JS clusters: DOM/VFS bootstrap (`js_init_projectm_dom`), preset download helpers, host-page notifications (`js_report_init_error()`), and the console log sink (`InstallWasmLogSink()`, see below) |
 
 `ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` is a
 header of cohesive graphics classes shared by two TUs; it exceeds the ~800-LOC
@@ -437,9 +520,19 @@ guideline for a single unit by design, because splitting the FBO manager,
 state guard, and compositing shader across headers would fragment one tightly
 coupled subsystem.
 
-All non-header TUs are passed to the final `emcc` link in
-`scripts/build_wasm_smoke_wrapper.sh` (`wrapper_sources`). Add new `.cpp` files
-to that array.
+All non-header TUs are listed in `scripts/build_wasm_smoke_wrapper.sh`
+(`wrapper_sources`), which compiles them to objects in parallel and then links
+them in one `em++` call (one call over the sources used to compile them one after
+the other). Add new `.cpp` files to that array.
+
+**Logging.** The wrapper logs through libprojectM's `LOG_*` macros
+(`src/libprojectM/Logging.hpp`, with `WasmLogFormat()` for printf-style messages),
+not `printf`. `InstallWasmLogSink()`, called by `init()`, registers a global
+`projectm_set_log_callback()` that writes library and wrapper messages to the
+browser console via `emscripten_log()`, at Warning and above in a release bundle
+and Debug and above with `ENABLE_DEBUG_LOGGING`. `LOG_DEBUG` / `LOG_TRACE` compile
+away otherwise, so per-frame and per-call messages cost nothing in production.
+Init failures are not logged: `js_report_init_error()` is their channel.
 
 ### Where to add a WASM export
 
@@ -449,26 +542,54 @@ To add a new `EMSCRIPTEN_KEEPALIVE` C export:
    goes in `WasmAudioBridge.cpp`, WebGL/canvas work in `WasmWebGLContext.cpp`).
    Wrap it in `extern "C" { ... }` and mark it
    `EMSCRIPTEN_KEEPALIVE`. If it needs **per-instance** state, add a field to
-   `struct WasmHost` (`WasmHost.hpp`) and reach it through `Host()` — never a new
-   process-global, which would silently be shared across instances. Open the
-   function body with `WasmHost& H = Host();` plus local references where that
-   reads better (e.g. `auto& g_dualFbo = H.dualFbo;`), so export bodies stay
-   handle-free. Do **not** add object-like `#define` aliases for host state —
-   `scripts/check_wasm_host_globals.sh` rejects them (#246). Bind the references
-   *after* any host switch in the same body. Make your export run under the caller's host by
-   having the JS side call `set_active_host()` first (`ProjectMContext` already
-   does this before every control op).
-2. **Register the symbol** in `cmake/EmscriptenWasmFlags.cmake`
-   (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) so it is added to
-   `EXPORTED_FUNCTIONS`, and add a matching entry to
-   `PROJECTM_WASM_API_MANIFEST` in `cmake/WasmApiManifest.cmake`.
-3. **Regenerate** derived artifacts with `scripts/sync_wasm_link_common.sh` and
+   `struct WasmHost` (`WasmHost.hpp`) — never a new process-global, which would
+   silently be shared across instances. Open the export body with
+   `WasmHost& H = Host();` (after any host switch in the same body) and pass `H`
+   to the helpers it calls; helpers take a `WasmHost&` rather than calling
+   `Host()` themselves. Do **not** add object-like `#define` aliases for host
+   state — `scripts/check_wasm_host_globals.sh` rejects them (#246). Make your
+   export run under the caller's host by having the JS side call
+   `set_active_host()` first (`ProjectMContext` already does this before every
+   control op).
+2. **Add a manifest entry** to `PROJECTM_WASM_API_MANIFEST` in
+   `cmake/WasmApiManifest.cmake`. That list *is* the export list:
+   `EmscriptenWasmFlags.cmake` derives `EXPORTED_FUNCTIONS` from it. Its
+   visibility tier is one of `public` (the `@projectm/web` surface, gated by the
+   baseline below), `internal` (called by the in-repo host layer only),
+   `runtime` (Emscripten's own, no wrapper) or `debug` (a test hook: named
+   `debug_*`, exported only by a `PROJECTM_WASM_DEBUG_EXPORTS=1` link, see
+   [Link flavors](#link-flavors)). Debug hooks get generated wrappers so a test
+   can reach them through the render transport, but host code may not call
+   them. Don't put square brackets in an entry's doc text: an unbalanced `[`
+   stops CMake splitting the list there.
+3. **Call it.** `scripts/check_wasm_public_api.sh --no-orphans` (`npm run
+   check:api`, CI) fails for any export without a caller in `html/` (outside
+   `html/generated/`), `packages/web/src/` or `tests/` (comment lines don't
+   count), and for any `debug_` hook called from `html/` or `packages/web/src/`.
+   An export nothing calls is removed, not kept "just in case".
+4. **Regenerate** derived artifacts with `scripts/sync_wasm_link_common.sh` and
    commit them (CI runs `scripts/verify_wasm_link_common.sh`).
-4. Keep export **names** stable — hosts and `cmake/WasmApiManifest.cmake` depend
-   on them.
+5. Keep export **names** stable — hosts depend on them. Removing or changing a
+   `public` entry needs a version bump of `packages/web/package.json`
+   (`scripts/check_wasm_public_api.sh --update` re-blesses
+   `packages/web/wasm-public-api.baseline`).
 
 If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 `scripts/build_wasm_smoke_wrapper.sh`.
+
+**Removed exports (bundle 040, `@projectm/web` 0.3.0).** Nothing called these, so they are gone:
+`add_preset_path`, `add_existing_vfs_presets`, `add_custom_milk_paths`, `pcm_ring_shutdown`,
+`connect_media_element_source` (the JS side owns element sources entirely),
+`get_transparency_threshold`, `dual_fbo_swap_preset_{a,b}`,
+`dual_fbo_get_{a,b}_{read,write}_{fbo,tex}`, `dual_fbo_{set,get}_idle_release_seconds` (the idle
+release is a fixed 5 s now), `transition_cancel`, `transition_get_blend`,
+`transition_get_duration{,_beats}`, `get_preset_switch_policy`, and `_main`. These became `debug_`
+test hooks: `add_audio_data`, `get_projectm_handle`, `pcm_ring_drain`,
+`get_pcm_ring_{write,read}_index`, `get_pcm_ring_overruns`, `create_sprite`, `is_preset_ready`,
+`preset_switch_failed`, `live_playlist_count`, `get_main_loop_timing_mode`,
+`dual_fbo_end_transition`, `dual_fbo_render_preset_{a,b}` (e.g. `debug_is_preset_ready`). Pages
+that also run older bundles (`tests/wasm-smoke/benchmark.html`, `capture.html`) alias the old
+names.
 
 ### Flag matrix (CMake lib link vs. shell wrapper link)
 
@@ -476,14 +597,17 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 |---------|:--------------:|:------------------:|-------|
 | `SHARED_MEMORY=1`, `-pthread` | yes | yes | Required for the pthread pool + SharedArrayBuffer. No `WASM_WORKERS`: every thread is a pthread |
 | `PTHREAD_POOL_SIZE` | yes (`5`) | yes (`5`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 2) |
-| `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0` | yes | yes | Fixed heap; see [Heap model](#heap-model) |
-| `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
+| `MALLOC=mimalloc`, `INITIAL_MEMORY=128mb`, `ALLOW_MEMORY_GROWTH=0` | yes | yes | Fixed heap; see [Heap model](#heap-model) |
+| `STACK_SIZE=1mb`, `DEFAULT_PTHREAD_STACK_SIZE=1mb` | no | yes | Thread shadow stacks for the HLSL parser; see the flag table at the top |
+| `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
 | `GL_TRACK_ERRORS=0` | yes | yes | No per-call GL error tracking. (`GL_POOL_TEMP_BUFFERS` is gone: with the heap under 2 GB the garbage-free WebGL2 upload APIs are on and it no longer reaches the glue) |
-| `-msimd128`, no `-mrelaxed-simd` | compile + link | compile + link | The [feature floor](#wasm-feature-floor) |
+| `-msimd128`, no `-mrelaxed-simd` | compile + link | compile + link | The [feature floor](#wasm-feature-floor) (target features go to the link too: an LTO link generates code) |
+| `-fno-strict-aliasing`, `-fno-math-errno` | compile | compile | Code generation only; no longer in the link lists |
+| `-std=c++20`, `-O3` | from CMake (`CMAKE_BUILD_TYPE`) | compile; `-O3` also link | The wrapper link's `-O3` is wasm-opt's level. The lib link takes the build type's flags from CMake, so a Debug configure links at `-O0` |
 | `-fwasm-exceptions` | compile + link | compile + link | C++ exception ABI, unconditional. The JS-trampoline fallback (`PROJECTM_WASM_EXCEPTIONS=js`) only existed because of ASYNCIFY and is rejected now |
 | `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`) | link (`PROJECTM_WASM_LTO=1`) | Opt-in whole-program LTO: the static libs become bitcode. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
-| `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | no | yes | Single list in `EmscriptenWasmFlags.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
-| `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
+| `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`, `+ ..._DEBUG_EXPORTED_FUNCTIONS` with `PROJECTM_WASM_DEBUG_EXPORTS=1`) | no | yes | Derived from `cmake/WasmApiManifest.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
+| `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap,HEAPF32,HEAPU8` | `ccall,cwrap,HEAPF32,HEAPU8,FS,specialHTMLTargets` | Wrapper adds `FS` for VFS preset loading and `specialHTMLTargets` for the render worker's canvas |
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
 | `--emit-symbol-map` | no | yes | Writes `<bundle>.js.symbols` for symbolizing production stack traces; see [Symbolizing a production stack trace](#symbolizing-a-production-stack-trace) |
 | OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(min(kWasmOpenMpThreads, hardwareConcurrency - 1))`; see below |
@@ -605,19 +729,28 @@ The flag is reset to `false` on every `load_preset_file()` call, so polling loop
 
 `init()` (exported via `EMSCRIPTEN_KEEPALIVE`, see `projectM_emscripten.cpp`) returns an integer
 status code so host pages can detect failures that would otherwise leave the canvas blank with
-only a `stderr` message in the console.
+only a console message.
 
-| Code | Stage | Meaning | Common causes |
-|------|-------|---------|----------------|
-| `0` | — | Success. | — |
-| `2` | WebGL | `emscripten_webgl_create_context` failed: no WebGL 2 context. | WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
-| `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (still possible on very low-RAM mobile even with `INITIAL_MEMORY=256mb`), or an internal projectM error. |
-| `5` | WebGL context lost | The host's WebGL context is lost and the browser has not restored it yet (e.g. the context-loss overlay was tapped before `webglcontextrestored`). `init()` refuses rather than build an engine on the dead context. | Not an error: `checkInit()` shows nothing and the context-loss overlay stays up; the `webglcontextrestored` handler retries. |
-| `4` | Cross-origin isolation / instance cap | *(JS-side, not returned by `init()`)* `window.crossOriginIsolated` is `false`; also what `get_last_init_error()` reports after `create_host*()` refused at `kMaxHosts`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
-| `6` | WebGL | Primary canvas selector resolves to nothing (`specialHTMLTargets`, then the DOM). Was part of `2`. | Selector typo, canvas not in the document yet, worker canvas not registered. |
-| `7` | WebGL | The context was created but `emscripten_webgl_make_context_current` failed. Was part of `2`. | GPU process trouble; context lost between create and activate. |
-| `8` | WebGL | `failIfMajorPerformanceCaveat` refused the context, and a probe on a throwaway 1×1 `OffscreenCanvas` shows WebGL 2 *would* come up without it — i.e. only a software renderer (SwiftShader, llvmpipe) is available. | Hardware acceleration off, blocklisted GPU/driver, headless browser. Only possible when the host opted in. |
-| `9` | WebGL | `explicitSwapControl` was requested from a bundle linked without `OFFSCREEN_FRAMEBUFFER`. | Page needs the explicit-swap link flavor ([Link flavors](#link-flavors)). |
+The codes have one source: `PROJECTM_WASM_INIT_ERRORS` in `cmake/WasmApiManifest.cmake`.
+`scripts/sync_wasm_link_common.sh` generates `enum class WasmInitError` from it
+(`cmake/generated/ProjectMWasmInitErrors.hpp`, included by `src/wasm/ProjectMWasmInternal.hpp`) and
+the frozen `INIT_ERROR` object (`html/generated/projectm-init-error-codes.js`, read by
+`html/projectm-init-errors.js`; the JS name is the C++ one in `UPPER_SNAKE_CASE`), so the two
+numberings cannot drift, and `scripts/verify_wasm_link_common.sh` fails CI on a stale copy. Codes
+are part of the host contract: never renumber one, only add.
+
+| Code | `WasmInitError` / `INIT_ERROR` | Stage | Meaning | Common causes |
+|------|--------------------------------|-------|---------|----------------|
+| `0` | `kOk` / `OK` | — | Success. | — |
+| `2` | `kContextCreateFailed` / `CONTEXT_CREATE_FAILED` | WebGL | `emscripten_webgl_create_context` failed: no WebGL 2 context. | WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
+| `3` | `kEngineCreateFailed` / `ENGINE_CREATE_FAILED` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (still possible on very low-RAM mobile with the fixed `INITIAL_MEMORY=128mb`), or an internal projectM error. |
+| `4` | `kCrossOriginIsolation` / `CROSS_ORIGIN_ISOLATION` | Cross-origin isolation | *(JS-side only, never returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
+| `5` | `kContextLost` / `CONTEXT_LOST` | WebGL context lost | The host's WebGL context is lost and the browser has not restored it yet (e.g. the context-loss overlay was tapped before `webglcontextrestored`). `init()` refuses rather than build an engine on the dead context. | Not an error: `checkInit()` shows nothing and the context-loss overlay stays up; the `webglcontextrestored` handler retries. |
+| `6` | `kCanvasMissing` / `CANVAS_MISSING` | WebGL | Primary canvas selector resolves to nothing (`specialHTMLTargets`, then the DOM). Was part of `2`. | Selector typo, canvas not in the document yet, worker canvas not registered. |
+| `7` | `kMakeCurrentFailed` / `MAKE_CURRENT_FAILED` | WebGL | The context was created but `emscripten_webgl_make_context_current` failed. Was part of `2`. | GPU process trouble; context lost between create and activate. |
+| `8` | `kPerformanceCaveat` / `PERFORMANCE_CAVEAT` | WebGL | `failIfMajorPerformanceCaveat` refused the context, and a probe on a throwaway 1×1 `OffscreenCanvas` shows WebGL 2 *would* come up without it — i.e. only a software renderer (SwiftShader, llvmpipe) is available. | Hardware acceleration off, blocklisted GPU/driver, headless browser. Only possible when the host opted in. |
+| `9` | `kExplicitSwapUnavailable` / `EXPLICIT_SWAP_UNAVAILABLE` | WebGL | `explicitSwapControl` was requested from a bundle linked without `OFFSCREEN_FRAMEBUFFER`. | Page needs the explicit-swap link flavor ([Link flavors](#link-flavors)). |
+| `10` | `kInstanceLimit` / `INSTANCE_LIMIT` | Host registry | `create_host*()` refused: the Module already runs `kMaxHosts` engines. Reported with host `-1` (no engine exists to name). Bundles up to 039 reported this as `4`, so the page showed the cross-origin-isolation overlay. | A page creating a visualizer without destroying the previous one, or more than `max_host_count()` on one Module. The overlay says "Too Many Visualizers". |
 
 ### Main-thread freeze on 033/034 (OpenMP vs. pthread pool)
 
@@ -645,13 +778,15 @@ Code `4` is a special case: it is detected and reported entirely in JavaScript v
 module is loaded — `init()` itself never returns `4`. See
 `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`.
 
-On any non-zero return, `init()` calls:
+Every failure is reported through `js_report_init_error(WasmInitError, detail)`
+(`WasmJsBindings.cpp`), which is the only channel: the wrapper does not also log it. It calls:
 
 ```c
 EM_JS(void, js_notify_init_error, (double host, int code, const char* detail), { ... });
 ```
 
-which invokes `window.pmReportInitError(host, code, detail)` if the host page has defined it.
+which invokes `window.pmReportInitError(host, code, detail)` if the host page has defined it (and
+otherwise logs it with `console.error`).
 `host` is the engine whose init failed (`create_host*()`'s handle, `0` for the default host,
 `-1` for a `create_host*()` refused at `kMaxHosts` before any engine existed); bundles up to
 039 called `(code, detail)`. The same code
@@ -681,8 +816,12 @@ async function attemptInit() {
 }
 ```
 
-Appending `?simulateInitFail=1` to the page URL forces the overlay to show (using code `2`) for
-QA/testing without needing to actually break WebGL.
+Every code but `0` and `5` has its own overlay entry (`describeInitError(code)`; an unknown code,
+e.g. from a newer bundle, gets a generic one). `tests/web/projectm-init-errors.test.mjs` checks
+that the generated JS table equals the C++ enum and that no failure code falls back to the generic
+overlay. Appending `?simulateInitFail=1` to the page URL (read through `readHostFlag()`, see
+[HOST_FLAGS.md](HOST_FLAGS.md)) forces the overlay to show (using code `2`) for QA/testing without
+needing to actually break WebGL.
 
 ### Preset-load failures
 
@@ -920,10 +1059,10 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
   crossfade is active, `render_frame()` calls `projectm_opengl_render_frame(pm)`
   straight to FBO 0 (the browser canvas), wrapped in a `GLStateGuard`. This is
   the same single-pass path used before the dual-FBO transition work landed.
-- **Dual-FBO compositor path** (preset crossfades only): when
-  `g_transitionActive` is true and both Preset A/B FBOs plus
-  `g_compositorShader` are ready, it renders Preset A and Preset B into their
-  ping-pong FBOs and then calls `g_compositorShader.Draw(...)`, which binds
+- **Dual-FBO compositor path** (preset crossfades only): when the host's
+  `transitionActive` is true and both Preset A/B FBOs plus its
+  `compositorShader` are ready, it renders Preset A and Preset B into their
+  ping-pong FBOs and then calls `compositorShader.Draw(...)`, which binds
   the default framebuffer (FBO 0, i.e. `#mcanvas`) and blits the cross-faded
   result to it.
 
@@ -932,10 +1071,10 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
   > `projectm_opengl_render_frame(pm)`). The plain variant always finishes its
   > internal composite blit on **FBO 0** regardless of which FBO is currently
   > bound (`ProjectM::RenderFrame()` defaults `targetFramebufferObject` to `0`
-  > — see `ProjectM.cpp`), so calling it while `g_dualFbo.GetAWriteFBO()`/
+  > — see `ProjectM.cpp`), so calling it while `dualFbo.GetAWriteFBO()`/
   > `GetBWriteFBO()` is bound silently renders to the canvas instead of the
   > Write FBO, leaving the Write texture black and causing
-  > `g_compositorShader.Draw(...)` to blit that black texture back over the
+  > `compositorShader.Draw(...)` to blit that black texture back over the
   > canvas — a 100%-black `#mcanvas` even though projectM itself rendered
   > correctly. `projectm_opengl_render_frame_fbo()` (available since projectM
   > 4.2.0, `render_opengl.h`) passes the target FBO through correctly.
@@ -945,8 +1084,10 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
   renders straight to FBO 0, wrapped in a `GLStateGuard` for parity with the
   dual-FBO path's per-pass guards.
 
-Either path leaves the finished frame in FBO 0 and increments
-`g_renderedFrameCount` exactly once. Browser presentation is handled by the
+Either path ends in `FinishFrame()`, which leaves the finished frame in FBO 0
+(alpha set to 1 unless transparency mode needs it, see
+[WebGL context attributes](#webgl-context-attributes)) and increments the host's
+`renderedFrameCount` exactly once. Browser presentation is handled by the
 WebGL canvas compositor; wasm does not call `eglSwapBuffers()`.
 
 ### Dual-FBO allocation lifetime
@@ -956,8 +1097,9 @@ allocated at startup**. `start_render()` records the viewport size via
 `DualPingPongFramebuffer::Resize()` and stops there; `dual_fbo_begin_transition()`
 brings up whichever pairs are missing, which on a cold start is both of them.
 After a crossfade finishes, `PromoteBtoA()` releases Preset B immediately and
-`ReleaseDualFboIfIdle()` reclaims Preset A once it has been idle for
-`dual_fbo_set_idle_release_seconds()` (default 5 s, `< 0` to keep it resident).
+`ReleaseDualFboIfIdle()` reclaims Preset A once it has been idle for 5 s
+(`kDualFboIdleReleaseSeconds` in `WasmRenderLoop.cpp`; the
+`dual_fbo_set_idle_release_seconds()` setter nothing called is gone).
 See [PERFORMANCE.md](PERFORMANCE.md#dual-fbo-vram-residency-and-lazy-preset-a-allocation-issue-199)
 for the VRAM figures and the rationale for the grace period.
 
@@ -1019,8 +1161,8 @@ black-canvas/regressions in the render pipeline without a full browser.
   otherwise kick off — keeping the capture page free of non-deterministic network I/O. The page
   already provides the stub DOM elements (`#musicBtn`, `#customMilkBtn`, `#milkPath`, `#textureDir`,
   `#songDir`, `#track`) that `js_init_projectm_dom()` expects.
-- After `load_preset_file()`, polls `is_preset_ready()` / `preset_switch_failed()`
-  (`EMSCRIPTEN_KEEPALIVE`, `WasmPlaylistBridge.cpp`) once per `requestAnimationFrame` instead of a
+- After `load_preset_file()`, polls the `debug_is_preset_ready()` / `debug_preset_switch_failed()`
+  test hooks (`WasmPlaylistBridge.cpp`; aliased to the pre-040 names for older bundles) once per `requestAnimationFrame` instead of a
   fixed sleep, so the capture waits for shader compile/link to finish and for a few frames of the
   dual-FBO/compositor pipeline to render before the screenshot frame budget starts. A
   `readyTimeoutMs` query param (default 30s) bounds this wait.
@@ -1028,7 +1170,7 @@ black-canvas/regressions in the render pipeline without a full browser.
   including the ready-wait), `canvasMeanRgb` (`{ r, g, b, mean }` from `gl.readPixels` over the
   whole canvas — a `mean <= 20` indicates an effectively black frame), `consoleErrors` (captured
   `console.error`/`console.warn`/uncaught-error/unhandledrejection messages), and
-  `presetSwitchFailed` (from `preset_switch_failed()` and the `js_report_preset_switch_failed`
+  `presetSwitchFailed` (from `debug_preset_switch_failed()` and the `js_report_preset_switch_failed`
   globals).
 
 `scripts/capture_custom_milk_screenshots.mjs`:
@@ -1135,7 +1277,7 @@ iconv -f UTF-8 -t UTF-32 projectm-v.030-thread.js -o projectm-v.030-thread.3ijs
 > comes back blocked (`net::ERR_BLOCKED_BY_RESPONSE` under the capture
 > script's `Cross-Origin-Embedder-Policy: require-corp`), the module never
 > finishes initializing, and `capture.html` times out waiting for
-> `is_preset_ready()` — even though the exact same build works fine when
+> `debug_is_preset_ready()` — even though the exact same build works fine when
 > referenced via `PROJECTM_WASM_JS` pointing directly at the build directory
 > (where the worker file sits next to the `.js`).
 

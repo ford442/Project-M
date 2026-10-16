@@ -1,30 +1,9 @@
 #include "Renderer/CopyTexture.hpp"
 
 #include <algorithm>
-#include <cstdlib>
 
 namespace libprojectM {
 namespace Renderer {
-
-namespace {
-
-/**
- * Ablation switch for benchmarking: setting PROJECTM_COPY_SHADER_PATH=1 restores the
- * pre-#179 behaviour where every texture copy is a fullscreen textured quad, so the
- * glBlitFramebuffer path can be A/B'd against it on a single build.
- * See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
- */
-auto BlitPathEnabled() -> bool
-{
-    static const bool enabled = []() {
-        const char* const value = std::getenv("PROJECTM_COPY_SHADER_PATH");
-        return !(value != nullptr && value[0] == '1');
-    }();
-
-    return enabled;
-}
-
-} // anonymous namespace
 
 #ifdef USE_GLES
 static constexpr char ShaderVersion[] = "#version 300 es\n\nprecision highp float;\nprecision highp int;\n";
@@ -108,6 +87,11 @@ void CopyTexture::SetTransparencyMode(bool enabled)
 void CopyTexture::SetTransparencyThreshold(float threshold)
 {
     m_transparencyThreshold = std::max(0.0f, threshold);
+}
+
+void CopyTexture::SetBlitEnabled(bool enabled)
+{
+    m_blitEnabled = enabled;
 }
 
 void CopyTexture::Draw(ShaderCache& shaderCache,
@@ -314,7 +298,7 @@ void CopyTexture::UpdateTextureSize(int width, int height)
 auto CopyTexture::TryBlit(const std::shared_ptr<class Texture>& originalTexture,
                           bool flipVertical, bool flipHorizontal) -> bool
 {
-    if (!BlitPathEnabled() || originalTexture == nullptr || originalTexture->Empty())
+    if (!m_blitEnabled || originalTexture == nullptr || originalTexture->Empty())
     {
         return false;
     }

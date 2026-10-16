@@ -59,146 +59,29 @@ set(PROJECTM_WASM_EXCEPTION_ARGS -fwasm-exceptions)
 # variable. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
 set(PROJECTM_WASM_LTO OFF CACHE BOOL "Compile the WASM static libraries to LLVM bitcode (-flto); link the bundle with PROJECTM_WASM_LTO=1.")
 
-# Browser wrapper exports (projectM_emscripten.cpp final emcc link).
-# Every EMSCRIPTEN_KEEPALIVE symbol plus legacy add_audio_data and runtime helpers.
-set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
-        _malloc
-        _free
-        _main
-        _add_audio_data
-        _pl
-        _destruct
-        _get_projectm_handle
-        _init
-        _set_canvas_selectors
-        _set_context_config
-        _set_render_path_overrides
-        _get_render_path_overrides
-        _init_with_canvases
-        _rebind_canvases
-        _create_host
-        _create_host_with_config
-        _get_last_init_error
-        _set_active_host
-        _get_active_host
-        _destroy_host
-        _host_count
-        _max_host_count
-        _load_preset_file
-        _load_preset_file_hard
-        _switch_preset
-        _set_aspect_correction
-        _render_frame
-        _start_render
-        _set_window_size
-        _set_mesh
-        _add_preset_path
-        _add_existing_vfs_presets
-        _add_preset_file
-        _add_custom_milk_paths
-        _projectm_pcm_add_float_wrapper
-        _pcm_ring_init
-        _pcm_ring_shutdown
-        _pcm_ring_drain
-        _get_pcm_ring_header_ptr
-        _get_pcm_ring_data_ptr
-        _get_pcm_ring_capacity_frames
-        _get_pcm_ring_index_modulus
-        _get_pcm_ring_write_index
-        _get_pcm_ring_read_index
-        _get_pcm_ring_overruns
-        _attach_worklet_ingest
-        _connect_media_element_source
-        _create_sprite
-        _stop_worklet_playback
-        _set_audio_source_to_stream
-        _set_preset_locked
-        _set_transparency_mode
-        _get_transparency_mode
-        _set_transparency_threshold
-        _get_transparency_threshold
-        _set_perf_hud
-        _set_target_fps
-        _set_quality_governor
-        _get_quality_tier
-        _get_governor_render_scale
-        _get_governor_blur_cap
-        _is_preset_ready
-        _get_rendered_frame_count
-        _preset_switch_failed
-        _live_playlist_count
-        _get_main_loop_timing_mode
-        _get_omp_enabled
-        _get_omp_max_threads
-        _get_omp_thread_count_in_parallel
-        _get_omp_blocktime
-        _shader_cache_begin_load
-        _shader_cache_import_glsl
-        _shader_cache_end_load
-        _get_glsl_generator_version
-        _pm_handle_context_loss
-        _dual_fbo_begin_transition
-        _dual_fbo_end_transition
-        _dual_fbo_cancel_transition
-        _dual_fbo_swap_preset_a
-        _dual_fbo_swap_preset_b
-        _dual_fbo_get_a_read_fbo
-        _dual_fbo_get_a_write_fbo
-        _dual_fbo_get_a_read_tex
-        _dual_fbo_get_a_write_tex
-        _dual_fbo_get_b_read_fbo
-        _dual_fbo_get_b_write_fbo
-        _dual_fbo_get_b_read_tex
-        _dual_fbo_get_b_write_tex
-        _dual_fbo_is_preset_a_allocated
-        _dual_fbo_is_preset_b_allocated
-        _dual_fbo_set_idle_release_seconds
-        _dual_fbo_get_idle_release_seconds
-        _dual_fbo_is_preset_b_ready
-        _dual_fbo_get_format
-        _dual_fbo_render_preset_a
-        _dual_fbo_render_preset_b
-        _transition_start
-        _transition_cancel
-        _transition_is_active
-        _transition_get_blend
-        _transition_set_duration
-        _transition_get_duration
-        _set_deterministic_seed
-        _is_deterministic_seed
-        _set_deterministic_clock
-        _is_deterministic_clock
-        _deterministic_now_ms
-        _deterministic_frame_index
-        _set_render_loop_paused
-        _get_rhythm_bpm
-        _get_rhythm_beat_phase
-        _get_rhythm_bar_phase
-        _get_rhythm_confidence
-        _get_rhythm_beat_index
-        _get_rhythm_section
-        _set_rhythm_hint
-        _set_preset_switch_policy
-        _get_preset_switch_policy
-        _transition_set_duration_beats
-        _transition_get_duration_beats
-        _set_hard_cut_on_beat
-        _set_rhythm_events
-        _set_flash_limit_enabled
-        _get_flash_limit_enabled
-        _set_flash_limit_threshold
-        _get_flash_limit_threshold
-        _get_flash_limit_clamped_frames
-        _get_committed_frame_count
-        _capture_frame_request
-        _capture_frame_status
-        _capture_frame_resolve
-        _capture_frame_data_ptr
-        _capture_frame_width
-        _capture_frame_height
-        _capture_frame_index
-        _capture_frame_release
-        )
+# Browser wrapper exports (the final wrapper link), derived from
+# PROJECTM_WASM_API_MANIFEST (cmake/WasmApiManifest.cmake) so the two cannot
+# disagree. `debug` entries are kept apart: the link exports them only with
+# PROJECTM_WASM_DEBUG_EXPORTS=1 (scripts/build_wasm_smoke_wrapper.sh).
+# No _main: the wrapper has no main() (INVOKE_RUN=0; hosts call init() or
+# create_host_with_config()).
+set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "")
+set(PROJECTM_WASM_WRAPPER_DEBUG_EXPORTED_FUNCTIONS "")
+foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
+    if(NOT _entry MATCHES "^([a-zA-Z_][a-zA-Z0-9_]*)\\|([a-z]+)\\|")
+        message(FATAL_ERROR "Invalid WASM API manifest entry: ${_entry}")
+    endif()
+    set(_export_name "${CMAKE_MATCH_1}")
+    set(_export_visibility "${CMAKE_MATCH_2}")
+    if(_export_visibility STREQUAL "debug")
+        if(NOT _export_name MATCHES "^debug_")
+            message(FATAL_ERROR "WASM API manifest: debug export ${_export_name} must be named debug_*")
+        endif()
+        list(APPEND PROJECTM_WASM_WRAPPER_DEBUG_EXPORTED_FUNCTIONS "_${_export_name}")
+    else()
+        list(APPEND PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "_${_export_name}")
+    endif()
+endforeach()
 
 list(JOIN PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "," PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS_STR)
 
@@ -248,6 +131,9 @@ list(JOIN _PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_ALL "," PROJECTM_WASM_WRAPPER_
 # tier plus a probing loader for no measurable win; see docs/EMSCRIPTEN.md
 # "Wasm feature floor". scripts/check_wasm_bundle_features.sh gates the built
 # bundle against it.
+#
+# Target features, so they are passed to every compile *and* every link: an LTO
+# link generates code and must see them too.
 set(PROJECTM_WASM_SIMD_COMPILE_FLAGS
         -msimd128
         -mmutable-globals
@@ -255,19 +141,37 @@ set(PROJECTM_WASM_SIMD_COMPILE_FLAGS
         -matomics
         -mnontrapping-fptoint
         -msign-ext
+        )
+
+# Code-generation flags for every compile (libs and wrapper TUs). Compile only:
+# they used to sit in the link lists, where they do nothing.
+set(PROJECTM_WASM_CODEGEN_COMPILE_FLAGS
         -fno-strict-aliasing
         -fno-math-errno
         )
 
-# Plain emcc arguments shared by lib link (CMake) and wrapper link (shell).
-# The wrapper TUs are compiled and linked in one em++ call, so -O3 here is also
-# their compile optimisation level. Not here, because they did nothing:
-# -mtune=wasm32 (clang ignores it for wasm; 114 "argument unused" warnings per
-# lib build) and -rtlib=compiler-rt-mt (emcc picks libcompiler_rt-mt from
-# -pthread itself and never reads -rtlib).
-set(PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS
+# The wrapper TUs' own compile flags (scripts/build_wasm_smoke_wrapper.sh). The
+# libraries take their language level from CMake and their optimisation level
+# from CMAKE_BUILD_TYPE instead.
+set(PROJECTM_WASM_WRAPPER_COMPILE_ARGS
         -std=c++20
         -O3
+        )
+
+# The wrapper link's optimisation level: what wasm-opt (and, with LTO, the
+# code generator) runs at. Not shared with the CMake lib link: CMake passes the
+# build type's flags to its links itself, so a Debug configure links at -O0
+# rather than at a hard-coded -O3.
+set(PROJECTM_WASM_WRAPPER_LINK_OPT_ARGS
+        -O3
+        )
+
+# Plain emcc arguments shared by lib link (CMake) and wrapper link (shell).
+# Not here, because they did nothing: -mtune=wasm32 (clang ignores it for wasm;
+# 114 "argument unused" warnings per lib build), -rtlib=compiler-rt-mt (emcc
+# picks libcompiler_rt-mt from -pthread itself and never reads -rtlib), and the
+# compile-only flags above.
+set(PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS
         -pthread
         -fopenmp=libomp
         )
@@ -280,9 +184,10 @@ set(PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS
 # prepared on a pthread while the render loop keeps running.
 set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "SHARED_MEMORY=1"
+        # WebGL 2 only. (USE_WEBGL2=1, a deprecated alias of MAX_WEBGL_VERSION=2,
+        # is gone.)
         "MIN_WEBGL_VERSION=2"
         "MAX_WEBGL_VERSION=2"
-        "USE_WEBGL2=1"
         # No GL emulation layer. FULL_ES3=1 forced FULL_ES2=1 (tools/link.py),
         # which only adds client-side vertex-array emulation and the
         # glMapBufferRange / glGetBufferSubData shims; libprojectM draws from
@@ -312,8 +217,13 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         # runtime and pthread stacks, identical at 1920x1080 and 3840x2160, for
         # the empty preset, per-pixel, composite-shader and the heaviest
         # custom_milk_fixed presets, across a dual-FBO transition. Framebuffers
-        # and textures are GPU memory, not heap. 256 MB is ~13x that and the
-        # same initial reservation as before, so nothing that fit then fails now.
+        # and textures are GPU memory, not heap. With the 1 MiB thread stacks
+        # (below) the same presets, at 3840x2160 and across a transition, still
+        # run in a fixed -sINITIAL_MEMORY=32mb (2026-10-16; a growable heap can no
+        # longer be measured: Chrome refuses WebGL uploads from a resizable
+        # SharedArrayBuffer). 128 MB is 4x that, and half the 256 MB this used
+        # to reserve: the shared memory is allocated whole at startup, and it is
+        # the first allocation low-memory iOS Safari refuses.
         # What growth cost (docs/EMSCRIPTEN.md "Heap model"):
         #  - MAXIMUM_MEMORY=4gb made the browser reserve 4 GB of address space
         #    for the shared memory up front, which low-memory mobile refuses;
@@ -324,7 +234,7 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         #    (tools/link.py, Firefox < 151), so glUniform*v allocated a
         #    subarray per call.
         "ALLOW_MEMORY_GROWTH=0"
-        "INITIAL_MEMORY=256mb"
+        "INITIAL_MEMORY=128mb"
         "MALLOC=mimalloc"
         "FORCE_FILESYSTEM=1"
         # OFFSCREENCANVAS_SUPPORT is intentionally unset: it proxies GL from a
@@ -343,6 +253,24 @@ set(PROJECTM_WASM_WRAPPER_ONLY_S_LINK_SETTINGS
         "EXPORT_NAME=createModule"
         "MODULARIZE=1"
         "DEFAULT_TO_CXX=1"
+        # Shadow-stack sizes (the linear-memory stack for address-taken locals;
+        # wasm's own call stack is separate). Emscripten's default is 64 KiB for
+        # the main thread and every pthread. Each preset prepare thread runs the
+        # recursive-descent HLSL parser and transpiler, and the main thread runs
+        # them too when it loads a preset nobody prepared; a deeply nested
+        # shader expression must not walk off a 64 KiB stack into the heap.
+        # Six threads at 1 MiB is ~6 MiB of the fixed heap.
+        "STACK_SIZE=1mb"
+        "DEFAULT_PTHREAD_STACK_SIZE=1mb"
+        # Not PTHREAD_POOL_SIZE_STRICT=2 (pool exhaustion as a hard error), though
+        # the pool is sized for every thread that can run at once: a destroyed
+        # host's prepare thread is detached, and its Worker only returns to the
+        # pool once the main thread next yields to the event loop. A page that
+        # destroys and re-creates hosts in one task (the smoke test does) would
+        # find the pool empty and std::thread would throw. The default (1) lets
+        # that create a Worker lazily and warns, which is harmless for a thread
+        # nobody waits on synchronously; the OpenMP team, which is waited on,
+        # never churns.
         )
 
 function(_projectm_wasm_expand_s_link_settings settings_list out_var)
@@ -366,6 +294,7 @@ function(projectm_apply_emscripten_lib_compile_flags)
     add_compile_options(
             ${PROJECTM_WASM_EXCEPTION_ARGS}
             ${PROJECTM_WASM_SIMD_COMPILE_FLAGS}
+            ${PROJECTM_WASM_CODEGEN_COMPILE_FLAGS}
             -fopenmp=libomp
             -pthread
             )

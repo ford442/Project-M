@@ -15,13 +15,48 @@ import {
 
 const F = CONTEXT_CONFIG_FLAGS;
 
-test('defaults: WebGL alpha and premultipliedAlpha on, everything else off, high-performance, RGBA16F', () => {
+test('defaults: premultipliedAlpha on, everything else (WebGL alpha included) off, high-performance, RGBA16F', () => {
     assert.deepEqual(resolveWasmContextConfig(), {
-        flags: F.contextAlpha | F.premultipliedAlpha,
+        flags: F.premultipliedAlpha,
         powerPreference: 2,
         fboPrecision: 0,
     });
     assert.deepEqual(resolveWasmContextConfig({}), resolveWasmContextConfig());
+});
+
+test('the WebGL alpha bit follows `transparent` unless contextAlpha says otherwise', () => {
+    // An opaque canvas is the default: one with an alpha channel shows the page
+    // through every pixel a preset leaves below alpha 1.
+    assert.notEqual(resolveWasmContextConfig({ transparent: true }).flags & F.contextAlpha, 0);
+    assert.equal(resolveWasmContextConfig({ transparent: false }).flags & F.contextAlpha, 0);
+    // A host that turns transparency on later asks for the channel up front.
+    assert.notEqual(resolveWasmContextConfig({ transparent: false, contextAlpha: true }).flags & F.contextAlpha, 0);
+    assert.equal(resolveWasmContextConfig({ transparent: true, contextAlpha: false }).flags & F.contextAlpha, 0);
+});
+
+test('render-path overrides ride on the flags, marked as present, and only when given', () => {
+    const base = resolveWasmContextConfig().flags;
+    const none = { blurCopyPath: false, copyShaderPath: false, perPixelForceCpu: false };
+    assert.equal(resolveWasmContextConfig({}, none).flags ^ base, F.renderPathSet, 'all off is still an explicit setting');
+    assert.equal(resolveWasmContextConfig({}, { ...none, blurCopyPath: true }).flags ^ base, F.renderPathSet | F.blurCopyPath);
+    assert.equal(resolveWasmContextConfig({}, { ...none, copyShaderPath: true }).flags ^ base, F.renderPathSet | F.copyShaderPath);
+    assert.equal(resolveWasmContextConfig({}, { ...none, perPixelForceCpu: true }).flags ^ base, F.renderPathSet | F.perPixelForceCpu);
+});
+
+test('a legacy bundle is not refused over render-path bits it cannot take', () => {
+    // Bundles without create_host_with_config() get the switches from
+    // set_render_path_overrides(), so the bits are dropped, not a refusal.
+    const calls = [];
+    const legacy = /** @type {any} */ ({
+        ccall: (/** @type {string} */ name, _r, _t, /** @type {unknown[]} */ args) => {
+            calls.push(name);
+            return name === 'create_host' ? 7 : 0;
+        },
+        _get_last_init_error: () => 0,
+    });
+    const config = resolveWasmContextConfig({}, { blurCopyPath: true, copyShaderPath: false, perPixelForceCpu: false });
+    assert.deepEqual(createConfiguredHost(legacy, { primary: '#a', secondary: '#b', config }), { handle: 7, code: 0 });
+    assert.deepEqual(calls, ['set_context_config', 'create_host']);
 });
 
 test('the alpha option is a CSS hint: it never decides the WebGL alpha bit', () => {
@@ -40,7 +75,7 @@ test('each boolean option sets exactly its own bit', () => {
         ['preserveDrawingBuffer', true, F.preserveDrawingBuffer],
         ['depth', true, F.depth],
         ['stencil', true, F.stencil],
-        ['contextAlpha', false, F.contextAlpha],
+        ['contextAlpha', true, F.contextAlpha],
         ['premultipliedAlpha', false, F.premultipliedAlpha],
         ['failIfMajorPerformanceCaveat', true, F.failIfMajorPerformanceCaveat],
         ['explicitSwapControl', true, F.explicitSwapControl],
@@ -97,6 +132,10 @@ test('the flag bits match WasmContextConfigFlag in WasmWebGLContext.hpp', () => 
         kContextFlagFailIfMajorPerformanceCaveat: 'failIfMajorPerformanceCaveat',
         kContextFlagExplicitSwapControl: 'explicitSwapControl',
         kContextFlagDesynchronized: 'desynchronized',
+        kContextFlagBlurCopyPath: 'blurCopyPath',
+        kContextFlagCopyShaderPath: 'copyShaderPath',
+        kContextFlagPerPixelForceCpu: 'perPixelForceCpu',
+        kContextFlagRenderPathSet: 'renderPathSet',
     };
     const found = [...header.matchAll(/(kContextFlag\w+)\s*=\s*1\s*<<\s*(\d+)/g)];
     assert.equal(found.length, Object.keys(names).length, 'every C++ flag has a JS counterpart');
@@ -108,8 +147,9 @@ test('the flag bits match WasmContextConfigFlag in WasmWebGLContext.hpp', () => 
 });
 
 test('legacyContextConfigArgs produces set_context_config()\'s seven arguments', () => {
-    const config = resolveWasmContextConfig({ antialias: true, stencil: true, powerPreference: 'low-power', fboPrecision: 'byte' });
+    const config = resolveWasmContextConfig({ antialias: true, stencil: true, transparent: true, powerPreference: 'low-power', fboPrecision: 'byte' });
     assert.deepEqual(legacyContextConfigArgs(config), [1, 0, 0, 1, 1, 1, 2]);
+    assert.equal(legacyContextConfigArgs(resolveWasmContextConfig())[4], 0, 'alpha off by default here too');
 });
 
 /** @param {Record<string, unknown>} [extra] */

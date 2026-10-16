@@ -148,7 +148,7 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
 
     // Scale waveform to final size
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(sampleCount >= libprojectM::OpenMp::kMinParallelLoopIters)
+#pragma omp parallel for schedule(static) if(sampleCount >= libprojectM::OpenMp::kMinWaveformLoopIters)
 #endif
     for (int sample = 0; sample < sampleCount; sample++)
     {
@@ -171,8 +171,8 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
         const float a = static_cast<float>(*m_perFrameContext.a);
 
 #ifdef PRJM_ENABLE_OPENMP
-        // Only parallelize when the iteration count justifies thread spawn overhead.
-        if (sampleCount >= libprojectM::OpenMp::kMinParallelLoopIters)
+        // Only parallelize when the iteration count justifies the region's wake-up.
+        if (sampleCount >= libprojectM::OpenMp::kMinWaveformLoopIters)
         {
 #pragma omp parallel for schedule(static)
             for (int sample = 0; sample < sampleCount; sample++)

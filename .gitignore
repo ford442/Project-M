@@ -47,6 +47,7 @@ m4/lt~obsolete.m4
 /node_modules/
 html/node_modules/
 packages/web/node_modules/
+tests/wasm-smoke/node_modules/
 
 # Emscripten build artifacts (all bundle versions — the canonical version is
 # PROJECTM_WASM_BUNDLE in html/projectm-init.js, currently v.035)

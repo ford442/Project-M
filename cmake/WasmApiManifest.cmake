@@ -5,21 +5,32 @@
 # html/generated/projectm-wasm-api.ts via cmake/GenerateWasmLinkCommon.cmake.
 #
 # Each entry: name|visibility|binding|returns|args|doc
-#   visibility: public | internal | runtime
+#   visibility: public | internal | runtime | debug
 #   binding:    direct | ccall
 #   returns:    void | number | boolean | string
 #   args:       comma-separated name:type pairs (types: number, boolean, string, pointer)
 #
-# Names must match PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS (without leading _),
-# except _malloc, _free, _main which are runtime-only.
+# This list *is* the export list: cmake/EmscriptenWasmFlags.cmake derives
+# EXPORTED_FUNCTIONS from it. `public` entries are the @projectm/web surface
+# (gated by scripts/check_wasm_public_api.sh), `internal` ones are called by
+# the in-repo host layer only, `runtime` ones are Emscripten's own (no wrapper
+# is generated). `debug` entries are test hooks: their C names start with
+# debug_, and the link exports them only with PROJECTM_WASM_DEBUG_EXPORTS=1 (the
+# default of scripts/build_wasm_smoke_wrapper.sh, never of a deployed bundle).
+# They get generated wrappers so a test can reach them through the render
+# transport, but no host code may call them.
+#
+# Every entry must have a caller in html/, packages/web/src or tests/
+# (scripts/check_wasm_public_api.sh --no-orphans); an export nothing calls is
+# removed, not kept "just in case".
 
 set(PROJECTM_WASM_API_MANIFEST
     "malloc|runtime|direct|number|size:number|Allocate bytes on the WASM heap"
     "free|runtime|direct|void|ptr:number|Free a WASM heap allocation"
-    "add_audio_data|internal|direct|void|data:pointer,len:number|Legacy uint8 PCM feed"
+    "debug_add_audio_data|debug|direct|void|data:pointer,len:number|Legacy uint8 PCM feed"
     "pl|internal|ccall|void|songPath:string|Play audio file from VFS path"
     "destruct|internal|direct|void||Tear down projectM engine"
-    "get_projectm_handle|internal|direct|number||Opaque projectM handle pointer"
+    "debug_get_projectm_handle|debug|direct|number||Opaque projectM handle pointer"
     "init|public|direct|number||Initialize EGL/WebGL and projectM, returns 0 on success"
     "set_canvas_selectors|public|ccall|void|primary:string,secondary:string|Set primary/secondary canvas CSS selectors (default #mcanvas/#scanvas)"
     "set_context_config|public|ccall|void|antialias:number,preserveDrawingBuffer:number,depth:number,stencil:number,alpha:number,powerPreference:number,fboPrecision:number|Deprecated shim for host JS that predates create_host_with_config(): sets the active host's config if it has no context yet, else holds it for the next context created (fboPrecision: 0=RGBA16F, 1=RGBA32F, 2=RGBA8)"
@@ -38,47 +49,43 @@ set(PROJECTM_WASM_API_MANIFEST
     "load_preset_file|public|ccall|void|vfsPath:string|Load preset from Emscripten VFS path"
     "load_preset_file_hard|public|ccall|void|vfsPath:string|Load preset from VFS path with a hard cut (no crossfade)"
     "switch_preset|public|direct|void||Advance playlist to next preset"
+    "set_preset_duration|public|direct|void|seconds:number,randomExtraSeconds:number|How long each preset runs before the timer switches: seconds plus a uniform random 0..randomExtraSeconds from the seeded RNG (default 30 s, no random part)"
     "set_aspect_correction|public|direct|void|enabled:boolean|Enable bezel/aspect correction"
     "render_frame|public|direct|void||Render one visualization frame"
     "start_render|public|direct|void|width:number,height:number|Create render targets and start loop"
     "set_window_size|public|direct|void|width:number,height:number|Resize projectM viewport"
     "set_mesh|public|direct|void|width:number,height:number|Set per-pixel mesh grid size"
-    "add_preset_path|internal|direct|void||Register default /presets/ playlist directory"
-    "add_existing_vfs_presets|internal|direct|void||Bulk-add numbered presets from VFS"
     "add_preset_file|public|ccall|void|vfsPath:string|Add preset file to playlist"
-    "add_custom_milk_paths|internal|direct|void|count:number|Add custom_milk_fixed presets by count"
     "projectm_pcm_add_float_wrapper|public|direct|void|pmHandle:number,audioPtr:pointer,samplesPerChannel:number,channels:number|Feed interleaved float PCM (use feedPcmFloat helper)"
     "pcm_ring_init|public|direct|number|capacityFrames:number|Allocate the WASM-owned PCM ring (0 = default 16384 frames), returns 1 on success"
-    "pcm_ring_shutdown|internal|direct|void||Release the PCM ring"
-    "pcm_ring_drain|internal|direct|number||Feed every frame written since the last drain, returns frames fed"
+    "debug_pcm_ring_drain|debug|direct|number||Feed every frame written since the last drain, returns frames fed"
     "get_pcm_ring_header_ptr|public|direct|number||Byte offset of the ring's int32 header in the WASM heap"
     "get_pcm_ring_data_ptr|public|direct|number||Byte offset of the ring's interleaved float storage in the WASM heap"
     "get_pcm_ring_capacity_frames|public|direct|number||Ring capacity in stereo frames"
     "get_pcm_ring_index_modulus|public|direct|number||Modulus the ring's frame indices wrap at"
-    "get_pcm_ring_write_index|internal|direct|number||Current producer write index, in frames"
-    "get_pcm_ring_read_index|internal|direct|number||Current drain read index, in frames"
-    "get_pcm_ring_overruns|internal|direct|number||Drains that skipped unread audio because producers lapped the ring"
+    "debug_get_pcm_ring_write_index|debug|direct|number||Current producer write index, in frames"
+    "debug_get_pcm_ring_read_index|debug|direct|number||Current drain read index, in frames"
+    "debug_get_pcm_ring_overruns|debug|direct|number||Drains that skipped unread audio because producers lapped the ring"
     "attach_worklet_ingest|public|direct|void||Hand the audio worklet its ring descriptor and install the postMessage fallback"
-    "connect_media_element_source|public|ccall|number|selector:string|Route an <audio>/<video> element into the worklet (returns 1 on success)"
-    "create_sprite|internal|direct|void||Create demo user sprite"
+    "debug_create_sprite|debug|direct|void||Create demo user sprite"
     "stop_worklet_playback|internal|direct|void||Stop audio worklet playback"
     "set_audio_source_to_stream|internal|direct|void|isStreaming:boolean|Toggle streaming vs capture audio source"
     "set_preset_locked|public|direct|void|locked:boolean|Lock or unlock automatic preset switching"
     "set_transparency_mode|public|direct|void|enabled:boolean|Enable glass-layer transparency on near-black pixels"
     "get_transparency_mode|public|direct|boolean||Whether transparency mode is enabled"
     "set_transparency_threshold|public|direct|void|threshold:number|Set RGB threshold for transparency mode (default 0.01)"
-    "get_transparency_threshold|public|direct|number||Current transparency threshold"
     "set_perf_hud|internal|direct|void|enabled:number|Toggle on-canvas performance HUD"
     "set_target_fps|public|direct|void|fps:number|Set render target frame rate"
     "set_quality_governor|public|direct|void|enabled:boolean|Enable adaptive quality governor"
     "get_quality_tier|public|direct|number||Current quality tier index (0=high, 1=regular, 2=low)"
     "get_governor_render_scale|public|direct|number||Current governor internal render-scale factor (1.0/0.75/0.5)"
     "get_governor_blur_cap|public|direct|number||Current governor blur-level cap (-1 = unlimited, else 0-3)"
-    "is_preset_ready|internal|direct|number|minFramesSinceReady:number|Whether preset shaders are ready"
+    "debug_is_preset_ready|debug|direct|number|minFramesSinceReady:number|Whether preset shaders are ready"
     "get_rendered_frame_count|internal|direct|number||Total frames rendered since init"
-    "preset_switch_failed|internal|direct|number||Whether last preset switch failed (0/1)"
-    "live_playlist_count|internal|direct|number||Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook)"
-    "get_main_loop_timing_mode|internal|direct|number||Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook)"
+    "debug_preset_switch_failed|debug|direct|number||Whether last preset switch failed (0/1)"
+    "debug_get_preset_duration|debug|direct|number||Current preset duration in seconds as the engine timer sees it (set_preset_duration() test hook)"
+    "debug_live_playlist_count|debug|direct|number||Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook)"
+    "debug_get_main_loop_timing_mode|debug|direct|number||Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook)"
     "get_omp_enabled|internal|direct|number||Whether OpenMP was compiled in (0/1)"
     "get_omp_max_threads|internal|direct|number||Configured OpenMP max thread count"
     "get_omp_thread_count_in_parallel|internal|direct|number||OpenMP threads observed in parallel region"
@@ -89,32 +96,17 @@ set(PROJECTM_WASM_API_MANIFEST
     "get_glsl_generator_version|public|direct|number||GLSL generator version enum for cache invalidation"
     "pm_handle_context_loss|public|direct|void||Tear down GL state after WebGL context loss"
     "dual_fbo_begin_transition|public|direct|boolean||Allocate preset-B FBO for transition"
-    "dual_fbo_end_transition|internal|direct|void||Finalize dual-FBO transition"
+    "debug_dual_fbo_end_transition|debug|direct|void||Finalize dual-FBO transition"
     "dual_fbo_cancel_transition|internal|direct|void||Cancel in-progress dual-FBO transition"
-    "dual_fbo_swap_preset_a|internal|direct|void||Swap preset A ping-pong buffers"
-    "dual_fbo_swap_preset_b|internal|direct|void||Swap preset B ping-pong buffers"
-    "dual_fbo_get_a_read_fbo|internal|direct|number||Preset A read FBO handle"
-    "dual_fbo_get_a_write_fbo|internal|direct|number||Preset A write FBO handle"
-    "dual_fbo_get_a_read_tex|internal|direct|number||Preset A read texture handle"
-    "dual_fbo_get_a_write_tex|internal|direct|number||Preset A write texture handle"
-    "dual_fbo_get_b_read_fbo|internal|direct|number||Preset B read FBO handle"
-    "dual_fbo_get_b_write_fbo|internal|direct|number||Preset B write FBO handle"
-    "dual_fbo_get_b_read_tex|internal|direct|number||Preset B read texture handle"
-    "dual_fbo_get_b_write_tex|internal|direct|number||Preset B write texture handle"
     "dual_fbo_is_preset_a_allocated|public|direct|boolean||Whether preset-A FBO is allocated (lazily allocated per transition)"
     "dual_fbo_is_preset_b_allocated|public|direct|boolean||Whether preset-B FBO is allocated"
-    "dual_fbo_set_idle_release_seconds|public|direct|void|seconds:number|Idle seconds before the preset-A FBO pair is reclaimed (0=immediate, <0=never)"
-    "dual_fbo_get_idle_release_seconds|public|direct|number||Configured preset-A idle release threshold in seconds"
     "dual_fbo_is_preset_b_ready|public|direct|boolean||Whether preset-B shaders are ready"
     "dual_fbo_get_format|public|direct|number||Dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the fboPrecision numbering)"
-    "dual_fbo_render_preset_a|internal|direct|void||Render preset A into dual FBO"
-    "dual_fbo_render_preset_b|internal|direct|void||Render preset B into dual FBO"
+    "debug_dual_fbo_render_preset_a|debug|direct|void||Render preset A into dual FBO"
+    "debug_dual_fbo_render_preset_b|debug|direct|void||Render preset B into dual FBO"
     "transition_start|public|direct|void||Start visual preset transition blend"
-    "transition_cancel|public|direct|void||Cancel active transition"
     "transition_is_active|public|direct|boolean||Whether a transition is in progress"
-    "transition_get_blend|public|direct|number||Current transition blend factor 0..1"
     "transition_set_duration|public|direct|void|seconds:number|Set transition duration in seconds"
-    "transition_get_duration|public|direct|number||Configured transition duration in seconds"
     "set_deterministic_seed|public|direct|void|enabled:boolean,seed:number|Pin libprojectM's RNG to a seed so a preset renders identical pixels run to run"
     "is_deterministic_seed|public|direct|boolean||Whether deterministic RNG seeding is active"
     "set_deterministic_clock|public|direct|void|enabled:boolean,fps:number|Drive the engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs)"
@@ -130,9 +122,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "get_rhythm_section|public|direct|number||Section index, incremented on every detected section change"
     "set_rhythm_hint|public|direct|void|bpm:number|Use a known tempo (MIDI clock, track BPM) instead of estimating it (0 goes back to estimating)"
     "set_preset_switch_policy|public|direct|void|policy:number,bars:number|Switch presets on the timer (0), every N bars (1) or on a detected section change (2), bars 0 = 16"
-    "get_preset_switch_policy|public|direct|number||Preset switch policy (0 timer, 1 bars, 2 section)"
     "transition_set_duration_beats|public|direct|void|beats:number|Crossfade length in beats, resolved against the tempo when each crossfade starts (0 = use seconds)"
-    "transition_get_duration_beats|public|direct|number||Configured crossfade length in beats (0 = seconds)"
     "set_hard_cut_on_beat|public|direct|void|enabled:boolean|Make beat-detection hard cuts wait for the next beat"
     "set_rhythm_events|public|direct|void|enabled:boolean|Report beats, bars and section changes to globalThis.pmOnRhythmEvent (off by default)"
     "set_flash_limit_enabled|public|direct|void|enabled:boolean|Turn the temporal flash limiter on or off (off by default, see docs/FLASH_LIMITER.md)"
@@ -149,6 +139,29 @@ set(PROJECTM_WASM_API_MANIFEST
     "capture_frame_height|public|direct|number||Height in pixels of the last capture"
     "capture_frame_index|public|direct|number||get_rendered_frame_count() right after the captured frame"
     "capture_frame_release|public|direct|void||Free the captured pixels"
+)
+
+# init() / create_host*() failure codes: what init() returns, what
+# get_last_init_error() reports, and the `code` of globalThis.pmReportInitError.
+# Generates `enum class WasmInitError` (cmake/generated/ProjectMWasmInitErrors.hpp,
+# included by src/wasm/ProjectMWasmInternal.hpp) and INIT_ERROR
+# (html/generated/projectm-init-error-codes.js, read by html/projectm-init-errors.js),
+# so the C++ and JS numberings cannot drift. Codes are part of the host contract:
+# never renumber one, only add. The JS constant name is the C++ name in
+# UPPER_SNAKE_CASE. docs/EMSCRIPTEN.md "Init Error Codes" describes each.
+#
+# Each entry: code|Name|doc
+set(PROJECTM_WASM_INIT_ERRORS
+    "0|Ok|Success"
+    "2|ContextCreateFailed|emscripten_webgl_create_context() returned 0: no WebGL 2"
+    "3|EngineCreateFailed|projectm_create() returned null after the context came up"
+    "4|CrossOriginIsolation|JS-side only: crossOriginIsolated is false, so SharedArrayBuffer and pthreads are unavailable"
+    "5|ContextLost|The host's WebGL context is lost and not yet restored (not an error to show)"
+    "6|CanvasMissing|The primary canvas selector resolves to nothing"
+    "7|MakeCurrentFailed|The context was created but could not be made current"
+    "8|PerformanceCaveat|failIfMajorPerformanceCaveat refused a software (SwiftShader / llvmpipe) context"
+    "9|ExplicitSwapUnavailable|explicitSwapControl was requested of a bundle linked without OFFSCREEN_FRAMEBUFFER"
+    "10|InstanceLimit|create_host*() refused: the Module already runs kMaxHosts engines"
 )
 
 # Exports that act on the host registry rather than on the active host's engine.

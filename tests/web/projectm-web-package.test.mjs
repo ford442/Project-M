@@ -183,3 +183,82 @@ test('staging is not published', () => {
         'staging/ is a build intermediate and must not ship',
     );
 });
+
+// ---------------------------------------------------------------------------
+// The vendored closure (packages/web/scripts/module-closure.mjs).
+// ---------------------------------------------------------------------------
+
+const htmlRoot = join(repoRoot, 'html');
+const stagingRoot = join(packageRoot, 'staging');
+const { computeModuleClosure, scanModuleReferences, stripComments } = await import(
+    `file://${join(packageRoot, 'scripts', 'module-closure.mjs')}`
+);
+
+test('scanModuleReferences finds static, dynamic and import.meta.url references', () => {
+    const refs = scanModuleReferences([
+        "import { a } from './a.js';",
+        "import './side-effect.js';",
+        "export { b } from '../up/b.js';",
+        "const lazy = await import('./lazy.js');",
+        "const w = new Worker(new URL('./worker.js', import.meta.url));",
+        "const p = new URL('processor.js', import.meta.url).href;",
+        "const abs = new URL('https://cdn.example/x.js', import.meta.url);",
+        "const page = new URL('./page.js', location.href);",
+        'const computed = import(name);',
+        "import fs from 'node:fs';",
+    ].join('\n'));
+    assert.deepEqual(refs.static, ['./a.js', './side-effect.js', '../up/b.js']);
+    assert.deepEqual(refs.dynamic, ['./lazy.js']);
+    // Only URLs resolved against the module itself; absolute and page-relative ones are not files of ours.
+    assert.deepEqual(refs.url, ['./worker.js', 'processor.js']);
+});
+
+test('scanModuleReferences ignores JSDoc type imports and commented-out code', () => {
+    const source = [
+        '/** @typedef {import(\'./types.ts\').T} T */',
+        '/**',
+        " * Loads it with import('./doc-only.js').",
+        ' */',
+        "// import('./commented.js');",
+        "const url = 'https://example.com/a.js'; // trailing note",
+    ].join('\n');
+    assert.deepEqual(scanModuleReferences(source), { static: [], dynamic: [], url: [] });
+    assert.ok(stripComments(source).includes("'https://example.com/a.js'"), 'string contents with // survive');
+});
+
+test('the closure follows dynamic imports and URL references, and reports what it cannot resolve', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const root = await mkdtemp(join(tmpdir(), 'pm-closure-'));
+    try {
+        await writeFile(join(root, 'entry.js'), "import './static.js';\nconst m = import('./dynamic.js');\n");
+        await writeFile(join(root, 'static.js'), "new Worker(new URL('./worker.js', import.meta.url));\n");
+        await writeFile(join(root, 'dynamic.js'), "new URL('../outside.js', import.meta.url);\nnew URL('./style.css', import.meta.url);\n");
+        await writeFile(join(root, 'worker.js'), "importScripts('glue.js');\n");
+        const { modules, unresolved } = await computeModuleClosure(root, ['entry.js']);
+        assert.deepEqual(modules, ['dynamic.js', 'entry.js', 'static.js', 'worker.js']);
+        assert.deepEqual(unresolved, [{ from: 'dynamic.js', specifier: '../outside.js', kind: 'url' }]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('staging holds exactly the module closure of the element (plus type companions)', async () => {
+    const { modules, unresolved } = await computeModuleClosure(htmlRoot, ['projectm-element.js']);
+    // Reached only by `new URL(..., import.meta.url)`: these are the files the
+    // old static-import-only scan dropped.
+    assert.ok(modules.includes('projectm-render-worker.js'), 'render worker missing from the closure');
+    assert.ok(modules.includes('projectm-element.js') && modules.includes('projectm-context.js'));
+    // The one URL reference outside html/ is the worklet processor, which build.mjs copies from the repo root.
+    assert.deepEqual(unresolved.map((ref) => ref.specifier), ['projectm_audio_processor.js']);
+
+    const walk = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true })
+        .flatMap((entry) => (entry.isDirectory()
+            ? walk(join(dir, entry.name), `${prefix}${entry.name}/`)
+            : [`${prefix}${entry.name}`]));
+    const stagedJs = walk(stagingRoot).filter((rel) => rel.endsWith('.js')).sort();
+    assert.deepEqual(stagedJs, modules, 'packages/web/staging/*.js must be the closure, nothing more or less');
+    for (const rel of walk(stagingRoot).filter((name) => name.endsWith('.ts'))) {
+        assert.ok(existsSync(join(htmlRoot, rel)), `staged ${rel} has no html/ source`);
+    }
+});

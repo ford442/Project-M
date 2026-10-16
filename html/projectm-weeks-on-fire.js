@@ -1,6 +1,8 @@
 // "Weeks on fire" demo mode: texture-heavy weeks_presets + weeks_textures + weeks_songs.
 // Enable with ?mode=weeks_on_fire on projectm.1ink.us (or any host that wires this module).
 
+import { readHostFlag } from './projectm-host-config.js';
+
 export const WEEKS_ON_FIRE_MODE = 'weeks_on_fire';
 
 export const DEFAULT_WEEKS_PATHS = {
@@ -109,22 +111,12 @@ export function wireFlacDecoderBridge(documentRef = document) {
     wireWeeksOnFireFlacBridge(documentRef);
 }
 
-/** @param {URLSearchParams|string|undefined} search */
+/** @param {URLSearchParams|string} [search] Default: the page URL. */
 export function isWeeksOnFireMode(search) {
     if (typeof globalThis !== 'undefined' && globalThis.__projectMWeeksOnFire === true) {
         return true;
     }
-    let params = search;
-    if (!params) {
-        try {
-            params = new URLSearchParams(globalThis.location?.search || '');
-        } catch {
-            return false;
-        }
-    } else if (typeof params === 'string') {
-        params = new URLSearchParams(params);
-    }
-    return params.get('mode') === WEEKS_ON_FIRE_MODE;
+    return readHostFlag('mode', search ? { search } : {}) === WEEKS_ON_FIRE_MODE;
 }
 
 /**

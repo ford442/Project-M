@@ -102,11 +102,11 @@
       try { Module.FS.mkdir('/presets'); } catch (_) {}
       Module.FS.writeFile(vfsPath, new Uint8Array(await response.arrayBuffer()));
       Module.ccall('load_preset_file_hard', null, ['string'], [vfsPath]);
-      for (let turn = 0; Module._preset_switch_failed() === 0 && Module._is_preset_ready(0) === 0; turn += 1) {
+      for (let turn = 0; Module._debug_preset_switch_failed() === 0 && Module._debug_is_preset_ready(0) === 0; turn += 1) {
         if (turn > 600) throw new Error('Preset load did not complete: ' + url);
         await macrotask();
       }
-      if (Module._preset_switch_failed() !== 0) throw new Error('Preset switch failed: ' + url);
+      if (Module._debug_preset_switch_failed() !== 0) throw new Error('Preset switch failed: ' + url);
     }
 
     // A host on #pm-a that plays `presetUrl` with the limiter on or off:

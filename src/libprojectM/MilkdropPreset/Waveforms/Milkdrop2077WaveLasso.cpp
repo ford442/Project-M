@@ -25,7 +25,7 @@ void Milkdrop2077WaveLasso::GenerateVertices(const PresetState& presetState,
     m_wave1Vertices.resize(m_samples);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinWaveformLoopIters)
 #endif
     for (int sample = 0; sample < m_samples; sample++)
     {

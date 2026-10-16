@@ -11,6 +11,7 @@
 
 import { resolveWasmContextConfig } from './projectm-context-config.js';
 import { createPcmRingWriter } from './projectm-pcm-ring.js';
+import { getHostConfig, readHostFlag } from './projectm-host-config.js';
 
 /**
  * @typedef {import('./projectm-render-worker-types.ts').PcmRingDescriptor} PcmRingDescriptor
@@ -38,13 +39,11 @@ import { createPcmRingWriter } from './projectm-pcm-ring.js';
  * @returns {RenderPathOverrides}
  */
 export function resolveRenderPathOverrides(search = globalThis.location?.search ?? '') {
-    const params = new URLSearchParams(search);
-    /** @param {string} key @param {string} value */
-    const is = (key, value) => (params.get(key) || '').toLowerCase() === value;
+    const config = getHostConfig({ search, storage: null, globals: null });
     return {
-        blurCopyPath: is('blurPath', 'copy'),
-        copyShaderPath: is('copyPath', 'shader'),
-        perPixelForceCpu: is('perPixelEval', 'cpu'),
+        blurCopyPath: config.blurPath === 'copy',
+        copyShaderPath: config.copyPath === 'shader',
+        perPixelForceCpu: config.perPixelEval === 'cpu',
     };
 }
 
@@ -66,16 +65,7 @@ export function resolveRenderPathOverrides(search = globalThis.location?.search 
 export function isRenderWorkerEnabled({ search = location.search, storage = (() => {
     try { return window.localStorage; } catch (_) { return null; }
 })() } = {}) {
-    const params = new URLSearchParams(search);
-    if (params.has('renderWorker')) {
-        const value = params.get('renderWorker');
-        if (value === '0') return false;
-        if (value === '1') return true;
-    }
-    const stored = storage ? storage.getItem('renderWorker') : null;
-    if (stored === '0') return false;
-    if (stored === '1') return true;
-    return true;
+    return readHostFlag('renderWorker', { search, storage, globals: null });
 }
 
 /**

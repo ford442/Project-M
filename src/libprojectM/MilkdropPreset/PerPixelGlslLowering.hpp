@@ -209,15 +209,6 @@ public:
      */
     static auto ComposeWarpVertexShader(const std::string& generatedGlsl) -> std::string;
 
-    /**
-     * @brief True when the environment forces every preset onto the CPU path.
-     *
-     * Set by @c PROJECTM_PER_PIXEL_EVAL=cpu, which the WASM host maps from
-     * @c ?perPixelEval=cpu. Mirrors the @c ?blurPath / @c ?copyPath ablation switches
-     * so one build can be A/B'd against itself.
-     */
-    static auto ForcedToCpu() -> bool;
-
     /** @brief True if this build can inspect the evaluator's expression tree at all. */
     static auto Available() -> bool;
 

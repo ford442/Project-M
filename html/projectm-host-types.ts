@@ -246,11 +246,14 @@ declare global {
         | ((buffer: Float32Array, channels?: number) => void)
         | undefined;
     /**
-     * Host implementation of `connect_media_element_source()`, installed by
-     * `installMediaElementSourceHook()` (html/projectm-audio-element-source.js).
+     * Host writer for preset bytes when this thread has no module FS (the
+     * render-worker topology), installed by `installTransportPresetWriter()`
+     * (html/projectm-render-transport.js) and read by projectm-presets.js.
      */
     // eslint-disable-next-line no-var
-    var projectMConnectMediaElement: ((selector: string) => boolean) | undefined;
+    var projectMWritePreset:
+        | ((vfsPath: string, bytes: Uint8Array, mode?: 'load' | 'load-hard' | 'add') => void)
+        | undefined;
     /** Source nodes already made per media element, keyed by element. */
     // eslint-disable-next-line no-var
     var projectMElementSources: WeakMap<HTMLMediaElement, MediaElementAudioSourceNode> | undefined;

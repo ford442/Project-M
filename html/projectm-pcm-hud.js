@@ -18,6 +18,7 @@
 
 import { getExternalPcmStats } from './projectm-external-pcm.js';
 import { readPcmRingCounters, readPcmRingDescriptor } from './projectm-pcm-ring.js';
+import { readHostFlag } from './projectm-host-config.js';
 
 /**
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
@@ -182,16 +183,21 @@ export function formatPcmHudText(rates, stats, topology) {
  * @returns {boolean}
  */
 function hudRequested(windowRef) {
+    /** @type {string} */
+    let search = '';
+    /** @type {Storage | null} */
+    let storage = null;
     try {
-        if (new URLSearchParams(windowRef?.location?.search ?? '').get('pcmhud') === '1') return true;
+        search = windowRef?.location?.search ?? '';
     } catch (_) {
         // No location.
     }
     try {
-        return windowRef?.localStorage?.getItem('projectm-pcm-hud') === '1';
+        storage = windowRef?.localStorage ?? null;
     } catch (_) {
-        return false;
+        // Storage blocked.
     }
+    return readHostFlag('pcmhud', { search, storage, globals: null });
 }
 
 const HUD_ID = 'pm-pcm-hud';

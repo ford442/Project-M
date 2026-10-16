@@ -34,7 +34,7 @@ void Milkdrop2077WaveSkewed::GenerateVertices(const PresetState& presetState,
     alpha = std::max(0.0f, std::min(1.0f, alpha));
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinWaveformLoopIters)
 #endif
     for (size_t i = 0; i < static_cast<size_t>(m_samples); i++)
     {

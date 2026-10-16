@@ -1,7 +1,8 @@
 #pragma once
 
+#include "Logging.hpp"
+
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <string>
 #include <type_traits>
@@ -50,10 +51,9 @@ using LibHandle = void*;
 
 inline auto ReportFnPtrSizeMismatch(const char* where, std::size_t fnSize, std::size_t ptrSize) -> void
 {
-    std::fprintf(stderr, "[PlatformLoader] %s: sizeof(Fn)=%zu sizeof(void*)=%zu; cannot convert symbol/function pointer\n",
-                 (where != nullptr ? where : "(unknown)"),
-                 static_cast<std::size_t>(fnSize),
-                 static_cast<std::size_t>(ptrSize));
+    LOG_ERROR(std::string("[PlatformLoader] ") + (where != nullptr ? where : "(unknown)") +
+              ": sizeof(Fn)=" + std::to_string(fnSize) + " sizeof(void*)=" + std::to_string(ptrSize) +
+              "; cannot convert symbol/function pointer");
 }
 
 #endif

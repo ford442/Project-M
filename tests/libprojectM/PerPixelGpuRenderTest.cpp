@@ -8,7 +8,7 @@
  * uniforms arrive, and that the resulting frame looks the same.
  *
  * Each preset is rendered twice through the full engine at a fixed seed and a fixed
- * frame clock -- once with PROJECTM_PER_PIXEL_EVAL=cpu, once on the default path --
+ * frame clock -- once with PROJECTM_RENDER_PATH_PER_PIXEL_CPU, once on the default path --
  * and the two framebuffers are compared. The warp mesh feeds back into itself every
  * frame, so this also catches a difference too small to see in one frame but that
  * compounds over a sequence.
@@ -38,6 +38,7 @@
 #include <vector>
 
 #include <projectM-4/projectM.h>
+#include <projectM-4/projectm_perf.h>
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
@@ -152,17 +153,6 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
                   const FrameHook& beforeFrame = {})
     -> std::vector<unsigned char>
 {
-    // Read at preset-compile time by MilkdropPreset::LowerPerPixelCodeToGlsl(), so it
-    // has to be in place before the preset is loaded.
-    if (forceCpuPerPixel)
-    {
-        setenv("PROJECTM_PER_PIXEL_EVAL", "cpu", 1);
-    }
-    else
-    {
-        unsetenv("PROJECTM_PER_PIXEL_EVAL");
-    }
-
     // A fixed seed pins the noise textures and every other random draw, so the only
     // thing left that could differ between the two runs is the per-pixel path itself.
     projectm_set_deterministic_seed(0x5eed1234u);
@@ -205,6 +195,9 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
         }
         else
         {
+            // Read at preset-initialize time by MilkdropPreset::LowerPerPixelCodeToGlsl(),
+            // so it has to be in place before the preset is loaded.
+            projectm_set_render_path(instance, forceCpuPerPixel ? PROJECTM_RENDER_PATH_PER_PIXEL_CPU : PROJECTM_RENDER_PATH_DEFAULT);
             projectm_set_window_size(instance, kWidth, kHeight);
             projectm_set_preset_duration(instance, 3600.0);
             projectm_set_soft_cut_duration(instance, 0.0);
@@ -232,7 +225,6 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
     glDeleteFramebuffers(1, &framebuffer);
     glDeleteTextures(1, &texture);
     projectm_clear_deterministic_seed();
-    unsetenv("PROJECTM_PER_PIXEL_EVAL");
 #ifdef PRJM_ENABLE_OPENMP
     omp_set_num_threads(threads);
 #endif
@@ -442,6 +434,56 @@ TEST_F(PerPixelGpuRenderTest, TrivialPerPixelFixtureRendersIdentically)
     // exactly. If this one drifts, something is genuinely wired wrong.
     EXPECT_LE(difference.maxAbsolute, 1.0)
         << "the fixture preset should render identically on both paths";
+}
+
+/**
+ * @brief projectm_set_render_path() is per instance and decides the per-pixel path.
+ *
+ * The CPU-vs-GPU comparisons above would pass vacuously if the switch never took effect
+ * (both runs on the GPU path), so check the path the engine reports for each instance.
+ * Two instances alive at once must not share the setting: it used to be a process-wide
+ * environment variable.
+ */
+TEST_F(PerPixelGpuRenderTest, RenderPathSwitchIsPerInstance)
+{
+    const std::string path = std::string(PROJECTM_PRESET_TESTS_DIR) + kFixturePreset;
+    if (!std::filesystem::exists(path))
+    {
+        GTEST_SKIP() << "fixture preset not present: " << path;
+    }
+    std::string reason;
+    bool cpuSlice = false;
+    ASSERT_TRUE(Lowers(path, reason, cpuSlice)) << "fixture no longer lowers: " << reason;
+
+    auto* cpuInstance = projectm_create();
+    auto* gpuInstance = projectm_create();
+    ASSERT_NE(cpuInstance, nullptr);
+    ASSERT_NE(gpuInstance, nullptr);
+
+    EXPECT_EQ(projectm_get_render_path(cpuInstance), static_cast<uint32_t>(PROJECTM_RENDER_PATH_DEFAULT));
+    // Unknown bits are dropped.
+    projectm_set_render_path(cpuInstance, PROJECTM_RENDER_PATH_PER_PIXEL_CPU | 0x100u);
+    EXPECT_EQ(projectm_get_render_path(cpuInstance), static_cast<uint32_t>(PROJECTM_RENDER_PATH_PER_PIXEL_CPU));
+    EXPECT_EQ(projectm_get_render_path(gpuInstance), static_cast<uint32_t>(PROJECTM_RENDER_PATH_DEFAULT));
+
+    const auto renderedPath = [&path](projectm_handle instance) {
+        projectm_set_window_size(instance, kWidth, kHeight);
+        projectm_set_preset_duration(instance, 3600.0);
+        projectm_load_preset_file(instance, path.c_str(), false);
+        projectm_opengl_render_frame_fbo(instance, 0);
+        projectm_perf_frame_timings timings{};
+        projectm_perf_get_frame_timings(&timings);
+        return timings.per_pixel_eval_path;
+    };
+
+    const bool perfWasEnabled = projectm_perf_is_enabled();
+    projectm_perf_set_enabled(true);
+    EXPECT_EQ(renderedPath(cpuInstance), 0) << "PROJECTM_RENDER_PATH_PER_PIXEL_CPU did not keep the preset on the CPU";
+    EXPECT_EQ(renderedPath(gpuInstance), 1) << "the sibling instance inherited the CPU switch";
+    projectm_perf_set_enabled(perfWasEnabled);
+
+    projectm_destroy(cpuInstance);
+    projectm_destroy(gpuInstance);
 }
 
 /**

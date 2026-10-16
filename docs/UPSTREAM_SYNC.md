@@ -122,6 +122,7 @@ Prefer **cherry-pick** for isolated fixes in `src/libprojectM/`. Avoid merging u
 | **Experimental** | Depth Anything / Transformers.js / glTF hooks in `projectm.1ink`, `projectm_new.1ink` (not in slim `projectm-core.html`) | Not present |
 | **AI authoring** | `scripts/audit_presets.mjs`, `kimi_*`, `toml_to_milk.mjs`, capture baselines | Not present |
 | **Deployment** | `deploy.py`, COOP/COEP docs, custom CDN paths | N/A |
+| **Windows CI cache** | `build_windows.yml` caches vcpkg binaries in the repository *owner's* GitHub Packages NuGet feed with `GITHUB_TOKEN` (read-only on pull requests) | Writes to the `projectM-visualizer` feed with an org-only `VCPKG_PACKAGES_TOKEN`, which a fork cannot use |
 | **Remote / branches** | `origin` → `ford442/Project-M` (`main` = fork, `master` = upstream mirror) | `projectM-visualizer/projectm` (`master`) |
 
 When upstream adds a feature the fork also wants (e.g. PCM thread safety), **port the fix** but keep

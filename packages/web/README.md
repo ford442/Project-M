@@ -63,14 +63,12 @@ that directory is all the wiring needed:
 ```
 
 > **Version note.** `--version` defaults to `039`, the tag the runtime resolver
-> asks for. The first-party hosts still default to `032`
-> (`PROJECTM_WASM_DEFAULT_VERSION`) until the current tag passes an audio-reactivity
-> check and a GPU `?benchmark=1` p95 no worse than 032 on the same machine; 036's
-> audio and framerate regressions were fixed in 037, but the promotion run to make
-> a newer tag the host default has not happened yet. If you need the older bundle, `--version 032` fetches it — it
+> asks for, and the first-party hosts default to the same tag
+> (`PROJECTM_WASM_DEFAULT_VERSION` in `html/projectm-wasm-version.js`, which is
+> allowed to lag `PROJECTM_WASM_VERSION` while the newest bundle has known
+> regressions). If you need an older bundle, `--version 032` fetches it — it
 > lives at the site root as a UTF-16 `.1ijs` glue script rather than under `pm/`,
-> and the tool handles that layout difference for you. This split is the one
-> thing an embedder has to make a decision about today.
+> and the tool handles that layout difference for you.
 
 ## Quick start (CDN / ES modules)
 
@@ -291,7 +289,8 @@ The `.wasm`/glue artifacts are still **not** in the tarball — fetch them with
 | `wasm-script-url` | Explicit glue `.1ijs` URL (skips pm/ probe) |
 | `mesh-quality` | `auto`, `high`, or `low` |
 | `target-fps` | Target frame rate (default `60`) |
-| `transparent` | Enable near-black transparency mode |
+| `transparent` | Enable near-black transparency mode (can be toggled after boot) |
+| `context-alpha` | `"false"` gives the canvas no alpha channel: an opaque canvas the browser composites cheaper, but `transparent` can then no longer be switched on (default: alpha channel kept). Read once, at boot |
 | `locked` | Lock preset (no auto-switch) |
 | `require-cross-origin-isolation` | When `"false"`, skip the COOP/COEP pre-check (WASM may still fail) |
 | `external-pcm-origins` | JSON array or comma-separated origin allowlist for `postMessage` PCM |

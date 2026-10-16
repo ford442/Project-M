@@ -546,6 +546,41 @@ PROJECTM_EXPORT float projectm_get_flash_limit_threshold(projectm_handle instanc
  */
 PROJECTM_EXPORT uint32_t projectm_get_flash_limit_clamped_frames(projectm_handle instance);
 
+/**
+ * Bits of projectm_set_render_path(): ablation switches that put one render stage back on
+ * its older (slower) implementation, so a single build can be A/B'd against itself. Each is
+ * off by default, and every combination renders the same image.
+ * @since 4.2.0
+ */
+typedef enum
+{
+    PROJECTM_RENDER_PATH_DEFAULT = 0,             //!< The fast path everywhere.
+    PROJECTM_RENDER_PATH_BLUR_COPY = 1 << 0,      //!< Blur passes render to a scratch target and glCopyTexSubImage2D the result.
+    PROJECTM_RENDER_PATH_COPY_SHADER = 1 << 1,    //!< Texture copies draw a fullscreen quad instead of glBlitFramebuffer.
+    PROJECTM_RENDER_PATH_PER_PIXEL_CPU = 1 << 2   //!< Per-pixel equations always run on the CPU evaluator, never as GLSL.
+} projectm_render_path_flags;
+
+/**
+ * @brief Selects alternative render paths for benchmarking, per instance.
+ *
+ * The texture-copy switch applies from the next frame. The blur and per-pixel switches are
+ * decided when a preset is loaded, so they apply to presets loaded after this call; set them
+ * before loading the first preset. Unknown bits are ignored.
+ *
+ * @param instance The projectM instance handle.
+ * @param flags A bitwise OR of projectm_render_path_flags values. Default: PROJECTM_RENDER_PATH_DEFAULT
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_render_path(projectm_handle instance, uint32_t flags);
+
+/**
+ * @brief Returns the render-path switches set with projectm_set_render_path().
+ * @param instance The projectM instance handle.
+ * @return A bitwise OR of projectm_render_path_flags values.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT uint32_t projectm_get_render_path(projectm_handle instance);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

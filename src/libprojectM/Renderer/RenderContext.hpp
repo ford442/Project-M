@@ -4,7 +4,10 @@
 */
 #pragma once
 
+#include <projectM-4/parameters.h>
 #include <projectM-4/projectM_cxx_export.h>
+
+#include <cstdint>
 
 namespace libprojectM {
 namespace Renderer {
@@ -47,6 +50,29 @@ public:
      * and Preset::FinishShaderCompile() completes it. Only set for Preset::Initialize().
      */
     bool deferShaderLink{false};
+
+    //! projectm_set_render_path() switches (projectm_render_path_flags bits) of this
+    //! instance. Blur and per-pixel paths are decided in Preset::Initialize(), texture
+    //! copies on every draw.
+    uint32_t renderPathFlags{0};
+
+    //! The PROJECTM_RENDER_PATH_BLUR_COPY switch: blur through a scratch target + copy.
+    auto BlurCopyPath() const -> bool
+    {
+        return (renderPathFlags & PROJECTM_RENDER_PATH_BLUR_COPY) != 0;
+    }
+
+    //! The PROJECTM_RENDER_PATH_COPY_SHADER switch: texture copies draw a quad, never blit.
+    auto CopyShaderPath() const -> bool
+    {
+        return (renderPathFlags & PROJECTM_RENDER_PATH_COPY_SHADER) != 0;
+    }
+
+    //! The PROJECTM_RENDER_PATH_PER_PIXEL_CPU switch: per-pixel code never lowered to GLSL.
+    auto PerPixelForceCpu() const -> bool
+    {
+        return (renderPathFlags & PROJECTM_RENDER_PATH_PER_PIXEL_CPU) != 0;
+    }
 
     float texelOffsetX{0.0f}; //!< Horizontal texel offset in the warp shader.
     float texelOffsetY{0.0f}; //!< Vertical texel offset in the warp shader.

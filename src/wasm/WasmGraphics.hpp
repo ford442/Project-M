@@ -94,7 +94,7 @@ public:
         if (precisionMode == static_cast<int>(FboFloatFormat::RGBA8))
         {
             m_format = FboFloatFormat::RGBA8;
-            printf("DualFBO: Forced GL_RGBA8 (fboPrecision=byte); output is dithered/clamped.\n");
+            LOG_DEBUG("DualFBO: forced GL_RGBA8 (fboPrecision=byte); output is dithered/clamped");
             return;
         }
         // In WebGL 2, EXT_color_buffer_float makes both RGBA16F and RGBA32F
@@ -113,24 +113,24 @@ public:
             if (emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear") != EM_TRUE)
             {
                 m_filter = GL_NEAREST;
-                printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in), GL_NEAREST: OES_texture_float_linear unavailable.\n");
+                LOG_DEBUG("DualFBO: GL_RGBA32F (high-precision opt-in), GL_NEAREST: OES_texture_float_linear unavailable");
             }
             else
             {
-                printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in).\n");
+                LOG_DEBUG("DualFBO: GL_RGBA32F (high-precision opt-in)");
             }
         }
         else if (halfRenderable)
         {
             m_format = FboFloatFormat::RGBA16F;
-            printf("DualFBO: Using GL_RGBA16F half-float textures (default).\n");
+            LOG_DEBUG("DualFBO: GL_RGBA16F (default)");
         }
         else
         {
             m_format = FboFloatFormat::RGBA8;
-            printf("DualFBO: Float textures unavailable, falling back to GL_RGBA8 (degraded mode).\n");
-            printf("DualFBO: WARNING – recursive warp/feedback presets may show banding; output is dithered/clamped in CompositingBlendShader.\n");
-            printf("DualFBO: Host page can query this via Module._dual_fbo_get_format() (2 == RGBA8).\n");
+            // dual_fbo_get_format() reports it to the page (2 == RGBA8).
+            LOG_WARN("DualFBO: float render targets unavailable, using GL_RGBA8: recursive warp/feedback "
+                     "presets may band (the compositor dithers and clamps)");
         }
     }
 
@@ -162,12 +162,12 @@ public:
         {
             ReleaseFBO(kARead);
             ReleaseFBO(kAWrite);
-            fprintf(stderr, "DualFBO: Failed to allocate Preset A FBOs.\n");
+            LOG_ERROR("DualFBO: failed to allocate the preset A FBOs");
             return false;
         }
 
         m_presetAAllocated = true;
-        printf("DualFBO: Preset A FBOs allocated (%dx%d).\n", width, height);
+        LOG_DEBUG(WasmLogFormat("DualFBO: preset A FBOs allocated (%dx%d)", width, height));
         return true;
     }
 
@@ -192,12 +192,12 @@ public:
         {
             ReleaseFBO(kBRead);
             ReleaseFBO(kBWrite);
-            fprintf(stderr, "DualFBO: Failed to allocate Preset B FBOs.\n");
+            LOG_ERROR("DualFBO: failed to allocate the preset B FBOs");
             return false;
         }
 
         m_presetBAllocated = true;
-        printf("DualFBO: Preset B FBOs allocated (%dx%d).\n", width, height);
+        LOG_DEBUG(WasmLogFormat("DualFBO: preset B FBOs allocated (%dx%d)", width, height));
         return true;
     }
 
@@ -216,7 +216,7 @@ public:
         ReleaseFBO(kBRead);
         ReleaseFBO(kBWrite);
         m_presetBAllocated = false;
-        printf("DualFBO: Preset B FBOs released.\n");
+        LOG_DEBUG("DualFBO: preset B FBOs released");
     }
 
     /**
@@ -237,7 +237,7 @@ public:
         ReleaseFBO(kARead);
         ReleaseFBO(kAWrite);
         m_presetAAllocated = false;
-        printf("DualFBO: Preset A FBOs released.\n");
+        LOG_DEBUG("DualFBO: preset A FBOs released");
     }
 
     /**
@@ -284,7 +284,7 @@ public:
 
         m_presetAAllocated = true;
         m_presetBAllocated = false;
-        printf("DualFBO: Preset B promoted to Preset A.\n");
+        LOG_DEBUG("DualFBO: preset B promoted to preset A");
     }
 
     /**
@@ -340,7 +340,7 @@ public:
             ResizeFBOTexture(kBWrite, width, height);
         }
 
-        printf("DualFBO: Resized to %dx%d.\n", width, height);
+        LOG_DEBUG(WasmLogFormat("DualFBO: resized to %dx%d", width, height));
     }
 
     // -------------------------------------------------------------------------
@@ -422,7 +422,7 @@ private:
             case FboFloatFormat::RGBA8:
                 return GL_RGBA8;
             default:
-                fprintf(stderr, "DualFBO: Unknown FboFloatFormat; falling back to GL_RGBA8.\n");
+                LOG_WARN("DualFBO: unknown FboFloatFormat; falling back to GL_RGBA8");
                 return GL_RGBA8;
         }
     }
@@ -443,7 +443,7 @@ private:
             case FboFloatFormat::RGBA8:
                 return GL_UNSIGNED_BYTE;
             default:
-                fprintf(stderr, "DualFBO: Unknown FboFloatFormat; falling back to GL_UNSIGNED_BYTE.\n");
+                LOG_WARN("DualFBO: unknown FboFloatFormat; falling back to GL_UNSIGNED_BYTE");
                 return GL_UNSIGNED_BYTE;
         }
     }
@@ -475,8 +475,7 @@ private:
 
         if (status != GL_FRAMEBUFFER_COMPLETE)
         {
-            fprintf(stderr, "DualFBO: Framebuffer slot %d incomplete (status=0x%x).\n",
-                    index, status);
+            LOG_ERROR(WasmLogFormat("DualFBO: framebuffer slot %d incomplete (status=0x%x)", index, status));
             glDeleteTextures(1, &m_textures[index]);
             glDeleteFramebuffers(1, &m_fbos[index]);
             m_textures[index] = 0;
@@ -881,7 +880,7 @@ void main() {
             glGetProgramiv(m_program, GL_INFO_LOG_LENGTH, &len);
             std::vector<char> log(static_cast<size_t>(len) + 1u);
             glGetProgramInfoLog(m_program, len, nullptr, log.data());
-            fprintf(stderr, "CompositingBlendShader: link error: %s\n", log.data());
+            LOG_ERROR(std::string("CompositingBlendShader: link error: ") + log.data());
             glDeleteProgram(m_program);
             m_program = 0;
             return false;
@@ -923,7 +922,7 @@ void main() {
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         m_initialized = true;
-        fprintf(stderr, "CompositingBlendShader: initialized successfully.\n");
+        LOG_DEBUG("CompositingBlendShader: initialized");
         return true;
     }
 
@@ -1044,8 +1043,8 @@ private:
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &len);
             std::vector<char> log(static_cast<size_t>(len) + 1u);
             glGetShaderInfoLog(shader, len, nullptr, log.data());
-            fprintf(stderr, "CompositingBlendShader: compile error (%s): %s\n",
-                    type == GL_VERTEX_SHADER ? "vert" : "frag", log.data());
+            LOG_ERROR(WasmLogFormat("CompositingBlendShader: compile error (%s): %s",
+                                    type == GL_VERTEX_SHADER ? "vert" : "frag", log.data()));
             glDeleteShader(shader);
             return 0;
         }
@@ -1066,7 +1065,6 @@ private:
 };
 
 // The dual-FBO manager and compositing shader are per-instance state: each
-// engine owns its own pair as members of WasmHost (see WasmHost.hpp). TUs reach
-// the active host's instances via `auto& g_dualFbo = H.dualFbo;` aliases, so the
+// engine owns its own pair as members of WasmHost (see WasmHost.hpp), so the
 // class definitions above stay shared here while the instances are no longer
 // process-global.

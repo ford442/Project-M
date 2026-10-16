@@ -1,8 +1,10 @@
 // projectM_emscripten.cpp  (ProjectMWasmMain)
 //
 // Engine lifecycle for the projectM Emscripten/WASM host: it builds and tears
-// down the engine + playlist + GL context around the active WasmHost, and owns
-// `main()`. Per-instance state lives in WasmHost (#168 Phase B).
+// down the engine + playlist + GL context around the active WasmHost.
+// Per-instance state lives in WasmHost (#168 Phase B). There is no main(): the
+// glue is linked with INVOKE_RUN=0 and every host page brings its engine up
+// with create_host_with_config() (or the legacy init()).
 //
 // The rest of the host glue lives in the focused WASM TUs:
 //   WasmWebGLContext.cpp  WebGL context create/destroy + extensions + canvas selectors
@@ -22,11 +24,6 @@
 #include "WasmWebGLContext.hpp"
 
 #include <emscripten/threading.h>
-
-// Per-instance host state (#168 Phase B). Former process-global engine /
-// playlist / dual-FBO / transition fields are WasmHost members; each body binds
-// same-named local references (`auto& pm = H.appData.projectm_engine;`) so the
-// lifecycle code reads the same as before.
 
 // kWasmOpenMpThreads comes from cmake/generated/ProjectMWasmBuildConfig.hpp
 // (generated from PROJECTM_WASM_OPENMP_THREADS in EmscriptenWasmFlags.cmake);
@@ -93,90 +90,63 @@ static void ConfigureWasmOpenMPThreadCount()
 
 // Clears the transition controller back to its cold-start state.
 //
-// Must accompany every g_dualFbo.ReleaseAll() teardown: ReleaseAll() clears the
-// allocation flags but not the blend timeline, and a g_transitionActive left set
+// Must accompany every dualFbo.ReleaseAll() teardown: ReleaseAll() clears the
+// allocation flags but not the blend timeline, and a transitionActive left set
 // across teardown both blocks ReleaseDualFboIfIdle() and makes the next
-// allocation resume a blend against a stale g_transitionStartTime.
-static void ResetTransitionState()
+// allocation resume a blend against a stale transitionStartTime.
+static void ResetTransitionState(WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& g_presetBReady = H.presetBReady;
-    auto& g_transitionActive = H.transitionActive;
-    auto& g_transitionBlend = H.transitionBlend;
-    auto& g_transitionStartTime = H.transitionStartTime;
-    auto& g_transitionEndTime = H.transitionEndTime;
-    g_transitionActive = false;
-    g_transitionBlend = 0.0f;
-    g_transitionStartTime = 0.0;
-    g_transitionEndTime = 0.0;
-    g_presetBReady = false;
+    host.transitionActive = false;
+    host.transitionBlend = 0.0f;
+    host.transitionStartTime = 0.0;
+    host.transitionEndTime = 0.0;
+    host.presetBReady = false;
 }
 
-// Playlists created by init() and not yet destroyed, across every host. Only
-// read by live_playlist_count(), which the smoke test uses to prove that
-// destroy_host / context loss / rebind free the playlist along with the engine.
-static int g_livePlaylistCount = 0;
-
-// Destroys the active host's playlist and engine, in that order: the playlist
-// holds the engine handle and unregisters its callbacks from it.
+// Destroys the host's playlist and engine, in that order: the playlist holds
+// the engine handle and unregisters its callbacks from it.
 //
 // Every teardown path (destruct, context loss, rebind) goes through here.
 // destruct() and pm_handle_context_loss() used to destroy only the engine, and
 // the latter nulled the playlist pointer outright, so each destroy_host() and
 // each lost context leaked a playlist still pointing at a freed engine.
-static void DestroyEngineAndPlaylist()
+static void DestroyEngineAndPlaylist(WasmHost& host)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& playlist = H.appData.playlist;
     // A preparation still running is for this engine; its result must not be
     // loaded into the next one init() creates.
-    if (H.presetPrepare)
+    if (host.presetPrepare)
     {
-        H.presetPrepare->DiscardAll();
+        host.presetPrepare->DiscardAll();
     }
-    H.switchRequestDeferred = false;
-    H.pendingSwitch.reset();
-    if (playlist)
-    {
-        projectm_playlist_destroy(playlist);
-        playlist = nullptr;
-        --g_livePlaylistCount;
-    }
-    if (pm)
-    {
-        projectm_destroy(pm);
-        pm = nullptr;
-    }
-    H.appData.loading = EM_FALSE;
+    host.switchRequestDeferred = false;
+    host.pendingSwitch.reset();
+    host.appData.playlist.reset();
+    host.appData.engine.reset();
+    host.appData.loading = EM_FALSE;
 }
 
-// Releases the host's GL-side resources and destroys its WebGL context. The
-// compositor program and dual-FBO textures are deleted first, while their own
-// context is still current: GL object ids are global to the Emscripten GL
-// layer, so a stale id deleted later under a different context would raise
-// GL_INVALID_OPERATION there (or delete a sibling's object).
-static void ReleaseGraphics()
+// Releases the host's GL-side resources. The compositor program and dual-FBO
+// textures are deleted while their own context is still current: GL object ids
+// are global to the Emscripten GL layer, so a stale id deleted later under a
+// different context would raise GL_INVALID_OPERATION there (or delete a
+// sibling's object).
+static void ReleaseGraphics(WasmHost& host)
 {
-    WasmHost& H = Host();
-    ReleaseFrameCapture(H);
-    H.compositorShader.Release();
-    H.dualFbo.ReleaseAll();
-    H.glBaseline.reset();
-    ResetTransitionState();
+    ReleaseFrameCapture(host);
+    host.compositorShader.Release();
+    host.dualFbo.ReleaseAll();
+    host.glBaseline.reset();
+    ResetTransitionState(host);
 }
 
-static void ReleaseGraphicsAndContext()
+// ReleaseGraphics(), then destroys the host's WebGL context.
+static void ReleaseGraphicsAndContext(WasmHost& host)
 {
-    ReleaseGraphics();
-    WasmWebGLDestroyContext();
+    ReleaseGraphics(host);
+    WasmWebGLDestroyContext(host);
 }
 
-// init()'s return code while the host's WebGL context is lost: the engine
-// cannot be rebuilt until the browser fires "webglcontextrestored".
-constexpr int kInitContextLost = 5;
-
-// The active host's context exists and is not lost.
+// The host's context exists and is not lost.
 static bool HostContextIsLive(const WasmHost& host)
 {
     return host.glCtx != 0 && !emscripten_is_webgl_context_lost(host.glCtx);
@@ -187,76 +157,123 @@ static bool HostContextIsLive(const WasmHost& host)
 // silently drop the mesh size, transparency, lock, etc. back to defaults.
 static void ReapplyEngineSettings(WasmHost& host)
 {
-    projectm_handle pm = host.appData.projectm_engine;
+    projectm_handle engine = host.appData.Engine();
     const EngineSettings& settings = host.engineSettings;
     if (settings.meshSize)
     {
-        projectm_set_mesh_size(pm, settings.meshSize->first, settings.meshSize->second);
+        projectm_set_mesh_size(engine, settings.meshSize->first, settings.meshSize->second);
     }
     if (settings.aspectCorrection)
     {
-        projectm_set_aspect_correction(pm, *settings.aspectCorrection);
+        projectm_set_aspect_correction(engine, *settings.aspectCorrection);
     }
     if (settings.presetLocked)
     {
-        projectm_set_preset_locked(pm, *settings.presetLocked);
+        projectm_set_preset_locked(engine, *settings.presetLocked);
     }
     if (settings.transparencyMode)
     {
-        projectm_set_transparency_mode(pm, *settings.transparencyMode);
+        projectm_set_transparency_mode(engine, *settings.transparencyMode);
     }
     if (settings.transparencyThreshold)
     {
-        projectm_set_transparency_threshold(pm, *settings.transparencyThreshold);
+        projectm_set_transparency_threshold(engine, *settings.transparencyThreshold);
     }
     if (settings.rhythmHint)
     {
-        projectm_set_rhythm_hint(pm, *settings.rhythmHint);
+        projectm_set_rhythm_hint(engine, *settings.rhythmHint);
     }
     if (settings.presetSwitchPolicy)
     {
-        projectm_set_preset_switch_policy(pm, static_cast<projectm_preset_switch_policy>(settings.presetSwitchPolicy->first),
+        projectm_set_preset_switch_policy(engine, static_cast<projectm_preset_switch_policy>(settings.presetSwitchPolicy->first),
                                           settings.presetSwitchPolicy->second);
     }
     if (settings.transitionBeats)
     {
-        projectm_set_soft_cut_duration_beats(pm, *settings.transitionBeats);
+        projectm_set_soft_cut_duration_beats(engine, *settings.transitionBeats);
     }
     if (settings.hardCutOnBeat)
     {
-        projectm_set_hard_cut_on_beat(pm, *settings.hardCutOnBeat);
+        projectm_set_hard_cut_on_beat(engine, *settings.hardCutOnBeat);
     }
     if (settings.flashLimitThreshold)
     {
-        projectm_set_flash_limit_threshold(pm, *settings.flashLimitThreshold);
+        projectm_set_flash_limit_threshold(engine, *settings.flashLimitThreshold);
     }
     if (settings.flashLimitEnabled)
     {
-        projectm_set_flash_limit_enabled(pm, *settings.flashLimitEnabled);
+        projectm_set_flash_limit_enabled(engine, *settings.flashLimitEnabled);
     }
-    ReapplyQualityTierLimits();
+    ReapplyQualityTierLimits(host);
 }
 
-static void TearDownEngineForRebind()
+static void TearDownEngineForRebind(WasmHost& host)
 {
-    WasmHost& H = Host();
     // Take this host out of the shared render loop until start_render() opts it
     // back in. The Emscripten main loop itself is process-global and services
     // every started host, so it is left running: cancelling it here used to stop
     // a sibling host's rendering too (and dropped a paused loop's pause, e.g. the
     // render worker's).
-    H.renderLoopStarted = false;
+    host.renderLoopStarted = false;
 
-    DestroyEngineAndPlaylist();
-    ReleaseGraphicsAndContext();
+    DestroyEngineAndPlaylist(host);
+    ReleaseGraphicsAndContext(host);
+}
+
+// Creates the host's engine and playlist on its (current, live) context.
+static WasmInitError CreateEngine(WasmHost& host)
+{
+    projectm_handle engine = projectm_create();
+    if (engine == nullptr)
+    {
+        js_report_init_error(WasmInitError::kEngineCreateFailed, "projectm_create() returned null");
+        return WasmInitError::kEngineCreateFailed;
+    }
+    host.appData.engine.reset(engine);
+    host.appData.playlist.reset(projectm_playlist_create(engine));
+    projectm_playlist_handle playlist = host.appData.Playlist();
+    projectm_playlist_add_path(playlist, "/presets/", true, true);
+    // Every callback is addressed to this host (not to whichever is active
+    // when it fires); see WasmPlaylistBridge.cpp.
+    projectm_playlist_set_preset_switched_event_callback(playlist, &load_preset_callback_done, &host);
+    // Every playlist-driven load (manual, timer, switch_preset) is prepared on
+    // this host's prepare thread instead of loading synchronously.
+    projectm_playlist_set_preset_load_event_callback(playlist, &on_playlist_preset_load, &host);
+    if (!host.presetPrepare)
+    {
+        host.presetPrepare = std::make_unique<PresetPrepareQueue>(HostHandle(host));
+    }
+    const char* texture_search_paths[] = {"textures"};
+    projectm_set_texture_search_paths(engine, texture_search_paths, 1);
+    projectm_set_fps(engine, host.targetFps > 0 ? host.targetFps : 60);
+    SeedPresetDurationRng(host);
+    projectm_set_preset_duration(engine, NextPresetDuration(host));
+    projectm_set_soft_cut_duration(engine, 17.0);
+    projectm_set_beat_sensitivity(engine, 1.50);
+    projectm_playlist_set_shuffle(playlist, true);
+    projectm_set_preset_switch_failed_event_callback(engine, &on_preset_switch_failed, &host);
+    projectm_set_preset_switch_requested_event_callback(engine, &on_preset_switch_requested, &host);
+    // Must happen before the first preset renders: the blur and per-pixel paths
+    // are decided as each preset is initialized.
+    ApplyRenderPathOverrides(host);
+    // A re-created engine (context-loss restore, rebind) gets back what the
+    // page had set on the one it replaces.
+    ReapplyEngineSettings(host);
+    return WasmInitError::kOk;
 }
 
 extern "C" {
+// ---- Test hooks (PROJECTM_WASM_DEBUG_EXPORTS) -------------------------------
+
+// Spawns a hard-coded demo user sprite (smoke test of the sprite path).
 EMSCRIPTEN_KEEPALIVE
-void create_sprite()
+void debug_create_sprite()
 {
-    WasmHost& H = Host();
-    auto& app_data = H.appData;
+    projectm_handle engine = Host().appData.Engine();
+    if (engine == nullptr)
+    {
+        return;
+    }
     const char* new_sprite_code =
         "[preset01]"
         "img='textures/rv_IP_20250421_060250.png';"
@@ -269,21 +286,23 @@ void create_sprite()
         "per_pixel_3=r = 1.0;"       // Bright Red
         "per_pixel_4=g = 0.0;"
         "per_pixel_5=b = 1.0;";
-
-    if (!app_data.projectm_engine)
-    {
-        return;
-    }
-    projectm_sprite_create(app_data.projectm_engine, "milkdrop", new_sprite_code);
-    return;
+    projectm_sprite_create(engine, "milkdrop", new_sprite_code);
 }
 
+// The active host's engine pointer, which projectm_pcm_add_float_wrapper()
+// accepts in place of 0.
 EMSCRIPTEN_KEEPALIVE
-uintptr_t get_projectm_handle()
+uintptr_t debug_get_projectm_handle()
 {
-    WasmHost& H = Host();
-    auto& app_data = H.appData;
-    return reinterpret_cast<uintptr_t>(app_data.projectm_engine);
+    return reinterpret_cast<uintptr_t>(Host().appData.Engine());
+}
+
+// Hosts holding a playlist. Every teardown path (destroy_host, context loss,
+// rebind) must free it with the engine; the smoke test checks this goes back down.
+EMSCRIPTEN_KEEPALIVE
+int debug_live_playlist_count()
+{
+    return LivePlaylistCount();
 }
 } // extern "C"
 
@@ -293,7 +312,7 @@ EMSCRIPTEN_KEEPALIVE int init();
 EMSCRIPTEN_KEEPALIVE
 void set_canvas_selectors(const char* primary, const char* secondary)
 {
-    WasmWebGLSetCanvasSelectors(primary, secondary);
+    WasmWebGLSetCanvasSelectors(Host(), primary, secondary);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -307,27 +326,26 @@ EMSCRIPTEN_KEEPALIVE
 int rebind_canvases(const char* primary, const char* secondary)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     // Rebinds the active host only: tear down its engine/GL context and re-init
     // against new canvas selectors. A second engine in the same Module is a
     // create_host(), not a rebind.
-    set_canvas_selectors(primary, secondary);
-    if (pm || WasmWebGLGetContext())
+    WasmWebGLSetCanvasSelectors(H, primary, secondary);
+    if (H.appData.Engine() != nullptr || H.glCtx != 0)
     {
-        TearDownEngineForRebind();
+        TearDownEngineForRebind(H);
     }
     return init();
 }
 
+// Brings up the active host: WebGL context, engine, playlist, PCM ring.
+// Returns 0, or the WasmInitError it reported (pmReportInitError,
+// get_last_init_error()).
 EMSCRIPTEN_KEEPALIVE
 int init()
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    auto& app_data = H.appData;
-    auto& playlist = H.appData.playlist;
-    auto& g_dualFbo = H.dualFbo;
-    if (pm)
+    InstallWasmLogSink();
+    if (H.appData.Engine() != nullptr)
     {
         // Already initialized — but only if the engine's context is still the
         // live one. An engine left on a lost context holds GL names that no
@@ -337,10 +355,10 @@ int init()
              emscripten_webgl_make_context_current(H.glCtx) == EMSCRIPTEN_RESULT_SUCCESS))
         {
             js_report_init_success();
-            return 0;
+            return static_cast<int>(WasmInitError::kOk);
         }
-        DestroyEngineAndPlaylist();
-        ReleaseGraphics();
+        DestroyEngineAndPlaylist(H);
+        ReleaseGraphics(H);
         H.renderLoopStarted = false;
     }
     // A context that is lost (pm_handle_context_loss() keeps its handle for
@@ -350,18 +368,17 @@ int init()
     // context-loss overlay's "tap to restore" can call this early.
     if (H.glCtx != 0 && emscripten_is_webgl_context_lost(H.glCtx))
     {
-        fprintf(stderr, "init: refused – the WebGL context is lost; retry after webglcontextrestored.\n");
-        js_report_init_error(kInitContextLost, "WebGL context is lost; waiting for the browser to restore it");
-        return kInitContextLost;
+        js_report_init_error(WasmInitError::kContextLost, "WebGL context is lost; waiting for the browser to restore it");
+        return static_cast<int>(WasmInitError::kContextLost);
     }
     ConfigureWasmOpenMPThreadCount();
-    WasmWebGLApplyModuleCanvasSelectorsIfPresent();
+    WasmWebGLApplyModuleCanvasSelectorsIfPresent(H);
     js_init_projectm_dom();
     // Canvas missing / create failed / make-current failed / software context
-    // refused each have their own code (WasmWebGLContext.hpp), already reported.
-    if (const int contextRc = WasmWebGLCreateAndActivateContext(); contextRc != 0)
+    // refused each have their own code, already reported.
+    if (const WasmInitError contextRc = WasmWebGLCreateAndActivateContext(H); contextRc != WasmInitError::kOk)
     {
-        return contextRc;
+        return static_cast<int>(contextRc);
     }
 
     // Phase 2: Detect the best available floating-point texture format for the
@@ -369,58 +386,21 @@ int init()
     // Hosts can opt into RGBA32F-first probing with ?fboPrecision=high.
     // This must be called after the WebGL context is made current so that
     // extension availability can be probed reliably.
-    g_dualFbo.DetectFormat(WasmWebGLGetContext(), WasmWebGLGetContextConfig().fboPrecision);
+    H.dualFbo.DetectFormat(H.glCtx, H.contextConfig.fboPrecision);
 
-    // Must happen before the first preset renders, since these paths are decided once.
-    ApplyRenderPathOverrides();
-
-    pm = projectm_create();
-    if (!pm)
+    if (const WasmInitError engineRc = CreateEngine(H); engineRc != WasmInitError::kOk)
     {
-        fprintf(stderr, "Failed to create projectM handle\n");
-        js_report_init_error(3, "projectm_create() returned null");
-        return 3;
+        return static_cast<int>(engineRc);
     }
-    app_data.projectm_engine = pm;
-    playlist = projectm_playlist_create(pm);
-    ++g_livePlaylistCount;
-    const char* loc = "/presets/";
-    projectm_playlist_add_path(playlist, loc, true, true);
-    // Every callback is addressed to this host (not to whichever is active
-    // when it fires); see WasmPlaylistBridge.cpp.
-    projectm_playlist_set_preset_switched_event_callback(playlist, &load_preset_callback_done, &H);
-    // Every playlist-driven load (manual, timer, switch_preset) is prepared on
-    // this host's prepare thread instead of loading synchronously.
-    projectm_playlist_set_preset_load_event_callback(playlist, &on_playlist_preset_load, &H);
-    if (!H.presetPrepare)
-    {
-        H.presetPrepare = std::make_unique<PresetPrepareQueue>(HostHandle(H));
-    }
-    const char* texture_search_paths[] = {"textures"};
-    projectm_set_texture_search_paths(pm, texture_search_paths, 1);
-    projectm_set_fps(pm, H.targetFps > 0 ? H.targetFps : 60);
-    projectm_set_preset_duration(pm, 30.0);
-    projectm_set_soft_cut_duration(pm, 17.0);
-    // projectm_set_hard_cut_duration(pm, 48.0);
-    // projectm_set_hard_cut_enabled(pm, true);
-    projectm_set_beat_sensitivity(pm, 1.50);
-    projectm_playlist_set_shuffle(playlist, true);
-    projectm_set_preset_switch_failed_event_callback(pm, &on_preset_switch_failed, &H);
-    projectm_set_preset_switch_requested_event_callback(pm, &on_preset_switch_requested, &H);
-    // A re-created engine (context-loss restore, rebind) gets back what the
-    // page had set on the one it replaces.
-    ReapplyEngineSettings(H);
     InstallShaderTranspileCacheHooks();
-    // projectm_playlist_connect(app_data.playlist,app_data.projectm_engine);
-    printf("  --==  projectM initialized!  ==--\n");
     // Allocate this host's PCM ring before any producer can look for it: the
     // worklet bootstrap below reads the ring registry as soon as its module
     // resolves, and an already-running worklet (a second create_host()) is sent
-    // the new host's descriptor by pcm_ring_init() itself.
-    pcm_ring_init(0);
+    // the new host's descriptor by PcmRingInit() itself.
+    PcmRingInit(H, 0);
     js_initialize_worklet_system_once();
     js_report_init_success();
-    return 0;
+    return static_cast<int>(WasmInitError::kOk);
 }
 } // extern "C"
 
@@ -429,36 +409,34 @@ EMSCRIPTEN_KEEPALIVE
 void set_mesh(int w, int h)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     if (w <= 0 || h <= 0)
     {
         return;
     }
     H.engineSettings.meshSize = std::make_pair(static_cast<size_t>(w), static_cast<size_t>(h));
-    if (!pm)
+    if (projectm_handle engine = H.appData.Engine())
     {
-        return;
+        projectm_set_mesh_size(engine, w, h);
     }
-    projectm_set_mesh_size(pm, w, h);
-    return;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void destruct()
 {
+    WasmHost& H = Host();
     // Out of the shared render loop until a start_render() opts it back in.
-    Host().renderLoopStarted = false;
-    DestroyEngineAndPlaylist();
+    H.renderLoopStarted = false;
+    DestroyEngineAndPlaylist(H);
     // Release this host's PCM ring (#246: one ring per host, so a sibling's
     // ring and producers are untouched). The worklet is told to detach it.
-    pcm_ring_shutdown();
+    PcmRingShutdown(H);
     // Phase 2: Release dual FBO resources before destroying the WebGL context
     // to avoid calling OpenGL functions with an invalid context.
-    ReleaseGraphicsAndContext();
-    return;
+    ReleaseGraphicsAndContext(H);
 }
 
-// Tears down one host whose WebGL context was lost. The host must be active.
+// Tears down one host whose WebGL context was lost. The host must be active
+// (its context current).
 //
 // Every GL call in here (projectm_destroy(), the compositor release,
 // dualFbo.ReleaseAll()) is a no-op on a lost context per the WebGL spec; they
@@ -466,12 +444,11 @@ void destruct()
 // re-initialization path. The context *handle* is kept: init() asks it whether
 // the context is still lost and refuses until the browser has restored it
 // (it then replaces the handle with a fresh one on the restored context).
-static void TearDownHostForContextLoss()
+static void TearDownHostForContextLoss(WasmHost& host)
 {
-    WasmHost& H = Host();
-    H.renderLoopStarted = false;
-    DestroyEngineAndPlaylist();
-    ReleaseGraphics();
+    host.renderLoopStarted = false;
+    DestroyEngineAndPlaylist(host);
+    ReleaseGraphics(host);
 }
 
 // Called from the host page's "webglcontextlost" handler (see
@@ -497,108 +474,68 @@ void pm_handle_context_loss()
             continue;
         }
         SetActiveHost(host);
-        TearDownHostForContextLoss();
+        TearDownHostForContextLoss(*host);
         lostHost = host;
     }
     if (lostHost == nullptr)
     {
-        TearDownHostForContextLoss();
+        TearDownHostForContextLoss(Host());
     }
-    return;
-}
-
-// Playlists created by init() that no teardown path has destroyed yet, summed
-// over every host. Test hook for the playlist lifecycle (see g_livePlaylistCount).
-EMSCRIPTEN_KEEPALIVE
-int live_playlist_count()
-{
-    return g_livePlaylistCount;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void set_aspect_correction(bool enabled)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     H.engineSettings.aspectCorrection = enabled;
-    if (!pm)
+    if (projectm_handle engine = H.appData.Engine())
     {
-        return;
+        projectm_set_aspect_correction(engine, enabled);
     }
-    projectm_set_aspect_correction(pm, enabled);
-    return;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void set_preset_locked(bool locked)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     H.engineSettings.presetLocked = locked;
-    if (!pm)
+    if (projectm_handle engine = H.appData.Engine())
     {
-        return;
+        projectm_set_preset_locked(engine, locked);
     }
-    projectm_set_preset_locked(pm, locked);
-    printf("Preset lock set to: %s\n", locked ? "true" : "false");
-    return;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void set_transparency_mode(bool enabled)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     H.engineSettings.transparencyMode = enabled;
-    if (!pm)
+    if (enabled && H.contextConfig.alpha == 0)
     {
-        return;
+        LOG_WARN("set_transparency_mode: this host's WebGL context has no alpha channel (create it with contextAlpha), so the canvas stays opaque");
     }
-    projectm_set_transparency_mode(pm, enabled);
-    return;
+    if (projectm_handle engine = H.appData.Engine())
+    {
+        projectm_set_transparency_mode(engine, enabled);
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE
 bool get_transparency_mode()
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
-    {
-        return false;
-    }
-    return projectm_get_transparency_mode(pm);
+    projectm_handle engine = Host().appData.Engine();
+    return engine != nullptr && projectm_get_transparency_mode(engine);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void set_transparency_threshold(float threshold)
 {
     WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
     H.engineSettings.transparencyThreshold = threshold;
-    if (!pm)
+    if (projectm_handle engine = H.appData.Engine())
     {
-        return;
+        projectm_set_transparency_threshold(engine, threshold);
     }
-    projectm_set_transparency_threshold(pm, threshold);
-    return;
 }
 
-EMSCRIPTEN_KEEPALIVE
-float get_transparency_threshold()
-{
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
-    {
-        return 0.01f;
-    }
-    return projectm_get_transparency_threshold(pm);
-}
 } // extern "C"
-
-int main()
-{
-    init();
-    return 0;
-}

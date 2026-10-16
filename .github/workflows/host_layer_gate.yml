@@ -13,18 +13,11 @@ name: Host Layer Gate
 # that is overwritten on start and nulled on destroy.
 
 on:
+  # No `paths:` filter, on purpose. This check is required on main, and a required
+  # check that a path filter skips never reports a status, which blocks the merge
+  # instead of passing it. It is cheap enough to run on every change.
   push:
-    paths:
-      - 'html/**'
-      - 'scripts/check_core_host_public_api.sh'
-      - 'scripts/check_host_globals.sh'
-      - '.github/workflows/host_layer_gate.yml'
   pull_request:
-    paths:
-      - 'html/**'
-      - 'scripts/check_core_host_public_api.sh'
-      - 'scripts/check_host_globals.sh'
-      - '.github/workflows/host_layer_gate.yml'
   workflow_dispatch: {}
 
 jobs:

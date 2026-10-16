@@ -200,24 +200,34 @@ diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
 
 | Switch | WASM | Native | Effect |
 |--------|------|--------|--------|
-| Blur path | `?blurPath=copy` | `PROJECTM_BLUR_COPY_PATH=1` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
-| Texture copy path | `?copyPath=shader` | `PROJECTM_COPY_SHADER_PATH=1` | Restores the pre-#179 copy path: every `CopyTexture` resolve is a fullscreen textured quad. Default (unset) resolves the plain and Y-flipped copies with `glBlitFramebuffer` where the blit is equivalent (no blending, viewport covers the target, source format is color-renderable) and falls back to the quad otherwise. |
+| Blur path | `?blurPath=copy` | `PROJECTM_RENDER_PATH_BLUR_COPY` | Restores the pre-#177 blur chain: each pass renders into a shared scratch attachment and is copied out with `glCopyTexSubImage2D`. Default (unset) renders each pass straight into its blur texture. |
+| Texture copy path | `?copyPath=shader` | `PROJECTM_RENDER_PATH_COPY_SHADER` | Restores the pre-#179 copy path: every `CopyTexture` resolve is a fullscreen textured quad. Default (unset) resolves the plain and Y-flipped copies with `glBlitFramebuffer` where the blit is equivalent (no blending, viewport covers the target, source format is color-renderable) and falls back to the quad otherwise. |
+| Per-pixel path | `?perPixelEval=cpu` | `PROJECTM_RENDER_PATH_PER_PIXEL_CPU` | Keeps every preset's per-pixel equations on the CPU evaluator instead of compiling them into the warp vertex shader. See [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). |
 | Dual-FBO precision | `?fboPrecision=high` | — | Uses RGBA32F for the WASM compositor instead of the RGBA16F default (GL_NEAREST sampling without `OES_texture_float_linear`). |
 | Mesh size | `?meshQuality=low` | — | 64×48 instead of the 80×60 default (a 1.56× vertex-count ratio). |
 | Canvas MSAA | `?aa=1` (or `localStorage.canvasAA='1'`) | — | Opts into `antialias:true`; default (unset) is now `false` (governor v2, issue #178). |
 
+The native column is a `projectm_render_path_flags` bit for `projectm_set_render_path()`
+(`projectM-4/parameters.h`), per instance; libprojectM reads no environment variable for these
+any more. (The only `getenv()` left in the library is the GL resolver's own `PROJECTM_GLRESOLVER_*`
+diagnostics in `Renderer/Platform/`, which is upstream code.) The SDL developer UI (`src/sdl-test-ui/pmSDL.cpp`) still takes the old variables —
+`PROJECTM_BLUR_COPY_PATH=1`, `PROJECTM_COPY_SHADER_PATH=1`, `PROJECTM_PER_PIXEL_EVAL=cpu` — and maps
+them onto that call, so a native build can still be A/B'd from the shell.
+
 The page reads the WASM switches and hands them to the module: `?blurPath`, `?copyPath` and
-`?perPixelEval` through `set_render_path_overrides()` (`ProjectMContext`'s `renderPathOverrides`
-option, defaulting to the page's query string), `?fboPrecision` through `create_host_with_config()`.
+`?perPixelEval` with `create_host_with_config()` (`ProjectMContext`'s `renderPathOverrides`
+option, defaulting to the page's query string; bundles without that export get
+`set_render_path_overrides()`), `?fboPrecision` through `create_host_with_config()` too.
 Both travel in the render worker's `init` message. Until #258 the C++ side read the first three
 from `globalThis.location.search`, which inside the render worker is the worker script's URL — so
 in the default topology every one of them was silently a no-op. The worker's `stats` message
 reports `renderPathOverrides` (the mask `get_render_path_overrides()` reads back: 1 blur copy,
 2 copy shader, 4 per-pixel CPU) so a run can confirm the switch landed.
 
-The blur and copy switches are read once, at engine init: the blur render path is decided on
-the first blurred frame and then cached, and the copy path is latched the first time a copy
-runs. Changing either mid-session has no effect.
+The blur and per-pixel switches are read when each preset is initialized (the blur render path
+is then decided on that preset's first blurred frame and cached); the copy switch applies from
+the next frame. So a mid-session change reaches the copy path at once and the other two from
+the next preset on.
 
 > The copy switch only moves presets that still pay a fullscreen flip. Presets using the
 > default warp shader already skip the pre-warp copy entirely (#176), and presets **with** a
@@ -353,7 +363,7 @@ governor's decisions, measured a spin loop. Compare nothing against main-thread 
 before that fix.
 
 The WASM smoke (`tests/wasm-smoke/index.html`, `checkMainLoopPacing()`) now guards it: it reads the
-mode back with `get_main_loop_timing_mode()` (an internal test export; SwiftShader frames cost more
+mode back with `debug_get_main_loop_timing_mode()` (a test hook; SwiftShader frames cost more
 than a refresh, so the frame rate alone cannot tell the two modes apart there) and also bounds the
 frame rate at 250/s over 2 s, which catches a spin loop on a real GPU. The render worker and the
 deterministic harness pause this loop and drive `render_frame()` themselves, so they are unaffected.
@@ -660,7 +670,7 @@ that decision.
 |---|---|
 | `-s ASYNCIFY=1` | **Removed.** It was not a flag flip: the one yield it served (`emscripten_sleep(0)` before a preset compile) had to go first. Preset loads now prepare on a per-host pthread and the render loop never suspends. See "ASYNCIFY: retired" below. Not JSPI either: that needs a browser flag on Firefox/Safari, and with the work off the render thread nothing needs suspending. |
 | `NO_DISABLE_EXCEPTION_CATCHING` → `-fwasm-exceptions` | **Done (2026-09-17)**, with a full lib + wrapper rebuild. Unconditional since ASYNCIFY went (the `PROJECTM_WASM_EXCEPTIONS=js` fallback is rejected). See "Toolchain and flag verification (emsdk 6.0.6)" below. |
-| `-sINITIAL_MEMORY=1024mb` | **Done (epic #163):** reduced to `256mb` — see "WASM heap right-sizing" below. Re-measure with `tests/wasm-smoke/measure-heap.mjs` after deploy. |
+| `-sINITIAL_MEMORY=1024mb` | **Done (epic #163):** reduced to `256mb`, then (2026-10-16) to `128mb` — see `docs/EMSCRIPTEN.md` "Heap model". Re-measure with `tests/wasm-smoke/measure-heap.mjs` on a small fixed heap. |
 | `GL_MAX_TEMP_BUFFER_SIZE=33177600` / `GL_POOL_TEMP_BUFFERS=0` | **Re-evaluated with `FULL_ES3=0` (2026-09-17).** `GL_MAX_TEMP_BUFFER_SIZE` was removed; with `FULL_ES2`/`FULL_ES3` off it has no effect, and its value no longer appears in the glue. `GL_POOL_TEMP_BUFFERS=0` was kept (see below). |
 
 ### Verification performed
@@ -726,7 +736,7 @@ There is no GL call that still needs the emulation layer.
 **`GL_MAX_TEMP_BUFFER_SIZE` / `GL_POOL_TEMP_BUFFERS`.**
 - `GL_MAX_TEMP_BUFFER_SIZE` only sizes the `FULL_ES2` temp-VBO rings, so it was removed. The value
   `33177600` no longer appears in the glue.
-- *(Superseded by #260: the heap is now fixed at 256 MB, the garbage-free APIs are on, and
+- *(Superseded by #260: the heap is now fixed (256 MB then, 128 MB since 2026-10-16), the garbage-free APIs are on, and
   `GL_POOL_TEMP_BUFFERS` no longer reaches the glue, so it was removed. Kept for the record.)*
   `GL_POOL_TEMP_BUFFERS` is still live, but not because of ES3. `MAXIMUM_MEMORY=4gb` with the
   default `MIN_FIREFOX_VERSION` switches off WebGL2's garbage-free upload APIs, so the pooled
@@ -741,7 +751,7 @@ fails at link time in both directions (`undefined symbol: __resumeException`, or
 / `__gxx_wasm_personality_v0`), never at runtime.
 - **Catch path.** The new smoke step loads a missing preset. `MilkdropPreset::Load` throws
   `MilkdropPresetLoadException`, `PresetFactoryManager` rethrows it, and `ProjectM::LoadPresetFile`
-  catches it. The step requires `preset_switch_failed()` and `globalThis.projectMPresetSwitchFailed`.
+  catches it. The step requires `debug_preset_switch_failed()` and `globalThis.projectMPresetSwitchFailed`.
 - **Control.** The step was checked against a build linked with `DISABLE_EXCEPTION_CATCHING=1`.
   There the module aborts and the step fails.
 - **Browser support.** Emscripten 6.0.6 emits the legacy EH encoding (1,995 `try`, 0 `try_table`):
@@ -822,13 +832,13 @@ not steady-state render targets — anything they cost between transitions is pu
 | `start_render()` | not allocated — records viewport size only (`DualPingPongFramebuffer::Resize()`) | not allocated |
 | `dual_fbo_begin_transition()` | allocated on demand (both pairs on a cold start) | allocated on demand |
 | Blend reaches 1.0 | receives B's surfaces via `PromoteBtoA()` | released |
-| `transition_cancel()` / abandoned poll | idle clock starts | released |
-| Idle ≥ `dual_fbo_set_idle_release_seconds()` | released by `ReleaseDualFboIfIdle()` | — |
+| `dual_fbo_cancel_transition()` / abandoned poll | idle clock starts | released |
+| Idle ≥ 5 s | released by `ReleaseDualFboIfIdle()` | — |
 
-The idle grace period defaults to **5 s**. It exists so back-to-back preset switches reuse the live
-pair instead of thrashing `glTexImage2D`; a session that settles on one preset drops the pair.
-Hosts can call `dual_fbo_set_idle_release_seconds(0)` to reclaim on the first idle frame, or pass a
-negative value to keep the pair resident once allocated (the pre-#199 behavior).
+The idle grace period is a fixed **5 s** (`kDualFboIdleReleaseSeconds` in `WasmRenderLoop.cpp`).
+It exists so back-to-back preset switches reuse the live pair instead of thrashing
+`glTexImage2D`; a session that settles on one preset drops the pair. (The
+`dual_fbo_set_idle_release_seconds()` export that tuned it had no caller and was removed.)
 
 `ReleaseDualFboIfIdle()` deliberately refuses to fire while the preset B pair is allocated: B live
 without an active blend means a transition is mid-setup, and pulling A out from under it would make
@@ -888,7 +898,8 @@ PROJECTM_SMOKE_ROOT=$PWD node tests/wasm-smoke/measure-heap.mjs \
 
 > **Superseded (#260, 2026-09-25).** The estimates below were analytical and counted GPU
 > framebuffers as heap. The measured high-water mark is 19.25 MiB at both 1080p and 4K, and the
-> heap is now fixed (`INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0`, no `MAXIMUM_MEMORY`). See
+> heap is now fixed (`INITIAL_MEMORY=128mb` since 2026-10-16, 256mb before; `ALLOW_MEMORY_GROWTH=0`,
+> no `MAXIMUM_MEMORY`). See
 > `docs/EMSCRIPTEN.md` "Heap model". ASYNCIFY is gone too; see "Preset loading" there. This
 > section is kept as history.
 
@@ -1142,8 +1153,16 @@ Central thresholds live in `src/libprojectM/OpenMpConfig.hpp`:
 
 | Constant | Value | Applies to |
 |---|---|---|
-| `kMinParallelLoopIters` | **512** | Waveforms (~256–480 samples), FFT magnitude (256), noise blur rows when `size < 512` |
+| `kMinParallelLoopIters` | **512** | FFT magnitude (256), noise blur rows when `size < 512` |
 | `kMinPerPixelMeshVerts` | **1000** | Per-pixel mesh (≥3125 verts @ 64×48), composite grids, custom waveform smooth |
+| `kMinWaveformLoopIters` | **65536** | Built-in and custom waveform sample loops: serial at every sample count a preset can ask for |
+
+Waveforms used to share the 512 gate, which custom waves (up to 512 samples) sat exactly on. A
+parallel region costs a wake-up of every helper, and with helpers that sleep between regions
+(wasm's `kmp_set_blocktime(0)`) that wake-up dwarfs a few hundred multiplies. Measured natively
+(libgomp, 3 threads, `OMP_WAIT_POLICY=passive`, 2026-10-16): the custom-wave scale + point body
+over 512 samples took ~114 µs per region in parallel against ~11 µs serial, and the parallel loop
+was still slower at 8192.
 
 #### Pragma inventory (libprojectM)
 
@@ -1157,8 +1176,8 @@ Central thresholds live in `src/libprojectM/OpenMpConfig.hpp`:
 | `MilkdropFFT` step 3 / init tables | 256 / 576 | `if(>= 512)` — **serial** |
 | `Loudness::SumBand` | ~85 | OpenMP removed — always serial |
 | `WaveformAligner` cross-correlation | <200 | OpenMP removed — always serial (also fixes wasm duplicate `reduction` symbol) |
-| Built-in waveforms (`Line`, `SpectrumLine`, …) | 256–480 | `if(m_samples >= 512)` — **serial** |
-| `CustomWaveform` scale/smooth | 256–512 / 512+ | `if(sampleCount >= 512)` / `if(verts >= 1000)` |
+| Built-in waveforms (`Line`, `SpectrumLine`, …) | 256–480 | `if(m_samples >= kMinWaveformLoopIters)` — **serial** |
+| `CustomWaveform` scale / points / smooth | ≤512 / ≤1024 | `if(sampleCount >= kMinWaveformLoopIters)` / `if(verts >= 1000)` |
 
 #### Benchmark thresholds (native, 4-core VM, 2026-07)
 

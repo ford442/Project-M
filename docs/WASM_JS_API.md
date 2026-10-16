@@ -6,8 +6,8 @@ Typed helpers for calling the projectM Emscripten wrapper (`projectM_emscripten.
 
 | Artifact | Role |
 |----------|------|
-| [`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake) | `EXPORTED_FUNCTIONS` list for the WASM link |
-| [`cmake/WasmApiManifest.cmake`](../cmake/WasmApiManifest.cmake) | Per-symbol signatures, bindings, visibility |
+| [`cmake/WasmApiManifest.cmake`](../cmake/WasmApiManifest.cmake) | Per-symbol signatures, bindings, visibility; *is* the export list |
+| [`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake) | Derives `EXPORTED_FUNCTIONS` from the manifest for the WASM link |
 | [`html/generated/projectm-wasm-api.ts`](../html/generated/projectm-wasm-api.ts) | TypeScript types + wrappers (committed) |
 | [`html/generated/projectm-wasm-api.js`](../html/generated/projectm-wasm-api.js) | Browser runtime ES module (committed) |
 
@@ -79,11 +79,11 @@ symbol's doc text is not an API change and needs nothing.
 | `loadPresetFile` | `load_preset_file` | VFS path (`ccall` binding) |
 | `addPresetFile` | `add_preset_file` | Add to playlist |
 | `switchPreset` | `switch_preset` | Next playlist item |
+| `setPresetDuration` | `set_preset_duration` | `(seconds, randomExtraSeconds)`: each preset runs `seconds` plus a uniform draw from `[0, randomExtraSeconds)`, from the host's RNG (`set_deterministic_seed()` pins it). Default 30 s, no random part. `ProjectMContext`: the `presetDuration` option |
 | `setPresetLocked` | `set_preset_locked` | `boolean` coerced to 0/1 |
 | `setTransparencyMode` | `set_transparency_mode` | Glass-layer compositing; near-black → alpha 0 |
 | `getTransparencyMode` | `get_transparency_mode` | |
 | `setTransparencyThreshold` | `set_transparency_threshold` | RGB threshold (default `0.01`) |
-| `getTransparencyThreshold` | `get_transparency_threshold` | |
 | `feedPcmFloat` | (helper) | Wraps `projectm_pcm_add_float_wrapper` |
 | `setTargetFps` | `set_target_fps` | |
 | `setQualityGovernor` | `set_quality_governor` | |
@@ -93,20 +93,14 @@ symbol's doc text is not an API change and needs nothing.
 | `setMesh` | `set_mesh` | Per-pixel grid |
 | `pmHandleContextLoss` | `pm_handle_context_loss` | WebGL context loss |
 | `dualFboBeginTransition` | `dual_fbo_begin_transition` | Allocates both FBO pairs on demand; `false` means "retry next frame", not "hard cut" |
-| `dualFboIsPresetAAllocated` | `dual_fbo_is_preset_a_allocated` | False at startup and after the idle release; check with the B query before `transitionStart` |
+| `dualFboIsPresetAAllocated` | `dual_fbo_is_preset_a_allocated` | False at startup and after the idle release (5 s after a transition ends); check with the B query before `transitionStart` |
 | `dualFboIsPresetBAllocated` | `dual_fbo_is_preset_b_allocated` | |
-| `dualFboSetIdleReleaseSeconds` | `dual_fbo_set_idle_release_seconds` | Idle seconds before the preset-A pair is reclaimed (0 = immediate, &lt;0 = never). Default 5 |
-| `dualFboGetIdleReleaseSeconds` | `dual_fbo_get_idle_release_seconds` | |
 | `dualFboIsPresetBReady` | `dual_fbo_is_preset_b_ready` | |
 | `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (same numbering as `create_host_with_config`'s `fboPrecision`) |
 | `transitionStart` | `transition_start` | |
-| `transitionCancel` | `transition_cancel` | |
 | `transitionIsActive` | `transition_is_active` | |
-| `transitionGetBlend` | `transition_get_blend` | |
 | `transitionSetDuration` | `transition_set_duration` | |
-| `transitionGetDuration` | `transition_get_duration` | |
 | `transitionSetDurationBeats` | `transition_set_duration_beats` | Crossfade length in beats, resolved against the tempo when each crossfade starts; seconds apply while the tempo is unknown. 0 = seconds only. Also sets the engine's own soft cuts |
-| `transitionGetDurationBeats` | `transition_get_duration_beats` | |
 | `getRhythmBpm` | `get_rhythm_bpm` | Tempo, 0 while the tracker is not confident. See [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis) |
 | `getRhythmBeatPhase` | `get_rhythm_beat_phase` | 0..1, 0 = the predicted beat |
 | `getRhythmBarPhase` | `get_rhythm_bar_phase` | 0..1 over four beats, 0 = downbeat |
@@ -115,7 +109,6 @@ symbol's doc text is not an API change and needs nothing.
 | `getRhythmSection` | `get_rhythm_section` | Section index |
 | `setRhythmHint` | `set_rhythm_hint` | A known tempo (MIDI clock, track BPM) instead of the estimate; 0 clears |
 | `setPresetSwitchPolicy` | `set_preset_switch_policy` | 0 timer, 1 every `bars` bars, 2 on a section change (at most every `bars` bars). Falls back to the timer while the tempo is unknown |
-| `getPresetSwitchPolicy` | `get_preset_switch_policy` | |
 | `setHardCutOnBeat` | `set_hard_cut_on_beat` | Beat-detection hard cuts wait for the next beat |
 | `setRhythmEvents` | `set_rhythm_events` | Report beats/bars/sections to `globalThis.pmOnRhythmEvent` (see below). Off by default |
 | `setFlashLimitEnabled` | `set_flash_limit_enabled` | Temporal flash limiter, off by default. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
@@ -152,9 +145,17 @@ host, and works in both topologies (the render worker relays each event as a
 
 ### Internal (first-party host only)
 
-Used by projectM.1ink.us hosts, benchmarks, and smoke tests. **Not** a semver-stable contract for external embedders.
+Used by the in-repo host layer. **Not** a semver-stable contract for external embedders.
 
-Examples: `setPerfHud`, `getOmpEnabled`, `dual_fbo_get_*` GL handles, `add_custom_milk_paths`, legacy `add_audio_data`, `create_sprite`.
+Examples: `setPerfHud`, `getOmpEnabled`, `pl`, `shaderCacheBeginLoad`, `dualFboCancelTransition`.
+
+### Debug (test hooks)
+
+Named `debug_*` (`debugIsPresetReady`, `debugLivePlaylistCount`, `debugPcmRingDrain`, `debugCreateSprite`, ...) and exported only by a link with `PROJECTM_WASM_DEBUG_EXPORTS=1`, which `scripts/build_wasm_smoke_wrapper.sh` does by default and every deploy script turns off (the build-id carries `+debug-exports`, so `deploy.py` refuses such a bundle). The generated module has wrappers for them, so a test can reach them through the render transport; host code under `html/` and `packages/web/src/` must not call them, because a deployed bundle does not have them. See [EMSCRIPTEN.md](EMSCRIPTEN.md#where-to-add-a-wasm-export) for the list.
+
+### No orphans
+
+`npm run check:api` runs `scripts/check_wasm_public_api.sh --no-orphans`: besides the baseline check above, every manifest entry (any tier but `runtime`) must have a caller in `html/` (outside `html/generated/`), `packages/web/src/` or `tests/` — the C symbol (`_name`), the name as a string, or the camelCase wrapper, on a line that is not a comment — and no `debug_` hook may be called from host code. An export nothing calls is removed, not kept.
 
 ### Runtime (Emscripten heap)
 

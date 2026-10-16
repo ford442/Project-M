@@ -1,5 +1,9 @@
 #include "GlOffscreenContext.hpp"
 
+// Same platform gate as HeadlessGlContext.cpp: the EGL backend exists on desktop Linux only. macOS
+// and Windows ship no <EGL/egl.h>, and Emscripten/Android get their GL context from the host.
+#if defined(__linux__) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
+
 #include <EGL/egl.h>
 
 GlOffscreenContext::GlOffscreenContext()
@@ -102,6 +106,17 @@ GlOffscreenContext::~GlOffscreenContext()
     eglDestroySurface(display, surface);
     eglTerminate(display);
 }
+
+#else
+
+GlOffscreenContext::GlOffscreenContext()
+{
+    m_reason = "no offscreen GL backend on this platform";
+}
+
+GlOffscreenContext::~GlOffscreenContext() = default;
+
+#endif
 
 auto GlOffscreenContext::IsValid() const -> bool
 {

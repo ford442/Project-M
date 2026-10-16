@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ProjectMContext } from '../../html/projectm-context.js';
+import { ProjectMContext, resolveWasmContextConfig } from '../../html/projectm-context.js';
 import { createAudioSourceRouter } from '../../html/projectm-audio-source-router.js';
 import { hideInitError } from '../../html/projectm-init-errors.js';
 
@@ -192,9 +192,10 @@ test('start() creates the host with its context config in one call', async () =>
 
     assert.deepEqual(calls.map((c) => c[0]), ['create_host_with_config'], 'no separate set_context_config step');
     // primary, secondary, flags, power, fbo. Flags: antialias(1) +
-    // preserveDrawingBuffer(2) + contextAlpha(16) + premultipliedAlpha(32);
-    // depth/stencil default off (#246).
-    assert.deepEqual(calls[0][1], ['#ctx-cfg-order', '#scanvas', 51, 1, 1]);
+    // preserveDrawingBuffer(2) + premultipliedAlpha(32) + renderPathSet(4096,
+    // the page's — here empty — render-path switches ride along); no
+    // contextAlpha (opaque unless `transparent`), depth/stencil off (#246).
+    assert.deepEqual(calls[0][1], ['#ctx-cfg-order', '#scanvas', 4131, 1, 1]);
     assert.equal(errors[0]?.code, 4);
 });
 
@@ -221,8 +222,9 @@ test('a bundle without create_host_with_config still gets set_context_config the
     await assert.rejects(() => context.start(), /create_host_with_config\(\) failed \(init code -1/);
 
     assert.deepEqual(calls.map((c) => c[0]), ['set_context_config', 'create_host']);
-    // antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo.
-    assert.deepEqual(calls[0][1], [1, 1, 0, 0, 1, 1, 1]);
+    // antialias, preserveDrawingBuffer, depth, stencil, alpha (off: opaque
+    // unless `transparent`), power, fbo.
+    assert.deepEqual(calls[0][1], [1, 1, 0, 0, 0, 1, 1]);
 });
 
 test('a legacy bundle refuses attributes set_context_config cannot express rather than drop them', async () => {
@@ -251,12 +253,12 @@ test('a legacy bundle refuses attributes set_context_config cannot express rathe
     assert.deepEqual(calls, [], 'a software context must not be accepted just because the bundle is old');
 });
 
-test('start() hands the page\'s render-path switches to the module before creating the host', async () => {
+test('start() sends the page\'s render-path switches with the create call, not through the process-wide setter', async () => {
     const canvas = makeCanvas('ctx-render-paths');
     const calls = [];
     const module = {
-        ccall: (name) => {
-            calls.push([name]);
+        ccall: (name, _returns, _types, args) => {
+            calls.push([name, args]);
             return 0;
         },
         _create_host_with_config: () => 0,
@@ -274,8 +276,15 @@ test('start() hands the page\'s render-path switches to the module before creati
 
     await assert.rejects(() => context.start(), /create_host/);
 
-    assert.deepEqual(calls.map((c) => c[0]), ['set_render_path_overrides', 'create_host_with_config']);
-    assert.deepEqual(calls[0][1], [1, 0, 1]);
+    // On a shared Module the setter would land on whichever sibling host is
+    // active; the switches belong to this host's create call instead.
+    assert.deepEqual(calls.map((c) => c[0]), ['create_host_with_config']);
+    const expected = resolveWasmContextConfig(
+        { requireCrossOriginIsolation: false },
+        { blurCopyPath: true, copyShaderPath: false, perPixelForceCpu: true },
+    );
+    assert.equal(calls[0][1][2], expected.flags, 'the flags argument carries the render-path bits');
+    assert.notEqual(expected.flags, resolveWasmContextConfig({}).flags, 'the switches change the flags');
 });
 
 test('an explicit renderPathOverrides option wins over the page URL', async () => {

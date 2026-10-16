@@ -100,7 +100,7 @@ Then open the demo with `devPresetUrl` pointing at the output file.
 - [ ] `node scripts/audit_presets.mjs` → tier `light` or `medium` (not `heavy` without warp shader)
 - [ ] `scripts/kimi_validate_preset.sh` exits 0
 - [ ] B3HD holds **≥ 55 fps median** on target hardware (`?benchmark=1` or `scripts/benchmark_presets_wasm.mjs`)
-- [ ] No `preset_switch_failed` in console; `is_preset_ready()` within ~5s
+- [ ] No `preset_switch_failed` in console; `debug_is_preset_ready()` within ~5s
 
 ## Metadata block
 

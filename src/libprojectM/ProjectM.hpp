@@ -428,6 +428,19 @@ public:
      */
     auto FlashLimitClampedFrames() -> uint32_t;
 
+    /**
+     * @brief Sets the render-path ablation switches (projectm_render_path_flags bits).
+     *
+     * Texture copies follow from the next frame; blur and per-pixel paths are decided
+     * per preset, when it is initialized.
+     */
+    void SetRenderPathFlags(uint32_t flags);
+
+    /**
+     * @brief Returns the render-path switches set with SetRenderPathFlags().
+     */
+    auto RenderPathFlags() const -> uint32_t;
+
     auto PCM() -> Audio::PCM&;
 
     auto WindowWidth() -> int;
@@ -554,6 +567,7 @@ private:
 
     // Governor blur-texture resolution scale (see SetBlurResolutionScale()). 1.0 = uncapped.
     float m_blurResolutionScale{1.0f};
+    uint32_t m_renderPathFlags{0}; //!< projectm_render_path_flags bits, see SetRenderPathFlags().
 
     // Default target FPS. Winamp Milkdrop defaults to 60; this value is also
     // used as the adaptive quality governor's frame budget reference on the

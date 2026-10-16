@@ -11,15 +11,25 @@ on:
       branches:
         - "*"
 
+# The vcpkg binary cache is the NuGet feed of whoever owns this repository, written
+# with the run's own GITHUB_TOKEN. It used to be hard-wired to the projectM-visualizer
+# organisation's feed with a secret only that organisation has, so every run on a fork
+# logged "binary cache submission failed" for each package. (vcpkg's x-gha provider is
+# not an alternative: it was removed in vcpkg 2025.06.13.)
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-shared:
     name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, Arch: ${{ matrix.arch }}, Build OS: ${{ matrix.runs-on }}"
     runs-on: ${{ matrix.runs-on }}
     env:
-      USERNAME: projectM-visualizer
+      USERNAME: ${{ github.repository_owner }}
       VCPKG_EXE: ${{ github.workspace }}/vcpkg/vcpkg
-      FEED_URL: https://nuget.pkg.github.com/projectM-visualizer/index.json
-      VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/projectM-visualizer/index.json,readwrite"
+      FEED_URL: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+      # Pull requests from forks get a read-only token: restore from the cache, never push.
+      VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,${{ github.event_name == 'pull_request' && 'read' || 'readwrite' }}"
     strategy:
       fail-fast: false
       matrix:
@@ -51,9 +61,9 @@ jobs:
             -StorePasswordInClearText `
             -Name GitHubPackages `
             -UserName "${{ env.USERNAME }}" `
-            -Password "${{ secrets.VCPKG_PACKAGES_TOKEN }}"
+            -Password "${{ secrets.GITHUB_TOKEN }}"
           .$(${{ env.VCPKG_EXE }} fetch nuget) `
-            setapikey "${{ secrets.VCPKG_PACKAGES_TOKEN }}" `
+            setapikey "${{ secrets.GITHUB_TOKEN }}" `
             -Source "${{ env.FEED_URL }}"
 
       - name: Checkout libprojectM

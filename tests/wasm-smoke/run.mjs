@@ -1,3 +1,14 @@
+// Browser smoke for a linked projectM WASM bundle.
+//
+// Needs Playwright, which is installed rather than committed (node_modules is
+// gitignored; package-lock.json pins the version CI runs):
+//
+//   cd tests/wasm-smoke && npm ci && npx playwright install chromium
+//   node run.mjs <abs path to projectm-v.NNN-thread.js> [preset] [preset2]
+//
+// From the repo root, `npm install --no-save --no-package-lock playwright`
+// also works (the AGENTS.md cloud instructions use it), without the pinned version.
+
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';

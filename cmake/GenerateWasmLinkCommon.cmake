@@ -14,6 +14,8 @@ set(_inc_out "${PROJECTM_SOURCE_DIR}/scripts/wasm_link_common.inc.sh")
 set(_header_out "${PROJECTM_SOURCE_DIR}/cmake/generated/ProjectMWasmBuildConfig.hpp")
 set(_ts_out "${PROJECTM_SOURCE_DIR}/html/generated/projectm-wasm-api.ts")
 set(_js_out "${PROJECTM_SOURCE_DIR}/html/generated/projectm-wasm-api.js")
+set(_init_errors_header_out "${PROJECTM_SOURCE_DIR}/cmake/generated/ProjectMWasmInitErrors.hpp")
+set(_init_errors_js_out "${PROJECTM_SOURCE_DIR}/html/generated/projectm-init-error-codes.js")
 
 file(MAKE_DIRECTORY "${PROJECTM_SOURCE_DIR}/cmake/generated")
 file(MAKE_DIRECTORY "${PROJECTM_SOURCE_DIR}/html/generated")
@@ -82,28 +84,6 @@ function(_projectm_wasm_parse_manifest_entry entry out_name out_visibility out_b
     set(${out_doc} "${CMAKE_MATCH_6}" PARENT_SCOPE)
 endfunction()
 
-# Verify manifest names match PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS (minus _main).
-set(_manifest_names "")
-set(_export_names "")
-foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
-    _projectm_wasm_parse_manifest_entry("${_entry}" _name _visibility _binding _returns _args _doc)
-    list(APPEND _manifest_names "${_name}")
-endforeach()
-foreach(_fn IN LISTS PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS)
-    if(NOT _fn STREQUAL "_main")
-        string(REGEX REPLACE "^_" "" _bare "${_fn}")
-        list(APPEND _export_names "${_bare}")
-    endif()
-endforeach()
-list(SORT _manifest_names)
-list(SORT _export_names)
-if(NOT "${_manifest_names}" STREQUAL "${_export_names}")
-    message(FATAL_ERROR
-        "PROJECTM_WASM_API_MANIFEST names do not match PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS.\n"
-        "Manifest: ${_manifest_names}\n"
-        "Exports:  ${_export_names}")
-endif()
-
 function(_projectm_wasm_append_shell_s_settings settings_list out_lines_var)
     foreach(_setting IN LISTS ${settings_list})
         if(_setting MATCHES "^([^=]+)=(.*)$")
@@ -120,9 +100,24 @@ foreach(_fn IN LISTS PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS)
     string(APPEND _exported_function_lines "    ${_fn}\n")
 endforeach()
 
+set(_debug_exported_function_lines "")
+foreach(_fn IN LISTS PROJECTM_WASM_WRAPPER_DEBUG_EXPORTED_FUNCTIONS)
+    string(APPEND _debug_exported_function_lines "    ${_fn}\n")
+endforeach()
+
 set(_simd_flag_lines "")
 foreach(_flag IN LISTS PROJECTM_WASM_SIMD_COMPILE_FLAGS)
     string(APPEND _simd_flag_lines "        ${_flag}\n")
+endforeach()
+
+set(_wrapper_compile_lines "")
+foreach(_flag IN LISTS PROJECTM_WASM_WRAPPER_COMPILE_ARGS PROJECTM_WASM_CODEGEN_COMPILE_FLAGS PROJECTM_WASM_SIMD_COMPILE_FLAGS PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS PROJECTM_WASM_EXCEPTION_ARGS)
+    string(APPEND _wrapper_compile_lines "        ${_flag}\n")
+endforeach()
+
+set(_wrapper_link_opt_lines "")
+foreach(_flag IN LISTS PROJECTM_WASM_WRAPPER_LINK_OPT_ARGS)
+    string(APPEND _wrapper_link_opt_lines "        ${_flag}\n")
 endforeach()
 
 set(_shared_plain_lines "")
@@ -160,9 +155,18 @@ file(WRITE "${_inc_out}" "# wasm_link_common.inc.sh
 PROJECTM_WASM_EXPORTED_FUNCTIONS=(
 ${_exported_function_lines})
 
+# Test hooks (\`debug\` entries of cmake/WasmApiManifest.cmake): exported only
+# with PROJECTM_WASM_DEBUG_EXPORTS=1.
+PROJECTM_WASM_DEBUG_EXPORTED_FUNCTIONS=(
+${_debug_exported_function_lines})
+
 projectm_wasm_join_exported_functions() {
     local IFS=,
-    echo \"\${PROJECTM_WASM_EXPORTED_FUNCTIONS[*]}\"
+    local functions=(\"\${PROJECTM_WASM_EXPORTED_FUNCTIONS[@]}\")
+    if [[ \"\${PROJECTM_WASM_DEBUG_EXPORTS:-0}\" == \"1\" ]]; then
+        functions+=(\"\${PROJECTM_WASM_DEBUG_EXPORTED_FUNCTIONS[@]}\")
+    fi
+    echo \"\${functions[*]}\"
 }
 
 # EXPORTED_RUNTIME_METHODS for the final wrapper link (common + VFS FS helper).
@@ -170,14 +174,23 @@ projectm_wasm_exported_runtime_methods() {
     echo \"${PROJECTM_WASM_WRAPPER_EXPORTED_RUNTIME_METHODS_STR}\"
 }
 
-# SIMD + atomics compile flags for the final emcc link of projectM_emscripten.cpp.
-# Must stay in sync with projectm_apply_emscripten_lib_compile_flags() in
-# cmake/EmscriptenWasmFlags.cmake so the wrapper TU and prebuilt libprojectM-4.a
-# agree on wasm32 feature levels.
+# Wasm target features, for the wrapper link (an LTO link generates code and
+# must see them). Same list projectm_apply_emscripten_lib_compile_flags() in
+# cmake/EmscriptenWasmFlags.cmake compiles the static libs with, so the wrapper
+# and prebuilt libprojectM-4.a agree on wasm32 feature levels.
 projectm_wasm_simd_compile_args() {
     local -n _out=\$1
     _out=(
 ${_simd_flag_lines}    )
+}
+
+# Everything a wrapper TU is compiled with, besides include paths, warnings and
+# link-flavor defines: language level, optimisation, code generation, target
+# features, threads/OpenMP and the exception ABI.
+projectm_wasm_wrapper_compile_args() {
+    local -n _out=\$1
+    _out=(
+${_wrapper_compile_lines}    )
 }
 
 # Optional env overrides:
@@ -218,7 +231,7 @@ projectm_wasm_common_link_args() {
 
     _out=(
         \"\${lto_args[@]}\"
-${_shared_plain_lines}        \"\${exception_args[@]}\"
+${_wrapper_link_opt_lines}${_shared_plain_lines}        \"\${exception_args[@]}\"
 ${_shared_s_block}        -s \"PTHREAD_POOL_SIZE=\${pthread_pool_size}\"
 ${_wrapper_s_block}        -s EXPORTED_FUNCTIONS=\"\$(projectm_wasm_join_exported_functions)\"
         -s EXPORTED_RUNTIME_METHODS=\"\$(projectm_wasm_exported_runtime_methods)\"
@@ -260,6 +273,60 @@ constexpr int kWasmPthreadPoolSize = ${PROJECTM_WASM_PTHREAD_POOL_SIZE};
 
 static_assert(kWasmOpenMpThreads - 1 + kWasmPresetPrepareThreads <= kWasmPthreadPoolSize,
               \"PTHREAD_POOL_SIZE must cover the OpenMP helpers and the preset prepare threads\");
+")
+
+# ---------------------------------------------------------------------------
+# Init error codes (PROJECTM_WASM_INIT_ERRORS in cmake/WasmApiManifest.cmake):
+# one C++ enum and one frozen JS object from the same list.
+# ---------------------------------------------------------------------------
+set(_init_error_enum_lines "")
+set(_init_error_js_lines "")
+set(_init_error_codes_seen "")
+foreach(_entry IN LISTS PROJECTM_WASM_INIT_ERRORS)
+    if(NOT _entry MATCHES "^([0-9]+)\\|([A-Za-z0-9]+)\\|(.*)$")
+        message(FATAL_ERROR "Invalid PROJECTM_WASM_INIT_ERRORS entry: ${_entry}")
+    endif()
+    set(_code "${CMAKE_MATCH_1}")
+    set(_cpp_name "${CMAKE_MATCH_2}")
+    set(_doc "${CMAKE_MATCH_3}")
+    if(_code IN_LIST _init_error_codes_seen)
+        message(FATAL_ERROR "PROJECTM_WASM_INIT_ERRORS: code ${_code} is listed twice")
+    endif()
+    list(APPEND _init_error_codes_seen "${_code}")
+    string(REGEX REPLACE "([a-z0-9])([A-Z])" "\\1_\\2" _js_name "${_cpp_name}")
+    string(TOUPPER "${_js_name}" _js_name)
+    string(APPEND _init_error_enum_lines "    k${_cpp_name} = ${_code}, //!< ${_doc}.\n")
+    string(APPEND _init_error_js_lines "    /** ${_doc}. */\n    ${_js_name}: ${_code},\n")
+endforeach()
+
+file(WRITE "${_init_errors_header_out}" "// ProjectMWasmInitErrors.hpp
+// AUTO-GENERATED by cmake/GenerateWasmLinkCommon.cmake — do not edit by hand.
+// Canonical list: PROJECTM_WASM_INIT_ERRORS in cmake/WasmApiManifest.cmake
+// (html/generated/projectm-init-error-codes.js is generated from the same list).
+// Regenerate: scripts/sync_wasm_link_common.sh
+
+#pragma once
+
+// What init() returns, what get_last_init_error() reports, and the `code`
+// globalThis.pmReportInitError receives. See docs/EMSCRIPTEN.md \"Init Error Codes\".
+enum class WasmInitError : int
+{
+${_init_error_enum_lines}};
+")
+
+file(WRITE "${_init_errors_js_out}" "// projectm-init-error-codes.js
+// AUTO-GENERATED by cmake/GenerateWasmLinkCommon.cmake — do not edit by hand.
+// Canonical list: PROJECTM_WASM_INIT_ERRORS in cmake/WasmApiManifest.cmake
+// (enum class WasmInitError in cmake/generated/ProjectMWasmInitErrors.hpp is
+// generated from the same list).
+// Regenerate: scripts/sync_wasm_link_common.sh
+
+/**
+ * What init() returns, what get_last_init_error() reports, and the `code`
+ * globalThis.pmReportInitError receives. See docs/EMSCRIPTEN.md \"Init Error Codes\".
+ */
+export const INIT_ERROR = Object.freeze({
+${_init_error_js_lines}});
 ")
 
 set(_ts_body "// projectm-wasm-api.ts
@@ -464,6 +531,8 @@ export const WASM_API_SYMBOLS = {
 ")
 foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
     _projectm_wasm_parse_manifest_entry("${_entry}" _name _visibility _binding _returns _args _doc)
+    # debug entries are listed (no wrapper function, though), so a test can
+    # reach a test hook through the render transport by name.
     if(_visibility STREQUAL "runtime")
         continue()
     endif()
@@ -733,3 +802,5 @@ message(STATUS "Wrote ${_inc_out}")
 message(STATUS "Wrote ${_header_out}")
 message(STATUS "Wrote ${_ts_out}")
 message(STATUS "Wrote ${_js_out}")
+message(STATUS "Wrote ${_init_errors_header_out}")
+message(STATUS "Wrote ${_init_errors_js_out}")

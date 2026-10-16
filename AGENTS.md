@@ -345,7 +345,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 | Directory | Framework | Coverage |
 |-----------|-----------|----------|
-| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + EGL + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
+| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + EGL + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`). The three desktop-GL test TUs (`FlashLimiterTest`, `PerPixelGlslLoweringTest`, `PerPixelGpuRenderTest`) are not compiled when `USE_GLES` is set (Emscripten, Android): glad's desktop and GLES headers cannot share a TU. `GlOffscreenContext.cpp` is a stub off desktop Linux (no `<EGL/egl.h>` on macOS/Windows) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
 
@@ -594,6 +594,16 @@ npx playwright install chromium
 node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk
 ```
 
+That wrapper links with `PROJECTM_WASM_DEBUG_EXPORTS=1` by default: the `debug_*` test hooks
+(`debug_is_preset_ready`, ...) the smoke pages call are exported, and the build-id is tagged
+`+debug-exports`, so deploy refuses the bundle. `scripts/prepare_deploy_bundle.sh` relinks with
+`PROJECTM_WASM_DEBUG_EXPORTS=0`. Every WASM export is an entry of `cmake/WasmApiManifest.cmake`
+(which `EXPORTED_FUNCTIONS` is derived from) and must have a caller in `html/`,
+`packages/web/src/` or `tests/`: `scripts/check_wasm_public_api.sh --no-orphans` (`npm run
+check:api`) fails otherwise, and also when host code calls a `debug_` hook. Removing or changing
+a `public` entry needs a minor bump of `@projectm/web` (pre-1.0; it is 0.3.0) and
+`scripts/check_wasm_public_api.sh --update`. See `docs/EMSCRIPTEN.md` "Where to add a WASM export".
+
 ### Running the SDL2 developer test UI
 
 The binary is **not installed**; run it from the build tree:
@@ -606,6 +616,8 @@ cp ../src/sdl-test-ui/config.inp config.inp
 ```
 
 Requires `DISPLAY` and OpenGL (Mesa llvmpipe software rendering works). No ALSA/PulseAudio device is needed — the UI falls back to synthetic PCM when capture fails. Keys: `Left`/`Right` preset, `Space` lock, `f` fullscreen, `q` quit.
+
+The render-path ablation switches are per instance (`projectm_set_render_path()`); libprojectM reads no environment for them. This UI maps `PROJECTM_BLUR_COPY_PATH=1`, `PROJECTM_COPY_SHADER_PATH=1` and `PROJECTM_PER_PIXEL_EVAL=cpu` onto that call, so a native A/B still works from the shell (see `docs/PERFORMANCE.md`).
 
 ### Services
 

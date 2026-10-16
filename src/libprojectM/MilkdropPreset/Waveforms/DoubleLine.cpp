@@ -33,7 +33,7 @@ void DoubleLine::GenerateVertices(const PresetState& presetState, const PerFrame
 
     float const separation = powf(m_waveY * 0.5f + 0.5f, 2.0f);
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinParallelLoopIters)
+#pragma omp parallel for schedule(static) if(m_samples >= libprojectM::OpenMp::kMinWaveformLoopIters)
 #endif
     for (int i = 0; i < m_samples; i++)
     {

@@ -319,6 +319,11 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 targetFps: parseNumber(this.getAttribute('target-fps'), 60),
                 qualityGovernor: true,
                 transparent: parseBoolean(this.getAttribute('transparent')),
+                // `transparent` is observed, so it can be switched on after boot,
+                // and that needs an alpha channel the context cannot gain later.
+                // Keep one unless the page opts out with context-alpha="false"
+                // (an opaque canvas composites cheaper). Read once, at boot.
+                contextAlpha: parseBoolean(this.getAttribute('context-alpha'), true),
                 presetUrl,
                 presetLocked: parseBoolean(this.getAttribute('locked')),
                 audioSource,

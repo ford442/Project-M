@@ -325,7 +325,10 @@ The host enforces one producer and one transport (`acceptExternalPcmChunk()` in
 #### Tab / system audio capture (`html/audio-capture.html`)
 
 The **TAB** launcher in `projectm-core.html` (`window.openAudioCapture()`) opens
-`audio-capture.html` as a same-origin popup. Its Start button calls
+`audio-capture.html` as a same-origin popup. The production bezel
+(`projectm_panel2.1ink`, served as `1ink.1ink`) reaches the same popup from
+the audio-player button: the cycle is FLAC, MOD, tab/system capture, then
+hide. Its Start button calls
 `getDisplayMedia()` (`html/projectm-display-capture.js`), stops the video
 track at once, and runs the audio track through the FLAC bridge's capture
 worklet (ScriptProcessor fallback). It sends the same 1024-frame interleaved

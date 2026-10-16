@@ -229,3 +229,90 @@ test('neither controller publishes anything on window (the legacy shim owns thos
         else delete globalThis.window;
     }
 });
+
+test('audio cycle opens tab/system capture as a popup and closes it on the next source', () => {
+    const opened = [];
+    const closed = [];
+    const focused = [];
+    const previousOpen = globalThis.open;
+    const previousDocument = globalThis.document;
+    const previousWindow = globalThis.window;
+    const previousLocation = globalThis.location;
+    const previousLocalStorage = globalThis.localStorage;
+
+    globalThis.location = { href: 'https://projectm.1ink.us/1ink.1ink', origin: 'https://projectm.1ink.us' };
+    globalThis.window = { location: globalThis.location };
+    globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+    const flacFrame = { src: '', getAttribute(name) { return name === 'src' ? this.src : null; } };
+    const modFrame = { src: '', getAttribute(name) { return name === 'src' ? this.src : null; } };
+    const sections = {
+        flacPlayerSection: { style: { display: 'none' }, querySelector: () => flacFrame },
+        modPlayerSection: { style: { display: 'none' }, querySelector: () => modFrame },
+    };
+    globalThis.document = {
+        getElementById(id) {
+            if (id === 'flacPlayerUrl') return { textContent: './flac-player/' };
+            if (id === 'modPlayerUrl') return { textContent: 'https://test.1ink.us/xm-player/' };
+            return sections[id] ?? { style: {}, classList: { toggle() {} }, textContent: '' };
+        },
+        querySelector(sel) {
+            if (sel === '#flacFrame') return flacFrame;
+            if (sel === '#modFrame') return modFrame;
+            return null;
+        },
+        querySelectorAll() {
+            return Object.values(sections);
+        },
+    };
+    globalThis.open = (url, name, features) => {
+        const handle = {
+            name,
+            closed: false,
+            close() { this.closed = true; closed.push(name); },
+            focus() { focused.push(name); },
+        };
+        opened.push({ url, name, features });
+        return handle;
+    };
+
+    try {
+        const section = createSectionAudioPlayerController({ updateUi() {} });
+        section.cycleAudioPlayer();
+        section.cycleAudioPlayer();
+        section.cycleAudioPlayer();
+        assert.match(flacFrame.src, /\/flac-player\//);
+        assert.equal(sections.flacPlayerSection.style.display, 'none');
+        const captureOpen = opened.filter((entry) => entry.name === 'projectm-audio-capture');
+        assert.equal(captureOpen.length, 1);
+        assert.match(captureOpen[0].url, /\/audio-capture\.html/);
+        assert.equal(new URL(captureOpen[0].url).searchParams.get('projectm'), '1');
+        assert.match(captureOpen[0].features, /popup/);
+
+        section.showAudioPlayer('capture');
+        assert.equal(
+            opened.filter((entry) => entry.name === 'projectm-audio-capture').length,
+            1,
+            'an open capture window is focused, not replaced'
+        );
+        assert.deepEqual(focused, ['projectm-audio-capture']);
+        assert.equal(closed.length, 0);
+
+        section.showAudioPlayer('flac');
+        assert.deepEqual(closed, ['projectm-audio-capture']);
+
+        const popup = createPopupAudioPlayerController({ updateUi() {} });
+        popup.showAudioPlayer('capture');
+        assert.equal(opened.filter((entry) => entry.name === 'projectm-audio-capture').length, 2);
+        const popupOpen = opened.at(-1);
+        assert.match(popupOpen.url, /\/audio-capture\.html/);
+        assert.equal(popupOpen.name, 'projectm-audio-capture');
+        popup.showAudioPlayer('none');
+        assert.deepEqual(closed, ['projectm-audio-capture', 'projectm-audio-capture']);
+    } finally {
+        globalThis.open = previousOpen;
+        globalThis.document = previousDocument;
+        globalThis.window = previousWindow;
+        globalThis.location = previousLocation;
+        globalThis.localStorage = previousLocalStorage;
+    }
+});

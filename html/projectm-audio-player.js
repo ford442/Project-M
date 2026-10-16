@@ -1,6 +1,10 @@
 // Prefer same-origin players when co-deployed with projectM; libopenmpt MOD shell
 // remains on test.1ink.us until xm-player assets are vendored in-repo.
 export const FLAC_PLAYER_BASE_URL = './flac-player/';
+/** Same-origin popup the panel audio button opens for tab / system capture. */
+export const AUDIO_CAPTURE_PAGE_URL = './audio-capture.html';
+const AUDIO_CAPTURE_WINDOW_FEATURES = 'popup,width=440,height=340';
+const AUDIO_CAPTURE_WINDOW_NAME = 'projectm-audio-capture';
 // Bump when html/flac-player/ changes. The shell's index.html is not
 // content-hashed, so without a new URL a browser can keep serving a cached
 // copy that loads an old bundle (e.g. bundle.d896f*.js, which needs a global
@@ -20,6 +24,11 @@ export const MOD_PLAYER_BASE_URL = 'https://test.1ink.us/xm-player/';
  * @property {string} [defaultUrl]
  * @property {string} [target] window.open target name.
  * @property {string} [frameSelector] iframe selector inside an inline section.
+ * @property {'popup'} [presentation] `popup` opens a sized window even when the
+ *   URL is same-origin. Tab/system capture needs that: an iframe would cover
+ *   the visualizer, and the share picker has to stay up while the user
+ *   switches to the tab they shared.
+ * @property {string} [windowFeatures] `window.open` features for `presentation: 'popup'`.
  * @property {() => string | null | undefined} [resolveUrl]
  */
 
@@ -51,6 +60,7 @@ const DEFAULT_AUDIO_SOURCES = [
         target: 'mod-player',
         resolveUrl: resolveModPlayerUrl,
     },
+    captureAudioSource(),
 ];
 
 /**
@@ -88,6 +98,32 @@ export function resolveFlacPlayerUrl() {
 
 export function resolveModPlayerUrl() {
     return resolvePlayerUrl('modPlayerUrl', 'modPlayerUrl', MOD_PLAYER_BASE_URL);
+}
+
+/**
+ * Tab / system capture page. A popup, not an iframe: getDisplayMedia() runs
+ * from that page's own Start click, and the window has to stay open.
+ * @returns {AudioPlayerSource}
+ */
+export function captureAudioSource() {
+    return {
+        id: 'capture',
+        label: 'Tab / System',
+        target: AUDIO_CAPTURE_WINDOW_NAME,
+        defaultUrl: AUDIO_CAPTURE_PAGE_URL,
+        presentation: 'popup',
+        windowFeatures: AUDIO_CAPTURE_WINDOW_FEATURES,
+        resolveUrl() {
+            try {
+                const base = typeof globalThis.location?.href === 'string'
+                    ? globalThis.location.href
+                    : 'https://localhost/';
+                return new URL(AUDIO_CAPTURE_PAGE_URL, base).href;
+            } catch {
+                return AUDIO_CAPTURE_PAGE_URL;
+            }
+        },
+    };
 }
 
 /**
@@ -224,7 +260,7 @@ function defaultUpdateUi(source, {
         btn.classList.toggle('engaged', source.id !== 'none');
         btn.style.borderColor = source.id === 'none' ? 'green' : 'yellow';
         btn.title = source.id === 'none'
-            ? 'Audio Player - click to open FLAC, MOD, or hide'
+            ? 'Audio Player - click to open FLAC, MOD, tab/system audio, or hide'
             : `${source.label} active - click to switch or hide`;
     }
 }
@@ -247,6 +283,8 @@ export function createSectionAudioPlayerController({
     openPopup = (url, target) => openPlayerForPcmFeed(url, target),
 } = {}) {
     let activeAudioSourceIndex = 0;
+    /** @type {Map<string, Window | HTMLIFrameElement>} */
+    const ownedPopups = new Map();
 
     function hideAllAudioPlayers() {
         const sections = /** @type {NodeListOf<HTMLElement>} */ (
@@ -269,6 +307,47 @@ export function createSectionAudioPlayerController({
     }
 
     /**
+     * Close script-opened capture popups. Passing `exceptId` leaves that one
+     * up so a second click focuses it instead of tearing the share down.
+     * @param {string} [exceptId]
+     */
+    function closeOwnedPopups(exceptId) {
+        for (const [id, handle] of ownedPopups) {
+            if (id === exceptId) continue;
+            if (handle && 'close' in handle && typeof handle.close === 'function' && 'closed' in handle && !handle.closed) {
+                handle.close();
+            }
+            ownedPopups.delete(id);
+        }
+    }
+
+    /**
+     * @param {AudioPlayerSource} source
+     * @param {string} url
+     * @returns {Window | null}
+     */
+    function openOwnedPopup(source, url) {
+        const target = source.target || `${source.id}-player`;
+        const existing = ownedPopups.get(source.id);
+        if (existing && 'closed' in existing && !existing.closed) {
+            if ('focus' in existing && typeof existing.focus === 'function') {
+                existing.focus();
+            }
+            return /** @type {Window} */ (existing);
+        }
+        if (typeof globalThis.open !== 'function') {
+            return null;
+        }
+        const handle = globalThis.open(url, target, source.windowFeatures || AUDIO_CAPTURE_WINDOW_FEATURES);
+        if (handle) {
+            ownedPopups.set(source.id, handle);
+        } else {
+            console.warn(`${source.label} popup was blocked. Please allow popups for this site.`);
+        }
+        return handle;
+    }
+
+    /**
      * @param {string} sourceId
      * @param {{ trackUrl?: string }} [options]
      */
@@ -276,6 +355,16 @@ export function createSectionAudioPlayerController({
         const source = sources.find((entry) => entry.id === sourceId) || sources[0];
         activeAudioSourceIndex = sources.findIndex((entry) => entry.id === source.id);
         hideAllAudioPlayers();
+
+        if (source.presentation === 'popup') {
+            closeOwnedPopups(source.id);
+            const url = withProjectMAudioFlag(sourceUrl(source), options);
+            if (url) openOwnedPopup(source, url);
+            updateUi(source);
+            return;
+        }
+
+        closeOwnedPopups();
 
         if (source.sectionId) {
             if (menuId) {
@@ -360,7 +449,8 @@ export function createPopupAudioPlayerController({
             defaultUrl: MOD_PLAYER_BASE_URL,
             target: 'mod-player',
             resolveUrl: resolveModPlayerUrl,
-        }
+        },
+        captureAudioSource(),
     ];
     let activeAudioSourceIndex = 0;
 
@@ -385,7 +475,13 @@ export function createPopupAudioPlayerController({
     function openPlayer(source, { trackUrl } = {}) {
         const url = withProjectMAudioFlag(sourceUrl(source), { trackUrl });
         const target = source.target || `${source.id}-player`;
-        const handle = url ? openPlayerForPcmFeed(url, target) : null;
+        let handle = null;
+        if (url && source.presentation === 'popup' && typeof globalThis.open === 'function') {
+            // Same-origin capture must not fall through to the iframe feeder.
+            handle = globalThis.open(url, target, source.windowFeatures || AUDIO_CAPTURE_WINDOW_FEATURES);
+        } else {
+            handle = url ? openPlayerForPcmFeed(url, target) : null;
+        }
         if (handle) {
             popups.set(source.id, handle);
         } else {
@@ -398,9 +494,12 @@ export function createPopupAudioPlayerController({
         return handle;
     }
 
-    function closeAllAudioPlayers() {
+    /**
+     * @param {Window | HTMLIFrameElement} [exceptHandle] Leave this window open.
+     */
+    function closeAllAudioPlayers(exceptHandle) {
         for (const handle of popups.values()) {
-            if (!handle) continue;
+            if (!handle || handle === exceptHandle) continue;
             // Window popup/tab
             if ('close' in handle && typeof handle.close === 'function' && 'closed' in handle) {
                 if (!handle.closed) handle.close();
@@ -421,8 +520,17 @@ export function createPopupAudioPlayerController({
     function showAudioPlayer(sourceId, options = {}) {
         const source = popupSources.find((entry) => entry.id === sourceId) || popupSources[0];
         activeAudioSourceIndex = popupSources.findIndex((entry) => entry.id === source.id);
-        closeAllAudioPlayers();
-        if (source.id !== 'none') openPlayer(source, options);
+        const existing = popups.get(source.id);
+        const reuse = source.presentation === 'popup' && existing && 'closed' in existing && !existing.closed;
+        closeAllAudioPlayers(reuse ? existing : undefined);
+        if (reuse) {
+            popups.set(source.id, existing);
+            if ('focus' in existing && typeof existing.focus === 'function') {
+                existing.focus();
+            }
+        } else if (source.id !== 'none') {
+            openPlayer(source, options);
+        }
         updateUi(source);
     }
 

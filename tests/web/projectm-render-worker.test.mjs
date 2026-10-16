@@ -58,8 +58,15 @@ function fakeRingModule({ capacityFrames = 4, shared = true } = {}) {
     const ccalls = [];
     /** @type {Array<[number, number]>} */
     const startRenders = [];
-    return {
+    /** @type {unknown[][]} create_host_with_config()'s arguments, per call. */
+    const creates = [];
+    let lastInitError = 0;
+    // Models the C++ registry's active host: create_host_with_config() makes the
+    // new engine (handle 1) active, set_active_host() switches.
+    let activeHost = 0;
+    const module = {
         HEAPF32: new Float32Array(memory),
+        _get_active_host: () => activeHost,
         _get_pcm_ring_header_ptr: () => HEADER_PTR,
         _get_pcm_ring_data_ptr: () => DATA_PTR,
         _get_pcm_ring_capacity_frames: () => capacityFrames,
@@ -70,13 +77,32 @@ function fakeRingModule({ capacityFrames = 4, shared = true } = {}) {
         specialHTMLTargets: /** @type {Record<string, unknown>} */ ({}),
         _init: () => 0,
         _start_render: (w, h) => startRenders.push([w, h]),
-        ccall: (name, _returnType, _argTypes, args) => { ccalls.push({ name, args }); return `${name}-result`; },
+        // Presence marks a bundle that has the export; the worker calls it
+        // through ccall (it takes strings).
+        _create_host_with_config: () => { throw new Error('call create_host_with_config through ccall'); },
+        _get_last_init_error: () => lastInitError,
+        ccall: (/** @type {string} */ name, /** @type {unknown} */ _returnType, /** @type {unknown} */ _argTypes, /** @type {unknown[]} */ args) => {
+            if (name === 'create_host_with_config') {
+                // Models the C++ export: the config is stored on the new host,
+                // then init() builds the engine; 0 handle on failure.
+                creates.push([...args]); // built in the vm realm: copy before deepEqual
+                const status = module._init();
+                lastInitError = status;
+                if (status === 0) activeHost = 1;
+                return status === 0 ? 1 : 0;
+            }
+            if (name === 'set_active_host') activeHost = Number(args[0]);
+            ccalls.push({ name, args });
+            return `${name}-result`;
+        },
         header: new Int32Array(memory, HEADER_PTR, 4),
         data: new Float32Array(memory, DATA_PTR, capacityFrames * 2),
         memory,
         ccalls,
+        creates,
         startRenders,
     };
+    return module;
 }
 
 /**
@@ -125,6 +151,8 @@ function loadWorker({
         Float32Array,
         performance,
         setInterval: (fn) => { intervals.push(fn); return intervals.length; },
+        // Real timers: captureFrame() polls with them while the frame renders.
+        setTimeout,
         clearInterval: () => {},
         OffscreenCanvas: offscreenCanvas ? class {} : undefined,
         importScripts: (src) => {
@@ -172,6 +200,8 @@ function initMessage(overrides = {}) {
         scriptSrc: 'https://projectm.test/pm/projectm-v.036-thread.js',
         width: 1280,
         height: 720,
+        // resolveWasmContextConfig()'s defaults: contextAlpha + premultipliedAlpha.
+        contextConfig: { flags: 48, powerPreference: 2, fboPrecision: 0 },
         ...overrides,
     };
 }
@@ -275,24 +305,13 @@ test('init boots the module, applies the options, publishes the ring, and report
     assert.equal(descriptor.indexModulus, 16);
 });
 
-test('init applies the context config and render-path switches before init() creates the context', async () => {
+test('init applies the render-path switches, then creates the engine with the context config', async () => {
     const module = fakeRingModule();
     /** @type {string[]} */
     const order = [];
-    /** @type {number[][]} */
-    const contextConfigs = [];
     // Models the C++ side: set_render_path_overrides() sets the environment the
     // engine reads, get_render_path_overrides() reads it back as a mask.
     let overrideMask = 0;
-    const ccall = module.ccall;
-    module.ccall = (name, returnType, argTypes, args) => {
-        if (name === 'set_context_config') {
-            order.push(name);
-            contextConfigs.push([...args]); // built in the vm realm: copy before deepEqual
-            return undefined;
-        }
-        return ccall(name, returnType, argTypes, args);
-    };
     module._set_render_path_overrides = (blur, copy, perPixel) => {
         order.push('set_render_path_overrides');
         overrideMask = (blur ? 1 : 0) | (copy ? 2 : 0) | (perPixel ? 4 : 0);
@@ -303,18 +322,17 @@ test('init applies the context config and render-path switches before init() cre
 
     const worker = loadWorker({ createModule: async () => module });
     await worker.send(initMessage({
-        contextConfig: {
-            antialias: 1, preserveDrawingBuffer: 0, depth: 0, stencil: 0,
-            alpha: 1, powerPreference: 2, fboPrecision: 1,
-        },
+        // antialias + contextAlpha + premultipliedAlpha, RGBA32F.
+        contextConfig: { flags: 1 | 16 | 32, powerPreference: 2, fboPrecision: 1 },
         // What resolveRenderPathOverrides('?blurPath=copy') produces on the page.
         renderPathOverrides: { blurCopyPath: true, copyShaderPath: false, perPixelForceCpu: false },
     }));
 
-    // Both are decided inside init(): the attributes are baked into the context
-    // it creates, and the render paths are fixed before the first preset.
-    assert.deepEqual(order, ['set_context_config', 'set_render_path_overrides', 'init']);
-    assert.deepEqual(contextConfigs, [[1, 0, 0, 0, 1, 2, 1]]);
+    // The render paths are fixed before the first preset; the context
+    // attributes are an argument of the create call that makes the context.
+    assert.deepEqual(order, ['set_render_path_overrides', 'init']);
+    assert.deepEqual(module.creates, [['#mcanvas', '', 49, 2, 1]]);
+    assert.deepEqual(module.ccalls, [], 'no separate set_context_config step');
 
     // Read back through the stats tick: the switch reached the worker's module.
     worker.posted.length = 0;
@@ -322,7 +340,7 @@ test('init applies the context config and render-path switches before init() cre
     assert.equal(worker.posted[0].renderPathOverrides, 1);
 });
 
-test('init without a context config or switches leaves the module defaults alone', async () => {
+test('init without render-path switches leaves the module defaults alone', async () => {
     const module = fakeRingModule();
     let called = false;
     module._set_render_path_overrides = () => { called = true; };
@@ -330,7 +348,21 @@ test('init without a context config or switches leaves the module defaults alone
     await worker.send(initMessage());
     assert.equal(called, false);
     assert.deepEqual(module.ccalls, []);
+    assert.deepEqual(module.creates, [['#mcanvas', '', 48, 2, 0]]);
     assert.equal(worker.posted.at(-1).type, 'ready');
+});
+
+test('a bundle without create_host_with_config is unsupported, so the host renders on the main thread', async () => {
+    const module = fakeRingModule();
+    delete module._create_host_with_config;
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    assert.equal(worker.posted.length, 1);
+    assert.equal(worker.posted[0].type, 'unsupported');
+    assert.match(worker.posted[0].reason, /create_host_with_config/);
+    assert.deepEqual(module.creates, []);
+    assert.deepEqual(module.startRenders, []);
 });
 
 test('init registers the transferred canvas under the engine canvas selector', async () => {
@@ -356,15 +388,16 @@ test('init reports unsupported on a bundle that does not export specialHTMLTarge
     assert.match(worker.posted[0].reason, /specialHTMLTargets/);
 });
 
-test('a non-zero init() status is reported instead of trapping in start_render', async () => {
+test('a failed engine creation is reported with its init code instead of trapping in start_render', async () => {
     const module = fakeRingModule();
-    module._init = () => 2;
+    module._init = () => 8; // failIfMajorPerformanceCaveat refused a software context
     const worker = loadWorker({ createModule: async () => module });
-    await worker.send(initMessage());
+    await worker.send(initMessage({ contextConfig: { flags: 48 | 64, powerPreference: 2, fboPrecision: 0 } }));
 
     assert.equal(worker.posted.length, 1);
     assert.equal(worker.posted[0].type, 'error');
-    assert.match(worker.posted[0].message, /init\(\) failed in the render worker \(code 2\)/);
+    assert.equal(worker.posted[0].code, 8);
+    assert.match(worker.posted[0].message, /engine creation failed in the render worker \(init code 8\)/);
     // start_render() on an engine with no GL context traps on a null function
     // pointer, which surfaces as an unattributable RuntimeError.
     assert.deepEqual(module.startRenders, []);
@@ -535,10 +568,10 @@ test('a fire-and-forget ccall posts nothing back', async () => {
 
 test('a throwing ccall is reported as an error, not left hanging silently', async () => {
     const module = fakeRingModule();
-    module.ccall = () => { throw new Error('bad arg'); };
     const worker = loadWorker({ createModule: async () => module });
     await worker.send(initMessage());
     worker.posted.length = 0;
+    module.ccall = () => { throw new Error('bad arg'); };
 
     await worker.send({ type: 'ccall', name: 'boom', returnType: null, argTypes: [], args: [], requestId: 3 });
 
@@ -614,6 +647,161 @@ test('stats fall back to -1 when the bundle lacks the quality exports', async ()
     assert.equal(worker.posted[0].renderPathOverrides, -1);
 });
 
+// ---- Flash limiter and frame capture (#286) -------------------------------------
+//
+// The limiter's switch travels in the init message (so the first frame is already
+// limited) and later as set-flash-limit; a capture is read in the worker, inside
+// the frame that drew it, and its pixels posted back.
+
+/**
+ * Adds the present-pass exports to a fakeRingModule(), with a capture buffer per
+ * engine: a capture becomes ready after `framesUntilReady` polls (the render loop
+ * drawing the frame), or at once on _render_frame().
+ *
+ * @param {ReturnType<typeof fakeRingModule>} module
+ * @param {{ framesUntilReady?: number, width?: number, height?: number }} [options]
+ */
+function withPresentExports(module, { framesUntilReady = 2, width = 2, height = 1 } = {}) {
+    /** @type {Array<[string, number, unknown]>} [export, active engine, value] */
+    const presentCalls = [];
+    /** @type {Map<number, { status: number, polls: number }>} */
+    const captures = new Map();
+    const heap = new Uint8Array(64);
+    const PTR = 8;
+    const host = () => module._get_active_host();
+    const capture = () => captures.get(host()) ?? { status: 0, polls: 0 };
+    const markReady = () => {
+        // Each engine's pixels carry its handle, so a mixed-up read shows.
+        heap.fill(host() * 10, PTR, PTR + width * height * 4);
+        captures.set(host(), { status: 3, polls: 0 });
+    };
+    Object.assign(module, {
+        HEAPU8: heap,
+        presentCalls,
+        _set_flash_limit_enabled: (v) => presentCalls.push(['enabled', host(), v]),
+        _set_flash_limit_threshold: (v) => presentCalls.push(['threshold', host(), v]),
+        _capture_frame_request: () => { captures.set(host(), { status: 1, polls: 0 }); return 1; },
+        _render_frame: () => { if (capture().status === 1) markReady(); },
+        _capture_frame_resolve: () => {
+            const c = capture();
+            if (c.status === 1 && ++c.polls >= framesUntilReady) markReady();
+            return capture().status;
+        },
+        _capture_frame_width: () => width,
+        _capture_frame_height: () => height,
+        _capture_frame_data_ptr: () => PTR,
+        _capture_frame_index: () => 41,
+        _capture_frame_release: () => captures.set(host(), { status: 0, polls: 0 }),
+    });
+    return module;
+}
+
+/** Resolves once the worker posted a message of `type`. */
+async function waitForPost(worker, type) {
+    for (let i = 0; i < 200; i++) {
+        const found = worker.posted.find((message) => message.type === type);
+        if (found) return found;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error(`the worker never posted '${type}'`);
+}
+
+test('init applies the flash limiter, threshold first, before the engine renders its first frame', async () => {
+    const module = withPresentExports(fakeRingModule());
+    let renderingStarted = false;
+    const startRender = module._start_render;
+    module._start_render = (w, h) => { renderingStarted = true; startRender(w, h); };
+    const setEnabled = module._set_flash_limit_enabled;
+    module._set_flash_limit_enabled = (v) => {
+        assert.equal(renderingStarted, false, 'the limiter must be on before start_render()');
+        setEnabled(v);
+    };
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({ flashLimit: { enabled: true, threshold: 0.04 } }));
+
+    assert.deepEqual(module.presentCalls.map((call) => [...call]), [['threshold', 1, 0.04], ['enabled', 1, 1]]);
+    assert.ok(worker.posted.some((message) => message.type === 'ready'));
+});
+
+test('init without a flash limit leaves the engine default alone', async () => {
+    const module = withPresentExports(fakeRingModule());
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    assert.deepEqual(module.presentCalls, []);
+});
+
+test('set-flash-limit reaches the engine the message names', async () => {
+    const module = withPresentExports(fakeRingModule());
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    await worker.send({ type: 'set-flash-limit', enabled: true, threshold: 0.1, host: 2 });
+    await worker.send({ type: 'set-flash-limit', enabled: false });
+    assert.deepEqual(module.presentCalls.map((call) => [...call]), [
+        ['threshold', 2, 0.1], ['enabled', 2, 1],
+        // No threshold: only the switch, on the worker's own engine.
+        ['enabled', 1, 0],
+    ]);
+});
+
+test('capture-frame waits for the frame, then posts its pixels as a transferable buffer', async () => {
+    const module = withPresentExports(fakeRingModule(), { framesUntilReady: 3 });
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+
+    await worker.send({ type: 'capture-frame', requestId: 7, host: 1 });
+    const reply = await waitForPost(worker, 'frame-captured');
+    assert.equal(reply.requestId, 7);
+    assert.equal(reply.error, undefined);
+    assert.equal(reply.width, 2);
+    assert.equal(reply.height, 1);
+    assert.equal(reply.frameIndex, 41);
+    assert.ok(reply.pixels instanceof ArrayBuffer || Object.prototype.toString.call(reply.pixels) === '[object ArrayBuffer]');
+    assert.deepEqual([...new Uint8Array(reply.pixels)], new Array(8).fill(10));
+});
+
+test('capture-frame with renderFrame renders the frame itself and reads it at once', async () => {
+    const module = withPresentExports(fakeRingModule(), { framesUntilReady: 1000 });
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    await worker.send({ type: 'capture-frame', requestId: 1, renderFrame: true, timeoutMs: 50 });
+    const reply = await waitForPost(worker, 'frame-captured');
+    assert.equal(reply.error, undefined);
+    assert.equal(reply.width, 2);
+});
+
+test('capture-frame reads the engine it names, even when another one is active meanwhile', async () => {
+    const module = withPresentExports(fakeRingModule(), { framesUntilReady: 2 });
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    await worker.send({ type: 'capture-frame', requestId: 3, host: 2 });
+    // The worker's own engine is selected between polls, as a sibling message would.
+    await worker.send({ type: 'set-flash-limit', enabled: true });
+    const reply = await waitForPost(worker, 'frame-captured');
+    assert.deepEqual([...new Uint8Array(reply.pixels)], new Array(8).fill(20), 'engine 2\'s pixels');
+});
+
+test('capture-frame answers with an error instead of hanging', async () => {
+    // A bundle without the export.
+    const old = loadWorker({ createModule: async () => fakeRingModule() });
+    await old.send(initMessage());
+    await old.send({ type: 'capture-frame', requestId: 4 });
+    const refused = await waitForPost(old, 'frame-captured');
+    assert.equal(refused.requestId, 4);
+    assert.match(refused.error, /predates frame capture/);
+
+    // A frame that never comes.
+    const module = withPresentExports(fakeRingModule(), { framesUntilReady: 1e9 });
+    const stalled = loadWorker({ createModule: async () => module });
+    await stalled.send(initMessage());
+    await stalled.send({ type: 'capture-frame', requestId: 5, timeoutMs: 20 });
+    const timedOut = await waitForPost(stalled, 'frame-captured');
+    assert.match(timedOut.error, /no frame was rendered within 20 ms/);
+});
+
 test('both implementations cover every message type declared in the wire protocol', () => {
     const typesSource = readFileSync(TYPES_PATH, 'utf8');
     const hostSource = readFileSync(HOST_PATH, 'utf8');
@@ -627,7 +815,7 @@ test('both implementations cover every message type declared in the wire protoco
 
     /** The `type: '...'` discriminant of a message interface. */
     const discriminant = (interfaceName) => {
-        const match = new RegExp(`export interface ${interfaceName} \\{[^}]*?type: '([^']+)'`, 's')
+        const match = new RegExp(`export interface ${interfaceName}(?: extends [\\w, ]+)? \\{[^}]*?type: '([^']+)'`, 's')
             .exec(typesSource);
         assert.ok(match, `${interfaceName} should declare a string literal 'type'`);
         return match[1];
@@ -640,13 +828,14 @@ test('both implementations cover every message type declared in the wire protoco
     // would otherwise make this test vacuously pass.
     assert.deepEqual(
         hostToWorker.slice().sort(),
-        ['ccall', 'init', 'pcm', 'preset', 'recover-context', 'resize'],
+        ['capture-frame', 'ccall', 'init', 'pcm', 'preset', 'recover-context', 'resize', 'set-flash-limit'],
     );
     assert.deepEqual(
         workerToHost.slice().sort(),
         [
             'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
-            'error', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'rhythm-event', 'stats', 'unsupported',
+            'error', 'frame-captured', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'rhythm-event', 'stats',
+            'unsupported',
         ],
     );
 
@@ -735,6 +924,60 @@ test('rhythm events reported in the worker reach the host one by one', () => {
     assert.deepEqual({ ...worker.posted[0].event }, beat);
     assert.equal(worker.posted[1].event.bar, true);
     assert.equal(worker.posted[1].event.beatIndex, 42);
+});
+
+// ---- Which engine ---------------------------------------------------------------
+//
+// The worker has one engine today. 'ready' names it, the host stamps that handle
+// on every control message, and the worker selects it before acting — so a
+// second engine in the worker would not depend on whichever was active last.
+
+test('ready names the worker\'s engine, and a message for it costs no activation', async () => {
+    const module = fakeRingModule();
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    assert.equal(worker.posted.find((m) => m.type === 'ready').host, 1);
+
+    await worker.send({ type: 'ccall', name: 'next_preset', returnType: null, argTypes: [], args: [], host: 1 });
+    assert.deepEqual(module.ccalls.map((call) => call.name), ['next_preset']);
+});
+
+test('a control message for another engine selects it before acting', async () => {
+    const module = fakeRingModule();
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    await worker.send({ type: 'ccall', name: 'next_preset', returnType: null, argTypes: [], args: [], host: 2 });
+    await worker.send({ type: 'ccall', name: 'set_preset_locked', returnType: null, argTypes: ['number'], args: [1] });
+    assert.deepEqual(module.ccalls.map((call) => [call.name, [...call.args]]), [
+        ['set_active_host', [2]], ['next_preset', []],
+        // No host on the message: the worker's own engine, selected back.
+        ['set_active_host', [1]], ['set_preset_locked', [1]],
+    ]);
+});
+
+test('the worker\'s engine hooks take both bundle shapes and ignore another engine', async () => {
+    const module = fakeRingModule();
+    const sizes = [];
+    module._set_window_size = (w, h) => sizes.push([w, h]);
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({ width: 800, height: 600 }));
+    sizes.length = 0;
+    worker.posted.length = 0;
+
+    worker.scope.pmOnGovernorRenderScaleChange(2, 0.5); // another engine's tier
+    assert.deepEqual(sizes, []);
+    worker.scope.pmOnGovernorRenderScaleChange(1, 0.5); // 040: (host, scale)
+    assert.deepEqual(sizes.at(-1), [400, 300]);
+    worker.scope.pmOnGovernorRenderScaleChange(0.75); // before 040: (scale)
+    assert.deepEqual(sizes.at(-1), [600, 450]);
+
+    worker.scope.pmSetPerfHudEnabled(2, true);
+    worker.scope.pmOnPerfFrame({ host: 2, totalMs: 9 });
+    worker.scope.pmOnRhythmEvent({ host: 2, beat: true });
+    assert.deepEqual(worker.posted, [], 'nothing of another engine\'s is relayed');
+    worker.scope.pmSetPerfHudEnabled(1, true);
+    assert.deepEqual(worker.posted.map((m) => [m.type, m.enabled]), [['perf-hud', true]]);
 });
 
 // ---- WebGL context loss ------------------------------------------------------

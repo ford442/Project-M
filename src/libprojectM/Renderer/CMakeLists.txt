@@ -41,6 +41,8 @@ add_library(Renderer OBJECT
         CopyTexture.hpp
         FileScanner.cpp
         FileScanner.hpp
+        FlashLimiter.cpp
+        FlashLimiter.hpp
         Framebuffer.cpp
         Framebuffer.hpp
         IdleTextures.hpp

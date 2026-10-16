@@ -10,6 +10,7 @@
 // DOM resolves `globalThis.document` once into `pmDoc` and returns early when
 // it is absent, instead of throwing on first dereference.
 #include "ProjectMWasmInternal.hpp"
+#include "WasmHost.hpp"
 
 // clang-format off
 EM_JS(void, js_update_preset_name, (const char* name), {
@@ -643,27 +644,61 @@ if (meshSizeEl) {
 // clang-format on
 
 // Reports an init() failure to the host page. If the page has defined
-// globalThis.pmReportInitError(code, detail) (see html/projectm-init-errors.js), it is
-// called so an overlay can be shown; otherwise the error is just logged.
+// globalThis.pmReportInitError(host, code, detail) (see html/projectm-init-errors.js), it is
+// called so an overlay can be shown; otherwise the error is just logged. `host`
+// is the engine that failed (EventHostHandle()), so a page running two engines
+// can tell whose init it was; bundles before 040 called (code, detail).
 //
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of `code`.
 // clang-format off
-EM_JS(void, js_report_init_error, (int code, const char* detail), {
+EM_JS(void, js_notify_init_error, (double host, int code, const char* detail), {
     const detailStr = detail ? UTF8ToString(detail) : '';
     if (typeof globalThis.pmReportInitError === 'function') {
-        globalThis.pmReportInitError(code, detailStr);
+        globalThis.pmReportInitError(host, code, detailStr);
     } else {
         console.error('[projectM] init() failed with code ' + code + (detailStr ? ': ' + detailStr : ''));
     }
 });
 // clang-format on
 
-// Notifies the host page that init() succeeded, so any previously shown init-error
-// overlay can be hidden. See html/projectm-init-errors.js.
+// Notifies the host page that init() succeeded for `host`, so any previously
+// shown init-error overlay can be hidden. See html/projectm-init-errors.js.
 // clang-format off
-EM_JS(void, js_report_init_success, (), {
+EM_JS(void, js_notify_init_success, (double host), {
     if (typeof globalThis.pmHideInitError === 'function') {
-        globalThis.pmHideInitError();
+        globalThis.pmHideInitError(host);
     }
 });
 // clang-format on
+
+// The code of the most recent init() / create_host*() failure, 0 after a
+// success. create_host*() can only return a 0 handle, so this is how a caller
+// tells "no WebGL 2" from "software renderer refused" from "selector typo"
+// without listening for pmReportInitError. Init runs on one thread at a time
+// (the main thread, or the render worker's own module), so one value suffices.
+static int g_lastInitError = 0;
+
+extern "C" {
+void js_report_init_error_for_host(double host, int code, const char* detail)
+{
+    g_lastInitError = code;
+    js_notify_init_error(host, code, detail);
+}
+
+void js_report_init_error(int code, const char* detail)
+{
+    js_report_init_error_for_host(ActiveEventHostHandle(), code, detail);
+}
+
+void js_report_init_success()
+{
+    g_lastInitError = 0;
+    js_notify_init_success(ActiveEventHostHandle());
+}
+
+EMSCRIPTEN_KEEPALIVE
+int get_last_init_error()
+{
+    return g_lastInitError;
+}
+} // extern "C"

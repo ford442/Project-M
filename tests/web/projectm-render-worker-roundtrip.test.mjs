@@ -62,7 +62,20 @@ function engineModule({ shared = true } = {}) {
             return (w, h) => this.sizes.push([w, h]);
         },
         FS: { writeFile: (path, bytes) => written.push([path, bytes]) },
+        _create_host_with_config: () => 0, // presence only; called through ccall
+        activeHost: 0,
+        _get_active_host() {
+            return this.activeHost;
+        },
         ccall(name, _returnType, _argTypes, args) {
+            // Engine creation: the C++ export runs init() and returns a handle,
+            // and the new engine is the active one.
+            if (name === 'create_host_with_config') {
+                const ok = this._init() === 0;
+                if (ok) this.activeHost = 1;
+                return ok ? 1 : 0;
+            }
+            if (name === 'set_active_host') this.activeHost = Number(args[0]);
             ccalls.push({ name, args });
             return `${name}-ok`;
         },

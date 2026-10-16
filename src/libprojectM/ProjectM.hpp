@@ -37,6 +37,7 @@ namespace libprojectM {
 
 namespace Renderer {
 class CopyTexture;
+class FlashLimiter;
 class PresetTransition;
 class Renderer;
 class TextureManager;
@@ -398,6 +399,35 @@ public:
      */
     auto TransparencyThreshold() const -> float;
 
+    /**
+     * @brief Turns the temporal flash limiter on or off (default off).
+     *
+     * See Renderer::FlashLimiter. Off, the frame is presented exactly as without it.
+     */
+    void SetFlashLimitEnabled(bool enabled);
+
+    /**
+     * @brief Returns whether the flash limiter is enabled.
+     */
+    auto FlashLimitEnabled() const -> bool;
+
+    /**
+     * @brief Sets the flash limiter's maximum per-frame step of mean relative luminance.
+     */
+    void SetFlashLimitThreshold(float threshold);
+
+    /**
+     * @brief Returns the flash limiter's threshold.
+     */
+    auto FlashLimitThreshold() const -> float;
+
+    /**
+     * @brief Frames the flash limiter blended toward the previous frame since it was enabled.
+     *
+     * Reads one texel back from the GPU; poll it at most a few times a second.
+     */
+    auto FlashLimitClampedFrames() -> uint32_t;
+
     auto PCM() -> Audio::PCM&;
 
     auto WindowWidth() -> int;
@@ -570,6 +600,7 @@ private:
     std::unique_ptr<Renderer::ShaderCache> m_shaderCache;                         //!< The global shader cache.
     std::unique_ptr<Renderer::TransitionShaderManager> m_transitionShaderManager; //!< The transition shader manager.
     std::unique_ptr<Renderer::CopyTexture> m_textureCopier;                       //!< Class that copies textures 1:1 to another texture or framebuffer.
+    std::unique_ptr<Renderer::FlashLimiter> m_flashLimiter;                       //!< Opt-in temporal flash limiter applied before present.
     std::unique_ptr<Preset> m_activePreset;                                       //!< Currently loaded preset.
     std::unique_ptr<Preset> m_transitioningPreset;                                //!< Destination preset when smooth preset switching.
     std::unique_ptr<PendingPreset> m_pendingPreset;                               //!< Next preset, while its shader programs link.

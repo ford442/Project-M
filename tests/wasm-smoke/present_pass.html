@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM present pass</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <!--
+    The present pass (#286) against a real bundle, driven by
+    tests/wasm-smoke/present_pass.mjs. Every run creates a host, pauses the
+    render loop, pins the clock to 60 fps and renders frames itself, reading
+    each one back with capture_frame_*() — so the readback is exercised on
+    every frame, and each frame's mean luminance is measured from what the
+    canvas actually received.
+
+      strobe / calm, limiter off and on: presets/tests/290-compshader-strobe.milk
+        strobes the whole frame at 15 Hz; 280-compshader-blur3.milk does not.
+        The clamp counter must move only for the strobe with the limiter on,
+        and stay 0 with it off.
+      twoHosts: two engines on canvases of different sizes capture the same
+        tick; each gets its own size and its own pixels.
+      manual: an explicitSwapControl host (the PROJECTM_WASM_EXPLICIT_SWAP=1
+        flavor; init code 9 elsewhere) commits exactly once per tick, and its
+        capture goes through the pixel-pack buffer: pending after the tick that
+        issued it, ready on a later turn or at once when resolved with wait.
+  -->
+  <canvas id="pm-a" width="64" height="48"></canvas>
+  <canvas id="pm-b" width="32" height="24"></canvas>
+  <div id="preset-name" hidden></div>
+  <div id="stat" hidden></div>
+  <script>
+    // contextAlpha + premultipliedAlpha: resolveWasmContextConfig()'s defaults.
+    const DEFAULT_FLAGS = (1 << 4) | (1 << 5);
+    const EXPLICIT_SWAP = 1 << 7;
+    const FPS = 60;
+    const READY = 3;
+    const PENDING = 2;
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    const macrotask = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    function srgbToLinear(value) {
+      const c = value / 255;
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    function meanLuminance(data) {
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        sum += 0.2126 * srgbToLinear(data[i]) + 0.7152 * srgbToLinear(data[i + 1]) + 0.0722 * srgbToLinear(data[i + 2]);
+      }
+      return sum / (data.length / 4);
+    }
+
+    function createHost(Module, selector, flags) {
+      const handle = Module.ccall('create_host_with_config', 'number',
+        ['string', 'string', 'number', 'number', 'number'], [selector, '', flags, 2, 0]);
+      return { handle, initCode: Module._get_last_init_error() };
+    }
+
+    function activate(Module, handle) {
+      Module.ccall('set_active_host', null, ['number'], [handle]);
+    }
+
+    // Takes the ready capture of the active host off the heap.
+    function takeCapture(Module) {
+      const width = Module._capture_frame_width();
+      const height = Module._capture_frame_height();
+      const ptr = Module._capture_frame_data_ptr();
+      const data = Module.HEAPU8.slice(ptr, ptr + width * height * 4);
+      const frameIndex = Module._capture_frame_index();
+      Module._capture_frame_release();
+      return { width, height, data, frameIndex };
+    }
+
+    // One tick of the virtual clock on the active host, read back.
+    function renderAndCapture(Module) {
+      if (!Module._capture_frame_request()) throw new Error('capture_frame_request() refused');
+      Module._render_frame();
+      const status = Module._capture_frame_resolve(1);
+      if (status !== READY) throw new Error('capture not ready after the frame (status ' + status + ')');
+      return takeCapture(Module);
+    }
+
+    async function loadPreset(Module, url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Preset fetch failed: ' + url + ' ' + response.status);
+      const vfsPath = '/presets/' + url.split('/').pop();
+      try { Module.FS.mkdir('/presets'); } catch (_) {}
+      Module.FS.writeFile(vfsPath, new Uint8Array(await response.arrayBuffer()));
+      Module.ccall('load_preset_file_hard', null, ['string'], [vfsPath]);
+      for (let turn = 0; Module._preset_switch_failed() === 0 && Module._is_preset_ready(0) === 0; turn += 1) {
+        if (turn > 600) throw new Error('Preset load did not complete: ' + url);
+        await macrotask();
+      }
+      if (Module._preset_switch_failed() !== 0) throw new Error('Preset switch failed: ' + url);
+    }
+
+    // A host on #pm-a that plays `presetUrl` with the limiter on or off:
+    // `settle` frames after the load, then `frames` measured ones.
+    async function runPreset(Module, presetUrl, { limit, settle = 10, frames = 40 }) {
+      const { handle, initCode } = createHost(Module, '#pm-a', DEFAULT_FLAGS);
+      if (!handle) throw new Error('create_host_with_config() failed with init code ' + initCode);
+      try {
+        Module._start_render(64, 48);
+        Module._set_render_loop_paused(1);
+        Module._set_quality_governor(0);
+        Module._set_deterministic_clock(1, FPS);
+        Module._render_frame();
+        Module._set_deterministic_clock(1, FPS);
+        if (limit) Module._set_flash_limit_enabled(1);
+        await loadPreset(Module, presetUrl);
+        activate(Module, handle);
+        for (let i = 0; i < settle; i += 1) renderAndCapture(Module);
+        const clampedAfterSettle = Module._get_flash_limit_clamped_frames();
+        const luminance = [];
+        let size = null;
+        for (let i = 0; i < frames; i += 1) {
+          const frame = renderAndCapture(Module);
+          size = [frame.width, frame.height];
+          luminance.push(Number(meanLuminance(frame.data).toFixed(4)));
+        }
+        return {
+          limit,
+          enabled: Module._get_flash_limit_enabled() !== 0,
+          threshold: Module._get_flash_limit_threshold(),
+          clampedAfterSettle,
+          clamped: Module._get_flash_limit_clamped_frames(),
+          committed: Module._get_committed_frame_count(),
+          size,
+          luminance,
+        };
+      } finally {
+        Module.ccall('destroy_host', null, ['number'], [handle]);
+      }
+    }
+
+    // Two engines, two canvas sizes, one tick each before either is read.
+    async function twoHosts(Module, presetUrl) {
+      const a = createHost(Module, '#pm-a', DEFAULT_FLAGS);
+      const b = createHost(Module, '#pm-b', DEFAULT_FLAGS);
+      try {
+        if (!a.handle || !b.handle) throw new Error('could not create two hosts');
+        activate(Module, a.handle);
+        Module._start_render(64, 48);
+        Module._set_render_loop_paused(1);
+        activate(Module, b.handle);
+        Module._start_render(32, 24);
+        await loadPreset(Module, presetUrl);
+        activate(Module, a.handle);
+        Module._capture_frame_request();
+        Module._render_frame();
+        activate(Module, b.handle);
+        Module._capture_frame_request();
+        Module._render_frame();
+        activate(Module, a.handle);
+        const statusA = Module._capture_frame_resolve(1);
+        const frameA = takeCapture(Module);
+        activate(Module, b.handle);
+        const statusB = Module._capture_frame_resolve(1);
+        const frameB = takeCapture(Module);
+        return {
+          statusA, statusB,
+          sizeA: [frameA.width, frameA.height, frameA.data.length],
+          sizeB: [frameB.width, frameB.height, frameB.data.length],
+          lumaA: Number(meanLuminance(frameA.data).toFixed(4)),
+          lumaB: Number(meanLuminance(frameB.data).toFixed(4)),
+        };
+      } finally {
+        if (a.handle) Module.ccall('destroy_host', null, ['number'], [a.handle]);
+        if (b.handle) Module.ccall('destroy_host', null, ['number'], [b.handle]);
+      }
+    }
+
+    // Manual present: commits per tick, and the asynchronous capture.
+    async function manualPresent(Module, presetUrl) {
+      const { handle, initCode } = createHost(Module, '#pm-a', DEFAULT_FLAGS | EXPLICIT_SWAP);
+      if (!handle) return { cameUp: false, initCode };
+      try {
+        Module._start_render(64, 48);
+        Module._set_render_loop_paused(1);
+        Module._set_deterministic_clock(1, FPS);
+        await loadPreset(Module, presetUrl);
+        activate(Module, handle);
+        const ticks = 12;
+        const committedBefore = Module._get_committed_frame_count();
+        const renderedBefore = Module._get_rendered_frame_count();
+        for (let i = 0; i < ticks; i += 1) Module._render_frame();
+        const committed = Module._get_committed_frame_count() - committedBefore;
+        const rendered = Module._get_rendered_frame_count() - renderedBefore;
+
+        // A live capture: the read is issued inside the frame, and picked up
+        // once the fence has signalled — on a later turn, never stalling.
+        Module._capture_frame_request();
+        Module._render_frame();
+        const statusAfterFrame = Module._capture_frame_status();
+        let pollTurns = 0;
+        while (Module._capture_frame_status() !== READY && pollTurns < 200) {
+          await macrotask();
+          activate(Module, handle);
+          pollTurns += 1;
+        }
+        const live = takeCapture(Module);
+
+        // An export tick: resolved with wait, in the same task.
+        Module._capture_frame_request();
+        Module._render_frame();
+        const statusWaited = Module._capture_frame_resolve(1);
+        const offline = takeCapture(Module);
+        return {
+          cameUp: true,
+          ticks, committed, rendered,
+          statusAfterFrame, pollTurns,
+          liveSize: [live.width, live.height, live.data.length],
+          liveLuma: Number(meanLuminance(live.data).toFixed(4)),
+          statusWaited,
+          offlineSize: [offline.width, offline.height],
+          offlineLuma: Number(meanLuminance(offline.data).toFixed(4)),
+          pendingWasSeen: statusAfterFrame === PENDING,
+        };
+      } finally {
+        Module.ccall('destroy_host', null, ['number'], [handle]);
+      }
+    }
+
+    async function run() {
+      const params = new URLSearchParams(location.search);
+      await loadScript(params.get('module'));
+      const Module = await createModule({ noInitialRun: true, locateFile: (path, prefix) => prefix + path });
+      if (typeof Module._capture_frame_request !== 'function') {
+        throw new Error('bundle predates the present pass (capture_frame_request)');
+      }
+      Module._set_deterministic_seed(1, 1234);
+      const strobe = params.get('strobe');
+      const calm = params.get('calm');
+      return {
+        ok: true,
+        strobeOff: await runPreset(Module, strobe, { limit: false }),
+        strobeOn: await runPreset(Module, strobe, { limit: true }),
+        calmOff: await runPreset(Module, calm, { limit: false }),
+        calmOn: await runPreset(Module, calm, { limit: true }),
+        twoHosts: await twoHosts(Module, strobe),
+        manual: await manualPresent(Module, calm),
+      };
+    }
+
+    run().then(
+      (result) => { window.__projectMPresentResult = result; },
+      (error) => { window.__projectMPresentResult = { ok: false, error: String(error && error.stack || error) }; },
+    );
+  </script>
+</body>
+</html>

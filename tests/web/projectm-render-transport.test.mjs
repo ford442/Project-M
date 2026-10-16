@@ -354,6 +354,93 @@ test('rhythm events come off the WASM callback bus on the main thread and off th
     assert.deepEqual(subscriptions, [listener]);
 });
 
+// ---- one engine per transport (two engines can share a Module) --------------
+
+/**
+ * fakeModule() with the C++ host registry modeled: hosts 11 and 12 are live,
+ * set_active_host() switches to a live one and ignores a stale one.
+ */
+function twoEngineModule() {
+    const module = fakeModule();
+    module.live = new Set([11, 12]);
+    module.active = 12;
+    const ccall = module.ccall;
+    module.ccall = (name, returnType, argTypes, args) => {
+        if (name === 'set_active_host' && module.live.has(args[0])) module.active = args[0];
+        return ccall(name, returnType, argTypes, args);
+    };
+    module._get_active_host = () => module.active;
+    return module;
+}
+
+test('a transport bound to a host selects it before every engine call', () => {
+    const module = twoEngineModule();
+    const transport = createModuleTransport(module, { host: 11 });
+    assert.equal(transport.host, 11);
+
+    transport.callVoid('setPresetLocked', true);
+    transport.writePreset('/presets/a.milk', Uint8Array.of(1));
+    module.active = 12; // a sibling drove its engine in between
+    transport.resize(320, 240);
+
+    assert.deepEqual(module.calls.map((call) => call.name), [
+        'set_active_host', 'set_preset_locked',
+        'set_active_host', 'load_preset_file',
+        'set_active_host', 'set_window_size',
+    ]);
+    assert.ok(module.calls.filter((call) => call.name === 'set_active_host').every((call) => call.args[0] === 11));
+    assert.equal(module.active, 11);
+});
+
+test('the default-host transport (host 0) issues no activation at all', () => {
+    const module = twoEngineModule();
+    const transport = createModuleTransport(module);
+    assert.equal(transport.host, 0);
+    transport.callVoid('setPresetLocked', true);
+    assert.deepEqual(module.calls.map((call) => call.name), ['set_preset_locked']);
+});
+
+test('a transport whose host was destroyed refuses rather than driving the survivor', () => {
+    const module = twoEngineModule();
+    const transport = createModuleTransport(module, { host: 11 });
+    module.live.delete(11); // destroy_host(11); 12 is active and stays so
+
+    assert.throws(() => transport.callVoid('setPresetLocked', true), /host 11 no longer exists/);
+    assert.equal(module.calls.some((call) => call.name === 'set_preset_locked'), false);
+    assert.equal(module.active, 12);
+});
+
+test('a transport bound to a host hears only its own engine\'s perf and rhythm events', () => {
+    const module = twoEngineModule();
+    const a = createModuleTransport(module, { host: 11 });
+    const b = createModuleTransport(module, { host: 12 });
+    const seen = { a: [], b: [] };
+    const offs = [
+        a.onPerfFrame((stats) => seen.a.push(['frame', stats.totalMs])),
+        b.onPerfFrame((stats) => seen.b.push(['frame', stats.totalMs])),
+        a.onPerfHudEnabled((enabled) => seen.a.push(['hud', enabled])),
+        b.onPerfHudEnabled((enabled) => seen.b.push(['hud', enabled])),
+        a.onRhythmEvent((event) => seen.a.push(['beat', event.beatIndex])),
+        b.onRhythmEvent((event) => seen.b.push(['beat', event.beatIndex])),
+    ];
+    try {
+        globalThis.pmOnPerfFrame({ host: 11, totalMs: 4 });
+        globalThis.pmOnPerfFrame({ host: 12, totalMs: 9 });
+        globalThis.pmSetPerfHudEnabled(12, true);
+        globalThis.pmOnRhythmEvent({ host: 11, beat: true, beatIndex: 3 });
+        assert.deepEqual(seen.a, [['frame', 4], ['beat', 3]]);
+        assert.deepEqual(seen.b, [['frame', 9], ['hud', true]]);
+    } finally {
+        for (const off of offs) off();
+    }
+});
+
+test('the worker transport reports the engine its worker announced', () => {
+    const handle = fakeHandle();
+    handle.engineHost = () => 5;
+    assert.equal(createWorkerTransport(handle).host, 5);
+});
+
 test('installTransportPcmWriter points the baked worklet handler at the transport', () => {
     const handle = fakeHandle();
     const remove = installTransportPcmWriter(createWorkerTransport(handle));

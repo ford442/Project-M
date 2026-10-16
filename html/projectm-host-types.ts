@@ -7,7 +7,7 @@
 // `generated/projectm-wasm-api.ts` and the globals set from `projectM_emscripten.cpp`.
 
 import type { ProjectMModule } from './generated/projectm-wasm-api.ts';
-import type { PerfFrameStats } from './projectm-render-worker-types.ts';
+import type { PerfFrameStats, RhythmEvent } from './projectm-render-worker-types.ts';
 
 /**
  * The subset of the Emscripten module instance the host modules touch, before
@@ -25,6 +25,85 @@ export type ProjectMModuleLike = Partial<ProjectMModule> & {
     wasmMemory?: WebAssembly.Memory;
     HEAPF32?: Float32Array;
 };
+
+// ---- Engine callback events -------------------------------------------------
+//
+// What a `subscribeWasmCallback()` listener (projectm-wasm-callbacks.js) gets:
+// one object per engine call. `host` names the engine that made it —
+// create_host*()'s handle, 0 for the legacy default host, -1 for a failure
+// before any engine existed (create_host*() at the instance cap) — and is null
+// when the bundle predates 040 and did not say. A listener subscribed with
+// `{ engineHost }` hears only its own engine (and the null ones).
+
+/** Fields every engine callback event carries. */
+export interface WasmEngineEvent {
+    host: number | null;
+}
+
+/** `pmOnGovernorTierChange`: the governor moved to `tier` (0 high … 2 low). */
+export interface GovernorTierChangeEvent extends WasmEngineEvent {
+    tier: number;
+}
+
+/** `pmOnGovernorRenderScaleChange`: the tier's internal render scale (1/0.75/0.5). */
+export interface GovernorRenderScaleChangeEvent extends WasmEngineEvent {
+    scale: number;
+}
+
+/** `pmOnGovernorBlurCapChange`: the tier's blur-level cap (-1 uncapped, else 0-3). */
+export interface GovernorBlurCapChangeEvent extends WasmEngineEvent {
+    cap: number;
+}
+
+/** `pmOnPerfFrame`: one frame's timings, `host` on the stats themselves. */
+export type PerfFrameEvent = PerfFrameStats & WasmEngineEvent;
+
+/** `pmSetPerfHudEnabled`: perf instrumentation on that engine turned on or off. */
+export interface PerfHudEnabledEvent extends WasmEngineEvent {
+    enabled: boolean;
+}
+
+/** `pmOnRhythmEvent`: beats, bars and sections (has always carried `host`). */
+export type RhythmCallbackEvent = Omit<RhythmEvent, 'host'> & WasmEngineEvent;
+
+/** `pmOnTranspiledShaderStored`: freshly transpiled GLSL worth persisting. */
+export interface TranspiledShaderStoredEvent extends WasmEngineEvent {
+    /** The preset's cache key, without the engine's namespace. */
+    key: string;
+    /** 0 = warp, 1 = composite. */
+    kind: 0 | 1;
+    glsl: string;
+}
+
+/** `pmReportInitError`: init() or create_host*() failed (docs/EMSCRIPTEN.md codes). */
+export interface InitErrorEvent extends WasmEngineEvent {
+    code: number;
+    detail: string;
+}
+
+/** `pmHideInitError`: init() succeeded. */
+export type InitSuccessEvent = WasmEngineEvent;
+
+/** Event type per callback name, for `subscribeWasmCallback()`. */
+export interface WasmCallbackEventMap {
+    pmOnGovernorTierChange: GovernorTierChangeEvent;
+    pmOnGovernorRenderScaleChange: GovernorRenderScaleChangeEvent;
+    pmOnGovernorBlurCapChange: GovernorBlurCapChangeEvent;
+    pmOnPerfFrame: PerfFrameEvent;
+    pmSetPerfHudEnabled: PerfHudEnabledEvent;
+    pmOnRhythmEvent: RhythmCallbackEvent;
+    pmOnTranspiledShaderStored: TranspiledShaderStoredEvent;
+    pmReportInitError: InitErrorEvent;
+    pmHideInitError: InitSuccessEvent;
+}
+
+export type WasmCallbackEvent = WasmCallbackEventMap[keyof WasmCallbackEventMap];
+
+/**
+ * How the engine calls a positional callback: bundles 040+ put the host handle
+ * first; older ones pass the payload alone. The callback bus accepts both.
+ */
+type EngineCall<Args extends unknown[]> = (...args: [host: number, ...rest: Args] | Args) => void;
 
 /** Custom feed hook signature for {@link setupExternalAudioReceiver}. */
 export type ExternalPcmFeedFn = (
@@ -56,8 +135,8 @@ declare global {
          * up by name, and projectm-init-errors.js listens through
          * projectm-wasm-callbacks.js, which owns the global.
          */
-        pmReportInitError?: (code: number, detail?: string) => void;
-        pmHideInitError?: () => void;
+        pmReportInitError?: EngineCall<[code: number, detail?: string]>;
+        pmHideInitError?: EngineCall<[]>;
         /** Shared AudioContext created by `js_initialize_worklet_system_once` (projectM_emscripten.cpp). */
         projectMAudioContext_Global_Cpp?: AudioContext;
         /**
@@ -71,9 +150,9 @@ declare global {
          * Governor v2 (docs/PERFORMANCE.md): tier-change push notifications from
          * WasmPerfGovernor.cpp. Engine callbacks, owned by projectm-wasm-callbacks.js.
          */
-        pmOnGovernorTierChange?: (tier: number) => void;
-        pmOnGovernorRenderScaleChange?: ((scale: number) => void) | null;
-        pmOnGovernorBlurCapChange?: (cap: number) => void;
+        pmOnGovernorTierChange?: EngineCall<[tier: number]>;
+        pmOnGovernorRenderScaleChange?: EngineCall<[scale: number]> | null;
+        pmOnGovernorBlurCapChange?: EngineCall<[cap: number]>;
         /** Governor v2 pull getters (legacy shim, like the setters above). */
         pmGetGovernorRenderScale?: () => number;
         pmGetGovernorBlurCap?: () => number;
@@ -108,7 +187,7 @@ declare global {
          * `js_on_transpiled_shader_stored()` (projectM_emscripten.cpp).
          * `kind` is 0=warp, 1=composite.
          */
-        pmOnTranspiledShaderStored?: (cacheKey: string, kind: 0 | 1, glsl: string) => void;
+        pmOnTranspiledShaderStored?: EngineCall<[cacheKey: string, kind: 0 | 1, glsl: string]>;
         /** Hot-reload hooks for `?devPreset=1` (legacy shim; see `exposePresetDevGlobals()`). */
         pmReloadPresetText?: (text: string, label?: string) => Promise<void>;
         pmPresetDevEnabled?: boolean;
@@ -119,7 +198,7 @@ declare global {
          * defined there and typed as `PerfFrameStats` in
          * projectm-render-worker-types.ts, since the render worker relays it.
          */
-        pmSetPerfHudEnabled?: (enabled: boolean) => void;
+        pmSetPerfHudEnabled?: EngineCall<[enabled: boolean]>;
         pmOnPerfFrame?: (stats: PerfFrameStats) => void;
     }
 
@@ -148,7 +227,7 @@ declare global {
      */
     // eslint-disable-next-line no-var
     var pmOnTranspiledShaderStored:
-        | ((cacheKey: string, kind: 0 | 1, glsl: string) => void)
+        | EngineCall<[cacheKey: string, kind: 0 | 1, glsl: string]>
         | undefined;
 
     /** Shared AudioContext created by `js_initialize_worklet_system_once`. */

@@ -149,6 +149,19 @@ void FlushRhythmEvents(WasmHost& host);
 // resolved against the current tempo, or the duration in seconds.
 float ResolveTransitionDuration(WasmHost& host);
 
+// ---- Present pass (defined in WasmPresent.cpp) -----------------------------
+// TakeRequestedFrameCapture() runs at the end of render_frame(), after the
+// compositor and before the manual-present commit: if the page asked for this
+// frame with capture_frame_request(), it is read from the drawing buffer here.
+// ReleaseFrameCapture() frees the host's readback buffers with its other GL
+// resources (context loss, rebind, destroy).
+void TakeRequestedFrameCapture(WasmHost& host);
+void ReleaseFrameCapture(WasmHost& host);
+// The host's flash-limiter clamp count for the perf HUD: read back from the GPU
+// at most every ~0.5 s, the cached value in between; -1 while the limiter is
+// off or the host has no engine.
+double FlashClampedFramesForHud(WasmHost& host);
+
 // ---- Transpiled-GLSL cache (defined in WasmShaderCache.cpp) ----------------
 // Registers the lookup/store callbacks that bridge libprojectM's shader
 // transpile cache to the host page. Called once from init().
@@ -188,16 +201,18 @@ void js_initialize_worklet_system_once();
 void js_perf_gpu_begin_frame();
 void js_perf_gpu_end_frame();
 double js_perf_gpu_get_last_ms();
-void js_perf_hud_set_enabled(int enabled);
-void js_perf_report_frame(double totalMs, double audioMs, double perFrameEvalMs,
+void js_perf_hud_set_enabled(double host, int enabled);
+void js_perf_report_frame(double host, double totalMs, double audioMs, double perFrameEvalMs,
                           double perPixelEvalMs, double blurMs, double waveformsShapesMs,
                           double compositeMs, double gpuMs, double fps, int shaderLinkPending,
-                          int perPixelEvalPath, double rhythmMs);
+                          int perPixelEvalPath, double rhythmMs, double flashClampedFrames);
 
 // JS bindings / DOM + host-page notifications (WasmJsBindings.cpp)
 void js_update_preset_name(const char* name);
 void js_report_preset_switch_failed(const char* preset_filename, const char* message);
 void js_init_projectm_dom();
+// Both report for the active host (EventHostHandle()); _for_host names it.
 void js_report_init_error(int code, const char* detail);
+void js_report_init_error_for_host(double host, int code, const char* detail);
 void js_report_init_success();
 } // extern "C"

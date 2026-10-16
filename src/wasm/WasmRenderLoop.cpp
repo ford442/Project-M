@@ -52,10 +52,10 @@ static void RenderActiveHostFrame()
         projectm_perf_frame_timings timings;
         projectm_perf_get_frame_timings(&timings);
         js_perf_report_frame(
-            timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
+            EventHostHandle(H), timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
             timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
             timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps, timings.shader_link_pending,
-            timings.per_pixel_eval_path, timings.rhythm_analysis_ms);
+            timings.per_pixel_eval_path, timings.rhythm_analysis_ms, FlashClampedFramesForHud(H));
     }
     UpdateQualityGovernor(emscripten_get_now() - frameStartMs);
     return;
@@ -303,6 +303,8 @@ void render_frame()
         projectm_opengl_render_frame(pm);
         CollectRhythmEvents(H);
         FlushRhythmEvents(H);
+        TakeRequestedFrameCapture(H);
+        WasmWebGLCommitFrameIfExplicit();
         g_renderedFrameCount++;
         return;
     }
@@ -371,6 +373,10 @@ void render_frame()
         fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
     }
     FlushRhythmEvents(H);
+    // A requested capture reads what the compositor just drew, before the commit.
+    TakeRequestedFrameCapture(H);
+    // explicitSwapControl hosts present here, once, after the compositor.
+    WasmWebGLCommitFrameIfExplicit();
     g_renderedFrameCount++;
     return;
 }

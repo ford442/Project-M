@@ -32,6 +32,7 @@
 #include <Audio/PCM.hpp>
 
 #include <Renderer/CopyTexture.hpp>
+#include <Renderer/FlashLimiter.hpp>
 #include <Renderer/PresetTransition.hpp>
 #include <Renderer/Shader.hpp>
 #include <Renderer/ShaderCache.hpp>
@@ -335,24 +336,30 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     // ToDo: Call the to-be-implemented render method in Renderer
     m_activePreset->RenderFrame(audioData, renderContext);
 
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(targetFramebufferObject));
-    glViewport(0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY);
-
-#ifdef USE_GLES
-    // On WebGL2 / Chrome ANGLE, the default framebuffer's draw buffer must
-    // be explicitly set to GL_BACK after preset rendering, which may leave
-    // per-FBO draw buffer state that leaks into FBO 0 on some drivers.
-    if (targetFramebufferObject == 0)
-    {
-        GLenum backBuf = GL_BACK;
-        glDrawBuffers(1, &backBuf);
-    }
-#endif
-
     // Everything from here to the sprites puts the preset's output into the target
     // framebuffer: a blit, a transparency copy, or a transition blend.
     std::optional<Perf::GpuStageScope> presentStage;
     presentStage.emplace(Perf::GpuStage::Present);
+
+    // With the flash limiter on, the output goes into the limiter's frame texture
+    // instead, and the limiter puts the (possibly limited) frame into the target below.
+    const bool limitFlashes = m_flashLimiter->BeginFrame(renderContext.viewportSizeX, renderContext.viewportSizeY);
+    if (!limitFlashes)
+    {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(targetFramebufferObject));
+        glViewport(0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY);
+
+#ifdef USE_GLES
+        // On WebGL2 / Chrome ANGLE, the default framebuffer's draw buffer must
+        // be explicitly set to GL_BACK after preset rendering, which may leave
+        // per-FBO draw buffer state that leaks into FBO 0 on some drivers.
+        if (targetFramebufferObject == 0)
+        {
+            GLenum backBuf = GL_BACK;
+            glDrawBuffers(1, &backBuf);
+        }
+#endif
+    }
 
     if (m_transition != nullptr && m_transitioningPreset != nullptr)
     {
@@ -383,6 +390,11 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
                               m_transparencyThreshold);
     }
 
+    if (limitFlashes)
+    {
+        m_flashLimiter->EndFrame(static_cast<GLuint>(targetFramebufferObject), m_timeKeeper->SecondsSinceLastFrame());
+    }
+
     presentStage.reset();
 
     // Draw user sprites
@@ -410,6 +422,7 @@ void ProjectM::Initialize()
     m_transitionShaderManager = std::make_unique<Renderer::TransitionShaderManager>();
 
     m_textureCopier = std::make_unique<Renderer::CopyTexture>();
+    m_flashLimiter = std::make_unique<Renderer::FlashLimiter>();
 
     m_spriteManager = std::make_unique<UserSprites::SpriteManager>();
 
@@ -642,6 +655,31 @@ void ProjectM::SetTransparencyThreshold(float threshold)
 auto ProjectM::TransparencyThreshold() const -> float
 {
     return m_transparencyThreshold;
+}
+
+void ProjectM::SetFlashLimitEnabled(bool enabled)
+{
+    m_flashLimiter->SetEnabled(enabled);
+}
+
+auto ProjectM::FlashLimitEnabled() const -> bool
+{
+    return m_flashLimiter->Enabled();
+}
+
+void ProjectM::SetFlashLimitThreshold(float threshold)
+{
+    m_flashLimiter->SetThreshold(threshold);
+}
+
+auto ProjectM::FlashLimitThreshold() const -> float
+{
+    return m_flashLimiter->Threshold();
+}
+
+auto ProjectM::FlashLimitClampedFrames() -> uint32_t
+{
+    return m_flashLimiter->ClampedFrames();
 }
 
 void ProjectM::SetFrameTime(double secondsSinceStart)

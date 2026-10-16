@@ -72,16 +72,26 @@ contexts on a page (or one that is destroyed and started again) the second write
 replaces the first, and the first one's teardown then nulls the slot the second is using.
 There are two kinds of `pm*` name, handled differently:
 
-- **Engine callbacks** — names the WASM glue looks up by fixed ABI and calls with no host
-  handle: `pmOnPerfFrame`, `pmSetPerfHudEnabled`, `pmOnGovernorTierChange`,
-  `pmOnGovernorRenderScaleChange`, `pmOnGovernorBlurCapChange`,
-  `pmOnTranspiledShaderStored`, `pmReportInitError`, `pmHideInitError`, `pmOnRhythmEvent`
-  (`WASM_CALLBACK_NAMES`; `pmOnRhythmEvent` is the one exception that does carry the host
-  handle, as `event.host`). These cannot be opt-in: a page that never imports a shim must
-  still hear the governor. `projectm-wasm-callbacks.js` installs each name once, fans it out
-  to every `subscribeWasmCallback(name, listener)` subscriber, and removes it when the last
-  one leaves. Because the callbacks carry no host handle, every subscriber sees every call;
-  telling engine instances in a shared Module apart needs the handle passed from the C++ side.
+- **Engine callbacks** — names the WASM glue looks up by fixed ABI: `pmOnPerfFrame`,
+  `pmSetPerfHudEnabled`, `pmOnGovernorTierChange`, `pmOnGovernorRenderScaleChange`,
+  `pmOnGovernorBlurCapChange`, `pmOnTranspiledShaderStored`, `pmReportInitError`,
+  `pmHideInitError`, `pmOnRhythmEvent` (`WASM_CALLBACK_NAMES`). These cannot be opt-in: a
+  page that never imports a shim must still hear the governor. `projectm-wasm-callbacks.js`
+  installs each name once, fans it out to every `subscribeWasmCallback(name, listener)`
+  subscriber, and removes it when the last one leaves.
+
+  Since bundle 040 every one of them names the engine it came from: the host handle is the
+  first argument (`pmOnGovernorRenderScaleChange(host, scale)`), or `host` on the object for
+  `pmOnPerfFrame` and `pmOnRhythmEvent`. It is `create_host*()`'s handle, `0` for the default
+  host a single-engine `init()` brings up, and `-1` for a create refused before any engine
+  existed. The bus hands each listener one typed event (`WasmCallbackEventMap` in
+  `projectm-host-types.ts`, `host` on every one), and
+  `subscribeWasmCallback(name, listener, hostObject, { engineHost })` delivers only that
+  engine's events. No filter means every engine — right for page-wide listeners (the perf
+  HUD, the shader-cache store, the init-error overlay). Bundles up to 039 call the same names
+  without the handle; the bus tells the shapes apart by arity (each positional callback gains
+  exactly one leading argument) and gives those calls `host: null`, which every listener
+  hears, filtered or not.
 - **Convenience API** — everything only host pages and the console call: `pmSetTargetFps`,
   `pmSetQualityGovernorEnabled`, `pmGetQualityTier`, `pmGetGovernorRenderScale`,
   `pmGetGovernorBlurCap`, `pmSetMeshQuality`, `pmGetFboFormat`, `pmReloadPresetText`,
@@ -148,8 +158,10 @@ that records what a context leaves behind):
 
 Known limits, deliberately not papered over:
 
-- Engine callbacks carry no host handle, so in a shared Module every context hears every
-  governor tier change. Telling instances apart needs the handle passed from the C++ side.
+- Two contexts that each boot their *own* Module on one page both report as host `0` to the
+  same global names, so the host filter cannot tell them apart; that is the iframe layout's
+  job (`embed-multi-iframe.html`). Two engines in *one* Module (`embed-multi-same-module.html`)
+  are scoped: governor tiers, init failures, perf frames and calls stay with their engine.
 - Only one external-PCM receiver feeds at a time (the newest). Two contexts that both need the
   same external audio simultaneously would need a per-target broadcast.
 - The `AudioContext` and worklet node are created by the WASM side and are process-global;

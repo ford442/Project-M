@@ -548,6 +548,99 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
 ${_signature_lines}};
 ")
 
+# ---------------------------------------------------------------------------
+# bindModuleToHost() — host-scoped calls (#168 Phase B follow-up).
+#
+# Almost every export acts on the *active* host. With two engines in one
+# Module, a caller that activates its host and then yields (awaits a fetch)
+# can resume after a sibling activated its own, and the next call lands on the
+# wrong engine. bindModuleToHost(module, host) returns a view of the module on
+# which every export outside PROJECTM_WASM_API_HOST_REGISTRY — direct `_sym`
+# calls and ccall alike, so every wrapper below and every helper that takes a
+# module — selects `host` first. Host 0 (the single-engine default) returns
+# the module itself.
+# ---------------------------------------------------------------------------
+set(_registry_items "")
+foreach(_sym IN LISTS PROJECTM_WASM_API_HOST_REGISTRY)
+    if(_registry_items STREQUAL "")
+        set(_registry_items "'${_sym}'")
+    else()
+        set(_registry_items "${_registry_items}, '${_sym}'")
+    endif()
+endforeach()
+
+set(_bind_doc "
+/**
+ * Exports that act on the host registry rather than on the active host's
+ * engine (PROJECTM_WASM_API_HOST_REGISTRY in cmake/WasmApiManifest.cmake).
+ * bindModuleToHost() passes these through without activating its host.
+ */")
+set(_bind_doc_fn "
+/**
+ * A view of `module` bound to one engine: every engine export reached through
+ * it — `module._sym(...)` and `module.ccall('sym', ...)`, hence every wrapper
+ * in this file and every helper that takes a module — first makes `host` the
+ * active host. That is what keeps an async caller (a preset fetch that resumes
+ * after a sibling engine activated itself) on its own engine without having to
+ * remember to re-activate. Host 0, the single-engine default host, needs no
+ * activation and returns `module` itself. Everything that is not an engine
+ * export (FS, HEAP views, runtime helpers) is the module's own. A call through
+ * a view whose host has been destroyed throws rather than reaching whichever
+ * engine is active instead.
+ */")
+set(_bind_body "    if (!host) {
+        return module;
+    }
+    const target = module as unknown as Record<string, unknown> & { ccall: EmscriptenModule['ccall'] };
+    // set_active_host() ignores a handle that is no longer live and leaves the
+    // previous host active, so a view that outlived its engine would quietly
+    // drive a sibling's. Check, and refuse instead.
+    const getActive = target._get_active_host as (() => number) | undefined;
+    const activate = () => {
+        target.ccall('set_active_host', null, ['number'], [host]);
+        if (typeof getActive === 'function' && getActive() !== host) {
+            throw new Error(`projectM engine host \${host} no longer exists`);
+        }
+    };
+    return new Proxy(target, {
+        get(obj, property) {
+            const value = Reflect.get(obj, property);
+            if (typeof property !== 'string' || typeof value !== 'function') {
+                return value;
+            }
+            const fn = value as (...args: unknown[]) => unknown;
+            if (property === 'ccall') {
+                return (name: string, ...rest: unknown[]) => {
+                    if (!HOST_REGISTRY_SYMBOLS.has(name)) {
+                        activate();
+                    }
+                    return fn.call(obj, name, ...rest);
+                };
+            }
+            if (property.startsWith('_') && !HOST_REGISTRY_SYMBOLS.has(property.slice(1))) {
+                return (...args: unknown[]) => {
+                    activate();
+                    return fn.apply(obj, args);
+                };
+            }
+            return value;
+        },
+    }) as unknown as M;
+")
+string(REPLACE " as unknown as Record<string, unknown> & { ccall: EmscriptenModule['ccall'] }" "" _bind_body_js "${_bind_body}")
+string(REPLACE "fn = value as (...args: unknown[]) => unknown" "fn = value" _bind_body_js "${_bind_body_js}")
+string(REPLACE " as (() => number) | undefined" "" _bind_body_js "${_bind_body_js}")
+string(REPLACE "(name: string, ...rest: unknown[])" "(name, ...rest)" _bind_body_js "${_bind_body_js}")
+string(REPLACE "(...args: unknown[])" "(...args)" _bind_body_js "${_bind_body_js}")
+string(REPLACE "}) as unknown as M;" "});" _bind_body_js "${_bind_body_js}")
+
+string(APPEND _ts_body "${_bind_doc}
+export const HOST_REGISTRY_SYMBOLS: ReadonlySet<string> = new Set([${_registry_items}]);
+${_bind_doc_fn}
+export function bindModuleToHost<M extends ProjectMModule>(module: M, host: number): M {
+${_bind_body}}
+")
+
 string(APPEND _ts_body "
 /**
  * Feed interleaved float PCM into projectM (malloc + HEAPF32 marshaling).
@@ -618,6 +711,17 @@ export function feedPcmFloat(module, data, samplesPerChannel, channels = 2) {
         module._free(ptr);
     }
 }
+${_bind_doc}
+export const HOST_REGISTRY_SYMBOLS = new Set([${_registry_items}]);
+${_bind_doc_fn}
+/**
+ * @template {object} M
+ * @param {M} module
+ * @param {number} host
+ * @returns {M}
+ */
+export function bindModuleToHost(module, host) {
+${_bind_body_js}}
 ${_js_wrappers}
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [\n${_ts_symbol_exports}\n];

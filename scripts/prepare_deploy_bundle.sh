@@ -46,6 +46,15 @@ PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-039}"
 # Must match scripts/build_wasm_smoke_wrapper.sh output and PROJECTM_WASM_SMOKE_BUNDLE.
 SMOKE_BUNDLE="projectm-v.030-thread"
 
+# The GL-debug and explicit-swap link flavors are for local diagnosis and #256 /
+# #262 work, never production (docs/EMSCRIPTEN.md "Link flavors"). Their build-id
+# carries a +flavor suffix, so the reuse check below and deploy.py refuse them
+# anyway; this just says so before a rebuild.
+if [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" || "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" ]]; then
+    echo "ERROR: PROJECTM_WASM_GL_DEBUG / PROJECTM_WASM_EXPLICIT_SWAP select a non-deployable link flavor; unset them." >&2
+    exit 1
+fi
+
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
 # Always stage from the smoke-tag outputs produced by build_wasm_smoke_wrapper.sh.
 # Preferring a previously-renamed ${bundle}.* in OUT_DIR silently redeploys a stale

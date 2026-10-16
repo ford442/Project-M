@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM context attributes</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <!--
+    Records whether a WebGL 2 context comes up with failIfMajorPerformanceCaveat
+    on (create_host_with_config(), flag 1 << 6), and the init code when it does
+    not. Then creates one without the flag on a fresh canvas, so "refused
+    because software" is distinguishable from "no WebGL 2 at all".
+
+    Whether a software renderer counts as a "major performance caveat" is the
+    browser's call: headless Chromium 151 with --use-angle=swiftshader accepts
+    SwiftShader even for a plain getContext() with the flag. So the page also
+    asks the browser directly (browserAcceptsCaveat), and the engine must agree
+    with it: up when the browser accepts, init code 8 when it refuses. Not part
+    of the default smoke: driven only by tests/wasm-smoke/context_attributes.mjs.
+
+    Also: every attribute is read back from the browser's context, and an
+    explicitSwapControl host is created — init code 9 on a bundle linked
+    without OFFSCREEN_FRAMEBUFFER, a context whose FBO 0 is Emscripten's
+    offscreen back buffer on the explicit-swap flavor.
+  -->
+  <canvas id="pm-caveat" width="64" height="64"></canvas>
+  <canvas id="pm-plain" width="64" height="64"></canvas>
+  <canvas id="pm-attrs" width="64" height="64"></canvas>
+  <canvas id="pm-swap" width="64" height="64"></canvas>
+  <div id="preset-name" hidden></div>
+  <div id="stat" hidden></div>
+  <script>
+    // contextAlpha + premultipliedAlpha: resolveWasmContextConfig()'s defaults.
+    const DEFAULT_FLAGS = (1 << 4) | (1 << 5);
+    const FAIL_IF_MAJOR_PERFORMANCE_CAVEAT = 1 << 6;
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    // The browser's own answer to the same request, with no projectM involved:
+    // whether the engine refuses is only meaningful next to this.
+    function browserAcceptsCaveat() {
+      try {
+        const gl = new OffscreenCanvas(1, 1).getContext('webgl2', { failIfMajorPerformanceCaveat: true });
+        gl?.getExtension('WEBGL_lose_context')?.loseContext();
+        return !!gl;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    // What the browser says it renders with, from a throwaway context.
+    function rendererName() {
+      try {
+        const gl = new OffscreenCanvas(1, 1).getContext('webgl2');
+        if (!gl) return null;
+        const info = gl.getExtension('WEBGL_debug_renderer_info');
+        const name = gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
+        return String(name);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Creates a host, reads back the attributes the browser actually gave its
+    // context (Module.ctx is the current GL context), and destroys it again.
+    function create(Module, selector, flags, powerPreference = 2) {
+      const handle = Module.ccall('create_host_with_config', 'number',
+        ['string', 'string', 'number', 'number', 'number'], [selector, '', flags, powerPreference, 0]);
+      const code = Module._get_last_init_error();
+      let attributes = null;
+      if (handle) {
+        attributes = Module.ctx ? { ...Module.ctx.getContextAttributes() } : null;
+        Module.ccall('destroy_host', null, ['number'], [handle]);
+      }
+      return { cameUp: handle !== 0, initCode: code, attributes };
+    }
+
+    // An explicitSwapControl host. On the explicit-swap flavor, binding FBO 0
+    // must land on Emscripten's offscreen back buffer (a real WebGLFramebuffer),
+    // which only reaches the canvas on emscripten_webgl_commit_frame().
+    function explicitSwap(Module) {
+      const handle = Module.ccall('create_host_with_config', 'number',
+        ['string', 'string', 'number', 'number', 'number'], ['#pm-swap', '', DEFAULT_FLAGS | (1 << 7), 2, 0]);
+      const result = { cameUp: handle !== 0, initCode: Module._get_last_init_error(), backBufferRedirected: null, framesRendered: 0 };
+      if (handle) {
+        Module._start_render(64, 64);
+        Module._set_render_loop_paused?.(1);
+        for (let i = 0; i < 3; ++i) Module._render_frame();
+        result.framesRendered = 3;
+        const gl = Module.ctx;
+        result.backBufferRedirected = gl ? gl.getParameter(gl.FRAMEBUFFER_BINDING) !== null : null;
+        Module.ccall('destroy_host', null, ['number'], [handle]);
+      }
+      return result;
+    }
+
+    async function run() {
+      const params = new URLSearchParams(location.search);
+      await loadScript(params.get('module'));
+      const Module = await createModule({ noInitialRun: true, locateFile: (path, prefix) => prefix + path });
+      if (typeof Module._get_last_init_error !== 'function') {
+        throw new Error('bundle predates create_host_with_config()/get_last_init_error()');
+      }
+      const reports = [];
+      // (host, code, detail) since bundle 040; (code, detail) before it.
+      globalThis.pmReportInitError = (...args) => {
+        const [host, code, detail] = args.length > 2 ? args : [null, ...args];
+        reports.push({ host, code, detail });
+      };
+      return {
+        ok: true,
+        renderer: rendererName(),
+        browserAcceptsCaveat: browserAcceptsCaveat(),
+        withCaveat: create(Module, '#pm-caveat', DEFAULT_FLAGS | FAIL_IF_MAJOR_PERFORMANCE_CAVEAT),
+        withoutCaveat: create(Module, '#pm-plain', DEFAULT_FLAGS),
+        // Every boolean flipped from its default except explicit swap (needs
+        // the explicit-swap flavor) and the caveat flag; low-power.
+        inverted: create(Module, '#pm-attrs', (1 << 1) | (1 << 2) | (1 << 3) | (1 << 8), 1),
+        explicitSwap: explicitSwap(Module),
+        reported: reports,
+      };
+    }
+
+    run().then(
+      (result) => { window.__projectMCaveatResult = result; },
+      (error) => { window.__projectMCaveatResult = { ok: false, error: String(error && error.stack || error) }; },
+    );
+  </script>
+</body>
+</html>

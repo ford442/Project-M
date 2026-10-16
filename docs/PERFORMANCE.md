@@ -208,7 +208,7 @@ diff `gpuMs`/`totalMs` from two otherwise identical `?benchmark=1` runs.
 
 The page reads the WASM switches and hands them to the module: `?blurPath`, `?copyPath` and
 `?perPixelEval` through `set_render_path_overrides()` (`ProjectMContext`'s `renderPathOverrides`
-option, defaulting to the page's query string), `?fboPrecision` through `set_context_config()`.
+option, defaulting to the page's query string), `?fboPrecision` through `create_host_with_config()`.
 Both travel in the render worker's `init` message. Until #258 the C++ side read the first three
 from `globalThis.location.search`, which inside the render worker is the worker script's URL — so
 in the default topology every one of them was silently a no-op. The worker's `stats` message
@@ -447,8 +447,11 @@ render-worker topology applies the same factor to the `OffscreenCanvas` it owns,
 
 New exports (`WasmPerfGovernor.cpp`, `cmake/WasmApiManifest.cmake`):
 
-- `Module._get_governor_render_scale()` — current tier's render scale (pull; `js_governor_report_render_scale()` is the push counterpart, firing `window.pmOnGovernorRenderScaleChange(scale)`).
-- `Module._get_governor_blur_cap()` — current tier's blur cap (pull; push counterpart fires `window.pmOnGovernorBlurCapChange(cap)`).
+- `Module._get_governor_render_scale()` — current tier's render scale (pull; `js_governor_report_render_scale()` is the push counterpart, firing `window.pmOnGovernorRenderScaleChange(host, scale)`).
+- `Module._get_governor_blur_cap()` — current tier's blur cap (pull; push counterpart fires `window.pmOnGovernorBlurCapChange(host, cap)`).
+
+  `host` names the engine (bundle 040+; see "Governor v2 host callbacks" in `docs/WASM_JS_API.md`):
+  two engines in one Module sit at their own tiers, and `ProjectMContext` resizes only its own canvas.
 - `Module._get_quality_tier()` unchanged in signature, now returns 0-2 instead of 0-1.
 
 **Canvas MSAA policy**: `attrs.antialias` now defaults to `false` (see `docs/EMSCRIPTEN.md` §WebGL
@@ -490,7 +493,7 @@ boots), and returns `setTargetFps(fps)`, `setQualityGovernorEnabled(enabled)`, `
 pages whose inline handlers still call `window.pmSetTargetFps(fps)`,
 `window.pmSetQualityGovernorEnabled(enabled)` or `window.pmGetQualityTier()` opt in through
 `exposeGovernorGlobals()` in `html/projectm-legacy-globals.js`.
-`window.pmOnGovernorTierChange(tier)`, if defined by the host page, is called whenever the
+`window.pmOnGovernorTierChange(host, tier)`, if defined by the host page, is called whenever the
 governor changes tiers — that name is an engine callback, see "Page globals" in `html/README.md`.
 
 ### Native build

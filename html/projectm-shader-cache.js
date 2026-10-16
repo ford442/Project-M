@@ -244,9 +244,12 @@ export function setupShaderTranspileCacheHooks() {
     ensureShaderCacheEngineVersion().catch(() => {});
     const unsubscribe = subscribeWasmCallback(
         'pmOnTranspiledShaderStored',
-        (/** @type {string} */ cacheKey, /** @type {ShaderKind} */ kind, /** @type {string} */ glsl) => {
-            queueShaderWrite(cacheKey, kind, glsl);
-            touchShaderCacheEntry(cacheKey).catch(() => {});
+        // Every engine's: the store is keyed by preset alone (the engine's
+        // namespace is stripped in C++), so GLSL one engine compiled is reused
+        // by the others and by the next visit.
+        ({ key, kind, glsl }) => {
+            queueShaderWrite(key, /** @type {ShaderKind} */ (kind), glsl);
+            touchShaderCacheEntry(key).catch(() => {});
         },
     );
     const dispose = () => {

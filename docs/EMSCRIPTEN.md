@@ -79,36 +79,110 @@ preset-load hook (`on_playlist_preset_load()`) turns each of these into a reques
 
 ## WebGL context attributes
 
-`WasmWebGLContext.cpp::init()` creates the rendering context with Emscripten's html5 WebGL API only — there is
-no parallel EGL config path. `ProjectMDefaultWebGLAttributes()` builds the attribute block from a
-`WasmContextConfig` the **host sets from JS** via `set_context_config()` (#128 / #84 / #179 A5). The C++ side no
-longer scrapes `window.location` / `localStorage` for context attributes — query-string parsing (`?aa=1`,
-`?capture=1`, `?fboPrecision=high`) lives in the host JS layer (`projectm-core.html`) and is forwarded through
-`ProjectMContextOptions`. Defaults (used when a host calls neither `set_context_config()` nor `ProjectMContext`)
-are below (MSAA and canvas depth/stencil are off by default — #178, #246):
+`WasmWebGLContext.cpp` creates the rendering context with Emscripten's html5 WebGL API only — there is
+no parallel EGL config path. `ProjectMWebGLAttributes()` builds the attribute block from the host's
+`WasmContextConfig`, which the **host passes from JS as an argument of host creation**:
 
-| Attribute | `ProjectMContext` option | Default | Rationale |
-|-----------|--------------------------|---------|-----------|
-| `majorVersion` / `minorVersion` | — (fixed 2 / 0) | 2 / 0 | WebGL 2 required for GLES 3 emulation |
-| `alpha` | (fixed on; the `alpha` option is a separate CSS hint) | `true` | Transparency overlays (`#135`) |
-| `depth` | `depth` | `false` | FBO 0 only receives a fullscreen quad + sprites; Milkdrop's depth use lives on preset FBOs (#246). Sprites that depth-test against the canvas opt in (`projectm-core.html`: `?depth=1`) |
-| `stencil` | `stencil` | `false` | Same reasoning as `depth` (#246); `?depth=1` restores both |
-| `antialias` | `antialias` | `false` | Everything hitting the canvas (FBO 0) is a fullscreen quad + optional sprites; a fullscreen quad has no interior edges, so MSAA is invisible on it — only sprite geometry benefits (`docs/GRAPHICS_PERF_RECOVERY_PLAN.md` §5, #178). Host opts in (`projectm-core.html` reads `?aa=1` / `localStorage.canvasAA`). |
-| `premultipliedAlpha` | (fixed on) | `true` | Matches browser compositing defaults |
-| `preserveDrawingBuffer` | `preserveDrawingBuffer` | `false` | Screenshot/capture hosts set `true` (e.g. `?capture=1` in host JS, or `capture.html` calling `set_context_config`) for a stable back-buffer |
-| `enableExtensionsByDefault` | (fixed on) | `true` | Lets projectM probe float/half-float FBO formats |
-| `powerPreference` | `powerPreference` | `high-performance` | Prefer discrete GPU; mobile hosts may request `low-power` |
-| dual-FBO precision | `fboPrecision` | `half` (RGBA16F) | `high` → RGBA32F, `byte` → RGBA8; consumed by `DualPingPongFramebuffer::DetectFormat()` |
+```c
+uintptr_t create_host_with_config(const char* primary, const char* secondary,
+                                  int flags, int powerPreference, int fboPrecision);
+```
 
-`set_context_config(antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision)` is read
-at context creation, so call it **before** `init()` / `init_with_canvases()` / `create_host()`. Attributes are baked
-into the WebGL context and cannot change afterward. The config is per host (#246): in a shared Module each
-`create_host()` gets the config set immediately before it — see
-[Multi-instance host state](#multi-instance-host-state).
+The config is stored on that `WasmHost` before `emscripten_webgl_create_context`, so there is no
+"configure, then create" window and no process-wide slot for a second engine to land in. Both
+topologies use the same shape (`WasmContextConfig` in `html/projectm-render-worker-types.ts`): the main
+thread calls the export through `createConfiguredHost()` (`html/projectm-context-config.js`), the
+OffscreenCanvas render worker receives `{ flags, powerPreference, fboPrecision }` in its `init`
+message and passes the same three numbers. `resolveWasmContextConfig(options)` turns
+`ProjectMContextOptions` into it; `CONTEXT_CONFIG_FLAGS` names the bits (both are re-exported from
+`projectm-context.js`, i.e. `@projectm/web/context`). The C++ side does not scrape `window.location` /
+`localStorage` — query-string parsing (`?aa=1`, `?capture=1`, `?fboPrecision=high`) lives in the host JS
+layer (`projectm-core.html`).
+
+| Attribute | `flags` bit | `ProjectMContext` option | Default | Rationale |
+|-----------|-------------|--------------------------|---------|-----------|
+| `majorVersion` / `minorVersion` | — | — (fixed 2 / 0) | 2 / 0 | WebGL 2 only (`MIN/MAX_WEBGL_VERSION=2`) |
+| `antialias` | `1 << 0` | `antialias` | `false` | Everything hitting the canvas (FBO 0) is a fullscreen quad + optional sprites; MSAA is invisible on a fullscreen quad — only sprite geometry benefits (`docs/GRAPHICS_PERF_RECOVERY_PLAN.md` §5, #178). `projectm-core.html` reads `?aa=1` / `localStorage.canvasAA`. |
+| `preserveDrawingBuffer` | `1 << 1` | `preserveDrawingBuffer` | `false` | Screenshot/capture hosts set `true` (`?capture=1`) for a stable back-buffer |
+| `depth` | `1 << 2` | `depth` | `false` | Milkdrop's depth use lives on preset FBOs (#246). Sprites that depth-test against the canvas opt in (`?depth=1`) |
+| `stencil` | `1 << 3` | `stencil` | `false` | Same reasoning as `depth`; `?depth=1` restores both |
+| `alpha` | `1 << 4` | `contextAlpha` | `true` | Transparency overlays (#135). The `alpha` option is a **separate** canvas-CSS compositing hint and never sets this bit. |
+| `premultipliedAlpha` | `1 << 5` | `premultipliedAlpha` | `true` | Browser compositing default; transparency-keying hosts with straight alpha turn it off |
+| `failIfMajorPerformanceCaveat` | `1 << 6` | `failIfMajorPerformanceCaveat` | `false` | Off so software GL still starts (smoke, goldens). Production hosts opt in to refuse a software renderer: init code `8`. Whether a renderer counts as a caveat is the browser's call — headless Chromium 151 with `--use-angle=swiftshader` (CI) accepts SwiftShader even for a plain `getContext()` with the flag, so the refusal path is not exercised there. |
+| `explicitSwapControl` | `1 << 7` | `explicitSwapControl`, or `presentMode: 'manual'` | `false` | Manual present; needs the explicit-swap link flavor (see [Link flavors](#link-flavors)), otherwise init code `9` |
+| `desynchronized` | `1 << 8` | `desynchronized` | `false` | Low-latency present hint for live hosts (may tear). The pinned Emscripten's `EmscriptenWebGLContextAttributes` has the field, so it is passed straight through; no JS-side `getContext` exists beside the C++ path. |
+| `enableExtensionsByDefault` | — | (fixed on) | `true` | Lets projectM probe float/half-float FBO formats |
+| `proxyContextToMainThread` | — | (fixed) | `EMSCRIPTEN_WEBGL_CONTEXT_PROXY_DISALLOW` | The context is created on the thread that renders it (main thread, or the render worker). OpenMP helpers and preset prepare threads never issue GL; a GL call from the wrong thread is a bug, not something to paper over with proxying. (Only takes effect in a link with `OFFSCREEN_FRAMEBUFFER`, i.e. the explicit-swap flavor.) |
+| `powerPreference` | (own arg) | `powerPreference` | `high-performance` | `0` default, `1` low-power, `2` high-performance |
+| dual-FBO precision | (own arg) | `fboPrecision` | `half` (RGBA16F) | `0` RGBA16F, `1` RGBA32F, `2` RGBA8 (`FboFloatFormat`, as `dual_fbo_get_format()` reports); consumed by `DualPingPongFramebuffer::DetectFormat()` |
+
+Attributes are baked into the WebGL context and cannot change afterward; each host keeps its own
+(#246) — see [Multi-instance host state](#multi-instance-host-state). `create_host_with_config()`
+returns `0` on failure; `get_last_init_error()` then gives the [init error code](#init-error-codes)
+(`4` instance cap, `2` / `6` / `7` / `8` / `9` context stage).
+
+**Legacy exports.** `set_context_config(antialias, preserveDrawingBuffer, depth, stencil, alpha,
+powerPreference, fboPrecision)` and `create_host()` stay exported for host pages written against
+older bundles. There is no process-global slot behind them any more: `set_context_config()` sets the
+active host's config if that host has no context yet; otherwise it parks the request **on that host**
+for the next context created — a `create_host()` issued while it is active, or its own re-creation.
+It can only express the original seven attributes (premultipliedAlpha on, everything newer off). No
+in-tree caller uses either; `createConfiguredHost()` only falls back to them for a bundle without
+`create_host_with_config()`, and refuses a config they cannot express rather than drop part of it.
+
+### Manual present (`explicitSwapControl`)
+
+With `explicitSwapControl` on, nothing reaches the canvas until it is committed: `render_frame()`
+calls `emscripten_webgl_commit_frame()` exactly once, after the compositor (on both the direct and
+the dual-FBO path). No commit, no present. That is the hook offline video capture (#256 / #262)
+builds on; the encoder itself is not here. `get_committed_frame_count()` counts the commits, so a
+deterministic run of N ticks can be checked for exactly N. `ProjectMContext` spells the option
+`presentMode: 'manual'` (or `explicitSwapControl: true`).
+
+The frame to encode comes from `captureFrame()` / `capture_frame_*()`, read inside `render_frame()`
+before the commit, from a pixel-pack buffer behind a fence on a manual-present host. That path needs
+no `preserveDrawingBuffer`. See [FLASH_LIMITER.md](FLASH_LIMITER.md#frame-capture), which also
+covers the opt-in temporal flash limiter applied before present.
+
+The pinned Emscripten (6.0.x) only honours `explicitSwapControl` with `OFFSCREENCANVAS_SUPPORT` or
+`OFFSCREEN_FRAMEBUFFER`: without either, `emscripten_webgl_create_context` returns 0. Browsers removed
+`OffscreenCanvas.commit()`, so on a real canvas the only working mechanism is `OFFSCREEN_FRAMEBUFFER`:
+FBO 0 becomes an offscreen back buffer and the commit blits it onto the canvas.
+`OFFSCREENCANVAS_SUPPORT` must stay off (it proxies GL from pthreads back to the main thread and would
+undo the render worker). So manual present is the separate **explicit-swap link flavor**; the
+production bundle refuses the attribute up front with init code `9` instead of reporting "no WebGL 2".
+The back buffer is resized by `emscripten_set_canvas_element_size()`, which `set_window_size()` calls
+on both topologies; a host that changes `canvas.width` without calling `set_window_size()` leaves it at
+the old size.
+
+`tests/wasm-smoke/context_attributes.mjs --module <bundle.js> --check` (its own CI step, not part of
+the default smoke) creates hosts through `create_host_with_config()` in a real browser: it reads every
+attribute back from the context (`Module.ctx.getContextAttributes()`), checks that a
+`failIfMajorPerformanceCaveat` host agrees with the browser's own answer to the same request (up when
+the browser accepts it, init code `8` when it refuses), and that `explicitSwapControl` is refused with
+init code `9` — or, with `--explicit-swap` against the explicit-swap flavor, comes up with FBO 0
+redirected to Emscripten's offscreen back buffer.
+
+### Link flavors
+
+`scripts/build_wasm_smoke_wrapper.sh` links the production bundle by default. Two opt-in flavors
+change the link and tag the build-id (`+gl-debug`, `+explicit-swap`), so
+`scripts/prepare_deploy_bundle.sh` and `deploy.py` refuse to ship them:
+
+| Variable | Adds | For |
+|----------|------|-----|
+| `PROJECTM_WASM_GL_DEBUG=1` | `-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1` | A bad context attribute or GL call is reported instead of showing as a black canvas. Production keeps `GL_TRACK_ERRORS=0`. |
+| `PROJECTM_WASM_EXPLICIT_SWAP=1` | `-sOFFSCREEN_FRAMEBUFFER=1`, `-DPROJECTM_WASM_OFFSCREEN_FRAMEBUFFER=1` | `explicitSwapControl` (manual present) |
+
+The production `-s` settings are otherwise unchanged: `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`,
+`FULL_ES3=0`, `GL_ENABLE_GET_PROC_ADDRESS=1`, `GL_TRACK_ERRORS=0`, `ALLOW_MEMORY_GROWTH=0`,
+`INITIAL_MEMORY=256mb`, `MALLOC=mimalloc`, no `ASYNCIFY`, and **no `OFFSCREENCANVAS_SUPPORT`** — the
+worker path registers the transferred canvas on `specialHTMLTargets['#mcanvas']` on purpose, and
+turning that setting on would proxy GL back to the main thread.
 
 Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, half-float samplers) are enabled
 explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
-presented when the WebGL canvas is composited by the browser.
+presented when the WebGL canvas is composited by the browser (or, with `explicitSwapControl`, when committed).
 
 ### Canvas color space (sRGB)
 
@@ -197,12 +271,10 @@ live host (the default host on single-instance pages).
 (#199), the quality governor (#178), and — since #246 (Phase C) — the context config, the PCM
 ring and the shader-cache key are per-host:
 
-- **WebGL context config.** `set_context_config()` applies to the active host if it has no
-  context yet; otherwise (the usual "configure, then `create_host()`" order, where the previous
-  host is still active) it is held as a one-shot pending request and snapshotted onto the next
-  host that creates a context, right before `emscripten_webgl_create_context`. A host's config
-  is never rewritten once its context exists. `create_host()` without a preceding
-  `set_context_config()` inherits the previous host's config.
+- **WebGL context config.** An argument of `create_host_with_config()`, stored on the new host
+  before its context is created; nothing process-wide. A host's config is never rewritten once its
+  context exists. The legacy `create_host()` inherits the previous host's config, or one a legacy
+  `set_context_config()` parked on the previous host (see [WebGL context attributes](#webgl-context-attributes)).
 - **PCM ring.** Each host owns its ring; `pcm_ring_*` / `get_pcm_ring_*` and the per-frame
   drain operate on the active host, so draining host A never consumes host B's writes. JS picks
   a ring with `feedPcmThroughRing(module, buf, { hostHandle })` / `getPcmRingWriter(module,
@@ -349,6 +421,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
+| `WasmPresent.cpp` | The end of a frame: flash-limiter switches (forwarding to libprojectM's C API), per-host frame readback (`capture_frame_*`, taken in `render_frame()` before a manual-present commit) and the commit counter. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
 | `WasmDeterminism.cpp` | Virtual clock (`WasmNow()`, `DeterministicFrameTick()`), deterministic RNG switch, main-loop pause — `set_deterministic_*` / `set_render_loop_paused` exports. See [GRAPHICS_BENCHMARK_HARNESS.md](GRAPHICS_BENCHMARK_HARNESS.md) |
 | `WasmAudioBridge.cpp` | Audio worklet + media-element EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
 | `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
@@ -537,10 +610,14 @@ only a `stderr` message in the console.
 | Code | Stage | Meaning | Common causes |
 |------|-------|---------|----------------|
 | `0` | — | Success. | — |
-| `2` | WebGL | Primary canvas selector not found, `emscripten_webgl_create_context` failed, or the created context could not be activated. | Missing canvas element, WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
+| `2` | WebGL | `emscripten_webgl_create_context` failed: no WebGL 2 context. | WebGL 2 unsupported/disabled (older Safari, locked-down GPUs, hardware acceleration disabled). |
 | `3` | projectM | `projectm_create()` returned `NULL` after the GL context was successfully created. | Out-of-memory (still possible on very low-RAM mobile even with `INITIAL_MEMORY=256mb`), or an internal projectM error. |
 | `5` | WebGL context lost | The host's WebGL context is lost and the browser has not restored it yet (e.g. the context-loss overlay was tapped before `webglcontextrestored`). `init()` refuses rather than build an engine on the dead context. | Not an error: `checkInit()` shows nothing and the context-loss overlay stays up; the `webglcontextrestored` handler retries. |
-| `4` | Cross-origin isolation | *(JS-side only, not returned by `init()`)* `window.crossOriginIsolated` is `false`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
+| `4` | Cross-origin isolation / instance cap | *(JS-side, not returned by `init()`)* `window.crossOriginIsolated` is `false`; also what `get_last_init_error()` reports after `create_host*()` refused at `kMaxHosts`. | The page is not served with `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy`. See `docs/DEPLOYMENT.md#cross-origin-isolation-coopcoep`. |
+| `6` | WebGL | Primary canvas selector resolves to nothing (`specialHTMLTargets`, then the DOM). Was part of `2`. | Selector typo, canvas not in the document yet, worker canvas not registered. |
+| `7` | WebGL | The context was created but `emscripten_webgl_make_context_current` failed. Was part of `2`. | GPU process trouble; context lost between create and activate. |
+| `8` | WebGL | `failIfMajorPerformanceCaveat` refused the context, and a probe on a throwaway 1×1 `OffscreenCanvas` shows WebGL 2 *would* come up without it — i.e. only a software renderer (SwiftShader, llvmpipe) is available. | Hardware acceleration off, blocklisted GPU/driver, headless browser. Only possible when the host opted in. |
+| `9` | WebGL | `explicitSwapControl` was requested from a bundle linked without `OFFSCREEN_FRAMEBUFFER`. | Page needs the explicit-swap link flavor ([Link flavors](#link-flavors)). |
 
 ### Main-thread freeze on 033/034 (OpenMP vs. pthread pool)
 
@@ -571,11 +648,17 @@ module is loaded — `init()` itself never returns `4`. See
 On any non-zero return, `init()` calls:
 
 ```c
-EM_JS(void, js_report_init_error, (int code, const char* detail), { ... });
+EM_JS(void, js_notify_init_error, (double host, int code, const char* detail), { ... });
 ```
 
-which invokes `window.pmReportInitError(code, detail)` if the host page has defined it. On
-success, `init()` calls `js_report_init_success()`, which invokes `window.pmHideInitError()` if
+which invokes `window.pmReportInitError(host, code, detail)` if the host page has defined it.
+`host` is the engine whose init failed (`create_host*()`'s handle, `0` for the default host,
+`-1` for a `create_host*()` refused at `kMaxHosts` before any engine existed); bundles up to
+039 called `(code, detail)`. The same code
+is kept for `get_last_init_error()` (0 after a success), which is how a caller of
+`create_host_with_config()` — which can only return a 0 handle — tells the failures apart; the render
+worker puts it in its `error` message's `code`. On
+success, `init()` calls `js_report_init_success()`, which invokes `window.pmHideInitError(host)` if
 defined. (Listen through `subscribeWasmCallback()` in `html/projectm-wasm-callbacks.js` rather
 than assigning the global yourself — see "Page globals" in `html/README.md`.)
 
@@ -780,7 +863,7 @@ Behavior:
   are allocated lazily on the next transition). Finally, the last-displayed preset is reloaded
   through the transport from `window.currentPresetPath` (set by `updatePresetDisplay()` in
   `html/projectm-presets.js` on every preset switch). Everything else survives a loss on its own:
-  the transferred canvas and its `#mcanvas` registration, `set_context_config()`, and the PCM ring
+  the transferred canvas and its `#mcanvas` registration, the host's context config, and the PCM ring
   (`pcm_ring_init()` is idempotent for an unchanged capacity, so the descriptor stays valid; the
   worker re-publishes it anyway so a host that dropped its writer can map it again).
 - `pm_handle_context_loss()` tears down every host whose context reports lost — the host that
@@ -1095,11 +1178,11 @@ Before #258 the chain fell back to `RGBA32F` whenever `EXT_color_buffer_half_flo
 even though `EXT_color_buffer_float` already makes `RGBA16F` renderable — doubling VRAM and
 bandwidth for nothing — and always used `GL_LINEAR`.
 
-One numbering covers both directions (`FboFloatFormat`): `set_context_config()`'s `fboPrecision`
+One numbering covers both directions (`FboFloatFormat`): `create_host_with_config()`'s `fboPrecision`
 argument and `dual_fbo_get_format()`'s result are both **0 = RGBA16F, 1 = RGBA32F, 2 = RGBA8**.
 (The getter used to return 0 for RGBA32F and 1 for RGBA16F.)
 
-The precision is set through `ProjectMContext`'s `fboPrecision` option / `set_context_config()`; the C++ side no
+The precision is set through `ProjectMContext`'s `fboPrecision` option / `create_host_with_config()`; the C++ side no
 longer reads `?fboPrecision=` from the URL (see "WebGL context attributes" above). In the render
 worker topology it travels in the worker's `init` message.
 

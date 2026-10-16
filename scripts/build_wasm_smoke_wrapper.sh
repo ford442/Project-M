@@ -121,6 +121,7 @@ wrapper_sources=(
     "$PROJECT_ROOT/src/wasm/WasmRhythm.cpp"
     "$PROJECT_ROOT/src/wasm/WasmJsBindings.cpp"
     "$PROJECT_ROOT/src/wasm/WasmDeterminism.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmPresent.cpp"
 )
 
 # Prefer em++ so the final link always pulls in libc++ / libc++abi. Linking the
@@ -138,6 +139,29 @@ else
     echo "Activate the Emscripten SDK first, e.g.:" >&2
     echo "  source /path/to/emsdk/emsdk_env.sh" >&2
     exit 1
+fi
+
+# Non-deployable link flavors (docs/EMSCRIPTEN.md "Link flavors"). Each one
+# tags the build-id below, so prepare_deploy_bundle.sh / deploy.py refuse it.
+#  - PROJECTM_WASM_GL_DEBUG=1: GL_TRACK_ERRORS=1 + GL_ASSERTIONS=1, so a bad
+#    context attribute or GL call is reported instead of a black canvas.
+#  - PROJECTM_WASM_EXPLICIT_SWAP=1: OFFSCREEN_FRAMEBUFFER=1, the only way the
+#    pinned Emscripten honours explicitSwapControl without OFFSCREENCANVAS_SUPPORT
+#    (which must stay off — it proxies GL off the render worker). FBO 0 becomes
+#    an offscreen back buffer and render_frame()'s emscripten_webgl_commit_frame()
+#    blits it to the canvas. The define lets the wrapper refuse explicit swap
+#    with init code 9 in every other build.
+flavor_compile_args=()
+flavor_link_args=()
+build_id_suffix=""
+if [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" ]]; then
+    flavor_link_args+=(-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1)
+    build_id_suffix+="+gl-debug"
+fi
+if [[ "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" ]]; then
+    flavor_compile_args+=(-DPROJECTM_WASM_OFFSCREEN_FRAMEBUFFER=1)
+    flavor_link_args+=(-sOFFSCREEN_FRAMEBUFFER=1)
+    build_id_suffix+="+explicit-swap"
 fi
 
 # LTO (PROJECTM_WASM_LTO=1, see cmake/EmscriptenWasmFlags.cmake): the static
@@ -161,6 +185,7 @@ if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
             "${wrapper_include_args[@]}" \
             "${wrapper_warning_args[@]}" \
             "${simd_compile_args[@]}" \
+            "${flavor_compile_args[@]}" \
             "${compile_args[@]}" \
             -o "$obj" &
         compile_pids+=("$!")
@@ -182,6 +207,8 @@ read -r -a extra_link_args <<< "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}"
     "${wrapper_warning_args[@]}" \
     "${simd_compile_args[@]}" \
     "${common_args[@]}" \
+    "${flavor_compile_args[@]}" \
+    "${flavor_link_args[@]}" \
     "${extra_link_args[@]}" \
     -s INVOKE_RUN=0 \
     "${libomp_args[@]}" \
@@ -195,4 +222,4 @@ test -s "$OUT_DIR/projectm-v.030-thread.wasm"
 # What this bundle was built from; scripts/prepare_deploy_bundle.sh compares it
 # with the tree it is about to deploy. Written last, so a failed link leaves the
 # previous (now mismatching) id behind rather than a fresh one.
-"$PROJECT_ROOT/scripts/wasm_source_fingerprint.sh" > "$OUT_DIR/projectm-v.030-thread.build-id"
+echo "$("$PROJECT_ROOT/scripts/wasm_source_fingerprint.sh")${build_id_suffix}" > "$OUT_DIR/projectm-v.030-thread.build-id"

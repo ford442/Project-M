@@ -9,6 +9,7 @@
 // returns null and the caller falls back to the main-thread render path
 // unchanged.
 
+import { resolveWasmContextConfig } from './projectm-context-config.js';
 import { createPcmRingWriter } from './projectm-pcm-ring.js';
 
 /**
@@ -17,11 +18,13 @@ import { createPcmRingWriter } from './projectm-pcm-ring.js';
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerHandle} RenderWorkerHandle
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerMessage} RenderWorkerMessage
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerStatsMessage} RenderWorkerStatsMessage
- * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} RenderWorkerContextConfig
+ * @typedef {import('./projectm-render-worker-types.ts').WasmContextConfig} WasmContextConfig
  * @typedef {import('./projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerContextEvent} RenderWorkerContextEvent
  * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
  * @typedef {import('./projectm-render-worker-types.ts').RhythmEvent} RhythmEvent
+ * @typedef {import('./projectm-render-worker-types.ts').FlashLimitSettings} FlashLimitSettings
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerFrameCapturedMessage} RenderWorkerFrameCapturedMessage
  */
 
 /**
@@ -175,10 +178,12 @@ export function isRenderWorkerSupported(canvas) {
  * @param {number} [options.targetFps]
  * @param {boolean} [options.governor]
  * @param {string} [options.meshQuality]
- * @param {RenderWorkerContextConfig} [options.contextConfig] set_context_config()
+ * @param {WasmContextConfig} [options.contextConfig] create_host_with_config()
  *   arguments, applied in the worker before init().
  * @param {RenderPathOverrides} [options.renderPathOverrides] The page's
  *   render-path switches, applied in the worker before init().
+ * @param {FlashLimitSettings | null} [options.flashLimit] The flash limiter,
+ *   applied in the worker before the engine's first frame.
  * @param {() => void} [options.onReady]
  * @param {(reason: string) => void} [options.onUnsupported]
  * @param {(message: string) => void} [options.onError]
@@ -196,6 +201,7 @@ export function setupRenderWorker({
     meshQuality,
     contextConfig,
     renderPathOverrides,
+    flashLimit = null,
     onReady,
     onUnsupported,
     onError,
@@ -226,6 +232,14 @@ export function setupRenderWorker({
     let nextRequestId = 1;
     /** @type {Map<number, (result: unknown) => void>} */
     const pendingCcalls = new Map();
+    /** @type {Map<number, (message: RenderWorkerFrameCapturedMessage) => void>} */
+    const pendingCaptures = new Map();
+
+    // The worker's engine, as 'ready' reported it (0 until then, and from a
+    // worker that predates the field). Stamped on every control message, so
+    // which engine a call reaches never depends on which one was active last
+    // — the worker has one engine today, and this is what lets it have two.
+    let engineHost = 0;
 
     /** @type {Set<(event: RenderWorkerContextEvent) => void>} */
     const contextListeners = new Set();
@@ -289,6 +303,7 @@ export function setupRenderWorker({
         const msg = /** @type {RenderWorkerMessage} */ (event.data);
         switch (msg.type) {
             case 'ready':
+                engineHost = typeof msg.host === 'number' ? msg.host : 0;
                 if (onReady) onReady();
                 break;
             case 'unsupported':
@@ -332,6 +347,14 @@ export function setupRenderWorker({
                     settleRecovery(msg.status);
                 }
                 break;
+            case 'frame-captured': {
+                const settle = pendingCaptures.get(msg.requestId);
+                if (settle) {
+                    pendingCaptures.delete(msg.requestId);
+                    settle(msg);
+                }
+                break;
+            }
             case 'ccall-result': {
                 const resolve = pendingCcalls.get(msg.requestId);
                 if (resolve) {
@@ -358,12 +381,20 @@ export function setupRenderWorker({
         targetFps,
         governor,
         meshQuality,
-        contextConfig,
+        // Always sent: the worker creates its engine with it (the defaults
+        // when the caller has no options of its own).
+        contextConfig: contextConfig ?? resolveWasmContextConfig(),
         renderPathOverrides,
+        ...(flashLimit ? { flashLimit } : {}),
     }, [offscreen]);
 
     return {
         worker,
+
+        /** @returns {number} */
+        engineHost() {
+            return engineHost;
+        },
 
         /**
          * @param {(event: RenderWorkerContextEvent) => void} listener
@@ -386,7 +417,7 @@ export function setupRenderWorker({
                         resolve(status);
                     };
                 });
-                worker.postMessage({ type: 'recover-context' });
+                worker.postMessage({ type: 'recover-context', host: engineHost });
             }
             return pendingRecovery;
         },
@@ -458,7 +489,7 @@ export function setupRenderWorker({
          * @param {number} h
          */
         postResize(w, h) {
-            worker.postMessage({ type: 'resize', width: w, height: h });
+            worker.postMessage({ type: 'resize', width: w, height: h, host: engineHost });
         },
 
         /**
@@ -485,7 +516,49 @@ export function setupRenderWorker({
         postPreset(vfsPath, bytes, mode = 'load') {
             // Transferred, so hand over a copy: callers may still own theirs.
             const copy = new Uint8Array(bytes);
-            worker.postMessage({ type: 'preset', vfsPath, bytes: copy, mode }, [copy.buffer]);
+            worker.postMessage({ type: 'preset', vfsPath, bytes: copy, mode, host: engineHost }, [copy.buffer]);
+        },
+
+        /**
+         * @param {boolean} enabled
+         * @param {number} [threshold]
+         */
+        postFlashLimit(enabled, threshold) {
+            worker.postMessage({
+                type: 'set-flash-limit',
+                enabled: !!enabled,
+                ...(typeof threshold === 'number' && Number.isFinite(threshold) ? { threshold } : {}),
+                host: engineHost,
+            });
+        },
+
+        /**
+         * @param {{ renderFrame?: boolean, timeoutMs?: number }} [options]
+         * @returns {Promise<{ width: number, height: number, data: Uint8ClampedArray, frameIndex: number }>}
+         */
+        captureFrame({ renderFrame = false, timeoutMs } = {}) {
+            return new Promise((resolve, reject) => {
+                const requestId = nextRequestId++;
+                pendingCaptures.set(requestId, (msg) => {
+                    if (msg.error || !msg.pixels) {
+                        reject(new Error(msg.error || 'captureFrame(): the worker returned no pixels'));
+                        return;
+                    }
+                    resolve({
+                        width: msg.width ?? 0,
+                        height: msg.height ?? 0,
+                        data: new Uint8ClampedArray(msg.pixels),
+                        frameIndex: msg.frameIndex ?? 0,
+                    });
+                });
+                worker.postMessage({
+                    type: 'capture-frame',
+                    requestId,
+                    renderFrame: !!renderFrame,
+                    ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
+                    host: engineHost,
+                });
+            });
         },
 
         /**
@@ -499,7 +572,7 @@ export function setupRenderWorker({
             return new Promise((resolve) => {
                 const requestId = nextRequestId++;
                 pendingCcalls.set(requestId, resolve);
-                worker.postMessage({ type: 'ccall', name, returnType, argTypes, args, requestId });
+                worker.postMessage({ type: 'ccall', name, returnType, argTypes, args, requestId, host: engineHost });
             });
         },
 
@@ -509,7 +582,7 @@ export function setupRenderWorker({
          * @param {unknown[]} args
          */
         ccallVoid(name, argTypes, args) {
-            worker.postMessage({ type: 'ccall', name, returnType: null, argTypes, args });
+            worker.postMessage({ type: 'ccall', name, returnType: null, argTypes, args, host: engineHost });
         }
     };
 }

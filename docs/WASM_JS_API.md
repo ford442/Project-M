@@ -98,7 +98,7 @@ symbol's doc text is not an API change and needs nothing.
 | `dualFboSetIdleReleaseSeconds` | `dual_fbo_set_idle_release_seconds` | Idle seconds before the preset-A pair is reclaimed (0 = immediate, &lt;0 = never). Default 5 |
 | `dualFboGetIdleReleaseSeconds` | `dual_fbo_get_idle_release_seconds` | |
 | `dualFboIsPresetBReady` | `dual_fbo_is_preset_b_ready` | |
-| `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (same numbering as `set_context_config`'s `fboPrecision`) |
+| `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (same numbering as `create_host_with_config`'s `fboPrecision`) |
 | `transitionStart` | `transition_start` | |
 | `transitionCancel` | `transition_cancel` | |
 | `transitionIsActive` | `transition_is_active` | |
@@ -118,6 +118,19 @@ symbol's doc text is not an API change and needs nothing.
 | `getPresetSwitchPolicy` | `get_preset_switch_policy` | |
 | `setHardCutOnBeat` | `set_hard_cut_on_beat` | Beat-detection hard cuts wait for the next beat |
 | `setRhythmEvents` | `set_rhythm_events` | Report beats/bars/sections to `globalThis.pmOnRhythmEvent` (see below). Off by default |
+| `setFlashLimitEnabled` | `set_flash_limit_enabled` | Temporal flash limiter, off by default. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
+| `getFlashLimitEnabled` | `get_flash_limit_enabled` | |
+| `setFlashLimitThreshold` | `set_flash_limit_threshold` | Luminance span the presented frames may cover within ~⅓ s (default 0.06) |
+| `getFlashLimitThreshold` | `get_flash_limit_threshold` | |
+| `getFlashLimitClampedFrames` | `get_flash_limit_clamped_frames` | Frames clamped since enabled. Reads back from the GPU: poll a few times a second at most |
+| `getCommittedFrameCount` | `get_committed_frame_count` | `emscripten_webgl_commit_frame()` calls on this host (manual present only) |
+| `captureFrameRequest` | `capture_frame_request` | Read back the next presented frame; prefer `ProjectMContext.captureFrame()` |
+| `captureFrameStatus` | `capture_frame_status` | 0 idle, 1 requested, 2 pending, 3 ready, 4 failed; never waits |
+| `captureFrameResolve` | `capture_frame_resolve` | `wait` takes a pending (manual-present) capture at once |
+| `captureFrameDataPtr` | `capture_frame_data_ptr` | RGBA8, top row first, in `HEAPU8` |
+| `captureFrameWidth` / `captureFrameHeight` | `capture_frame_width` / `capture_frame_height` | |
+| `captureFrameIndex` | `capture_frame_index` | `get_rendered_frame_count()` right after the captured frame |
+| `captureFrameRelease` | `capture_frame_release` | |
 
 Export names are also listed in `PUBLIC_WASM_API` inside the generated module.
 
@@ -128,7 +141,8 @@ While `set_rhythm_events(1)` is on, `render_frame()` calls
 section change, and on no other frame (about two calls a second at 120 BPM). `event` is
 `{ host, beat, bar, section, bpm, beatIndex, barPhase, sectionIndex, confidence }`
 (`RhythmEvent` in `html/projectm-render-worker-types.ts`); `host` is the engine's host
-handle, for telling apart the engines of a shared Module. A crossfade renders the engine
+handle, for telling apart the engines of a shared Module — `0` for the default host since
+bundle 040 (earlier bundles sent its address, like any other host). A crossfade renders the engine
 twice per frame; the events of both renders are reported once.
 
 Hosts should not install the global themselves: `ProjectMContext.on('beat' | 'bar' |
@@ -153,9 +167,24 @@ addition to the pre-existing `window.pmOnGovernorTierChange(tier)`:
 
 | Callback | Fired with | Purpose |
 |----------|-----------|---------|
-| `window.pmOnGovernorTierChange(tier)` | `number` (0/1/2) | Pre-existing; UI "reduced quality" indicator |
-| `window.pmOnGovernorRenderScaleChange(scale)` | `number` (1.0/0.75/0.5) | **Must be handled for the render-scale tier to have any effect** — see below |
-| `window.pmOnGovernorBlurCapChange(cap)` | `number` (-1/1/2) | Informational/telemetry only; the blur cap is applied purely in C++ |
+| `window.pmOnGovernorTierChange(host, tier)` | `number` (0/1/2) | Pre-existing; UI "reduced quality" indicator |
+| `window.pmOnGovernorRenderScaleChange(host, scale)` | `number` (1.0/0.75/0.5) | **Must be handled for the render-scale tier to have any effect** — see below |
+| `window.pmOnGovernorBlurCapChange(host, cap)` | `number` (-1/1/2) | Informational/telemetry only; the blur cap is applied purely in C++ |
+
+`host` (bundle 040+) is the engine whose governor moved: `create_host*()`'s handle, or `0`
+for the default host. Bundles up to 039 pass the payload alone. Every page callback follows
+this shape — `pmSetPerfHudEnabled(host, enabled)`, `pmOnTranspiledShaderStored(host, key,
+kind, glsl)`, `pmReportInitError(host, code, detail)`, `pmHideInitError(host)`, and `host` on
+the `pmOnPerfFrame` stats and `pmOnRhythmEvent` event objects. Listen through
+`subscribeWasmCallback(name, listener, globalThis, { engineHost })`
+(`html/projectm-wasm-callbacks.js`), which accepts both bundle shapes and hands each listener
+an event object with `host` on it; see "Page globals" in `html/README.md`.
+
+With two engines in one Module, almost every export acts on the engine `set_active_host()`
+selected last. `bindModuleToHost(module, host)` in the generated wrappers returns a view on
+which every export selects `host` first (and throws if that host has been destroyed), so a
+caller that awaits between calls stays on its own engine; `createModuleTransport(module,
+{ host })` is built on it.
 
 `html/projectm-fps-governor.js`'s `setupFpsGovernor(Module, { onRenderScaleChange })`
 listens to all three (through `html/projectm-wasm-callbacks.js`, which owns the global name

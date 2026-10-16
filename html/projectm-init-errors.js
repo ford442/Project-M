@@ -6,6 +6,7 @@
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
 
 import { init as wasmInit, initWithCanvases } from './generated/projectm-wasm-api.js';
+import { createConfiguredHost } from './projectm-context-config.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 /** @type {Record<number, { title: string; message: string; hints: string[] }>} */
@@ -34,6 +35,35 @@ const ERROR_INFO = {
         hints: [
             'If you are the site operator, see docs/DEPLOYMENT.md for required COOP/COEP headers.',
             'Reloading will not fix this — it depends on how the server sends this page.',
+        ],
+    },
+    6: {
+        title: 'Canvas Not Found',
+        message: 'projectM could not find the canvas element it was told to render into.',
+        hints: [
+            'This is a page bug: check the canvas selector passed to projectM.',
+        ],
+    },
+    7: {
+        title: 'WebGL Context Unusable',
+        message: 'A WebGL 2 context was created but could not be activated for rendering.',
+        hints: [
+            'Reload the page; if it persists, restart the browser to reset the GPU process.',
+        ],
+    },
+    8: {
+        title: 'Hardware Graphics Required',
+        message: 'Only a software WebGL 2 renderer is available, and this page asked for hardware acceleration.',
+        hints: [
+            'Turn on hardware acceleration in your browser settings.',
+            'Update your graphics drivers, or check whether the GPU is blocklisted (chrome://gpu).',
+        ],
+    },
+    9: {
+        title: 'Manual Present Unavailable',
+        message: 'This page asked for explicit swap control, which this build of projectM does not support.',
+        hints: [
+            'This is a deployment problem: the page needs a bundle linked with PROJECTM_WASM_EXPLICIT_SWAP=1.',
         ],
     },
 };
@@ -235,12 +265,14 @@ export function setupInitErrorHandling(onRetry) {
         // The engine reports every non-zero init() code through this callback,
         // including 5 (the context is still lost). That one is not an error to
         // show: the context-loss overlay is up and "webglcontextrestored" retries.
-        subscribeWasmCallback('pmReportInitError', (/** @type {number} */ code, /** @type {string} */ detail) => {
+        //
+        // Page-wide: the overlay is the page's, so it shows any engine's failure.
+        subscribeWasmCallback('pmReportInitError', ({ code, detail }) => {
             if (code !== INIT_CONTEXT_LOST) {
                 showInitError(code, detail);
             }
         }),
-        subscribeWasmCallback('pmHideInitError', hideInitError),
+        subscribeWasmCallback('pmHideInitError', () => hideInitError()),
     ];
     ensureOverlay();
 
@@ -288,17 +320,41 @@ export function checkCrossOriginIsolation() {
 /**
  * Calls `Module._init()` (or `init_with_canvases` when selectors are provided)
  * and shows/hides the init-error overlay based on its return code.
+ *
+ * With `contextConfig` (from `resolveWasmContextConfig()`), the engine is made
+ * with `create_host_with_config()` instead, so the WebGL context attributes are
+ * an argument of the create call rather than a separate step before it.
+ *
  * @param {*} Module The Emscripten module instance.
- * @param {{ primaryCanvasSelector?: string; secondaryCanvasSelector?: string }} [options]
+ * @param {{
+ *   primaryCanvasSelector?: string;
+ *   secondaryCanvasSelector?: string;
+ *   contextConfig?: import('./projectm-render-worker-types.ts').WasmContextConfig;
+ *   onCode?: (code: number) => void;
+ * }} [options] `onCode` receives the init code (0 on success, see
+ *   docs/EMSCRIPTEN.md#init-error-codes; -1 when the bundle cannot say).
  * @returns {boolean} true if initialization succeeded (code 0) and rendering can proceed.
  */
 export function checkInit(Module, {
     primaryCanvasSelector,
     secondaryCanvasSelector,
+    contextConfig,
+    onCode,
 } = {}) {
-    const code = primaryCanvasSelector
-        ? initWithCanvases(Module, primaryCanvasSelector, secondaryCanvasSelector || '#scanvas')
-        : wasmInit(Module);
+    let code;
+    if (contextConfig) {
+        ({ code } = createConfiguredHost(Module, {
+            primary: primaryCanvasSelector || '#mcanvas',
+            secondary: secondaryCanvasSelector || '#scanvas',
+            config: contextConfig,
+            create: 'init',
+        }));
+    } else {
+        code = primaryCanvasSelector
+            ? initWithCanvases(Module, primaryCanvasSelector, secondaryCanvasSelector || '#scanvas')
+            : wasmInit(Module);
+    }
+    onCode?.(code);
     if (code !== 0) {
         if (code !== INIT_CONTEXT_LOST && (!overlayEl || !overlayEl.classList.contains('visible'))) {
             showInitError(code);

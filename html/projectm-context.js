@@ -36,7 +36,7 @@ import {
     selectRenderTopology,
 } from './projectm-render-transport.js';
 import { isRenderWorkerEnabled, resolveRenderPathOverrides } from './projectm-render-worker-host.js';
-import { checkCrossOriginIsolation, checkInit } from './projectm-init-errors.js';
+import { checkCrossOriginIsolation, checkInit, INIT_CONTEXT_LOST } from './projectm-init-errors.js';
 import { setMeshQuality } from './projectm-mesh-quality.js';
 import {
     loadPresetFromUrl,
@@ -44,15 +44,18 @@ import {
     updatePresetDisplay,
 } from './projectm-presets.js';
 import {
+    bindModuleToHost,
     startRender,
     setPresetLocked,
     setTransparencyMode,
     switchPreset,
-    createHost,
-    setActiveHost,
     destroyHost,
-    setContextConfig,
 } from './generated/projectm-wasm-api.js';
+import { createConfiguredHost, resolveFlashLimit, resolveWasmContextConfig } from './projectm-context-config.js';
+
+// Re-exported for embedders (`@projectm/web/context`): the encoder behind the
+// context options, for hosts that create engines through the raw exports.
+export { CONTEXT_CONFIG_FLAGS, resolveWasmContextConfig } from './projectm-context-config.js';
 
 const DEFAULT_TARGET_FPS = 60;
 let canvasIdSerial = 0;
@@ -184,6 +187,9 @@ function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
  * @typedef {import('./projectm-context-types.ts').ProjectMRenderTopology} ProjectMRenderTopology
  * @typedef {import('./projectm-context-types.ts').ProjectMPresetSwitchPolicy} ProjectMPresetSwitchPolicy
  * @typedef {import('./projectm-context-types.ts').ProjectMRhythmInfo} ProjectMRhythmInfo
+ * @typedef {import('./projectm-context-types.ts').ProjectMCapturedFrame} ProjectMCapturedFrame
+ * @typedef {import('./projectm-context-types.ts').ProjectMCaptureFrameOptions} ProjectMCaptureFrameOptions
+ * @typedef {import('./projectm-context-types.ts').ProjectMFlashLimitStats} ProjectMFlashLimitStats
  */
 
 /**
@@ -342,6 +348,8 @@ export class ProjectMContext {
     #disposers = [];
     /** The last error handed to `onError`, so one failure is reported once. */
     #reportedError = /** @type {unknown} */ (undefined);
+    /** `#engine`'s cache: the module and host it was bound for, and the view. */
+    #engineView = /** @type {{ module: ProjectMModule, host: number, view: ProjectMModule } | null} */ (null);
 
     /** @param {ProjectMContextOptions} options */
     constructor(options) {
@@ -520,23 +528,26 @@ export class ProjectMContext {
                 this.module = /** @type {ProjectMModule} */ (sharedModule);
                 this.ownsModule = false;
                 this.#claimWindowModule();
-                // Context attributes are baked at context creation, which
-                // create_host() does — configure them first.
-                this.#applyContextConfig();
-                const handle = createHost(
-                    this.module,
-                    this.primaryCanvasSelector,
-                    this.secondaryCanvasSelector || '#scanvas'
-                );
+                // The context config is an argument of the create call, so a
+                // sibling context starting at the same time cannot take it.
+                this.#applyRenderPathOverrides();
+                const { handle, code } = createConfiguredHost(this.module, {
+                    primary: this.primaryCanvasSelector,
+                    secondary: this.secondaryCanvasSelector || '#scanvas',
+                    config: this.#contextConfig(),
+                });
                 if (!handle) {
                     const error = new Error(
-                        'create_host() failed (instance cap reached or engine init failed)'
+                        `create_host_with_config() failed (init code ${code}: instance cap reached or engine init failed)`
                     );
-                    this.#reportError(error, 4);
+                    this.#reportError(error, code);
                     throw error;
                 }
                 this.hostHandle = handle;
-                this.transport = createModuleTransport(this.module);
+                // Bound to this engine: every call it makes selects `handle`
+                // first, so a sibling context activating its own engine while
+                // this one awaits cannot redirect what comes after.
+                this.transport = createModuleTransport(this.module, { host: handle });
             } else {
                 // Topology first: the render worker takes the canvas by transfer,
                 // so it has to be asked before anything on this thread touches a
@@ -604,16 +615,19 @@ export class ProjectMContext {
                     this.#throwIfAborted(signal);
                     this.#claimWindowModule();
 
-                    // Context attributes are baked when checkInit() creates the
-                    // WebGL context — configure them first.
-                    this.#applyContextConfig();
+                    // Render paths are fixed before the first preset; the
+                    // context config travels with the create call itself.
+                    this.#applyRenderPathOverrides();
 
+                    let initCode = -1;
                     if (!checkInit(this.module, {
                         primaryCanvasSelector: this.primaryCanvasSelector,
                         secondaryCanvasSelector: this.secondaryCanvasSelector,
+                        contextConfig: this.#contextConfig(),
+                        onCode: (code) => { initCode = code; },
                     })) {
-                        const error = new Error('projectM init() failed');
-                        this.#reportError(error, -1);
+                        const error = new Error(`projectM init failed (init code ${initCode})`);
+                        this.#reportError(error, initCode);
                         throw error;
                     }
 
@@ -646,11 +660,18 @@ export class ProjectMContext {
                 windowRef,
             }));
 
-            // Everything from here drives the engine; make this context's host
-            // active first (no-op for the single-instance default host). The
-            // calls below run synchronously without yielding, so one activation
-            // covers the whole startup control sequence.
-            this.#activate();
+            // The flash limiter is on before the engine's first frame: a viewer
+            // who needs it must never be shown an unlimited one. The worker
+            // applied it from its init message already.
+            const flashLimit = resolveFlashLimit(this.options);
+            if (flashLimit && transport.topology === 'main') {
+                transport.setFlashLimit(flashLimit.enabled, flashLimit.threshold);
+            }
+
+            // Everything from here drives the engine, through the transport or
+            // #engine. Both select this context's host on every call, so the
+            // `await this.loadPresetUrl()` below cannot resume on a sibling's
+            // engine; nothing here relies on an activation lasting.
 
             syncCanvasSize({
                 transport,
@@ -662,20 +683,21 @@ export class ProjectMContext {
                 renderScale: this.renderScale,
             });
 
-            if (this.module) {
+            const engine = this.#engine;
+            if (engine) {
                 // The worker calls _start_render() itself, on its own canvas,
                 // before it reports ready.
-                startRender(this.module, this.canvas.width, this.canvas.height);
+                startRender(engine, this.canvas.width, this.canvas.height);
             }
             flushQueuedExternalPCM();
 
-            if (this.module) {
+            if (engine) {
                 // Mesh/fps/governor go to the worker in its init message, since
                 // it must have them before the first frame. Setting them again
                 // over the wire would be a second source of truth.
-                setMeshQuality(this.module, meshQuality);
-                setTargetFps(this.module, targetFps);
-                setQualityGovernorEnabled(this.module, qualityGovernor);
+                setMeshQuality(engine, meshQuality);
+                setTargetFps(engine, targetFps);
+                setQualityGovernorEnabled(engine, qualityGovernor);
             }
             transport.callVoid('setPresetLocked', presetLocked);
             this.#applyRhythmOptions();
@@ -690,20 +712,23 @@ export class ProjectMContext {
             // In the worker topology the backing store is not ours to shrink, so
             // the worker applies the same factor to the canvas it owns and this
             // thread keeps renderScale at 1 — see html/projectm-render-worker.js.
-            if (this.module) {
-                this.renderScale = getGovernorRenderScale(this.module) || 1;
+            if (engine) {
+                this.renderScale = getGovernorRenderScale(engine) || 1;
                 // Via the injected windowRef, like every other global hook this class
                 // installs — a bare `window` here ignores the caller's window and
                 // throws outright where there is no global one. The engine calls the
-                // hook by its global name, so it goes through the callback bus: every
-                // context listens, and destroying one leaves the rest subscribed.
+                // hook by its global name, so it goes through the callback bus:
+                // destroying one context leaves the rest subscribed, and the
+                // engineHost filter keeps a sibling engine's tier change from
+                // resizing this canvas.
                 if (this.options.windowRef) {
-                    this.#own(subscribeWasmCallback('pmOnGovernorRenderScaleChange', (/** @type {number} */ scale) => {
+                    this.#own(subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => {
                         this.renderScale = scale;
                         this.resize();
-                    }, this.options.windowRef));
+                    }, this.options.windowRef, { engineHost: this.hostHandle }));
                 }
             }
+            this.#watchEngineInitErrors();
 
             if (transparent) {
                 transport.callVoid('setTransparencyMode', true);
@@ -943,10 +968,12 @@ export class ProjectMContext {
         }
         const transport = this.transport;
         const signal = this.#attempt?.signal;
-        this.#activate();
-        if (this.module) {
+        const engine = this.#engine;
+        if (engine) {
+            // The fetch yields; the load after it goes through `engine`, which
+            // selects this context's host again however long that took.
             return loadPresetFromUrl(url, {
-                module: this.module,
+                module: engine,
                 windowRef: this.options.windowRef,
                 signal,
             });
@@ -979,10 +1006,10 @@ export class ProjectMContext {
             throw new Error('ProjectMContext is not started');
         }
         const transport = this.transport;
-        this.#activate();
-        if (this.module) {
+        const engine = this.#engine;
+        if (engine) {
             return loadLocalPresetFile(file, {
-                module: this.module,
+                module: engine,
                 updateDisplay: true,
             });
         }
@@ -1010,7 +1037,6 @@ export class ProjectMContext {
      * @param {Uint8Array} bytes
      */
     addPreset(vfsPath, bytes) {
-        this.#activate();
         this.transport?.writePreset(vfsPath, bytes, 'add');
     }
 
@@ -1018,42 +1044,41 @@ export class ProjectMContext {
      * @param {number} threshold RGB cutoff below which pixels go transparent.
      */
     setTransparencyThreshold(threshold) {
-        this.#activate();
         this.transport?.callVoid('setTransparencyThreshold', threshold);
     }
 
     nextPreset() {
-        this.#activate();
         if (this.transport) {
             this.transport.callVoid('switchPreset');
             return;
         }
-        if (!this.module) {
+        const engine = this.#engine;
+        if (!engine) {
             return;
         }
-        switchPreset(this.module);
+        switchPreset(engine);
     }
 
     /** @param {boolean} locked */
     setLocked(locked) {
-        this.#activate();
         if (this.transport) {
             this.transport.callVoid('setPresetLocked', locked);
             return;
         }
-        if (!this.module) {
+        const engine = this.#engine;
+        if (!engine) {
             return;
         }
-        setPresetLocked(this.module, locked);
+        setPresetLocked(engine, locked);
     }
 
     /** @param {boolean} enabled */
     setTransparent(enabled) {
-        this.#activate();
+        const engine = this.#engine;
         if (this.transport) {
             this.transport.callVoid('setTransparencyMode', enabled);
-        } else if (this.module) {
-            setTransparencyMode(this.module, enabled);
+        } else if (engine) {
+            setTransparencyMode(engine, enabled);
         } else {
             return;
         }
@@ -1067,16 +1092,15 @@ export class ProjectMContext {
      * @returns {string | undefined}
      */
     setMeshQuality(quality) {
-        this.#activate();
-        if (this.module) {
+        const engine = this.#engine;
+        if (engine) {
             // 'auto' resolves against the device, which needs the module's own
             // view of it; only the resolved grid crosses to the worker.
-            return setMeshQuality(this.module, quality);
+            return setMeshQuality(engine, quality);
         }
         if (!this.transport) {
             return;
         }
-        this.#activate();
         const grid = quality === 'low' ? [64, 48] : [80, 60];
         this.transport.callVoid('setMesh', grid[0], grid[1]);
         return quality;
@@ -1087,14 +1111,13 @@ export class ProjectMContext {
      * @returns {number | undefined}
      */
     setTargetFps(fps) {
-        this.#activate();
-        if (this.module) {
-            return setTargetFps(this.module, fps);
+        const engine = this.#engine;
+        if (engine) {
+            return setTargetFps(engine, fps);
         }
         if (!this.transport) {
             return;
         }
-        this.#activate();
         this.transport.callVoid('setTargetFps', fps);
         return fps;
     }
@@ -1197,7 +1220,6 @@ export class ProjectMContext {
         if (!transport || !transport.supports('getRhythmBpm')) {
             return null;
         }
-        this.#activate();
         const [bpm, beatPhase, barPhase, confidence, beatIndex, section] = await Promise.all([
             transport.call('getRhythmBpm'),
             transport.call('getRhythmBeatPhase'),
@@ -1227,7 +1249,6 @@ export class ProjectMContext {
         if (!transport || !transport.supports(name)) {
             return;
         }
-        this.#activate();
         transport.callVoid(name, ...args);
     }
 
@@ -1263,16 +1284,75 @@ export class ProjectMContext {
                 if (event.bar) this.#emit('bar', event);
                 if (event.section) this.#emit('section', event);
             });
-            this.#activate();
             transport.callVoid('setRhythmEvents', true);
         } else if (!wanted && this.#rhythmUnsubscribe) {
             this.#rhythmUnsubscribe();
             this.#rhythmUnsubscribe = null;
             if (transport && transport.supports('setRhythmEvents')) {
-                this.#activate();
                 transport.callVoid('setRhythmEvents', false);
             }
         }
+    }
+
+    /**
+     * Turns this engine's temporal flash limiter on or off. When a frame's mean
+     * luminance would change faster than `threshold` allows, the frame is
+     * blended toward the one shown before; see docs/FLASH_LIMITER.md. Off by
+     * default (and then frames reach the canvas exactly as without it). A no-op
+     * before start() — pass the `flashLimit` option to have it on from the first
+     * frame — and on a bundle that predates the limiter.
+     *
+     * @param {boolean} enabled
+     * @param {number} [threshold] 0.005..1; omitted keeps the current one (default 0.06).
+     */
+    setFlashLimit(enabled, threshold) {
+        this.transport?.setFlashLimit(!!enabled, threshold);
+    }
+
+    /**
+     * The flash limiter's state for this engine, or null before start() or on a
+     * bundle without it. Reading the clamp count waits for the GPU to finish the
+     * frames since the last read: poll it for a display, not per frame.
+     *
+     * @returns {Promise<ProjectMFlashLimitStats | null>}
+     */
+    async getFlashLimitStats() {
+        const transport = this.transport;
+        if (!transport || !transport.supports('getFlashLimitClampedFrames')) {
+            return null;
+        }
+        const [enabled, threshold, clampedFrames] = await Promise.all([
+            transport.call('getFlashLimitEnabled'),
+            transport.call('getFlashLimitThreshold'),
+            transport.call('getFlashLimitClampedFrames'),
+        ]);
+        return {
+            enabled: !!enabled,
+            threshold: Number(threshold),
+            clampedFrames: Number(clampedFrames),
+        };
+    }
+
+    /**
+     * Reads back the next frame this context's engine presents: the canvas's
+     * RGBA8 pixels, top row first, as a copy the caller owns. Works in both
+     * topologies and without `preserveDrawingBuffer` — the engine takes the
+     * frame inside the render that drew it. With `presentMode: 'manual'` the
+     * read does not stall the next live frame. For offline export, pause the
+     * render loop and pass `renderFrame: true`: each call is then exactly one
+     * rendered, committed and captured frame.
+     *
+     * Each context reads its own engine into its own buffer, so contexts on one
+     * shared Module can capture at the same time.
+     *
+     * @param {ProjectMCaptureFrameOptions} [options]
+     * @returns {Promise<ProjectMCapturedFrame>}
+     */
+    captureFrame(options = {}) {
+        if (!this.transport) {
+            return Promise.reject(new Error('captureFrame(): the context has not started'));
+        }
+        return this.transport.captureFrame(options);
     }
 
     /**
@@ -1293,7 +1373,6 @@ export class ProjectMContext {
      * @param {number} [channels]
      */
     feedPcm(buffer, channels = 2) {
-        this.#activate();
         this.transport?.feedPcm(buffer, channels);
     }
 
@@ -1325,12 +1404,10 @@ export class ProjectMContext {
         if (!transport) {
             return -1;
         }
-        this.#activate();
         return transport.recoverContext(this.canvas.width, this.canvas.height);
     }
 
     resize() {
-        this.#activate();
         syncCanvasSize({
             transport: this.transport,
             container: this.container,
@@ -1343,42 +1420,59 @@ export class ProjectMContext {
     }
 
     /**
-     * Make this context's engine the active host before a control op. No-op for
-     * the single-instance default host (hostHandle 0), where there is only one
-     * engine and set_active_host would be redundant.
+     * This context's engine on the main thread: the module, bound to
+     * `hostHandle` (see bindModuleToHost() in generated/projectm-wasm-api.js)
+     * so every export called through it selects this context's host first.
+     * The module itself for the single-engine default host; null in the worker
+     * topology and before start().
+     *
+     * @returns {ProjectMModule | null}
      */
-    #activate() {
-        if (this.hostHandle && this.module) {
-            setActiveHost(this.module, this.hostHandle);
+    get #engine() {
+        const { module, hostHandle } = this;
+        if (!module) {
+            return null;
         }
+        const cached = this.#engineView;
+        if (cached && cached.module === module && cached.host === hostHandle) {
+            return cached.view;
+        }
+        const view = bindModuleToHost(module, hostHandle);
+        this.#engineView = { module, host: hostHandle, view };
+        return view;
     }
 
     /**
-     * Forward WebGL context attributes + dual-FBO precision to the WASM host
-     * before it creates the context. Options default to MSAA off,
-     * preserveDrawingBuffer off, depth/stencil off (#246 — the canvas only
-     * receives a fullscreen quad + sprites), high-performance GPU and RGBA16F
-     * precision. The WASM host applies this to the engine create_host() makes
-     * next, so each context in a shared Module keeps its own attributes.
+     * Surfaces an init failure the engine reports for *this* context's host
+     * after start() — a context-loss recovery whose init() failed, say —
+     * through `onError` and the `error` event. Failures during start() are
+     * reported where they happen, with their code; this subscription starts
+     * after that. A sibling engine's failure is filtered out, and so is a
+     * bundle that predates the host argument (it cannot say whose it was).
      */
-    #applyContextConfig() {
-        if (!this.module || typeof setContextConfig !== 'function') {
+    #watchEngineInitErrors() {
+        const { windowRef } = this.options;
+        if (!windowRef || !this.module) {
             return;
         }
-        const c = this.#contextConfig();
-        setContextConfig(
-            this.module,
-            c.antialias,
-            c.preserveDrawingBuffer,
-            c.depth,
-            c.stencil,
-            c.alpha,
-            c.powerPreference,
-            c.fboPrecision
-        );
-        // Bundles that predate the export read the switches from the URL
-        // themselves, which works on this thread.
-        if (typeof this.module._set_render_path_overrides === 'function') {
+        this.#own(subscribeWasmCallback('pmReportInitError', ({ host, code, detail }) => {
+            // 5 is "the context is still lost": the context-loss overlay is up
+            // and the restore event retries; not a failure to report.
+            if (host === null || code === INIT_CONTEXT_LOST || this.destroyed) {
+                return;
+            }
+            const suffix = detail ? `: ${detail}` : '';
+            this.#reportError(new Error(`projectM engine init failed (init code ${code})${suffix}`), code);
+        }, windowRef, { engineHost: this.hostHandle }));
+    }
+
+    /**
+     * Hand the render-path switches to the WASM host before it creates the
+     * engine. Bundles that predate the export read the switches from the URL
+     * themselves, which works on this thread.
+     */
+    #applyRenderPathOverrides() {
+        if (this.module && typeof this.module._set_render_path_overrides === 'function') {
             const r = this.#renderPathOverrides();
             this.module._set_render_path_overrides(
                 r.blurCopyPath ? 1 : 0,
@@ -1389,29 +1483,18 @@ export class ProjectMContext {
     }
 
     /**
-     * `set_context_config()`'s arguments for this context's options — applied
-     * here on the main thread, and sent in the render worker's `init` message.
+     * `create_host_with_config()`'s context arguments for this context's
+     * options — passed with the create call on the main thread, and sent in the
+     * render worker's `init` message. Defaults: MSAA off, preserveDrawingBuffer
+     * off, depth/stencil off (#246 — the canvas only receives a fullscreen quad
+     * + sprites), WebGL alpha and premultipliedAlpha on, software GL accepted,
+     * implicit present, high-performance GPU, RGBA16F precision. The `alpha`
+     * option is the canvas-CSS hint and is not part of it (`contextAlpha` is).
      *
-     * @returns {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig}
+     * @returns {import('./projectm-render-worker-types.ts').WasmContextConfig}
      */
     #contextConfig() {
-        const o = this.options;
-        /** @type {Record<string, number>} */
-        const powerMap = { 'default': 0, 'low-power': 1, 'high-performance': 2 };
-        // The FboFloatFormat numbering, which dual_fbo_get_format() also reports.
-        /** @type {Record<string, number>} */
-        const fboMap = { 'half': 0, 'high': 1, 'byte': 2 };
-        return {
-            antialias: o.antialias ? 1 : 0,
-            preserveDrawingBuffer: o.preserveDrawingBuffer ? 1 : 0,
-            depth: o.depth ? 1 : 0,
-            stencil: o.stencil ? 1 : 0,
-            // Context alpha stays on (transparency overlays); the `alpha` option
-            // is a separate canvas-CSS hint, not the WebGL alpha attribute.
-            alpha: 1,
-            powerPreference: powerMap[o.powerPreference ?? 'high-performance'] ?? 2,
-            fboPrecision: fboMap[o.fboPrecision ?? 'half'] ?? 0,
-        };
+        return resolveWasmContextConfig(this.options);
     }
 
     /** @returns {import('./projectm-render-worker-types.ts').RenderPathOverrides} */
@@ -1564,6 +1647,7 @@ export class ProjectMContext {
             // own init(); these have to travel with the init message.
             contextConfig: this.#contextConfig(),
             renderPathOverrides: this.#renderPathOverrides(),
+            flashLimit: resolveFlashLimit(this.options),
             // The manifest's export list lets transport.supports() answer for
             // the worker's module instead of assuming every call exists.
             wasmExports: versionPaths?.api ?? null,
@@ -1647,13 +1731,13 @@ export class ProjectMContext {
         }
 
         const sample = () => {
-            if (signal.aborted || this.destroyed || !this.module) {
+            const engine = this.#engine;
+            if (signal.aborted || this.destroyed || !engine) {
                 return;
             }
 
             const now = performance.now();
-            this.#activate();
-            const frameCount = this.module._get_rendered_frame_count?.() ?? 0;
+            const frameCount = engine._get_rendered_frame_count?.() ?? 0;
             if (!this.fpsLastSample) {
                 this.fpsLastSample = now;
                 this.fpsFrameCount = frameCount;

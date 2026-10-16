@@ -79,6 +79,39 @@ struct EngineSettings {
     std::optional<std::pair<int, uint32_t>> presetSwitchPolicy; //!< set_preset_switch_policy().
     std::optional<float> transitionBeats;                       //!< transition_set_duration_beats().
     std::optional<bool> hardCutOnBeat;                          //!< set_hard_cut_on_beat().
+    std::optional<bool> flashLimitEnabled;                      //!< set_flash_limit_enabled().
+    std::optional<float> flashLimitThreshold;                   //!< set_flash_limit_threshold().
+};
+
+// =============================================================================
+// FrameCaptureState – one host's capture_frame_*() readback (WasmPresent.cpp).
+//
+// A capture is requested for the next frame and taken inside that frame's
+// render_frame(), after the compositor drew the canvas and before a manual-
+// present commit: the only point where the image is known to be in the drawing
+// buffer without preserveDrawingBuffer. Per host, so two canvases never share
+// a staging allocation.
+// =============================================================================
+enum class FrameCaptureStatus : int
+{
+    Idle = 0,      //!< Nothing requested, or the last result was released.
+    Requested = 1, //!< Will be taken from the next rendered frame.
+    Pending = 2,   //!< Read into the pixel-pack buffer; waiting on its fence.
+    Ready = 3,     //!< `pixels` holds the frame.
+    Failed = 4,    //!< The frame could not be read (no context, zero size).
+};
+
+struct FrameCaptureState {
+    FrameCaptureStatus status = FrameCaptureStatus::Idle;
+    std::vector<uint8_t> pixels; //!< Tightly packed RGBA8, top row first.
+    int width = 0;
+    int height = 0;
+    uint32_t frameIndex = 0; //!< renderedFrameCount of the captured frame.
+    // Manual-present hosts only: the asynchronous read. The live (browser
+    // present) path never allocates these.
+    GLuint pixelPackBuffer = 0;
+    size_t pixelPackBufferBytes = 0;
+    GLsync fence = nullptr;
 };
 
 // =============================================================================
@@ -134,6 +167,15 @@ struct WasmHost {
     uint32_t deterministicFrameIndex = 0;
     double virtualNowMs = 0.0;
 
+    // ---- Present pass (WasmPresent.cpp) ----
+    FrameCaptureState capture;
+    // emscripten_webgl_commit_frame() calls on an explicitSwapControl host.
+    uint32_t committedFrameCount = 0;
+    // get_flash_limit_clamped_frames() reads the count back from the GPU, so the
+    // perf HUD refreshes this copy at most every kFlashCountRefreshMs.
+    uint32_t flashClampedFrames = 0;
+    double flashClampedFramesReadMs = -1.0;
+
     // ---- Musical-time events (WasmRhythm.cpp) ----
     // set_rhythm_events(): report beats/bars/sections to globalThis.pmOnRhythmEvent.
     bool rhythmEventsEnabled = false;
@@ -162,7 +204,14 @@ struct WasmHost {
 
     // ---- WebGL context attributes + dual-FBO precision (#246) ----
     // Baked into glCtx at create time; never rewritten while glCtx is live.
+    // create_host_with_config() sets it before the context exists.
     WasmContextConfig contextConfig;
+    // Legacy set_context_config() hand-off only (bundles' host JS from before
+    // create_host_with_config()): a config set while this host already had a
+    // context, held for whichever context is created next — a create_host()
+    // issued while this host is active, or this host's own re-creation.
+    WasmContextConfig legacyPendingContextConfig;
+    bool hasLegacyPendingContextConfig = false;
 
     // ---- Audio ingest (#246) ----
     PcmRingState pcmRing;
@@ -226,6 +275,21 @@ WasmHost* ActiveHostOrNull();
 // stale or unknown handle).
 uintptr_t HostHandle(const WasmHost& host);
 WasmHost* HostFromHandle(uintptr_t handle);
+
+// The handle a page callback (pmOnGovernor*, pmOnPerfFrame, pmReportInitError,
+// pmOnRhythmEvent, ...) carries to say which engine it came from: the handle
+// create_host*() returned, or 0 for the legacy default host that init() brought
+// up without one — the same 0 a single-engine ProjectMContext holds. A double
+// because EM_JS hands a uintptr_t to JavaScript as a signed i32.
+double EventHostHandle(const WasmHost& host);
+
+// EventHostHandle() of the active host, or kNoEventHost when there is none.
+double ActiveEventHostHandle();
+
+// The event handle for a failure that happened before any engine existed (a
+// create_host*() refused at the kMaxHosts cap). No context's handle is -1, so
+// a host-filtered listener never takes it for its own.
+constexpr double kNoEventHost = -1.0;
 
 // The live engine whose address is `engineHandle` (what get_projectm_handle()
 // hands to JS), or nullptr if no live host owns it. JS passes such integers

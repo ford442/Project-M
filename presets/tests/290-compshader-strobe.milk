@@ -1,0 +1,21 @@
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_COMP=3
+[preset00]
+per_frame_1000=// full-frame black/white strobe for the flash limiter (docs/FLASH_LIMITER.md)
+
+fDecay=1
+zoom=1
+rot=0
+warp=0
+wave_a=0
+
+// The whole frame alternates between black and white at 15 Hz: two frames of
+// each at 60 fps, five times the WCAG 2.3.1 general flash limit. The flash
+// limiter must clamp this preset and leave calm ones alone. The quarter-period
+// offset keeps every 60 fps frame away from the step's edge, so float rounding
+// of `time` cannot move a frame from one half to the other.
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = float3(1.0, 1.0, 1.0) * step(0.5, frac(time * 15.0 + 0.125));
+comp_4=`}

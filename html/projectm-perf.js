@@ -214,7 +214,7 @@ function ensureHud() {
     `).join('');
 
     hudEl.innerHTML = `
-        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms<span data-key="topology"></span><span data-key="linkPending"></span></h3>
+        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms<span data-key="topology"></span><span data-key="linkPending"></span><span data-key="flashClamped"></span></h3>
         <div class="pm-perf-hud-row pm-perf-hud-head">
             <span class="pm-perf-hud-label">stage</span>
             <span class="pm-perf-hud-bar-track" style="background:none">CPU bar / GPU bar</span>
@@ -287,6 +287,13 @@ function updateHud(stats, topology) {
     // a comparison across topologies is not like for like.
     if (topologyEl) topologyEl.textContent = topology === 'worker' ? ' · worker' : '';
     if (linkEl) linkEl.textContent = stats.shaderLinkPending ? ' · linking shaders' : '';
+    // This engine's flash limiter, while it is on: how many frames it has had
+    // to hold back (docs/FLASH_LIMITER.md).
+    const flashEl = el.querySelector('[data-key="flashClamped"]');
+    if (flashEl) {
+        const clamped = stats.flashClampedFrames;
+        flashEl.textContent = typeof clamped === 'number' && clamped >= 0 ? ` · flash-limited ${clamped}` : '';
+    }
 
     // perPixelEvalMs means different work on the two paths, so the row says which one
     // produced it rather than leaving two incomparable numbers looking alike.
@@ -440,7 +447,7 @@ export function setupPerfTools(Module) {
         topology: 'main',
         module: Module,
         onPerfFrame: (listener) => subscribeWasmCallback('pmOnPerfFrame', listener),
-        onPerfHudEnabled: (listener) => subscribeWasmCallback('pmSetPerfHudEnabled', listener),
+        onPerfHudEnabled: (listener) => subscribeWasmCallback('pmSetPerfHudEnabled', ({ enabled }) => listener(enabled)),
         setPerfHud: (enabled) => setPerfHud(Module, enabled),
         loadPreset: (path) => loadPresetFile(Module, path),
         fboFormat: () => readFboFormat(Module),

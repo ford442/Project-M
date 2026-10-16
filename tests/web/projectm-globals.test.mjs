@@ -4,6 +4,7 @@ import { claimGlobal, countGlobalClaims } from '../../html/projectm-globals.js';
 import {
     WASM_CALLBACK_NAMES,
     countWasmCallbackSubscribers,
+    decodeWasmCallback,
     subscribeWasmCallback,
 } from '../../html/projectm-wasm-callbacks.js';
 
@@ -104,12 +105,12 @@ test('the first subscriber installs the global and every subscriber hears the en
     const seenA = [];
     const seenB = [];
 
-    const offA = subscribeWasmCallback('pmOnGovernorRenderScaleChange', (scale) => seenA.push(scale), host);
-    const offB = subscribeWasmCallback('pmOnGovernorRenderScaleChange', (scale) => seenB.push(scale), host);
+    const offA = subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => seenA.push(scale), host);
+    const offB = subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => seenB.push(scale), host);
     assert.equal(typeof host.pmOnGovernorRenderScaleChange, 'function');
     assert.equal(countWasmCallbackSubscribers('pmOnGovernorRenderScaleChange', host), 2);
 
-    host.pmOnGovernorRenderScaleChange(0.75);
+    host.pmOnGovernorRenderScaleChange(7, 0.75);
     assert.deepEqual(seenA, [0.75]);
     assert.deepEqual(seenB, [0.75]);
 
@@ -121,11 +122,11 @@ test('unsubscribing one context leaves the other one subscribed', () => {
     const host = {};
     const seenB = [];
     const offA = subscribeWasmCallback('pmOnGovernorRenderScaleChange', () => {}, host);
-    const offB = subscribeWasmCallback('pmOnGovernorRenderScaleChange', (scale) => seenB.push(scale), host);
+    const offB = subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => seenB.push(scale), host);
 
     offA();
     assert.equal(typeof host.pmOnGovernorRenderScaleChange, 'function', 'B still needs the global');
-    host.pmOnGovernorRenderScaleChange(0.5);
+    host.pmOnGovernorRenderScaleChange(0, 0.5);
     assert.deepEqual(seenB, [0.5]);
 
     offB();
@@ -142,8 +143,8 @@ test('a throwing subscriber does not starve the others', () => {
         const offBad = subscribeWasmCallback('pmOnPerfFrame', () => { throw new Error('boom'); }, host);
         const offGood = subscribeWasmCallback('pmOnPerfFrame', (stats) => seen.push(stats), host);
 
-        host.pmOnPerfFrame({ fps: 60 });
-        assert.deepEqual(seen, [{ fps: 60 }]);
+        host.pmOnPerfFrame({ host: 0, fps: 60 });
+        assert.deepEqual(seen, [{ host: 0, fps: 60 }]);
         assert.equal(errors.length, 1);
 
         offBad();
@@ -182,6 +183,73 @@ test('a listener may unsubscribe itself while it runs', () => {
     assert.deepEqual(seen, ['self', 'other', 'other']);
 
     offOther();
+});
+
+// ---- which engine (bundle 040+) ---------------------------------------------
+
+test('every positional callback decodes the same from the 040 shape and the pre-040 shape', () => {
+    // [name, payload as the engine passes it after the handle, decoded fields]
+    const cases = [
+        ['pmOnGovernorTierChange', [2], { tier: 2 }],
+        ['pmOnGovernorRenderScaleChange', [0.5], { scale: 0.5 }],
+        ['pmOnGovernorBlurCapChange', [1], { cap: 1 }],
+        ['pmSetPerfHudEnabled', [true], { enabled: true }],
+        ['pmOnTranspiledShaderStored', ['preset-key', 1, 'void main(){}'], { key: 'preset-key', kind: 1, glsl: 'void main(){}' }],
+        ['pmReportInitError', [6, 'Primary canvas selector not found'], { code: 6, detail: 'Primary canvas selector not found' }],
+        ['pmHideInitError', [], {}],
+    ];
+    for (const [name, payload, fields] of cases) {
+        assert.ok(WASM_CALLBACK_NAMES.includes(name), name);
+        assert.deepEqual(decodeWasmCallback(name, [123456, ...payload]), { host: 123456, ...fields }, `${name}, 040 shape`);
+        assert.deepEqual(decodeWasmCallback(name, payload), { host: null, ...fields }, `${name}, pre-040 shape`);
+    }
+});
+
+test('the two object callbacks keep their object and gain host: null when it is missing', () => {
+    const stats = { host: 0, fps: 60 };
+    assert.equal(decodeWasmCallback('pmOnPerfFrame', [stats]), stats, 'a 040 frame is passed through, not copied');
+    assert.deepEqual(decodeWasmCallback('pmOnPerfFrame', [{ fps: 60 }]), { host: null, fps: 60 });
+    assert.deepEqual(decodeWasmCallback('pmOnRhythmEvent', [{ host: 9, beat: true }]), { host: 9, beat: true });
+});
+
+test('an engineHost filter hears its own engine only', () => {
+    const host = {};
+    const seenA = [];
+    const seenB = [];
+    const seenAll = [];
+    const offA = subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => seenA.push(scale), host, { engineHost: 11 });
+    const offB = subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => seenB.push(scale), host, { engineHost: 12 });
+    const offAll = subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ host: engine, scale }) => seenAll.push([engine, scale]), host);
+
+    host.pmOnGovernorRenderScaleChange(11, 0.75);
+    host.pmOnGovernorRenderScaleChange(12, 0.5);
+    assert.deepEqual(seenA, [0.75]);
+    assert.deepEqual(seenB, [0.5]);
+    assert.deepEqual(seenAll, [[11, 0.75], [12, 0.5]], 'no filter: every engine');
+
+    offA();
+    offB();
+    offAll();
+});
+
+test('engineHost 0 is the default host, not "any"', () => {
+    const host = {};
+    const seen = [];
+    const off = subscribeWasmCallback('pmOnGovernorTierChange', ({ tier }) => seen.push(tier), host, { engineHost: 0 });
+    host.pmOnGovernorTierChange(0, 1);
+    host.pmOnGovernorTierChange(77, 2);
+    host.pmOnGovernorTierChange(-1, 2);
+    assert.deepEqual(seen, [1]);
+    off();
+});
+
+test('a pre-040 bundle (no handle) still reaches filtered listeners, as it did before', () => {
+    const host = {};
+    const seen = [];
+    const off = subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ host: engine, scale }) => seen.push([engine, scale]), host, { engineHost: 11 });
+    host.pmOnGovernorRenderScaleChange(0.5);
+    assert.deepEqual(seen, [[null, 0.5]]);
+    off();
 });
 
 test('a page that overwrote the global keeps its value when the last subscriber leaves', () => {

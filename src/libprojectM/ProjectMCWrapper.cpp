@@ -791,6 +791,36 @@ float projectm_get_transparency_threshold(projectm_handle instance)
     return projectMInstance->TransparencyThreshold();
 }
 
+void projectm_set_flash_limit_enabled(projectm_handle instance, bool enabled)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetFlashLimitEnabled(enabled);
+}
+
+bool projectm_get_flash_limit_enabled(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->FlashLimitEnabled();
+}
+
+void projectm_set_flash_limit_threshold(projectm_handle instance, float threshold)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    projectMInstance->SetFlashLimitThreshold(threshold);
+}
+
+float projectm_get_flash_limit_threshold(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->FlashLimitThreshold();
+}
+
+uint32_t projectm_get_flash_limit_clamped_frames(projectm_handle instance)
+{
+    auto projectMInstance = handle_to_instance(instance);
+    return projectMInstance->FlashLimitClampedFrames();
+}
+
 unsigned int projectm_pcm_get_max_samples()
 {
     return libprojectM::Audio::AudioBufferSamples;

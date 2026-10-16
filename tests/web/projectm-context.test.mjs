@@ -162,17 +162,19 @@ test('ProjectMContext stores forwarded context-attribute options', () => {
     assert.equal(context.options.depth, false);
 });
 
-test('start() calls set_context_config before create_host with mapped args', async () => {
+test('start() creates the host with its context config in one call', async () => {
     const canvas = makeCanvas('ctx-cfg-order');
     const calls = [];
-    // create_host returns 0 so start() throws right after these two ccalls,
-    // before any audio/DOM/timer setup — keeps the test hermetic (no leaked
-    // handles that would hang `node --test`).
+    // The create returns 0 so start() throws right after it, before any
+    // audio/DOM/timer setup — keeps the test hermetic (no leaked handles that
+    // would hang `node --test`).
     const module = {
         ccall: (name, _ret, _argt, args) => {
             calls.push([name, args]);
-            return name === 'create_host' ? 0 : undefined;
+            return name === 'create_host_with_config' ? 0 : undefined;
         },
+        _create_host_with_config: () => 0, // presence only; strings go through ccall
+        _get_last_init_error: () => 4,
     };
     const errors = [];
     const context = new ProjectMContext({
@@ -186,38 +188,94 @@ test('start() calls set_context_config before create_host with mapped args', asy
         onError: (d) => errors.push(d),
     });
 
-    await assert.rejects(() => context.start(), /create_host/);
+    await assert.rejects(() => context.start(), /create_host_with_config\(\) failed \(init code 4/);
 
-    assert.deepEqual(calls.map((c) => c[0]), ['set_context_config', 'create_host']);
-    // Args: antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo.
+    assert.deepEqual(calls.map((c) => c[0]), ['create_host_with_config'], 'no separate set_context_config step');
+    // primary, secondary, flags, power, fbo. Flags: antialias(1) +
+    // preserveDrawingBuffer(2) + contextAlpha(16) + premultipliedAlpha(32);
     // depth/stencil default off (#246).
-    assert.deepEqual(calls[0][1], [1, 1, 0, 0, 1, 1, 1]);
+    assert.deepEqual(calls[0][1], ['#ctx-cfg-order', '#scanvas', 51, 1, 1]);
     assert.equal(errors[0]?.code, 4);
 });
 
-test('start() hands the page\'s render-path switches to the module before create_host', async () => {
+test('a bundle without create_host_with_config still gets set_context_config then create_host', async () => {
+    const canvas = makeCanvas('ctx-cfg-legacy');
+    const calls = [];
+    const module = {
+        ccall: (name, _ret, _argt, args) => {
+            calls.push([name, args]);
+            return name === 'create_host' ? 0 : undefined;
+        },
+    };
+    const context = new ProjectMContext({
+        canvas,
+        sharedModule: module,
+        requireCrossOriginIsolation: false,
+        antialias: true,
+        preserveDrawingBuffer: true,
+        powerPreference: 'low-power',
+        fboPrecision: 'high',
+        onError: () => {},
+    });
+
+    await assert.rejects(() => context.start(), /create_host_with_config\(\) failed \(init code -1/);
+
+    assert.deepEqual(calls.map((c) => c[0]), ['set_context_config', 'create_host']);
+    // antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo.
+    assert.deepEqual(calls[0][1], [1, 1, 0, 0, 1, 1, 1]);
+});
+
+test('a legacy bundle refuses attributes set_context_config cannot express rather than drop them', async () => {
+    const canvas = makeCanvas('ctx-cfg-legacy-refuse');
+    const calls = [];
+    const module = {
+        ccall: (name) => {
+            calls.push(name);
+            return 7;
+        },
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+        const context = new ProjectMContext({
+            canvas,
+            sharedModule: module,
+            requireCrossOriginIsolation: false,
+            failIfMajorPerformanceCaveat: true,
+            onError: () => {},
+        });
+        await assert.rejects(() => context.start(), /failed/);
+    } finally {
+        console.warn = warn;
+    }
+    assert.deepEqual(calls, [], 'a software context must not be accepted just because the bundle is old');
+});
+
+test('start() hands the page\'s render-path switches to the module before creating the host', async () => {
     const canvas = makeCanvas('ctx-render-paths');
     const calls = [];
     const module = {
         ccall: (name) => {
             calls.push([name]);
-            return name === 'create_host' ? 0 : undefined;
+            return 0;
         },
+        _create_host_with_config: () => 0,
+        _get_last_init_error: () => 2,
         _set_render_path_overrides: (...args) => calls.push(['set_render_path_overrides', args]),
     };
     const context = new ProjectMContext({
         canvas,
         sharedModule: module,
         requireCrossOriginIsolation: false,
-        // Only location is read from it before create_host() fails.
+        // Only location is read from it before the create fails.
         windowRef: /** @type {any} */ ({ location: { search: '?blurPath=copy&perPixelEval=cpu' } }),
         onError: () => {},
     });
 
     await assert.rejects(() => context.start(), /create_host/);
 
-    assert.deepEqual(calls.map((c) => c[0]), ['set_context_config', 'set_render_path_overrides', 'create_host']);
-    assert.deepEqual(calls[1][1], [1, 0, 1]);
+    assert.deepEqual(calls.map((c) => c[0]), ['set_render_path_overrides', 'create_host_with_config']);
+    assert.deepEqual(calls[0][1], [1, 0, 1]);
 });
 
 test('an explicit renderPathOverrides option wins over the page URL', async () => {

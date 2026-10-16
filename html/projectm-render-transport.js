@@ -6,14 +6,23 @@
 //   createModuleTransport(module)  main thread: calls land on the module here
 //   createWorkerTransport(handle)  render worker: calls are proxied as ccalls
 //
+// A transport is bound to one engine. Two engines can share a Module (#168
+// Phase B), and almost every export acts on the *active* one, so each call a
+// transport issues selects its engine first — on the main thread through
+// bindModuleToHost(), in the worker through the `host` field on every control
+// message. A caller that awaits between two calls cannot have a sibling
+// engine's activation land in between.
+//
 // Neither knows anything about canvases, audio graphs, or the DOM. Deciding
 // *which* one a host gets is selectRenderTopology()'s job, at the bottom.
 
 import {
     WASM_API_SIGNATURES,
+    bindModuleToHost,
     feedPcmFloat,
 } from './generated/projectm-wasm-api.js';
 import * as wasmApi from './generated/projectm-wasm-api.js';
+import { captureFrameFromModule } from './projectm-frame-capture.js';
 import { claimGlobal } from './projectm-globals.js';
 import { feedPcmThroughRing } from './projectm-pcm-ring.js';
 import { isRenderWorkerSupported, renderWorkerUnsupportedReason, setupRenderWorker } from './projectm-render-worker-host.js';
@@ -61,12 +70,21 @@ function coerceArgs(signature, args) {
  * dispatch table, not a second implementation of the API.
  *
  * @param {any} module Emscripten module instance.
+ * @param {object} [options]
+ * @param {number} [options.host] The engine in `module` this transport drives:
+ *   create_host*()'s handle, or 0 for the default host of a single-engine
+ *   Module. Every call activates it first, and the engine events it relays are
+ *   that engine's only.
  * @returns {RenderTransport}
  */
-export function createModuleTransport(module) {
+export function createModuleTransport(module, { host = 0 } = {}) {
     if (!module) {
         throw new Error('createModuleTransport requires a module instance');
     }
+    // Every engine call goes through this view, so it lands on `host` however
+    // long the caller awaited before making it.
+    const engine = bindModuleToHost(module, host);
+    const scope = { engineHost: host };
 
     /**
      * @param {string} name
@@ -82,12 +100,13 @@ export function createModuleTransport(module) {
         if (typeof wrapper !== 'function') {
             throw new Error(`projectM API call has no generated wrapper: ${name}`);
         }
-        return wrapper(module, ...args);
+        return wrapper(engine, ...args);
     };
 
     return {
         topology: /** @type {RenderTopology} */ ('main'),
         module,
+        host,
         workerHandle: null,
 
         supports(name) {
@@ -113,9 +132,10 @@ export function createModuleTransport(module) {
             // for bundles built before the ring existed.
             feedPcmThroughRing(module, buffer, {
                 channels,
+                hostHandle: host,
                 fallback: () => {
                     feedPcmFloat(
-                        module,
+                        engine,
                         buffer,
                         Math.floor(buffer.length / Math.max(1, channels)),
                         channels,
@@ -139,18 +159,34 @@ export function createModuleTransport(module) {
             }
             module.FS.writeFile(vfsPath, bytes);
             if (mode === 'add') {
-                wasmApi.addPresetFile(module, vfsPath);
+                wasmApi.addPresetFile(engine, vfsPath);
             } else if (mode === 'load-hard') {
-                wasmApi.loadPresetFileHard(module, vfsPath);
+                wasmApi.loadPresetFileHard(engine, vfsPath);
             } else {
-                wasmApi.loadPresetFile(module, vfsPath);
+                wasmApi.loadPresetFile(engine, vfsPath);
             }
         },
 
         resize(width, height) {
             if (module._set_window_size) {
-                wasmApi.setWindowSize(module, width, height);
+                wasmApi.setWindowSize(engine, width, height);
             }
+        },
+
+        setFlashLimit(enabled, threshold) {
+            if (typeof module._set_flash_limit_enabled !== 'function') {
+                return;
+            }
+            // Threshold first, so a limiter switched on never runs a frame on
+            // the previous one.
+            if (typeof threshold === 'number' && Number.isFinite(threshold)) {
+                wasmApi.setFlashLimitThreshold(engine, threshold);
+            }
+            wasmApi.setFlashLimitEnabled(engine, enabled);
+        },
+
+        captureFrame(options = {}) {
+            return captureFrameFromModule(engine, options);
         },
 
         onContextEvent() {
@@ -160,24 +196,26 @@ export function createModuleTransport(module) {
 
         onPerfFrame(listener) {
             // The engine calls the global on this thread; the bus lets several
-            // listeners share it.
-            return subscribeWasmCallback('pmOnPerfFrame', listener);
+            // listeners share it and keeps only this engine's frames.
+            return subscribeWasmCallback('pmOnPerfFrame', listener, globalThis, scope);
         },
 
         onPerfHudEnabled(listener) {
-            return subscribeWasmCallback('pmSetPerfHudEnabled', listener);
+            return subscribeWasmCallback('pmSetPerfHudEnabled', ({ enabled }) => listener(enabled), globalThis, scope);
         },
 
         onRhythmEvent(listener) {
-            return subscribeWasmCallback('pmOnRhythmEvent', listener);
+            return subscribeWasmCallback('pmOnRhythmEvent',
+                (event) => listener(/** @type {import('./projectm-render-worker-types.ts').RhythmEvent} */ (event)),
+                globalThis, scope);
         },
 
         async recoverContext(width = 0, height = 0) {
             // init() replaces whatever engine is left and refuses with 5 while
             // the context is still lost; nothing is built in that case.
-            const status = wasmApi.init(module);
+            const status = wasmApi.init(engine);
             if (status === 0 && width > 0 && height > 0) {
-                wasmApi.startRender(module, width, height);
+                wasmApi.startRender(engine, width, height);
             }
             return status;
         },
@@ -211,6 +249,11 @@ export function createWorkerTransport(handle, { exports = null } = {}) {
     return {
         topology: /** @type {RenderTopology} */ ('worker'),
         module: null,
+        // The worker's engine, as it reported in 'ready'. The handle stamps it
+        // on every control message it posts, so this is informational.
+        get host() {
+            return handle.engineHost?.() ?? 0;
+        },
         workerHandle: handle,
 
         // The module is on the other side of postMessage, so there is nothing
@@ -249,6 +292,16 @@ export function createWorkerTransport(handle, { exports = null } = {}) {
             // The worker owns the OffscreenCanvas, so it must resize the canvas
             // itself before telling the engine — postResize does both.
             handle.postResize(width, height);
+        },
+
+        setFlashLimit(enabled, threshold) {
+            handle.postFlashLimit(enabled, threshold);
+        },
+
+        captureFrame(options = {}) {
+            // The drawing buffer is the worker's and only readable inside the
+            // frame that drew it, so the worker reads it and posts the pixels.
+            return handle.captureFrame(options);
         },
 
         onContextEvent(listener) {
@@ -367,8 +420,10 @@ export function canUseRenderWorker({
  * @param {number} [options.targetFps]
  * @param {boolean} [options.governor]
  * @param {string} [options.meshQuality]
- * @param {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} [options.contextConfig]
+ * @param {import('./projectm-render-worker-types.ts').WasmContextConfig} [options.contextConfig]
  * @param {import('./projectm-render-worker-types.ts').RenderPathOverrides} [options.renderPathOverrides]
+ * @param {import('./projectm-render-worker-types.ts').FlashLimitSettings | null} [options.flashLimit]
+ *   Applied in the worker before the engine's first frame.
  * @param {Iterable<string> | null} [options.wasmExports] See createWorkerTransport().
  * @param {(reason: string) => void} [options.onFallback]
  * @param {(message: string) => void} [options.onError]
@@ -390,6 +445,7 @@ export function selectRenderTopology({
     meshQuality,
     contextConfig,
     renderPathOverrides,
+    flashLimit = null,
     wasmExports = null,
     onFallback,
     onError,
@@ -440,6 +496,7 @@ export function selectRenderTopology({
             meshQuality,
             contextConfig,
             renderPathOverrides,
+            flashLimit,
             onReady: () => settle(handle ? createWorkerTransport(handle, { exports: wasmExports }) : null),
             onUnsupported: (reason) => {
                 onFallback?.(reason);

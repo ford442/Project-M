@@ -21,7 +21,7 @@ import {
 } from '../../html/projectm-external-pcm.js';
 import { countWasmCallbackSubscribers } from '../../html/projectm-wasm-callbacks.js';
 import { hideInitError } from '../../html/projectm-init-errors.js';
-import { installLifecycleEnv, makeFakeModule } from './helpers/lifecycle-env.mjs';
+import { installLifecycleEnv, isCreateHostCall, makeFakeModule } from './helpers/lifecycle-env.mjs';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -119,7 +119,7 @@ test('overlapping start() calls share one boot and boot one Module', async () =>
         assert.equal(a, context);
         assert.equal(b, context);
         assert.equal(context.ready, true);
-        assert.equal(module.calls.filter((call) => call.name === 'init_with_canvases').length, 1);
+        assert.equal(module.calls.filter((call) => call.name === 'create_host_with_config').length, 1);
 
         assert.equal(await context.start(), context, 'once ready, start() resolves immediately');
         assert.equal(factoryCalls, 1);
@@ -133,14 +133,15 @@ test('after a failed start, a later start() boots again from scratch', async () 
     await withEnv({}, async (env) => {
         const errors = [];
         const good = makeFakeModule();
-        const bad = makeFakeModule({ onCall: (name) => (name === 'init_with_canvases' ? 1 : undefined) });
+        const bad = makeFakeModule({ hostHandle: 0, initError: 2 });
         let calls = 0;
         const context = env.newContext({
             ...mainTopology(env, async () => (++calls === 1 ? bad : good)),
             onError: (detail) => errors.push(detail),
         });
 
-        await assert.rejects(() => context.start(), /init\(\) failed/);
+        await assert.rejects(() => context.start(), /projectM init failed \(init code 2\)/);
+        assert.equal(errors[0].code, 2, 'the init code reaches onError, not a generic -1');
         assert.equal(context.ready, false);
         assert.equal(context.destroyed, false, 'a failed start is not a destroy');
         assert.equal(bad.destructed, true, 'the half-booted Module must be freed');
@@ -333,14 +334,14 @@ test('a start that fails validation before touching anything reports one error a
     });
 });
 
-test('create_host() failure is reported once, with its own code', async () => {
+test('create_host_with_config() failure is reported once, with its own code', async () => {
     await withEnv({}, async (env) => {
         const errors = [];
         const seen = [];
         const context = env.newContext({ sharedModule: makeFakeModule({ hostHandle: 0 }), onError: (detail) => errors.push(detail) });
         context.events.addEventListener('error', (event) => seen.push(event.detail));
 
-        await assert.rejects(() => context.start(), /create_host\(\) failed/);
+        await assert.rejects(() => context.start(), /create_host_with_config\(\) failed \(init code 4/);
 
         assert.equal(errors.length, 1, 'it used to be reported here and again by the outer handler');
         assert.equal(errors[0].code, 4);
@@ -508,17 +509,257 @@ test('destroy() before the worklet is ready stops the media element being connec
 
 // ---- two contexts on one page ------------------------------------------------------
 
+// ---- Flash limiter (#286) ---------------------------------------------------------
+//
+// A viewer who needs the limiter must never be shown an unlimited frame, so it
+// is switched on before the engine renders anything — on this thread before
+// start_render(), in the worker from its init message.
+
+test('the flashLimit option is applied to the context\'s engine before it renders', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule({ hostHandle: 31 });
+        const context = env.newContext({ sharedModule: module, flashLimit: { threshold: 0.05 } });
+        await context.start();
+
+        const order = module.engineCalls
+            .filter((call) => ['_set_flash_limit_threshold', '_set_flash_limit_enabled', '_start_render'].includes(call.name));
+        assert.deepEqual(order.map((call) => [call.name, call.host]), [
+            ['_set_flash_limit_threshold', 31],
+            ['_set_flash_limit_enabled', 31],
+            ['_start_render', 31],
+        ]);
+        const enabled = module.calls.find((call) => call.name === '_set_flash_limit_enabled');
+        assert.deepEqual(enabled?.args, [1]);
+    });
+});
+
+test('without the flashLimit option the engine\'s limiter is left alone', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule();
+        const context = env.newContext({ sharedModule: module, flashLimit: false });
+        await context.start();
+        assert.equal(module.calls.some((call) => call.name.startsWith('_set_flash_limit')), false);
+    });
+});
+
+test('in the worker topology the flash limit travels with the init message', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext({ ...workerTopology(env), flashLimit: true });
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        const init = env.workers[0].messages.find((message) => message.type === 'init');
+        assert.deepEqual(init?.flashLimit, { enabled: true });
+        env.workers[0].emit({ type: 'ready', host: 3 });
+        await started;
+        assert.equal(env.workers[0].messages.some((message) => message.type === 'set-flash-limit'), false,
+            'not sent a second time after ready');
+
+        context.setFlashLimit(false);
+        assert.deepEqual(env.workers[0].messages.at(-1), { type: 'set-flash-limit', enabled: false, host: 3 });
+    });
+});
+
+test('two contexts on one shared Module each get the context config they asked for', async () => {
+    await withEnv({}, async (env) => {
+        // Models the C++ registry: a host's config is whatever its create call
+        // carried. set_context_config() would be the old process-wide slot,
+        // consumed by whichever create came next.
+        /** @type {Map<number, unknown[]>} */
+        const configByHandle = new Map();
+        let legacySlot = null;
+        let nextHandle = 20;
+        /** @type {Promise<unknown> | null} */
+        let bStart = null;
+        /** @type {any} */
+        let b = null;
+        const module = makeFakeModule({
+            onCall: (name, args) => {
+                if (name === 'set_context_config') {
+                    legacySlot = args;
+                    return 0;
+                }
+                if (name === 'create_host_with_config') {
+                    const handle = nextHandle++;
+                    configByHandle.set(handle, args.slice(2));
+                    // Start the second context from a microtask queued in
+                    // between: under the old configure-then-create protocol
+                    // this is where B's config could replace A's.
+                    if (!bStart) queueMicrotask(() => { bStart = b.start(); });
+                    return handle;
+                }
+                if (name === 'create_host') {
+                    const handle = nextHandle++;
+                    configByHandle.set(handle, legacySlot);
+                    return handle;
+                }
+                return undefined;
+            },
+        });
+        const a = env.newContext({ sharedModule: module, canvasId: 'pm-a', fboPrecision: 'half', antialias: false });
+        b = env.newContext({ sharedModule: module, canvasId: 'pm-b', fboPrecision: 'byte', antialias: true });
+
+        await a.start();
+        await until(() => bStart !== null, 'the second start() to be queued');
+        await bStart;
+
+        assert.equal(module.calls.filter((call) => call.name === 'set_context_config').length, 0);
+        assert.notEqual(a.hostHandle, b.hostHandle);
+        // [flags, powerPreference, fboPrecision]: 48 = contextAlpha + premultipliedAlpha, +1 antialias.
+        assert.deepEqual(configByHandle.get(a.hostHandle), [48, 2, 0]);
+        assert.deepEqual(configByHandle.get(b.hostHandle), [49, 2, 2]);
+    });
+});
+
 /** Two contexts, each with its own shared Module and host handle. */
 async function startPair(env, extra = {}) {
     let nextHandle = 10;
-    const moduleA = makeFakeModule({ onCall: (name) => (name === 'create_host' ? nextHandle++ : undefined) });
-    const moduleB = makeFakeModule({ onCall: (name) => (name === 'create_host' ? nextHandle++ : undefined) });
+    const moduleA = makeFakeModule({ onCall: (name) => (isCreateHostCall(name) ? nextHandle++ : undefined) });
+    const moduleB = makeFakeModule({ onCall: (name) => (isCreateHostCall(name) ? nextHandle++ : undefined) });
     const a = env.newContext({ sharedModule: moduleA, canvasId: 'pm-a', ...extra });
     const b = env.newContext({ sharedModule: moduleB, canvasId: 'pm-b', ...extra });
     await a.start();
     await b.start();
     return { a, b, moduleA, moduleB };
 }
+
+// ---- two engines in ONE Module: events and calls stay with their engine ----------
+//
+// kMaxHosts is 2: embed-multi-same-module.html runs two engines in one Module.
+// Every engine callback is one global name for both, so the handle the engine
+// passes (bundle 040+) is the only thing that says whose it is; and almost every
+// export acts on the *active* engine, so a call that resumes after an await has
+// to select its own again.
+
+/** Two contexts sharing one Module, as embed-multi-same-module.html runs them. */
+async function startSharedPair(env, { extraA = {}, extraB = {} } = {}) {
+    let nextHandle = 30;
+    const module = makeFakeModule({ onCall: (name) => (isCreateHostCall(name) ? nextHandle++ : undefined) });
+    const a = env.newContext({ sharedModule: module, canvasId: 'pm-a', ...extraA });
+    const b = env.newContext({ sharedModule: module, canvasId: 'pm-b', ...extraB });
+    await a.start();
+    await b.start();
+    assert.notEqual(a.hostHandle, b.hostHandle);
+    return { a, b, module };
+}
+
+/** A preset fetch the test releases by hand; restored with the environment. */
+function gatedPresetFetch() {
+    const gate = deferred();
+    globalThis.fetch = async () => {
+        await gate.promise;
+        return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(4) };
+    };
+    return gate;
+}
+
+test('two engines in one Module: a governor scale change resizes only its own engine\'s canvas', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b } = await startSharedPair(env);
+        const resizes = { a: 0, b: 0 };
+        a.resize = () => { resizes.a += 1; };
+        b.resize = () => { resizes.b += 1; };
+
+        // js_governor_report_render_scale(host, scale): engine A dropped a tier.
+        env.window.pmOnGovernorRenderScaleChange(a.hostHandle, 0.5);
+        assert.deepEqual(resizes, { a: 1, b: 0 }, 'B\'s canvas used to resize too');
+        assert.equal(a.renderScale, 0.5);
+        assert.equal(b.renderScale, 1, 'B stays at its own tier');
+
+        env.window.pmOnGovernorRenderScaleChange(b.hostHandle, 0.75);
+        assert.deepEqual(resizes, { a: 1, b: 1 });
+        assert.equal(a.renderScale, 0.5, 'and A keeps its own');
+        assert.equal(b.renderScale, 0.75);
+
+        // A bundle before 040 cannot say which engine: both hear it, as before.
+        env.window.pmOnGovernorRenderScaleChange(1);
+        assert.deepEqual(resizes, { a: 2, b: 2 });
+    });
+});
+
+test('two engines in one Module: an init failure reaches only the engine that failed', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const errors = { a: [], b: [] };
+        const { a, b } = await startSharedPair(env, {
+            extraA: { onError: (detail) => errors.a.push(detail) },
+            extraB: { onError: (detail) => errors.b.push(detail) },
+        });
+
+        // js_notify_init_error(host, code, detail): A's re-init (a context-loss
+        // recovery, say) found no WebGL 2.
+        env.window.pmReportInitError(a.hostHandle, 2, 'WebGL 2 unavailable');
+        assert.deepEqual(errors.a.map((detail) => detail.code), [2]);
+        assert.match(errors.a[0].message, /init code 2.*WebGL 2 unavailable/);
+        assert.deepEqual(errors.b, [], 'B\'s onError must not fire for A\'s code');
+
+        env.window.pmReportInitError(b.hostHandle, 6, 'Primary canvas selector not found in document');
+        assert.deepEqual(errors.b.map((detail) => detail.code), [6]);
+        assert.equal(errors.a.length, 1);
+
+        // Not anyone's failure to report: the context is still lost (5), a
+        // create refused at the instance cap before any engine existed (-1),
+        // and a pre-040 call that cannot say whose it was.
+        env.window.pmReportInitError(a.hostHandle, 5, 'WebGL context is lost');
+        env.window.pmReportInitError(-1, 4, 'Maximum projectM instances per Module reached');
+        env.window.pmReportInitError(2, 'from an old bundle');
+        assert.equal(errors.a.length, 1);
+        assert.equal(errors.b.length, 1);
+
+        a.destroy();
+        b.destroy();
+        assert.equal('pmReportInitError' in env.window, false, 'the last context gives the hook back');
+    });
+});
+
+test('a preset load that awaits its fetch still lands on its own engine after a sibling activated', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env);
+        module.FS = { writeFile: () => {} };
+        env.window.dispatchEvent = () => true; // the pm:preset-loaded notification
+        const gate = gatedPresetFetch();
+
+        const loadA = a.loadPresetUrl('https://cdn.test/presets/a.milk');
+        await tick();
+        // B drives its engine while A is waiting on the network: B is now the
+        // active host, and "whoever called last" would be B.
+        b.setLocked(true);
+        assert.equal(module.activeHost, b.hostHandle);
+
+        gate.resolve();
+        await loadA;
+
+        const loads = module.engineCalls.filter((call) => call.name === 'load_preset_file');
+        assert.deepEqual(loads.map((call) => call.host), [a.hostHandle], 'A\'s preset loaded into A');
+        // Each start() locks its own engine, then B's setLocked() above.
+        const locks = module.engineCalls.filter((call) => call.name === '_set_preset_locked');
+        assert.deepEqual(locks.map((call) => call.host), [a.hostHandle, b.hostHandle, b.hostHandle]);
+    });
+});
+
+test('a context destroyed mid-load neither applies its preset to the survivor nor unsubscribes it', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env);
+        module.FS = { writeFile: () => {} };
+        const gate = gatedPresetFetch();
+
+        const loadA = a.loadPresetUrl('https://cdn.test/presets/a.milk');
+        await tick();
+        a.destroy();
+        assert.equal(module.activeHost, b.hostHandle, 'the survivor is the active engine now');
+
+        gate.resolve();
+        await assert.rejects(loadA);
+        assert.equal(module.engineCalls.filter((call) => call.name === 'load_preset_file').length, 0,
+            'A\'s preset must not load into B');
+
+        // B still hears its own engine, and only it.
+        let resizesB = 0;
+        b.resize = () => { resizesB += 1; };
+        assert.equal(countWasmCallbackSubscribers('pmOnGovernorRenderScaleChange', env.window), 1);
+        env.window.pmOnGovernorRenderScaleChange(b.hostHandle, 0.5);
+        assert.equal(resizesB, 1);
+        assert.equal(b.renderScale, 0.5);
+    });
+});
 
 test('destroying context A leaves context B\'s governor hook subscribed', async () => {
     await withEnv({ withResizeObserver: false }, async (env) => {

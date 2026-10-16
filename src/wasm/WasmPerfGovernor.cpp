@@ -168,12 +168,17 @@ static void OnGpuStageChange(projectm_perf_gpu_stage stage, void* /*userData*/)
     js_perf_gpu_enter_stage(static_cast<int>(stage));
 }
 
-// Notifies the host page that perf timer collection was enabled/disabled, so
-// it can show or hide the on-screen HUD. See html/projectm-perf.js.
+// Notifies the host page that perf timer collection was enabled/disabled on
+// `host` (EventHostHandle()), so it can show or hide the on-screen HUD. See
+// html/projectm-perf.js.
+//
+// Every page callback in this file names its engine first (bundle 040+): two
+// engines in one Module share these global names, and without the handle a
+// listener cannot tell whose tier or frame it is hearing.
 // clang-format off
-EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
+EM_JS(void, js_perf_hud_set_enabled, (double host, int enabled), {
     if (typeof globalThis.pmSetPerfHudEnabled === 'function') {
-        globalThis.pmSetPerfHudEnabled(!!enabled);
+        globalThis.pmSetPerfHudEnabled(host, !!enabled);
     }
 });
 // clang-format on
@@ -181,13 +186,15 @@ EM_JS(void, js_perf_hud_set_enabled, (int enabled), {
 // Reports one frame's worth of CPU/GPU timings to the host page. If
 // globalThis.pmOnPerfFrame(stats) is defined (see html/projectm-perf.js), it is
 // called with a stats object so the HUD and/or benchmark harness can consume it.
+// `stats.host` is the engine that rendered the frame.
 // clang-format off
 EM_JS(void, js_perf_report_frame, (
-    double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
+    double host, double totalMs, double audioMs, double perFrameEvalMs, double perPixelEvalMs,
     double blurMs, double waveformsShapesMs, double compositeMs, double gpuMs, double fps,
     int shaderLinkPending,
     int perPixelEvalPath,
-    double rhythmMs
+    double rhythmMs,
+    double flashClampedFrames
 ), {
     if (typeof globalThis.pmOnPerfFrame === 'function') {
         const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
@@ -198,6 +205,7 @@ EM_JS(void, js_perf_report_frame, (
         });
         const gpuFresh = !!(gpu && gpu.ext && gpu.fresh);
         globalThis.pmOnPerfFrame({
+            host: host,
             totalMs: totalMs,
             audioMs: audioMs,
             // Onsets, tempo, beat phase and sections (the pm_* preset variables);
@@ -223,6 +231,9 @@ EM_JS(void, js_perf_report_frame, (
             // covers different work in the two cases, so an A/B is only meaningful
             // between runs with the same value here.
             perPixelEvalPath: perPixelEvalPath ? 'gpu' : 'cpu',
+            // Frames this engine's flash limiter clamped since it was enabled
+            // (refreshed about twice a second), -1 while the limiter is off.
+            flashClampedFrames: flashClampedFrames,
         });
     }
 });
@@ -297,9 +308,9 @@ constexpr QualityTierSettings kQualityTiers[kMaxQualityTier + 1] = {
 // Notifies the host page when the governor changes the quality tier, so the
 // UI can reflect it (e.g. show a "reduced quality" indicator).
 // clang-format off
-EM_JS(void, js_governor_report_tier, (int tier), {
+EM_JS(void, js_governor_report_tier, (double host, int tier), {
     if (typeof globalThis.pmOnGovernorTierChange === 'function') {
-        globalThis.pmOnGovernorTierChange(tier);
+        globalThis.pmOnGovernorTierChange(host, tier);
     }
 });
 // clang-format on
@@ -310,9 +321,9 @@ EM_JS(void, js_governor_report_tier, (int tier), {
 // This is a *push* notification; get_governor_render_scale() below is the pull
 // counterpart for late-binding hosts.
 // clang-format off
-EM_JS(void, js_governor_report_render_scale, (double scale), {
+EM_JS(void, js_governor_report_render_scale, (double host, double scale), {
     if (typeof globalThis.pmOnGovernorRenderScaleChange === 'function') {
-        globalThis.pmOnGovernorRenderScaleChange(scale);
+        globalThis.pmOnGovernorRenderScaleChange(host, scale);
     }
 });
 // clang-format on
@@ -321,9 +332,9 @@ EM_JS(void, js_governor_report_render_scale, (double scale), {
 // The actual clamping is applied purely in C++ via ProjectM::SetMaxBlurLevel(); no
 // JS action is required for the cap to take effect.
 // clang-format off
-EM_JS(void, js_governor_report_blur_cap, (int cap), {
+EM_JS(void, js_governor_report_blur_cap, (double host, int cap), {
     if (typeof globalThis.pmOnGovernorBlurCapChange === 'function') {
-        globalThis.pmOnGovernorBlurCapChange(cap);
+        globalThis.pmOnGovernorBlurCapChange(host, cap);
     }
 });
 // clang-format on
@@ -341,9 +352,10 @@ static void ApplyQualityTier(int tier)
     H.engineSettings.meshSize = std::make_pair(settings.meshWidth, settings.meshHeight);
     projectm_set_max_blur_level(pm, settings.maxBlurLevel);
     projectm_set_blur_resolution_scale(pm, static_cast<float>(settings.blurResolutionScale));
-    js_governor_report_tier(tier);
-    js_governor_report_render_scale(settings.renderScale);
-    js_governor_report_blur_cap(settings.maxBlurLevel);
+    const double host = EventHostHandle(H);
+    js_governor_report_tier(host, tier);
+    js_governor_report_render_scale(host, settings.renderScale);
+    js_governor_report_blur_cap(host, settings.maxBlurLevel);
 }
 
 void ReapplyQualityTierLimits()
@@ -535,7 +547,7 @@ void set_perf_hud(int enabled)
     // Per-stage GPU timing (js_perf_gpu_enter_stage()). Process-global like the
     // perf timers themselves; each call lands on whichever host is rendering.
     projectm_perf_set_gpu_stage_callback(g_perfHudEnabled ? &OnGpuStageChange : nullptr, nullptr);
-    js_perf_hud_set_enabled(enabled);
+    js_perf_hud_set_enabled(EventHostHandle(H), enabled);
     return;
 }
 

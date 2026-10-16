@@ -21,6 +21,7 @@ export type ProjectMModule = EmscriptenModule & {
     _init: () => number;
     _set_render_path_overrides: (blurCopyPath: number, copyShaderPath: number, perPixelForceCpu: number) => void;
     _get_render_path_overrides: () => number;
+    _get_last_init_error: () => number;
     _get_active_host: () => number;
     _host_count: () => number;
     _max_host_count: () => number;
@@ -118,6 +119,20 @@ export type ProjectMModule = EmscriptenModule & {
     _transition_get_duration_beats: () => number;
     _set_hard_cut_on_beat: (enabled: number) => void;
     _set_rhythm_events: (enabled: number) => void;
+    _set_flash_limit_enabled: (enabled: number) => void;
+    _get_flash_limit_enabled: () => boolean;
+    _set_flash_limit_threshold: (threshold: number) => void;
+    _get_flash_limit_threshold: () => number;
+    _get_flash_limit_clamped_frames: () => number;
+    _get_committed_frame_count: () => number;
+    _capture_frame_request: () => number;
+    _capture_frame_status: () => number;
+    _capture_frame_resolve: (wait: number) => number;
+    _capture_frame_data_ptr: () => number;
+    _capture_frame_width: () => number;
+    _capture_frame_height: () => number;
+    _capture_frame_index: () => number;
+    _capture_frame_release: () => void;
 };
 
 /** C symbol names for render-worker ccall proxying. */
@@ -134,6 +149,8 @@ export const WASM_API_SYMBOLS = {
     initWithCanvases: 'init_with_canvases',
     rebindCanvases: 'rebind_canvases',
     createHost: 'create_host',
+    createHostWithConfig: 'create_host_with_config',
+    getLastInitError: 'get_last_init_error',
     setActiveHost: 'set_active_host',
     getActiveHost: 'get_active_host',
     destroyHost: 'destroy_host',
@@ -239,6 +256,20 @@ export const WASM_API_SYMBOLS = {
     transitionGetDurationBeats: 'transition_get_duration_beats',
     setHardCutOnBeat: 'set_hard_cut_on_beat',
     setRhythmEvents: 'set_rhythm_events',
+    setFlashLimitEnabled: 'set_flash_limit_enabled',
+    getFlashLimitEnabled: 'get_flash_limit_enabled',
+    setFlashLimitThreshold: 'set_flash_limit_threshold',
+    getFlashLimitThreshold: 'get_flash_limit_threshold',
+    getFlashLimitClampedFrames: 'get_flash_limit_clamped_frames',
+    getCommittedFrameCount: 'get_committed_frame_count',
+    captureFrameRequest: 'capture_frame_request',
+    captureFrameStatus: 'capture_frame_status',
+    captureFrameResolve: 'capture_frame_resolve',
+    captureFrameDataPtr: 'capture_frame_data_ptr',
+    captureFrameWidth: 'capture_frame_width',
+    captureFrameHeight: 'capture_frame_height',
+    captureFrameIndex: 'capture_frame_index',
+    captureFrameRelease: 'capture_frame_release',
 } as const;
 
 /** One row of {@link WASM_API_SIGNATURES}. */
@@ -271,6 +302,8 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     initWithCanvases: { symbol: 'init_with_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
     rebindCanvases: { symbol: 'rebind_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
     createHost: { symbol: 'create_host', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
+    createHostWithConfig: { symbol: 'create_host_with_config', returnType: 'number', argTypes: ['string', 'string', 'number', 'number', 'number'], paramTypes: ['string', 'string', 'number', 'number', 'number'] },
+    getLastInitError: { symbol: 'get_last_init_error', returnType: 'number', argTypes: [], paramTypes: [] },
     setActiveHost: { symbol: 'set_active_host', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
     getActiveHost: { symbol: 'get_active_host', returnType: 'number', argTypes: [], paramTypes: [] },
     destroyHost: { symbol: 'destroy_host', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
@@ -376,7 +409,81 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     transitionGetDurationBeats: { symbol: 'transition_get_duration_beats', returnType: 'number', argTypes: [], paramTypes: [] },
     setHardCutOnBeat: { symbol: 'set_hard_cut_on_beat', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setRhythmEvents: { symbol: 'set_rhythm_events', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    setFlashLimitEnabled: { symbol: 'set_flash_limit_enabled', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    getFlashLimitEnabled: { symbol: 'get_flash_limit_enabled', returnType: 'boolean', argTypes: [], paramTypes: [] },
+    setFlashLimitThreshold: { symbol: 'set_flash_limit_threshold', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    getFlashLimitThreshold: { symbol: 'get_flash_limit_threshold', returnType: 'number', argTypes: [], paramTypes: [] },
+    getFlashLimitClampedFrames: { symbol: 'get_flash_limit_clamped_frames', returnType: 'number', argTypes: [], paramTypes: [] },
+    getCommittedFrameCount: { symbol: 'get_committed_frame_count', returnType: 'number', argTypes: [], paramTypes: [] },
+    captureFrameRequest: { symbol: 'capture_frame_request', returnType: 'number', argTypes: [], paramTypes: [] },
+    captureFrameStatus: { symbol: 'capture_frame_status', returnType: 'number', argTypes: [], paramTypes: [] },
+    captureFrameResolve: { symbol: 'capture_frame_resolve', returnType: 'number', argTypes: ['number'], paramTypes: ['boolean'] },
+    captureFrameDataPtr: { symbol: 'capture_frame_data_ptr', returnType: 'number', argTypes: [], paramTypes: [] },
+    captureFrameWidth: { symbol: 'capture_frame_width', returnType: 'number', argTypes: [], paramTypes: [] },
+    captureFrameHeight: { symbol: 'capture_frame_height', returnType: 'number', argTypes: [], paramTypes: [] },
+    captureFrameIndex: { symbol: 'capture_frame_index', returnType: 'number', argTypes: [], paramTypes: [] },
+    captureFrameRelease: { symbol: 'capture_frame_release', returnType: null, argTypes: [], paramTypes: [] },
 };
+
+/**
+ * Exports that act on the host registry rather than on the active host's
+ * engine (PROJECTM_WASM_API_HOST_REGISTRY in cmake/WasmApiManifest.cmake).
+ * bindModuleToHost() passes these through without activating its host.
+ */
+export const HOST_REGISTRY_SYMBOLS: ReadonlySet<string> = new Set(['malloc', 'free', 'create_host', 'create_host_with_config', 'get_last_init_error', 'set_active_host', 'get_active_host', 'destroy_host', 'host_count', 'max_host_count']);
+
+/**
+ * A view of `module` bound to one engine: every engine export reached through
+ * it — `module._sym(...)` and `module.ccall('sym', ...)`, hence every wrapper
+ * in this file and every helper that takes a module — first makes `host` the
+ * active host. That is what keeps an async caller (a preset fetch that resumes
+ * after a sibling engine activated itself) on its own engine without having to
+ * remember to re-activate. Host 0, the single-engine default host, needs no
+ * activation and returns `module` itself. Everything that is not an engine
+ * export (FS, HEAP views, runtime helpers) is the module's own. A call through
+ * a view whose host has been destroyed throws rather than reaching whichever
+ * engine is active instead.
+ */
+export function bindModuleToHost<M extends ProjectMModule>(module: M, host: number): M {
+    if (!host) {
+        return module;
+    }
+    const target = module as unknown as Record<string, unknown> & { ccall: EmscriptenModule['ccall'] };
+    // set_active_host() ignores a handle that is no longer live and leaves the
+    // previous host active, so a view that outlived its engine would quietly
+    // drive a sibling's. Check, and refuse instead.
+    const getActive = target._get_active_host as (() => number) | undefined;
+    const activate = () => {
+        target.ccall('set_active_host', null, ['number'], [host]);
+        if (typeof getActive === 'function' && getActive() !== host) {
+            throw new Error(`projectM engine host ${host} no longer exists`);
+        }
+    };
+    return new Proxy(target, {
+        get(obj, property) {
+            const value = Reflect.get(obj, property);
+            if (typeof property !== 'string' || typeof value !== 'function') {
+                return value;
+            }
+            const fn = value as (...args: unknown[]) => unknown;
+            if (property === 'ccall') {
+                return (name: string, ...rest: unknown[]) => {
+                    if (!HOST_REGISTRY_SYMBOLS.has(name)) {
+                        activate();
+                    }
+                    return fn.call(obj, name, ...rest);
+                };
+            }
+            if (property.startsWith('_') && !HOST_REGISTRY_SYMBOLS.has(property.slice(1))) {
+                return (...args: unknown[]) => {
+                    activate();
+                    return fn.apply(obj, args);
+                };
+            }
+            return value;
+        },
+    }) as unknown as M;
+}
 
 /**
  * Feed interleaved float PCM into projectM (malloc + HEAPF32 marshaling).
@@ -427,7 +534,7 @@ export function setCanvasSelectors(module: ProjectMModule, primary: string, seco
     module.ccall('set_canvas_selectors', null, ['string', 'string'], [primary, secondary]);
 }
 
-/** Configure WebGL context attributes and the preferred dual-FBO format (fboPrecision: 0=RGBA16F, 1=RGBA32F, 2=RGBA8, as dual_fbo_get_format returns) — call before init/init_with_canvases/create_host */
+/** Deprecated shim for host JS that predates create_host_with_config(): sets the active host's config if it has no context yet, else holds it for the next context created (fboPrecision: 0=RGBA16F, 1=RGBA32F, 2=RGBA8) */
 export function setContextConfig(module: ProjectMModule, antialias: number, preserveDrawingBuffer: number, depth: number, stencil: number, alpha: number, powerPreference: number, fboPrecision: number): void {
     module.ccall('set_context_config', null, ['number', 'number', 'number', 'number', 'number', 'number', 'number'], [antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision]);
 }
@@ -455,6 +562,16 @@ export function rebindCanvases(module: ProjectMModule, primary: string, secondar
 /** Create and init a new engine instance on the given canvases, returning an opaque host handle (0 if at the instance cap or init failed) */
 export function createHost(module: ProjectMModule, primary: string, secondary: string): number {
     return module.ccall('create_host', 'number', ['string', 'string'], [primary, secondary]) as number;
+}
+
+/** Create and init an engine instance whose WebGL context uses this config (flags: bitmask of CONTEXT_CONFIG_FLAGS, powerPreference 0 default/1 low-power/2 high-performance, fboPrecision 0=RGBA16F/1=RGBA32F/2=RGBA8), returning its host handle or 0 (see get_last_init_error) */
+export function createHostWithConfig(module: ProjectMModule, primary: string, secondary: string, flags: number, powerPreference: number, fboPrecision: number): number {
+    return module.ccall('create_host_with_config', 'number', ['string', 'string', 'number', 'number', 'number'], [primary, secondary, flags, powerPreference, fboPrecision]) as number;
+}
+
+/** Code of the most recent init()/create_host*() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes) */
+export function getLastInitError(module: ProjectMModule): number {
+    return module._get_last_init_error();
 }
 
 /** Select which host subsequent no-handle exports operate on and make its WebGL context current (0 = default host) */
@@ -982,6 +1099,76 @@ export function setRhythmEvents(module: ProjectMModule, enabled: boolean): void 
     module._set_rhythm_events(enabled ? 1 : 0);
 }
 
+/** Turn the temporal flash limiter on or off (off by default, see docs/FLASH_LIMITER.md) */
+export function setFlashLimitEnabled(module: ProjectMModule, enabled: boolean): void {
+    module._set_flash_limit_enabled(enabled ? 1 : 0);
+}
+
+/** Whether the flash limiter is on */
+export function getFlashLimitEnabled(module: ProjectMModule): boolean {
+    return !!module._get_flash_limit_enabled();
+}
+
+/** Span of mean relative luminance (0.005..1, default 0.06) the presented frames may cover within the limiter's ~1/3 s memory */
+export function setFlashLimitThreshold(module: ProjectMModule, threshold: number): void {
+    module._set_flash_limit_threshold(threshold);
+}
+
+/** The flash limiter's threshold */
+export function getFlashLimitThreshold(module: ProjectMModule): number {
+    return module._get_flash_limit_threshold();
+}
+
+/** Frames the flash limiter blended toward the previous frame since it was enabled (reads back from the GPU: poll a few times a second at most) */
+export function getFlashLimitClampedFrames(module: ProjectMModule): number {
+    return module._get_flash_limit_clamped_frames();
+}
+
+/** emscripten_webgl_commit_frame() calls since the host was created (0 unless the host presents manually) */
+export function getCommittedFrameCount(module: ProjectMModule): number {
+    return module._get_committed_frame_count();
+}
+
+/** Read back the next rendered frame (1 accepted, 0 no context), replacing an unclaimed capture */
+export function captureFrameRequest(module: ProjectMModule): number {
+    return module._capture_frame_request();
+}
+
+/** Capture state: 0 idle, 1 requested, 2 pending (GPU read in flight), 3 ready, 4 failed (never waits) */
+export function captureFrameStatus(module: ProjectMModule): number {
+    return module._capture_frame_status();
+}
+
+/** capture_frame_status(), but wait=true takes a pending capture now, waiting for the GPU if it must */
+export function captureFrameResolve(module: ProjectMModule, wait: boolean): number {
+    return module._capture_frame_resolve(wait ? 1 : 0);
+}
+
+/** Heap address of the ready capture's RGBA8 pixels, top row first (0 unless ready) */
+export function captureFrameDataPtr(module: ProjectMModule): number {
+    return module._capture_frame_data_ptr();
+}
+
+/** Width in pixels of the last capture */
+export function captureFrameWidth(module: ProjectMModule): number {
+    return module._capture_frame_width();
+}
+
+/** Height in pixels of the last capture */
+export function captureFrameHeight(module: ProjectMModule): number {
+    return module._capture_frame_height();
+}
+
+/** get_rendered_frame_count() right after the captured frame */
+export function captureFrameIndex(module: ProjectMModule): number {
+    return module._capture_frame_index();
+}
+
+/** Free the captured pixels */
+export function captureFrameRelease(module: ProjectMModule): void {
+    module._capture_frame_release();
+}
+
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
     init,
@@ -992,6 +1179,8 @@ export const PUBLIC_WASM_API = [
     initWithCanvases,
     rebindCanvases,
     createHost,
+    createHostWithConfig,
+    getLastInitError,
     setActiveHost,
     getActiveHost,
     destroyHost,
@@ -1058,5 +1247,19 @@ export const PUBLIC_WASM_API = [
     transitionSetDurationBeats,
     transitionGetDurationBeats,
     setHardCutOnBeat,
-    setRhythmEvents
+    setRhythmEvents,
+    setFlashLimitEnabled,
+    getFlashLimitEnabled,
+    setFlashLimitThreshold,
+    getFlashLimitThreshold,
+    getFlashLimitClampedFrames,
+    getCommittedFrameCount,
+    captureFrameRequest,
+    captureFrameStatus,
+    captureFrameResolve,
+    captureFrameDataPtr,
+    captureFrameWidth,
+    captureFrameHeight,
+    captureFrameIndex,
+    captureFrameRelease
 ] as const;

@@ -23,6 +23,8 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _init_with_canvases
     _rebind_canvases
     _create_host
+    _create_host_with_config
+    _get_last_init_error
     _set_active_host
     _get_active_host
     _destroy_host
@@ -128,6 +130,20 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _transition_get_duration_beats
     _set_hard_cut_on_beat
     _set_rhythm_events
+    _set_flash_limit_enabled
+    _get_flash_limit_enabled
+    _set_flash_limit_threshold
+    _get_flash_limit_threshold
+    _get_flash_limit_clamped_frames
+    _get_committed_frame_count
+    _capture_frame_request
+    _capture_frame_status
+    _capture_frame_resolve
+    _capture_frame_data_ptr
+    _capture_frame_width
+    _capture_frame_height
+    _capture_frame_index
+    _capture_frame_release
 )
 
 projectm_wasm_join_exported_functions() {
@@ -137,7 +153,7 @@ projectm_wasm_join_exported_functions() {
 
 # EXPORTED_RUNTIME_METHODS for the final wrapper link (common + VFS FS helper).
 projectm_wasm_exported_runtime_methods() {
-    echo "ccall,cwrap,HEAPF32,FS,specialHTMLTargets"
+    echo "ccall,cwrap,HEAPF32,HEAPU8,FS,specialHTMLTargets"
 }
 
 # SIMD + atomics compile flags for the final emcc link of projectM_emscripten.cpp.

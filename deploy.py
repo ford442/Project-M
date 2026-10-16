@@ -28,10 +28,13 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -61,7 +64,20 @@ DEPLOY_PM_GLOBS: list = [
     "pm/projectm-v.*-thread.1ijs",
     "pm/projectm-v.*-thread.3ijs",
     "pm/projectm-v.*-thread.worker.js",
+    # Precompressed siblings html/.htaccess serves to clients that accept them,
+    # and the build manifest hosts read (scripts/generate_wasm_builds_manifest.mjs).
+    "pm/projectm-v.*-thread.js.br",
+    "pm/projectm-v.*-thread.js.gz",
+    "pm/projectm-v.*-thread.wasm.br",
+    "pm/projectm-v.*-thread.wasm.gz",
+    "pm/builds.json",
+    "pm/builds.json.br",
+    "pm/builds.json.gz",
 ]
+
+# Never skipped by size (see build_zip): bundle files must go up as a set, and
+# a manifest can change content without changing length (same-length hashes).
+ALWAYS_UPLOAD_RE = re.compile(r"(^|/)(projectm-v\.[0-9a-z]+-thread\.|builds\.json|index\.json$|index\.html$)")
 
 # Host pages load the module from ./pm/…; mirror every WASM artifact there too.
 DEPLOY_MIRROR_SUBDIRS: list = ["pm"]
@@ -75,13 +91,14 @@ DEPLOY_HTML_GLOBS: list = [
     "html/projectm-core.css",
     "html/embed-demo.html",
     "html/audio-capture.html",  # tab/system audio capture popup (projectm-display-capture.js)
-    "html/.htaccess",  # no-gzip for legacy UTF-16 .1ijs (Chrome ERR_CONTENT_DECODING_FAILED)
+    "html/.htaccess",  # encoding, types, caching, legacy-glue redirect (docs/adr/0001-wasm-and-media-hosting.md)
     # External PCM feeders co-deployed with the host (same-origin ./flac-player/).
     # Use **/* — a trailing ** matches only directories on Python 3.12+
     # (IsADirectoryError when zip tries Path.read_bytes() on the folder).
     "html/flac-player/**/*",
     "html/xm-player/**/*",
-    # Song library folders (Apache-style directory listings).
+    # Song library folders, with the index.json / index.html that
+    # scripts/generate_songs_manifest.mjs writes (auto-indexes are off there).
     "mp3_songs/**/*",
     "mod_songs/**/*",
     "songs/**/*",
@@ -92,6 +109,17 @@ DEPLOY_HTML_GLOBS: list = [
 # Deploy under this remote folder (empty = use PROJECT_NAME).
 # Matches the original SFTP remote target: projectm.1ink.us/
 DEPLOY_FOLDER: str = "projectm.1ink.us"
+
+# Public URL of each target: song indexes read remote-only songs from here.
+TARGET_PUBLIC_URLS: dict = {
+    "test": "https://test.1ink.us/projectm.1ink.us",
+    "go": "https://go.1ink.us/projectm.1ink.us",
+    "prod": "https://projectm.1ink.us",
+}
+
+# Folders that get a generated index.json + index.html (html/.htaccess turns
+# their auto-index off).
+SONG_FOLDERS: tuple = ("songs", "mp3_songs", "mod_songs")
 
 # Canonical production entry URL alias (must stay identical to panel2).
 PANEL2_HOST = "projectm_panel2.1ink"
@@ -145,14 +173,22 @@ def zip_entry_name(file: Path) -> str:
     return str(relative)
 
 
-def _to_utf16_le_bom(data: bytes) -> bytes:
-    """Encode host-page bytes as UTF-16 LE with BOM (DreamHost .1ink charset)."""
+def _to_utf8_bom(data: bytes) -> bytes:
+    """Encode host-page bytes as UTF-8 with a BOM.
+
+    .1ink pages used to ship as UTF-16 LE (DreamHost served .1ink as utf-16).
+    A BOM decides the encoding before any header charset does, so a UTF-8 BOM
+    page renders correctly whether the server still says utf-16 or, with
+    html/.htaccess, utf-8; and it is half the size. See
+    docs/adr/0001-wasm-and-media-hosting.md.
+    """
     if data.startswith(b"\xff\xfe"):
-        return data
-    if data.startswith(b"\xfe\xff"):
-        return data.decode("utf-16-be").encode("utf-16")
-    text = data.decode("utf-8-sig")
-    return text.encode("utf-16")
+        text = data.decode("utf-16")
+    elif data.startswith(b"\xfe\xff"):
+        text = data.decode("utf-16-be")
+    else:
+        text = data.decode("utf-8-sig")
+    return b"\xef\xbb\xbf" + text.encode("utf-8")
 
 
 def fetch_remote_sizes(target_folder: str, target_site: str) -> dict[str, int]:
@@ -192,8 +228,52 @@ def _zip_write(
     print(f"  + {archive_name}")
 
 
-def build_zip(skip_sizes: dict[str, int] | None = None) -> bytes:
-    """Zip WASM artifacts (plus pm/ mirrors) and shared html host files."""
+def build_song_indexes(remote_sizes: dict[str, int], target_site: str) -> dict[str, bytes]:
+    """index.json + index.html for each song folder (scripts/generate_songs_manifest.mjs).
+
+    The songs themselves are uploaded out of band and mostly exist only on the
+    server, so the file list is the target's size map (what fetch_remote_sizes
+    returned) plus any local files; metadata comes from the local file, or from
+    the first 64 KiB of the public URL. Without a size map it reads the live
+    listing instead (the auto-index, or the index.html generated last time).
+    """
+    if not shutil.which("node"):
+        print("  ! node not found; song indexes not regenerated")
+        return {}
+    base = TARGET_PUBLIC_URLS.get(target_site, TARGET_PUBLIC_URLS["prod"])
+    script = HERE / "scripts" / "generate_songs_manifest.mjs"
+    out: dict[str, bytes] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        for folder in SONG_FOLDERS:
+            remote = sorted(k for k in remote_sizes if k.startswith(f"{folder}/") and k.count("/") == 1)
+            local_dir = HERE / folder
+            dest = Path(tmp) / folder
+            dest.mkdir()
+            args = ["node", str(script), "--out", str(dest / "index.json"), "--base-url", f"{base}/{folder}/"]
+            if local_dir.is_dir():
+                args += ["--dir", str(local_dir)]
+            if remote:
+                names = dest / "names.json"
+                names.write_text(json.dumps(remote), encoding="utf-8")
+                args += ["--names", str(names)]
+            elif not remote_sizes:
+                args += ["--listing", f"{base}/{folder}/"]
+            result = subprocess.run(args, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"  ! {folder}/index.json not generated: {(result.stderr or result.stdout).strip()}")
+                continue
+            tracks = json.loads((dest / "index.json").read_text(encoding="utf-8")).get("tracks") or []
+            if not tracks:
+                continue
+            out[f"{folder}/index.json"] = (dest / "index.json").read_bytes()
+            out[f"{folder}/index.html"] = (dest / "index.html").read_bytes()
+            print(f"  {folder}/index.json: {len(tracks)} tracks")
+    return out
+
+
+def build_zip(skip_sizes: dict[str, int] | None = None, generated: dict[str, bytes] | None = None) -> bytes:
+    """Zip WASM artifacts (plus pm/ mirrors), shared html host files, and `generated` (archive name -> bytes)."""
+    generated = generated or {}
     matched = collect_deploy_files()
 
     if not matched:
@@ -215,18 +295,20 @@ def build_zip(skip_sizes: dict[str, int] | None = None) -> bytes:
         if path.parent == HERE / "pm":
             mirrored_names.add(path.name)
 
-    panel2_utf16: bytes | None = None
+    panel2_bytes: bytes | None = None
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for file in matched:
             if not file.is_file():
                 continue
             archive_name = zip_entry_name(file)
+            if archive_name in generated:
+                continue  # e.g. a stale local songs/index.json; the generated one wins
             data = file.read_bytes()
             if archive_name.endswith(".1ink"):
-                data = _to_utf16_le_bom(data)
+                data = _to_utf8_bom(data)
                 if archive_name == PANEL2_HOST:
-                    panel2_utf16 = data
+                    panel2_bytes = data
             # WASM bundle artifacts (.wasm/.js/.1ijs/.3ijs/.worker.js) are a tightly
             # coupled set: the .wasm's compiled-in ASM_CONSTS call-site indices must
             # match the ASM_CONSTS array baked into its paired .js glue from the same
@@ -236,8 +318,11 @@ def build_zip(skip_sizes: dict[str, int] | None = None) -> bytes:
             # never apply here — a false "unchanged" skip would leave a stale sibling
             # on the server and desync ASM_CONSTS between glue and binary, producing
             # "ASM_CONSTS[code] is not a function" at runtime. Always re-upload these.
+            # Also covers the pm/ copies prepare_deploy_bundle.sh stages, their
+            # .br/.gz siblings, and the builds/songs manifests.
             is_wasm_bundle_file = file in wasm_files
-            _zip_write(zf, archive_name, data, skip_sizes, allow_size_skip=not is_wasm_bundle_file)
+            always_upload = is_wasm_bundle_file or bool(ALWAYS_UPLOAD_RE.search(archive_name))
+            _zip_write(zf, archive_name, data, skip_sizes, allow_size_skip=not always_upload)
 
             if is_wasm_bundle_file:
                 for subdir in DEPLOY_MIRROR_SUBDIRS:
@@ -247,9 +332,12 @@ def build_zip(skip_sizes: dict[str, int] | None = None) -> bytes:
                     _zip_write(zf, mirrored, file.read_bytes(), skip_sizes, allow_size_skip=False)
                     mirrored_names.add(file.name)
 
+        for archive_name, data in generated.items():
+            _zip_write(zf, archive_name, data, skip_sizes, allow_size_skip=False)
+
         # Keep production URL /1ink.1ink identical to panel2 (stop hand-editing drift).
-        if panel2_utf16 is not None:
-            _zip_write(zf, PRODUCTION_HOST_ALIAS, panel2_utf16, skip_sizes)
+        if panel2_bytes is not None:
+            _zip_write(zf, PRODUCTION_HOST_ALIAS, panel2_bytes, skip_sizes)
         else:
             print(f"  ! warning: {PANEL2_HOST} missing; skipped {PRODUCTION_HOST_ALIAS} alias")
 
@@ -365,6 +453,11 @@ def main():
         action="store_true",
         help="Upload even if the staged canonical bundle's build-id does not match this tree",
     )
+    parser.add_argument(
+        "--no-song-index",
+        action="store_true",
+        help="Do not regenerate songs/ (and mp3_songs/, mod_songs/) index.json + index.html",
+    )
     args = parser.parse_args()
     targets = _parse_targets(args.target)
 
@@ -382,7 +475,8 @@ def main():
     # (server-side skip still applies on later targets).
     first_target = targets[0]
     skip_sizes = fetch_remote_sizes(DEPLOY_FOLDER or PROJECT_NAME, first_target)
-    zip_bytes = build_zip(skip_sizes)
+    song_indexes = {} if args.no_song_index else build_song_indexes(skip_sizes, first_target)
+    zip_bytes = build_zip(skip_sizes, song_indexes)
     print(f"Archive size: {len(zip_bytes) / 1024:.1f} KB\n")
 
     if args.dry_run:

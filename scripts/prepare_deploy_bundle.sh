@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
-# Prepare WASM + iconv artifacts at the repo root (and pm/ mirror) before deploy.py.
+# Prepare WASM artifacts at the repo root (and pm/ mirror) before deploy.py, and
+# regenerate pm/builds.json (scripts/generate_wasm_builds_manifest.mjs) with
+# precompressed .br/.gz siblings that html/.htaccess serves.
+#
+# UTF-8 glue only: the UTF-16/32 `.1ijs`/`.3ijs` copies are no longer made, and
+# stale ones for this version are removed so deploy.py cannot upload them next to
+# a newer `.js`. html/.htaccess redirects old `.1ijs` URLs to the `.js`. Set
+# PROJECTM_DEPLOY_LEGACY_GLUE=1 to make them anyway.
+#
+# The manifest merges the live one (PROJECTM_BUILDS_MERGE_URL, default
+# https://projectm.1ink.us/pm/builds.json) so builds deployed earlier stay
+# listed, and fetches any selectable version neither lists from that site (only
+# the first time, before a live manifest exists). PROJECTM_BUILDS_MERGE_URL=
+# (empty) starts from the local builds only. PROJECTM_BUILDS_ARGS passes extra
+# generator arguments, e.g. "--status 038=stable --default 039".
 #
 # Usage:
 #   source /path/to/emsdk/emsdk_env.sh
@@ -132,19 +146,34 @@ if [[ -s "$dest_worker" ]]; then
     rewrite_smoke_bundle_refs "$dest_worker"
 fi
 
-iconv -f UTF-8 -t UTF-16 "$dest_js" -o "$dest_1ijs"
-iconv -f UTF-8 -t UTF-32 "$dest_js" -o "$dest_3ijs"
-
 mkdir -p "$dest_pm"
-for artifact in "$dest_js" "$dest_wasm" "$dest_1ijs" "$dest_3ijs"; do
+legacy_glue=()
+if [[ "${PROJECTM_DEPLOY_LEGACY_GLUE:-0}" == "1" ]]; then
+    iconv -f UTF-8 -t UTF-16 "$dest_js" -o "$dest_1ijs"
+    iconv -f UTF-8 -t UTF-32 "$dest_js" -o "$dest_3ijs"
+    legacy_glue=("$dest_1ijs" "$dest_3ijs")
+else
+    rm -f "$dest_1ijs" "$dest_3ijs" "$dest_pm/${bundle}.1ijs" "$dest_pm/${bundle}.3ijs"
+fi
+
+for artifact in "$dest_js" "$dest_wasm" "${legacy_glue[@]}"; do
     cp -f "$artifact" "$dest_pm/"
 done
 if [[ -s "$dest_worker" ]]; then
     cp -f "$dest_worker" "$dest_pm/"
 fi
 
+merge_url="${PROJECTM_BUILDS_MERGE_URL-https://projectm.1ink.us/pm/builds.json}"
+manifest_args=(--root "$PROJECT_ROOT" --precompress)
+if [[ -n "$merge_url" ]]; then
+    manifest_args+=(--merge "$merge_url" --fetch-missing "${merge_url%/pm/builds.json}")
+fi
+# shellcheck disable=SC2206 # word splitting is the point
+manifest_args+=(${PROJECTM_BUILDS_ARGS:-})
+node "$PROJECT_ROOT/scripts/generate_wasm_builds_manifest.mjs" "${manifest_args[@]}"
+
 echo "Prepared deploy artifacts for ${bundle}:"
-ls -lh "$dest_js" "$dest_wasm" "$dest_1ijs" "$dest_3ijs"
+ls -lh "$dest_js" "$dest_wasm" "${legacy_glue[@]}"
 if [[ -s "$dest_worker" ]]; then
     ls -lh "$dest_worker"
 else

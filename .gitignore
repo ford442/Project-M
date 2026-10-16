@@ -52,6 +52,11 @@ packages/web/node_modules/
 # PROJECTM_WASM_BUNDLE in html/projectm-init.js, currently v.035)
 projectm-v.*-thread.*
 pm/projectm-v.*-thread.*
+# Deploy-time manifests (scripts/generate_*_manifest.mjs)
+pm/builds.json*
+songs/index.*
+mp3_songs/index.*
+mod_songs/index.*
 
 
 # Visual Studio w/CMake

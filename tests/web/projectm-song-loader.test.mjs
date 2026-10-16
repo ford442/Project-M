@@ -14,6 +14,8 @@ import {
     wrapSongChannel,
     openLegacyFlacDecoder,
     bridgedFlacPlayerUrl,
+    parseSongManifest,
+    scanSongCatalog,
 } from '../../html/projectm-song-loader.js';
 
 test('songExtension extracts extension from URLs', () => {
@@ -221,6 +223,53 @@ test('parseSongDirectoryListing extracts file links', () => {
         'https://projectm.1ink.us/mp3_songs/track01.mp3',
         'https://projectm.1ink.us/mp3_songs/demo.xm',
     ]);
+});
+
+test('parseSongManifest resolves track urls against the folder', () => {
+    const urls = parseSongManifest({
+        schema: 1,
+        tracks: [
+            { title: 'Claws of the Angel', url: 'Claws%20of%20the%20Angel.flac' },
+            { title: 'Brother & Sisters', url: 'Brother%20%26%20Sisters.flac' },
+            { title: 'no url' },
+        ],
+    }, 'https://projectm.1ink.us/songs/');
+    assert.deepEqual(urls, [
+        'https://projectm.1ink.us/songs/Claws%20of%20the%20Angel.flac',
+        'https://projectm.1ink.us/songs/Brother%20%26%20Sisters.flac',
+    ]);
+    assert.equal(parseSongManifest({ schema: 2, tracks: [] }, 'https://x/'), null);
+    assert.equal(parseSongManifest('<html>', 'https://x/'), null);
+});
+
+test('scanSongCatalog reads index.json and falls back to the listing per folder', async () => {
+    const doc = { getElementById: () => null };
+    const json = (body) => ({ ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body });
+    const html = (body, status = 200) => ({ ok: status === 200, status, headers: { get: () => 'text/html' }, text: async () => body });
+    const requested = [];
+    const fetchImpl = async (url) => {
+        requested.push(url);
+        if (url.endsWith('/songs/index.json')) return json({ schema: 1, tracks: [{ url: 'A%20B.flac' }] });
+        // DreamHost answers a missing index.json with its HTML 404 page (after a 302).
+        if (url.endsWith('/mp3_songs/index.json')) return html('<html>404</html>');
+        if (url.endsWith('/mp3_songs/')) return html('<pre><a href="one.mp3">one.mp3</a></pre>');
+        return html('', 404);
+    };
+    const previous = globalThis.location;
+    globalThis.location = /** @type {any} */ ({ href: 'https://projectm.1ink.us/1ink.1ink' });
+    const originalLog = console.log;
+    console.log = () => {};
+    try {
+        const catalog = await scanSongCatalog(/** @type {any} */ (doc), /** @type {any} */ (fetchImpl));
+        assert.deepEqual(catalog, [
+            'https://projectm.1ink.us/songs/A%20B.flac',
+            'https://projectm.1ink.us/mp3_songs/one.mp3',
+        ]);
+        assert.equal(requested.includes('https://projectm.1ink.us/songs/'), false, 'no listing scrape when index.json exists');
+    } finally {
+        console.log = originalLog;
+        globalThis.location = previous;
+    }
 });
 
 test('extension sets include mp3 and mod', () => {

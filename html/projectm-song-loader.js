@@ -80,6 +80,55 @@ export function parseSongDirectoryListing(html, baseUrl) {
 }
 
 /**
+ * Track URLs from a folder's `index.json` (scripts/generate_songs_manifest.mjs),
+ * or null when it is missing or not a songs manifest.
+ * @param {unknown} json
+ * @param {string} baseUrl
+ * @returns {string[] | null}
+ */
+export function parseSongManifest(json, baseUrl) {
+    const tracks = /** @type {any} */ (json)?.tracks;
+    if (/** @type {any} */ (json)?.schema !== 1 || !Array.isArray(tracks)) {
+        return null;
+    }
+    const urls = [];
+    for (const track of tracks) {
+        if (typeof track?.url !== 'string') continue;
+        try {
+            urls.push(new URL(track.url, baseUrl).href);
+        } catch {
+            // skip malformed url
+        }
+    }
+    return urls;
+}
+
+/**
+ * One song folder: its `index.json` when deployed, else the Apache listing
+ * (older deploys, or a folder that still has auto-indexing).
+ * @param {string} baseUrl
+ * @param {typeof fetch} fetchImpl
+ * @returns {Promise<string[] | null>}
+ */
+async function scanSongFolder(baseUrl, fetchImpl) {
+    try {
+        const response = await fetchImpl(new URL('index.json', baseUrl).href);
+        if (response.ok && /json/i.test(response.headers?.get?.('content-type') || '')) {
+            const urls = parseSongManifest(await response.json(), baseUrl);
+            if (urls) return urls;
+        }
+    } catch {
+        // fall back to the listing
+    }
+    const response = await fetchImpl(baseUrl);
+    if (!response.ok) {
+        console.debug('[projectM song loader] song scan skipped', baseUrl, response.status);
+        return null;
+    }
+    return parseSongDirectoryListing(await response.text(), baseUrl);
+}
+
+/**
  * Scan songs/, mp3_songs/, and mod_songs/ into a merged host-side catalog.
  * @param {Document | null} [documentRef]
  * @param {typeof fetch} [fetchImpl]
@@ -95,13 +144,10 @@ export async function scanSongCatalog(documentRef, fetchImpl = fetch) {
     const merged = [];
     for (const baseUrl of directories) {
         try {
-            const response = await fetchImpl(baseUrl);
-            if (!response.ok) {
-                console.debug('[projectM song loader] song scan skipped', baseUrl, response.status);
+            const urls = await scanSongFolder(baseUrl, fetchImpl);
+            if (!urls) {
                 continue;
             }
-            const html = await response.text();
-            const urls = parseSongDirectoryListing(html, baseUrl);
             merged.push(...urls);
             console.log(`[projectM song loader] scanned ${urls.length} tracks from ${baseUrl}`);
         } catch (error) {

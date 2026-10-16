@@ -196,12 +196,17 @@ export function createModuleTransport(module) {
  * table rather than from types written out by hand on this side.
  *
  * @param {RenderWorkerHandle} handle
+ * @param {object} [options]
+ * @param {Iterable<string> | null} [options.exports] Symbols the worker's
+ *   bundle exports (the build manifest's `api`, no leading underscore). When
+ *   given, supports() answers from it; when not, every call is assumed to exist.
  * @returns {RenderTransport}
  */
-export function createWorkerTransport(handle) {
+export function createWorkerTransport(handle, { exports = null } = {}) {
     if (!handle) {
         throw new Error('createWorkerTransport requires a render worker handle');
     }
+    const exported = exports ? new Set(exports) : null;
 
     return {
         topology: /** @type {RenderTopology} */ ('worker'),
@@ -209,11 +214,12 @@ export function createWorkerTransport(handle) {
         workerHandle: handle,
 
         // The module is on the other side of postMessage, so there is nothing
-        // to interrogate synchronously. Every call is assumed available; a
+        // to interrogate synchronously. With the manifest's export list the
+        // answer is exact; without it every call is assumed available and a
         // bundle that lacks the export reports it as a ccall error instead.
         supports(name) {
-            signatureFor(name);
-            return true;
+            const signature = signatureFor(name);
+            return exported ? exported.has(signature.symbol) : true;
         },
 
         call(name, ...args) {
@@ -363,6 +369,7 @@ export function canUseRenderWorker({
  * @param {string} [options.meshQuality]
  * @param {import('./projectm-render-worker-types.ts').RenderWorkerContextConfig} [options.contextConfig]
  * @param {import('./projectm-render-worker-types.ts').RenderPathOverrides} [options.renderPathOverrides]
+ * @param {Iterable<string> | null} [options.wasmExports] See createWorkerTransport().
  * @param {(reason: string) => void} [options.onFallback]
  * @param {(message: string) => void} [options.onError]
  * @param {(stats: unknown) => void} [options.onStats]
@@ -383,6 +390,7 @@ export function selectRenderTopology({
     meshQuality,
     contextConfig,
     renderPathOverrides,
+    wasmExports = null,
     onFallback,
     onError,
     onStats,
@@ -432,7 +440,7 @@ export function selectRenderTopology({
             meshQuality,
             contextConfig,
             renderPathOverrides,
-            onReady: () => settle(handle ? createWorkerTransport(handle) : null),
+            onReady: () => settle(handle ? createWorkerTransport(handle, { exports: wasmExports }) : null),
             onUnsupported: (reason) => {
                 onFallback?.(reason);
                 if (!settled) abandon();

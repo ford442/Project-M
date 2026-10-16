@@ -177,10 +177,15 @@ Known limits, deliberately not papered over:
 ### Panel hosts
 
 - `projectm_panel2.1ink`: production bezel host with embedded MOD/FLAC iframe
-  sections and current bezel calibration. Supports `?mode=weeks_on_fire` like
+  sections, a tab/system-audio capture popup on the audio-player cycle, and
+  current bezel calibration. Served as `1ink.1ink`. Supports `?mode=weeks_on_fire` like
   `projectm-core.html`. Boots via **`ProjectMContext`** + generated WASM API
   (gated; see above). Still owns bezel chrome, external PCM, Weeks-on-Fire mode,
-  and the WASM version picker (`?wasm=`).
+  and the WASM version picker (`?wasm=`), which lists the builds in
+  `pm/builds.json` (`projectm-wasm-manifest.js`; see
+  `docs/adr/0001-wasm-and-media-hosting.md`). `globalThis.projectMContext` is its
+  context, for the console and `scripts/test_flac_player_modes_playwright.mjs`
+  (`Module` is null when the engine runs in the render worker).
 - `projectm_panel.1ink`: **redirect stub** → `projectm_panel2.1ink`, preserving
   the query string and hash. Previous inline content is available via git
   history.

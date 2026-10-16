@@ -77,8 +77,11 @@ export, see [`docs/EMSCRIPTEN.md`](docs/EMSCRIPTEN.md#where-to-add-a-wasm-export
 Keep the repo root source-focused. Policy for binary/build artifacts:
 
 - **Never commit built WASM bundles** (`projectm-v.*-thread.{js,wasm,1ijs,3ijs,worker.js}`,
-  `pm/projectm-v.*-thread.*`). These are build+deploy output — produced by
+  `pm/projectm-v.*-thread.*`, `pm/builds.json*`). These are build+deploy output — produced by
   `scripts/prepare_deploy_bundle.sh` and uploaded via `deploy.py`, never checked in.
+  Only UTF-8 `.js` glue is deployed now; hosts find each build through the
+  `pm/builds.json` manifest (see [`docs/adr/0001-wasm-and-media-hosting.md`](docs/adr/0001-wasm-and-media-hosting.md)
+  for the manifest, `.htaccess` headers, song indexes, and the header checks).
   `.gitignore` matches any version (`projectm-v.*-thread.*`), not just one. The
   canonical current version is `PROJECTM_WASM_BUNDLE` in `html/projectm-init.js`
   (also the default in `scripts/verify_deploy_urls.sh` and

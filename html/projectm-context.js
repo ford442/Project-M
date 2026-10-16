@@ -28,6 +28,7 @@ import {
     observeModuleSize,
     resolveWasmScriptUrl,
 } from './projectm-init.js';
+import { loadWasmBuildsManifest } from './projectm-wasm-manifest.js';
 import {
     createModuleTransport,
     installTransportPcmWriter,
@@ -95,8 +96,11 @@ export async function bootProjectMSharedModule(options = {}) {
         signal,
     } = options;
 
-    const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
     const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+    if (!wasmScriptUrl) {
+        await loadWasmBuildsManifest({ baseUrl: resolvedBaseUrl, signal });
+    }
+    const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
 
     if (wasmScriptUrl) {
         await loadProjectMWasmScript({
@@ -497,9 +501,15 @@ export class ProjectMContext {
         }
 
         try {
-            const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
             const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
             const sharedModule = this.options.sharedModule;
+            if (!wasmScriptUrl && !sharedModule) {
+                // pm/builds.json names each build's glue and exports; without
+                // it (or on timeout) the built-in table is used.
+                await loadWasmBuildsManifest({ baseUrl: resolvedBaseUrl, signal });
+                this.#throwIfAborted(signal);
+            }
+            const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
 
             if (sharedModule) {
                 // Multi-instance path (#168 Phase B): reuse a Module booted by
@@ -1495,7 +1505,7 @@ export class ProjectMContext {
      * @param {object} options
      * @param {string} options.resolvedBaseUrl
      * @param {string | undefined} options.wasmScriptUrl
-     * @param {{ pmScript: string, rootScript: string } | null} options.versionPaths
+     * @param {{ pmScript: string, rootScript: string, api?: string[] | null } | null} options.versionPaths
      * @param {string | undefined} options.wasmVersion
      * @param {number | undefined} options.targetFps
      * @param {boolean | undefined} options.qualityGovernor
@@ -1554,6 +1564,9 @@ export class ProjectMContext {
             // own init(); these have to travel with the init message.
             contextConfig: this.#contextConfig(),
             renderPathOverrides: this.#renderPathOverrides(),
+            // The manifest's export list lets transport.supports() answer for
+            // the worker's module instead of assuming every call exists.
+            wasmExports: versionPaths?.api ?? null,
             signal,
             onFallback: (reason) => {
                 this.options.onRenderWorkerFallback?.(reason);

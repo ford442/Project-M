@@ -383,11 +383,12 @@ import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { exposeAudioPlayerGlobals, patchBroadcastChannel } from './projectm-legacy-globals.js';
 import { setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import {
-  PROJECTM_WASM_SELECTABLE_VERSIONS,
   PROJECTM_WASM_VERSION_STORAGE_KEY,
   buildWasmBundlePaths,
   resolveSelectedWasmVersion,
 } from './projectm-init.js';
+import { getSelectableWasmVersions } from './projectm-wasm-version.js';
+import { loadWasmBuildsManifest } from './projectm-wasm-manifest.js';
 import { checkCrossOriginIsolation, setupInitErrorHandling } from './projectm-init-errors.js';
 import { loadRandomApiPreset as loadRandomPresetFromApi, loadStartupApiPresets as loadStartupPresetsFromApi } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
@@ -416,13 +417,18 @@ void import('./projectm-song-loader.js').then((mod) => {
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const urlParams = new URLSearchParams(window.location.search);
 const weeksOnFireMode = isWeeksOnFireMode(urlParams);
-const selectedWasmVersion = resolveSelectedWasmVersion({ searchParams: urlParams });
-const selectedWasmPaths = buildWasmBundlePaths(selectedWasmVersion);
+// pm/builds.json lists the deployed builds (and versions newer than this
+// page's built-in list); until it arrives, or if it cannot be fetched, the
+// built-in list is used. ProjectMContext shares this request.
+const wasmManifestReady = loadWasmBuildsManifest({ baseUrl: import.meta.url });
+let selectedWasmVersion = resolveSelectedWasmVersion({ searchParams: urlParams });
 
-(function setupWasmVersionPicker() {
+function setupWasmVersionPicker() {
   const select = document.getElementById('wasmVersionSelect');
   if (!select) return;
-  for (const version of PROJECTM_WASM_SELECTABLE_VERSIONS) {
+  const selectedWasmPaths = buildWasmBundlePaths(selectedWasmVersion);
+  select.replaceChildren();
+  for (const version of getSelectableWasmVersions()) {
     const option = document.createElement('option');
     option.value = version;
     option.textContent = version === selectedWasmPaths.version
@@ -431,18 +437,24 @@ const selectedWasmPaths = buildWasmBundlePaths(selectedWasmVersion);
     select.appendChild(option);
   }
   select.value = selectedWasmPaths.version;
-  select.addEventListener('change', () => {
-    const next = select.value;
-    try {
-      localStorage.setItem(PROJECTM_WASM_VERSION_STORAGE_KEY, next);
-    } catch {
-      // ignore
-    }
-    const nextParams = new URLSearchParams(window.location.search);
-    nextParams.set('wasm', next);
-    window.location.search = nextParams.toString();
-  });
-})();
+}
+setupWasmVersionPicker();
+void wasmManifestReady.then((manifest) => {
+  if (!manifest) return;
+  selectedWasmVersion = resolveSelectedWasmVersion({ searchParams: urlParams });
+  setupWasmVersionPicker();
+});
+document.getElementById('wasmVersionSelect')?.addEventListener('change', (event) => {
+  const next = /** @type {HTMLSelectElement} */ (event.target).value;
+  try {
+    localStorage.setItem(PROJECTM_WASM_VERSION_STORAGE_KEY, next);
+  } catch {
+    // ignore
+  }
+  const nextParams = new URLSearchParams(window.location.search);
+  nextParams.set('wasm', next);
+  window.location.search = nextParams.toString();
+});
 // Expose openWeeksFlacDecoder (same-origin /flac/ popup). Hidden iframe is
 // blocked by COEP on 033+ hosts; wasm=032 still works because its glue uses
 // window.open, which is the path we use here too.
@@ -760,6 +772,7 @@ async function initProjectM() {
     if (!pmContext) {
       updateLayout();
       syncModuleSize();
+      await wasmManifestReady;
 
       pmContext = new ProjectMContext({
         canvas: mcanvas,
@@ -780,6 +793,9 @@ async function initProjectM() {
       await pmContext.start();
       Module = pmContext.module;
       globalThis.Module = Module;
+      // Console / test handle that works in both topologies (Module is null
+      // when the engine runs in the render worker): beat events, PCM stats.
+      globalThis.projectMContext = pmContext;
 
       document.getElementById('splash2').style.display = 'none';
       requestAnimationFrame(() => {
@@ -791,7 +807,10 @@ async function initProjectM() {
 
         if (!weeksOnFireMode) {
           const startup = await loadStartupApiPresets(5);
-          if (startup.length > 0) {
+          // Render-worker topology: Module is null here and fetchApiPreset
+          // already sent each preset to the worker (load, then add) through
+          // globalThis.projectMWritePreset.
+          if (startup.length > 0 && Module) {
             loadPresetFile(Module, startup[0].vfsPath);
             window.updatePresetDisplay(startup[0].filename);
             for (let i = 1; i < startup.length; i++) {
@@ -809,6 +828,8 @@ async function initProjectM() {
 }
 
 setTimeout(() => {
+  // projectm-wasm-default-redirect.js is about to reload with ?wasm=<default>.
+  if (window.__projectMWasmRedirectPending) return;
   initProjectM();
 }, 750);
 </script>

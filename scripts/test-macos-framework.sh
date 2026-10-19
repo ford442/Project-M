@@ -23,9 +23,12 @@
 set -euo pipefail
 
 # Cleanup temp files on exit
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 TEMP_FILES=()
 cleanup() {
-    for f in "${TEMP_FILES[@]}"; do
+    # bash 3.2 (macOS /bin/bash) treats an empty array as unbound under set -u.
+    for f in ${TEMP_FILES[@]+"${TEMP_FILES[@]}"}; do
         rm -f "$f" 2>/dev/null || true
     done
 }
@@ -236,24 +239,16 @@ if [ -n "$PROJECTM_FRAMEWORK" ] && [ -d "$PROJECTM_FRAMEWORK" ]; then
     echo "Found: $PROJECTM_FRAMEWORK"
     test_structure "$PROJECTM_FRAMEWORK" "projectM-4"
 
-    # All expected C API headers (must be exhaustive)
-    PROJECTM_HEADERS=(
-        "projectM.h"
-        "audio.h"
-        "callbacks.h"
-        "core.h"
-        "debug.h"
-        "logging.h"
-        "memory.h"
-        "parameters.h"
-        "render_opengl.h"
-        "rhythm.h"
-        "touch.h"
-        "types.h"
-        "user_sprites.h"
-        "projectM_export.h"
-        "version.h"
-    )
+    # All expected C API headers (must be exhaustive). Read from the
+    # PROJECTM_PUBLIC_HEADERS list in src/api/CMakeLists.txt, so adding a public
+    # header there cannot leave this check behind again.
+    PROJECTM_HEADERS=()
+    while IFS= read -r header; do
+        PROJECTM_HEADERS+=("$header")
+    done < <(awk '/set\(PROJECTM_PUBLIC_HEADERS/{b=1;next} b&&/^[[:space:]]*\)/{b=0} b' \
+                 "$SCRIPT_DIR/../src/api/CMakeLists.txt" \
+             | sed -E 's/.*\$\{PROJECTM_EXPORT_HEADER\}.*/projectM_export.h/; s|.*include/projectM-4/([A-Za-z_]+\.h)".*|\1|')
+    [ "${#PROJECTM_HEADERS[@]}" -gt 0 ] || fail "Could not read PROJECTM_PUBLIC_HEADERS from src/api/CMakeLists.txt"
     # C++ headers are present when built with ENABLE_CXX_INTERFACE
     # Check if any C++ headers exist to determine if we should validate them
     if [ -d "$PROJECTM_FRAMEWORK/Headers/projectM-4/Audio" ]; then

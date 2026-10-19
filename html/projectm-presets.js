@@ -24,6 +24,8 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  *   fetched preset should be written. Supplied by hosts whose engine (and
  *   therefore whose virtual filesystem) is not on this thread; when omitted the
  *   bytes go straight into `module.FS`.
+ * @property {'load' | 'load-hard' | 'add'} [writeMode] How a writer without
+ *   `writeBytes` should hand the preset to the engine.
  */
 
 /**
@@ -208,11 +210,6 @@ export function getLocalPresetVfsPath(filename) {
 }
 
 /**
- * @param {PresetApiOptions} [options]
- * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string; bytes: Uint8Array }>}
- */
-
-/**
  * Writer for preset bytes when this thread has no module FS.
  *
  * Context start() publishes `projectMWritePreset` via installTransportPresetWriter.
@@ -229,6 +226,10 @@ function resolvePresetWriter(writeBytes, mode) {
     return (vfsPath, bytes) => registered(vfsPath, bytes, mode);
 }
 
+/**
+ * @param {PresetApiOptions} [options]
+ * @returns {Promise<{ vfsPath: string; filename: string; dir: string; url: string; apiBase: string; bytes: Uint8Array }>}
+ */
 export async function fetchApiPreset({
     module,
     apiBase,

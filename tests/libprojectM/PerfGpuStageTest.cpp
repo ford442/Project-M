@@ -15,7 +15,7 @@
 
 #include <PerfTimers.hpp>
 
-#include <glad/gl.h>
+#include "TestGl.hpp"
 
 #include <gtest/gtest.h>
 

@@ -132,9 +132,9 @@ Optional:
 - `ninja-build` (recommended over Make)
 - `libsdl2-dev` (for the test UI)
 - `libgtest-dev`, `libgmock-dev` (for tests). On Linux `tests/libprojectM` also needs
-  `libsdl2-dev` and EGL (`libegl-dev`, usually pulled in by Mesa): the GPU per-pixel tests
-  (`PerPixelGlslLowering`) open a real GL context, and CMake requires SDL2 when
-  `BUILD_TESTING=ON`.
+  `libsdl2-dev`: the GPU tests open a real GL context through `HeadlessGlContext` (an SDL
+  hidden window), and CMake requires SDL2 when `BUILD_TESTING=ON`. On other platforms
+  those tests compile and skip.
 - `libglm-dev` (if `ENABLE_SYSTEM_GLM=ON`)
 
 ### Quick Build (Linux)
@@ -345,7 +345,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 | Directory | Framework | Coverage |
 |-----------|-----------|----------|
-| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + EGL + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
+| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
 
@@ -432,6 +432,12 @@ lazily (asking for one mints and remembers an element) and installs a
 hand-driven `performance.now()`, because `projectm-perf.js` throttles its HUD
 to one repaint per 200 ms and against the real clock that makes the test depend
 on how long the process took to get there.
+
+GPU tests include `tests/libprojectM/TestGl.hpp`, never `<glad/gl.h>` directly: under
+`USE_GLES` (Emscripten, Android) the renderer headers bring in `<glad/gles2.h>`, and glad
+rejects both in one translation unit, which breaks only the Emscripten job.
+`scripts/check_test_gl_includes.sh` (run by `cpp_format_gate.yml`) enforces it. Test code
+must also build with MSVC: no `M_PI`, `setenv` or other POSIX-only names.
 
 ### Preset Compatibility Harness
 

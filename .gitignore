@@ -42,11 +42,11 @@ m4/lt~obsolete.m4
 /build
 /dist
 
-# npm workspace (root package.json: html/ + packages/web/) and the
-# standalone type-check toolchain fallback (scripts/check_html_types.sh)
-/node_modules/
-html/node_modules/
-packages/web/node_modules/
+# npm workspace (root package.json: html/ + packages/web/), the
+# standalone type-check toolchain fallback (scripts/check_html_types.sh), and
+# tests/wasm-smoke/ (installed by `npm ci` from its own lockfile). Unanchored so
+# no package directory's node_modules can be committed.
+node_modules/
 
 # Emscripten build artifacts (all bundle versions — the canonical version is
 # PROJECTM_WASM_BUNDLE in html/projectm-init.js, currently v.035)

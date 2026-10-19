@@ -13,6 +13,9 @@
 
 namespace {
 
+// M_PI is not standard C++ (MSVC hides it behind _USE_MATH_DEFINES).
+constexpr double kPi = 3.14159265358979323846;
+
 using Clock = std::chrono::steady_clock;
 
 std::vector<float> GenerateSine(size_t count, float freqHz = 80.f)
@@ -20,7 +23,7 @@ std::vector<float> GenerateSine(size_t count, float freqHz = 80.f)
     std::vector<float> out(count);
     for (size_t i = 0; i < count; ++i)
     {
-        out[i] = 0.75f * std::sin(2.f * static_cast<float>(M_PI) * freqHz * static_cast<float>(i) / 44100.f);
+        out[i] = 0.75f * std::sin(2.f * static_cast<float>(kPi) * freqHz * static_cast<float>(i) / 44100.f);
     }
     return out;
 }
@@ -83,7 +86,7 @@ TEST(PCMAudioBenchTest, RhythmAnalysisCostPerFrame)
             noise = noise * 1664525u + 1013904223u;
             const double t = static_cast<double>(sample % 22050) / 44100.0;
             value = 0.05f * (static_cast<float>(noise >> 8) / 8388608.0f - 1.0f) +
-                    0.6f * static_cast<float>(std::sin(2.0 * M_PI * 55.0 * t) * std::exp(-t / 0.08));
+                    0.6f * static_cast<float>(std::sin(2.0 * kPi * 55.0 * t) * std::exp(-t / 0.08));
             sample++;
         }
         pcm.Add(block.data(), 1, block.size());

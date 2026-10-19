@@ -10,6 +10,8 @@ using namespace libprojectM::Audio;
 
 namespace {
 
+// M_PI is not standard C++ (MSVC hides it behind _USE_MATH_DEFINES).
+constexpr double kPi = 3.14159265358979323846;
 constexpr double kFrameDt = 1.0 / 60.0;
 constexpr float kSampleRate = 44100.f;
 
@@ -18,7 +20,7 @@ std::vector<float> GenerateSine(size_t count, float freqHz, float amplitude = 0.
     std::vector<float> out(count);
     for (size_t i = 0; i < count; i++)
     {
-        out[i] = amplitude * std::sin(2.f * static_cast<float>(M_PI) * freqHz * static_cast<float>(i) / kSampleRate);
+        out[i] = amplitude * std::sin(2.f * static_cast<float>(kPi) * freqHz * static_cast<float>(i) / kSampleRate);
     }
     return out;
 }

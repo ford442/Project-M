@@ -84,6 +84,9 @@ function currentModule() {
     return globalThis.Module || null;
 }
 
+/** Set once the 'worklet PCM dropped' warning has been logged. */
+let warnedPcmDropped = false;
+
 /**
  * Wire a repaired worklet node into the PCM ring.
  *
@@ -132,8 +135,8 @@ function attachPcmHandler(workletNode) {
             transportWrite(event.data.audioData, channels);
             return;
         }
-        if (!attachPcmHandler.warned) {
-            attachPcmHandler.warned = true;
+        if (!warnedPcmDropped) {
+            warnedPcmDropped = true;
             console.warn('[projectM] worklet PCM dropped: no ring on this thread and projectMWritePcmRing is not installed');
         }
     };

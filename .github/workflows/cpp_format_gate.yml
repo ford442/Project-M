@@ -12,9 +12,11 @@ on:
       - 'src/libprojectM/Audio/**'
       - 'src/libprojectM/Renderer/Platform/**'
       - 'tests/cxx-interface/**'
+      - 'tests/libprojectM/**'
       - '.clang-format'
       - 'scripts/check_cpp_format.sh'
       - 'scripts/check_wasm_host_globals.sh'
+      - 'scripts/check_test_gl_includes.sh'
       - '.github/workflows/cpp_format_gate.yml'
   pull_request:
     paths:
@@ -22,9 +24,11 @@ on:
       - 'src/libprojectM/Audio/**'
       - 'src/libprojectM/Renderer/Platform/**'
       - 'tests/cxx-interface/**'
+      - 'tests/libprojectM/**'
       - '.clang-format'
       - 'scripts/check_cpp_format.sh'
       - 'scripts/check_wasm_host_globals.sh'
+      - 'scripts/check_test_gl_includes.sh'
       - '.github/workflows/cpp_format_gate.yml'
   workflow_dispatch: {}
 
@@ -42,3 +46,7 @@ jobs:
       # #246: no object-like macros aliasing per-host WasmHost state.
       - name: WASM host alias-macro gate
         run: scripts/check_wasm_host_globals.sh
+
+      # Direct glad includes in tests break only the Emscripten (GLES) build.
+      - name: Test GL include gate
+        run: scripts/check_test_gl_includes.sh

@@ -29,7 +29,7 @@
 #include <MilkdropPreset/PresetFileParser.hpp>
 #include <MilkdropPreset/RhythmVariables.hpp>
 
-#include <glad/gl.h>
+#include "TestGl.hpp"
 
 #include <gtest/gtest.h>
 
@@ -609,10 +609,17 @@ void main()
     glDisable(GL_RASTERIZER_DISCARD);
     glFlush();
 
+    // glMapBufferRange rather than glGetBufferSubData, which GLES 3 does not have.
     std::vector<float> feedback(outputCount, 0.0f);
-    glGetBufferSubData(GL_TRANSFORM_FEEDBACK_BUFFER, 0,
-                       static_cast<GLsizeiptr>(outputCount * sizeof(float)),
-                       feedback.data());
+    const auto* mapped = static_cast<const float*>(
+        glMapBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0,
+                         static_cast<GLsizeiptr>(outputCount * sizeof(float)),
+                         GL_MAP_READ_BIT));
+    if (mapped != nullptr)
+    {
+        std::copy(mapped, mapped + outputCount, feedback.begin());
+        glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
+    }
 
     glBindVertexArray(0);
     glDeleteBuffers(1, &feedbackBuffer);

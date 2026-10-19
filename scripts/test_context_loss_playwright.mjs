@@ -15,7 +15,7 @@
  * Usage:
  *   node scripts/test_context_loss_playwright.mjs <projectm-v.NNN-thread.js> [worker|main ...]
  *
- * Needs `playwright` (tests/wasm-smoke/node_modules has it). Exit code 1 on any
+ * Needs `playwright` (`cd tests/wasm-smoke && npm ci`). Exit code 1 on any
  * failed check; 2 when the browser refuses to restore a synthetic loss at all,
  * which headless Chromium is known to do on some builds (see
  * tests/wasm-smoke/index.html) and which says nothing about the code under test.

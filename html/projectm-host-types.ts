@@ -246,6 +246,17 @@ declare global {
         | ((buffer: Float32Array, channels?: number) => void)
         | undefined;
     /**
+     * Preset writer for hosts whose engine VFS is not on this thread, installed
+     * by `installTransportPresetWriter()` (html/projectm-render-transport.js).
+     */
+    // eslint-disable-next-line no-var
+    var projectMWritePreset:
+        | ((vfsPath: string, bytes: Uint8Array, mode?: 'load' | 'load-hard' | 'add') => void)
+        | undefined;
+    /** Safari < 14.1 prefix; absent from lib.dom. */
+    // eslint-disable-next-line no-var
+    var webkitAudioContext: typeof AudioContext | undefined;
+    /**
      * Host implementation of `connect_media_element_source()`, installed by
      * `installMediaElementSourceHook()` (html/projectm-audio-element-source.js).
      */

@@ -331,19 +331,6 @@ export function createWorkerTransport(handle, { exports = null } = {}) {
 }
 
 /**
- * Point `globalThis.projectMWritePcmRing` — the writer the baked EM_JS worklet
- * handler prefers over its own inline copy (see `js_install_worklet_pcm_handler`
- * in src/wasm/WasmAudioBridge.cpp) — at this transport.
- *
- * This is what makes worklet audio topology-agnostic: the worklet always runs
- * on the main thread, and this is the one place that decides whether its PCM
- * lands in a ring right here or crosses into the worker. Supersedes
- * installHostPcmRingWriter() for hosts that hold a transport.
- *
- * @param {RenderTransport} transport
- * @returns {() => void} Removes the writer again.
- */
-/**
  * Point `globalThis.projectMWritePreset` at this transport.
  *
  * Preset fetches run on the host page. In the render-worker topology there is
@@ -367,6 +354,19 @@ export function installTransportPresetWriter(transport) {
     );
 }
 
+/**
+ * Point `globalThis.projectMWritePcmRing` — the writer the baked EM_JS worklet
+ * handler prefers over its own inline copy (see `js_install_worklet_pcm_handler`
+ * in src/wasm/WasmAudioBridge.cpp) — at this transport.
+ *
+ * This is what makes worklet audio topology-agnostic: the worklet always runs
+ * on the main thread, and this is the one place that decides whether its PCM
+ * lands in a ring right here or crosses into the worker. Supersedes
+ * installHostPcmRingWriter() for hosts that hold a transport.
+ *
+ * @param {RenderTransport} transport
+ * @returns {() => void} Removes the writer again.
+ */
 export function installTransportPcmWriter(transport) {
     // The engine's worklet ingest calls this global by name, so there is one per
     // page. Claimed rather than assigned: destroying one context must not

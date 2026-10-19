@@ -23,7 +23,7 @@
 #include <MilkdropPreset/PerPixelGlslLowering.hpp>
 #include <MilkdropPreset/PresetFileParser.hpp>
 
-#include <glad/gl.h>
+#include "TestGl.hpp"
 
 #include <gtest/gtest.h>
 
@@ -144,10 +144,27 @@ struct FrameDifference
     double differingShare{}; //!< Share of channels differing by more than 8/255.
 };
 
-/** @brief Renders one preset into an offscreen framebuffer and returns its pixels. */
+/** @brief Sets PROJECTM_PER_PIXEL_EVAL to @p value, or removes it when null (setenv is POSIX-only). */
+void SetPerPixelEvalOverride(const char* value)
+{
+#ifdef _WIN32
+    _putenv_s("PROJECTM_PER_PIXEL_EVAL", value != nullptr ? value : "");
+#else
+    if (value != nullptr)
+    {
+        setenv("PROJECTM_PER_PIXEL_EVAL", value, 1);
+    }
+    else
+    {
+        unsetenv("PROJECTM_PER_PIXEL_EVAL");
+    }
+#endif
+}
+
 /** @brief Called before each frame is rendered, e.g. to resize the instance mid-run. */
 using FrameHook = std::function<void(projectm_handle instance, int frame)>;
 
+/** @brief Renders one preset into an offscreen framebuffer and returns its pixels. */
 auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, std::string& error,
                   const FrameHook& beforeFrame = {})
     -> std::vector<unsigned char>
@@ -156,11 +173,11 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
     // has to be in place before the preset is loaded.
     if (forceCpuPerPixel)
     {
-        setenv("PROJECTM_PER_PIXEL_EVAL", "cpu", 1);
+        SetPerPixelEvalOverride("cpu");
     }
     else
     {
-        unsetenv("PROJECTM_PER_PIXEL_EVAL");
+        SetPerPixelEvalOverride(nullptr);
     }
 
     // A fixed seed pins the noise textures and every other random draw, so the only
@@ -232,7 +249,7 @@ auto RenderPreset(const std::string& path, bool forceCpuPerPixel, int frames, st
     glDeleteFramebuffers(1, &framebuffer);
     glDeleteTextures(1, &texture);
     projectm_clear_deterministic_seed();
-    unsetenv("PROJECTM_PER_PIXEL_EVAL");
+    SetPerPixelEvalOverride(nullptr);
 #ifdef PRJM_ENABLE_OPENMP
     omp_set_num_threads(threads);
 #endif

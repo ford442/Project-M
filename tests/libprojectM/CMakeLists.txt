@@ -33,7 +33,6 @@ add_executable(projectM-unittest
         FlashLimiterTest.cpp
         FramebufferTest.cpp
         HeadlessGlContext.cpp
-        GlOffscreenContext.cpp
         HLSLParserTest.cpp
         HLSLModuloTest.cpp
         LoggingTest.cpp
@@ -97,7 +96,6 @@ target_link_libraries(projectM-unittest
         projectM::Eval
         glad
         OpenGL::GL
-        EGL
         GTest::gtest
         GTest::gtest_main
         )

@@ -400,6 +400,18 @@ export interface RenderWorkerCcallResultMessage {
 }
 
 /**
+ * Worker → host: a `ccall` that carried a `requestId` threw. Settles the host's
+ * pending promise with `message`. A `ccall` without a `requestId` (`ccallVoid`)
+ * has nothing waiting, so its failure is reported as a
+ * {@link RenderWorkerErrorMessage} instead.
+ */
+export interface RenderWorkerCcallRejectedMessage {
+    type: 'ccall-rejected';
+    requestId: number;
+    message: string;
+}
+
+/**
  * Worker → host: the worker's WebGL context was lost. The `webglcontextlost`
  * event fires on the transferred OffscreenCanvas, i.e. in the worker, so this
  * is the only way the page learns of it. By the time this is posted the worker
@@ -489,6 +501,7 @@ export type RenderWorkerMessage =
     | RenderWorkerStatsMessage
     | RenderWorkerPcmRingMessage
     | RenderWorkerCcallResultMessage
+    | RenderWorkerCcallRejectedMessage
     | RenderWorkerPerfFramesMessage
     | RenderWorkerPerfHudMessage
     | RenderWorkerRhythmEventMessage

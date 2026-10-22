@@ -28,6 +28,7 @@
 //   { type: 'stats', fps, fboFormat, qualityTier, renderScale, renderPathOverrides }
 //   { type: 'pcm-ring', descriptor }
 //   { type: 'ccall-result', requestId, result }
+//   { type: 'ccall-rejected', requestId, message }    // the ccall with that requestId threw
 //   { type: 'context-lost' }                          // webglcontextlost on the OffscreenCanvas
 //   { type: 'context-restored' }                      // webglcontextrestored; engine not rebuilt yet
 //   { type: 'context-recovered', status }             // outcome of 'recover-context' (init() code)
@@ -490,7 +491,14 @@ function handleCcall(module, msg) {
     try {
         result = module.ccall(msg.name, msg.returnType || null, msg.argTypes || [], msg.args || []);
     } catch (error) {
-        postToHost({ type: 'error', message: `ccall ${msg.name} failed: ${error}` });
+        const message = `ccall ${msg.name} failed: ${error}`;
+        // A call with a requestId has a promise waiting on the host; settle it.
+        // Fire-and-forget calls have nobody to answer, so they stay an error.
+        if (msg.requestId !== undefined) {
+            postToHost({ type: 'ccall-rejected', requestId: msg.requestId, message });
+        } else {
+            postToHost({ type: 'error', message });
+        }
         return;
     }
     if (msg.requestId !== undefined) {

@@ -4,7 +4,7 @@
  *
  *  1. Router gate: a mock postMessage PCM producer + AudioSourceRouter.
  *  2. iframe → host → worker: a same-origin feeder iframe plays a tone with
- *     the real FLAC player bridge (html/flac-player/projectm-pcm-bridge.js)
+ *     the real FLAC player bridge (html/projectm-pcm-bridge.js)
  *     and a stand-in for the player bundle's own untagged sender; the host runs
  *     the real receiver (html/projectm-external-pcm.js) on a worker transport
  *     and a stand-in render worker counts what arrives. Checks the worker gets

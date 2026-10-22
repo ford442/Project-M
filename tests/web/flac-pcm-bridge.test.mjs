@@ -1,4 +1,4 @@
-// Unit tests for html/flac-player/projectm-pcm-bridge.js.
+// Unit tests for html/projectm-pcm-bridge.js.
 // Run with: node --test tests/web/flac-pcm-bridge.test.mjs
 //
 // Exercises the browser-independent wiring (feeder-mode detection, the sender
@@ -17,7 +17,7 @@ import {
     interleaveStereo,
     isProjectMFeederMode,
     resolveFeedTarget
-} from '../../html/flac-player/projectm-pcm-bridge.js';
+} from '../../html/projectm-pcm-bridge.js';
 
 function fakeWindow({ search = '', name = '', opener = null, parent } = {}) {
     const win = { location: { search }, name, opener };

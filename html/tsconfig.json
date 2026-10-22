@@ -22,7 +22,11 @@
     "",
     "projectm-render-worker.js is the one exclusion: it runs in a Worker scope, so",
     "it is checked by tsconfig.worker.json against the WebWorker lib instead (the",
-    "two libs declare conflicting globals and cannot share a program)."
+    "two libs declare conflicting globals and cannot share a program).",
+    "",
+    "projectm-pcm-bridge.js (the FLAC/MOD player shells' PCM producer, also used by",
+    "projectm-display-capture.js) lives at the html root, not under flac-player/,",
+    "for exactly this reason: a file outside the glob is invisible to the checker."
   ],
   "include": [
     "generated/**/*.ts",

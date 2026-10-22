@@ -63,7 +63,7 @@ async function loadBufferCtor() {
 
 async function loadPcmBridge() {
   try {
-    return await import(`./projectm-pcm-bridge.js${revQuery}`);
+    return await import(`../projectm-pcm-bridge.js${revQuery}`);
   } catch (localError) {
     console.warn('[projectM FLAC player] local PCM bridge missing:', localError);
     return null;

@@ -1,5 +1,14 @@
 // "Weeks on fire" demo mode: texture-heavy weeks_presets + weeks_textures + weeks_songs.
 // Enable with ?mode=weeks_on_fire on projectm.1ink.us (or any host that wires this module).
+//
+// The preset side lives here (createWeeksPresetLoader / startWeeksOnFire): it
+// lists the weeks_presets directory, fetches presets with fetch() and hands the
+// bytes to the page's writePreset, which is `transport.writePreset` in either
+// render topology. That used to be XMLHttpRequest inside the WASM glue
+// (src/wasm/WasmJsBindings.cpp), which only worked with the engine on the main
+// thread. Textures come from projectm-textures.js (`#textureDir`, which
+// applyWeeksOnFireDomConfig points at weeks_textures/), songs from
+// projectm-song-loader.js (`#songDir`).
 
 export const WEEKS_ON_FIRE_MODE = 'weeks_on_fire';
 
@@ -81,7 +90,7 @@ export function openWeeksFlacDecoder(documentRef = document, { preferIframe = tr
     return null;
 }
 
-/** Expose FLAC helpers for emscripten EM_JS glue. */
+/** Expose the FLAC decoder helpers on globalThis, where projectm-song-loader.js looks for them. */
 export function wireWeeksOnFireFlacBridge(documentRef = document) {
     if (typeof globalThis === 'undefined') {
         return;
@@ -128,7 +137,9 @@ export function isWeeksOnFireMode(search) {
 }
 
 /**
- * Point the legacy emscripten DOM scanner at the weeks_* folders before WASM init.
+ * Point the page's hidden config elements (`#textureDir`, `#songDir`,
+ * `#weeksPresetDir`) at the weeks_* folders. Call before the texture, song and
+ * weeks-preset scans read them.
  * @param {Document} [documentRef]
  * @param {{ presets?: string, textures?: string, songs?: string, flacDecoder?: string }} [paths]
  */
@@ -200,68 +211,203 @@ export function parseMilkDirectoryListing(html, baseUrl) {
 }
 
 /**
- * Host-side helper when emscripten globals are unavailable (unit tests / future hosts).
+ * The weeks preset directory as an absolute URL: the text of `#weeksPresetDir`
+ * (which applyWeeksOnFireDomConfig sets), else `weeks_presets/`.
  *
- * @param {object} [opts]
- * @param {() => import('./projectm-host-types.ts').ProjectMModuleLike | null | undefined} [opts.getModule]
- * @param {((options?: { module?: unknown, durationSec?: number }) => Promise<boolean>) | null} [opts.startTransitionWhenReady]
- * @param {number} [opts.count]
- * @param {typeof fetch} [opts.fetchImpl]
- * @param {string} [opts.presetBase]
+ * @param {Pick<Document, 'getElementById'> | null | undefined} [documentRef]
+ * @param {string} [locationHref] What a relative directory resolves against.
  */
-export async function bootstrapWeeksOnFirePresets({
-    getModule,
-    startTransitionWhenReady,
-    count = 5,
+export function resolveWeeksPresetBase(
+    documentRef = typeof document !== 'undefined' ? document : null,
+    locationHref = globalThis.location?.href,
+) {
+    const raw = documentRef?.getElementById('weeksPresetDir')?.textContent?.trim() || DEFAULT_WEEKS_PATHS.presets;
+    const withSlash = raw.endsWith('/') ? raw : `${raw}/`;
+    try {
+        return new URL(withSlash, locationHref || 'https://localhost/').href;
+    } catch {
+        return withSlash;
+    }
+}
+
+/**
+ * @typedef {'load' | 'load-hard' | 'add'} WeeksWriteMode
+ *   `load` soft-cuts to the preset, `load-hard` cuts to it at once, `add` only
+ *   appends it to the playlist (the render transport's writePreset modes).
+ */
+
+/**
+ * @typedef {object} WeeksPresetLoaderOptions
+ * @property {(vfsPath: string, bytes: Uint8Array, mode: WeeksWriteMode) => void} writePreset
+ *   Writes the bytes into the engine's VFS and loads or adds them; pass
+ *   `(path, bytes, mode) => context.transport.writePreset(path, bytes, mode)`.
+ * @property {(name: string) => void} [onPresetLoaded] Told the file name of each
+ *   preset the engine was switched to (the page's preset name readout).
+ * @property {string} [presetBase] Directory index URL. Defaults to `#weeksPresetDir`.
+ * @property {typeof fetch} [fetchImpl]
+ * @property {() => number} [random] In [0, 1); for tests.
+ */
+
+/**
+ * Fetches presets from the weeks_presets directory into the engine.
+ *
+ * @param {WeeksPresetLoaderOptions} options
+ */
+export function createWeeksPresetLoader({
+    writePreset,
+    onPresetLoaded,
+    presetBase,
     fetchImpl = fetch,
-    presetBase = DEFAULT_WEEKS_PATHS.presets,
-} = {}) {
-    const module = getModule?.();
-    if (!module?.FS || !module.ccall) {
-        throw new Error('Module not ready for weeks preset bootstrap');
+    random = Math.random,
+}) {
+    /** @type {string[] | null} */
+    let urls = null;
+    /** @type {Promise<string[]> | null} */
+    let scanning = null;
+    let pickInFlight = false;
+
+    /** @param {string} url */
+    const fileName = (url) => decodeURIComponentSafe(url.split('/').pop() ?? url);
+
+    /** @param {string} url */
+    async function fetchBytes(url) {
+        const response = await fetchImpl(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return new Uint8Array(await response.arrayBuffer());
     }
 
-    const base = presetBase.endsWith('/') ? presetBase : `${presetBase}/`;
-    const listingRes = await fetchImpl(base);
-    if (!listingRes.ok) {
-        throw new Error(`Failed to list weeks presets (${listingRes.status})`);
-    }
-    const urls = parseMilkDirectoryListing(await listingRes.text(), listingRes.url);
-    if (!urls.length) {
-        throw new Error('No .milk presets found in weeks_presets');
-    }
-
-    const picks = [];
-    const pool = urls.slice();
-    const want = Math.min(count, pool.length);
-    for (let i = 0; i < want; i += 1) {
-        const idx = Math.floor(Math.random() * pool.length);
-        picks.push(pool.splice(idx, 1)[0]);
-    }
-
-    /** @type {{ vfsPath: string, label: string | undefined }[]} */
-    const vfsPaths = [];
-    for (let i = 0; i < picks.length; i += 1) {
-        const url = picks[i];
-        const res = await fetchImpl(url);
-        if (!res.ok) continue;
-        // Uint8Array, not Uint8ClampedArray: FS.writeFile takes Uint8Array|string.
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        const vfsPath = `/presets/weeks_host_${i}.milk`;
-        module.FS.writeFile(vfsPath, bytes);
-        vfsPaths.push({ vfsPath, label: url.split('/').pop() });
+    /**
+     * The .milk URLs in the weeks preset directory. Scanned once; a failed scan
+     * is tried again on the next call.
+     * @returns {Promise<string[]>}
+     */
+    function scan() {
+        if (urls) {
+            return Promise.resolve(urls);
+        }
+        if (!scanning) {
+            const base = presetBase ?? resolveWeeksPresetBase();
+            scanning = (async () => {
+                const listing = await fetchImpl(base);
+                if (!listing.ok) {
+                    throw new Error(`Failed to list weeks presets (${listing.status})`);
+                }
+                const found = parseMilkDirectoryListing(await listing.text(), listing.url || base);
+                console.log(`[projectM weeks] scanned ${found.length} presets from ${base}`);
+                urls = found;
+                return found;
+            })().finally(() => {
+                scanning = null;
+            });
+        }
+        return scanning;
     }
 
-    if (!vfsPaths.length) {
-        throw new Error('Failed to download any weeks presets');
-    }
+    return {
+        scan,
 
-    module.ccall('load_preset_file', null, ['string'], [vfsPaths[0].vfsPath]);
-    for (let i = 1; i < vfsPaths.length; i += 1) {
-        module.ccall('add_preset_file', null, ['string'], [vfsPaths[i].vfsPath]);
+        /**
+         * Load one random weeks preset with a hard cut. A pick that is still
+         * downloading swallows further requests. Resolves the file name loaded,
+         * or null when nothing was loaded.
+         * @returns {Promise<string | null>}
+         */
+        async loadRandom() {
+            if (pickInFlight) {
+                console.log('[projectM weeks] preset pick already in flight; ignoring duplicate request.');
+                return null;
+            }
+            pickInFlight = true;
+            try {
+                const all = await scan();
+                if (all.length === 0) {
+                    console.log('[projectM weeks] no weeks presets available.');
+                    return null;
+                }
+                const url = all[Math.floor(random() * all.length)];
+                const name = fileName(url);
+                writePreset(`/presets/weeks_pick_${Date.now()}.milk`, await fetchBytes(url), 'load-hard');
+                onPresetLoaded?.(name);
+                return name;
+            } catch (error) {
+                console.warn('[projectM weeks] failed to load a weeks preset:', error);
+                return null;
+            } finally {
+                pickInFlight = false;
+            }
+        },
+
+        /**
+         * Seed the playlist with `count` random presets, downloaded in parallel.
+         * Whichever arrives first is loaded; the rest are added behind it.
+         * Resolves the file names that made it in.
+         * @param {number} [count]
+         * @returns {Promise<string[]>}
+         */
+        async seed(count = 5) {
+            const all = await scan();
+            const pool = all.slice();
+            const picks = [];
+            for (let n = Math.min(count, pool.length); n > 0; n -= 1) {
+                picks.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
+            }
+            /** @type {string[]} */
+            const seeded = [];
+            await Promise.all(picks.map(async (url, slot) => {
+                try {
+                    const bytes = await fetchBytes(url);
+                    const first = seeded.length === 0;
+                    writePreset(`/presets/weeks_${slot}.milk`, bytes, first ? 'load' : 'add');
+                    seeded.push(fileName(url));
+                    if (first) {
+                        onPresetLoaded?.(fileName(url));
+                    }
+                } catch (error) {
+                    console.warn(`[projectM weeks] failed to download weeks preset ${url}:`, error);
+                }
+            }));
+            console.log(`[projectM weeks] seeded ${seeded.length} presets into the playlist.`);
+            return seeded;
+        },
+    };
+}
+
+/** @param {string} value */
+function decodeURIComponentSafe(value) {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
     }
-    if (startTransitionWhenReady) {
-        await startTransitionWhenReady({ module, durationSec: 1.5 });
-    }
-    return vfsPaths;
+}
+
+/**
+ * Start weeks-on-fire's preset playlist and, once it is seeded, a random song.
+ *
+ * @param {WeeksPresetLoaderOptions & {
+ *   count?: number,
+ *   playSong?: () => (void | Promise<unknown>),
+ *   songDelayMs?: number,
+ * }} options
+ * @returns {{ loader: ReturnType<typeof createWeeksPresetLoader>, ready: Promise<string[]> }}
+ *   `ready` resolves the seeded file names and never rejects.
+ */
+export function startWeeksOnFire({ count = 5, playSong, songDelayMs = 2500, ...loaderOptions }) {
+    const loader = createWeeksPresetLoader(loaderOptions);
+    const ready = loader.seed(count).then((seeded) => {
+        if (playSong) {
+            setTimeout(() => {
+                Promise.resolve()
+                    .then(playSong)
+                    .catch((error) => console.warn('[projectM weeks] could not start a song:', error));
+            }, songDelayMs);
+        }
+        return seeded;
+    }).catch((error) => {
+        console.warn('[projectM weeks] could not seed the weeks presets:', error);
+        return /** @type {string[]} */ ([]);
+    });
+    return { loader, ready };
 }

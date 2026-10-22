@@ -197,6 +197,7 @@ test('every positional callback decodes the same from the 040 shape and the pre-
         ['pmOnTranspiledShaderStored', ['preset-key', 1, 'void main(){}'], { key: 'preset-key', kind: 1, glsl: 'void main(){}' }],
         ['pmReportInitError', [6, 'Primary canvas selector not found'], { code: 6, detail: 'Primary canvas selector not found' }],
         ['pmHideInitError', [], {}],
+        ['pmOnPresetSwitchFailed', ['/presets/bad.milk', 'shader compile failed'], { preset: '/presets/bad.milk', message: 'shader compile failed' }],
     ];
     for (const [name, payload, fields] of cases) {
         assert.ok(WASM_CALLBACK_NAMES.includes(name), name);

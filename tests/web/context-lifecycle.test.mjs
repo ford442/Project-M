@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ProjectMContext } from '../../html/projectm-context.js';
+import { PRESET_SWITCH_FAILED, ProjectMContext } from '../../html/projectm-context.js';
 import {
     createAudioSourceRouter,
     getHostAudioSourceRouter,
@@ -707,6 +707,67 @@ test('two engines in one Module: an init failure reaches only the engine that fa
         a.destroy();
         b.destroy();
         assert.equal('pmReportInitError' in env.window, false, 'the last context gives the hook back');
+    });
+});
+
+test('two engines in one Module: a preset that failed to switch reaches only the engine it failed on', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const errors = { a: [], b: [] };
+        const events = { a: [], b: [] };
+        const { a, b } = await startSharedPair(env, {
+            extraA: { onError: (detail) => errors.a.push(detail) },
+            extraB: { onError: (detail) => errors.b.push(detail) },
+        });
+        a.on('error', (detail) => events.a.push(detail));
+
+        // js_report_preset_switch_failed(host, preset, message): the engine
+        // calls a bus hook instead of writing the page's DOM.
+        env.window.pmOnPresetSwitchFailed(a.hostHandle, '/presets/weeks_0.milk', 'warp shader: syntax error');
+        assert.equal(errors.a.length, 1);
+        assert.equal(errors.a[0].code, PRESET_SWITCH_FAILED, 'a code that tells it from a failed boot');
+        assert.match(errors.a[0].message, /Preset failed: weeks_0\.milk \(warp shader: syntax error\)/);
+        assert.equal(errors.a[0].error.preset, '/presets/weeks_0.milk');
+        assert.deepEqual(events.a.map((detail) => detail.code), [PRESET_SWITCH_FAILED], 'and the context error event');
+        assert.deepEqual(errors.b, [], 'B did not fail');
+
+        // The same preset failing again is a second event: not deduplicated
+        // like a boot failure, and a failure with no reason still reports.
+        env.window.pmOnPresetSwitchFailed(a.hostHandle, '/presets/weeks_0.milk', '');
+        assert.equal(errors.a.length, 2);
+        assert.equal(errors.a[1].message, 'Preset failed: weeks_0.milk');
+
+        env.window.pmOnPresetSwitchFailed(b.hostHandle, '/presets/other.milk', 'bad');
+        assert.equal(errors.b.length, 1);
+        assert.equal(errors.a.length, 2);
+
+        a.destroy();
+        env.window.pmOnPresetSwitchFailed(a.hostHandle, '/presets/late.milk', 'after destroy');
+        assert.equal(errors.a.length, 2, 'a destroyed context reports nothing');
+
+        b.destroy();
+        assert.equal('pmOnPresetSwitchFailed' in env.window, false, 'the last context gives the hook back');
+    });
+});
+
+test('a context that booted its own Module hears its engine\'s preset failures although it never learned the handle', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        // checkInit() creates the engine through create_host_with_config() but
+        // returns only the init code, so on this path context.hostHandle stays 0
+        // while the engine's events name the real handle (7 here). A filter on
+        // `engineHost: 0` would mean "the legacy default host only" and drop
+        // every one of them: seen in a real browser, not just on paper.
+        const errors = [];
+        const context = env.newContext({
+            ...mainTopology(env, async () => makeFakeModule({ hostHandle: 7 })),
+            onError: (detail) => errors.push(detail),
+        });
+        await context.start();
+        assert.equal(context.hostHandle, 0, 'the premise: this path does not know its handle');
+
+        env.window.pmOnPresetSwitchFailed(7, '/presets/bad.milk', 'warp shader: syntax error');
+        assert.equal(errors.length, 1, 'the failure from the engine\'s real handle must arrive');
+        assert.equal(errors[0].code, PRESET_SWITCH_FAILED);
+        assert.equal(errors[0].error.preset, '/presets/bad.milk');
     });
 });
 

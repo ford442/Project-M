@@ -378,7 +378,8 @@ ccs = document.querySelector('#circle');
 <script type="module">
 import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
 import { ensureWorkletReady } from './projectm-worklet-playback.js';
-import { ProjectMContext } from './projectm-context.js';
+import { PRESET_SWITCH_FAILED, ProjectMContext } from './projectm-context.js';
+import { bundleScansAssets, loadPageTextures } from './projectm-textures.js';
 import { createSectionAudioPlayerController } from './projectm-audio-player.js';
 import { exposeAudioPlayerGlobals, patchBroadcastChannel } from './projectm-legacy-globals.js';
 import { setupExternalAudioReceiver } from './projectm-external-pcm.js';
@@ -395,6 +396,7 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
 import {
   applyWeeksOnFireDomConfig,
   isWeeksOnFireMode,
+  startWeeksOnFire,
   wireFlacDecoderBridge,
 } from './projectm-weeks-on-fire.js';
 import {
@@ -593,26 +595,32 @@ function startChangeSong() {
     .then(() => ensureWorkletReady())
     .catch((err) => console.warn('[B3HD] audio/worklet unlock failed:', err));
 }
+// Weeks on fire's preset loader: set by startWeeksOnFire() once the engine is up.
+// Null in a normal session, and in weeks mode against a bundle old enough to
+// seed its own playlist.
+let weeksOnFire = null;
+function pickWeeksPreset() {
+  if (weeksOnFire) {
+    void weeksOnFire.loader.loadRandom();
+  } else if (typeof window.loadRandomWeeksPreset === 'function') {
+    // Bundles built before the glue lost its XHR loaders install this themselves.
+    window.loadRandomWeeksPreset();
+  } else {
+    console.warn('[B3HD] Weeks mode: preset scanner not ready yet');
+  }
+}
 function randomPreset() {
   if (weeksOnFireMode) {
-    if (typeof window.loadRandomWeeksPreset === 'function') {
-      console.log('[B3HD] Random Weeks Preset');
-      window.loadRandomWeeksPreset();
-    } else {
-      console.warn('[B3HD] Weeks mode: preset scanner not ready yet');
-    }
+    console.log('[B3HD] Random Weeks Preset');
+    pickWeeksPreset();
     return;
   }
   loadRandomPresetFromRemote();
 }
 function randomCustom() {
   if (weeksOnFireMode) {
-    if (typeof window.loadRandomWeeksPreset === 'function') {
-      console.log('[B3HD] Random Weeks Preset (custom slot)');
-      window.loadRandomWeeksPreset();
-    } else {
-      console.warn('[B3HD] Weeks mode: preset scanner not ready yet');
-    }
+    console.log('[B3HD] Random Weeks Preset (custom slot)');
+    pickWeeksPreset();
     return;
   }
   loadRandomPresetFromRemote();
@@ -786,6 +794,9 @@ async function initProjectM() {
         presetLocked: isPresetLocked,
         audioSource: 'none',
         onError: (detail) => {
+          // A preset that would not load: the engine keeps the previous one and
+          // already warned in the console. Not an init error.
+          if (detail.code === PRESET_SWITCH_FAILED) return;
           console.error('[B3HD] context init error:', detail);
         },
       });
@@ -802,6 +813,10 @@ async function initProjectM() {
         document.getElementById('splash1').style.display = 'none';
       });
 
+      // The engine only reports; the page fetches. Main-thread engines get the
+      // page's textures (the render worker's VFS is not reachable from here).
+      void loadPageTextures({ module: Module });
+
       if (!window._pmStartupPresetsLoaded) {
         window._pmStartupPresetsLoaded = true;
 
@@ -817,8 +832,14 @@ async function initProjectM() {
               addPresetFile(Module, startup[i].vfsPath);
             }
           }
+        } else if (bundleScansAssets()) {
+          console.log('[B3HD] Weeks on fire: preset playlist seeded by the WASM bundle');
         } else {
-          console.log('[B3HD] Weeks on fire: preset playlist seeded by WASM bootstrap');
+          weeksOnFire = startWeeksOnFire({
+            writePreset: (vfsPath, bytes, mode) => pmContext.transport.writePreset(vfsPath, bytes, mode),
+            onPresetLoaded: (name) => window.updatePresetDisplay(name),
+            playSong: () => import('./projectm-song-loader.js').then((mod) => mod.playRandomCatalogSong()),
+          });
         }
       }
     }

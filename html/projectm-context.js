@@ -57,6 +57,13 @@ import { createConfiguredHost, resolveFlashLimit, resolveWasmContextConfig } fro
 // context options, for hosts that create engines through the raw exports.
 export { CONTEXT_CONFIG_FLAGS, resolveWasmContextConfig } from './projectm-context-config.js';
 
+/**
+ * `ProjectMErrorDetail.code` of a preset that failed to load or compile. Not a
+ * boot failure: the engine keeps running its previous preset, so a page can show
+ * a toast and carry on. `detail.error.preset` is the VFS path that failed.
+ */
+export const PRESET_SWITCH_FAILED = -2;
+
 const DEFAULT_TARGET_FPS = 60;
 let canvasIdSerial = 0;
 
@@ -729,6 +736,7 @@ export class ProjectMContext {
                 }
             }
             this.#watchEngineInitErrors();
+            this.#watchPresetSwitchFailures();
 
             if (transparent) {
                 transport.callVoid('setTransparencyMode', true);
@@ -1464,6 +1472,38 @@ export class ProjectMContext {
             const suffix = detail ? `: ${detail}` : '';
             this.#reportError(new Error(`projectM engine init failed (init code ${code})${suffix}`), code);
         }, windowRef, { engineHost: this.hostHandle }));
+    }
+
+    /**
+     * Surfaces a preset the engine could not switch to through `onError` and the
+     * `error` event, as {@link PRESET_SWITCH_FAILED}. The engine reports it
+     * through the callback bus (`pmOnPresetSwitchFailed`) instead of writing the
+     * page's DOM, so this is the one place a failed preset becomes a page-visible
+     * event. Main-thread engines only: a render worker's report stays in its own
+     * console, as it always has.
+     */
+    #watchPresetSwitchFailures() {
+        const { windowRef } = this.options;
+        if (!windowRef || !this.module) {
+            return;
+        }
+        // A context that booted its own Module never learns its handle
+        // (checkInit() returns only the init code), so `hostHandle` is 0 there
+        // while the engine's events carry the real one -- and `engineHost: 0`
+        // means "the legacy default host", which would drop them. That engine is
+        // the Module's only one, so it hears everything.
+        const filter = this.hostHandle ? { engineHost: this.hostHandle } : {};
+        this.#own(subscribeWasmCallback('pmOnPresetSwitchFailed', ({ preset, message }) => {
+            if (this.destroyed) {
+                return;
+            }
+            const name = preset.split('/').pop() || preset;
+            const text = message ? `Preset failed: ${name} (${message})` : `Preset failed: ${name}`;
+            const error = Object.assign(new Error(text), { preset });
+            // Not deduplicated like #reportError(): each failed switch is its own event.
+            this.options.onError?.({ code: PRESET_SWITCH_FAILED, message: text, error });
+            this.#emit('error', { code: PRESET_SWITCH_FAILED, message: text, error });
+        }, windowRef, filter));
     }
 
     /**

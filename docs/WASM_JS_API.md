@@ -174,7 +174,7 @@ addition to the pre-existing `window.pmOnGovernorTierChange(tier)`:
 `host` (bundle 040+) is the engine whose governor moved: `create_host*()`'s handle, or `0`
 for the default host. Bundles up to 039 pass the payload alone. Every page callback follows
 this shape — `pmSetPerfHudEnabled(host, enabled)`, `pmOnTranspiledShaderStored(host, key,
-kind, glsl)`, `pmReportInitError(host, code, detail)`, `pmHideInitError(host)`, and `host` on
+kind, glsl)`, `pmReportInitError(host, code, detail)`, `pmHideInitError(host)`, `pmOnPresetSwitchFailed(host, preset, message)`, and `host` on
 the `pmOnPerfFrame` stats and `pmOnRhythmEvent` event objects. Listen through
 `subscribeWasmCallback(name, listener, globalThis, { engineHost })`
 (`html/projectm-wasm-callbacks.js`), which accepts both bundle shapes and hands each listener

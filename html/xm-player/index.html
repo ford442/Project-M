@@ -71,7 +71,7 @@
     }
 
     try {
-      const bridgeMod = await import('../flac-player/projectm-pcm-bridge.js');
+      const bridgeMod = await import('../projectm-pcm-bridge.js');
       window.__projectMPcmBridge = bridgeMod.installProjectMPcmBridge();
     } catch (error) {
       console.debug('[projectM MOD bridge] install failed (non-fatal):', error);

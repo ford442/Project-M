@@ -88,7 +88,7 @@ The earlier `patches/flac-player-bridge-upgrade-to-postmessage.diff` targets the
 player's *minified external bundle*, whose source we don't have. Instead, the
 sender now lives in the in-repo player shell as a bundle-independent module:
 
-- `html/flac-player/projectm-pcm-bridge.js` — patches the Web Audio graph at the
+- `html/projectm-pcm-bridge.js` — patches the Web Audio graph at the
   prototype level: when any node connects to `context.destination`, it taps that
   node into a passive `AnalyserNode` and streams the time-domain PCM to the host
   via `postMessage` (opener for popups, parent for iframes) **and** the legacy

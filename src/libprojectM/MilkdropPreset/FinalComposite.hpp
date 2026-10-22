@@ -6,6 +6,8 @@
 
 #include <Renderer/Mesh.hpp>
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -82,6 +84,14 @@ public:
      */
     auto HasCompositeShader() const -> bool;
 
+    /**
+     * @brief How many times any FinalComposite has rebuilt and uploaded its mesh.
+     *
+     * The mesh only depends on the viewport size, so this should move once per resize, not
+     * once per frame. Process-wide; tests read it as a delta.
+     */
+    static auto MeshRebuildCount() -> uint64_t;
+
 private:
     /**
      * @brief Replaces the composite shader with the default one and compiles it.
@@ -132,6 +142,8 @@ private:
 
     Renderer::Mesh m_compositeMesh;                                                                 //!< The composite shader mesh.
     Renderer::VertexBuffer<Renderer::Point> m_radiusAngle{Renderer::VertexBufferUsage::StreamDraw}; //!< Additional vertex attribute array for radius and angle.
+
+    static inline std::atomic<uint64_t> s_meshRebuildCount{0}; //!< Composite mesh rebuilds, all instances (for tests).
 
     int m_viewportWidth{};  //!< Last known viewport width.
     int m_viewportHeight{}; //!< Last known viewport height.

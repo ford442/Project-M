@@ -228,8 +228,12 @@ gate table; it is informational and never gates.
 (from the CI artifact or a manual run). The gate only ever compares records from
 the same `runner`, so keep the runner name stable per machine. A record with no
 `gpuStagesMs` came from a browser without `EXT_disjoint_timer_query_webgl2`
-(Safari, most mobile): it still gates `frameMs`, but cannot answer the Y-flip
-question.
+(Safari, most mobile). It cannot answer the Y-flip question, so
+`compare_benchmark_results.mjs` refuses it as `--base` (exit 2), and likewise a
+hardware record missing `gpuStagesMs.copy` or `perPixelEvalMs` on any preset. As
+`--head` it is still compared, with a note that it cannot become the next base.
+The full capture procedure is
+[GRAPHICS_PERF_RECOVERY_PLAN.md "Hardware capture contract"](GRAPHICS_PERF_RECOVERY_PLAN.md#hardware-capture-contract).
 
 ---
 

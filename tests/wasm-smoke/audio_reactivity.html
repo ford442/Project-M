@@ -27,6 +27,7 @@
       PROJECTM_ANALYSIS_WINDOW,
     } from '../../html/projectm-synthetic-audio.js';
     import { setupRenderWorker } from '../../html/projectm-render-worker-host.js';
+    import { captureFrameFromModule } from '../../html/projectm-frame-capture.js';
 
     window.__projectMCaptureMode = true;
 
@@ -77,36 +78,94 @@
       });
     }
 
-    function canvasChannelMeans(canvas) {
-      const gl = canvas.getContext('webgl2');
-      if (!gl) return null;
-      const w = canvas.width;
-      const h = canvas.height;
-      const pixels = new Uint8Array(w * h * 4);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      let r = 0, g = 0, b = 0;
-      const n = w * h;
-      for (let i = 0; i < pixels.length; i += 4) {
-        r += pixels[i];
-        g += pixels[i + 1];
-        b += pixels[i + 2];
-      }
-      return { r: r / n, g: g / n, b: b / n };
+    // 300-beatdetect-bassmidtreb.milk draws one wave per band, each in its own
+    // third of the screen and in its own channel: bass red on the left, mid green
+    // in the middle, treble blue on the right. The band sets the wave's height
+    // (y = band / 10), not its colour or width. A whole-frame mean therefore
+    // barely moves when one thin red line rises, and this page used to test
+    // exactly that (bass r > silence r + 8). Each band is read in its own third.
+    const BANDS = ['bass', 'mid', 'treble'];
+
+    // projectM splits its 512-bin spectrum into equal sixths and uses the lower
+    // three (src/libprojectM/Audio/Loudness.cpp). At 44.1 kHz that is bass below
+    // ~3.7 kHz, mid to ~7.4 kHz and treble to ~11 kHz. The old 5 kHz "treble"
+    // tone was a mid tone.
+    const WINDOWS = [
+      { name: 'silence', frames: 60, frequencyHz: 0 },
+      { name: 'bass', frames: 90, frequencyHz: 80 },
+      { name: 'mid', frames: 90, frequencyHz: 5500 },
+      { name: 'treble', frames: 90, frequencyHz: 9000 },
+    ];
+
+    function windowBlock(window, f) {
+      return window.frequencyHz === 0
+        ? generateSilence(PROJECTM_ANALYSIS_WINDOW)
+        : generateSine(PROJECTM_ANALYSIS_WINDOW, {
+          frequencyHz: window.frequencyHz,
+          amplitude: 0.9,
+          phase: f * PROJECTM_ANALYSIS_WINDOW,
+        });
     }
 
-    async function renderWithPcm(Module, generator, frames = 90, channels = 1) {
-      for (let f = 0; f < frames; f += 1) {
-        const mono = generator(f);
-        feedPcmToModule(Module, mono, channels);
-        Module._render_frame?.();
-        await new Promise((r) => requestAnimationFrame(r));
-      }
+    /** Mean of band k's channel over band k's third of an RGBA frame (top row first). */
+    function bandLevels({ width, height, data }) {
+      const levels = {};
+      BANDS.forEach((band, k) => {
+        const x0 = Math.floor((k * width) / 3);
+        const x1 = Math.floor(((k + 1) * width) / 3);
+        let sum = 0;
+        for (let y = 0; y < height; y += 1) {
+          for (let x = x0; x < x1; x += 1) {
+            sum += data[(y * width + x) * 4 + k];
+          }
+        }
+        levels[band] = sum / ((x1 - x0) * height);
+      });
+      return levels;
     }
 
-    // Worker mode: the canvas is transferred out of this page, so pixels are not
-    // readable here. What is checkable — and what this change is about — is that
-    // the same PCM reaches the engine the same way: every frame written lands in
-    // the ring and is drained, with no overruns, exactly as on the main thread.
+    /**
+     * Feeds every window one analysis block per rendered frame and reads the
+     * last frame of each back inside render_frame(), before it is presented.
+     *
+     * The frame is captured with capture_frame_*. This page used to readPixels
+     * the canvas after awaiting an animation frame; without preserveDrawingBuffer
+     * the browser had presented and cleared it by then, so the "frame" was a
+     * cleared buffer. The worker leg fed audio on an 8 ms timer while SwiftShader
+     * rendered a frame every ~160 ms, so it saw different audio per frame from the
+     * main thread. Both now advance one block per frame.
+     */
+    async function measureWindows(feedFrame, captureFrame) {
+      const levels = {};
+      for (const window of WINDOWS) {
+        for (let f = 0; f < window.frames; f += 1) {
+          await feedFrame(windowBlock(window, f));
+        }
+        levels[window.name] = bandLevels(await captureFrame());
+      }
+      return levels;
+    }
+
+    /**
+     * The band assertions, identical for both topologies: each band's own wave
+     * is brighter in its window than in silence.
+     *
+     * That is all brightness can say here. In silence a band sits at y = 0, on
+     * the bottom edge, and any level above that draws a line somewhere, so this
+     * tells "on screen" from "off", not how high. It also cannot tell bands
+     * apart within one window: they are relative to a running average that the
+     * silence window drove to near zero, so the 80 Hz window lights all three.
+     */
+    function judgeBands(levels) {
+      const reacts = (band) => levels[band][band] > Math.max(levels.silence[band] * 2, levels.silence[band] + 2);
+      const checks = { bass: reacts('bass'), mid: reacts('mid'), treble: reacts('treble') };
+      const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
+      return { checks, failed };
+    }
+
+    // Worker mode renders on the worker's own loop. Besides the band checks it
+    // asserts that every PCM frame written lands in the shared ring and is
+    // drained, with no overruns.
     async function runWorkerMode(params) {
       const canvas = document.getElementById('mcanvas');
       const scriptSrc = params.get('wasm') || './projectm-v.030-thread.js';
@@ -126,22 +185,31 @@
 
       const handle = await ready;
       const read = (name) => handle.ccall(name, 'number', [], []);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-      const chunks = 90;
-      let framesFed = 0;
-      for (let f = 0; f < chunks; f += 1) {
-        const mono = generateSine(PROJECTM_ANALYSIS_WINDOW, {
-          frequencyHz: 80,
-          amplitude: 0.9,
-          phase: f * PROJECTM_ANALYSIS_WINDOW,
-        });
-        handle.feedPcm(pan(mono, 1, 0), 2);
-        framesFed += PROJECTM_ANALYSIS_WINDOW;
-        await new Promise((r) => setTimeout(r, 8));
+      // Same preset, pinned, as the main-thread leg. Messages reach the worker in
+      // order, so the readiness poll below already sees this request's reset.
+      await handle.ccall('set_preset_locked', null, ['number'], [1]);
+      handle.postPreset('/presets/beatdetect.milk', await fetchPreset(params), 'load-hard');
+      let presetReady = false;
+      for (let i = 0; i < 1200 && !presetReady; i += 1) {
+        presetReady = (await handle.ccall('is_preset_ready', 'number', ['number'], [10])) === 1;
+        if (!presetReady) await sleep(50);
       }
+      if (!presetReady) throw new Error('worker mode: preset never became ready');
+
+      let framesFed = 0;
+      const feedFrame = async (block) => {
+        // One block per rendered frame, like the main-thread leg.
+        const target = (await read('get_rendered_frame_count')) + 1;
+        handle.feedPcm(block, 1);
+        framesFed += block.length;
+        while ((await read('get_rendered_frame_count')) < target) await sleep(4);
+      };
+      const levels = await measureWindows(feedFrame, () => handle.captureFrame());
 
       // Let the worker's render loop drain what is still outstanding.
-      await new Promise((r) => setTimeout(r, 500));
+      await sleep(500);
 
       const stats = {
         capacityFrames: await read('get_pcm_ring_capacity_frames'),
@@ -151,14 +219,24 @@
         renderedFrames: await read('get_rendered_frame_count'),
       };
 
-      result.tests = { framesFed, ring: stats, ringShared: !!handle.getPcmRing() };
+      const bands = judgeBands(levels);
+      result.tests = { levels, bands: bands.checks, framesFed, ring: stats, ringShared: !!handle.getPcmRing() };
       const drained = stats.readIndex === stats.writeIndex;
       const rendered = stats.renderedFrames > 0;
-      result.ok = drained && rendered;
+      const noOverruns = stats.overruns === 0;
+      result.ok = drained && rendered && noOverruns && bands.failed.length === 0;
       result.error = result.ok
         ? null
-        : `worker mode: drained=${drained} rendered=${rendered}`;
+        : `worker mode: drained=${drained} rendered=${rendered} overruns=${stats.overruns} bands failed=[${bands.failed}]`;
       document.getElementById('stat').textContent = JSON.stringify(result, null, 2);
+    }
+
+    async function fetchPreset(params) {
+      const presetUrl = params.get('preset')
+        || '../../presets/tests/300-beatdetect-bassmidtreb.milk';
+      const res = await fetch(presetUrl);
+      if (!res.ok) throw new Error(`preset fetch ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
     }
 
     async function main() {
@@ -192,45 +270,45 @@
       // A bundle that preloads no presets has no /presets, and writeFile there
       // fails with a bare ErrnoError 44 (ENOENT).
       try { Module.FS.mkdirTree('/presets'); } catch (_) { /* already there */ }
-      const presetUrl = params.get('preset')
-        || '../../presets/tests/300-beatdetect-bassmidtreb.milk';
-      const res = await fetch(presetUrl);
-      if (!res.ok) throw new Error(`preset fetch ${res.status}`);
-      Module.FS.writeFile(presetPath, new Uint8Array(await res.arrayBuffer()));
-      Module.ccall('load_preset_file', null, ['string'], [presetPath]);
-      // Pin it. The playlist advances on its own, and a switch landing between
-      // the silence and bass windows compared two different presets' pixels —
-      // which is how this run reported band failures that moved around between
-      // invocations.
+      Module.FS.writeFile(presetPath, await fetchPreset(params));
+      // Pin it before loading. The playlist advances on its own, and a switch
+      // landing between the silence and bass windows compared two different
+      // presets' pixels.
       Module._set_preset_locked?.(1);
 
-      // Wait for the preset's shaders, not a fixed frame count. A preset that
-      // is still compiling renders the default black, and since the bass window
-      // is measured first it was the one that landed on it — the run then
-      // reported "bass=false treble=true", which looks like a band-detection
-      // regression and is really a race with shader compilation.
-      for (let i = 0; i < 600; i += 1) {
+      // Wait until this preset is the one on screen. The load is queued on the
+      // prepare thread and returns at once, and is_preset_ready() is already
+      // true for the preset the bundle booted with. Polling it from frame 30
+      // therefore measured whatever happened to be playing: the silence, bass
+      // and treble windows each landed on a different preset, and the treble
+      // one was half of a soft transition. The engine reports a completed
+      // switch through updatePresetDisplay(). A hard cut leaves no blend behind.
+      let activePreset = null;
+      const previousPresetDisplay = globalThis.updatePresetDisplay;
+      globalThis.updatePresetDisplay = (name) => {
+        activePreset = name;
+        previousPresetDisplay?.(name);
+      };
+      Module.ccall('load_preset_file_hard', null, ['string'], [presetPath]);
+      // Both: the name says which preset the playlist switched to, and
+      // is_preset_ready() is reset by this request and reports this request
+      // only, so a boot preset finishing its prepare late cannot satisfy it.
+      for (let i = 0; i < 600 && !(activePreset === presetPath && Module._is_preset_ready(10)); i += 1) {
         Module._render_frame?.();
         await new Promise((r) => requestAnimationFrame(r));
-        if (i >= 30 && Module._is_preset_ready?.(10)) break;
+      }
+      if (activePreset !== presetPath || !Module._is_preset_ready(10)) {
+        throw new Error(`preset never became active (playlist: ${activePreset}, ready: ${Module._is_preset_ready(10)})`);
       }
 
-      await renderWithPcm(Module, () => generateSilence(PROJECTM_ANALYSIS_WINDOW), 60);
-      const silenceMeans = canvasChannelMeans(document.getElementById('mcanvas'));
-
-      await renderWithPcm(Module, (f) => generateSine(PROJECTM_ANALYSIS_WINDOW, {
-        frequencyHz: 80,
-        amplitude: 0.9,
-        phase: f * PROJECTM_ANALYSIS_WINDOW,
-      }), 90);
-      const bassMeans = canvasChannelMeans(document.getElementById('mcanvas'));
-
-      await renderWithPcm(Module, (f) => generateSine(PROJECTM_ANALYSIS_WINDOW, {
-        frequencyHz: 5000,
-        amplitude: 0.9,
-        phase: f * PROJECTM_ANALYSIS_WINDOW,
-      }), 90);
-      const trebleMeans = canvasChannelMeans(document.getElementById('mcanvas'));
+      const levels = await measureWindows(
+        async (block) => {
+          feedPcmToModule(Module, block, 1);
+          Module._render_frame();
+          await new Promise((r) => requestAnimationFrame(r));
+        },
+        () => captureFrameFromModule(Module, { renderFrame: true }),
+      );
 
       // Stereo: a hard-panned tone must reach the engine asymmetric. The old
       // ingest fed channels=1, so left-only and right-only were indistinguishable
@@ -240,7 +318,11 @@
         amplitude: 0.9,
         phase: f * PROJECTM_ANALYSIS_WINDOW,
       });
-      await renderWithPcm(Module, (f) => pan(panTone(f), 1, 0), 30, 2);
+      for (let f = 0; f < 30; f += 1) {
+        feedPcmToModule(Module, pan(panTone(f), 1, 0), 2);
+        Module._render_frame();
+        await new Promise((r) => requestAnimationFrame(r));
+      }
       const leftPannedRing = ringStats((name) => Module.ccall(name, 'number', [], []));
 
       // Read back what the ring actually holds for one hard-panned block, so the
@@ -256,23 +338,18 @@
       }
       const stereoAsymmetric = leftEnergy > 1 && rightEnergy < leftEnergy * 0.05;
 
+      const bands = judgeBands(levels);
       result.tests = {
-        silenceMeans,
-        bassMeans,
-        trebleMeans,
+        levels,
+        bands: bands.checks,
         stereo: { leftEnergy, rightEnergy, asymmetric: stereoAsymmetric },
         ring: leftPannedRing,
       };
-      // beatdetect preset: wave0=bass(red), wave1=mid(green), wave2=treb(blue)
-      const bassReacts = bassMeans.r > silenceMeans.r + 8;
-      const trebleReacts = trebleMeans.b > silenceMeans.b + 8;
-      const bandsDiffer = Math.abs(bassMeans.r - trebleMeans.r) > 5
-        || Math.abs(bassMeans.b - trebleMeans.b) > 5;
       const noOverruns = leftPannedRing.overruns === 0;
-      result.ok = bassReacts && trebleReacts && bandsDiffer && stereoAsymmetric && noOverruns;
+      result.ok = bands.failed.length === 0 && stereoAsymmetric && noOverruns;
       result.error = result.ok
         ? null
-        : `bass=${bassReacts} treble=${trebleReacts} bands=${bandsDiffer} stereo=${stereoAsymmetric} overruns=${leftPannedRing.overruns}`;
+        : `bands failed=[${bands.failed}] stereo=${stereoAsymmetric} overruns=${leftPannedRing.overruns}`;
 
       document.getElementById('stat').textContent = JSON.stringify(result, null, 2);
     }

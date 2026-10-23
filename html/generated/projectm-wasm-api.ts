@@ -91,6 +91,7 @@ export type ProjectMModule = EmscriptenModule & {
     _dual_fbo_get_idle_release_seconds: () => number;
     _dual_fbo_is_preset_b_ready: () => boolean;
     _dual_fbo_get_format: () => number;
+    _get_context_snapshot: () => number;
     _dual_fbo_render_preset_a: () => void;
     _dual_fbo_render_preset_b: () => void;
     _transition_start: () => void;
@@ -228,6 +229,7 @@ export const WASM_API_SYMBOLS = {
     dualFboGetIdleReleaseSeconds: 'dual_fbo_get_idle_release_seconds',
     dualFboIsPresetBReady: 'dual_fbo_is_preset_b_ready',
     dualFboGetFormat: 'dual_fbo_get_format',
+    getContextSnapshot: 'get_context_snapshot',
     dualFboRenderPresetA: 'dual_fbo_render_preset_a',
     dualFboRenderPresetB: 'dual_fbo_render_preset_b',
     transitionStart: 'transition_start',
@@ -381,6 +383,7 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     dualFboGetIdleReleaseSeconds: { symbol: 'dual_fbo_get_idle_release_seconds', returnType: 'number', argTypes: [], paramTypes: [] },
     dualFboIsPresetBReady: { symbol: 'dual_fbo_is_preset_b_ready', returnType: 'boolean', argTypes: [], paramTypes: [] },
     dualFboGetFormat: { symbol: 'dual_fbo_get_format', returnType: 'number', argTypes: [], paramTypes: [] },
+    getContextSnapshot: { symbol: 'get_context_snapshot', returnType: 'number', argTypes: [], paramTypes: [] },
     dualFboRenderPresetA: { symbol: 'dual_fbo_render_preset_a', returnType: null, argTypes: [], paramTypes: [] },
     dualFboRenderPresetB: { symbol: 'dual_fbo_render_preset_b', returnType: null, argTypes: [], paramTypes: [] },
     transitionStart: { symbol: 'transition_start', returnType: null, argTypes: [], paramTypes: [] },
@@ -959,6 +962,11 @@ export function dualFboGetFormat(module: ProjectMModule): number {
     return module._dual_fbo_get_format();
 }
 
+/** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot */
+export function getContextSnapshot(module: ProjectMModule): number {
+    return module._get_context_snapshot();
+}
+
 /** Render preset A into dual FBO */
 export function dualFboRenderPresetA(module: ProjectMModule): void {
     module._dual_fbo_render_preset_a();
@@ -1222,6 +1230,7 @@ export const PUBLIC_WASM_API = [
     dualFboGetIdleReleaseSeconds,
     dualFboIsPresetBReady,
     dualFboGetFormat,
+    getContextSnapshot,
     transitionStart,
     transitionCancel,
     transitionIsActive,

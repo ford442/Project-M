@@ -37,7 +37,6 @@ test('AudioWorkletNode guard rewrites a 0-channel output count', () => {
     FakeAudioWorkletNode.prototype = {};
     const windowRef = { AudioWorkletNode: FakeAudioWorkletNode };
     const undo = installAudioWorkletChannelGuard(windowRef);
-    // eslint-disable-next-line new-cap
     windowRef.AudioWorkletNode({}, 'flac-processor', { outputChannelCount: [0] });
     assert.deepEqual(calls[0].options.outputChannelCount, [2]);
     undo();

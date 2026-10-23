@@ -21,16 +21,16 @@ flowchart LR
 
 | Step | What | Command / tool |
 |------|------|------------------|
-| 1. **Idea** | One-paragraph visual + music mood; tie to a project lane (see below) | `grok_agent/signature_series_briefs.md` or `docs/milk0xx_creative_brief.md` template |
-| 2. **Generate** | Grok / Kimi / Claude draft using pitfall checklist | `grok_agent/preset_generation_prompt.md` |
-| 3. **Static audit** | Hazards, tier, GPU migration hints | `node scripts/audit_presets.mjs custom_milk_fixed/your_preset.milk` |
-| 4. **Validate** | Parse + HLSL→GLSL transpile (no GPU) | `scripts/kimi_validate_preset.sh custom_milk_fixed/your_preset.milk` |
+| 1. **Idea** | One-paragraph visual + music mood; tie to a project lane (see below) | `docs/agents/grok/signature_series_briefs.md` or `docs/milk0xx_creative_brief.md` template |
+| 2. **Generate** | Grok / Kimi / Claude draft using pitfall checklist | `docs/agents/grok/preset_generation_prompt.md` |
+| 3. **Static audit** | Hazards, tier, GPU migration hints | `node scripts/audit_presets.mjs presets/custom/your_preset.milk` |
+| 4. **Validate** | Parse + HLSL→GLSL transpile (no GPU) | `scripts/kimi_validate_preset.sh presets/custom/your_preset.milk` |
 | 5. **Demo** | Live edit, audio reactivity, 60fps check | B3HD: `html/projectm-core.html?devPreset=1&localPresets=1` |
-| 6. **Optimize** | Move heavy `per_pixel` → `warp_`/`comp_` `shader_body`; benchmark | [`docs/BENCHMARKING.md`](BENCHMARKING.md), `./optimize.sh --bench wasm` |
+| 6. **Optimize** | Move heavy `per_pixel` → `warp_`/`comp_` `shader_body`; benchmark | [`docs/BENCHMARKING.md`](BENCHMARKING.md), `scripts/optimize.sh --bench wasm` |
 | 7. **Capture** | Reference screenshot for picker badges | `node scripts/capture_custom_milk_screenshots.mjs` (optional) |
 | 8. **Manifest** | Picker + agent registry | `node scripts/generate_custom_preset_manifest.mjs` |
 | 9. **Commit** | Metadata header in file + manifest/agent_manifest update | See [Metadata block](#metadata-block) |
-| 10. **Promote** | Draft/quarantine → `custom_milk_fixed/` | `node scripts/promote_preset.mjs <file> --skip-capture-check` |
+| 10. **Promote** | Draft/quarantine → `presets/custom/` | `node scripts/promote_preset.mjs <file> --skip-capture-check` |
 
 ## Project lanes (creative direction)
 
@@ -49,20 +49,20 @@ minimal CPU `per_pixel` (`zoom`/`rot`/`warp` constants only), `q1..q12` bridge i
 
 ## AI generation (Grok / Kimi / Claude)
 
-1. Copy `grok_agent/preset_generation_prompt.md` into your agent session.
-2. Attach a creative brief (`docs/milk011_creative_brief.md` as reference) or a row from
-   `grok_agent/signature_series_briefs.md`.
+1. Copy `docs/agents/grok/preset_generation_prompt.md` into your agent session.
+2. Attach a creative brief (`docs/agents/briefs/milk011_creative_brief.md` as reference) or a row from
+   `docs/agents/grok/signature_series_briefs.md`.
 3. Require output: single `.milk` file with metadata header (below).
-4. Run `grok_agent/preset_review_checklist.md` before accepting the draft.
+4. Run `docs/agents/grok/preset_review_checklist.md` before accepting the draft.
 
 **Kimi CLI quick loop:**
 
 ```bash
 # Validate after each edit
-scripts/kimi_validate_preset.sh custom_milk_fixed/orbital_rave_zephyr.milk cmake-build-verify
+scripts/kimi_validate_preset.sh presets/custom/orbital_rave_zephyr.milk cmake-build-verify
 
 # Upgrade pass (optional)
-scripts/kimi_upgrade_preset.sh custom_milk_fixed/orbital_rave_zephyr.milk
+scripts/kimi_upgrade_preset.sh presets/custom/orbital_rave_zephyr.milk
 ```
 
 ## B3HD demo — hot-reload & live editing
@@ -89,7 +89,7 @@ Features (`html/projectm-preset-dev.js`):
 TOML authoring (optional):
 
 ```bash
-node scripts/toml_to_milk.mjs presets/drafts/orbital_rave_zephyr.toml -o custom_milk_fixed/orbital_rave_zephyr.milk
+node scripts/toml_to_milk.mjs presets/drafts/orbital_rave_zephyr.toml -o presets/custom/orbital_rave_zephyr.milk
 ```
 
 Then open the demo with `devPresetUrl` pointing at the output file.
@@ -160,7 +160,7 @@ checks that they render and follow the rhythm values.
 
 Try them with `projectm-core.html?switchOn=bars&transitionBeats=1&rhythmDebug=1`.
 
-## Promotion criteria (draft → custom_milk_fixed)
+## Promotion criteria (draft → presets/custom)
 
 `scripts/promote_preset.mjs` enforces:
 
@@ -169,11 +169,11 @@ Try them with `projectm-core.html?switchOn=bars&transitionBeats=1&rhythmDebug=1`
 3. Tier — `light` or `medium` (unless `--allow-heavy`)
 4. Capture — no `broken` entry in `screenshots/custom_milk_baseline/capture_report.json` (skip with `--skip-capture-check` for new presets)
 
-Quarantined presets live in `custom_milk_quarantine/`; see `custom_milk_quarantine/README.md`.
+Quarantined presets live in `presets/quarantine/`; see `presets/quarantine/README.md`.
 
 ## Related docs
 
-- [`kimi_preset_authoring_plan.md`](kimi_preset_authoring_plan.md) — Kimi runbook, pitfall list
+- [`kimi_preset_authoring_plan.md`](agents/kimi_preset_authoring_plan.md) — Kimi runbook, pitfall list
 - [`WRITING_NEW_MILK_PRESETS_GUIDE.md`](WRITING_NEW_MILK_PRESETS_GUIDE.md) — Milkdrop equation reference
 - [`PERFORMANCE.md`](PERFORMANCE.md) — Profiling and 60fps governor
-- [`grok_agent/preset_review_checklist.md`](../grok_agent/preset_review_checklist.md) — Agent review gate
+- [`docs/agents/grok/preset_review_checklist.md`](agents/grok/preset_review_checklist.md) — Agent review gate

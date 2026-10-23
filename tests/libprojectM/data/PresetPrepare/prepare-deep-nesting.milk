@@ -1,0 +1,25 @@
+[preset00]
+MILKDROP_PRESET_VERSION=201
+PSVERSION=2
+PSVERSION_WARP=2
+PSVERSION_COMP=2
+fDecay=0.9
+// Every code block nests 64 levels deep: equations (projectM-eval), per-pixel code
+// (also lowered to GLSL on the GPU path), and both shaders (hlslparser). Their parsers
+// recurse once per level on the preset prepare thread's stack (scripts/deepest_presets.mjs).
+// Emscripten's default 64 KB pthread stack overflows on this preset (a 32-deep one fits); the
+// bundle's DEFAULT_PTHREAD_STACK_SIZE (cmake/EmscriptenWasmFlags.cmake) handles 256 levels.
+per_frame_1=q1 = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((bass*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01)*0.5+0.01);
+per_frame_2=q2 = sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(time))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))));
+per_pixel_1=zoom = 1 + ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((rad*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5)*0.5) * 0.01;
+per_pixel_2=rot = sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(ang)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) * 0.001;
+warp_1=`shader_body
+warp_2=`{
+warp_3=`  ret = tex2D(sampler_main, uv).xyz * ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((0.98*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0);
+warp_4=`  ret += sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(sin(q1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) * 0.001;
+warp_5=`}
+comp_1=`shader_body
+comp_2=`{
+comp_3=`  ret = tex2D(sampler_main, uv).xyz * ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1.0*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0)*1.0);
+comp_4=`  ret += cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(cos(time)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) * 0.001;
+comp_5=`}

@@ -85,6 +85,23 @@ void MilkdropPreparedPreset::Prepare(const PresetPrepareContext& context)
         m_compositeShader->source = FinalComposite::SelectCompositeShaderSource(m_parser->GetCode("comp_"));
     }
 
+    // The transpile cache state the load began with, for the render thread's compile.
+    if (context.transpileCacheKey)
+    {
+        const auto attachCacheState = [&context](PreparedMilkdropShader& shader, MilkdropShader::ShaderType type) {
+            shader.transpileCacheKey = context.transpileCacheKey;
+            shader.cachedGlsl = context.cachedGlsl.at(static_cast<size_t>(type));
+        };
+        if (m_warpShader)
+        {
+            attachCacheState(*m_warpShader, MilkdropShader::ShaderType::WarpShader);
+        }
+        if (m_compositeShader)
+        {
+            attachCacheState(*m_compositeShader, MilkdropShader::ShaderType::CompositeShader);
+        }
+    }
+
     if (!context.transpileShaders)
     {
         return;

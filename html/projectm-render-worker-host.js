@@ -163,6 +163,53 @@ export function isRenderWorkerSupported(canvas) {
     return renderWorkerUnsupportedReason(canvas) === null;
 }
 
+/**
+ * Canvases whose control went to a render worker. `transferControlToOffscreen()`
+ * is one-way, so after a worker that took one fails to boot, the main-thread
+ * fallback has to draw into a different element — see
+ * {@link replaceTransferredCanvas}.
+ *
+ * @type {WeakSet<object>}
+ */
+const transferredCanvases = new WeakSet();
+
+/**
+ * Whether `canvas` was handed to a render worker (and so can no longer give
+ * out a drawing context on this thread).
+ *
+ * @param {HTMLCanvasElement | null | undefined} canvas
+ * @returns {boolean}
+ */
+export function isCanvasTransferred(canvas) {
+    return !!canvas && transferredCanvases.has(canvas);
+}
+
+/**
+ * Swaps a transferred canvas for a fresh copy of the element (same id, classes
+ * and inline style, no children, no context) in the same place in the
+ * document, and returns the copy. What the main-thread fallback draws into
+ * after a render worker took the original and then failed to boot.
+ *
+ * Selectors keep resolving: the copy carries the original's id and classes.
+ *
+ * @param {HTMLCanvasElement} canvas
+ * @returns {HTMLCanvasElement}
+ */
+export function replaceTransferredCanvas(canvas) {
+    const fresh = /** @type {HTMLCanvasElement} */ (canvas.cloneNode(false));
+    if (canvas.parentNode) {
+        canvas.parentNode.replaceChild(fresh, canvas);
+    }
+    return fresh;
+}
+
+/**
+ * How long {@link RenderWorkerHandle.shutdown} waits for 'shutdown-complete'
+ * before it terminates the worker anyway. The engine's destruct is quick; this
+ * only bounds a worker that is wedged.
+ */
+export const RENDER_WORKER_SHUTDOWN_TIMEOUT_MS = 1000;
+
 // Transfers `canvas` to a new render worker and starts the WASM module
 // there. Returns null if unsupported (caller should fall back to the
 // main-thread path). Otherwise returns a handle for the host to drive the
@@ -186,6 +233,9 @@ export function isRenderWorkerSupported(canvas) {
  *   applied in the worker before the engine's first frame.
  * @param {() => void} [options.onReady]
  * @param {(reason: string) => void} [options.onUnsupported]
+ * @param {(detail: { code: number, message: string }) => void} [options.onInitError]
+ *   The worker's boot failed after its module started loading (see
+ *   'init-error'). Without this handler the failure goes to `onError`.
  * @param {(message: string) => void} [options.onError]
  * @param {(stats: RenderWorkerStatsMessage) => void} [options.onStats]
  * @returns {RenderWorkerHandle | null} null when unsupported — the caller must
@@ -204,6 +254,7 @@ export function setupRenderWorker({
     flashLimit = null,
     onReady,
     onUnsupported,
+    onInitError,
     onError,
     onStats
 } = {}) {
@@ -220,6 +271,8 @@ export function setupRenderWorker({
         return null;
     }
 
+    transferredCanvases.add(canvas);
+
     const worker = new Worker(new URL('./projectm-render-worker.js', import.meta.url));
 
     // The ring is owned by the worker's WASM module, so it only exists once the
@@ -230,7 +283,7 @@ export function setupRenderWorker({
     let pcmRing = null;
 
     let nextRequestId = 1;
-    /** @type {Map<number, (result: unknown) => void>} */
+    /** @type {Map<number, { resolve: (result: unknown) => void, reject: (error: Error) => void }>} */
     const pendingCcalls = new Map();
     /** @type {Map<number, (message: RenderWorkerFrameCapturedMessage) => void>} */
     const pendingCaptures = new Map();
@@ -240,6 +293,10 @@ export function setupRenderWorker({
     // which engine a call reaches never depends on which one was active last
     // — the worker has one engine today, and this is what lets it have two.
     let engineHost = 0;
+    // get_context_snapshot() for the worker's context, from 'ready' and from
+    // each successful recovery. Null until reported, and for a bundle without it.
+    /** @type {number | null} */
+    let contextSnapshotBits = null;
 
     /** @type {Set<(event: RenderWorkerContextEvent) => void>} */
     const contextListeners = new Set();
@@ -299,15 +356,54 @@ export function setupRenderWorker({
         };
     };
 
+    let terminated = false;
+    /** @type {Promise<void> | null} */
+    let shutdownPromise = null;
+    /** @type {(() => void) | null} */
+    let finishShutdown = null;
+
+    /**
+     * Rejects every ccall and capture still waiting: once the worker is gone
+     * nothing will answer them, and a promise that never settles is how a
+     * caller hangs.
+     *
+     * @param {string} reason
+     */
+    const rejectPending = (reason) => {
+        for (const { reject } of pendingCcalls.values()) reject(new Error(reason));
+        pendingCcalls.clear();
+        for (const settle of pendingCaptures.values()) {
+            settle({ type: 'frame-captured', requestId: 0, error: reason });
+        }
+        pendingCaptures.clear();
+        if (settleRecovery) settleRecovery(-1);
+    };
+
+    const terminate = () => {
+        if (terminated) return;
+        terminated = true;
+        worker.terminate();
+        rejectPending('the render worker was terminated');
+        finishShutdown?.();
+    };
+
     worker.onmessage = (event) => {
         const msg = /** @type {RenderWorkerMessage} */ (event.data);
         switch (msg.type) {
             case 'ready':
                 engineHost = typeof msg.host === 'number' ? msg.host : 0;
+                contextSnapshotBits = typeof msg.contextSnapshot === 'number' ? msg.contextSnapshot : null;
                 if (onReady) onReady();
                 break;
             case 'unsupported':
                 if (onUnsupported) onUnsupported(msg.reason);
+                break;
+            case 'init-error':
+                if (onInitError) onInitError({ code: msg.code, message: msg.message });
+                else if (onError) onError(msg.message);
+                break;
+            case 'shutdown-complete':
+                terminate();
                 break;
             case 'error':
                 if (onError) onError(msg.message);
@@ -343,6 +439,10 @@ export function setupRenderWorker({
                 emitContextEvent('restored');
                 break;
             case 'context-recovered':
+                if (msg.status === 0) {
+                    // A rebuilt engine runs on a new context; describe that one.
+                    contextSnapshotBits = typeof msg.contextSnapshot === 'number' ? msg.contextSnapshot : null;
+                }
                 if (settleRecovery) {
                     settleRecovery(msg.status);
                 }
@@ -356,10 +456,11 @@ export function setupRenderWorker({
                 break;
             }
             case 'ccall-result': {
-                const resolve = pendingCcalls.get(msg.requestId);
-                if (resolve) {
+                const pending = pendingCcalls.get(msg.requestId);
+                if (pending) {
                     pendingCcalls.delete(msg.requestId);
-                    resolve(msg.result);
+                    if (typeof msg.error === 'string') pending.reject(new Error(msg.error));
+                    else pending.resolve(msg.result);
                 }
                 break;
             }
@@ -388,12 +489,18 @@ export function setupRenderWorker({
         ...(flashLimit ? { flashLimit } : {}),
     }, [offscreen]);
 
-    return {
+    /** @type {RenderWorkerHandle} */
+    const handle = {
         worker,
 
         /** @returns {number} */
         engineHost() {
             return engineHost;
+        },
+
+        /** @returns {number | null} */
+        contextSnapshot() {
+            return contextSnapshotBits;
         },
 
         /**
@@ -537,6 +644,9 @@ export function setupRenderWorker({
          * @returns {Promise<{ width: number, height: number, data: Uint8ClampedArray, frameIndex: number }>}
          */
         captureFrame({ renderFrame = false, timeoutMs } = {}) {
+            if (terminated) {
+                return Promise.reject(new Error('captureFrame(): the render worker was terminated'));
+            }
             return new Promise((resolve, reject) => {
                 const requestId = nextRequestId++;
                 pendingCaptures.set(requestId, (msg) => {
@@ -569,9 +679,12 @@ export function setupRenderWorker({
          * @returns {Promise<unknown>}
          */
         ccall(name, returnType, argTypes, args) {
-            return new Promise((resolve) => {
+            if (terminated) {
+                return Promise.reject(new Error(`ccall ${name}: the render worker was terminated`));
+            }
+            return new Promise((resolve, reject) => {
                 const requestId = nextRequestId++;
-                pendingCcalls.set(requestId, resolve);
+                pendingCcalls.set(requestId, { resolve, reject });
                 worker.postMessage({ type: 'ccall', name, returnType, argTypes, args, requestId, host: engineHost });
             });
         },
@@ -583,6 +696,34 @@ export function setupRenderWorker({
          */
         ccallVoid(name, argTypes, args) {
             worker.postMessage({ type: 'ccall', name, returnType: null, argTypes, args, host: engineHost });
-        }
+        },
+
+        /**
+         * @param {{ timeoutMs?: number }} [options]
+         * @returns {Promise<void>}
+         */
+        shutdown({ timeoutMs = RENDER_WORKER_SHUTDOWN_TIMEOUT_MS } = {}) {
+            if (terminated) return Promise.resolve();
+            if (!shutdownPromise) {
+                shutdownPromise = new Promise((resolve) => {
+                    const timer = setTimeout(terminate, timeoutMs);
+                    finishShutdown = () => {
+                        clearTimeout(timer);
+                        finishShutdown = null;
+                        resolve();
+                    };
+                });
+                worker.postMessage({ type: 'shutdown' });
+            }
+            return shutdownPromise;
+        },
+
+        terminate,
+
+        /** {@link shutdown}, for code that tears every setup*() down the same way. */
+        dispose() {
+            void handle.shutdown();
+        },
     };
+    return handle;
 }

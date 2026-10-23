@@ -1,5 +1,4 @@
-import { feedPcmFloat } from './generated/projectm-wasm-api.js';
-import { feedPcmThroughRing } from './projectm-pcm-ring.js';
+import { feedPcm } from './projectm-pcm-ring.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
@@ -113,6 +112,19 @@ const DEFAULT_EXTERNAL_PCM_GAIN = 1.0;
 let configuredAllowedOrigins = null;
 let configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
 let debugRmsEnabled = false;
+/**
+ * Per-chunk feed logging. Off unless the page asks (`?pcmDebug=1`, or
+ * `debugPcm: true` on a receiver): it runs once per PCM chunk.
+ */
+let pcmDebugEnabled = readPcmDebugFlag();
+
+function readPcmDebugFlag() {
+    try {
+        return new URLSearchParams(globalThis.location?.search ?? '').get('pcmDebug') === '1';
+    } catch (_) {
+        return false;
+    }
+}
 /**
  * The page-wide ingress shared by every open receiver: one `message` listener,
  * one BroadcastChannel, one flush timer. Installed with the first receiver and
@@ -373,6 +385,7 @@ export function resetExternalPcmStateForTests() {
     configuredAllowedOrigins = null;
     configuredGain = DEFAULT_EXTERNAL_PCM_GAIN;
     debugRmsEnabled = false;
+    pcmDebugEnabled = readPcmDebugFlag();
     transportClaims.length = 0;
     renderTransport = null;
     pendingExternalPCM.length = 0;
@@ -516,61 +529,36 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
 
     // On the main thread, feed the module the transport wraps rather than
     // whichever one `window.Module` currently names: with two contexts that
-    // global belongs to the newer one.
+    // global belongs to the newer one. And feed the transport's *engine*: a
+    // Module running several of them would otherwise route every chunk to
+    // whichever host happened to be active.
     const moduleInstance = transport?.module ?? currentProjectMModule();
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
-    const m = /** @type {any} */ (moduleInstance);
+    const host = transport?.host ?? 0;
 
     const { samples, samplesPerChannel: framesPerChannel } = preprocessExternalPcm(
         buffer, channels, samplesPerChannel
     );
 
-    // Preferred path: straight into the WASM-owned PCM ring, same as every other
-    // producer. The malloc/HEAPF32 marshaling below is the fallback for bundles
-    // built before the ring existed.
-    if (feedPcmThroughRing(m, samples, { channels })) {
-        console.debug('[projectM external PCM] fed chunk to ring', {
-            channels,
-            samplesPerChannel: framesPerChannel,
-            totalSamples: samples.length,
-            sampleRate
-        });
-        return true;
-    }
-
-    let ptr = 0;
-    let usedPrealloc = false;
-    if (samples.length <= pcmTransferCap) {
-        ptr = ensurePcmTransferBuffer(moduleInstance);
-        usedPrealloc = !!ptr;
-    }
-
-    if (!ptr) {
-        feedPcmFloat(m, samples, framesPerChannel, channels);
+    // The ring when the bundle has one; otherwise the marshaling fallback,
+    // reusing this module's preallocated transfer block when the chunk fits.
+    const ptr = samples.length <= pcmTransferCap ? ensurePcmTransferBuffer(moduleInstance) : 0;
+    const fed = feedPcm({ module: moduleInstance, host }, samples, {
+        channels,
+        scratch: ptr ? { ptr, capacity: pcmTransferCap } : null,
+    });
+    // Per chunk, at audio rate: building this object unconditionally was the
+    // cost even with the console closed. ?pcmDebug=1 or debugPcm: true turns it on.
+    if (fed && pcmDebugEnabled) {
         console.debug('[projectM external PCM] fed chunk', {
+            host,
             channels,
             samplesPerChannel: framesPerChannel,
             totalSamples: samples.length,
             sampleRate
         });
-        return true;
     }
-
-    try {
-        m.HEAPF32.set(samples, ptr >> 2);
-        m._projectm_pcm_add_float_wrapper(0, ptr, framesPerChannel, channels);
-        console.debug('[projectM external PCM] fed chunk', {
-            channels,
-            samplesPerChannel: framesPerChannel,
-            totalSamples: samples.length,
-            sampleRate
-        });
-        return true;
-    } finally {
-        if (!usedPrealloc && ptr && m._free) {
-            m._free(ptr);
-        }
-    }
+    return fed;
 }
 
 /**
@@ -790,7 +778,8 @@ export function setExternalPcmGain(gain) {
  * @param {number} [options.preallocSize]
  * @param {number} [options.gain]
  * @param {boolean} [options.debugRms]
- * @returns {{ feedPCMToModule: typeof feedPCMToModule; flushQueuedExternalPCM: typeof flushQueuedExternalPCM; close: () => void }}
+ * @param {boolean} [options.debugPcm] Log every fed chunk (also `?pcmDebug=1`).
+ * @returns {{ feedPCMToModule: typeof feedPCMToModule; flushQueuedExternalPCM: typeof flushQueuedExternalPCM; close: () => void; dispose: () => void }}
  */
 export function setupExternalAudioReceiver({
     onFeed,
@@ -800,6 +789,7 @@ export function setupExternalAudioReceiver({
     preallocSize,
     gain,
     debugRms,
+    debugPcm,
 } = {}) {
     /** @type {Receiver} */
     const receiver = {
@@ -818,14 +808,17 @@ export function setupExternalAudioReceiver({
         : DEFAULT_PCM_TRANSFER_CAP;
     if (gain !== undefined) setExternalPcmGain(gain);
     debugRmsEnabled = !!debugRms;
+    if (debugPcm !== undefined) pcmDebugEnabled = !!debugPcm;
 
     if (!ingress) {
         installIngress();
     }
 
+    const close = () => closeReceiver(receiver);
     return {
         feedPCMToModule,
         flushQueuedExternalPCM,
-        close: () => closeReceiver(receiver),
+        close,
+        dispose: close,
     };
 }

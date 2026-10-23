@@ -356,6 +356,7 @@ function runGateOn(files) {
         mkdirSync(join(root, 'html'), { recursive: true });
         copyFileSync(gateScript, join(root, 'scripts', 'check_host_globals.sh'));
         for (const [path, contents] of Object.entries(files)) {
+            mkdirSync(dirname(join(root, path)), { recursive: true });
             writeFileSync(join(root, path), contents);
         }
         const result = spawnSync('bash', [join(root, 'scripts', 'check_host_globals.sh')], { encoding: 'utf8' });
@@ -405,6 +406,14 @@ test('the gate covers first-party host pages, not just the modules', () => {
     });
     assert.equal(status, 1);
     assert.match(out, /host\.html/);
+});
+
+test('the gate covers html/context/ and html/worklets/ as well', () => {
+    for (const file of ['html/context/leaky.js', 'html/worklets/leaky.js']) {
+        const { status, out } = runGateOn({ [file]: 'window.pmLeaked = 1;\n' });
+        assert.equal(status, 1, `${file} should fail the gate`);
+        assert.match(out, /leaky\.js/);
+    }
 });
 
 test('the shim, the callback bus and the worker scope may write page globals', () => {

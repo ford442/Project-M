@@ -66,7 +66,10 @@ test('buildDepthSpriteCode emits milkdrop sprite block with depth texture', () =
 test('the bridge is inert without ?experimental=1', () => {
     const dom = installFakeDom();
     try {
-        assert.deepEqual(setupExperimentalBridge({}, { params: new URLSearchParams() }), { enabled: false });
+        const bridge = setupExperimentalBridge({}, { params: new URLSearchParams() });
+        assert.equal(bridge.enabled, false);
+        assert.deepEqual(Object.keys(bridge).sort(), ['dispose', 'enabled']);
+        assert.doesNotThrow(() => bridge.dispose());
     } finally {
         dom.restore();
     }
@@ -109,10 +112,29 @@ test('an enabled bridge returns its api, publishes nothing on window, and dispos
         assert.equal(listenerCount('pm:preset-text'), 1);
         assert.equal(observing, 1);
 
+        const panel = dom.document.getElementById('pm-experimental-panel');
+        assert.ok(panel, 'the panel is on the page');
+        const bindButton = panel.querySelector('#pm-exp-bind');
+        assert.equal(bindButton.listenerCount('click'), 1);
+
         bridge.dispose();
         assert.equal(listenerCount('pm:preset-loaded'), 0);
         assert.equal(listenerCount('pm:preset-text'), 0);
         assert.equal(disconnected, 1);
+        // The panel goes too. It used to stay, so a second setup found it,
+        // skipped building its own, and its buttons kept the first bridge's state.
+        assert.equal(dom.document.getElementById('pm-experimental-panel'), null);
+        assert.equal(bindButton.listenerCount('click'), 0);
+        assert.equal(dom.document.getElementById('resultImage'), null, 'the #resultImage it created is removed');
+
+        const second = setupExperimentalBridge({}, { params: new URLSearchParams('experimental=1') });
+        try {
+            const secondPanel = dom.document.getElementById('pm-experimental-panel');
+            assert.ok(secondPanel && secondPanel !== panel, 'a second setup builds its own panel');
+            assert.equal(secondPanel.querySelector('#pm-exp-bind').listenerCount('click'), 1);
+        } finally {
+            second.dispose();
+        }
     } finally {
         // The image BroadcastChannel is a real one and would keep node alive.
         bridge?.dispose?.();

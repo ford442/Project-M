@@ -1,7 +1,8 @@
 // Preset library: filter, favorites, quality-weighted random, multi-base loading.
 
 import { getFavorites, isFavorite, toggleFavorite, presetId } from './projectm-preset-favorites.js';
-import { getCachedPreset, cachePreset, defaultBasesForBase } from './projectm-preset-cache.js';
+import { getCachedPreset, cachePreset } from './projectm-preset-cache.js';
+import { defaultBasesForBase } from './projectm-preset-sources.js';
 import { updatePresetDisplay } from './projectm-presets.js';
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
 import { setTransitionDuration, startTransitionWhenReady as startTransition } from './projectm-transitions.js';

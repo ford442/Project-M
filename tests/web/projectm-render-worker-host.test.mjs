@@ -20,13 +20,16 @@ import test from 'node:test';
 import { resolveWasmContextConfig } from '../../html/projectm-context-config.js';
 
 import {
+    isCanvasTransferred,
     isRenderWorkerEnabled,
     isRenderWorkerSupported,
     offscreenCanvasSupportsWebGL2,
+    replaceTransferredCanvas,
     renderWorkerUnsupportedReason,
     resolveRenderPathOverrides,
     setupRenderWorker,
 } from '../../html/projectm-render-worker-host.js';
+import { selectRenderTopology } from '../../html/projectm-render-transport.js';
 
 class FakeWorker {
     constructor(url) {
@@ -37,6 +40,9 @@ class FakeWorker {
     }
     postMessage(msg, transfer) {
         this.posted.push({ msg, transfer });
+    }
+    terminate() {
+        this.terminated = true;
     }
     /** Test helper: simulate a message arriving from the worker. */
     emit(data) {
@@ -229,8 +235,8 @@ test('setupRenderWorker posts an init message transferring the offscreen canvas'
     assert.equal(msg.meshQuality, 'low');
     assert.equal(msg.pcm, undefined, 'the host no longer allocates a ring; the worker owns it');
     // No options of its own: the worker still gets the defaults to create its
-    // engine with (contextAlpha + premultipliedAlpha, high-performance, RGBA16F).
-    assert.deepEqual(msg.contextConfig, { flags: 48, powerPreference: 2, fboPrecision: 0 });
+    // engine with (an opaque canvas with premultipliedAlpha, high-performance, RGBA16F).
+    assert.deepEqual(msg.contextConfig, { flags: 32, powerPreference: 2, fboPrecision: 0 });
     assert.equal(msg.renderPathOverrides, undefined);
     assert.deepEqual(transfer, [offscreen]);
 
@@ -633,5 +639,170 @@ test('recoverContext posts recover-context once and resolves with the init statu
     handle.worker.emit({ type: 'context-recovered', status: 0 });
     assert.equal(await third, 0);
 
+    clearMockWorkerEnv();
+});
+
+test('contextSnapshot() is what the worker last reported: null at first, replaced by each successful recovery only', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({
+        canvas: makeCanvas({ offscreen: {} }),
+        scriptSrc: 'projectm.js',
+        width: 1,
+        height: 1,
+    });
+    assert.equal(handle.contextSnapshot(), null, 'nothing reported before ready');
+
+    handle.worker.emit({ type: 'ready', host: 2, contextSnapshot: 271 });
+    assert.equal(handle.contextSnapshot(), 271);
+
+    // A recovery that failed leaves the engine without a context: nothing new to report.
+    const failed = handle.recoverContext();
+    handle.worker.emit({ type: 'context-recovered', status: 5 });
+    await failed;
+    assert.equal(handle.contextSnapshot(), 271);
+
+    const recovered = handle.recoverContext();
+    handle.worker.emit({ type: 'context-recovered', status: 0, contextSnapshot: 521 });
+    await recovered;
+    assert.equal(handle.contextSnapshot(), 521);
+
+    // A bundle without the export recovers without a snapshot: do not keep the old one.
+    const again = handle.recoverContext();
+    handle.worker.emit({ type: 'context-recovered', status: 0 });
+    await again;
+    assert.equal(handle.contextSnapshot(), null);
+
+    clearMockWorkerEnv();
+});
+
+test('a ready from a bundle that predates the snapshot leaves it null', () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas({ offscreen: {} }), scriptSrc: 'projectm.js', width: 1, height: 1 });
+    handle.worker.emit({ type: 'ready', host: 2 });
+    assert.equal(handle.contextSnapshot(), null);
+    clearMockWorkerEnv();
+});
+
+// ---- Boot failures, shutdown, and nothing left pending ------------------------------
+
+test('an init-error goes to onInitError, or to onError when there is no such handler', () => {
+    installMockWorkerEnv();
+    const initErrors = [];
+    const errors = [];
+    const handle = setupRenderWorker({
+        canvas: makeCanvas(),
+        onInitError: (detail) => initErrors.push(detail),
+        onError: (message) => errors.push(message),
+    });
+    handle.worker.emit({ type: 'init-error', code: 8, message: 'engine creation failed' });
+    assert.deepEqual(initErrors, [{ code: 8, message: 'engine creation failed' }]);
+    assert.deepEqual(errors, []);
+
+    const plain = [];
+    const bare = setupRenderWorker({ canvas: makeCanvas(), onError: (message) => plain.push(message) });
+    bare.worker.emit({ type: 'init-error', code: -1, message: 'module init failed' });
+    assert.deepEqual(plain, ['module init failed']);
+    clearMockWorkerEnv();
+});
+
+test('a ccall-result carrying an error rejects the caller instead of resolving undefined', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    const pending = handle.ccall('get_rhythm_info', 'number', [], []);
+    const { requestId } = handle.worker.posted[1].msg;
+    handle.worker.emit({ type: 'ccall-result', requestId, error: 'ccall get_rhythm_info failed: TypeError' });
+    await assert.rejects(pending, /get_rhythm_info failed/);
+    clearMockWorkerEnv();
+});
+
+test('shutdown posts shutdown and terminates on shutdown-complete, rejecting what is still pending', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    const ccall = handle.ccall('get_fps', 'number', [], []);
+    const capture = handle.captureFrame();
+    const recovery = handle.recoverContext();
+
+    const done = handle.shutdown();
+    assert.equal(handle.shutdown(), done, 'shutdown is idempotent');
+    assert.equal(handle.worker.posted.at(-1).msg.type, 'shutdown');
+    assert.equal(handle.worker.terminated, undefined, 'not terminated before the worker answers');
+
+    handle.worker.emit({ type: 'shutdown-complete' });
+    await done;
+    assert.equal(handle.worker.terminated, true);
+    await assert.rejects(ccall, /terminated/);
+    await assert.rejects(capture, /terminated/);
+    assert.equal(await recovery, -1);
+    await assert.rejects(handle.ccall('get_fps', 'number', [], []), /terminated/, 'a call after the end fails at once');
+    await assert.rejects(handle.captureFrame(), /terminated/);
+    clearMockWorkerEnv();
+});
+
+test('shutdown terminates a worker that never answers once the deadline passes', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    await handle.shutdown({ timeoutMs: 5 });
+    assert.equal(handle.worker.terminated, true);
+    clearMockWorkerEnv();
+});
+
+test('a canvas handed to the worker is marked transferred, and can be swapped for a fresh copy', () => {
+    installMockWorkerEnv();
+    const canvas = makeCanvas();
+    assert.equal(isCanvasTransferred(canvas), false);
+    setupRenderWorker({ canvas });
+    assert.equal(isCanvasTransferred(canvas), true);
+    assert.equal(isCanvasTransferred(null), false);
+
+    const copy = { id: 'mcanvas', fresh: true };
+    const replaced = [];
+    const original = {
+        cloneNode: (deep) => { assert.equal(deep, false, 'a shallow copy: no children'); return copy; },
+        parentNode: { replaceChild: (fresh, old) => replaced.push([fresh, old]) },
+    };
+    assert.equal(replaceTransferredCanvas(original), copy);
+    assert.deepEqual(replaced, [[copy, original]]);
+    // A canvas that is not in a document is still copied.
+    assert.equal(replaceTransferredCanvas({ cloneNode: () => copy, parentNode: null }), copy);
+    clearMockWorkerEnv();
+});
+
+test('selectRenderTopology gives up on a worker that never reports ready, at the boot deadline', async () => {
+    installMockWorkerEnv();
+    const reasons = [];
+    const canvas = makeCanvas();
+    const transport = await selectRenderTopology({
+        canvas,
+        preferWorker: true,
+        scriptSrc: 'https://cdn.test/pm/projectm.js',
+        bootTimeoutMs: 10,
+        onFallback: (reason) => reasons.push(reason),
+    });
+    assert.equal(transport, null);
+    assert.deepEqual(reasons, ['render worker did not report ready within 10 ms']);
+    clearMockWorkerEnv();
+});
+
+test('selectRenderTopology falls back on an init-error and terminates the worker', async () => {
+    installMockWorkerEnv();
+    /** @type {FakeWorker | null} */
+    let spawned = null;
+    globalThis.Worker = class extends FakeWorker {
+        constructor(url) {
+            super(url);
+            spawned = this;
+        }
+    };
+    const reasons = [];
+    const pending = selectRenderTopology({
+        canvas: makeCanvas(),
+        preferWorker: true,
+        scriptSrc: 'https://cdn.test/pm/projectm.js',
+        onFallback: (reason) => reasons.push(reason),
+    });
+    spawned.emit({ type: 'init-error', code: 7, message: 'make-current failed' });
+    assert.equal(await pending, null);
+    assert.equal(spawned.terminated, true);
+    assert.deepEqual(reasons, ['render worker failed to boot (init code 7): make-current failed']);
     clearMockWorkerEnv();
 });

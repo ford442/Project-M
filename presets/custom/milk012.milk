@@ -4,7 +4,7 @@
 // - Per-frame q1-q12 pre-cache audio+LFO values; q5/q6/q7 now 0..1 biased per brief
 // - Composite applies cool-metal palette, treb-reactive specular highlight, vignette and final saturate()
 // - Preserved wavecode_0 (bass-reactive PCM scratch) and shapecode_0 (specular pool disc)
-// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk012_creative_brief.md
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/agents/briefs/milk012_creative_brief.md
 MILKDROP_PRESET_VERSION=200
 PSVERSION=3
 PSVERSION_WARP=3

@@ -155,13 +155,15 @@ auto ProjectM::CapturePresetPrepareContext() -> PresetPrepareContext
 
     // The render thread compiles cached GLSL instead of transpiling (MilkdropShader::TranspileHLSLShader()),
     // so preparing would be wasted work for any shader type the cache already holds. The lookup hooks
-    // belong to the render thread, which is why this is asked here and not by the preparation.
-    const std::string cacheKey = Renderer::GetTranspiledGlslCacheKey();
-    if (!cacheKey.empty())
+    // belong to the render thread, which is why this is asked here and not by the preparation. The
+    // key and the GLSL are kept, not just the answer: the host may end its cache load before this
+    // load is activated, and the activation must still compile the cached GLSL then.
+    context.transpileCacheKey = Renderer::GetTranspiledGlslCacheKey();
+    if (!context.transpileCacheKey->empty())
     {
         for (size_t shaderType = 0; shaderType < context.cachedGlsl.size(); shaderType++)
         {
-            context.cachedGlsl.at(shaderType) = Renderer::LookupTranspiledGlsl(cacheKey, static_cast<int>(shaderType)).has_value();
+            context.cachedGlsl.at(shaderType) = Renderer::LookupTranspiledGlsl(*context.transpileCacheKey, static_cast<int>(shaderType));
         }
     }
 
@@ -392,7 +394,7 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 
     if (limitFlashes)
     {
-        m_flashLimiter->EndFrame(static_cast<GLuint>(targetFramebufferObject), m_timeKeeper->SecondsSinceLastFrame());
+        m_flashLimiter->EndFrame(static_cast<GLuint>(targetFramebufferObject), m_timeKeeper->SecondsSinceLastFrame(), m_transparencyMode);
     }
 
     presentStage.reset();

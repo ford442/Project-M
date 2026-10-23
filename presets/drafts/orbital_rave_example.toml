@@ -1,5 +1,5 @@
 # TOML draft example — Signature Series orbital rave
-# Convert: node scripts/toml_to_milk.mjs presets/drafts/orbital_rave_example.toml -o custom_milk_fixed/orbital_rave_example.milk
+# Convert: node scripts/toml_to_milk.mjs presets/drafts/orbital_rave_example.toml -o presets/custom/orbital_rave_example.milk
 
 [meta]
 signature = "orbital_rave | Zephyr Orbital"

@@ -1,6 +1,6 @@
 // CHANGELOG 2026-06-19 (initial)
 // - Aurora Borealis: flowing sine-field warp + spectrum wave curtain + additive aurora comp
-// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Pattern: docs/milk011_creative_brief.md
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Pattern: docs/agents/briefs/milk011_creative_brief.md
 // Audio: q2=bass_att curtain width, q3=mid_att hue drift, q4=treb_att shimmer
 MILKDROP_PRESET_VERSION=200
 PSVERSION=3

@@ -15,13 +15,13 @@ Execute **Option B** (Milkdrop Blending Parity) in a coordinated, incremental wa
 
 ## Available Artifacts (Read These First)
 
-All files are in `docs/` and `grok_agent/`:
+All files are in `docs/` and `docs/agents/grok/`:
 
 - `docs/option_b_milkdrop_parity.md` — Master roadmap with 6 phases (B1–B6) + detailed sub-plans for all 7 gaps
-- `grok_agent/multi_pass_starter.md` — Starter code for 2-pass support (already partially implemented)
+- `docs/agents/grok/multi_pass_starter.md` — Starter code for 2-pass support (already partially implemented)
 - `docs/milkdrop2_vs_projectm_multipass.md` — Comparison of Milkdrop2 vs Project-M multi-pass approach
-- `grok_agent/openmp_candidates.md` — OpenMP parallelization opportunities (Phase B6)
-- `grok_agent/glsl_shader_system_overview.md` — Current state of the GLSL transition shader system
+- `docs/agents/grok/openmp_candidates.md` — OpenMP parallelization opportunities (Phase B6)
+- `docs/agents/grok/glsl_shader_system_overview.md` — Current state of the GLSL transition shader system
 
 ---
 
@@ -83,7 +83,7 @@ When starting a new sub-task, use this format:
 **Task:** Port PageCurl (or another high-impact transition) to use 2 passes  
 **Phase:** B2  
 **Goal:** Demonstrate real visual benefit from multi-pass system  
-**First Step:** Use the skeleton in `grok_agent/multi_pass_starter.md` to split PageCurl into geometry pass + highlight pass
+**First Step:** Use the skeleton in `docs/agents/grok/multi_pass_starter.md` to split PageCurl into geometry pass + highlight pass
 
 ---
 

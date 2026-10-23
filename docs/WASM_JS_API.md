@@ -99,6 +99,7 @@ symbol's doc text is not an API change and needs nothing.
 | `dualFboGetIdleReleaseSeconds` | `dual_fbo_get_idle_release_seconds` | |
 | `dualFboIsPresetBReady` | `dual_fbo_is_preset_b_ready` | |
 | `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (same numbering as `create_host_with_config`'s `fboPrecision`) |
+| `getContextSnapshot` | `get_context_snapshot` | What the host negotiated with WebGL, packed: bit 0 has a context, 1 `EXT_color_buffer_float`, 2 `EXT_float_blend`, 3 `WEBGL_lose_context`, bits 8-9 the dual-FBO format. 0 before init. Prefer `ProjectMContext.contextSnapshot`, which decodes it. See [EMSCRIPTEN.md](EMSCRIPTEN.md#reading-what-was-negotiated) |
 | `transitionStart` | `transition_start` | |
 | `transitionCancel` | `transition_cancel` | |
 | `transitionIsActive` | `transition_is_active` | |

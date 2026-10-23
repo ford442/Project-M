@@ -206,6 +206,8 @@ struct WasmHost {
     // Baked into glCtx at create time; never rewritten while glCtx is live.
     // create_host_with_config() sets it before the context exists.
     WasmContextConfig contextConfig;
+    // What glCtx offered when it was created; reset with it.
+    WasmContextCaps contextCaps;
     // Legacy set_context_config() hand-off only (bundles' host JS from before
     // create_host_with_config()): a config set while this host already had a
     // context, held for whichever context is created next — a create_host()

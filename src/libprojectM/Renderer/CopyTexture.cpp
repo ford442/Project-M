@@ -58,10 +58,11 @@ out vec4 color;
 void main(){
     vec4 texColor = texture(texture_sampler, fragment_tex_coord);
     if (u_transparencyEnabled > 0) {
+        // A preset's alpha channel is blend-mode leftovers, not coverage. Transparency
+        // mode writes opaque pixels, or (0, 0, 0, 0) where it cuts one out: valid
+        // premultiplied output, and the same pixels for straight alpha.
         float maxComponent = max(max(texColor.r, texColor.g), texColor.b);
-        if (maxComponent < u_transparencyThreshold) {
-            texColor = vec4(0.0, 0.0, 0.0, 0.0);
-        }
+        texColor = maxComponent < u_transparencyThreshold ? vec4(0.0) : vec4(texColor.rgb, 1.0);
     }
     color = texColor;
 }

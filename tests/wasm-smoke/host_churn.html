@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM host churn</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; width: 160px; height: 90px; }
+  </style>
+</head>
+<body>
+  <!--
+    Creates and destroys hosts while their preset preparations are in flight.
+
+    Each WasmHost runs a preset prepare thread (src/wasm/WasmPresetPrepare.cpp)
+    from the pthread pool (PTHREAD_POOL_SIZE covers the OpenMP helpers plus one
+    prepare thread per host, nothing more). Each round, in one JS task:
+
+      1. create a host on the churn canvas and post a heavy preset to its
+         prepare thread (load_preset_file_hard);
+      2. destroy it while that preparation runs;
+      3. create the next one.
+
+    A prepare thread that outlives its host keeps its pooled Worker until the
+    main thread yields, so step 3 needs a Worker the pool does not have: the
+    runtime warns that the pool is exhausted (ASSERTIONS builds) and the new
+    host's thread only starts later, or never if the page keeps blocking. The
+    runner (host_churn.mjs) fails on that warning. A long-lived host on its own
+    canvas loads a preset every stayEvery rounds, so a prepare thread that never
+    starts again shows up as a load that never completes. Reverting the join in
+    ~PresetPrepareQueue() to a detach makes the 100-round run warn 37 times.
+  -->
+  <canvas id="pm-churn-stay"></canvas>
+  <canvas id="pm-churn-a"></canvas>
+  <div id="preset-name" hidden></div>
+  <div id="stat" hidden></div>
+  <script>
+    const result = { ok: false, error: null, rounds: 0, createRefused: 0, stayLoads: 0 };
+
+    function finish(ok, error) {
+      result.ok = ok;
+      result.error = error ? String(error && error.stack ? error.stack : error) : null;
+      window.__projectMChurnResult = result;
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    async function writePreset(Module, url, vfsPath) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch ' + url + ': ' + response.status);
+      try { Module.FS.mkdir('/presets'); } catch (_) {}
+      Module.FS.writeFile(vfsPath, new Uint8Array(await response.arrayBuffer()));
+    }
+
+    async function run() {
+      const params = new URLSearchParams(location.search);
+      const rounds = parseInt(params.get('rounds') || '100', 10);
+      const stayEvery = parseInt(params.get('stayEvery') || '10', 10);
+      const loadTimeoutMs = parseInt(params.get('loadTimeoutMs') || '60000', 10);
+
+      await loadScript(params.get('module'));
+      const Module = await createModule({
+        noInitialRun: true,
+        locateFile: (path, prefix) => prefix + path,
+      });
+      await writePreset(Module, params.get('heavy'), '/presets/churn-heavy.milk');
+      await writePreset(Module, params.get('light'), '/presets/churn-light.milk');
+
+      const create = (selector) => Module.ccall('create_host', 'number', ['string', 'string'], [selector, '']);
+      const stay = create('#pm-churn-stay');
+      if (!stay) throw new Error('create_host for the long-lived host failed');
+      // The main loop drains each host's finished preparations, so the
+      // long-lived host renders; the churned hosts never start rendering.
+      Module.ccall('set_active_host', null, ['number'], [stay]);
+      Module._set_preset_locked(1);
+      Module._start_render(160, 90);
+
+      // Waits for the long-lived host's latest load. Its prepare thread must
+      // still get a Worker after the churn around it.
+      const loadOnStay = async (label) => {
+        Module.ccall('set_active_host', null, ['number'], [stay]);
+        Module.ccall('load_preset_file_hard', null, ['string'], ['/presets/churn-light.milk']);
+        const deadline = performance.now() + loadTimeoutMs;
+        for (;;) {
+          Module.ccall('set_active_host', null, ['number'], [stay]);
+          if (Module._preset_switch_failed()) throw new Error(label + ': preset switch failed');
+          if (Module._is_preset_ready(0) === 1) break;
+          if (performance.now() > deadline) {
+            throw new Error(label + ': the long-lived host\'s preset never loaded (prepare thread starved?)');
+          }
+          await sleep(5);
+        }
+        result.stayLoads += 1;
+      };
+      await loadOnStay('before churn');
+
+      let churned = create('#pm-churn-a');
+      if (!churned) throw new Error('first churn create_host failed');
+      for (let round = 0; round < rounds; round += 1) {
+        // 1. A preparation in flight on the churned host (the heavy preset's
+        //    transpile takes far longer than the calls below).
+        Module.ccall('set_active_host', null, ['number'], [churned]);
+        Module.ccall('load_preset_file_hard', null, ['string'], ['/presets/churn-heavy.milk']);
+        // 2. + 3. Destroy it mid-preparation and create the next one, same task.
+        Module.ccall('destroy_host', null, ['number'], [churned]);
+        churned = create('#pm-churn-a');
+        if (!churned) {
+          result.createRefused += 1;
+          throw new Error('create_host refused in round ' + round + ' (host_count ' + Module._host_count() + ')');
+        }
+        result.rounds = round + 1;
+        if ((round + 1) % stayEvery === 0) {
+          await loadOnStay('after round ' + (round + 1));
+        }
+      }
+      Module.ccall('destroy_host', null, ['number'], [churned]);
+      await loadOnStay('after churn');
+      result.hostCount = Module._host_count();
+      Module.ccall('destroy_host', null, ['number'], [stay]);
+      finish(true, null);
+    }
+
+    run().catch((error) => finish(false, error));
+  </script>
+</body>
+</html>

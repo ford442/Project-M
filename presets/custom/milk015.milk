@@ -3,7 +3,7 @@
 // - Moved fDecay=0.980000 to preset params; added per_pixel zoom/rot/warp defaults
 // - Aspect-corrected gravitational warp + Doppler accretion-disk composite with shader_body wrappers
 // - Reduced wavecode_0_samples from 512 to 128 for WebGL performance
-// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk015_creative_brief.md
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/agents/briefs/milk015_creative_brief.md
 MILKDROP_PRESET_VERSION=200
 PSVERSION=3
 PSVERSION_WARP=3

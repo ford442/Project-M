@@ -1,4 +1,5 @@
-// projectm_audio_processor.js
+// html/worklets/projectm-audio-processor.js (deployed as worklets/projectm-audio-processor.js,
+// and under its old name /projectm_audio_processor.js for bundles built before the move)
 //
 // The audio-rate producer for projectM's PCM ring.
 //
@@ -31,9 +32,25 @@
 // SharedArrayBuffer still delivers whole analysis windows.
 const FALLBACK_FRAMES = 576;
 
+/**
+ * The `pcmRing` message the main thread posts per engine
+ * (html/projectm-pcm-ring.js, readPcmRingDescriptor()).
+ *
+ * @typedef {object} PcmRingDescriptor
+ * @property {SharedArrayBuffer} memory The WASM heap.
+ * @property {number} headerPtr Byte offset of the Int32Array(4) header.
+ * @property {number} dataPtr Byte offset of the interleaved stereo frames.
+ * @property {number} capacityFrames
+ * @property {number} indexModulus The write index wraps at this, not at capacity.
+ * @property {number} [hostHandle] Older bundles omit it: handle 0.
+ */
+
 class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
-    constructor(options) {
-        super(options);
+    constructor() {
+        // The processor takes no options; AudioWorkletProcessor's constructor
+        // ignores its argument anyway.
+        super();
+        /** @type {Float32Array[] | null} */
         this.mainChannelData = null; // Array of Float32Arrays, one per channel (received via postMessage)
         this.totalSamples = 0;       // Total sample frames in the buffer
         this.numChannels = 0;        // Number of audio channels
@@ -101,6 +118,8 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
     /**
      * Maps the WASM-owned ring into this worklet. Only possible when the module's
      * memory is a SharedArrayBuffer, i.e. the page is cross-origin isolated.
+     *
+     * @param {PcmRingDescriptor} descriptor
      */
     attachRing({ memory, headerPtr, dataPtr, capacityFrames, indexModulus, hostHandle = 0 }) {
         try {
@@ -120,7 +139,12 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
         }
     }
 
-    /** Stages one stereo frame for this quantum. */
+    /**
+     * Stages one stereo frame for this quantum.
+     *
+     * @param {number} left
+     * @param {number} right
+     */
     emitFrame(left, right) {
         if (this.quantumFrames * 2 + 1 >= this.quantum.length) {
             // Larger quantum than we sized for: grow once and keep going.
@@ -178,6 +202,11 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
         });
     }
 
+    /**
+     * @param {Float32Array[][]} inputs
+     * @param {Float32Array[][]} outputs
+     * @returns {boolean}
+     */
     process(inputs, outputs) {
         const outputBuffer = outputs[0];
         const quantum = outputBuffer && outputBuffer[0] ? outputBuffer[0].length : 128;

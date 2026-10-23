@@ -12,6 +12,9 @@
     "build": "npm run build --workspace=packages/web",
     "check:api": "scripts/check_wasm_public_api.sh",
     "check:globals": "scripts/check_host_globals.sh",
-    "playground": "npm run playground --workspace=packages/web"
+    "playground": "npm run playground --workspace=packages/web",
+    "lint": "eslint html packages/web/src tests/web",
+    "format:check": "scripts/check_web_format.sh",
+    "format": "scripts/check_web_format.sh --write"
   }
 }

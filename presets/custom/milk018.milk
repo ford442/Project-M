@@ -1,6 +1,6 @@
 // CHANGELOG 2026-06-19 (initial)
 // - Crystal Lattice: hexagonal warp feedback + prismatic comp + rotating hex emblem
-// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk014_creative_brief.md (variant)
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/agents/briefs/milk014_creative_brief.md (variant)
 // Audio: q2=bass_att lattice pulse, q3=mid_att refraction, q4=treb_att spectral sparks
 MILKDROP_PRESET_VERSION=200
 PSVERSION=3

@@ -219,9 +219,9 @@ Risk areas to monitor:
 
 ## 8. Summary for Implementation Agents
 
-1. **Validator agent:** Check the existing `custom_milk_fixed/milk013.milk` for the missing version headers and any existing HLSL syntax issues noted above.
+1. **Validator agent:** Check the existing `presets/custom/milk013.milk` for the missing version headers and any existing HLSL syntax issues noted above.
 2. **Shader Architect agent:** Rewrite warp and composite blocks using the plan above, ensuring every line is HLSL-9 / GLES3 safe.
 3. **Performance Optimizer agent:** Audit the final preset against the performance budget; reduce wave samples from 512 → 128 (or 64) and shape sides from 100 → 64 if needed for 60 fps in the browser.
 4. **Preset Geneticist / assembler:** Rebuild the `.milk` file with the new headers, per-frame block, warp/composite shaders, and preserved (but reduced) wave/shape configurations.
 
-**Output artifact:** an upgraded `.milk` file named `custom_milk_fixed/milk013.milk` (or a new variant) that loads cleanly in projectM WASM and retains the Solar Corona aesthetic.
+**Output artifact:** an upgraded `.milk` file named `presets/custom/milk013.milk` (or a new variant) that loads cleanly in projectM WASM and retains the Solar Corona aesthetic.

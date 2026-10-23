@@ -1,3 +1,8 @@
+> **Historical (last updated 2026-05-04).** A point-in-time audit of the
+> Emscripten build. Its findings have since been acted on or superseded; for how
+> the build works now see [`EMSCRIPTEN.md`](EMSCRIPTEN.md) and
+> [`PERFORMANCE.md`](PERFORMANCE.md). Kept for the record, not maintained.
+
 # ProjectM Build & Performance Audit Report
 
 ## Executive Summary

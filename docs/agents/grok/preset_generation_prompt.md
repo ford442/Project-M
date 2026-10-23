@@ -86,16 +86,16 @@ Use in `per_frame` and pass via `q1..q32`:
 
 ## Reference presets (read-only)
 
-- `custom_milk_fixed/fractal_echo_kimi.milk` — GPU echo tunnel + composite glow
-- `custom_milk_fixed/milk011_optimized.milk` — nebula + SDF planet (heavy; study structure, then simplify)
+- `presets/custom/fractal_echo_kimi.milk` — GPU echo tunnel + composite glow
+- `presets/custom/milk011_optimized.milk` — nebula + SDF planet (heavy; study structure, then simplify)
 
 ## After generation
 
 Human or agent runs:
 
 ```bash
-node scripts/audit_presets.mjs custom_milk_fixed/<name>.milk
-scripts/kimi_validate_preset.sh custom_milk_fixed/<name>.milk
+node scripts/audit_presets.mjs presets/custom/<name>.milk
+scripts/kimi_validate_preset.sh presets/custom/<name>.milk
 ```
 
 Then load in demo: `?devPreset=1&localPresets=1`.

@@ -38,7 +38,7 @@ Use when reviewing AI-generated `.milk` presets before merge.
 
 ## Repo integration
 
-- [ ] File lives in `custom_milk_fixed/` with correct `family_*` prefix
+- [ ] File lives in `presets/custom/` with correct `family_*` prefix
 - [ ] Added to `presets/agent_manifest.json` → `signature_series.presets`
 - [ ] `node scripts/generate_custom_preset_manifest.mjs` run (if using picker)
 - [ ] Optional: screenshot in `screenshots/custom_milk_baseline/`

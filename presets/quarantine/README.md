@@ -1,6 +1,6 @@
 # Quarantined presets
 
-Presets moved out of `custom_milk_fixed/` because they failed the June 2026 WASM
+Presets moved out of `presets/custom/` because they failed the June 2026 WASM
 screenshot baseline (`preset_switch_failed`) and are redundant with working
 siblings in the curated corpus.
 

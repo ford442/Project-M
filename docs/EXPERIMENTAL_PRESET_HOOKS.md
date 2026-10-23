@@ -18,7 +18,7 @@ core `.milk` compatibility.
 | `projectm-experimental-bridge.js` | **Opt-in** lazy bridge (`?experimental=1`) | Yes — off by default |
 | `presets/experimental/` | Sample presets + docs only; excluded from default compat | Yes — opt-in load |
 
-Standard presets in `custom_milk_fixed/`, `presets/tests/`, and API corpora are **never**
+Standard presets in `presets/custom/`, `presets/tests/`, and API corpora are **never**
 required to reference depth, glTF, or Transformers.js.
 
 ---

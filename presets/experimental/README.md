@@ -1,7 +1,7 @@
 # Experimental presets
 
 Presets in this directory are **opt-in demos** for B3HD advanced hooks (depth maps, glTF,
-etc.). They are **not** part of the default `PresetCompat` / `custom_milk_fixed` regression
+etc.). They are **not** part of the default `PresetCompat` / `presets/custom` regression
 set.
 
 | File | Role |

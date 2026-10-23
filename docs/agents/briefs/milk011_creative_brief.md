@@ -246,5 +246,5 @@ mv_a=0.0
 ```
 
 ---
-**Target file:** `custom_milk_fixed/milk011.milk`
+**Target file:** `presets/custom/milk011.milk`
 **Engine target:** glsl.1ink.us custom Milkdrop (HLSL per_pixel, q-bridge, loop/draw_shape, shapecode_N, warp/comp backtick shaders)

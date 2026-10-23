@@ -11,7 +11,7 @@
 | Kimi strength | Apply to presets |
 |---|---|
 | Long-context file editing | Refactor multi-section `.milk` files (`per_frame`, `per_pixel`, warp/comp shaders) |
-| CLI batch workflows | Lint/upgrade hundreds of files in `weeks_presets/`, `custom_milk_fixed/` |
+| CLI batch workflows | Lint/upgrade hundreds of files in `presets/weeks/`, `presets/custom/` |
 | Structured prompts | Follow creative brief → implementation → validation loops |
 | Diff-driven iteration | Fix shader compile errors from parser logs iteratively |
 
@@ -24,11 +24,11 @@
 | Path | Purpose |
 |---|---|
 | `docs/WRITING_NEW_MILK_PRESETS_GUIDE.md` | Canonical syntax, pitfalls, quick-start |
-| `docs/milk011_creative_brief.md` | Example creative brief → preset breakdown |
+| `docs/agents/briefs/milk011_creative_brief.md` | Example creative brief → preset breakdown |
 | `docs/authoring/milk_kimi_swarm.md` | Multi-agent role prompts (Designer, Validator, etc.) |
 | `presets/tests/` | Small fixtures for parser tests |
-| `custom_milk_fixed/` | Curated AI/community presets (regression set) |
-| `weeks_presets/` | Large preset corpus |
+| `presets/custom/` | Curated AI/community presets (regression set) |
+| `presets/weeks/` | Large preset corpus |
 | `src/libprojectM/MilkdropPreset/` | Parser, shader transpile, eval |
 | `vendor/hlslparser/` | HLSL → GLSL (limited preprocessor — see pitfalls) |
 
@@ -51,19 +51,19 @@ This fork provides two executable entrypoints for the loop below:
 ### Phase A — Create new preset
 
 ```bash
-# 1. Start from brief (human or Designer agent output). docs/milk011_creative_brief.md
+# 1. Start from brief (human or Designer agent output). docs/agents/briefs/milk011_creative_brief.md
 #    ("Nebula Core") is the worked example: a creative brief broken into per_frame
 #    bridge vars (q1-q12), per_pixel layers, shapecode/wavecode blocks, and an
 #    audio-reactivity table — follow the same structure for new briefs.
-kimi "Read docs/milk011_creative_brief.md and docs/WRITING_NEW_MILK_PRESETS_GUIDE.md.
-     Create custom_milk_fixed/milk016.milk implementing a new creative brief in the
+kimi "Read docs/agents/briefs/milk011_creative_brief.md and docs/WRITING_NEW_MILK_PRESETS_GUIDE.md.
+     Create presets/custom/milk016.milk implementing a new creative brief in the
      same style as milk011 (per_frame bridge vars q1-q12, layered per_pixel,
      shapecode/wavecode where useful, audio-reactivity table as a header comment).
      Use MILKDROP_PRESET_VERSION=200, PSVERSION_WARP=3, PSVERSION_COMP=3.
      Limit q1-q12 bridges; document audio mapping in preset comments."
 
 # 2. Validate parse + transpile
-scripts/kimi_validate_preset.sh custom_milk_fixed/milk016.milk
+scripts/kimi_validate_preset.sh presets/custom/milk016.milk
 
 # 3. Browser smoke (WASM)
 # Serve html/projectm-core.html + load via FS or API (see section 8)
@@ -73,10 +73,10 @@ scripts/kimi_validate_preset.sh custom_milk_fixed/milk016.milk
 
 ```bash
 # 1. Generate the upgrade prompt (embeds the section 9 pitfall checklist) and run it
-scripts/kimi_upgrade_preset.sh weeks_presets/<subdir>/<file>.milk | kimi
+scripts/kimi_upgrade_preset.sh presets/weeks/<subdir>/<file>.milk | kimi
 
 # 2. Validate the result
-scripts/kimi_validate_preset.sh weeks_presets/<subdir>/<file>.milk
+scripts/kimi_validate_preset.sh presets/weeks/<subdir>/<file>.milk
 ```
 
 The generated prompt asks Kimi to:
@@ -93,10 +93,10 @@ When a preset fails to parse/transpile or breaks at runtime:
 
 ```bash
 # 1. Reproduce and capture the failure (parser test output, or browser #stat/console)
-scripts/kimi_validate_preset.sh custom_milk_fixed/milk011.milk > /tmp/validate.log || true
+scripts/kimi_validate_preset.sh presets/custom/milk011.milk > /tmp/validate.log || true
 
 # 2. Hand the failing section + log to Kimi for a minimal, targeted fix
-kimi "scripts/kimi_validate_preset.sh custom_milk_fixed/milk011.milk failed with the
+kimi "scripts/kimi_validate_preset.sh presets/custom/milk011.milk failed with the
      log below. Read only the failing warp_/comp_/per_pixel_/per_frame_ section named
      in the error, consult docs/WRITING_NEW_MILK_PRESETS_GUIDE.md section 4 (HLSL-9
      subset) and section 9 (pitfalls), and apply the minimal diff that fixes the
@@ -106,7 +106,7 @@ kimi "scripts/kimi_validate_preset.sh custom_milk_fixed/milk011.milk failed with
      $(cat /tmp/validate.log)"
 
 # 3. Re-run the validator; repeat until exit 0
-scripts/kimi_validate_preset.sh custom_milk_fixed/milk011.milk
+scripts/kimi_validate_preset.sh presets/custom/milk011.milk
 ```
 
 ---
@@ -154,16 +154,16 @@ Run narrow agents sequentially:
 
 ```bash
 # Find presets using risky preprocessor
-rg '#ifdef|#ifndef' custom_milk_fixed weeks_presets --glob '*.milk'
+rg '#ifdef|#ifndef' presets/custom presets/weeks --glob '*.milk'
 
 # Find presets missing version header
-rg -L 'PSVERSION_WARP' weeks_presets --glob '*.milk' | head
+rg -L 'PSVERSION_WARP' presets/weeks --glob '*.milk' | head
 
 # Count per-preset equation lines (complexity proxy)
-rg -c '^per_' weeks_presets --glob '*.milk' | sort -t: -k2 -n | tail
+rg -c '^per_' presets/weeks --glob '*.milk' | sort -t: -k2 -n | tail
 
 # Format check (no trailing CRLF issues)
-file custom_milk_fixed/*.milk
+file presets/custom/*.milk
 ```
 
 ---
@@ -173,7 +173,7 @@ file custom_milk_fixed/*.milk
 After Kimi edits a preset:
 
 1. Fast local loop: open `html/projectm-core.html?localPresets=1` and use the **Local Preset Loader** to pick or drag-drop a `.milk` file. The page writes it to `/presets/local_<sanitized_name>.milk`, calls `load_preset_file`, and triggers `startTransitionWhenReady({ module: Module })`.  
-   - To preview the whole curated set by name (instead of blind-random), **right-click the Random Custom button** in `projectm-core.html` to open the **🎛 Custom Preset picker** (`html/projectm-preset-picker.js`). It lists every `custom_milk_fixed/` preset with a green/red badge for the last capture's known-good/known-broken status, plus prev/next and "Random ✓" (known-good only). After adding/upgrading a preset or re-running the screenshot capture, regenerate its data: `node scripts/generate_custom_preset_manifest.mjs` (writes `html/custom_presets_manifest.json`; `--check` for CI).  
+   - To preview the whole curated set by name (instead of blind-random), **right-click the Random Custom button** in `projectm-core.html` to open the **🎛 Custom Preset picker** (`html/projectm-preset-picker.js`). It lists every `presets/custom/` preset with a green/red badge for the last capture's known-good/known-broken status, plus prev/next and "Random ✓" (known-good only). After adding/upgrading a preset or re-running the screenshot capture, regenerate its data: `node scripts/generate_custom_preset_manifest.mjs` (writes `html/custom_presets_manifest.json`; `--check` for CI).  
 2. Or upload to `storage.noahcohn.com` API (production path in `html/projectm-presets.js`)  
 3. Load: `Module.ccall('load_preset_file', null, ['string'], ['/presets/<name>.milk'])`  
 4. With transitions: `startTransitionWhenReady({ module: Module })` from `projectm-external-pcm.js`  
@@ -222,7 +222,7 @@ the capture is marked `ok: false` and the script exits non-zero — unless
 > # then either copy to the repo root (js/wasm/worker.js, plus iconv'd .1ijs/.3ijs),
 > # or point the script at the build dir:
 > PROJECTM_WASM_JS=cmake-build/wasm-smoke/projectm-v.030-thread.js \
->   node scripts/capture_custom_milk_screenshots.mjs --preset custom_milk_fixed/milk012.milk
+>   node scripts/capture_custom_milk_screenshots.mjs --preset presets/custom/milk012.milk
 > ```
 >
 > See `docs/EMSCRIPTEN.md` → *Rebuilding the WASM smoke bundle* for the full,
@@ -269,10 +269,10 @@ Copies the captured PNGs into `screenshots/golden/<out-dir-name>/` (e.g.
 `screenshots/golden/custom_milk_upgraded/milk012.png`) so reviewers can flip
 through known-good captures without re-running the harness.
 
-### Current `custom_milk_fixed/` baseline status
+### Current `presets/custom/` baseline status
 
 `screenshots/custom_milk_baseline/capture_report.json` is a full
-`custom_milk_fixed/*.milk` capture (23 presets, 60 frames, `--allow-dark`,
+`presets/custom/*.milk` capture (23 presets, 60 frames, `--allow-dark`,
 rebuilt `projectm-v.030-thread.1ijs`/`.wasm` at the repo root — emsdk 3.1.53,
 no `-flto`, **with the `render_frame_fbo()` dual-FBO fix**, dated 2026-06-14;
 see *Rebuilding the WASM smoke bundle* in `docs/EMSCRIPTEN.md`). As of this

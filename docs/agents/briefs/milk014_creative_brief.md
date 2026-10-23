@@ -7,7 +7,7 @@
 **Target Shader Model:** PSVERSION_WARP=3, PSVERSION_COMP=3 (HLSL-9 subset)  
 **Upgrade Goal:** Preserve the signature "hex ice-lattice warp + rainbow-ice composite + additive waveform + centered hex shape" look while upgrading the legacy `PSVERSION=2` header to explicit WASM-safe shader versions and tuning the preset for reliable GLES3 browser rendering.
 
-> **Important:** The current `custom_milk_fixed/milk014.milk` uses the single legacy header `PSVERSION=2`. This must be replaced with `PSVERSION_WARP=3` and `PSVERSION_COMP=3` so projectM selects the HLSL-9 / GLES3 shader path in the WASM build.
+> **Important:** The current `presets/custom/milk014.milk` uses the single legacy header `PSVERSION=2`. This must be replaced with `PSVERSION_WARP=3` and `PSVERSION_COMP=3` so projectM selects the HLSL-9 / GLES3 shader path in the WASM build.
 
 ---
 
@@ -225,9 +225,9 @@ Risk areas to monitor:
 
 ## 8. Summary for Implementation Agents
 
-1. **Validator agent:** Check the existing `custom_milk_fixed/milk014.milk` for the legacy `PSVERSION=2` header, missing version declarations, and any HLSL syntax issues noted above.
+1. **Validator agent:** Check the existing `presets/custom/milk014.milk` for the legacy `PSVERSION=2` header, missing version declarations, and any HLSL syntax issues noted above.
 2. **Shader Architect agent:** Rewrite warp and composite blocks using the plan above, ensuring every line is HLSL-9 / GLES3 safe and that the hex SDF math is preserved.
 3. **Performance Optimizer agent:** Audit the final preset against the performance budget; reduce wave samples from 200 → 128 (or 96/64) if needed for 60 fps in the browser.
 4. **Preset Geneticist / assembler:** Rebuild the `.milk` file with the new headers, per-frame block, warp/composite shaders, and preserved (but reduced) wave/shape configurations.
 
-**Output artifact:** an upgraded `.milk` file named `custom_milk_fixed/milk014.milk` (or a new variant) that loads cleanly in projectM WASM and retains the Hex Ice Lattice aesthetic.
+**Output artifact:** an upgraded `.milk` file named `presets/custom/milk014.milk` (or a new variant) that loads cleanly in projectM WASM and retains the Hex Ice Lattice aesthetic.

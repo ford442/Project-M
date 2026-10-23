@@ -687,7 +687,7 @@
         // A heavy preset is prepared (parsed, HLSL transpiled) off the render
         // thread: the running main loop must keep drawing the current preset
         // until the new one is activated.
-        const heavySrc = params.get('heavy') || '/custom_milk_fixed/milk011.milk';
+        const heavySrc = params.get('heavy') || '/presets/custom/milk011.milk';
         await writePresetToMemfs(Module, heavySrc, '/presets/heavy.milk');
         const frameMs = await measureFrameIntervalMs(Module);
         const framesAtRequest = Module._get_rendered_frame_count();

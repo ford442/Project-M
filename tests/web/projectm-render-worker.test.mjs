@@ -153,7 +153,7 @@ function loadWorker({
         setInterval: (fn) => { intervals.push(fn); return intervals.length; },
         // Real timers: captureFrame() polls with them while the frame renders.
         setTimeout,
-        clearInterval: () => {},
+        clearInterval: (id) => { if (id > 0 && id <= intervals.length) intervals[id - 1] = null; },
         OffscreenCanvas: offscreenCanvas ? class {} : undefined,
         importScripts: (src) => {
             importedScripts.push(src);
@@ -182,7 +182,9 @@ function loadWorker({
         /** The worker's global scope, where the engine's EM_JS callbacks land. */
         scope: self,
         /** Fires the interval callback the worker registered for stats. */
-        tickStats: () => intervals.forEach((fn) => fn()),
+        tickStats: () => intervals.forEach((fn) => fn?.()),
+        /** Stats intervals registered and not cleared. */
+        liveIntervals: () => intervals.filter(Boolean).length,
         /** @param {any} data */
         async send(data) {
             self.onmessage({ data });
@@ -258,12 +260,99 @@ test('the worker still finds its factory when a bundler wraps it in a scope', as
     );
 });
 
-test('init reports an error when the module factory rejects', async () => {
+test('init reports an init-error when the module factory rejects', async () => {
     const worker = loadWorker({ createModule: async () => { throw new Error('out of memory'); } });
     await worker.send(initMessage());
     assert.equal(worker.posted.length, 1);
-    assert.equal(worker.posted[0].type, 'error');
+    assert.equal(worker.posted[0].type, 'init-error');
+    assert.equal(worker.posted[0].code, -1);
     assert.match(worker.posted[0].message, /module init failed: Error: out of memory/);
+});
+
+// ---- Boot failures after createModule() ---------------------------------------
+//
+// init() is async. Before it reported its own failures, a throw after the module
+// resolved was an unhandled rejection in the worker scope: worker.onerror does
+// not fire for those, so the host waited for a 'ready' that never came.
+
+test('a create_host_with_config() that throws is an init-error, not an unhandled rejection', async () => {
+    const module = fakeRingModule();
+    const original = module.ccall;
+    module.ccall = (name, ...rest) => {
+        if (name === 'create_host_with_config') throw new Error('RuntimeError: unreachable');
+        return original(name, ...rest);
+    };
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    assert.deepEqual(worker.posted.map((m) => m.type), ['init-error']);
+    assert.match(worker.posted[0].message, /render worker init threw: Error: RuntimeError: unreachable/);
+    assert.equal(worker.posted[0].code, 0, 'the code is whatever get_last_init_error() reports');
+});
+
+test('a setter that throws after start_render() is an init-error and leaves no stats tick running', async () => {
+    const module = fakeRingModule();
+    module._set_quality_governor = () => { throw new Error('governor exploded'); };
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({ governor: true }));
+
+    assert.deepEqual(worker.posted.map((m) => m.type), ['init-error']);
+    assert.match(worker.posted[0].message, /governor exploded/);
+    assert.equal(worker.liveIntervals(), 0, 'a failed boot must not leave the stats interval behind');
+});
+
+test('a second init is refused instead of starting a second stats tick', async () => {
+    const module = fakeRingModule();
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    assert.equal(worker.liveIntervals(), 1);
+    worker.posted.length = 0;
+
+    await worker.send(initMessage());
+
+    assert.deepEqual(worker.posted.map((m) => m.type), ['init-error']);
+    assert.match(worker.posted[0].message, /already initialised \(state: ready\)/);
+    assert.equal(worker.liveIntervals(), 1, 'still exactly one stats interval');
+    assert.equal(module.creates.length, 1, 'no second engine');
+});
+
+// ---- Shutdown ------------------------------------------------------------------
+
+test('shutdown stops the stats tick, destructs the engine and answers shutdown-complete', async () => {
+    const module = fakeRingModule();
+    let destructed = 0;
+    module._destruct = () => { destructed += 1; };
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+
+    await worker.send({ type: 'shutdown' });
+
+    assert.equal(destructed, 1);
+    assert.equal(worker.liveIntervals(), 0);
+    assert.deepEqual(worker.posted, [{ type: 'shutdown-complete' }]);
+
+    worker.posted.length = 0;
+    await worker.send({ type: 'ccall', name: 'next_preset', returnType: null, argTypes: [], args: [], requestId: 9 });
+    assert.equal(worker.posted.length, 1, 'a ccall after shutdown is answered, not left pending');
+    assert.match(worker.posted[0].error, /no engine in the render worker/);
+});
+
+test('shutdown while the module is still loading stops the boot before it creates an engine', async () => {
+    const module = fakeRingModule();
+    /** @type {(value: unknown) => void} */
+    let release = () => {};
+    const worker = loadWorker({ createModule: () => new Promise((resolve) => { release = () => resolve(module); }) });
+    await worker.send(initMessage());
+    await worker.send({ type: 'shutdown' });
+    worker.posted.length = 0;
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(worker.posted, [], 'no ready, no init-error after shutdown');
+    assert.equal(module.creates.length, 0);
+    assert.equal(worker.liveIntervals(), 0);
 });
 
 test('init boots the module, applies the options, publishes the ring, and reports ready', async () => {
@@ -395,7 +484,7 @@ test('a failed engine creation is reported with its init code instead of trappin
     await worker.send(initMessage({ contextConfig: { flags: 48 | 64, powerPreference: 2, fboPrecision: 0 } }));
 
     assert.equal(worker.posted.length, 1);
-    assert.equal(worker.posted[0].type, 'error');
+    assert.equal(worker.posted[0].type, 'init-error');
     assert.equal(worker.posted[0].code, 8);
     assert.match(worker.posted[0].message, /engine creation failed in the render worker \(init code 8\)/);
     // start_render() on an engine with no GL context traps on a null function
@@ -575,15 +664,19 @@ test('a throwing ccall is reported as an error, not left hanging silently', asyn
 
     await worker.send({ type: 'ccall', name: 'boom', returnType: null, argTypes: [], args: [], requestId: 3 });
 
-    assert.equal(worker.posted.length, 1);
-    assert.equal(worker.posted[0].type, 'error');
+    assert.deepEqual(worker.posted.map((m) => m.type), ['error', 'ccall-result']);
     assert.match(worker.posted[0].message, /ccall boom failed: Error: bad arg/);
+    // The awaiting caller hears about it too; before, its promise never settled.
+    assert.equal(worker.posted[1].requestId, 3);
+    assert.match(worker.posted[1].error, /ccall boom failed: Error: bad arg/);
 });
 
-test('a ccall before the module exists is dropped', async () => {
+test('a ccall before the module exists is answered with an error when someone awaits it', async () => {
     const worker = loadWorker({ createModule: null });
+    await worker.send({ type: 'ccall', name: 'x', returnType: null, argTypes: [], args: [] });
+    assert.deepEqual(worker.posted, [], 'a fire-and-forget call is dropped');
     await worker.send({ type: 'ccall', name: 'x', returnType: null, argTypes: [], args: [], requestId: 1 });
-    assert.deepEqual(worker.posted, []);
+    assert.deepEqual(worker.posted, [{ type: 'ccall-result', requestId: 1, error: 'ccall x: no engine in the render worker' }]);
 });
 
 test('the stats tick reports fps and the render-quality state', async () => {
@@ -828,14 +921,14 @@ test('both implementations cover every message type declared in the wire protoco
     // would otherwise make this test vacuously pass.
     assert.deepEqual(
         hostToWorker.slice().sort(),
-        ['capture-frame', 'ccall', 'init', 'pcm', 'preset', 'recover-context', 'resize', 'set-flash-limit'],
+        ['capture-frame', 'ccall', 'init', 'pcm', 'preset', 'recover-context', 'resize', 'set-flash-limit', 'shutdown'],
     );
     assert.deepEqual(
         workerToHost.slice().sort(),
         [
             'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
-            'error', 'frame-captured', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'rhythm-event', 'stats',
-            'unsupported',
+            'error', 'frame-captured', 'init-error', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'rhythm-event',
+            'shutdown-complete', 'stats', 'unsupported',
         ],
     );
 
@@ -1094,4 +1187,45 @@ test('an init() that throws during recovery is reported and answered -1', async 
     assert.equal(worker.posted[0].type, 'error');
     assert.match(worker.posted[0].message, /context recovery failed: Error: boom/);
     assert.deepEqual(worker.posted[1], { type: 'context-recovered', status: -1 });
+});
+
+// ---- Context snapshot --------------------------------------------------------------
+//
+// get_context_snapshot() describes the worker's context. It rides the 'ready' and
+// 'context-recovered' messages instead of a ccall: a ccall whose export is missing
+// is never answered (the worker posts an 'error'), and start() must not wait on that.
+
+test('ready carries the context snapshot the module reports', async () => {
+    const module = fakeRingModule();
+    module._get_context_snapshot = () => 0x10f; // valid + both float bits + lose_context, RGBA32F
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    assert.equal(worker.posted.find((m) => m.type === 'ready').contextSnapshot, 0x10f);
+});
+
+test('ready leaves the snapshot out for a bundle that does not export it', async () => {
+    const worker = loadWorker({ createModule: async () => fakeRingModule() });
+    await worker.send(initMessage());
+    const ready = worker.posted.find((m) => m.type === 'ready');
+    assert.ok(ready);
+    assert.equal('contextSnapshot' in ready, false);
+});
+
+test('a successful recovery reports the snapshot of the rebuilt context, a failed one does not', async () => {
+    const module = fakeRingModule();
+    const { setInitStatus } = instrumentRecovery(module);
+    let snapshot = 0x10f;
+    module._get_context_snapshot = () => snapshot;
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage({ canvas: fakeEventCanvas() }));
+
+    snapshot = 0x209; // the restored context came back with RGBA8
+    worker.posted.length = 0;
+    await worker.send({ type: 'recover-context' });
+    assert.equal(worker.posted.find((m) => m.type === 'context-recovered').contextSnapshot, 0x209);
+
+    setInitStatus(5);
+    worker.posted.length = 0;
+    await worker.send({ type: 'recover-context' });
+    assert.deepEqual(worker.posted, [{ type: 'context-recovered', status: 5 }]);
 });

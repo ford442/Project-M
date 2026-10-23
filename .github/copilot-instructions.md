@@ -70,7 +70,7 @@ tests/
   playlist/                  ← Unit tests for playlist library (GTest)
 presets/tests/               ← .milk preset files used in render regression tests
 src/wasm/projectM_emscripten.cpp ← WASM-specific EGL/WebGL init + Emscripten bindings
-projectm_audio_processor.js  ← Web Audio Worklet (audio pipeline for browser builds)
+html/worklets/projectm-audio-processor.js  ← Web Audio Worklet (audio pipeline for browser builds)
 ```
 
 ### C API ↔ C++ separation
@@ -129,4 +129,4 @@ clang-tidy src/libprojectM/ProjectM.cpp -- -std=c++20 -Isrc/api/include
 - C++ → JS calls use `EM_JS` macros (prefer over `EM_ASM` for type safety and optimisation).
 - JS → C++ calls go through the `EMSCRIPTEN_BINDINGS` block at the bottom of `projectM_emscripten.cpp`.
 - Global EGL/WebGL state lives in file-scope variables (`display`, `surface`, `ctxegl`, `gl_ctx`). `init()` is not safe to call more than once.
-- Audio is delivered via `projectm_audio_processor.js` (an `AudioWorkletProcessor`); use `postMessage` for all cross-thread communication.
+- Audio is delivered via `html/worklets/projectm-audio-processor.js` (an `AudioWorkletProcessor`); use `postMessage` for all cross-thread communication.

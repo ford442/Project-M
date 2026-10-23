@@ -1,4 +1,7 @@
 // IndexedDB cache for preset bytes (featured pack, favorites) and transpiled GLSL.
+// Which URLs a preset is fetched from is projectm-preset-sources.js's call.
+
+import { defaultBasesForBase } from './projectm-preset-sources.js';
 
 /**
  * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
@@ -193,15 +196,4 @@ export async function preloadFavoritePresets(allPresets, favoriteIds, opts = {})
     });
     if (!presets.length) return 0;
     return preloadPresetEntries(presets, { ...opts, label: 'favorites' });
-}
-
-/**
- * @param {string} [base]
- * @returns {string[]} Candidate URL bases, tried in order.
- */
-export function defaultBasesForBase(base) {
-    if (base === 'weeks_presets') {
-        return ['../weeks_presets/', './weeks_presets/', 'https://glsl.1ink.us/weeks_presets/'];
-    }
-    return ['../custom_milk_fixed/', './custom_milk_fixed/', 'https://glsl.1ink.us/custom_milk/'];
 }

@@ -209,6 +209,30 @@ static bool ShouldUseDualFboCompositor()
 // 1920x1080) that nothing reads for the rest of the session. The grace period
 // keeps back-to-back preset switches from thrashing glTexImage2D; hosts can tune
 // or disable it via dual_fbo_set_idle_release_seconds().
+// The direct path presents the preset's output with a blit, alpha channel and
+// all, and a preset's alpha is blend-mode leftovers. On an opaque canvas (the
+// default) the browser ignores it. On a canvas with an alpha channel and
+// transparency mode off it would be read as coverage, and wherever it falls
+// below the colour the pixel is invalid premultiplied alpha, which browsers
+// composite differently. Overwrite it with 1. (Transparency mode writes real
+// coverage itself; the dual-FBO compositor sets its own alpha.)
+//
+// Run inside render_frame()'s GLStateGuard, which restores the framebuffer
+// binding and scissor this changes.
+static void FillAlphaOfOpaqueFrame(projectm_handle pm)
+{
+    if (!WasmWebGLCanvasHasAlpha() || projectm_get_transparency_mode(pm))
+    {
+        return;
+    }
+    static constexpr GLfloat kOpaque[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+    glClearBufferfv(GL_COLOR, 0, kOpaque);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
 static void ReleaseDualFboIfIdle()
 {
     WasmHost& H = Host();
@@ -301,6 +325,7 @@ void render_frame()
         ReleaseDualFboIfIdle();
         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame(pm);
+        FillAlphaOfOpaqueFrame(pm);
         CollectRhythmEvents(H);
         FlushRhythmEvents(H);
         TakeRequestedFrameCapture(H);

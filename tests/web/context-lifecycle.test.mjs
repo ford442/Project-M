@@ -21,16 +21,27 @@ import {
 } from '../../html/projectm-external-pcm.js';
 import { countWasmCallbackSubscribers } from '../../html/projectm-wasm-callbacks.js';
 import { hideInitError } from '../../html/projectm-init-errors.js';
+import { setupPresetTweaker } from '../../html/projectm-preset-tweaker.js';
+import { setupAudioTestPanel } from '../../html/projectm-synthetic-audio.js';
 import { installLifecycleEnv, isCreateHostCall, makeFakeModule } from './helpers/lifecycle-env.mjs';
+import {
+    CONTEXT_CONFIG_FLAGS,
+    CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT,
+    CONTEXT_SNAPSHOT_BITS,
+    CONTEXT_SNAPSHOT_POWER_SHIFT,
+} from '../../html/projectm-context-config.js';
+import { CANVAS_REPLACED_EVENT } from '../../html/context/boot.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/** Waits (in macrotasks) until `condition()` holds. */
-async function until(condition, what = 'condition') {
-    for (let i = 0; i < 200; i += 1) {
+/** Waits (in macrotasks) until `condition()` holds, for up to `timeoutMs`. */
+async function until(condition, what = 'condition', timeoutMs = 2000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
         if (condition()) return;
         await tick();
     }
+    if (condition()) return;
     assert.fail(`timed out waiting for ${what}`);
 }
 
@@ -228,7 +239,7 @@ test('start() after destroy() rejects, and destroy() is idempotent', async () =>
 // ---- render worker -----------------------------------------------------------
 
 /** Options that boot the render worker; the test drives the worker's messages. */
-function workerTopology(env) {
+function workerTopology() {
     return { renderTopology: 'worker', wasmScriptUrl: 'https://cdn.test/pm/projectm.js', wasmBaseUrl: 'https://cdn.test/pm/' };
 }
 
@@ -244,6 +255,121 @@ test('a render worker that errors before it is ready is terminated, and the fail
         await assert.rejects(started, /worker could not start/);
         assert.equal(env.workers[0].terminated, true, 'the worker leaked: nothing else holds its handle');
         assert.equal(errors.length, 1);
+        assertNothingLeft(env);
+    });
+});
+
+test('a render worker whose boot throws after createModule() makes start() reject, well inside the deadline', async () => {
+    await withEnv({}, async (env) => {
+        const reasons = [];
+        const context = env.newContext({
+            ...workerTopology(env),
+            renderWorkerBootTimeoutMs: 5000,
+            onRenderWorkerFallback: (reason) => reasons.push(reason),
+        });
+
+        const startedAt = Date.now();
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        // What the worker posts when create_host_with_config() (or anything after
+        // createModule() resolved) throws — before, an unhandled rejection that
+        // left start() waiting for a 'ready' that never came.
+        env.workers[0].emit({ type: 'init-error', code: 6, message: 'render worker init threw: RuntimeError: unreachable' });
+
+        await assert.rejects(started, /worker could not start/);
+        assert.ok(Date.now() - startedAt < 5000, 'rejected on the init-error, not by waiting out the deadline');
+        assert.equal(reasons.length, 1);
+        assert.match(reasons[0], /failed to boot \(init code 6\): render worker init threw/);
+        assert.equal(env.workers[0].terminated, true);
+        assertNothingLeft(env);
+    });
+});
+
+test('auto topology: a render worker that never answers is abandoned at the deadline and start() renders on the main thread', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule();
+        const reasons = [];
+        const context = env.newContext({
+            ...mainTopology(env, async () => module),
+            renderTopology: 'auto',
+            renderWorkerBootTimeoutMs: 20,
+            onRenderWorkerFallback: (reason) => reasons.push(reason),
+        });
+        const originalCanvas = context.canvas;
+        const container = originalCanvas.parentElement;
+
+        await context.start();
+
+        assert.equal(env.workers.length, 1);
+        assert.equal(env.workers[0].terminated, true, 'the wedged worker was terminated');
+        assert.match(reasons[0], /did not report ready within 20 ms/);
+        assert.equal(context.transport.topology, 'main');
+        // The worker took the original canvas for good; the fallback draws into a copy.
+        assert.equal(originalCanvas.transferred, true);
+        assert.notEqual(context.canvas, originalCanvas);
+        assert.equal(context.canvas.transferred, false);
+        assert.equal(context.canvas.id, originalCanvas.id, 'the copy keeps the selector the engine resolves');
+        assert.equal(container.children.includes(context.canvas), true);
+        assert.equal(container.children.includes(originalCanvas), false);
+
+        context.destroy();
+        assertNothingLeft(env);
+    });
+});
+
+test('auto topology: an init-error falls back to the main thread at once', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule();
+        const reasons = [];
+        const context = env.newContext({
+            ...mainTopology(env, async () => module),
+            renderTopology: 'auto',
+            onRenderWorkerFallback: (reason) => reasons.push(reason),
+        });
+
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        env.workers[0].emit({ type: 'init-error', code: -1, message: 'module init failed: Error: out of memory' });
+        await started;
+
+        assert.equal(context.transport.topology, 'main');
+        assert.match(reasons[0], /init code -1/);
+        assert.ok(module.calls.some((call) => isCreateHostCall(call.name) || call.name === '_init'),
+            'the main-thread engine was created');
+        context.destroy();
+        assertNothingLeft(env);
+    });
+});
+
+test('destroy() after the worker is up shuts it down before terminating it', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext(workerTopology(env));
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        env.workers[0].emit({ type: 'ready', host: 1 });
+        await started;
+
+        context.destroy();
+
+        assert.ok(env.workers[0].messages.some((message) => message.type === 'shutdown'),
+            'the worker was asked to destruct its engine');
+        assert.equal(env.workers[0].terminated, true, 'and terminated on its answer');
+        assertNothingLeft(env);
+    });
+});
+
+test('destroy() terminates a worker that never answers shutdown, at the shutdown deadline', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext(workerTopology(env));
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        env.workers[0].answersShutdown = false;
+        env.workers[0].emit({ type: 'ready', host: 1 });
+        await started;
+
+        context.destroy();
+        assert.equal(env.workers[0].terminated, false, 'given a moment to shut down');
+        await until(() => env.workers[0].terminated, 'the shutdown deadline to terminate the worker');
         assertNothingLeft(env);
     });
 });
@@ -373,6 +499,37 @@ test('a started context leaves no listeners, channels, frames or globals after d
         context.destroy();
         assertNothingLeft(env);
         assert.ok(env.windowLedger.adds > 0 && env.windowLedger.adds === env.windowLedger.removes, 'every listener added was removed');
+    });
+});
+
+test('setups a page hands to own() are disposed by destroy(): the listener ledger is empty after', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const module = makeFakeModule();
+        const context = env.newContext({ sharedModule: module, audioSource: 'external' });
+        await context.start();
+
+        const panel = context.own(setupAudioTestPanel(module, { documentRef: env.document, search: '?audioTest=1' }));
+        assert.ok(panel.element, 'the audio test panel was built');
+        const tweaker = context.own(setupPresetTweaker({ onApply: () => {}, documentRef: env.document }));
+        assert.ok(tweaker);
+        let plainDisposed = 0;
+        const onKey = () => {};
+        env.window.addEventListener('keydown', onKey);
+        context.own(() => {
+            plainDisposed += 1;
+            env.window.removeEventListener('keydown', onKey);
+        });
+        assert.ok(env.allListeners.adds > env.allListeners.removes, 'the setups attached listeners');
+
+        context.destroy();
+        assertNothingLeft(env);
+        assert.equal(plainDisposed, 1);
+        assert.equal(env.document.getElementById('pm-audio-test'), null, 'the panel left the page');
+
+        // Owned after destroy: undone at once rather than leaked.
+        let late = 0;
+        context.own({ dispose: () => { late += 1; } });
+        assert.equal(late, 1);
     });
 });
 
@@ -584,7 +741,7 @@ test('two contexts on one shared Module each get the context config they asked f
                     // Start the second context from a microtask queued in
                     // between: under the old configure-then-create protocol
                     // this is where B's config could replace A's.
-                    if (!bStart) queueMicrotask(() => { bStart = b.start(); });
+                    if (bStart === null) queueMicrotask(() => { bStart = b.start(); });
                     return handle;
                 }
                 if (name === 'create_host') {
@@ -604,9 +761,9 @@ test('two contexts on one shared Module each get the context config they asked f
 
         assert.equal(module.calls.filter((call) => call.name === 'set_context_config').length, 0);
         assert.notEqual(a.hostHandle, b.hostHandle);
-        // [flags, powerPreference, fboPrecision]: 48 = contextAlpha + premultipliedAlpha, +1 antialias.
-        assert.deepEqual(configByHandle.get(a.hostHandle), [48, 2, 0]);
-        assert.deepEqual(configByHandle.get(b.hostHandle), [49, 2, 2]);
+        // [flags, powerPreference, fboPrecision]: 32 = premultipliedAlpha, +1 antialias.
+        assert.deepEqual(configByHandle.get(a.hostHandle), [32, 2, 0]);
+        assert.deepEqual(configByHandle.get(b.hostHandle), [33, 2, 2]);
     });
 });
 
@@ -1018,5 +1175,313 @@ test('global-write guard: a failed start leaves nothing behind either', async ()
         const context = env.newContext({ sharedModule: makeFakeModule(), presetUrl: 'https://cdn.test/presets/x.milk', audioSource: 'external' });
         await assert.rejects(() => context.start());
         assert.deepEqual(leftovers(before, env), { window: [], global: [] });
+    });
+});
+
+// ---- contextSnapshot: what the engine negotiated with WebGL -------------------------
+//
+// ProjectMContext.contextSnapshot reports get_context_snapshot() as a frozen object
+// once the engine is up. Packed values: bit 0 has a context, bit 1 float colour
+// buffer, bit 2 float blend, bit 3 WEBGL_lose_context, bits 8-9 the dual-FBO format.
+const SNAPSHOT_ALL_FLOAT = 0x10f; // everything present, RGBA32F
+const SNAPSHOT_BYTE_ONLY = 0x209; // WEBGL_lose_context only, RGBA8
+
+test('contextSnapshot is null until start(), then what the engine negotiated, frozen and read-only', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule({ hostHandle: 12 });
+        /** @type {number[]} */
+        const readOnHost = [];
+        module._get_context_snapshot = () => { readOnHost.push(module.activeHost); return SNAPSHOT_ALL_FLOAT; };
+        const context = env.newContext({ sharedModule: module });
+
+        assert.equal(context.contextSnapshot, null, 'nothing negotiated before start()');
+        await context.start();
+
+        assert.deepEqual(context.contextSnapshot, {
+            floatColorBuffer: true,
+            floatBlend: true,
+            loseContext: true,
+            fboFormat: 1,
+            fboFormatName: 'RGBA32F',
+            attributes: null,
+            mismatches: [],
+        });
+        assert.ok(Object.isFrozen(context.contextSnapshot), 'a host must not be able to edit what the engine reported');
+        assert.throws(() => { /** @type {any} */ (context).contextSnapshot = null; }, TypeError, 'read-only on the context too');
+        assert.deepEqual(readOnHost, [12], 'read once, from this context\'s own engine');
+
+        context.destroy();
+        assert.equal(context.contextSnapshot, null, 'a destroyed context describes nothing');
+    });
+});
+
+test('a degraded context shows up as RGBA8 with the float capabilities off', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule();
+        module._get_context_snapshot = () => SNAPSHOT_BYTE_ONLY;
+        const context = env.newContext({ sharedModule: module });
+        await context.start();
+        assert.deepEqual(context.contextSnapshot, {
+            floatColorBuffer: false,
+            floatBlend: false,
+            loseContext: true,
+            fboFormat: 2,
+            fboFormatName: 'RGBA8',
+            attributes: null,
+            mismatches: [],
+        });
+    });
+});
+
+test('a bundle without get_context_snapshot() starts fine and reports null', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule();
+        module._get_context_snapshot = undefined; // an older deployed bundle
+        const context = env.newContext({ sharedModule: module });
+        await context.start();
+        assert.equal(context.ready, true);
+        assert.equal(context.contextSnapshot, null);
+    });
+});
+
+test('a snapshot of 0 (no context behind it) is null, never a made-up RGBA16F', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule();
+        module._get_context_snapshot = () => 0;
+        const context = env.newContext({ sharedModule: module });
+        await context.start();
+        assert.equal(context.contextSnapshot, null);
+    });
+});
+
+test('worker topology: the snapshot comes with ready, so start() never waits on a reply', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext(workerTopology(env));
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        env.workers[0].emit({ type: 'ready', host: 3, contextSnapshot: SNAPSHOT_ALL_FLOAT });
+        await started;
+
+        assert.equal(context.contextSnapshot?.fboFormatName, 'RGBA32F');
+        assert.equal(context.contextSnapshot?.floatColorBuffer, true);
+        assert.equal(
+            env.workers[0].messages.some((message) => message.type === 'ccall' && message.name === 'get_context_snapshot'),
+            false,
+            'a ccall for the snapshot would hang start() on a bundle that lacks the export',
+        );
+    });
+});
+
+test('worker topology: a worker that reports no snapshot (older bundle) leaves it null and still starts', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext(workerTopology(env));
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        env.workers[0].emit({ type: 'ready', host: 3 });
+        await started;
+        assert.equal(context.ready, true);
+        assert.equal(context.contextSnapshot, null);
+    });
+});
+
+test('a successful context recovery re-reads the snapshot, a failed one keeps the last', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext(workerTopology(env));
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        env.workers[0].emit({ type: 'ready', host: 3, contextSnapshot: SNAPSHOT_ALL_FLOAT });
+        await started;
+
+        const stillLost = context.recoverContext();
+        env.workers[0].emit({ type: 'context-recovered', status: 5 });
+        assert.equal(await stillLost, 5);
+        assert.equal(context.contextSnapshot?.fboFormatName, 'RGBA32F', 'no new context, so nothing new to report');
+
+        const recovered = context.recoverContext();
+        env.workers[0].emit({ type: 'context-recovered', status: 0, contextSnapshot: SNAPSHOT_BYTE_ONLY });
+        assert.equal(await recovered, 0);
+        assert.equal(context.contextSnapshot?.fboFormatName, 'RGBA8', 'the restored context is the one described');
+        assert.equal(context.contextSnapshot?.floatColorBuffer, false);
+    });
+});
+
+test('destroy() during a recovery does not bring the snapshot back', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext(workerTopology(env));
+        const started = context.start();
+        await until(() => env.workers.length === 1, 'the render worker to be spawned');
+        env.workers[0].emit({ type: 'ready', host: 3, contextSnapshot: SNAPSHOT_ALL_FLOAT });
+        await started;
+
+        const recovering = context.recoverContext();
+        context.destroy();
+        env.workers[0].emit({ type: 'context-recovered', status: 0, contextSnapshot: SNAPSHOT_ALL_FLOAT });
+        await recovering;
+        assert.equal(context.contextSnapshot, null);
+    });
+});
+
+/**
+ * A snapshot whose context really has `flags` (CONTEXT_CONFIG_FLAGS bits) and
+ * the high-performance power preference, as get_context_snapshot() packs it.
+ *
+ * @param {number} flags
+ */
+const snapshotWithAttributes = (flags) => CONTEXT_SNAPSHOT_BITS.valid
+    | CONTEXT_SNAPSHOT_BITS.attributesKnown
+    | (2 << CONTEXT_SNAPSHOT_POWER_SHIFT)
+    | (flags << CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT);
+
+/**
+ * Runs `body` with console.warn recorded instead of printed.
+ *
+ * @param {(warnings: string[]) => Promise<void>} body
+ */
+async function recordingWarnings(body) {
+    const original = console.warn;
+    /** @type {string[]} */
+    const warnings = [];
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')); };
+    try {
+        await body(warnings);
+    } finally {
+        console.warn = original;
+    }
+}
+
+test('requested vs effective: a context without the attributes it asked for says which, once', async () => {
+    await recordingWarnings(async (warnings) => {
+        await withEnv({}, async (env) => {
+            const F = CONTEXT_CONFIG_FLAGS;
+            const module = makeFakeModule();
+            // The canvas still held an opaque context with a depth buffer.
+            module._get_context_snapshot = () => snapshotWithAttributes(F.premultipliedAlpha | F.depth);
+            const context = env.newContext({ sharedModule: module, transparent: true });
+            await context.start();
+
+            assert.deepEqual(context.contextSnapshot?.attributes?.contextAlpha, false);
+            assert.deepEqual(context.contextSnapshot?.mismatches, [
+                { attribute: 'depth', requested: false, effective: true },
+                { attribute: 'contextAlpha', requested: true, effective: false },
+            ]);
+            const reports = warnings.filter((message) => message.includes('requested attributes'));
+            assert.equal(reports.length, 1);
+            assert.match(reports[0], /depth false -> true, contextAlpha true -> false/);
+        });
+    });
+});
+
+test('a context that got what it asked for logs nothing about its attributes', async () => {
+    await recordingWarnings(async (warnings) => {
+        await withEnv({}, async (env) => {
+            const module = makeFakeModule();
+            module._get_context_snapshot = () => snapshotWithAttributes(CONTEXT_CONFIG_FLAGS.premultipliedAlpha);
+            const context = env.newContext({ sharedModule: module });
+            await context.start();
+            assert.deepEqual(context.contextSnapshot?.mismatches, []);
+            assert.equal(context.contextSnapshot?.attributes?.contextAlpha, false, 'opaque by default');
+            assert.deepEqual(warnings, []);
+        });
+    });
+});
+
+test('transparency on an opaque canvas warns once; on a canvas with alpha it does not', async () => {
+    await recordingWarnings(async (warnings) => {
+        await withEnv({}, async (env) => {
+            const F = CONTEXT_CONFIG_FLAGS;
+            const opaqueModule = makeFakeModule({ hostHandle: 31 });
+            opaqueModule._get_context_snapshot = () => snapshotWithAttributes(F.premultipliedAlpha);
+            const opaque = env.newContext({ sharedModule: opaqueModule, canvasId: 'pm-opaque' });
+            await opaque.start();
+            opaque.setTransparent(true);
+            opaque.setTransparent(false);
+            opaque.setTransparent(true);
+            assert.equal(warnings.filter((message) => message.includes('without an alpha channel')).length, 1);
+
+            warnings.length = 0;
+            const glassModule = makeFakeModule({ hostHandle: 32 });
+            glassModule._get_context_snapshot = () => snapshotWithAttributes(F.premultipliedAlpha | F.contextAlpha);
+            const glass = env.newContext({ sharedModule: glassModule, canvasId: 'pm-glass', contextAlpha: true });
+            await glass.start();
+            glass.setTransparent(true);
+            assert.deepEqual(warnings, []);
+        });
+    });
+});
+
+/**
+ * A fake engine create that does what the C++ side does when the canvas holds a
+ * context with other attributes: swaps in a copy of the element and announces it.
+ *
+ * @param {any} env
+ * @param {() => any} previous The element being replaced.
+ */
+function replacingCanvasOnCreate(env, previous) {
+    /** @type {{ fresh: any }} */
+    const swap = { fresh: null };
+    return {
+        swap,
+        onCall: (/** @type {string} */ name) => {
+            if (name !== 'create_host_with_config') return undefined;
+            const old = previous();
+            swap.fresh = env.makeCanvas(old.id);
+            env.document.dispatch(CANVAS_REPLACED_EVENT, { target: swap.fresh, detail: { previous: old } });
+            return undefined;
+        },
+    };
+}
+
+test('shared Module: an engine create that moves to a fresh canvas element leaves the context drawing into it', async () => {
+    await withEnv({}, async (env) => {
+        /** @type {any} */
+        let context = null;
+        const { swap, onCall } = replacingCanvasOnCreate(env, () => context.canvas);
+        const module = makeFakeModule({ onCall });
+        context = env.newContext({ sharedModule: module, canvasId: 'pm-moved' });
+        const original = context.canvas;
+        await context.start();
+
+        assert.ok(swap.fresh, 'the create replaced the canvas');
+        assert.notEqual(swap.fresh, original);
+        assert.equal(context.canvas, swap.fresh);
+
+        context.destroy();
+        assertNothingLeft(env, 'the replacement listener is gone with the boot');
+    });
+});
+
+test('own Module: init() moving to a fresh canvas element leaves the context drawing into it', async () => {
+    await withEnv({}, async (env) => {
+        /** @type {any} */
+        let context = null;
+        const { swap, onCall } = replacingCanvasOnCreate(env, () => context.canvas);
+        const module = makeFakeModule({ onCall });
+        context = env.newContext({ ...mainTopology(env, () => Promise.resolve(module)), canvasId: 'pm-moved-own' });
+        const original = context.canvas;
+        await context.start();
+
+        assert.notEqual(swap.fresh, original);
+        assert.equal(context.canvas, swap.fresh);
+    });
+});
+
+test('a replacement announced for some other canvas is not this context\'s', async () => {
+    await withEnv({}, async (env) => {
+        const elsewhere = env.makeCanvas('pm-elsewhere');
+        const module = makeFakeModule({
+            onCall: (name) => {
+                if (name === 'create_host_with_config') {
+                    env.document.dispatch(CANVAS_REPLACED_EVENT, {
+                        target: env.makeCanvas('pm-elsewhere'),
+                        detail: { previous: elsewhere },
+                    });
+                }
+                return undefined;
+            },
+        });
+        const context = env.newContext({ sharedModule: module, canvasId: 'pm-mine' });
+        const original = context.canvas;
+        await context.start();
+        assert.equal(context.canvas, original);
     });
 });

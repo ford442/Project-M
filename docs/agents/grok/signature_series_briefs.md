@@ -121,7 +121,7 @@ Seed briefs for AI agents. Copy one brief per generation task into
 - `redwood_dreams_firefly` — treble twinkles as fireflies (composite) ✓
 - `shader_swarm_galaxy` — deeper blues, spiral swarm ✓
 
-See [`docs/SIGNATURE_SERIES_BATCH2.md`](../docs/SIGNATURE_SERIES_BATCH2.md) for release notes.
+See [`docs/SIGNATURE_SERIES_BATCH2.md`](../../SIGNATURE_SERIES_BATCH2.md) for release notes.
 
 ## Expansion ideas (batch 3+)
 

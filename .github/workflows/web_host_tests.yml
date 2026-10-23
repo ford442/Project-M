@@ -38,19 +38,25 @@ on:
       - '.github/workflows/web_host_tests.yml'
   workflow_dispatch: {}
 
+# A newer push to the same branch/PR supersedes the run in flight. Never on main
+# (each merge needs a complete result) and never on tags.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   host-tests:
     name: Host-layer unit tests + embed SDK build
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Pinned to the major the coverage floor in scripts/test_web_embed.sh was
       # measured on. The floor is comparable across majors now that the run
       # excludes the test files themselves (see that script), but keeping CI
       # and local dev on one major keeps the numbers exactly reproducible.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
 

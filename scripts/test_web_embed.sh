@@ -16,6 +16,18 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# The embed SDK build needs esbuild from the root workspace install. Prefer
+# `npm ci` from the repo root yourself; this is the standalone fallback, the
+# same one scripts/check_html_types.sh has for tsc. Without it a clean
+# checkout dies in packages/web/scripts/build.mjs with "Cannot find module
+# 'esbuild'" (which is what the Linux web-embed job hit once the typecheck
+# step ahead of it stopped failing first).
+if [[ ! -e node_modules/esbuild && ! -e packages/web/node_modules/esbuild ]]; then
+    echo "Workspace dependencies missing; running npm ci..."
+    npm ci
+    echo ""
+fi
+
 # Build the embed SDK BEFORE the suite: tests/web/projectm-web-package.test.mjs
 # asserts against packages/web/dist (exports map, the run-time-only render
 # worker, import.meta.url depth), so a stale or absent dist would make it pass

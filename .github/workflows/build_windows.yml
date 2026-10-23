@@ -11,15 +11,25 @@ on:
       branches:
         - "*"
 
+# A newer push to the same branch/PR supersedes the run in flight. Never on main
+# (each merge needs a complete result) and never on tags.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   build-shared:
     name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, Arch: ${{ matrix.arch }}, Build OS: ${{ matrix.runs-on }}"
     runs-on: ${{ matrix.runs-on }}
     env:
-      USERNAME: projectM-visualizer
-      VCPKG_EXE: ${{ github.workspace }}/vcpkg/vcpkg
-      FEED_URL: https://nuget.pkg.github.com/projectM-visualizer/index.json
-      VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/projectM-visualizer/index.json,readwrite"
+      # vcpkg builds from the runner image's VCPKG_INSTALLATION_ROOT (the
+      # toolchain file below), not from a checkout of its own. Its binary cache is
+      # a plain directory, persisted by the vcpkg-bincache steps. It replaces the
+      # upstream NuGet feed, which a fork cannot read or write (the token secret is
+      # empty here), and which `clear;nuget` made the only cache: with it dead,
+      # every configure rebuilt boost/SDL2/... from source, twice per job (the
+      # C++ interface test configures a second vcpkg tree).
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
     strategy:
       fail-fast: false
       matrix:
@@ -29,37 +39,32 @@ jobs:
         runs-on: ['windows-2025', 'windows-2022']
 
     steps:
-      - name: Checkout vcpkg
-        uses: actions/checkout@v7
-        with:
-          repository: microsoft/vcpkg
-          path: vcpkg
-          submodules: recursive
-
-      - name: Bootstrap vcpkg
-        shell: pwsh
-        run: |
-          ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat
-          ${{ env.VCPKG_EXE }} fetch nuget
-
-      - name: Add NuGet sources
-        shell: pwsh
-        run: |
-          .$(${{ env.VCPKG_EXE }} fetch nuget) `
-            sources add `
-            -Source "${{ env.FEED_URL }}" `
-            -StorePasswordInClearText `
-            -Name GitHubPackages `
-            -UserName "${{ env.USERNAME }}" `
-            -Password "${{ secrets.VCPKG_PACKAGES_TOKEN }}"
-          .$(${{ env.VCPKG_EXE }} fetch nuget) `
-            setapikey "${{ secrets.VCPKG_PACKAGES_TOKEN }}" `
-            -Source "${{ env.FEED_URL }}"
-
       - name: Checkout libprojectM
         uses: actions/checkout@v7
         with:
           submodules: 'recursive'
+
+      # The image version is part of the key because the ports in the image's vcpkg
+      # change with it, which changes every package's ABI hash. An exact hit is
+      # never re-saved, so without it a stale entry would keep rebuilding the
+      # changed ports on every run. The restore-keys prefix still takes the
+      # previous image's archives, whose unchanged ports are reused.
+      # ImageVersion is a runner OS variable, not part of the `env` context, so it
+      # has to be handed to the key through a step output.
+      - name: Read runner image version
+        id: image
+        shell: pwsh
+        run: |
+          "version=$Env:ImageVersion" >> $Env:GITHUB_OUTPUT
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: vcpkg-bincache
+          key: vcpkg-bincache-${{ matrix.runs-on }}-${{ matrix.arch }}-${{ matrix.libs }}-${{ matrix.fslib }}-${{ steps.image.outputs.version }}-${{ hashFiles('vcpkg.json', 'tests/cxx-interface/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-bincache-${{ matrix.runs-on }}-${{ matrix.arch }}-${{ matrix.libs }}-${{ matrix.fslib }}-
 
       - name: Configure Build
         run: |
@@ -165,6 +170,16 @@ jobs:
           
           cmake --build "${{ github.workspace }}/cmake-build-cxx-api" --config "Debug"
           cmake --build "${{ github.workspace }}/cmake-build-cxx-api" --config "Release"
+
+      # Saved from main only: a PR can read main's cache but anything it saved
+      # would be visible to that PR alone, and would evict main's entries. Saved
+      # even when a later step failed, since the packages themselves built.
+      - name: Save vcpkg binary cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.vcpkg-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: vcpkg-bincache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7

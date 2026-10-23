@@ -464,6 +464,12 @@ To check an arbitrary preset collection without using the script, build `project
 and set `PROJECTM_PRESET_COMPAT_DIR` to its path before running the binary with
 `--gtest_filter=*PresetCompat*`.
 
+A parse/transpile pass does not mean a preset runs: `custom_milk_fixed/milk013`–`milk015` have
+`per_frame` code without `;` between statements, pass `PresetCompat`, and fail in the engine
+with `[PerFrameContext] Could not compile per-frame code ... unexpected VAR(L2 C1)` (on every
+build, not a regression). Keep them out of the CI screenshot smoke list in `build_emscripten.yml`
+until the preset is repaired; see `docs/kimi_preset_authoring_plan.md`.
+
 ---
 
 ## CI & Deployment
@@ -476,6 +482,16 @@ GitHub Actions workflows are in `.github/workflows/`:
 - `build_android.yml` — Android NDK build (arm64-v8a, armeabi-v7a, x86_64)
 - `push_release.yml` — Release artifact publishing
 - `upstream_sync_reminder.yml` — monthly upstream drift report + tracking issue (see [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md))
+
+Conventions shared by the push/PR workflows:
+- Each has a `concurrency` group per workflow + ref: a newer push to a branch or PR cancels the
+  run in flight. Runs on `main` and on tags are never cancelled (each merge needs a full result).
+- `build_windows.yml` keeps vcpkg's binary cache in `vcpkg-bincache/` (the vcpkg `files`
+  provider, persisted with `actions/cache`; only `main` saves it, PRs restore). The fork has no
+  token for the upstream NuGet feed, so do not put `nuget` back in `VCPKG_BINARY_SOURCES`.
+- A `paths:` filter makes a workflow unusable as a *required* check (a PR that skips it waits
+  forever), so the path-filtered gates (`cpp_format_gate`, `host_layer_gate`, `web_host_tests`)
+  must lose their filters before they are required in branch protection.
 
 ### Upstream maintenance (fork)
 

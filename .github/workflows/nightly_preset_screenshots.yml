@@ -13,12 +13,12 @@ jobs:
     name: "Full custom_milk_fixed capture (transitions ON)"
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
 
       - name: Setup emsdk
-        uses: mymindstorm/setup-emsdk@v14
+        uses: emscripten-core/setup-emsdk@v16
         with:
           # Same pin as build_emscripten.yml (see the note on its matrix).
           version: 6.0.6

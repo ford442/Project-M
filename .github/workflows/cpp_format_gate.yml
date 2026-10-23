@@ -32,13 +32,19 @@ on:
       - '.github/workflows/cpp_format_gate.yml'
   workflow_dispatch: {}
 
+# A newer push to the same branch/PR supersedes the run in flight. Never on main
+# (each merge needs a complete result) and never on tags.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   cpp-format:
     name: clang-format --dry-run -Werror
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: clang-format check
         run: scripts/check_cpp_format.sh

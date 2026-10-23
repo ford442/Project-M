@@ -11,6 +11,12 @@ on:
       branches:
         - "*"
 
+# A newer push to the same branch/PR supersedes the run in flight. Never on main
+# (each merge needs a complete result) and never on tags.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   build:
     name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, SDK: ${{ matrix.emsdk-version }}, Arch: WASM, Build OS: ${{ matrix.runs-on }}"
@@ -41,7 +47,7 @@ jobs:
           submodules: 'recursive'
       
       - name: Setup emsdk
-        uses: mymindstorm/setup-emsdk@v14
+        uses: emscripten-core/setup-emsdk@v16
         with:
           # Make sure to set a version number!
           version: ${{ matrix.emsdk-version }}
@@ -252,12 +258,19 @@ jobs:
       # Smoke subset only (not all of custom_milk_fixed/) to keep PR runtime
       # down; see docs/kimi_preset_authoring_plan.md section 9 for the full
       # baseline/upgrade/diff workflow run manually or in the nightly job.
+      #
+      # milk013 is not in this list on purpose: its per_frame code has no `;`
+      # between statements, so it has never compiled ("unexpected VAR(L2 C1)",
+      # identical on bundles from before this gate existed; milk014/milk015 are
+      # the same, docs/kimi_preset_authoring_plan.md). A preset that fails on
+      # every build cannot catch a regression, it only keeps this job red. Add it
+      # back once its per_frame code is repaired.
       - name: Capture Preset Screenshot Smoke
         env:
           PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js
         run: |
           node scripts/capture_custom_milk_screenshots.mjs \
-            --presets milk011,milk012,milk013,000-empty \
+            --presets milk011,milk012,000-empty \
             --out screenshots/ci \
             --frames 60
 

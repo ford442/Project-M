@@ -11,6 +11,12 @@ on:
       branches:
         - "*"
 
+# A newer push to the same branch/PR supersedes the run in flight. Never on main
+# (each merge needs a complete result) and never on tags.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   build-shared:
     name: "Libs: ${{ matrix.libs }}, ABI: ${{ matrix.abi }}, Platform: ${{ matrix.platform-version }}, Build OS: ${{ matrix.runs-on }}"

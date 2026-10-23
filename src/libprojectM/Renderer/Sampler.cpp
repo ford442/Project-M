@@ -3,39 +3,35 @@
 namespace libprojectM {
 namespace Renderer {
 
-Sampler::Sampler(const GLint wrapMode, const GLint filterMode)
+Sampler::Sampler(const Device::WrapMode wrapMode, const Device::FilterMode filterMode)
     : m_wrapMode(wrapMode)
     , m_filterMode(filterMode)
 {
-    glGenSamplers(1, &m_samplerId);
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_MIN_FILTER, filterMode);
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_MAG_FILTER, filterMode);
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_WRAP_S, wrapMode);
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_WRAP_T, wrapMode);
+    m_sampler = m_device->CreateSampler({filterMode, wrapMode});
 }
 
 
 Sampler::~Sampler()
 {
-    glDeleteSamplers(1, &m_samplerId);
+    m_device->DestroySampler(m_sampler);
 }
 
-void Sampler::Bind(GLuint unit) const
+void Sampler::Bind(int unit) const
 {
-    glBindSampler(unit, m_samplerId);
+    m_device->Commands().BindSampler(unit, m_sampler);
 }
 
-void Sampler::Unbind(GLuint unit)
+void Sampler::Unbind(int unit)
 {
-    glBindSampler(unit, 0);
+    Device::Commands().BindSampler(unit, {});
 }
 
-auto Sampler::WrapMode() const -> GLint
+auto Sampler::WrapMode() const -> Device::WrapMode
 {
     return m_wrapMode;
 }
 
-void Sampler::WrapMode(GLint wrapMode)
+void Sampler::WrapMode(Device::WrapMode wrapMode)
 {
     if (wrapMode == m_wrapMode)
     {
@@ -44,16 +40,15 @@ void Sampler::WrapMode(GLint wrapMode)
 
     m_wrapMode = wrapMode;
 
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_WRAP_S, wrapMode);
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_WRAP_T, wrapMode);
+    m_device->SetSamplerWrap(m_sampler, wrapMode);
 }
 
-auto Sampler::FilterMode() const -> GLint
+auto Sampler::FilterMode() const -> Device::FilterMode
 {
     return m_filterMode;
 }
 
-void Sampler::FilterMode(GLint filterMode)
+void Sampler::FilterMode(Device::FilterMode filterMode)
 {
     if (filterMode == m_filterMode)
     {
@@ -62,8 +57,7 @@ void Sampler::FilterMode(GLint filterMode)
 
     m_filterMode = filterMode;
 
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_MIN_FILTER, filterMode);
-    glSamplerParameteri(m_samplerId, GL_TEXTURE_MAG_FILTER, filterMode);
+    m_device->SetSamplerFilter(m_sampler, filterMode);
 }
 
 } // namespace Renderer

@@ -109,9 +109,9 @@ struct FrameCaptureState {
     uint32_t frameIndex = 0; //!< renderedFrameCount of the captured frame.
     // Manual-present hosts only: the asynchronous read. The live (browser
     // present) path never allocates these.
-    GLuint pixelPackBuffer = 0;
+    libprojectM::Renderer::Device::BufferHandle pixelPackBuffer;
     size_t pixelPackBufferBytes = 0;
-    GLsync fence = nullptr;
+    libprojectM::Renderer::Device::FenceHandle fence;
 };
 
 // =============================================================================
@@ -198,9 +198,10 @@ struct WasmHost {
     DualPingPongFramebuffer dualFbo;
     CompositingBlendShader compositorShader;
     // GL state the host established for this context (start_render() captures
-    // it, set_window_size() keeps viewport/scissor current); what GLStateGuard
-    // restores after each preset render. Cleared with the graphics resources.
-    std::optional<GLStateSnapshot> glBaseline;
+    // it, set_window_size() keeps viewport/scissor current); what
+    // RenderStateGuard restores after each preset render. Cleared with the
+    // graphics resources.
+    std::optional<RenderDevice::StateSnapshot> glBaseline;
 
     // ---- WebGL context attributes + dual-FBO precision (#246) ----
     // Baked into glCtx at create time; never rewritten while glCtx is live.

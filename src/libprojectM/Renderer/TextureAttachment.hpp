@@ -7,6 +7,7 @@
 #include "Renderer/Texture.hpp"
 
 #include <memory>
+#include <optional>
 
 namespace libprojectM {
 namespace Renderer {
@@ -22,10 +23,10 @@ public:
      */
     enum class AttachmentType
     {
-        Color,       //!< Color texture attachment. Uses GL_RGBA format.
-        Depth,       //!< Depth buffer attachment. Uses GL_DEPTH_COMPONENT with GL_FLOAT pixel format.
-        Stencil,     //!< Stencil buffer attachment. Uses GL_STENCIL_INDEX with GL_UNSIGNED_BYTE pixel format.
-        DepthStencil //!< Depth stencil buffer attachment. Uses GL_DEPTH_STENCIL with GL_UNSIGNED_INT_24_8 pixel format.
+        Color,       //!< Color texture attachment. Uses RGBA (RGBA16F with HDR, sRGB with an sRGB framebuffer).
+        Depth,       //!< Depth buffer attachment. Uses 24-bit depth.
+        Stencil,     //!< Stencil buffer attachment. Uses 8-bit stencil.
+        DepthStencil //!< Depth stencil buffer attachment. Uses packed 24-bit depth + 8-bit stencil.
     };
 
     TextureAttachment() = delete;
@@ -43,13 +44,11 @@ public:
     /**
      * @brief Creates a new 2D color texture attachment with the given format and size.
      * Must have the same size as the framebuffer.
-     * @param internalFormat OpenGL internal format, e.g. GL_RGBA8
-     * @param format OpenGL color format, e.g. GL_RGBA
-     * @param type OpenGL component storage type, e.g. GL_UNSIGNED _BYTE
+     * @param format The texture storage format, e.g. Device::TextureFormat::RGBA8
      * @param width The width of the texture in pixels.
      * @param height The height of the texture in pixels.
      */
-    explicit TextureAttachment(GLint internalFormat, GLenum format, GLenum type, int width, int height);
+    explicit TextureAttachment(Device::TextureFormat format, int width, int height);
 
     TextureAttachment(TextureAttachment&& other) = default;
     auto operator=(TextureAttachment&& other) -> TextureAttachment& = default;
@@ -94,9 +93,7 @@ private:
     AttachmentType m_attachmentType{AttachmentType::Color};                      //!< Attachment type of this texture.
     std::shared_ptr<class Texture> m_texture{std::make_shared<class Texture>()}; //!< The texture.
 
-    GLint m_internalFormat{}; //!< OpenGL internal format, e.g. GL_RGBA8
-    GLenum m_format{};        //!< OpenGL color format, e.g. GL_RGBA
-    GLenum m_type{};          //!< OpenGL component storage type, e.g. GL_UNSIGNED _BYTE
+    std::optional<Device::TextureFormat> m_colorFormat; //!< Color format, or the build's default color format if not set.
 };
 
 } // namespace Renderer

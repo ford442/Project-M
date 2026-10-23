@@ -6,73 +6,67 @@ namespace libprojectM {
 namespace Renderer {
 
 Texture::Texture(std::string name, const int width, const int height, const bool isUserTexture)
-    : m_target(GL_TEXTURE_2D)
-    , m_name(std::move(name))
-    , m_width(width)
-    , m_height(height)
+    : m_name(std::move(name))
     , m_isUserTexture(isUserTexture)
-    , m_internalFormat(GL_RGB)
-    , m_format(GL_RGB)
-    , m_type(GL_UNSIGNED_BYTE)
 {
+    m_desc.target = Device::TextureTarget::Texture2D;
+    m_desc.width = width;
+    m_desc.height = height;
+    m_desc.format = Device::TextureFormat::RGB;
     CreateNewTexture();
 }
 
-Texture::Texture(std::string name, GLenum target, int width, int height, int depth,
-                 GLint internalFormat, GLenum format, GLenum type, bool isUserTexture)
-    : m_target(target)
-    , m_name(std::move(name))
-    , m_width(width)
-    , m_height(height)
-    , m_depth(depth)
+Texture::Texture(std::string name, Device::TextureTarget target, int width, int height, int depth,
+                 Device::TextureFormat format, bool isUserTexture)
+    : m_name(std::move(name))
     , m_isUserTexture(isUserTexture)
-    , m_internalFormat(internalFormat)
-    , m_format(format)
-    , m_type(type)
 {
+    m_desc.target = target;
+    m_desc.width = width;
+    m_desc.height = height;
+    m_desc.depth = depth;
+    m_desc.format = format;
     CreateNewTexture();
 }
 
-Texture::Texture(std::string name, const GLuint texID, const GLenum target,
+Texture::Texture(std::string name, const Device::TextureHandle texture, const Device::TextureTarget target,
                  const int width, const int height, const bool isUserTexture, const bool owned)
-    : m_textureId(texID)
-    , m_target(target)
+    : m_texture(texture)
     , m_name(std::move(name))
-    , m_width(width)
-    , m_height(height)
     , m_isUserTexture(isUserTexture)
     , m_owned(owned)
 {
+    m_desc.target = target;
+    m_desc.width = width;
+    m_desc.height = height;
 }
 
-Texture::Texture(std::string name, const void* data, GLenum target, int width, int height, int depth, GLint internalFormat, GLenum format, GLenum type, bool isUserTexture)
-    : m_target(target)
-    , m_name(std::move(name))
-    , m_width(width)
-    , m_height(height)
-    , m_depth(depth)
+Texture::Texture(std::string name, const void* data, Device::TextureTarget target, int width, int height, int depth,
+                 Device::TextureFormat format, bool isUserTexture, Device::PixelOrder dataOrder)
+    : m_name(std::move(name))
     , m_isUserTexture(isUserTexture)
-    , m_internalFormat(internalFormat)
-    , m_format(format)
-    , m_type(type)
 {
-    glGenTextures(1, &m_textureId);
-    Update(data);
+    m_desc.target = target;
+    m_desc.width = width;
+    m_desc.height = height;
+    m_desc.depth = depth;
+    m_desc.format = format;
+    m_desc.dataOrder = dataOrder;
+    m_texture = m_device->CreateTexture(m_desc, data);
 }
 
 Texture::~Texture()
 {
-    if (m_textureId > 0 && m_owned)
+    if (m_texture.Valid() && m_owned)
     {
-        glDeleteTextures(1, &m_textureId);
-        m_textureId = 0;
+        m_device->DestroyTexture(m_texture);
+        m_texture = {};
     }
 }
 
-void Texture::Bind(GLint slot, const Sampler::Ptr& sampler) const
+void Texture::Bind(int slot, const Sampler::Ptr& sampler) const
 {
-    glActiveTexture(GL_TEXTURE0 + slot);
-    glBindTexture(m_target, m_textureId);
+    m_device->Commands().BindTexture(slot, m_desc.target, m_texture);
 
     if (sampler)
     {
@@ -80,15 +74,19 @@ void Texture::Bind(GLint slot, const Sampler::Ptr& sampler) const
     }
 }
 
-void Texture::Unbind(GLint slot) const
+void Texture::Unbind(int slot) const
 {
-    glActiveTexture(GL_TEXTURE0 + slot);
-    glBindTexture(m_target, 0);
+    m_device->Commands().BindTexture(slot, m_desc.target, {});
 }
 
-auto Texture::TextureID() const noexcept -> GLuint
+auto Texture::Handle() const noexcept -> Device::TextureHandle
 {
-    return m_textureId;
+    return m_texture;
+}
+
+auto Texture::TextureID() const noexcept -> uint32_t
+{
+    return m_texture.id;
 }
 
 auto Texture::Name() const noexcept -> const std::string&
@@ -96,24 +94,24 @@ auto Texture::Name() const noexcept -> const std::string&
     return m_name;
 }
 
-auto Texture::Type() const noexcept -> GLenum
+auto Texture::Type() const noexcept -> Device::TextureTarget
 {
-    return m_target;
+    return m_desc.target;
 }
 
 auto Texture::Width() const noexcept -> int
 {
-    return m_width;
+    return m_desc.width;
 }
 
 auto Texture::Height() const noexcept -> int
 {
-    return m_height;
+    return m_desc.height;
 }
 
 auto Texture::Depth() const noexcept -> int
 {
-    return m_depth;
+    return m_desc.depth;
 }
 
 auto Texture::IsUserTexture() const noexcept -> bool
@@ -123,44 +121,17 @@ auto Texture::IsUserTexture() const noexcept -> bool
 
 auto Texture::Empty() const noexcept -> bool
 {
-    return m_textureId == 0;
+    return !m_texture.Valid();
 }
 
 void Texture::Update(const void* data) const
 {
-    glBindTexture(m_target, m_textureId);
-    switch (m_target)
-    {
-        case GL_TEXTURE_2D:
-            glTexImage2D(m_target, 0, m_internalFormat, m_width, m_height, 0, m_format, m_type, data);
-            break;
-        case GL_TEXTURE_3D:
-            glTexImage3D(m_target, 0, m_internalFormat, m_width, m_height, m_depth, 0, m_format, m_type, data);
-            break;
-        default:
-            // Unsupported, do nothing.
-            break;
-    }
-    glBindTexture(m_target, 0);
+    m_device->UpdateTexture(m_texture, m_desc, data);
 }
 
 void Texture::CreateNewTexture()
 {
-    glGenTextures(1, &m_textureId);
-    glBindTexture(m_target, m_textureId);
-    switch (m_target)
-    {
-        case GL_TEXTURE_2D:
-            glTexImage2D(m_target, 0, m_internalFormat, m_width, m_height, 0, m_format, m_type, nullptr);
-            break;
-        case GL_TEXTURE_3D:
-            glTexImage3D(m_target, 0, m_internalFormat, m_width, m_height, m_depth, 0, m_format, m_type, nullptr);
-            break;
-        default:
-            // Unsupported, do nothing.
-            break;
-    }
-    glBindTexture(m_target, 0);
+    m_texture = m_device->CreateTexture(m_desc, nullptr);
 }
 
 } // namespace Renderer

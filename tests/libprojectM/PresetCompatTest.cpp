@@ -1,4 +1,5 @@
 #include "HeadlessGlContext.hpp"
+#include "TestGl.hpp"
 
 #include <gtest/gtest.h>
 

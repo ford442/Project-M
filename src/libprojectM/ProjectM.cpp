@@ -346,19 +346,20 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     // With the flash limiter on, the output goes into the limiter's frame texture
     // instead, and the limiter puts the (possibly limited) frame into the target below.
     const bool limitFlashes = m_flashLimiter->BeginFrame(renderContext.viewportSizeX, renderContext.viewportSizeY);
+    const Renderer::Device::RenderTargetHandle targetFramebuffer{static_cast<uint32_t>(targetFramebufferObject)};
+    auto& commands = Renderer::Device::Commands();
     if (!limitFlashes)
     {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(targetFramebufferObject));
-        glViewport(0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY);
+        commands.BeginPass({targetFramebuffer, Renderer::Device::TargetBinding::Draw,
+                            Renderer::Device::Rect{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY}});
 
 #ifdef USE_GLES
         // On WebGL2 / Chrome ANGLE, the default framebuffer's draw buffer must
         // be explicitly set to GL_BACK after preset rendering, which may leave
         // per-FBO draw buffer state that leaks into FBO 0 on some drivers.
-        if (targetFramebufferObject == 0)
+        if (!targetFramebuffer.Valid())
         {
-            GLenum backBuf = GL_BACK;
-            glDrawBuffers(1, &backBuf);
+            commands.SetDrawBuffers({Renderer::Device::AttachmentPoint::Back});
         }
 #endif
     }
@@ -372,18 +373,17 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     else if (!m_transparencyMode)
     {
         // Fast hardware blit: bind the preset's output FBO as the read framebuffer
-        // and use glBlitFramebuffer instead of a fullscreen shader quad.  This
+        // and blit instead of drawing a fullscreen shader quad.  This
         // path is taken in the common (non-transparency) case and avoids shader
         // program binding and vertex processing overhead entirely.
         m_activePreset->BindOutputForRead();
-        glBlitFramebuffer(0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY,
-                          0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY,
-                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        const Renderer::Device::Rect frame{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY};
+        commands.Blit(frame, frame, Renderer::Device::FilterMode::Nearest);
     }
     else
     {
         // Transparency mode requires a shader pass to convert near-black pixels
-        // to fully transparent alpha — glBlitFramebuffer cannot do this.
+        // to fully transparent alpha — a blit cannot do this.
         m_textureCopier->Draw(*renderContext.shaderCache,
                               m_activePreset->OutputTexture(),
                               false,
@@ -394,7 +394,7 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 
     if (limitFlashes)
     {
-        m_flashLimiter->EndFrame(static_cast<GLuint>(targetFramebufferObject), m_timeKeeper->SecondsSinceLastFrame(), m_transparencyMode);
+        m_flashLimiter->EndFrame(targetFramebuffer, m_timeKeeper->SecondsSinceLastFrame(), m_transparencyMode);
     }
 
     presentStage.reset();
@@ -604,13 +604,13 @@ void ProjectM::BurnInTexture(uint32_t openGlTextureId, int left, int top, int wi
     if (m_activePreset)
     {
         m_activePreset->BindFramebuffer();
-        m_textureCopier->Draw(*m_shaderCache, openGlTextureId, m_windowWidth, m_windowHeight, left, top, width, height);
+        m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
     }
 
     if (m_transitioningPreset)
     {
         m_transitioningPreset->BindFramebuffer();
-        m_textureCopier->Draw(*m_shaderCache, openGlTextureId, m_windowWidth, m_windowHeight, left, top, width, height);
+        m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
     }
 
     Renderer::Framebuffer::Unbind();

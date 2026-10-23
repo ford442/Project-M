@@ -55,13 +55,13 @@ public:
      * @param unit The texture unit to bind the descriptor's contents to.
      * @param shader The shader to register the sampler/texsize uniforms with. Must already be bound.
      */
-    void Bind(GLint unit, const Shader& shader) const;
+    void Bind(int unit, const Shader& shader) const;
 
     /**
      * @brief Unbinds the texture and sampler in the descriptor from the given texture unit.
      * @param unit The texture unit to undbind the descriptor's contents from.
      */
-    void Unbind(GLint unit);
+    void Unbind(int unit);
 
     /**
      * @brief Returns a pointer to the stored texture.
@@ -103,10 +103,10 @@ public:
      * @brief The sampler declaration a non-empty descriptor with this name would produce.
      *
      * SamplerDeclaration() is built from this, so code that has to predict a
-     * shader's declarations without a texture or GL context (background preset
+     * shader's declarations without a texture or render context (background preset
      * preparation) produces byte-identical text.
      * @param samplerName The sampler name, without the "sampler_" prefix.
-     * @param volumeTexture True if the texture is a GL_TEXTURE_3D.
+     * @param volumeTexture True if the texture is a 3D texture.
      * @return The sampler declaration.
      */
     static auto SamplerDeclarationFor(const std::string& samplerName, bool volumeTexture) -> std::string;

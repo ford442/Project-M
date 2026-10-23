@@ -98,7 +98,7 @@ public:
      *
      * This will bind the framebuffers and reallocate all owned attachment textures, creating new
      * textures with the given size. Attachments set with AttachmentStorage::External are left
-     * untouched: their texture object, size and GL attachment binding stay exactly as the caller
+     * untouched: their texture object, size and attachment binding stay exactly as the caller
      * set them, so a caller holding that texture (e.g. as a named sampler or render target) keeps
      * a valid handle. The caller is responsible for resizing and re-attaching external textures.
      * The default framebuffer is bound after the call is finished.
@@ -135,10 +135,10 @@ public:
     /**
      * @brief Sets a texture attachment slot to the given object.
      * Insert-or-assign: re-attaching to an occupied slot replaces the tracked attachment, so
-     * GetAttachment() / GetColorAttachmentTexture() always match what GL has bound.
+     * GetAttachment() / GetColorAttachmentTexture() always match what the render target has attached.
      * Sets the read/write FBOs to the previously used ones in this instance. If a different
      * Framebuffer instance was used to read or draw, it must be bound again explicitly after this call.
-     * @note The GL attachment is only bound while the framebuffer has a non-zero size.
+     * @note The texture is only attached while the framebuffer has a non-zero size.
      * @param framebufferIndex The framebuffer index.
      * @param attachmentIndex The index of the color attachment, at least indices 0-7 are guaranteed
      *                        to be available. Ignored for non-color attachments.
@@ -162,12 +162,9 @@ public:
      * @brief Adds a new color attachment to the framebuffer with the specified format.
      * @param framebufferIndex The framebuffer index.
      * @param index The index of the attachment, at least indices 0-7 are guaranteed to be available.
-     * @param internalFormat OpenGL internal format, e.g. GL_RGBA8
-     * @param format OpenGL color format, e.g. GL_RGBA
-     * @param type OpenGL component storage type, e.g. GL_UNSIGNED _BYTE
+     * @param format The texture storage format, e.g. Device::TextureFormat::RGBA8
      */
-    void CreateColorAttachment(int framebufferIndex, int attachmentIndex,
-                               GLint internalFormat, GLenum format, GLenum type);
+    void CreateColorAttachment(int framebufferIndex, int attachmentIndex, Device::TextureFormat format);
 
     /**
      * Removes the color attachment from the given slot, if there is any assigned.
@@ -238,6 +235,13 @@ public:
     void MaskDrawBuffer(int bufferIndex, bool masked);
 
     /**
+     * @brief Returns the render target of the given framebuffer.
+     * @param framebufferIndex The framebuffer index.
+     * @return The render target handle, or an invalid handle if the index is out of range.
+     */
+    auto Target(int framebufferIndex) const -> Device::RenderTargetHandle;
+
+    /**
      * @brief Returns the number of live Framebuffer instances.
      *
      * Intended for unit tests that verify FBO lifecycle during rapid transitions.
@@ -258,12 +262,21 @@ private:
      * @param framebufferIndex The framebuffer index.
      * @param attachmentType The attachment type to remove.
      */
-    void RemoveAttachment(int framebufferIndex, GLenum attachmentType);
+    void RemoveAttachment(int framebufferIndex, Device::AttachmentPoint attachmentType);
 
-    using AttachmentsPerSlot = std::map<GLenum, std::shared_ptr<TextureAttachment>>;
-    std::vector<unsigned int> m_framebufferIds{}; //!< The framebuffer IDs returned by OpenGL
+    /**
+     * @brief Creates an owned attachment, attaches it and updates the draw buffers.
+     * @param framebufferIndex The framebuffer index.
+     * @param point The attachment slot.
+     * @param textureAttachment The new attachment.
+     */
+    void AddOwnedAttachment(int framebufferIndex, Device::AttachmentPoint point, std::shared_ptr<TextureAttachment> textureAttachment);
+
+    using AttachmentsPerSlot = std::map<Device::AttachmentPoint, std::shared_ptr<TextureAttachment>>;
+    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the render targets.
+    std::vector<Device::RenderTargetHandle> m_framebufferIds{}; //!< The render targets, one per framebuffer index.
     std::map<int, AttachmentsPerSlot> m_attachments; //!< Framebuffer texture attachments.
-    std::map<int, std::set<GLenum>> m_externalAttachments; //!< Slots set with AttachmentStorage::External, skipped by SetSize().
+    std::map<int, std::set<Device::AttachmentPoint>> m_externalAttachments; //!< Slots set with AttachmentStorage::External, skipped by SetSize().
 
     int m_width{}; //!< Framebuffers texture width
     int m_height{}; //!< Framebuffers texture height.

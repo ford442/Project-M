@@ -119,33 +119,7 @@ void Mesh::Draw()
         m_indices.Update();
     }
 
-    GLuint primitiveType{GL_LINES};
-    switch (m_primitiveType)
-    {
-        case PrimitiveType::Points:
-            primitiveType = GL_POINTS;
-            break;
-        case PrimitiveType::Lines:
-            primitiveType = GL_LINES;
-            break;
-        case PrimitiveType::LineLoop:
-            primitiveType = GL_LINE_LOOP;
-            break;
-        case PrimitiveType::LineStrip:
-            primitiveType = GL_LINE_STRIP;
-            break;
-        case PrimitiveType::Triangles:
-            primitiveType = GL_TRIANGLES;
-            break;
-        case PrimitiveType::TriangleStrip:
-            primitiveType = GL_TRIANGLE_STRIP;
-            break;
-        case PrimitiveType::TriangleFan:
-            primitiveType = GL_TRIANGLE_FAN;
-            break;
-    }
-
-    glDrawElements(primitiveType, m_indices.Size(), GL_UNSIGNED_INT, nullptr);
+    Device::Commands().DrawIndexed(m_primitiveType, static_cast<int>(m_indices.Size()));
 
     VertexArray::Unbind();
 }

@@ -30,7 +30,10 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── libprojectM/        # Core visualization library
 │   │   ├── Audio/          # PCM, FFT, loudness, beat detection, waveform alignment
 │   │   ├── MilkdropPreset/ # Preset parsing, Milkdrop equation/shader evaluation, waveforms
-│   │   ├── Renderer/       # OpenGL rendering, textures, shader cache, transitions
+│   │   ├── Renderer/       # Rendering, textures, shader cache, transitions
+│   │   │   ├── Device/     # The render-device seam (IRenderDevice/ICommandList); Device/Gl/ is the
+│   │   │   │               # only GL backend code (docs/RENDER_DEVICE.md)
+│   │   │   └── Platform/   # GL context/loader glue
 │   │   ├── UserSprites/    # User sprite rendering
 │   │   ├── ProjectM.hpp    # Main C++ class
 │   │   └── ProjectMCWrapper.cpp  # C API implementation
@@ -109,7 +112,7 @@ Keep the repo root source-focused. Policy for binary/build artifacts:
 
 | Layer | Technology |
 |-------|------------|
-| Language | C++20 (enforced by CMake) |
+| Language | C++20 requested, **C++17 in practice**: `cmake/FilesystemSupport.cmake` resets `CMAKE_CXX_STANDARD` to 17 whenever `std::filesystem` is available, so the libraries build as gnu++17. Write C++17 (no defaulted `operator==`, no designated initializers) |
 | Build System | CMake >= 3.21 |
 | Graphics | OpenGL Core 3.3 or OpenGL ES 3.2 |
 | Math | GLM (bundled or system) |
@@ -206,6 +209,8 @@ The core visualization engine. It is subdivided into:
 - **Audio/** — `PCM`, `MilkdropFFT`, `Loudness`, `WaveformAligner`, `FrameAudioData`, `RhythmAnalyzer` (tempo, beat phase, onsets, sections → the `pm_*` preset variables). Handles all audio ingestion and feature extraction.
 - **MilkdropPreset/** — Preset factory, file parser, HLSL/GLSL shader generation, equation evaluation, custom waveforms, and the Milkdrop preset format implementation.
 - **Renderer/** — `Renderer`, `RenderContext`, texture managers, shader cache, transition shaders, and platform abstractions.
+  Everything draws through `Renderer/Device/` (`Device::Current()`, `Device::Commands()`); only
+  `Renderer/Device/Gl/` and `Renderer/Platform/` call GL. See [`docs/RENDER_DEVICE.md`](docs/RENDER_DEVICE.md).
 - **UserSprites/** — `SpriteManager` and shaders for user-provided sprite overlays.
 - **ProjectM.hpp/cpp** — The main orchestrator class. Owns the audio pipeline, preset manager, renderer, and time keeper.
 - **ProjectMCWrapper.cpp** — Thin C wrappers around the C++ `ProjectM` and `PCM` classes.
@@ -274,6 +279,25 @@ Third-party code that is compiled as part of the project:
   `build_emscripten.yml`); `-Winvalid-pp-token` is off there because it only
   fires on JavaScript literals inside `EM_JS` bodies. Widen one clean directory at
   a time, like `check_cpp_format.sh`.
+
+### Render-device seam
+- No direct GL outside `src/libprojectM/Renderer/Device/Gl/` and
+  `src/libprojectM/Renderer/Platform/`: no `gl*(` call, no `Renderer/OpenGL.h` or
+  glad include. Add what you need to `IRenderDevice`/`ICommandList` and implement it
+  in `GlDevice` (see [`docs/RENDER_DEVICE.md`](docs/RENDER_DEVICE.md)).
+  `scripts/check_gl_seam.sh` enforces it over its `PATHS` list (`src/libprojectM`,
+  `src/wasm`), and `cpp_format_gate.yml` runs it. Comments are ignored, but string
+  literals are not.
+- Handles are values whose id is the GL name on the GL backend, and
+  `RenderTargetHandle{0}` is the default framebuffer. Resource wrappers capture
+  `Device::Current()` when they are constructed.
+- `PROJECTM_DEVICE_VALIDATION=1` turns on `ResourceStateTracker`, which logs each
+  distinct feedback hazard (a texture sampled while attached to the draw target, or a
+  blit or copy that reads what it writes) once, as `[RenderDevice] Feedback hazard: ...`.
+  It is off by default.
+- Device changes must stay bit-identical unless they mean to change output. Check
+  with the WASM goldens and `PresetCompat`, plus a before/after render of the preset
+  corpora if the change touches draw order.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:
@@ -352,7 +376,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 | Directory | Framework | Coverage |
 |-----------|-----------|----------|
-| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), the color output contract (`ColorOutputTest`, GPU: canvas alpha opaque or valid premultiplied, Display-P3 encode order; see `docs/EMSCRIPTEN.md` "Canvas alpha"), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
+| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), the color output contract (`ColorOutputTest`, GPU: canvas alpha opaque or valid premultiplied, Display-P3 encode order; see `docs/EMSCRIPTEN.md` "Canvas alpha"), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), the render-device seam (`RenderDeviceTest`: the feedback-hazard tracker without GL, `GlDevice` clear/readback, state capture/restore and a real feedback draw on GPU), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
 

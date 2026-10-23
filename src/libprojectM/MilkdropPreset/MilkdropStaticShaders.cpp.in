@@ -1,7 +1,5 @@
 #include "MilkdropStaticShaders.hpp"
 
-#include <Renderer/OpenGL.h>
-
 #include <cstring>
 #include <stdexcept>
 

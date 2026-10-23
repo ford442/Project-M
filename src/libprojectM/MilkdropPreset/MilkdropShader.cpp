@@ -576,7 +576,7 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
     }
 
     // Bind all texture and sampler descriptors. This includes the main and blur textures.
-    GLint textureUnit{0};
+    int textureUnit{0};
     for (auto& desc : m_mainTextureDescriptors)
     {
         // Update main texture, swaps every frame.

@@ -11,7 +11,7 @@ namespace {
 /**
  * Ablation switch for benchmarking: setting PROJECTM_COPY_SHADER_PATH=1 restores the
  * pre-#179 behaviour where every texture copy is a fullscreen textured quad, so the
- * glBlitFramebuffer path can be A/B'd against it on a single build.
+ * framebuffer blit path can be A/B'd against it on a single build.
  * See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
  */
 auto BlitPathEnabled() -> bool
@@ -94,11 +94,8 @@ CopyTexture::CopyTexture()
 
 CopyTexture::~CopyTexture()
 {
-    if (m_blitReadFramebuffer != 0)
-    {
-        glDeleteFramebuffers(1, &m_blitReadFramebuffer);
-        m_blitReadFramebuffer = 0;
-    }
+    m_device->DestroyRenderTarget(m_blitReadFramebuffer);
+    m_blitReadFramebuffer = {};
 }
 
 void CopyTexture::SetTransparencyMode(bool enabled)
@@ -264,11 +261,11 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
 }
 
 void CopyTexture::Draw(ShaderCache& shaderCache,
-                       GLuint originalTexture,
+                       Device::TextureHandle originalTexture,
                        int viewportWidth, int viewportHeight,
                        int left, int top, int width, int height)
 {
-    if (originalTexture == 0)
+    if (!originalTexture.Valid())
     {
         return;
     }
@@ -285,8 +282,7 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
     m_height = viewportHeight;
 
     // Draw from original texture
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, originalTexture);
+    m_device->Commands().BindTexture(0, Device::TextureTarget::Texture2D, originalTexture);
     Copy(shaderCache, left, top, width, height);
 
     m_width = oldWidth;
@@ -320,65 +316,68 @@ auto CopyTexture::TryBlit(const std::shared_ptr<class Texture>& originalTexture,
         return false;
     }
 
-    // glBlitFramebuffer ignores blending (and the fragment shader entirely), so it is only
+    auto& commands = m_device->Commands();
+
+    // A blit ignores blending (and the fragment shader entirely), so it is only
     // equivalent to the quad draw while blending is off.
-    if (glIsEnabled(GL_BLEND) == GL_TRUE)
+    if (commands.IsEnabled(Device::Capability::Blend))
     {
         return false;
     }
 
     // The quad path is clipped by the viewport, the blit path is not. Only take the blit when
     // the viewport covers the whole destination, so both produce the same pixels.
-    GLint viewport[4]{};
-    glGetIntegerv(GL_VIEWPORT, viewport);
+    const auto viewport = commands.Viewport();
 
-    if (viewport[0] > 0 || viewport[1] > 0 || viewport[2] < m_width || viewport[3] < m_height)
+    if (viewport.x > 0 || viewport.y > 0 || viewport.width < m_width || viewport.height < m_height)
     {
         return false;
     }
 
-    if (m_blitReadFramebuffer == 0)
+    if (!m_blitReadFramebuffer.Valid())
     {
-        glGenFramebuffers(1, &m_blitReadFramebuffer);
+        m_blitReadFramebuffer = m_device->CreateRenderTarget();
 
-        if (m_blitReadFramebuffer == 0)
+        if (!m_blitReadFramebuffer.Valid())
         {
             return false;
         }
     }
 
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_blitReadFramebuffer);
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                           originalTexture->TextureID(), 0);
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    using Device::AttachmentPoint;
+    using Device::TargetBinding;
+
+    commands.BindRenderTarget(TargetBinding::Read, m_blitReadFramebuffer);
+    commands.AttachTexture(TargetBinding::Read, AttachmentPoint::Color0, originalTexture->Handle());
+    commands.SetReadBuffer(AttachmentPoint::Color0);
 
     // Not every color format a preset texture can carry is color-renderable, and only
     // color-renderable formats can be blitted from. Fall back if the driver disagrees.
-    if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    if (!commands.CheckRenderTarget(TargetBinding::Read).complete)
     {
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        commands.AttachTexture(TargetBinding::Read, AttachmentPoint::Color0, {});
         // Restore the read binding the caller had (Bind() sets read and draw to the same FBO).
         m_framebuffer.Bind(0);
         return false;
     }
 
-    const auto sourceWidth = static_cast<GLint>(originalTexture->Width());
-    const auto sourceHeight = static_cast<GLint>(originalTexture->Height());
+    const int sourceWidth = originalTexture->Width();
+    const int sourceHeight = originalTexture->Height();
 
-    // A flip is expressed by inverting the destination rectangle, which glBlitFramebuffer
+    // A flip is expressed by inverting the destination rectangle, which a blit
     // supports natively — no extra pass and no shader involved.
-    const GLint destinationLeft = flipHorizontal ? m_width : 0;
-    const GLint destinationRight = flipHorizontal ? 0 : m_width;
-    const GLint destinationBottom = flipVertical ? m_height : 0;
-    const GLint destinationTop = flipVertical ? 0 : m_height;
+    const int destinationLeft = flipHorizontal ? m_width : 0;
+    const int destinationRight = flipHorizontal ? 0 : m_width;
+    const int destinationBottom = flipVertical ? m_height : 0;
+    const int destinationTop = flipVertical ? 0 : m_height;
 
-    glBlitFramebuffer(0, 0, sourceWidth, sourceHeight,
-                      destinationLeft, destinationBottom, destinationRight, destinationTop,
-                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    commands.Blit({0, 0, sourceWidth, sourceHeight},
+                  {destinationLeft, destinationBottom, destinationRight - destinationLeft, destinationTop - destinationBottom},
+                  Device::FilterMode::Nearest);
 
     // Don't keep the source texture attached; it is owned by another framebuffer and may be
     // resized or deleted while this instance is idle.
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    commands.AttachTexture(TargetBinding::Read, AttachmentPoint::Color0, {});
     m_framebuffer.Bind(0);
 
     return true;
@@ -404,7 +403,7 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
 
     m_mesh.Draw();
 
-    glBindTexture(GL_TEXTURE_2D, 0);
+    m_device->Commands().BindTexture(0, Device::TextureTarget::Texture2D, {});
     Mesh::Unbind();
     Sampler::Unbind(0);
     Shader::Unbind();

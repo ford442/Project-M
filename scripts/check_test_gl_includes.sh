@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Fails when a unit test includes a glad header directly.
 #
-# libprojectM's renderer headers pull in <glad/gles2.h> under USE_GLES
-# (Emscripten, Android, ENABLE_GLES), and glad refuses to see <glad/gl.h> in the
-# same translation unit, so a direct include breaks the Emscripten test build
-# while every desktop job stays green. Tests include tests/libprojectM/TestGl.hpp
-# instead. HeadlessGlContext.cpp is exempt: it is desktop-only and includes no
+# Renderer/OpenGL.h picks <glad/gles2.h> under USE_GLES (Emscripten, Android,
+# ENABLE_GLES), and glad refuses to see <glad/gl.h> in the same translation
+# unit, so a direct include breaks the Emscripten test build while every
+# desktop job stays green. Tests include tests/libprojectM/TestGl.hpp instead.
+# (Renderer headers no longer include GL at all since the render-device seam,
+# docs/RENDER_DEVICE.md, so a test that calls gl* needs TestGl.hpp itself.) HeadlessGlContext.cpp is exempt: it is desktop-only and includes no
 # renderer header.
 set -euo pipefail
 

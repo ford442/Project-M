@@ -20,7 +20,7 @@
  */
 #pragma once
 
-#include "Renderer/OpenGL.h"
+#include "Renderer/Device/RenderDevice.hpp"
 
 #include <array>
 #include <cstdint>
@@ -103,7 +103,7 @@ public:
      *        (transparency mode), so a limited frame keeps its colour within its alpha.
      *        Otherwise the alpha is passed along and never touches the colour.
      */
-    void EndFrame(GLuint targetFramebuffer, double secondsSinceLastFrame, bool premultipliedAlpha = false);
+    void EndFrame(Device::RenderTargetHandle targetFramebuffer, double secondsSinceLastFrame, bool premultipliedAlpha = false);
 
     /**
      * @brief Frames that were blended toward the previous frame since the limiter was
@@ -111,20 +111,20 @@ public:
      *
      * Reads one texel back from the GPU when frames were limited since the last call,
      * which waits for those frames to finish rendering. Poll it a few times a second at
-     * most, not every frame. Must be called with the GL context current.
+     * most, not every frame. Must be called with the device's context current.
      */
     auto ClampedFrames() -> uint32_t;
 
     /**
      * @brief The framebuffer that holds the last limited frame (the image EndFrame() copied
-     *        to its target), or 0 if the limiter has not presented a frame.
+     *        to its target), or an invalid handle if the limiter has not presented a frame.
      */
-    [[nodiscard]] auto PresentedFramebuffer() const -> GLuint;
+    [[nodiscard]] auto PresentedFramebuffer() const -> Device::RenderTargetHandle;
 
 private:
     struct Target {
-        GLuint texture{0};
-        GLuint framebuffer{0};
+        Device::TextureHandle texture;
+        Device::RenderTargetHandle framebuffer;
     };
 
     auto Allocate(int width, int height) -> bool;
@@ -137,8 +137,11 @@ private:
     void DrawFullscreen(const Target& target, int width, int height) const;
     auto ReadClampedFrames(const Target& state) const -> uint32_t;
 
-    static auto CreateTarget(int width, int height) -> Target;
-    static void DeleteTarget(Target& target);
+    auto CreateTarget(int width, int height) -> Target;
+    void DeleteTarget(Target& target);
+    void BindTexture(int unit, Device::TextureHandle texture) const;
+
+    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the targets.
 
     bool m_enabled{false};
     float m_threshold{DefaultThreshold};
@@ -155,7 +158,7 @@ private:
     int m_current{0};              //!< Index of the m_held / m_state written last.
     bool m_presented{false};       //!< m_held[m_current] holds a presented frame.
 
-    GLuint m_vertexArray{0}; //!< Empty VAO for attribute-less fullscreen triangles.
+    Device::VertexArrayHandle m_vertexArray; //!< Empty VAO for attribute-less fullscreen triangles.
 
     std::unique_ptr<Shader> m_downsampleShader;
     std::unique_ptr<Shader> m_stateShader;

@@ -622,7 +622,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmShaderCache.cpp` | Transpiled-GLSL cache hooks (host-page store/lookup), `shader_cache_*` and `get_glsl_generator_version()` exports |
 | `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, applied once from `init()` |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
-| `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
+| `WasmGraphics.hpp` | Dual ping-pong FBO manager, `RenderStateGuard`, `reset_render_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
 | `WasmPresent.cpp` | The end of a frame: flash-limiter switches (forwarding to libprojectM's C API), per-host frame readback (`capture_frame_*`, taken in `render_frame()` before a manual-present commit) and the commit counter. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
 | `WasmDeterminism.cpp` | Virtual clock (`WasmNow()`, `DeterministicFrameTick()`), deterministic RNG switch, main-loop pause — `set_deterministic_*` / `set_render_loop_paused` exports. See [GRAPHICS_BENCHMARK_HARNESS.md](GRAPHICS_BENCHMARK_HARNESS.md) |
@@ -1125,7 +1125,7 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
 
 - **Direct-to-canvas path** (steady state — the common case): when no preset
   crossfade is active, `render_frame()` calls `projectm_opengl_render_frame(pm)`
-  straight to FBO 0 (the browser canvas), wrapped in a `GLStateGuard`. This is
+  straight to FBO 0 (the browser canvas), wrapped in a `RenderStateGuard`. This is
   the same single-pass path used before the dual-FBO transition work landed.
 - **Dual-FBO compositor path** (preset crossfades only): when
   `g_transitionActive` is true and both Preset A/B FBOs plus
@@ -1149,7 +1149,7 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
 - **Legacy single-pass fallback** (before `start_render()` has run, or if the
   compositor shader failed to initialise while a transition is active):
   `render_frame()` calls `projectm_opengl_render_frame(pm)` directly, which
-  renders straight to FBO 0, wrapped in a `GLStateGuard` for parity with the
+  renders straight to FBO 0, wrapped in a `RenderStateGuard` for parity with the
   dual-FBO path's per-pass guards.
 
 Either path leaves the finished frame in FBO 0 and increments

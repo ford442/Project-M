@@ -32,7 +32,7 @@ using AttachmentStorage = Framebuffer::AttachmentStorage;
 
 auto MakeColorAttachment(int width, int height) -> std::shared_ptr<TextureAttachment>
 {
-    return std::make_shared<TextureAttachment>(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, width, height);
+    return std::make_shared<TextureAttachment>(libprojectM::Renderer::Device::TextureFormat::RGBA8, width, height);
 }
 
 /**

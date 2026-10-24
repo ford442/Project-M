@@ -129,6 +129,14 @@ void Texture::Update(const void* data) const
     m_device->UpdateTexture(m_texture, m_desc, data);
 }
 
+void Texture::Replace(const void* data, int width, int height)
+{
+    m_desc.width = width;
+    m_desc.height = height;
+    // The device re-specifies the whole image, so a new size reuses the same texture name.
+    m_device->UpdateTexture(m_texture, m_desc, data);
+}
+
 void Texture::CreateNewTexture()
 {
     m_texture = m_device->CreateTexture(m_desc, nullptr);

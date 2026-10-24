@@ -56,8 +56,12 @@ required to reference depth, glTF, or Transformers.js.
 2. Inputs still use `imageChannel` with `role: 'depth-input'`.
 3. Results bind from `#resultImage` (hidden element auto-created on core) **or**
    `imageChannel` messages with `role: 'depth-result'`.
-4. PNG written to VFS `/textures/pm_depth_map.png` and optional preset reload so
-   `shapecode_*_image=pm_depth_map.png` picks it up.
+4. PNG written to VFS `/textures/pm_depth_map.png`, then `reload_texture('pm_depth_map')`
+   updates the loaded texture in place, so a preset sampling `pm_depth`, a
+   `shapecode_*_image=pm_depth_map.png` shape or a depth sprite shows the new map on its next
+   frame. Only when nothing had loaded the texture yet (or on a bundle without
+   `reload_texture`) is the preset reloaded instead. The bridge writes a 1x1 black seed map
+   at startup so the first preset that asks for it loads a file texture that can be updated.
 
 ### glTF load / save
 
@@ -78,8 +82,9 @@ required to reference depth, glTF, or Transformers.js.
 | Mechanism | Location | Preset touchpoint |
 |-----------|----------|-------------------|
 | VFS `/textures/` + depth PNG inject | experimental bridge | `shapecode_N_image=pm_depth_map.png` |
+| `pm_depth` shader sampler | libprojectM (`ExperimentalDepthSampler`), gated on the header below | `tex2D(pm_depth, uv)` in warp/composite |
 | VFS `/textures/` scan + download | `projectM_emscripten.cpp` `scanTextures()` | `shapecode_N_image=foo.png`, `textured=1` |
-| `projectm_sprite_create` / `create_sprite` | WASM export | User-sprite `img=` sections (hard-coded demo; bridge logs a depth template) |
+| `create_sprite(type, code)` / `projectm_sprite_*` / `ProjectMContext.createSprite()` | WASM exports, embed SDK | User sprites from caller code (`img=pm_depth_map` for the depth overlay) |
 | Header metadata (`// tags:`, `// tier:`) | `docs/PRESET_METADATA.md` | Demo UX only — not renderer |
 | `// pm:experimental …` | experimental bridge | Host orchestration only |
 
@@ -115,8 +120,9 @@ in the console calls `exposeExperimentalGlobals()` from `html/projectm-legacy-gl
 | `requestGltfLoad(title)` | Post to `loaderChannel` (legacy glTF loader) |
 | `parseExperimentalMetadata(milkText)` | Parse `// pm:experimental` header |
 | `wantsExperimentalDepth(meta)` | True if depth=auto / depth-texture / depth=true |
-| `buildDepthSpriteCode(opts)` | Milkdrop user-sprite template for depth overlay |
-| `spawnDepthSpriteHint()` | Log sprite template to console |
+| `buildDepthSpriteCode(opts)` | Milkdrop user-sprite code for the depth overlay |
+| `spawnDepthSprite(opts?)` | Create that sprite with `create_sprite()`; returns its id, 0 on a bundle without the sprite exports |
+| `spawnDepthSpriteHint()` | Log the sprite code to console |
 
 ### Events
 
@@ -124,7 +130,7 @@ in the console calls `exposeExperimentalGlobals()` from `html/projectm-legacy-gl
 |-------|------|
 | `pm:preset-loaded` | From `updatePresetDisplay()` — `{ name, path, text? }` |
 | `pm:preset-text` | When milk source text is available — `{ text, path }` |
-| `pm:depth-texture-ready` | After depth map written to VFS |
+| `pm:depth-texture-ready` | After depth map written to VFS; `detail.delivery` is `'in-place'`, `'preset-reload'` or `'written'` |
 | `pm:gltf-save-requested` | User clicked experimental glTF save |
 
 ### Tests
@@ -153,8 +159,8 @@ shapecode_0_image=pm_depth_map.png
 
 | Directive | Meaning |
 |-----------|---------|
-| `depth=auto` | On preset load, run depth pipeline if a source image is pending |
-| `depth-texture=pm_depth_map` | VFS basename (bridge writes `.png`) |
+| `depth=auto` | On preset load, run depth pipeline if a source image is pending. Also declares `pm_depth` (bound to `pm_depth_map`) |
+| `depth-texture=pm_depth_map` | VFS basename (bridge writes `.png`); declares `pm_depth` bound to this texture |
 | `depth-source=upload` | Require user upload before auto-run |
 | `gltf-export=on-lock` | Future: export glTF when preset locked (coordinator only) |
 | `gltf-export=true` | Flag for manual export via experimental panel |
@@ -162,6 +168,36 @@ shapecode_0_image=pm_depth_map.png
 **Compatibility:** Presets without this header behave exactly as before. If
 `pm_depth_map.png` is missing, projectM falls back to the main feedback texture for
 textured shapes (see `CustomShape.cpp`).
+
+### The `pm_depth` shader sampler
+
+A preset whose header asks for a depth texture can sample it in its warp or composite
+shader (PSVERSION 2 or 3) without declaring anything:
+
+```milk
+// pm:experimental depth-texture=pm_depth_map
+...
+comp_1=`shader_body
+comp_2=`{
+comp_3=`    float depth = tex2D(pm_depth, uv).x;
+comp_4=`    ret = tex2D(sampler_main, uv).xyz * (0.5 + 0.5 * depth);
+comp_5=`}
+```
+
+- libprojectM reads the `// pm:experimental` line (`PresetFileParser::ExperimentalDirectives()`)
+  and, only then, rewrites the identifier `pm_depth` to `sampler_fc_pm_depth_map` (bilinear,
+  clamped) and `texsize_pm_depth` to `texsize_pm_depth_map` before the shader is analyzed. From
+  there it is an ordinary Milkdrop user texture: declared, loaded from the texture paths,
+  bound. `depth=auto` / `depth=true` without `depth-texture=` binds `pm_depth_map`.
+- A preset without the header gets no sampler: `pm_depth` is an undeclared identifier there
+  and the shader fails to compile, like any other typo. Stock `.milk` files are untouched.
+- Until a depth map exists the bridge's 1x1 black seed is sampled (depth 0 everywhere).
+  Without the bridge (no `?experimental=1`) the texture is the engine's black placeholder.
+- `presets/experimental/depth_sampler_demo.milk` uses it in both shaders.
+
+When the bridge writes a new map it calls `reload_texture('pm_depth_map')`
+(`projectm_reload_texture()` in `projectM-4/texture_reload.h`), which re-decodes the file into
+the texture already bound, at its new size, so the running preset needs no reload.
 
 ---
 
@@ -172,11 +208,14 @@ textured shapes (see `CustomShape.cpp`).
 | Idea | How | Status |
 |------|-----|--------|
 | Depth → displacement texture | Bridge writes `/textures/pm_depth_map.png`; preset uses `shapecode_*_image` | **Done** |
+| Warp/composite `pm_depth` sampler | `// pm:experimental depth-texture=…` declares it; `tex2D(pm_depth, uv)` | **Done** |
+| Live depth refresh | `reload_texture()` updates the bound texture in place; no preset reload | **Done** |
+| Parameterized sprites | `create_sprite(type, code)`, `projectm_sprite_*`, `ProjectMContext.createSprite()` | **Done** |
 | Canvas → depth → preset | “Depth from canvas” captures live viz as **input**, binds **result** | **Done** |
 | Preset metadata drives depth | `// pm:experimental depth=auto` on load | **Done** |
 | Input vs result channel split | Inputs: `role=depth-input`; results: `#resultImage` / `role=depth-result` | **Done** |
 | glTF export coordinator flag | `gltf-export=true` sets host mode only | **Done** |
-| User-sprite parallax template | `buildDepthSpriteCode()` + console helper | **Done** (template; full create_sprite API still hard-coded in C++) |
+| User-sprite parallax overlay | `buildDepthSpriteCode()` + `spawnDepthSprite()` (panel: **Depth sprite**) | **Done** |
 | Hidden `#resultImage` on core | Bridge creates if missing | **Done** |
 | Milk text on preset load | `updatePresetDisplay({ text })` + `pm:preset-text` | **Done** |
 
@@ -184,9 +223,7 @@ textured shapes (see `CustomShape.cpp`).
 
 | Idea | Notes |
 |------|-------|
-| Warp/composite `sampler` for depth | Inject custom texture + HLSL `tex2D` in `shader_body` (PSVERSION 3); needs stable sampler naming in transpiler |
-| Beat-synced depth refresh | Re-capture canvas on `bass_att` threshold; throttle to ≤2 Hz (host timer) |
-| Parameterized `create_sprite(code)` WASM export | Replace hard-coded `create_sprite()` in `projectM_emscripten.cpp` so JS can spawn depth sprites |
+| Beat-synced depth refresh | Re-capture canvas on `bass_att` threshold; throttle to ≤2 Hz (host timer); each result now lands in place |
 | Lazy-load shared depth wrapper | Dedupe `getDepth()` from `.1ink` hosts into the bridge only |
 | Featured pack tag `experimental` | Filter in `projectm-preset-library.js` when ready for demos |
 
@@ -207,6 +244,7 @@ textured shapes (see `CustomShape.cpp`).
 | File | Purpose |
 |------|---------|
 | `presets/experimental/depth_overlay_demo.milk` | Textured shape overlay on `pm_depth_map.png` |
+| `presets/experimental/depth_sampler_demo.milk` | Depth-weighted parallax in the warp shader and a depth tint in the composite, through `pm_depth` |
 | `presets/experimental/gltf_export_flag_demo.milk` | Sets `gltf-export=true` coordinator flag only |
 
 Load:
@@ -243,8 +281,9 @@ canvas, wait for depth result (or click **Bind result**).
    orchestrate depth/glTF without parser changes.
 4. **glTF export of Milkdrop state is not a product goal.** Export the parallel Three.js
    scene only; treat Milkdrop FBOs as 2D texture sources if compositing is needed later.
-5. **Next valuable invest:** parameterized sprite create + optional PS3 sampler for depth
-   in warp/composite, still behind experimental gates.
+5. **Done:** parameterized sprite create (`create_sprite(type, code)`, `projectm_sprite_*`,
+   `ProjectMContext.createSprite()`) and the `pm_depth` warp/composite sampler, gated on the
+   `// pm:experimental` header, with in-place depth refreshes.
 
 ---
 
@@ -256,5 +295,8 @@ canvas, wait for depth result (or click **Bind result**).
 - `html/README.md` — host architecture (extended features = lazy modules)
 - `presets/experimental/` — sample presets (not in default compat)
 - `tests/web/experimental-bridge.test.mjs` — pure helper tests
+- `tests/web/projectm-user-sprites.test.mjs` — sprite exports vs. manifest and transports, in-place depth binding
+- `tests/libprojectM/ExperimentalDepthSamplerTest.cpp` — header parsing, `pm_depth` rewrite, GPU reload
+- `tests/libprojectM/UserSpriteApiTest.cpp` — sprite create / set_var / get_var / destroy (GPU)
 - `docs/PRESET_METADATA.md` — standard metadata (orthogonal)
 - `docs/PRESET_ROADMAP.md` — milestone M3 / issue #118

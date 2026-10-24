@@ -1,0 +1,53 @@
+// Signature Series | experimental depth sampler demo
+// pm:experimental depth=auto depth-texture=pm_depth_map
+// tags: experimental, depth, parallax
+// tier: light
+// reactivity: medium
+// author: projectM-experimental-bridge
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+fRating=3.0
+fGammaAdj=1.0
+fDecay=0.96
+fVideoEchoAlpha=0.0
+nWaveMode=2
+bAdditiveWaves=1
+bTexWrap=1
+bDarkenCenter=0
+fWaveAlpha=0.6
+fWaveScale=1.0
+zoom=1.0
+rot=0.0
+warp=0.0
+wave_r=0.4
+wave_g=0.7
+wave_b=1.0
+ob_size=0.0
+ib_size=0.0
+
+per_frame_1=q1=bass_att*0.02;
+per_frame_2=q2=0.35+0.25*treb_att;
+
+// pm_depth is the experimental bridge's depth map (/textures/pm_depth_map.png),
+// declared only because of the "// pm:experimental depth..." line above. Near
+// pixels (bright) are pushed outward with the bass: depth-weighted parallax.
+warp_1=`shader_body
+warp_2=`{
+warp_3=`    float depth = tex2D(pm_depth, uv).x;
+warp_4=`    float2 fromCenter = uv - 0.5;
+warp_5=`    float2 parallax = fromCenter * depth * q1;
+warp_6=`    ret = tex2D(sampler_main, uv - parallax).xyz * 0.985;
+warp_7=`    ret += 0.004 * depth;
+warp_8=`}
+
+// The depth map tints the composite; texsize_pm_depth aliases its size uniform.
+comp_1=`shader_body
+comp_2=`{
+comp_3=`    float depth = tex2D(pm_depth, uv).x;
+comp_4=`    float edge = abs(tex2D(pm_depth, uv + float2(texsize_pm_depth.z, 0)).x - depth);
+comp_5=`    ret = tex2D(sampler_main, uv).xyz;
+comp_6=`    ret = lerp(ret, ret * float3(0.6, 0.8, 1.2) + edge * 4.0, depth * q2);
+comp_7=`}

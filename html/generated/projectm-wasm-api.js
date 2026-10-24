@@ -50,6 +50,16 @@ export const WASM_API_SYMBOLS = {
     attachWorkletIngest: 'attach_worklet_ingest',
     connectMediaElementSource: 'connect_media_element_source',
     createSprite: 'create_sprite',
+    projectmSpriteCreate: 'projectm_sprite_create',
+    projectmSpriteDestroy: 'projectm_sprite_destroy',
+    projectmSpriteDestroyAll: 'projectm_sprite_destroy_all',
+    projectmSpriteGetSpriteCount: 'projectm_sprite_get_sprite_count',
+    projectmSpriteGetSpriteIds: 'projectm_sprite_get_sprite_ids',
+    projectmSpriteSetMaxSprites: 'projectm_sprite_set_max_sprites',
+    projectmSpriteGetMaxSprites: 'projectm_sprite_get_max_sprites',
+    projectmSpriteGetVar: 'projectm_sprite_get_var',
+    projectmSpriteSetVar: 'projectm_sprite_set_var',
+    reloadTexture: 'reload_texture',
     stopWorkletPlayback: 'stop_worklet_playback',
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
@@ -199,7 +209,17 @@ export const WASM_API_SIGNATURES = {
     getPcmRingOverruns: { symbol: 'get_pcm_ring_overruns', returnType: 'number', argTypes: [], paramTypes: [] },
     attachWorkletIngest: { symbol: 'attach_worklet_ingest', returnType: null, argTypes: [], paramTypes: [] },
     connectMediaElementSource: { symbol: 'connect_media_element_source', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
-    createSprite: { symbol: 'create_sprite', returnType: null, argTypes: [], paramTypes: [] },
+    createSprite: { symbol: 'create_sprite', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
+    projectmSpriteCreate: { symbol: 'projectm_sprite_create', returnType: 'number', argTypes: ['number', 'string', 'string'], paramTypes: ['number', 'string', 'string'] },
+    projectmSpriteDestroy: { symbol: 'projectm_sprite_destroy', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    projectmSpriteDestroyAll: { symbol: 'projectm_sprite_destroy_all', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    projectmSpriteGetSpriteCount: { symbol: 'projectm_sprite_get_sprite_count', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
+    projectmSpriteGetSpriteIds: { symbol: 'projectm_sprite_get_sprite_ids', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    projectmSpriteSetMaxSprites: { symbol: 'projectm_sprite_set_max_sprites', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
+    projectmSpriteGetMaxSprites: { symbol: 'projectm_sprite_get_max_sprites', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
+    projectmSpriteGetVar: { symbol: 'projectm_sprite_get_var', returnType: 'number', argTypes: ['number', 'number', 'string'], paramTypes: ['number', 'number', 'string'] },
+    projectmSpriteSetVar: { symbol: 'projectm_sprite_set_var', returnType: null, argTypes: ['number', 'number', 'string', 'number'], paramTypes: ['number', 'number', 'string', 'number'] },
+    reloadTexture: { symbol: 'reload_texture', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
     stopWorkletPlayback: { symbol: 'stop_worklet_playback', returnType: null, argTypes: [], paramTypes: [] },
     setAudioSourceToStream: { symbol: 'set_audio_source_to_stream', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setPresetLocked: { symbol: 'set_preset_locked', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
@@ -389,7 +409,7 @@ export function destruct(module) {
     module._destruct();
 }
 
-/** Opaque projectM handle pointer */
+/** Opaque projectM handle of the active host: the pmHandle the projectm_sprite_* exports take */
 export function getProjectmHandle(module) {
     return module._get_projectm_handle();
 }
@@ -594,9 +614,59 @@ export function connectMediaElementSource(module, selector) {
     return module.ccall('connect_media_element_source', 'number', ['string'], [selector]);
 }
 
-/** Create demo user sprite */
-export function createSprite(module) {
-    module._create_sprite();
+/** Create a user sprite on the active host (type 'milkdrop', code in the Milkdrop sprite format), returning its id, or 0 on failure or at the sprite limit */
+export function createSprite(module, type, code) {
+    return module.ccall('create_sprite', 'number', ['string', 'string'], [type, code]);
+}
+
+/** Create a user sprite on the engine pmHandle names (see create_sprite) */
+export function projectmSpriteCreate(module, pmHandle, type, code) {
+    return module.ccall('projectm_sprite_create', 'number', ['number', 'string', 'string'], [pmHandle, type, code]);
+}
+
+/** Destroy one user sprite */
+export function projectmSpriteDestroy(module, pmHandle, spriteId) {
+    module._projectm_sprite_destroy(pmHandle, spriteId);
+}
+
+/** Destroy every user sprite */
+export function projectmSpriteDestroyAll(module, pmHandle) {
+    module._projectm_sprite_destroy_all(pmHandle);
+}
+
+/** Number of live user sprites */
+export function projectmSpriteGetSpriteCount(module, pmHandle) {
+    return module._projectm_sprite_get_sprite_count(pmHandle);
+}
+
+/** Write the live sprite ids, oldest first, to a uint32 array of projectm_sprite_get_sprite_count() entries on the WASM heap */
+export function projectmSpriteGetSpriteIds(module, pmHandle, spriteIds) {
+    module._projectm_sprite_get_sprite_ids(pmHandle, spriteIds);
+}
+
+/** Sprite limit (lowering it destroys the oldest sprites over it) */
+export function projectmSpriteSetMaxSprites(module, pmHandle, maxSprites) {
+    module._projectm_sprite_set_max_sprites(pmHandle, maxSprites);
+}
+
+/** Current sprite limit */
+export function projectmSpriteGetMaxSprites(module, pmHandle) {
+    return module._projectm_sprite_get_max_sprites(pmHandle);
+}
+
+/** Value of a sprite expression variable (0 for an unknown sprite or variable) */
+export function projectmSpriteGetVar(module, pmHandle, spriteId, varName) {
+    return module.ccall('projectm_sprite_get_var', 'number', ['number', 'number', 'string'], [pmHandle, spriteId, varName]);
+}
+
+/** Set a sprite expression variable (per-frame code may overwrite it on the next frame) */
+export function projectmSpriteSetVar(module, pmHandle, spriteId, varName, value) {
+    module.ccall('projectm_sprite_set_var', null, ['number', 'number', 'string', 'number'], [pmHandle, spriteId, varName, value]);
+}
+
+/** Re-read a texture file rewritten in the VFS into the active host's loaded texture so running presets sample the new image (1 if a loaded texture was updated, 0 if it was not loaded from a file) */
+export function reloadTexture(module, name) {
+    return module.ccall('reload_texture', 'number', ['string'], [name]);
 }
 
 /** Stop audio worklet playback */
@@ -1046,6 +1116,7 @@ export function captureFrameRelease(module) {
 
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
+    getProjectmHandle,
     init,
     setCanvasSelectors,
     setContextConfig,
@@ -1078,6 +1149,16 @@ export const PUBLIC_WASM_API = [
     getPcmRingIndexModulus,
     attachWorkletIngest,
     connectMediaElementSource,
+    createSprite,
+    projectmSpriteCreate,
+    projectmSpriteDestroy,
+    projectmSpriteDestroyAll,
+    projectmSpriteGetSpriteCount,
+    projectmSpriteGetSpriteIds,
+    projectmSpriteSetMaxSprites,
+    projectmSpriteGetMaxSprites,
+    projectmSpriteGetVar,
+    projectmSpriteSetVar,
     setPresetLocked,
     setTransparencyMode,
     getTransparencyMode,

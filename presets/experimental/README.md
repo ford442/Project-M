@@ -7,6 +7,7 @@ set.
 | File | Role |
 |------|------|
 | `depth_overlay_demo.milk` | `shapecode` textured with `pm_depth_map.png` from the experimental bridge |
+| `depth_sampler_demo.milk` | Warp and composite shaders sample the depth map as `pm_depth` (the engine declares it because of the `// pm:experimental depth...` header) |
 | `gltf_export_flag_demo.milk` | Sets `// pm:experimental gltf-export=true` (host coordinator only) |
 
 Load via:

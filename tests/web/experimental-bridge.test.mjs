@@ -54,9 +54,9 @@ test('wantsExperimentalDepth detects auto and texture directives', () => {
 
 test('buildDepthSpriteCode emits milkdrop sprite block with depth texture', () => {
     const code = buildDepthSpriteCode({ scale: 1.2, blendmode: 1 });
-    assert.match(code, /\[preset01\]/);
-    assert.match(code, /img='textures\/pm_depth_map\.png'/);
-    assert.match(code, /scaling=1\.2/);
+    assert.match(code, /^\[img01\]$/m);
+    assert.match(code, /^img=pm_depth_map$/m);
+    assert.match(code, /sx=1\.2; sy=1\.2;/);
     assert.match(code, /blendmode=1/);
     assert.match(code, /bass_att/);
 });

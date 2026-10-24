@@ -204,6 +204,14 @@ public:
      */
     void SetTextureLoadCallback(Renderer::TextureLoadCallback callback);
 
+    /**
+     * @brief Re-reads a texture loaded from a file and updates it in place.
+     * @see Renderer::TextureManager::ReloadTexture()
+     * @param name The texture's file base name, without extension.
+     * @return true if a loaded texture was updated.
+     */
+    auto ReloadTexture(const std::string& name) -> bool;
+
     void RenderFrame(uint32_t targetFramebufferObject = 0);
 
     /**

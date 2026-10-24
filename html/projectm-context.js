@@ -65,6 +65,7 @@ import {
     startFpsMonitor,
     syncCanvasSize,
 } from './context/render.js';
+import { createSpriteOn, destroySpriteOn, getSpriteVarOn, setSpriteVarOn } from './context/sprites.js';
 
 // Re-exported for embedders (`@projectm/web/context`): the encoder behind the
 // context options, for hosts that create engines through the raw exports.
@@ -961,6 +962,69 @@ export class ProjectMContext {
      */
     getFlashLimitStats() {
         return readFlashLimitStats(this.transport);
+    }
+
+    /**
+     * Adds a user sprite to this engine: an image drawn over every preset, positioned
+     * and colored by its own expression code (projectM-4/user_sprites.h). `code` is
+     * Milkdrop sprite code, one `key=value` per line:
+     *
+     * ```
+     * img=pm_depth_map          texture base name (from /textures/, no extension)
+     * init_1=x=0.5; y=0.5;      runs once
+     * code_1=a=0.5+0.4*bass;    runs every frame
+     * ```
+     *
+     * Sprite variables: x, y, sx, sy, rot, flipx, flipy, repeatx, repeaty,
+     * blendmode (0..4), r, g, b, a, burn, done, plus read-only time, frame, fps,
+     * progress, bass/mid/treb and their _att forms. Sprites survive preset
+     * switches; at the limit (16) the oldest is replaced.
+     *
+     * @param {string} code
+     * @param {{ type?: string }} [options] `type` defaults to `'milkdrop'`, the only one libprojectM knows.
+     * @returns {Promise<number>} The sprite id, for the other sprite methods. Rejects
+     *   before start(), on a bundle without the sprite exports, and when the engine
+     *   refuses the sprite (code that does not compile, an unknown type).
+     */
+    createSprite(code, { type = 'milkdrop' } = {}) {
+        return createSpriteOn(this.transport, String(code), type);
+    }
+
+    /**
+     * Removes a sprite created with {@link createSprite}. An id that no longer
+     * exists is ignored.
+     *
+     * @param {number} id
+     * @returns {Promise<void>}
+     */
+    destroySprite(id) {
+        return destroySpriteOn(this.transport, id);
+    }
+
+    /**
+     * Reads one of a sprite's expression variables (0 for an unknown sprite or name).
+     *
+     * @param {number} id
+     * @param {string} name
+     * @returns {Promise<number>}
+     */
+    getSpriteVar(id, name) {
+        return getSpriteVarOn(this.transport, id, name);
+    }
+
+    /**
+     * Sets one of a sprite's expression variables. The sprite's per-frame code runs
+     * after this, so a variable that code assigns every frame is overwritten; drive
+     * the sprite through a variable of your own that its code reads instead
+     * (`code_1=x=px;`, then set `px`).
+     *
+     * @param {number} id
+     * @param {string} name
+     * @param {number} value
+     * @returns {Promise<void>}
+     */
+    setSpriteVar(id, name, value) {
+        return setSpriteVarOn(this.transport, id, name, Number(value));
     }
 
     /**

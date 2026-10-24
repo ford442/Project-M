@@ -795,17 +795,58 @@ self-check. The unit tests are built but no longer run there; `build_linux.yml` 
   machine;
 - a real-browser audio-reactivity session.
 
-Neither can be run on software GL. On SwiftShader the headless audio-reactivity harness
-(`scripts/test_audio_reactivity_wasm.mjs`, preset `300-beatdetect-bassmidtreb.milk`) gives the
-landed build the same pass/fail profile as the pre-change build, with zero PCM ring overruns in
-both:
-- the worker topology passes;
-- on the main thread, treble, bands and stereo pass;
-- the main-thread bass assertion fails (the known issue noted in `build_emscripten.yml`).
+A GPU `?benchmark=1` run cannot be done on software GL. The audio-reactivity harness
+(`scripts/test_audio_reactivity_wasm.mjs`, preset `300-beatdetect-bassmidtreb.milk`) can. It is
+green on both topologies for bass, mid and treble, on SwiftShader.
 
-Main-thread red means (r) differ a little: silence 3.69 / bass 4.86 / treble 12.88 before, and
-3.69 / 4.58 / 13.35 after. This harness depends on timing, and the second run shared the CPU with
-two capture jobs.
+**The main-thread bass failure was a harness bug, not an engine one.** The main-thread leg used to
+fail `bass r > silence r + 8` (silence 3.69 / bass 4.86 red mean) while the worker leg passed.
+The worker leg never read pixels at all: it only checked that the PCM ring drained. So the two
+topologies were never compared on bass. The main-thread leg was wrong in four ways, none of which
+involved the engine:
+
+1. **It read a presented buffer.** It called `readPixels` on the canvas after awaiting an
+   animation frame. The context has no `preserveDrawingBuffer`, so the browser had already
+   presented and cleared it. Current bundles read back all zeros; older ones a few counts of
+   red. The page now captures inside `render_frame()` with `capture_frame_*`
+   (`captureFrameFromModule(..., { renderFrame: true })`), before present.
+2. **It measured the wrong preset.** `load_preset_file` is queued on the prepare thread, and
+   `is_preset_ready()` is already true for the boot preset, so the warm-up loop exited at frame
+   30 on whatever was playing. Captured with (1) fixed, the silence, bass and treble frames were
+   three different presets, and one of them was mid-blend. The page now locks, hard-loads, and
+   waits until both `updatePresetDisplay()` names the preset and `is_preset_ready(10)` (reset by
+   this request) is true.
+3. **It measured the wrong quantity.** The preset sets each band's wave *height*
+   (`y = bass / 10`), each in its own third of the screen and its own channel. A one-pixel red
+   line rising cannot move the whole-frame red mean by 8. The page now reads each band's channel
+   in that band's third.
+4. **Its "treble" tone was a mid tone.** `Loudness` splits the 512-bin spectrum into sixths, so
+   at 44.1 kHz bass is below ~3.7 kHz, mid to ~7.4 kHz and treble to ~11 kHz. 5 kHz was mid. The
+   windows are now 80 Hz, 5.5 kHz and 9 kHz, and mid is tested too.
+
+The worker leg kept its ring assertions (drained, frames rendered, and now zero overruns too) and
+gained the same band assertions through the worker's `captureFrame()`. It also feeds one analysis
+block per rendered frame, like the main thread. It used to feed on an 8 ms timer while SwiftShader
+rendered a frame every ~160 ms. Results (per-band mean, own channel in own third; 2026-10-22,
+SwiftShader):
+
+| Window | main bass / mid / treble | worker bass / mid / treble |
+|---|---|---|
+| silence | 1.7 / 7.5 / 1.7 | 2.8 / 12.2 / 3.0 |
+| 80 Hz | **8.1** / 9.5 / 5.6 | **16.4** / 19.4 / 11.4 |
+| 5.5 kHz | 6.1 / **60.0** / 42.5 | 9.6 / **98.7** / 47.5 |
+| 9 kHz | 6.4 / 33.0 / **46.3** | 9.3 / 59.8 / **48.5** |
+
+Each assertion is "this band's own wave is at least twice as bright as in silence (and +2)". The
+worst margin over three runs was main-thread bass, 6.8 against a threshold of 3.4. Brightness
+cannot say more than that. In silence a band sits at y = 0 on the bottom edge, and any level
+draws a line somewhere, so it tells on-screen from off, not height. It also cannot separate bands
+within one window: projectM's bands are relative to a running average that the silence window
+drove to near zero, so the 80 Hz window lights all three. A routing check across windows
+(bass in the 80 Hz window brighter than in the 9 kHz one) was tried and dropped: its margin was
+~17%, because it was comparing two lines at different heights by brightness. Absolute levels also
+differ between topologies, since the worker's frames are not paced by this page. Every assertion
+is relative to the same run's silence window, so that difference cannot fail either leg.
 
 ## Dual-FBO VRAM residency and lazy preset-A allocation (issue #199)
 

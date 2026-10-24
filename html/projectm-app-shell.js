@@ -27,7 +27,7 @@ import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
 import { createAudioSourceRouter } from './projectm-audio-source-router.js';
 import { setupShellUi } from './projectm-app-shell-ui.js';
 import { createBezel } from './projectm-bezel.js';
-import { ProjectMContext } from './projectm-context.js';
+import { PRESET_SWITCH_FAILED, ProjectMContext } from './projectm-context.js';
 import { createDisposables } from './projectm-disposables.js';
 import { setupExperimentalBridge } from './projectm-experimental-bridge.js';
 import {
@@ -73,7 +73,13 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
 import { loadWasmBuildsManifest } from './projectm-wasm-manifest.js';
 import { getSelectableWasmVersions } from './projectm-wasm-version.js';
 import { ensureWorkletReady } from './projectm-worklet-playback.js';
-import { applyWeeksOnFireDomConfig, isWeeksOnFireMode, wireFlacDecoderBridge } from './projectm-weeks-on-fire.js';
+import {
+    applyWeeksOnFireDomConfig,
+    isWeeksOnFireMode,
+    startWeeksOnFire,
+    wireFlacDecoderBridge,
+} from './projectm-weeks-on-fire.js';
+import { bundleScansAssets, loadPageTextures } from './projectm-textures.js';
 import { addPresetFile, loadPresetFile } from './generated/projectm-wasm-api.js';
 
 /**
@@ -99,6 +105,8 @@ import { addPresetFile, loadPresetFile } from './generated/projectm-wasm-api.js'
  * @property {boolean} bezel The B3HD frame + iris (projectm-bezel.js).
  * @property {boolean} wasmPicker The WASM build <select> and ?wasm= selection.
  * @property {boolean} keyboard Space / L / H / A / Escape.
+ * @property {boolean} presetFailedToast Show a preset the engine could not switch to in the
+ *   status toast (it keeps rendering the previous one, so it is a notice, not an error).
  * @property {string[]} chromeIds Faded with the panel.
  *
  * @typedef {object} BootOptions
@@ -143,6 +151,7 @@ export const SHELL_PROFILES = Object.freeze({
         bezel: false,
         wasmPicker: false,
         keyboard: false,
+        presetFailedToast: true,
         chromeIds: [],
     },
     panel2: {
@@ -161,6 +170,7 @@ export const SHELL_PROFILES = Object.freeze({
         bezel: true,
         wasmPicker: true,
         keyboard: true,
+        presetFailedToast: false,
         chromeIds: ['logo-left', 'logo-right', 'preset-name', 'audio-player-status', 'wasm-bundle-picker'],
     },
 });
@@ -331,6 +341,11 @@ export function boot(documentRef, options = {}) {
     let initInFlight = null;
 
     const getModule = () => /** @type {ProjectMModule | undefined} */ (pmContext?.module ?? undefined);
+    // Weeks on fire's preset loader: set by startWeeksOnFire() once the engine is
+    // up. Null in a normal session, and in weeks mode against a bundle old
+    // enough to seed its own playlist.
+    /** @type {ReturnType<typeof startWeeksOnFire> | null} */
+    let weeksLoader = null;
 
     // ---- the song loader: optional (a soft-404 HTML page fails the MIME check)
     import('./projectm-song-loader.js')
@@ -428,7 +443,16 @@ export function boot(documentRef, options = {}) {
         if (state.startupPresetsLoaded) return;
         state.startupPresetsLoaded = true;
         if (weeksOnFire) {
-            console.log(`${log} Weeks on fire: preset playlist seeded by WASM bootstrap`);
+            const context = pmContext;
+            if (bundleScansAssets(windowRef)) {
+                console.log(`${log} Weeks on fire: preset playlist seeded by the WASM bundle`);
+            } else if (context) {
+                weeksLoader = startWeeksOnFire({
+                    writePreset: (vfsPath, bytes, mode) => context.transport?.writePreset?.(vfsPath, bytes, mode),
+                    onPresetLoaded: updatePresetDisplay,
+                    playSong: () => import('./projectm-song-loader.js').then((mod) => mod.playRandomCatalogSong()),
+                });
+            }
             return;
         }
         const module = getModule();
@@ -508,6 +532,11 @@ export function boot(documentRef, options = {}) {
     /** Weeks-on-fire mode draws from its own scanned list. @returns {boolean} handled */
     function weeksPreset() {
         if (!weeksOnFire) return false;
+        if (weeksLoader) {
+            void weeksLoader.loader.loadRandom();
+            return true;
+        }
+        // Bundles built before the glue lost its XHR loaders install this themselves.
         const pick = /** @type {{ loadRandomWeeksPreset?: () => void }} */ (/** @type {unknown} */ (windowRef))
             .loadRandomWeeksPreset;
         if (typeof pick === 'function') pick();
@@ -774,7 +803,20 @@ export function boot(documentRef, options = {}) {
             aspectCorrection: state.bezel,
             presetLocked: state.locked,
             audioSource: 'none',
-            onError: (detail) => console.error(`${log} context init error:`, detail),
+            onError: (detail) => {
+                // A preset the engine could not switch to: it keeps rendering the
+                // previous one, so this is a passing notice, not an init error.
+                if (detail.code === PRESET_SWITCH_FAILED) {
+                    if (profile.presetFailedToast) {
+                        const preset = String(
+                            /** @type {{ preset?: string }} */ (detail.error ?? {}).preset ?? detail.message
+                        );
+                        ui.showStatus(`Preset failed: ${preset.split('/').pop() || preset}`, 'error', 4000);
+                    }
+                    return;
+                }
+                console.error(`${log} context init error:`, detail);
+            },
         };
         if (profile.transparency) {
             config.transparent = state.transparent;
@@ -830,6 +872,9 @@ export function boot(documentRef, options = {}) {
             );
         }
         flushQueuedExternalPCM();
+        // The engine only reports; the page fetches. Main-thread engines get the
+        // page's textures (the render worker's VFS is not reachable from here).
+        void loadPageTextures({ module: context.module ?? undefined, documentRef, windowRef });
         if (profile.transparency) ui.setTransparency(state.transparent);
         if (profile.devTools) ownDevTools(context);
         if (profile.autoSwitch && !weeksOnFire) {

@@ -335,7 +335,8 @@ test('shutdown stops the stats tick, destructs the engine and answers shutdown-c
     worker.posted.length = 0;
     await worker.send({ type: 'ccall', name: 'next_preset', returnType: null, argTypes: [], args: [], requestId: 9 });
     assert.equal(worker.posted.length, 1, 'a ccall after shutdown is answered, not left pending');
-    assert.match(worker.posted[0].error, /no engine in the render worker/);
+    assert.equal(worker.posted[0].type, 'ccall-rejected');
+    assert.match(worker.posted[0].message, /no engine in the render worker/);
 });
 
 test('shutdown while the module is still loading stops the boot before it creates an engine', async () => {
@@ -655,7 +656,7 @@ test('a fire-and-forget ccall posts nothing back', async () => {
     assert.deepEqual(worker.posted, []);
 });
 
-test('a throwing ccall is reported as an error, not left hanging silently', async () => {
+test('a throwing ccall with a requestId is answered with ccall-rejected', async () => {
     const module = fakeRingModule();
     const worker = loadWorker({ createModule: async () => module });
     await worker.send(initMessage());
@@ -664,19 +665,32 @@ test('a throwing ccall is reported as an error, not left hanging silently', asyn
 
     await worker.send({ type: 'ccall', name: 'boom', returnType: null, argTypes: [], args: [], requestId: 3 });
 
-    assert.deepEqual(worker.posted.map((m) => m.type), ['error', 'ccall-result']);
+    assert.equal(worker.posted.length, 1);
+    assert.equal(worker.posted[0].type, 'ccall-rejected');
+    assert.equal(worker.posted[0].requestId, 3);
     assert.match(worker.posted[0].message, /ccall boom failed: Error: bad arg/);
-    // The awaiting caller hears about it too; before, its promise never settled.
-    assert.equal(worker.posted[1].requestId, 3);
-    assert.match(worker.posted[1].error, /ccall boom failed: Error: bad arg/);
 });
 
-test('a ccall before the module exists is answered with an error when someone awaits it', async () => {
+test('a throwing fire-and-forget ccall is still reported as an error', async () => {
+    const module = fakeRingModule();
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+    module.ccall = () => { throw new Error('bad arg'); };
+
+    await worker.send({ type: 'ccall', name: 'boom', returnType: null, argTypes: [], args: [] });
+
+    assert.equal(worker.posted.length, 1);
+    assert.equal(worker.posted[0].type, 'error');
+    assert.match(worker.posted[0].message, /ccall boom failed: Error: bad arg/);
+});
+
+test('a ccall before the module exists is rejected when someone awaits it', async () => {
     const worker = loadWorker({ createModule: null });
     await worker.send({ type: 'ccall', name: 'x', returnType: null, argTypes: [], args: [] });
     assert.deepEqual(worker.posted, [], 'a fire-and-forget call is dropped');
     await worker.send({ type: 'ccall', name: 'x', returnType: null, argTypes: [], args: [], requestId: 1 });
-    assert.deepEqual(worker.posted, [{ type: 'ccall-result', requestId: 1, error: 'ccall x: no engine in the render worker' }]);
+    assert.deepEqual(worker.posted, [{ type: 'ccall-rejected', requestId: 1, message: 'ccall x: no engine in the render worker' }]);
 });
 
 test('the stats tick reports fps and the render-quality state', async () => {
@@ -926,7 +940,7 @@ test('both implementations cover every message type declared in the wire protoco
     assert.deepEqual(
         workerToHost.slice().sort(),
         [
-            'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
+            'ccall-rejected', 'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
             'error', 'frame-captured', 'init-error', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'rhythm-event',
             'shutdown-complete', 'stats', 'unsupported',
         ],

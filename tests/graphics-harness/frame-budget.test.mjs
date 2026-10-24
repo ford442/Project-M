@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    GPU_STAGES, buildBenchmarkRecord, compareBenchmarks, formatGpuStageTable, formatMarkdownTable, percentile, summarize,
+    GPU_STAGES, buildBenchmarkRecord, compareBenchmarks, formatGpuStageTable, formatMarkdownTable, hardwareBaselineProblems,
+    percentile, summarize,
 } from '../wasm-smoke/lib/frame-budget.mjs';
 
 function record(presets, extra = {}) {
@@ -158,4 +159,41 @@ test('a record without stage timings says why instead of printing an empty table
     const table = formatGpuStageTable(record([['a.milk', 10]]));
     assert.match(table, /No per-stage GPU timings in this record/);
     assert.equal(GPU_STAGES.length, 7, 'one per projectm_perf_gpu_stage');
+});
+
+test('a hardware record must carry gpuCopyMs and perPixelEvalMs for every preset to be a baseline', () => {
+    const stage = { count: 300, mean: 0.2, min: 0.1, p50: 0.2, p95: 0.3, p99: 0.4, max: 0.5 };
+    const complete = record([['a.milk', 10], ['b.milk', 12]]);
+    for (const preset of complete.presets) {
+        preset.gpuStagesMs = { copy: stage };
+        preset.perPixelEvalMs = stage;
+    }
+    assert.deepEqual(hardwareBaselineProblems(complete), []);
+
+    const noStages = record([['a.milk', 10]]);
+    assert.deepEqual(hardwareBaselineProblems(noStages), [
+        'a.milk: no gpuCopyMs (gpuStagesMs.copy)',
+        'a.milk: no perPixelEvalMs',
+    ]);
+
+    // An empty summary (no frame resolved a GPU result) is as good as none.
+    const emptyCopy = record([['a.milk', 10]]);
+    emptyCopy.presets[0].gpuStagesMs = { copy: { ...stage, count: 0 } };
+    emptyCopy.presets[0].perPixelEvalMs = stage;
+    assert.deepEqual(hardwareBaselineProblems(emptyCopy), ['a.milk: no gpuCopyMs (gpuStagesMs.copy)']);
+
+    assert.deepEqual(hardwareBaselineProblems(record([])), ['the record has no presets']);
+});
+
+test('a software-GL record cannot satisfy the hardware baseline even with stage times', () => {
+    // hardwareBaselineProblems() leaves software records to compareBenchmarks(),
+    // which reports them without gating; the committed SwiftShader record must
+    // stay ungateable whatever fields it carries.
+    const stage = { count: 300, mean: 0.2, min: 0.1, p50: 0.2, p95: 0.3, p99: 0.4, max: 0.5 };
+    const software = record([['a.milk', 10]], { softwareGl: true });
+    software.presets[0].gpuStagesMs = { copy: stage };
+    software.presets[0].perPixelEvalMs = stage;
+    const comparison = compareBenchmarks(software, record([['a.milk', 40]]));
+    assert.equal(comparison.pass, true);
+    assert.match(comparison.notes.join(' '), /software rasterizer/);
 });

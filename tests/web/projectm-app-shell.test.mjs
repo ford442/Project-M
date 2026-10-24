@@ -104,16 +104,22 @@ function click(env, element) {
 
 /**
  * Boots a shell in a fresh environment and always tears both down.
- * @param {{ profile: 'core' | 'panel2', storage?: object, search?: string }} setup
- * @param {(t: { env: any, shell: any, module: any, buttons: any, storage: any }) => Promise<void>} body
+ * @param {{ profile: 'core' | 'panel2', storage?: object, search?: string, beforeBoot?: (env: any) => void }} setup
+ * @param {(t: { env: any, shell: any, module: any, buttons: any, storage: any, fetched: string[] }) => Promise<void>} body
  */
-async function withShell({ profile, storage = fakeStorage(), search = '', bootOptions = {} }, body) {
+async function withShell({ profile, storage = fakeStorage(), search = '', bootOptions = {}, beforeBoot }, body) {
     const env = installLifecycleEnv();
     const savedFetch = globalThis.fetch;
+    /** @type {string[]} */
+    const fetched = [];
     // Every preset API / manifest request fails: the shell must cope.
-    globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => '' });
+    globalThis.fetch = async (url) => {
+        fetched.push(String(url));
+        return { ok: false, status: 404, json: async () => ({}), text: async () => '' };
+    };
     env.window.location.search = search;
     decorateWindow(env, storage);
+    beforeBoot?.(env);
     const buttons = buildPage(env, profile);
     const module = makeFakeModule();
     const warn = console.warn;
@@ -130,7 +136,7 @@ async function withShell({ profile, storage = fakeStorage(), search = '', bootOp
             ...bootOptions,
         });
         await shell.ready;
-        await body({ env, shell, module, buttons, storage });
+        await body({ env, shell, module, buttons, storage, fetched });
     } finally {
         shell?.dispose();
         console.warn = warn;
@@ -503,12 +509,27 @@ test('the knob follows a drag, by mouse and by touch', async () => {
     });
 });
 
-test('weeks-on-fire mode: Random draws from the scanned weeks list', async () => {
-    await withShell({ profile: 'core', search: '?mode=weeks_on_fire' }, async ({ env, shell }) => {
+test('weeks-on-fire mode: Random draws from the page\'s weeks loader', async () => {
+    await withShell({ profile: 'core', search: '?mode=weeks_on_fire' }, async ({ env, shell, fetched }) => {
         assert.match(env.document.title, /Weeks on Fire/);
-        shell.actions.randomPreset(); // scanner not ready yet: a warning, nothing else
-        let picks = 0;
-        env.window.loadRandomWeeksPreset = () => { picks += 1; };
+        await tick();
+        // The bundle does not scan assets itself, so the page started its own
+        // loader; its first listing request failed (404) and is retried per pick.
+        const before = fetched.length;
+        let glue = 0;
+        env.window.loadRandomWeeksPreset = () => { glue += 1; };
+        shell.actions.randomPreset();
+        shell.actions.randomCustom();
+        await tick();
+        assert.ok(fetched.length > before, 'the loader re-scans the weeks directory');
+        assert.equal(glue, 0, 'the page loader wins over a late glue global');
+    });
+});
+
+test('weeks-on-fire mode: a bundle that seeds its own playlist keeps drawing from it', async () => {
+    let picks = 0;
+    const beforeBoot = (env) => { env.window.loadRandomWeeksPreset = () => { picks += 1; }; };
+    await withShell({ profile: 'core', search: '?mode=weeks_on_fire', beforeBoot }, async ({ shell }) => {
         shell.actions.randomPreset();
         shell.actions.randomCustom();
         assert.equal(picks, 2);

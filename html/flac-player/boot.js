@@ -76,11 +76,11 @@ export async function bootFlacPlayer(documentRef, { windowRef = /** @type {FlacP
             console.warn('[projectM FLAC player] decode guard unavailable:', guardError);
         }
 
-        /** @type {typeof import('./projectm-pcm-bridge.js') | null} */
+        /** @type {typeof import('../projectm-pcm-bridge.js') | null} */
         let bridge = null;
         try {
-            bridge = /** @type {typeof import('./projectm-pcm-bridge.js')} */ (
-                await import(`./projectm-pcm-bridge.js${revQuery}`)
+            bridge = /** @type {typeof import('../projectm-pcm-bridge.js')} */ (
+                await import(`../projectm-pcm-bridge.js${revQuery}`)
             );
         } catch (bridgeError) {
             console.warn('[projectM FLAC player] local PCM bridge missing:', bridgeError);

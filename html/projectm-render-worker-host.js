@@ -459,8 +459,15 @@ export function setupRenderWorker({
                 const pending = pendingCcalls.get(msg.requestId);
                 if (pending) {
                     pendingCcalls.delete(msg.requestId);
-                    if (typeof msg.error === 'string') pending.reject(new Error(msg.error));
-                    else pending.resolve(msg.result);
+                    pending.resolve(msg.result);
+                }
+                break;
+            }
+            case 'ccall-rejected': {
+                const pending = pendingCcalls.get(msg.requestId);
+                if (pending) {
+                    pendingCcalls.delete(msg.requestId);
+                    pending.reject(new Error(msg.message));
                 }
                 break;
             }

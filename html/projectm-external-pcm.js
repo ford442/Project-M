@@ -149,7 +149,7 @@ const pendingExternalPCM = [];
 
 /**
  * How long a tagged producer (one that sends `producer` + `seq`, such as
- * html/flac-player/projectm-pcm-bridge.js) keeps untagged PCM out after its
+ * html/projectm-pcm-bridge.js) keeps untagged PCM out after its
  * last chunk, and how long a postMessage chunk keeps untagged BroadcastChannel
  * PCM out.
  *

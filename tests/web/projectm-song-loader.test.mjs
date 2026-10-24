@@ -17,6 +17,7 @@ import {
     parseSongManifest,
     scanSongCatalog,
 } from '../../html/projectm-song-loader.js';
+import { FLAC_PLAYER_SHELL_REV } from '../../html/projectm-audio-player.js';
 
 test('songExtension extracts extension from URLs', () => {
     assert.equal(songExtension('https://example.com/songs/track.MP3'), '.mp3');
@@ -300,7 +301,7 @@ test('FLAC fallback opens the bridged player, not ./flac/', async () => {
         const url = new URL(opened[0]);
         assert.match(url.pathname, /\/flac-player\/?$/);
         assert.equal(url.searchParams.get('projectm'), '1');
-        assert.equal(url.searchParams.get('rev'), '3');
+        assert.equal(url.searchParams.get('rev'), FLAC_PLAYER_SHELL_REV);
         assert.equal(url.searchParams.get('url'), 'https://projectm.1ink.us/songs/carol.flac');
         assert.match(bridgedFlacPlayerUrl('https://example.com/a.flac'), /projectm=1/);
     } finally {

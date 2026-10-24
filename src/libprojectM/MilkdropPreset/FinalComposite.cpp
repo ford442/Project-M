@@ -341,6 +341,17 @@ void FinalComposite::InitializeMesh(const PresetState& presetState)
     // Update mesh geometry and indices.
     m_compositeMesh.Update();
     m_radiusAngle.Update();
+
+    // Without this the size check above never matched and the mesh was rebuilt and
+    // re-uploaded on every frame (PerPixelMesh and Filters already store theirs).
+    m_viewportWidth = presetState.renderContext.viewportSizeX;
+    m_viewportHeight = presetState.renderContext.viewportSizeY;
+    s_meshRebuildCount.fetch_add(1, std::memory_order_relaxed);
+}
+
+auto FinalComposite::MeshRebuildCount() -> uint64_t
+{
+    return s_meshRebuildCount.load(std::memory_order_relaxed);
 }
 
 float FinalComposite::SquishToCenter(float x, float exponent)

@@ -632,7 +632,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmRhythm.cpp` | Musical time: `get_rhythm_*` readouts, `set_rhythm_hint`, `set_preset_switch_policy`, `transition_set_duration_beats`, `set_hard_cut_on_beat`, and the `set_rhythm_events` → `pmOnRhythmEvent` beat/bar/section events (see [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis)) |
 | `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
 | `WasmPresetPrepare.hpp` / `WasmPresetPrepare.cpp` | Per-host preset prepare thread and its single-slot queue; activation of prepared presets from `render_frame()` (see [Preset loading](#preset-loading)) |
-| `WasmJsBindings.cpp` | EM_JS clusters: DOM/VFS bootstrap (`js_init_projectm_dom`), preset download helpers, host-page notifications |
+| `WasmJsBindings.cpp` | EM_JS glue only: the main-thread VFS/song bootstrap (`js_init_projectm_glue`) and the preset-name / init-error / preset-switch-failure notifications to the host page. No DOM and no network: fetching presets, textures and songs is the host page's job (see [Page-side asset loading](#page-side-asset-loading)); `tests/web/wasm-glue-dom.test.mjs` keeps it that way |
 
 `ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` is a
 header of cohesive graphics classes shared by two TUs; it exceeds the ~800-LOC
@@ -895,9 +895,38 @@ QA/testing without needing to actually break WebGL.
 
 Failures that happen *after* a successful `init()` (e.g. an individual preset fails to switch)
 do not use the overlay. Instead, `on_preset_switch_failed` calls
-`js_report_preset_switch_failed(preset_filename, message)`, which logs a `console.warn` and, if
-the page defines a `#stat` element, sets its text to `Preset failed: <name>` with a red
-background — the same readout already used for preset-loading status messages.
+`js_report_preset_switch_failed(host, preset_filename, message)`, which
+
+- logs a `console.warn`;
+- sets `globalThis.projectMPresetSwitchFailed` / `projectMPresetSwitchFailure` (for pages and
+  smoke tests that poll rather than subscribe);
+- calls `globalThis.pmOnPresetSwitchFailed(host, preset, message)` if the page defined it. That is
+  an engine callback on the bus (`html/projectm-wasm-callbacks.js`), so a page listens with
+  `subscribeWasmCallback('pmOnPresetSwitchFailed', ({ host, preset, message }) => ...)`.
+
+The engine writes nothing to the page's DOM. `ProjectMContext` subscribes for its own engine and
+reports each failure through `onError` and its `error` event with code `PRESET_SWITCH_FAILED`
+(`-2`, exported from `html/projectm-context.js`); `<project-m-visualizer>` turns that into a
+`pm-error` event, so a page can tell a preset that would not load (the engine keeps running the
+previous one) from a failed boot. `projectm-core.html` shows it as a passing toast in its `#stat`
+element. In the render-worker topology the report stays in the worker's console, as before.
+
+### Page-side asset loading
+
+Presets, textures and the weeks-on-fire playlist are fetched by the host page and written into the
+engine's VFS; the glue used to download them itself with `XMLHttpRequest`, scraping `#milkPath`,
+`#textureDir` and friends and writing `#stat`, which threw on a page without those elements.
+
+| What | Where | Notes |
+|------|-------|-------|
+| Presets | `html/projectm-presets.js`, `transport.writePreset()` | Both topologies: the render worker's `writePreset` message writes into its VFS. |
+| Textures | `html/projectm-textures.js` (`loadPageTextures`) | Lists `#textureDir` (default `textures/`) and writes each image to `/textures`. Main-thread engines only; skipped on capture pages. |
+| Weeks on fire | `html/projectm-weeks-on-fire.js` (`startWeeksOnFire`) | Seeds 5 presets from `#weeksPresetDir`, then starts a random song through `projectm-song-loader.js`. |
+| Songs | `html/projectm-song-loader.js` | Catalog from `index.json` or the directory listing; owns `#musicBtn`. |
+
+A bundle built before this change still scans on its own and installs
+`globalThis.loadRandomWeeksPreset`; the pages detect that (`bundleScansAssets()`) and do not load
+the same files a second time.
 
 ## Audio Autoplay Policy
 
@@ -1220,12 +1249,13 @@ black-canvas/regressions in the render pipeline without a full browser.
 
 `capture.html`:
 
-- Sets `window.__projectMCaptureMode = true` before loading the WASM module. `js_init_projectm_dom()`
-  (`projectM_emscripten.cpp`) checks this flag (and `?capture=1`/`?capture=true`) and, if set, skips
-  the `scanTextures()` / `scanSongs()` / `scanCustomMilk()` remote XHR scans that `init()` would
-  otherwise kick off — keeping the capture page free of non-deterministic network I/O. The page
-  already provides the stub DOM elements (`#musicBtn`, `#customMilkBtn`, `#milkPath`, `#textureDir`,
-  `#songDir`, `#track`) that `js_init_projectm_dom()` expects.
+- Sets `window.__projectMCaptureMode = true` before loading the WASM module. The engine no longer
+  fetches anything during `init()` (the glue has no network code), so a capture page is free of
+  non-deterministic network I/O by construction; the flag (and `?capture=1`/`?capture=true`) still
+  makes `loadPageTextures()` skip the texture scan on host pages, and keeps bundles built before the
+  glue cleanup from running their `scanTextures()` / `scanSongs()` / `scanCustomMilk()` XHR scans.
+  The page still provides the stub DOM elements (`#musicBtn`, `#customMilkBtn`, `#milkPath`,
+  `#textureDir`, `#songDir`, `#track`) those older bundles expect; the current glue ignores them.
 - After `load_preset_file()`, polls `is_preset_ready()` / `preset_switch_failed()`
   (`EMSCRIPTEN_KEEPALIVE`, `WasmPlaylistBridge.cpp`) once per `requestAnimationFrame` instead of a
   fixed sleep, so the capture waits for shader compile/link to finish and for a few frames of the

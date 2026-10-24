@@ -29,7 +29,8 @@
 //   { type: 'error', message }
 //   { type: 'stats', fps, fboFormat, qualityTier, renderScale, renderPathOverrides }
 //   { type: 'pcm-ring', descriptor }
-//   { type: 'ccall-result', requestId, result } | { requestId, error }
+//   { type: 'ccall-result', requestId, result }
+//   { type: 'ccall-rejected', requestId, message }    // the ccall with that requestId threw
 //   { type: 'shutdown-complete' }                     // answer to 'shutdown'; terminate now
 //   { type: 'context-lost' }                          // webglcontextlost on the OffscreenCanvas
 //   { type: 'context-restored' }                      // webglcontextrestored; engine not rebuilt yet
@@ -535,11 +536,13 @@ function handleCcall(module, msg) {
     try {
         result = module.ccall(msg.name, msg.returnType || null, msg.argTypes || [], msg.args || []);
     } catch (error) {
-        postToHost({ type: 'error', message: `ccall ${msg.name} failed: ${error}` });
-        // A caller awaiting the result must hear about it too, or its promise
-        // never settles (an export an older deployed bundle lacks is the usual cause).
+        const message = `ccall ${msg.name} failed: ${error}`;
+        // A call with a requestId has a promise waiting on the host; settle it.
+        // Fire-and-forget calls have nobody to answer, so they stay an error.
         if (msg.requestId !== undefined) {
-            postToHost({ type: 'ccall-result', requestId: msg.requestId, error: `ccall ${msg.name} failed: ${error}` });
+            postToHost({ type: 'ccall-rejected', requestId: msg.requestId, message });
+        } else {
+            postToHost({ type: 'error', message });
         }
         return;
     }
@@ -926,7 +929,7 @@ self.onmessage = (event) => {
             } else if (msg.requestId !== undefined) {
                 // Before boot or after shutdown: say so rather than leave the
                 // caller's promise pending forever.
-                postToHost({ type: 'ccall-result', requestId: msg.requestId, error: `ccall ${msg.name}: no engine in the render worker` });
+                postToHost({ type: 'ccall-rejected', requestId: msg.requestId, message: `ccall ${msg.name}: no engine in the render worker` });
             }
             break;
         case 'recover-context':

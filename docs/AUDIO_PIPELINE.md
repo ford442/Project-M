@@ -289,10 +289,10 @@ Generators live in `html/projectm-synthetic-audio.js`.
 | `window.postMessage` / `parent.postMessage` / `window.opener.postMessage` | Cross-origin popups and iframes | **Required** — receiver allowlist |
 | `BroadcastChannel('projectm-audio')` | Same-origin embeds only | Not applicable (same page) |
 
-Player-side helper: `html/flac-player/projectm-pcm-bridge.js` (`createPcmSender`,
+Player-side helper: `html/projectm-pcm-bridge.js` (`createPcmSender`,
 `installProjectMPcmBridge`).
 
-#### FLAC player PCM capture (`html/flac-player/projectm-pcm-bridge.js`)
+#### FLAC player PCM capture (`html/projectm-pcm-bridge.js`)
 
 The bridge patches `AudioNode.prototype.connect` before the player bundle builds
 its graph. Any node connected to `context.destination` is also connected to a
@@ -681,7 +681,7 @@ function sendPcmToProjectM(analyserNode, sampleRate) {
 ```
 
 This one-window-per-frame pattern is fine for a player that is the only sender.
-`html/flac-player/projectm-pcm-bridge.js` shows the better pattern: an
+`html/projectm-pcm-bridge.js` shows the better pattern: an
 AudioWorklet capture that sends every sample once, in stereo, tagged with
 `producer`/`seq`.
 

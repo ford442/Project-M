@@ -39,11 +39,23 @@
 
 export const AUDIO_CHANNEL_NAME = 'projectm-audio';
 
+/**
+ * The slice of a `window` the bridge reads, and what it posts PCM to. A real
+ * `Window` satisfies it; the tests inject plain objects.
+ *
+ * @typedef {object} FeedWindow
+ * @property {FeedWindow | null} [opener]
+ * @property {FeedWindow | null} [parent]
+ * @property {{ search?: string }} [location]
+ * @property {string} [name]
+ * @property {Function} [postMessage]
+ */
+
 // The window the player should feed: the opener (popup case) or the embedding
 // parent (iframe case). Null when the page is standalone (nothing to feed).
 /**
- * @param {{ opener?: Window | null, parent?: Window | null }} win
- * @returns {Window | null}
+ * @param {FeedWindow} win
+ * @returns {FeedWindow | null}
  */
 export function resolveFeedTarget(win) {
     if (win.opener && win.opener !== win) return win.opener;
@@ -54,11 +66,15 @@ export function resolveFeedTarget(win) {
 // True when this page is acting as a projectM audio feeder rather than a
 // standalone player: explicit ?projectm=1, the popup window.name the host uses,
 // or simply having an opener/parent to feed.
-/** @param {Window} win */
+/**
+ * @param {FeedWindow} win
+ * @returns {boolean}
+ */
 export function isProjectMFeederMode(win) {
+    /** @type {URLSearchParams | null} */
     let params;
     try {
-        params = new URLSearchParams(win.location.search);
+        params = new URLSearchParams(win.location?.search);
     } catch {
         params = null;
     }
@@ -141,7 +157,7 @@ export function interleaveStereo(inputBuffer) {
 // there is no target. Never both: a same-origin host hears both and would feed
 // every block twice.
 /**
- * @param {{ target?: { postMessage: Function } | null, broadcastChannel?: { postMessage: Function } | null, producer?: string }} [options]
+ * @param {{ target?: FeedWindow | null, broadcastChannel?: { postMessage: Function } | null, producer?: string }} [options]
  * @returns {(buffer: Float32Array, channels: number, sampleRate: number) => void}
  */
 export function createPcmSender({ target, broadcastChannel = null, producer = PCM_BRIDGE_PRODUCER } = {}) {
@@ -174,9 +190,25 @@ export function createPcmSender({ target, broadcastChannel = null, producer = PC
 }
 
 /**
+ * What the bridge needs from `AudioNode.prototype`: `connect`, which it patches.
+ * @typedef {{ connect: Function }} AudioNodeProtoLike
+ */
+
+/**
+ * The browser globals the bridge touches, on top of the {@link FeedWindow} slice.
+ * @typedef {FeedWindow & {
+ *   AudioNode?: { prototype: AudioNodeProtoLike },
+ *   BroadcastChannel?: typeof BroadcastChannel,
+ *   AudioWorkletNode?: typeof AudioWorkletNode,
+ *   Blob?: typeof Blob,
+ *   URL?: { createObjectURL?: (blob: Blob) => string },
+ * }} PcmBridgeWindow
+ */
+
+/**
  * @typedef {object} PcmBridgeOptions
- * @property {Window & typeof globalThis} [windowRef]
- * @property {AudioNode} [audioNodeProto] The prototype whose connect() is patched.
+ * @property {PcmBridgeWindow} [windowRef]
+ * @property {AudioNodeProtoLike} [audioNodeProto]
  * @property {typeof BroadcastChannel} [broadcastChannelCtor]
  * @property {typeof AudioWorkletNode} [audioWorkletNodeCtor]
  * @property {typeof Blob} [blobCtor]
@@ -184,22 +216,37 @@ export function createPcmSender({ target, broadcastChannel = null, producer = PC
  * @property {number} [blockFrames]
  * @property {string} [channelName]
  * @property {boolean} [force] Install even when the page is not a feeder.
- *
- * @typedef {object} CaptureTap One per AudioContext the player renders into.
- * @property {BaseAudioContext} context
- * @property {GainNode} input Sources connect here; the capture node hangs off it.
- * @property {GainNode} sink Muted, on the destination, so the capture node keeps running.
- * @property {AudioWorkletNode | ScriptProcessorNode | null} node
- * @property {boolean} closed
- *
+ */
+
+/**
+ * @typedef {object} PcmBridgeStats
+ * @property {number} blocks PCM blocks posted.
+ * @property {number} frames Stereo frames posted.
+ * @property {number} sampleRate The capturing context's rate.
+ * @property {string} captureKind `none`, `audio-worklet` or `script-processor`.
+ */
+
+/**
  * @typedef {object} PcmBridge
  * @property {boolean} installed
  * @property {() => void} uninstall
- * @property {() => ({ blocks: number, frames: number, sampleRate: number, captureKind: string } | null)} stats
+ * @property {() => PcmBridgeStats | null} stats
+ */
+
+/**
+ * A capture tap on one AudioContext: everything connected to its destination is
+ * also connected to `input`, which feeds the capture node.
+ * @typedef {object} PcmTap
+ * @property {BaseAudioContext} context
+ * @property {GainNode} input
+ * @property {GainNode} sink
+ * @property {AudioNode | null} node
+ * @property {boolean} closed
  */
 
 // Install the bridge. Injectables (windowRef, audioNodeProto, …) exist so the
 // wiring can be unit-tested without a real browser/Web Audio stack.
+// Returns { installed, uninstall, stats() }.
 /**
  * @param {PcmBridgeOptions} [options]
  * @returns {PcmBridge}
@@ -215,6 +262,7 @@ export function installProjectMPcmBridge({
     channelName = AUDIO_CHANNEL_NAME,
     force = false
 } = {}) {
+    /** @type {PcmBridge} */
     const noop = { installed: false, uninstall() {}, stats: () => null };
     if (!windowRef) return noop;
     if (!force && !isProjectMFeederMode(windowRef)) return noop;
@@ -256,10 +304,11 @@ export function installProjectMPcmBridge({
     const WorkletNode = audioWorkletNodeCtor || windowRef.AudioWorkletNode;
     const BlobCtor = blobCtor || windowRef.Blob;
     const makeUrl = createObjectURL || (windowRef.URL && windowRef.URL.createObjectURL
-        ? (/** @type {Blob} */ blob) => windowRef.URL.createObjectURL(blob)
+        ? (/** @type {Blob} */ blob) => /** @type {string} */ (windowRef.URL?.createObjectURL?.(blob))
         : null);
     /** @type {string | null} */
     let processorUrl = null;
+    /** @returns {string | null} */
     function captureModuleUrl() {
         if (processorUrl) return processorUrl;
         if (typeof BlobCtor !== 'function' || typeof makeUrl !== 'function') return null;
@@ -267,29 +316,26 @@ export function installProjectMPcmBridge({
         return processorUrl;
     }
 
-    // connect() is overloaded (AudioNode / AudioParam destinations); the bridge
-    // only ever forwards its arguments, so one loose signature covers both.
-    /** @type {(this: AudioNode, destination: AudioNode | AudioParam, ...rest: number[]) => unknown} */
-    const originalConnect = /** @type {any} */ (proto.connect);
+    const originalConnect = proto.connect;
     /** Nodes the bridge built itself: their connect() calls are not tapped. */
-    /** @type {WeakSet<AudioNode>} */
+    /** @type {WeakSet<object>} */
     const ownNodes = new WeakSet();
     /** @type {WeakMap<BaseAudioContext, GainNode>} */
     const tapsByContext = new WeakMap();
-    /** @type {CaptureTap[]} */
+    /** @type {PcmTap[]} */
     const taps = [];
 
     /**
      * @param {BaseAudioContext} context
-     * @param {GainNode} input
-     * @param {GainNode} sink
+     * @param {AudioNode} input
+     * @param {AudioNode} sink
      * @returns {ScriptProcessorNode | null}
      */
     function attachScriptProcessor(context, input, sink) {
         if (typeof context.createScriptProcessor !== 'function') return null;
         const processor = context.createScriptProcessor(blockFrames, 2, 2);
         ownNodes.add(processor);
-        processor.onaudioprocess = (/** @type {AudioProcessingEvent} */ event) => {
+        processor.onaudioprocess = (event) => {
             const block = interleaveStereo(event.inputBuffer);
             if (block) send(block, context.sampleRate);
         };
@@ -301,9 +347,9 @@ export function installProjectMPcmBridge({
 
     /**
      * @param {BaseAudioContext} context
-     * @param {GainNode} input
-     * @param {GainNode} sink
-     * @param {CaptureTap} tap
+     * @param {AudioNode} input
+     * @param {AudioNode} sink
+     * @param {PcmTap} tap
      * @returns {Promise<AudioWorkletNode | null>}
      */
     async function attachWorklet(context, input, sink, tap) {
@@ -353,7 +399,7 @@ export function installProjectMPcmBridge({
         sink.gain.value = 0;
         originalConnect.call(sink, context.destination);
 
-        /** @type {CaptureTap} */
+        /** @type {PcmTap} */
         const tap = { context, input, sink, node: null, closed: false };
         tapsByContext.set(context, input);
         taps.push(tap);
@@ -369,12 +415,11 @@ export function installProjectMPcmBridge({
     }
 
     /**
-     * @this {AudioNode}
-     * @param {AudioNode | AudioParam} destination
-     * @param {number[]} rest output / input indices, forwarded as given
+     * @this {{ context?: BaseAudioContext }}
+     * @param {unknown} destination
      */
-    function patchedConnect(destination, ...rest) {
-        const result = originalConnect.call(this, destination, ...rest);
+    proto.connect = function patchedConnect(destination) {
+        const result = originalConnect.apply(this, arguments);
         try {
             const context = this.context;
             if (context && destination && destination === context.destination && !ownNodes.has(this)) {
@@ -384,15 +429,14 @@ export function installProjectMPcmBridge({
             console.debug('[projectM FLAC bridge] tap connect failed (non-fatal):', error);
         }
         return result;
-    }
-    proto.connect = /** @type {AudioNode['connect']} */ (/** @type {unknown} */ (patchedConnect));
+    };
 
     return {
         installed: true,
         stats: () => ({ ...counters }),
         uninstall() {
             active = false;
-            proto.connect = /** @type {AudioNode['connect']} */ (/** @type {unknown} */ (originalConnect));
+            proto.connect = originalConnect;
             for (const tap of taps) {
                 tap.closed = true;
                 for (const node of [tap.node, tap.input, tap.sink]) {
@@ -400,8 +444,9 @@ export function installProjectMPcmBridge({
                         try { node.disconnect(); } catch { /* already gone */ }
                     }
                 }
-                if (tap.node && 'port' in tap.node) tap.node.port.onmessage = null;
-                if (tap.node && 'onaudioprocess' in tap.node) tap.node.onaudioprocess = null;
+                const node = /** @type {{ port?: MessagePort, onaudioprocess?: unknown } | null} */ (tap.node);
+                if (node && node.port) node.port.onmessage = null;
+                if (node) node.onaudioprocess = null;
             }
             taps.length = 0;
             if (broadcastChannel) {

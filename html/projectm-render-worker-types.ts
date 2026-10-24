@@ -427,16 +427,24 @@ export interface RenderWorkerPcmRingMessage {
     descriptor: PcmRingDescriptor;
 }
 
-/**
- * Worker → host: the result of a `ccall` that carried a `requestId`. `error`
- * instead of `result` when the call threw (an export the bundle lacks) or the
- * worker had no engine to call; the host rejects the caller's promise with it.
- */
+/** Worker → host: the result of a `ccall` that carried a `requestId`. */
 export interface RenderWorkerCcallResultMessage {
     type: 'ccall-result';
     requestId: number;
     result?: unknown;
-    error?: string;
+}
+
+/**
+ * Worker → host: a `ccall` that carried a `requestId` threw (an export the bundle
+ * lacks), or the worker had no engine to call. Rejects the host's pending
+ * promise with `message`. A `ccall` without a `requestId` (`ccallVoid`)
+ * has nothing waiting, so its failure is reported as a
+ * {@link RenderWorkerErrorMessage} instead.
+ */
+export interface RenderWorkerCcallRejectedMessage {
+    type: 'ccall-rejected';
+    requestId: number;
+    message: string;
 }
 
 /**
@@ -532,6 +540,7 @@ export type RenderWorkerMessage =
     | RenderWorkerStatsMessage
     | RenderWorkerPcmRingMessage
     | RenderWorkerCcallResultMessage
+    | RenderWorkerCcallRejectedMessage
     | RenderWorkerPerfFramesMessage
     | RenderWorkerPerfHudMessage
     | RenderWorkerRhythmEventMessage

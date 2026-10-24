@@ -29,7 +29,9 @@ Core behavior belongs in shared modules:
   `BroadcastChannel` so the WASM glue's `'sng'` posts are intercepted before
   the legacy `./flac/` popup sees them, falling back to that popup only when
   in-page routing fails. MOD files stay on the Audio Player button.
-- `projectm-weeks-on-fire.js`: **Weeks on Fire** demo mode (`?mode=weeks_on_fire`) — points texture/song/preset scanners at `./weeks_textures/`, `./weeks_songs/`, and `./weeks_presets/` on the host (e.g. `projectm.1ink.us`). WASM bootstrap seeds a random playlist and auto-starts the FLAC decoder.
+- `projectm-weeks-on-fire.js`: **Weeks on Fire** demo mode (`?mode=weeks_on_fire`) — points the texture/song/preset scanners at `./weeks_textures/`, `./weeks_songs/`, and `./weeks_presets/` on the host (e.g. `projectm.1ink.us`). `startWeeksOnFire()` seeds a random playlist through `transport.writePreset` (either render topology) and starts a random song through the song loader.
+- `projectm-textures.js`: fetches the page's `#textureDir` listing into the engine's `/textures` VFS directory (`loadPageTextures`). This used to be XMLHttpRequest inside the WASM glue.
+- `projectm-pcm-bridge.js`: the Web Audio capture bridge the in-repo FLAC/MOD player shells install (and `projectm-display-capture.js` reuses) to post PCM to the host. Lives at the html root so `tsconfig.json`'s `projectm-*.js` glob type-checks it.
 
 ### Panel Chrome
 
@@ -78,7 +80,7 @@ There are two kinds of `pm*` name, handled differently:
 - **Engine callbacks** — names the WASM glue looks up by fixed ABI: `pmOnPerfFrame`,
   `pmSetPerfHudEnabled`, `pmOnGovernorTierChange`, `pmOnGovernorRenderScaleChange`,
   `pmOnGovernorBlurCapChange`, `pmOnTranspiledShaderStored`, `pmReportInitError`,
-  `pmHideInitError`, `pmOnRhythmEvent` (`WASM_CALLBACK_NAMES`). These cannot be opt-in: a
+  `pmHideInitError`, `pmOnPresetSwitchFailed`, `pmOnRhythmEvent` (`WASM_CALLBACK_NAMES`). These cannot be opt-in: a
   page that never imports a shim must still hear the governor. `projectm-wasm-callbacks.js`
   installs each name once, fans it out to every `subscribeWasmCallback(name, listener)`
   subscriber, and removes it when the last one leaves.

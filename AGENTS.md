@@ -65,7 +65,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── WasmPlaylistBridge.cpp  # Preset callbacks + playlist path helpers
 │   ├── WasmPresetPrepare.cpp   # Per-host preset prepare thread (no ASYNCIFY)
 │   ├── WasmPresent.cpp         # Flash-limiter switches, per-host frame capture, commit counter
-│   └── WasmJsBindings.cpp      # EM_JS DOM/VFS bootstrap + host-page notifications
+│   └── WasmJsBindings.cpp      # EM_JS glue: VFS/song bootstrap + host-page notifications (no DOM, no network)
 ├── CMakeLists.txt          # Root build configuration
 ├── vcpkg.json              # vcpkg dependency manifest
 ├── features.cmake          # Compiler flags, filesystem support, config.h generation
@@ -475,6 +475,16 @@ render-worker's wire format is written down, and it has two implementations —
   type declared in the union types is both posted by one side and handled by
   the other, so a type renamed on one side is a red test rather than a silent
   postMessage that goes nowhere.
+
+#### The WASM glue stays out of the page
+
+`tests/web/wasm-glue-dom.test.mjs` reads the `EM_JS`/`EM_ASM` bodies in `src/wasm/` and fails on
+`XMLHttpRequest`, `innerHTML`, `#stat`/`#milkPath` or any hard-coded selector lookup, then runs the
+bodies in Node against a `document` that throws on any access. Fetching presets, textures and songs
+and writing status text belong to the host page (`html/projectm-presets.js`,
+`projectm-textures.js`, `projectm-weeks-on-fire.js`); the engine reports through the callback bus
+(`pmOnPresetSwitchFailed`, ...). `tests/wasm-smoke/host_contract_names.mjs` repeats the selector
+check against the linked glue in CI.
 
 #### IndexedDB and DOM in Node
 

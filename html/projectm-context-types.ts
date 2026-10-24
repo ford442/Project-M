@@ -178,6 +178,11 @@ export interface ProjectMCapturedFrame {
 }
 
 export interface ProjectMErrorDetail {
+    /**
+     * The engine's init code (docs/EMSCRIPTEN.md), `-1` for any other failure,
+     * or `-2` (`PRESET_SWITCH_FAILED`) for a preset that failed to load while
+     * the engine keeps running.
+     */
     code: number;
     message: string;
     error?: unknown;

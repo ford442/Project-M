@@ -55,6 +55,23 @@ export function collectContractNames(sourceDir = wasmSourceDir) {
     return [...names].sort();
 }
 
+// Page elements the glue used to look up by id and scrape or write (innerHTML,
+// XMLHttpRequest downloads, status text). The engine reports through the
+// callback bus now; the host page owns its own DOM (docs/EMSCRIPTEN.md,
+// "Page-side asset loading"). Only the canvas selectors remain, and they are
+// parameters. Emscripten's own runtime legitimately contains XMLHttpRequest
+// (worker readBinary, FS lazy loading), so the selectors are the signal.
+const LEGACY_DOM_SELECTORS = [
+    'stat', 'milkPath', 'milkPath2', 'textureDir', 'songDir', 'mp3SongDir', 'modSongDir',
+    'weeksPresetDir', 'flacDecoderUrl', 'customMilkDir', 'customMilkManifest', 'track',
+    'musicBtn', 'milkBtn', 'createSpriteBtn', 'meshSize',
+];
+
+/** Legacy page selectors still present as string literals in a linked glue file. */
+export function findLegacyDomReads(glue) {
+    return LEGACY_DOM_SELECTORS.filter((id) => new RegExp(`["'\`]#${id}\\b`).test(glue));
+}
+
 export function findMissingNames(glue, names) {
     return names.filter((name) => {
         const escaped = name.replace(/\$/g, '\\$');
@@ -76,6 +93,11 @@ function main() {
         for (const name of missing) {
             console.error(`  - ${name}`);
         }
+        process.exit(1);
+    }
+    const legacy = findLegacyDomReads(glue);
+    if (legacy.length > 0) {
+        console.error(`Glue reads the host page again: ${legacy.map((id) => `#${id}`).join(', ')} in ${gluePath}`);
         process.exit(1);
     }
     console.log(`Host contract intact: all ${names.length} names present in ${gluePath}`);

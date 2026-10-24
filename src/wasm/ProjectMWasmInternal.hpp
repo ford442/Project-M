@@ -174,10 +174,11 @@ void js_perf_report_frame(double host, double totalMs, double audioMs, double pe
                           double compositeMs, double gpuMs, double fps, int shaderLinkPending,
                           int perPixelEvalPath, double rhythmMs, double flashClampedFrames);
 
-// JS bindings / DOM + host-page notifications (WasmJsBindings.cpp)
+// JS glue + host-page notifications (WasmJsBindings.cpp); no DOM, no network
 void js_update_preset_name(const char* name);
-void js_report_preset_switch_failed(const char* preset_filename, const char* message);
-void js_init_projectm_dom();
+// `host` is EventHostHandle() of the engine whose preset failed.
+void js_report_preset_switch_failed(double host, const char* preset_filename, const char* message);
+void js_init_projectm_glue();
 // Both report for the active host (EventHostHandle()); _for_host names it.
 void js_report_init_error(int code, const char* detail);
 void js_report_init_error_for_host(double host, int code, const char* detail);

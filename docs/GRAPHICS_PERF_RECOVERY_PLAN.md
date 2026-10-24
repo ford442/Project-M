@@ -734,6 +734,53 @@ is `formatGpuStageTable()`'s `copy / GPU` and `CPU per-pixel` columns on a hardw
 [GRAPHICS_BENCHMARK_HARNESS.md "Hardware baseline"](GRAPHICS_BENCHMARK_HARNESS.md#hardware-baseline).
 Record the verdict here, with the record's commit and runner, when it exists.
 
+### Hardware capture contract
+
+CI runners here are software GL, so the hardware record has to come from a session on a machine
+with a real GPU. That session is done when it has produced all of the following, from one commit
+and one machine:
+
+1. **The frame-budget record, captured twice.** A headed Chrome (or
+   `PROJECTM_CHROMIUM_EXECUTABLE=<chrome>`), with a bundle linked from that commit:
+
+   ```bash
+   PROJECTM_BENCH_MANIFEST=presets/benchmark_hardware.json \
+     node scripts/benchmark_presets_wasm.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js \
+     --headed --out benchmark-results/preset-benchmark.json
+   node scripts/record_frame_budget.mjs --input benchmark-results/preset-benchmark.json \
+     --runner "<stable machine name>" --gpu "<GPU model>"
+   ```
+
+   Run both commands twice. Keep the first output as `benchmark-results/<sha>.json` and save the
+   second under another name, for example `<sha>.repeat.json`. The repeat only measures noise and
+   is not committed. The preset set is `presets/benchmark_hardware.json`: `000-empty`,
+   `110-per_pixel`, `custom_milk_fixed/milk012`, `280-compshader-blur3`, and the `milk012 → milk015`
+   crossfade.
+2. **The record must be a baseline.** It has `"softwareGl": false`, and every preset carries
+   `gpuStagesMs.copy` (`gpuCopyMs`) and `perPixelEvalMs` with samples. Otherwise
+   `scripts/compare_benchmark_results.mjs` exits 2 when the record is used as `--base`
+   (`hardwareBaselineProblems()` in `tests/wasm-smoke/lib/frame-budget.mjs`). A browser without
+   `EXT_disjoint_timer_query_webgl2` (Safari, most mobile) cannot produce one. Check the record's
+   `gpu` field names the real GPU, not SwiftShader or llvmpipe.
+3. **The per-pixel A/B** for `docs/GPU_PERPIXEL_EVAL.md` acceptance, on the player page with the
+   same canvas size, run once per path:
+
+   ```text
+   html/projectm-core.html?benchmark=1&perfhud=1&frames=600&preset=/presets/tests/110-per_pixel.milk
+   html/projectm-core.html?benchmark=1&perfhud=1&frames=600&preset=/presets/tests/110-per_pixel.milk&perPixelEval=cpu
+   ```
+
+   Each run prints `[projectM benchmark] {...}` to the console and posts `pm-benchmark-result`.
+   Keep both JSON blobs. The comparison is `perPixelEvalMs` and `gpuMs`, GPU path against CPU path.
+
+**Stop rule.** For each preset, compare `gpuCopyMs` p50 in the record with the run-to-run
+difference in `gpuMs` p50 between the record and its repeat. If `gpuCopyMs` is inside that noise
+for every preset, **end the Y-flip campaign**. Write the verdict and both commits/runner here and
+leave the three passes in. Do not fold more copies into UVs to recover time that the measurement
+cannot see. Only if `gpuCopyMs` clearly exceeds the noise on some shape do the folds listed above
+start, and then only for that shape.
+
+
 ---
 
 ## Tracked sub-issues

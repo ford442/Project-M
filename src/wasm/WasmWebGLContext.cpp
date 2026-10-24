@@ -411,7 +411,11 @@ static bool ReplaceCanvasElement(const char* selector)
                    const sel = UTF8ToString($0);
                    const targets = typeof specialHTMLTargets !== 'undefined' ? specialHTMLTargets : null;
                    const doc = globalThis.document;
-                   const old = (targets && targets[sel]) || (doc ? doc.querySelector(sel) : null);
+                   const registered = targets && targets[sel];
+                   if (!registered && !doc) {
+                       return 0;
+                   }
+                   const old = registered || doc.querySelector(sel);
                    if (!old || typeof HTMLCanvasElement === 'undefined' || !(old instanceof HTMLCanvasElement) || !old.parentNode) {
                        return 0;
                    }

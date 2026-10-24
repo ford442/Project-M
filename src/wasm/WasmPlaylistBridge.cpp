@@ -63,7 +63,7 @@ void on_preset_switch_failed(const char* preset_filename, const char* message, v
     printf("Preset switch failed (%s): %s\n", preset_filename, message);
     g_presetSwitchFailed = true;
     app_data.loading = EM_FALSE;
-    js_report_preset_switch_failed(preset_filename, message);
+    js_report_preset_switch_failed(EventHostHandle(H), preset_filename, message);
     return;
 }
 

@@ -742,9 +742,10 @@ is the same browser session Phase 1 still owes.
   amy-able.milk` in one process diverge from frame 2 although `rand()` never fires and
   `time` is pinned. Not per-pixel related, and not investigated; `TimeKeeper` seeding its
   first frame from the wall clock is one candidate.
-- **`FinalComposite::InitializeMesh()`** has the same never-stored viewport check that
-  made the warp grid rebuild every frame, so the composite mesh is rebuilt every frame
-  too. Not touched here.
+- **`FinalComposite::InitializeMesh()`** had the same never-stored viewport check that
+  made the warp grid rebuild every frame. It now stores the viewport after a rebuild, so
+  the composite mesh is rebuilt and re-uploaded on a resize only.
+  `FinalCompositeMeshTest` (`FinalComposite::MeshRebuildCount()`) locks that in.
 
 ---
 

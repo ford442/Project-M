@@ -34,6 +34,14 @@
     // the render loop or the event loop; a load that never completes fails loud.
     const PRESET_READY_TIMEOUT_MS = 30000;
 
+    // Heavy-preset "the render loop kept running" check: a prepare that blocked the loop
+    // shows up as no frame for longer than this many frame intervals. A shorter prepare
+    // cannot tell blocked from out-of-phase, so it is not asserted. The interval is
+    // measured from FRAME_INTERVAL_SAMPLE_FRAMES frames just before the request (capped).
+    const BLOCKED_LOOP_FRAMES = 4;
+    const FRAME_INTERVAL_SAMPLE_FRAMES = 4;
+    const FRAME_INTERVAL_SAMPLE_TIMEOUT_MS = 3000;
+
     function mark(step) {
       result.steps.push(step);
       console.log('[wasm-smoke]', step);
@@ -338,6 +346,26 @@
     }
 
     /**
+     * Mean interval between rendered frames of the loop as it runs right now (current preset,
+     * current canvas), from the next few frames. Gives the "no frames" check a yardstick that
+     * scales with the machine: a SwiftShader frame costs far more than a GPU one.
+     */
+    async function measureFrameIntervalMs(Module) {
+      const startFrames = Module._get_rendered_frame_count();
+      const t0 = performance.now();
+      while (Module._get_rendered_frame_count() - startFrames < FRAME_INTERVAL_SAMPLE_FRAMES
+        && performance.now() - t0 < FRAME_INTERVAL_SAMPLE_TIMEOUT_MS) {
+        await sleep(4);
+      }
+      const frames = Module._get_rendered_frame_count() - startFrames;
+      if (frames < 1) {
+        throw new Error('main loop rendered no frames in ' + (FRAME_INTERVAL_SAMPLE_TIMEOUT_MS / 1000).toFixed(1)
+          + ' s before the heavy preset was requested');
+      }
+      return (performance.now() - t0) / frames;
+    }
+
+    /**
      * Section 0 lifecycle regressions (preset prepare queue issue): compositor program leak, playlist
      * leak on context loss / destroy_host, stale handle in set_active_host, and a
      * legacy export before create_host() halving the host budget. Bundles that
@@ -588,9 +616,15 @@
       mark('preset copied to MEMFS');
 
       // load_preset_callback_done() reports the playlist item it switched to,
-      // which only happens once a load has really been activated.
+      // which only happens once a load has really been activated. It runs inside the
+      // activating frame, before that frame is counted, so the frame count taken here is
+      // the number of frames that were fully drawn before the new preset took over.
       const switchedTo = [];
-      globalThis.updatePresetDisplay = (name) => switchedTo.push(name);
+      const framesAtSwitch = new Map();
+      globalThis.updatePresetDisplay = (name) => {
+        switchedTo.push(name);
+        framesAtSwitch.set(name, Module._get_rendered_frame_count());
+      };
 
       // The load is prepared on the host's prepare thread; the ccall returns at once.
       Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
@@ -655,23 +689,36 @@
         // until the new one is activated.
         const heavySrc = params.get('heavy') || '/custom_milk_fixed/milk011.milk';
         await writePresetToMemfs(Module, heavySrc, '/presets/heavy.milk');
+        const frameMs = await measureFrameIntervalMs(Module);
         const framesAtRequest = Module._get_rendered_frame_count();
+        const requestedAt = performance.now();
         Module.ccall('load_preset_file', null, ['string'], ['/presets/heavy.milk']);
-        let framesWhileLoading = 0;
-        const heavyDeadline = performance.now() + PRESET_READY_TIMEOUT_MS;
+        const heavyDeadline = requestedAt + PRESET_READY_TIMEOUT_MS;
         while (Module._is_preset_ready(0) === 0) {
           if (Module._preset_switch_failed()) throw new Error('heavy preset: preset_switch_failed');
           if (performance.now() > heavyDeadline) throw new Error('heavy preset: timed out waiting for ready');
-          framesWhileLoading = Module._get_rendered_frame_count() - framesAtRequest;
           await sleep(4);
         }
+        const prepareMs = performance.now() - requestedAt;
         if (!switchedTo.includes('/presets/heavy.milk')) {
           throw new Error('heavy preset reported ready but never switched');
         }
-        if (framesWhileLoading < 1) {
-          throw new Error('render loop produced no frames while the heavy preset was prepared');
+        // Frames drawn before the heavy preset was activated. The count after the loop would
+        // include the activating frame itself, which proves nothing: that frame is drawn even
+        // if the loop was blocked for the whole prepare.
+        const framesWhileLoading = framesAtSwitch.get('/presets/heavy.milk') - framesAtRequest;
+        const timing = 'prepare ' + prepareMs.toFixed(0) + ' ms, frame interval ' + frameMs.toFixed(0) + ' ms';
+        if (framesWhileLoading >= 1) {
+          mark('heavy preset prepared off-thread; ' + framesWhileLoading + ' frame(s) rendered meanwhile (' + timing + ')');
+        } else if (prepareMs > BLOCKED_LOOP_FRAMES * frameMs) {
+          throw new Error('render loop produced no frames while the heavy preset was prepared (' + timing + ')');
+        } else {
+          // A loop that is merely out of phase with the prepare misses at most about one frame
+          // interval. A prepare that short cannot show that the loop kept running, so it is
+          // reported but not asserted; counting it as a failure only made this step flaky.
+          mark('heavy preset prepared in under ' + BLOCKED_LOOP_FRAMES + ' frame intervals, no frame landed in the window; '
+            + 'off-thread prepare not asserted (' + timing + ')');
         }
-        mark('heavy preset prepared off-thread; ' + framesWhileLoading + ' frame(s) rendered meanwhile');
       } else {
         mark('dual-FBO exports absent; skipped soft-cut path');
       }

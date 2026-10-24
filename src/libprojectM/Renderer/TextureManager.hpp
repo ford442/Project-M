@@ -62,6 +62,20 @@ public:
     void PurgeTextures();
 
     /**
+     * @brief Re-reads a texture loaded from a file and updates it in place.
+     *
+     * The texture search paths are rescanned first, so a file written since the last preset
+     * load is found. Every preset already sampling the texture sees the new image on its next
+     * frame, without being reloaded.
+     *
+     * @param name The texture's file base name, without extension or filter/wrap prefix, e.g. "pm_depth_map".
+     * @return true if a texture of that name was loaded from a file and has been updated;
+     *         false if none was (it is then loaded on the next preset load that asks for it,
+     *         and a running preset keeps whatever it got), the file is gone or can't be decoded.
+     */
+    auto ReloadTexture(const std::string& name) -> bool;
+
+    /**
      * @brief Sets a callback function for loading textures from non-filesystem sources.
      * @param callback The callback function, or nullptr to disable.
      */
@@ -135,6 +149,7 @@ private:
 
     std::shared_ptr<Texture> m_placeholderTexture;                          //!< Texture used if a requested file couldn't be found. A black 1x1 texture.
     std::map<std::string, std::shared_ptr<Texture>> m_textures;             //!< All loaded textures, including generated ones.
+    std::set<std::string> m_fileTextures;                                   //!< Names in m_textures that LoadTexture() read from a file.
     std::map<std::pair<Device::WrapMode, Device::FilterMode>, std::shared_ptr<Sampler>> m_samplers; //!< The four sampler objects for each combination of wrap and filter modes.
     std::map<std::string, UsageStats> m_textureStats;                       //!< Map with texture stats for user-loaded files.
     std::vector<std::string> m_randomTextures;

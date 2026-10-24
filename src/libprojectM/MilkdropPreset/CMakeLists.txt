@@ -49,6 +49,8 @@ add_library(MilkdropPreset OBJECT
         DarkenCenter.cpp
         DarkenCenter.hpp
         EvalLibMutex.cpp
+        ExperimentalDepthSampler.cpp
+        ExperimentalDepthSampler.hpp
         Factory.cpp
         Factory.hpp
         Filters.cpp

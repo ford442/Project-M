@@ -222,6 +222,11 @@ void ProjectM::SetTextureLoadCallback(Renderer::TextureLoadCallback callback)
     }
 }
 
+auto ProjectM::ReloadTexture(const std::string& name) -> bool
+{
+    return m_textureManager && m_textureManager->ReloadTexture(name);
+}
+
 void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 {
     Perf::FrameGuard perfFrameGuard;

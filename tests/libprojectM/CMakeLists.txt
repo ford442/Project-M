@@ -14,6 +14,7 @@ set(INCLUDE_FILES
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/projectm_perf.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/render_opengl.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/rhythm.h
+        ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/texture_reload.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/touch.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/user_sprites.h
 
@@ -31,6 +32,7 @@ test_api_headers(TestMainAPIHeaders
 
 add_executable(projectM-unittest
         ColorOutputTest.cpp
+        ExperimentalDepthSamplerTest.cpp
         FlashLimiterTest.cpp
         FramebufferTest.cpp
         HeadlessGlContext.cpp
@@ -54,6 +56,7 @@ add_executable(projectM-unittest
         RenderDeviceTest.cpp
         RhythmAnalyzerTest.cpp
         ShaderCacheTest.cpp
+        UserSpriteApiTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>

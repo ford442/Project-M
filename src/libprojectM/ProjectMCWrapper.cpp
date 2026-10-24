@@ -921,6 +921,18 @@ void projectm_sprite_set_var(projectm_handle instance, uint32_t sprite_id, const
 
     projectMInstance->UserSpriteSetVariableValue(sprite_id, var_name, value);
 }
+
+bool projectm_reload_texture(projectm_handle instance, const char* texture_name)
+{
+    if (texture_name == nullptr)
+    {
+        return false;
+    }
+
+    auto* projectMInstance = handle_to_instance(instance);
+
+    return projectMInstance->ReloadTexture(texture_name);
+}
 void projectm_set_log_callback(projectm_log_callback callback, bool current_thread_only, void* user_data)
 {
     if (current_thread_only)

@@ -537,13 +537,6 @@ if (milkBtnEl) {
 // #customMilkBtn is owned by the host page (randomCustom / preset picker).
 // Do not attach a second click handler here — it caused double preset loads.
 
-var createSpriteBtnEl = pmDoc.querySelector('#createSpriteBtn');
-if (createSpriteBtnEl) {
-    createSpriteBtnEl.addEventListener('click',function(){
-        Module._createSprite();
-    });
-}
-
 if (isCaptureMode) {
     console.log('projectM capture mode: skipping texture, song, and custom milk network scans.');
 } else {

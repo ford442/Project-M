@@ -1,8 +1,10 @@
 // projectm-experimental-bridge.js — opt-in bridge between B3HD advanced hooks and presets.
 // Enable with ?experimental=1 on projectm-core.html (or full legacy hosts).
 // Does not modify Milkdrop parsing; only injects host-side assets via the WASM VFS.
+// (libprojectM itself reads the `// pm:experimental` header for one thing: a preset
+// that asks for a depth texture may sample it as `pm_depth` in its shaders.)
 
-import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { createSprite, loadPresetFile, reloadTexture } from './generated/projectm-wasm-api.js';
 import { createDisposables } from './projectm-disposables.js';
 
 /**
@@ -23,8 +25,21 @@ import { createDisposables } from './projectm-disposables.js';
  */
 
 const DEFAULT_DEPTH_MODULE_URL = 'https://noahcohn.com/dpt-shader-sml-001.3ijs';
-const DEPTH_TEXTURE_NAME = 'pm_depth_map.png';
+/** The texture name presets and sprites use (libprojectM drops the extension). */
+const DEPTH_TEXTURE = 'pm_depth_map';
+const DEPTH_TEXTURE_NAME = `${DEPTH_TEXTURE}.png`;
 const DEPTH_VFS_PATH = `/textures/${DEPTH_TEXTURE_NAME}`;
+
+/**
+ * A 1x1 opaque black PNG. Written as the depth map before any real one exists,
+ * so a preset sampling `pm_depth` binds a texture loaded from a file — which
+ * reload_texture() can later update in place — instead of the engine's shared
+ * placeholder, which it cannot.
+ */
+const DEPTH_SEED_PNG = Uint8Array.from(
+    atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGD4DwABBAEAgLvRWwAAAABJRU5ErkJggg=='),
+    (c) => c.charCodeAt(0),
+);
 
 const PM_EXPERIMENTAL_HEADER = /^\/\/\s*pm:experimental\s+(.+)$/im;
 
@@ -219,6 +234,55 @@ function ensureResultImage(owned) {
 }
 
 /**
+ * Writes the seed depth map unless a depth map is already there.
+ * @param {ProjectMModuleLike | null | undefined} module
+ * @returns {boolean} Whether the seed was written.
+ */
+export function seedDepthTexture(module) {
+    if (!module?.FS) return false;
+    const fs = /** @type {ExperimentalFS & { analyzePath?: (p: string) => { exists: boolean } }} */ (
+        /** @type {unknown} */ (module.FS)
+    );
+    try {
+        if (fs.analyzePath?.(DEPTH_VFS_PATH).exists) return false;
+        injectVfsTexture(module, DEPTH_VFS_PATH, DEPTH_SEED_PNG);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
+ * Writes depth-map PNG bytes and gets them in front of the running preset: the
+ * engine re-reads the loaded `pm_depth_map` texture in place when it can, so a
+ * preset sampling `pm_depth` (or a shape or sprite using the image) shows the
+ * new map on its next frame. Only when no loaded texture could be updated (a
+ * bundle without reload_texture(), or a preset that never asked for the image)
+ * is the preset reloaded, as before.
+ *
+ * @param {ProjectMModuleLike | null | undefined} module
+ * @param {Uint8Array} bytes PNG bytes.
+ * @param {{ reloadPresetPath?: string, displayName?: string }} [options]
+ * @returns {'in-place' | 'preset-reload' | 'written'} How the new map reached the engine.
+ */
+export function bindDepthBytes(module, bytes, options = {}) {
+    injectVfsTexture(module, DEPTH_VFS_PATH, bytes);
+    const engine = /** @type {ProjectMModule} */ (module);
+    if (typeof /** @type {Record<string, unknown>} */ (module)?._reload_texture === 'function'
+        && reloadTexture(engine, DEPTH_TEXTURE) === 1) {
+        return 'in-place';
+    }
+    if (options.reloadPresetPath && module?.ccall) {
+        loadPresetFile(engine, options.reloadPresetPath);
+        if (options.displayName && window.updatePresetDisplay) {
+            window.updatePresetDisplay(options.displayName);
+        }
+        return 'preset-reload';
+    }
+    return 'written';
+}
+
+/**
  * @param {ProjectMModuleLike | null | undefined} module
  * @param {string | HTMLImageElement} depthImageSource
  * @param {{ reloadPresetPath?: string, displayName?: string }} [options]
@@ -226,15 +290,9 @@ function ensureResultImage(owned) {
  */
 export async function applyDepthTexture(module, depthImageSource, options = {}) {
     const bytes = await imageToPngBytes(depthImageSource);
-    injectVfsTexture(module, DEPTH_VFS_PATH, bytes);
-    if (options.reloadPresetPath && module?.ccall) {
-        loadPresetFile(/** @type {ProjectMModule} */ (module), options.reloadPresetPath);
-        if (options.displayName && window.updatePresetDisplay) {
-            window.updatePresetDisplay(options.displayName);
-        }
-    }
+    const delivery = bindDepthBytes(module, bytes, options);
     window.dispatchEvent(new CustomEvent('pm:depth-texture-ready', {
-        detail: { vfsPath: DEPTH_VFS_PATH, bytesLength: bytes.length }
+        detail: { vfsPath: DEPTH_VFS_PATH, bytesLength: bytes.length, delivery }
     }));
     return DEPTH_VFS_PATH;
 }
@@ -258,27 +316,36 @@ export async function captureCanvasForDepth(module, canvas, options = {}) {
 }
 
 /**
- * Build Milkdrop user-sprite code that layers the depth texture as a parallax overlay.
- * Call via create_sprite-style host API when available; otherwise useful as a template.
+ * Build Milkdrop user-sprite code that layers the depth texture as a parallax overlay,
+ * for create_sprite() / ProjectMContext.createSprite(): one key per line, `img=` a
+ * texture base name, `init_N=` run once, `code_N=` run every frame.
  * @param {{ image?: string, scale?: number, blendmode?: number }} opts
  */
 export function buildDepthSpriteCode(opts = {}) {
-    const image = opts.image || `textures/${DEPTH_TEXTURE_NAME}`;
+    const image = opts.image || DEPTH_TEXTURE;
     const scale = Number.isFinite(opts.scale) ? opts.scale : 1.0;
     const blendmode = Number.isFinite(opts.blendmode) ? opts.blendmode : 1;
     return [
-        '[preset01]',
-        `img='${image}';`,
-        `per_frame_1=blendmode=${blendmode};`,
-        'per_frame_2=x=0.5;',
-        'per_frame_3=y=0.5;',
-        'per_frame_4=z=0.0;',
-        `per_frame_5=scaling=${scale};`,
-        'per_pixel_1=a=0.55+0.35*bass_att;',
-        'per_pixel_2=r=1.0;',
-        'per_pixel_3=g=1.0;',
-        'per_pixel_4=b=1.0;'
+        '[img01]',
+        `img=${image}`,
+        `init_1=blendmode=${blendmode}; x=0.5; y=0.5; sx=${scale}; sy=${scale};`,
+        'code_1=a=0.55+0.35*bass_att; r=1; g=1; b=1;'
     ].join('\n');
+}
+
+/**
+ * Spawns the depth overlay sprite on the active host, or returns 0 on a bundle
+ * whose create_sprite() predates its arguments (only the projectm_sprite_*
+ * exports tell the two apart).
+ * @param {ProjectMModuleLike | null | undefined} module
+ * @param {{ image?: string, scale?: number, blendmode?: number }} [opts]
+ * @returns {number} The sprite id, 0 if none was created.
+ */
+export function spawnDepthSprite(module, opts = {}) {
+    if (typeof /** @type {Record<string, unknown>} */ (module)?._projectm_sprite_create !== 'function') {
+        return 0;
+    }
+    return Number(createSprite(/** @type {ProjectMModule} */ (module), 'milkdrop', buildDepthSpriteCode(opts))) || 0;
 }
 
 /**
@@ -360,16 +427,28 @@ export function setupExperimentalBridge(module, options = {}) {
             return path;
         },
         /**
-         * Attempt user-sprite overlay via the hard-coded create_sprite export if present,
-         * after rewriting is not available — logs sprite code for manual use.
+         * Spawn the depth overlay sprite. Returns its id (destroy it with
+         * ProjectMContext.destroySprite() or projectm_sprite_destroy), or 0 on a
+         * bundle without the sprite exports.
+         * @param {{ image?: string, scale?: number, blendmode?: number }} [opts]
          */
+        spawnDepthSprite(opts) {
+            const id = spawnDepthSprite(module, opts);
+            setStatus(id ? `Depth sprite ${id} spawned` : 'This bundle cannot create sprites', !id);
+            return id;
+        },
+        /** Logs the depth sprite code for use elsewhere. */
         spawnDepthSpriteHint() {
             const code = buildDepthSpriteCode();
-            console.info('[pm:experimental] depth sprite template (paste into create_sprite host or Milkdrop sprite):\n', code);
+            console.info('[pm:experimental] depth sprite code (for create_sprite / ProjectMContext.createSprite):\n', code);
             setStatus('Depth sprite template logged to console');
             return code;
         }
     };
+
+    // Before any preset asks for it, so the first one that samples pm_depth binds
+    // a file texture the first real depth map can update in place.
+    seedDepthTexture(module);
 
     // Returned to the host, which decides whether to publish it for console use
     // (`exposeExperimentalGlobals()` in projectm-legacy-globals.js). Internally
@@ -500,6 +579,7 @@ function setStatus(message, isError = false) {
  * @param {Record<string, any>} state
  * @param {{ bindDepthResult: (src?: string) => Promise<string>,
  *           runDepthFromUpload: (imageDataUrl: string) => Promise<string>,
+ *           spawnDepthSprite: () => number,
  *           spawnDepthSpriteHint: () => string }} api
  *   Passed in rather than read back off `window.pmExperimental`.
  * @param {Disposables} owned Takes the panel, its style and its listeners down on dispose.
@@ -546,7 +626,7 @@ function injectPanel(module, state, api, owned) {
 <div class="row">
   <button type="button" id="pm-exp-gltf-load">glTF load</button>
   <button type="button" id="pm-exp-gltf-save">glTF save</button>
-  <button type="button" id="pm-exp-sprite">Sprite template</button>
+  <button type="button" id="pm-exp-sprite">Depth sprite</button>
 </div>
 <div class="row">
   <label class="file-btn"><input type="file" id="pm-exp-upload" accept="image/*" hidden />Upload image</label>
@@ -625,6 +705,9 @@ function injectPanel(module, state, api, owned) {
     });
 
     owned.listen(control('#pm-exp-sprite'), 'click', () => {
-        api.spawnDepthSpriteHint();
+        // An older bundle cannot take sprite code; the console gets it instead.
+        if (!api.spawnDepthSprite()) {
+            api.spawnDepthSpriteHint();
+        }
     });
 }

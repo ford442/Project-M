@@ -160,6 +160,18 @@ public:
      */
     void Update(const void* data) const;
 
+    /**
+     * @brief Replaces the image with one of a possibly different size, keeping the device texture.
+     *
+     * Everything holding this texture (preset sampler descriptors, sprites) samples the new
+     * image from the next draw on, without being told. Only for textures this object owns.
+     *
+     * @param data The new image data, in the texture's format.
+     * @param width The new width in pixels.
+     * @param height The new height in pixels.
+     */
+    void Replace(const void* data, int width, int height);
+
 private:
     /**
      * @brief Creates a new, blank texture with the given size.

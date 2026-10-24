@@ -161,8 +161,56 @@ void TextureManager::PurgeTextures()
     // is unloaded.
     m_textures.erase(m_textures.find(biggestName));
     m_textureStats.erase(m_textureStats.find(biggestName));
+    m_fileTextures.erase(biggestName);
 
     LOG_DEBUG("[TextureManager] Purged texture \"" + biggestName + "\"");
+}
+
+auto TextureManager::ReloadTexture(const std::string& name) -> bool
+{
+    // A file base name, not a sampler name: "pm_depth_map" must not lose "pm_" as a filter prefix.
+    std::string const lowerCaseName = Utils::ToLower(name);
+
+    auto const loaded = m_textures.find(lowerCaseName);
+    if (loaded == m_textures.end() || m_fileTextures.count(lowerCaseName) == 0)
+    {
+        // Not loaded, or not from a file (generated, or from the load callback): nothing a
+        // file can update in place.
+        return false;
+    }
+
+    // The file may have been written since the last scan.
+    m_scannedTextureFiles.clear();
+    m_filesScanned = false;
+    ScanTextures();
+
+    for (const auto& file : m_scannedTextureFiles)
+    {
+        if (file.lowerCaseBaseName != lowerCaseName)
+        {
+            continue;
+        }
+
+        int width{};
+        int height{};
+        std::unique_ptr<stbi_uc, decltype(&free)> imageData(stbi_load(file.filePath.c_str(), &width, &height, nullptr, 4), free);
+        if (imageData == nullptr || width <= 0 || height <= 0)
+        {
+            LOG_WARN("[TextureManager] Failed to decode \"" + file.filePath + "\" for reloading texture \"" + name + "\"");
+            return false;
+        }
+
+        loaded->second->Replace(imageData.get(), width, height);
+        auto stats = m_textureStats.find(lowerCaseName);
+        if (stats != m_textureStats.end())
+        {
+            stats->second.sizeBytes = static_cast<uint32_t>(width) * static_cast<uint32_t>(height) * 4;
+        }
+        LOG_DEBUG("[TextureManager] Reloaded texture \"" + name + "\" from file: " + file.filePath);
+        return true;
+    }
+
+    return false;
 }
 
 auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSamplerDescriptor
@@ -188,6 +236,7 @@ auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSample
             auto newTexture = std::make_shared<Texture>(unqualifiedName, Device::TextureHandle{loadData.textureId},
                                                         Device::TextureTarget::Texture2D, loadData.width, loadData.height, true, false);
             m_textures[lowerCaseUnqualifiedName] = newTexture;
+            m_fileTextures.erase(lowerCaseUnqualifiedName);
             uint32_t memoryBytes = loadData.width * loadData.height * (loadData.channels > 0 ? loadData.channels : 4);
             m_textureStats.insert({lowerCaseUnqualifiedName, {memoryBytes}});
             LOG_DEBUG("[TextureManager] Loaded texture \"" + unqualifiedName + "\" from callback (texture ID)");
@@ -214,6 +263,7 @@ auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSample
             if (newTexture && !newTexture->Empty())
             {
                 m_textures[lowerCaseUnqualifiedName] = newTexture;
+                m_fileTextures.erase(lowerCaseUnqualifiedName);
                 uint32_t memoryBytes = width * height * channels;
                 m_textureStats.insert({lowerCaseUnqualifiedName, {memoryBytes}});
                 LOG_DEBUG("[TextureManager] Loaded texture \"" + unqualifiedName + "\" from callback (pixel data)");
@@ -276,6 +326,7 @@ auto TextureManager::LoadTexture(const ScannedFile& file) -> std::shared_ptr<Tex
     uint32_t const memoryBytes = width * height * 4; // RGBA, unsigned byte color channels.
     m_textures[file.lowerCaseBaseName] = newTexture;
     m_textureStats.insert({file.lowerCaseBaseName, {memoryBytes}});
+    m_fileTextures.insert(file.lowerCaseBaseName);
 
     return newTexture;
 }

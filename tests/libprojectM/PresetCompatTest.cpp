@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <MilkdropPreset/ExperimentalDepthSampler.hpp>
 #include <MilkdropPreset/MilkdropShader.hpp>
 #include <MilkdropPreset/PresetFileParser.hpp>
 #include <MilkdropPreset/ShaderTranspiler.hpp>
@@ -187,8 +188,10 @@ auto CheckPreset(const std::string& filePath) -> PresetCheckResult
     }
     result.parsed = true;
 
-    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, parser.GetCode("warp_"));
-    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, parser.GetCode("comp_"));
+    // Read like PresetState does, so an experimental preset's pm_depth is declared here too.
+    using libprojectM::MilkdropPreset::ExperimentalDepthSampler;
+    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, ExperimentalDepthSampler::ShaderCode(parser, "warp_"));
+    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, ExperimentalDepthSampler::ShaderCode(parser, "comp_"));
 
     return result;
 }

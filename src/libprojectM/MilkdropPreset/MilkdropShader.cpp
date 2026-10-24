@@ -656,7 +656,18 @@ void MilkdropShader::GetReferencedSamplers(const std::string& program, MilkdropS
         if (end != std::string::npos)
         {
             std::string const sampler = stripped.substr(static_cast<int>(found), static_cast<int>(end - found));
-            source.samplerNames.insert(sampler);
+            // A sampler "XY_name" already provides texsize_name. When "name" itself looks
+            // prefixed (e.g. "pm_depth_map"), loading it separately would strip that part too
+            // and bind a different, usually missing, texture.
+            bool const sizedByPrefixedSampler =
+                sampler.length() > 3 && sampler.at(2) == '_' &&
+                std::any_of(source.samplerNames.begin(), source.samplerNames.end(), [&sampler](const std::string& name) {
+                    return name.length() == sampler.length() + 3 && name.at(2) == '_' && name.compare(3, std::string::npos, sampler) == 0;
+                });
+            if (!sizedByPrefixedSampler)
+            {
+                source.samplerNames.insert(sampler);
+            }
         }
 
         found = stripped.find("texsize_", found);

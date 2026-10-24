@@ -30,6 +30,7 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
+        FinalCompositeMeshTest.cpp
         FlashLimiterTest.cpp
         FramebufferTest.cpp
         HeadlessGlContext.cpp

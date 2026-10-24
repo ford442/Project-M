@@ -15,12 +15,19 @@
  * Exits 1 when the gate fails, 0 otherwise. Runs that are not comparable
  * (software GL, or two different runners) are printed and always exit 0 — a
  * gate that fires on incomparable numbers is a gate people turn off.
+ *
+ * Exits 2 when the base is a hardware record (`"softwareGl": false`) without the
+ * per-stage times every baseline must carry: `gpuCopyMs` (gpuStagesMs.copy) and
+ * `perPixelEvalMs` for each preset. See hardwareBaselineProblems() and
+ * docs/GRAPHICS_PERF_RECOVERY_PLAN.md "Hardware capture contract".
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { compareBenchmarks, formatGpuStageTable, formatMarkdownTable } from '../tests/wasm-smoke/lib/frame-budget.mjs';
+import {
+    compareBenchmarks, formatGpuStageTable, formatMarkdownTable, hardwareBaselineProblems,
+} from '../tests/wasm-smoke/lib/frame-budget.mjs';
 
 function parseArgs(argv) {
     const options = {
@@ -62,6 +69,14 @@ for (const [label, path] of [['base', options.base], ['head', options.head]]) {
 const base = JSON.parse(readFileSync(options.base, 'utf8'));
 const head = JSON.parse(readFileSync(options.head, 'utf8'));
 
+const baseProblems = hardwareBaselineProblems(base);
+if (baseProblems.length > 0) {
+    console.error(`${options.base} is a hardware record without the stage times a baseline needs:`);
+    for (const problem of baseProblems) console.error(`  - ${problem}`);
+    console.error('Re-capture it per docs/GRAPHICS_PERF_RECOVERY_PLAN.md "Hardware capture contract".');
+    process.exit(2);
+}
+
 const comparison = compareBenchmarks(base, head, {
     maxRegressionPct: options.maxRegressionPct,
     minAbsoluteDeltaMs: options.minAbsoluteDeltaMs,
@@ -76,6 +91,13 @@ const markdown = [
     }),
     formatGpuStageTable(head, { title: `GPU time per stage (p50) — ${String(head.commit).slice(0, 8)}` }),
 ].join('\n\n');
+
+// The head is reported either way, but if it lacks the stage times it cannot
+// become the next run's base; say so now rather than when that run fails.
+const headProblems = hardwareBaselineProblems(head);
+if (headProblems.length > 0) {
+    console.error(`Note: ${options.head} cannot serve as a future baseline (${headProblems.length} missing stage time(s), first: ${headProblems[0]}).`);
+}
 
 console.log(markdown);
 if (options.markdown) {

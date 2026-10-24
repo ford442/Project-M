@@ -229,6 +229,43 @@ export function compareBenchmarks(base, head, {
     };
 }
 
+/**
+ * Why a hardware record cannot serve as the baseline, or [] if it can.
+ *
+ * The hardware baseline exists to answer one question: are the Y-flip copies
+ * worth removing next to the CPU per-pixel cost (docs/GRAPHICS_PERF_RECOVERY_PLAN.md,
+ * "Hardware capture contract")? A record without both numbers for every preset
+ * cannot answer it, so it must not become the record later runs are measured
+ * against. `gpuCopyMs` is the `copy` entry of `gpuStagesMs`.
+ *
+ * A software-GL record is never a baseline either; compareBenchmarks() already
+ * refuses to gate on one, so it is not repeated here.
+ *
+ * @param {BenchmarkRecord} record
+ * @returns {string[]}
+ */
+export function hardwareBaselineProblems(record) {
+    if (!record || record.softwareGl) {
+        return [];
+    }
+    const presets = record.presets ?? [];
+    if (presets.length === 0) {
+        return ['the record has no presets'];
+    }
+    const sampled = (summary) => !!summary && summary.count > 0;
+    const problems = [];
+    for (const preset of presets) {
+        const name = preset.label ?? preset.preset;
+        if (!sampled(preset.gpuStagesMs?.copy)) {
+            problems.push(`${name}: no gpuCopyMs (gpuStagesMs.copy)`);
+        }
+        if (!sampled(preset.perPixelEvalMs)) {
+            problems.push(`${name}: no perPixelEvalMs`);
+        }
+    }
+    return problems;
+}
+
 const STATUS_MARK = {
     regressed: '🔴',
     improved: '🟢',

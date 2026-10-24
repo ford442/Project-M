@@ -230,7 +230,7 @@ export function setupRenderWorker({
     let pcmRing = null;
 
     let nextRequestId = 1;
-    /** @type {Map<number, (result: unknown) => void>} */
+    /** @type {Map<number, { resolve: (result: unknown) => void, reject: (error: Error) => void }>} */
     const pendingCcalls = new Map();
     /** @type {Map<number, (message: RenderWorkerFrameCapturedMessage) => void>} */
     const pendingCaptures = new Map();
@@ -356,10 +356,18 @@ export function setupRenderWorker({
                 break;
             }
             case 'ccall-result': {
-                const resolve = pendingCcalls.get(msg.requestId);
-                if (resolve) {
+                const pending = pendingCcalls.get(msg.requestId);
+                if (pending) {
                     pendingCcalls.delete(msg.requestId);
-                    resolve(msg.result);
+                    pending.resolve(msg.result);
+                }
+                break;
+            }
+            case 'ccall-rejected': {
+                const pending = pendingCcalls.get(msg.requestId);
+                if (pending) {
+                    pendingCcalls.delete(msg.requestId);
+                    pending.reject(new Error(msg.message));
                 }
                 break;
             }
@@ -569,9 +577,9 @@ export function setupRenderWorker({
          * @returns {Promise<unknown>}
          */
         ccall(name, returnType, argTypes, args) {
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const requestId = nextRequestId++;
-                pendingCcalls.set(requestId, resolve);
+                pendingCcalls.set(requestId, { resolve, reject });
                 worker.postMessage({ type: 'ccall', name, returnType, argTypes, args, requestId, host: engineHost });
             });
         },

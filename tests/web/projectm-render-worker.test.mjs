@@ -566,7 +566,7 @@ test('a fire-and-forget ccall posts nothing back', async () => {
     assert.deepEqual(worker.posted, []);
 });
 
-test('a throwing ccall is reported as an error, not left hanging silently', async () => {
+test('a throwing ccall with a requestId is answered with ccall-rejected', async () => {
     const module = fakeRingModule();
     const worker = loadWorker({ createModule: async () => module });
     await worker.send(initMessage());
@@ -574,6 +574,21 @@ test('a throwing ccall is reported as an error, not left hanging silently', asyn
     module.ccall = () => { throw new Error('bad arg'); };
 
     await worker.send({ type: 'ccall', name: 'boom', returnType: null, argTypes: [], args: [], requestId: 3 });
+
+    assert.equal(worker.posted.length, 1);
+    assert.equal(worker.posted[0].type, 'ccall-rejected');
+    assert.equal(worker.posted[0].requestId, 3);
+    assert.match(worker.posted[0].message, /ccall boom failed: Error: bad arg/);
+});
+
+test('a throwing fire-and-forget ccall is still reported as an error', async () => {
+    const module = fakeRingModule();
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+    module.ccall = () => { throw new Error('bad arg'); };
+
+    await worker.send({ type: 'ccall', name: 'boom', returnType: null, argTypes: [], args: [] });
 
     assert.equal(worker.posted.length, 1);
     assert.equal(worker.posted[0].type, 'error');
@@ -833,7 +848,7 @@ test('both implementations cover every message type declared in the wire protoco
     assert.deepEqual(
         workerToHost.slice().sort(),
         [
-            'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
+            'ccall-rejected', 'ccall-result', 'context-lost', 'context-recovered', 'context-restored',
             'error', 'frame-captured', 'pcm-ring', 'perf-frames', 'perf-hud', 'ready', 'rhythm-event', 'stats',
             'unsupported',
         ],

@@ -27,6 +27,7 @@ import {
     resolveRenderPathOverrides,
     setupRenderWorker,
 } from '../../html/projectm-render-worker-host.js';
+import { createWorkerTransport } from '../../html/projectm-render-transport.js';
 
 class FakeWorker {
     constructor(url) {
@@ -440,6 +441,47 @@ test('setupRenderWorker.ccall resolves its promise from a matching ccall-result 
 
     handle.worker.emit({ type: 'ccall-result', requestId: ccallMsg.requestId, result: 59.9 });
     assert.equal(await pending, 59.9);
+
+    clearMockWorkerEnv();
+});
+
+test('setupRenderWorker.ccall rejects its promise from a matching ccall-rejected message', async () => {
+    installMockWorkerEnv();
+    const errors = [];
+    const handle = setupRenderWorker({ canvas: makeCanvas(), onError: (message) => errors.push(message) });
+
+    const pending = handle.ccall('boom', 'number', [], []);
+    const { requestId } = handle.worker.posted[1].msg;
+
+    handle.worker.emit({ type: 'ccall-rejected', requestId, message: 'ccall boom failed: Error: bad arg' });
+    await assert.rejects(pending, /ccall boom failed: Error: bad arg/);
+
+    // The entry is gone: a late or duplicate reply for the id is a no-op, and a
+    // rejection is the promise's business, not an unsolicited onError.
+    assert.doesNotThrow(() => handle.worker.emit({ type: 'ccall-result', requestId, result: 1 }));
+    assert.doesNotThrow(() => handle.worker.emit({ type: 'ccall-rejected', requestId, message: 'again' }));
+    assert.deepEqual(errors, []);
+
+    clearMockWorkerEnv();
+});
+
+test('createWorkerTransport().call() rejects with the worker\'s message when the ccall throws', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({ canvas: makeCanvas() });
+    const transport = createWorkerTransport(handle);
+
+    const failing = transport.call('getQualityTier');
+    handle.worker.emit({
+        type: 'ccall-rejected',
+        requestId: handle.worker.posted[1].msg.requestId,
+        message: 'ccall get_quality_tier failed: Error: bad arg',
+    });
+    await assert.rejects(failing, /ccall get_quality_tier failed: Error: bad arg/);
+
+    // A later call on the same transport is unaffected.
+    const ok = transport.call('getQualityTier');
+    handle.worker.emit({ type: 'ccall-result', requestId: handle.worker.posted[2].msg.requestId, result: 2 });
+    assert.equal(await ok, 2);
 
     clearMockWorkerEnv();
 });

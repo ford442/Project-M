@@ -84,6 +84,17 @@ export interface InitErrorEvent extends WasmEngineEvent {
 /** `pmHideInitError`: init() succeeded. */
 export type InitSuccessEvent = WasmEngineEvent;
 
+/**
+ * `pmOnPresetSwitchFailed`: a preset failed to load or compile. The engine keeps
+ * running the previous preset; this is only the report.
+ */
+export interface PresetSwitchFailedEvent extends WasmEngineEvent {
+    /** The VFS path the engine was asked to switch to. */
+    preset: string;
+    /** The engine's reason (parse error, shader compile log, ...). */
+    message: string;
+}
+
 /** Event type per callback name, for `subscribeWasmCallback()`. */
 export interface WasmCallbackEventMap {
     pmOnGovernorTierChange: GovernorTierChangeEvent;
@@ -95,6 +106,7 @@ export interface WasmCallbackEventMap {
     pmOnTranspiledShaderStored: TranspiledShaderStoredEvent;
     pmReportInitError: InitErrorEvent;
     pmHideInitError: InitSuccessEvent;
+    pmOnPresetSwitchFailed: PresetSwitchFailedEvent;
 }
 
 export type WasmCallbackEvent = WasmCallbackEventMap[keyof WasmCallbackEventMap];
@@ -137,6 +149,8 @@ declare global {
          */
         pmReportInitError?: EngineCall<[code: number, detail?: string]>;
         pmHideInitError?: EngineCall<[]>;
+        /** Preset-switch-failure hook (js_report_preset_switch_failed); ProjectMContext listens through the bus. */
+        pmOnPresetSwitchFailed?: EngineCall<[preset: string, message: string]>;
         /** Shared AudioContext created by `js_initialize_worklet_system_once` (projectM_emscripten.cpp). */
         projectMAudioContext_Global_Cpp?: AudioContext;
         /**

@@ -536,7 +536,7 @@ import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-
 import { installHostPcmRingWriter } from './projectm-pcm-ring.js';
 import { installMediaElementSourceHook } from './projectm-audio-element-source.js';
 import { createAudioSourceRouter } from './projectm-audio-source-router.js';
-import { ProjectMContext } from './projectm-context.js';
+import { PRESET_SWITCH_FAILED, ProjectMContext } from './projectm-context.js';
 import { defaultFeedPCMToModule, feedPCMToModule, flushQueuedExternalPCM, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { setupFboFormatIndicator, setupWorkerFboFormatIndicator } from './projectm-fbo-format.js';
 import { setupFpsGovernor } from './projectm-fps-governor.js';
@@ -561,8 +561,10 @@ import { startTransitionWhenReady } from './projectm-transitions.js';
 import {
     applyWeeksOnFireDomConfig,
     isWeeksOnFireMode,
+    startWeeksOnFire,
     wireFlacDecoderBridge,
 } from './projectm-weeks-on-fire.js';
+import { bundleScansAssets, loadPageTextures } from './projectm-textures.js';
 
 // Optional: missing/soft-404 song-loader.js must not abort this module
 // (DreamHost serves www.noahcohn.com/404.1ink as text/html).
@@ -854,17 +856,36 @@ function fullWindow() {
 // Named, searchable preset library with tags, favorites, featured pack, and
 // quality-weighted random (see projectm-preset-picker.js + projectm-preset-library.js).
 function flashLockToast() {
+    flashStatToast('Preset locked — tap lock to unlock', {
+        background: 'rgba(120, 53, 15, 0.92)',
+        color: '#fde68a',
+        border: '1px solid rgba(245,158,11,0.5)',
+    }, 2200);
+}
+
+// A preset the engine could not switch to. It keeps rendering the previous one,
+// so this is a passing notice, not an error state. The engine reports it through
+// the callback bus (pmOnPresetSwitchFailed); ProjectMContext hands it to onError.
+function flashPresetFailedToast(presetPath) {
+    flashStatToast('Preset failed: ' + (String(presetPath).split('/').pop() || presetPath), {
+        background: 'rgba(127, 29, 29, 0.92)',
+        color: '#fecaca',
+        border: '1px solid rgba(248,113,113,0.5)',
+    }, 4000);
+}
+
+function flashStatToast(text, theme, durationMs) {
     const el = document.getElementById('stat');
     if (!el) return;
     el.style.display = 'block';
-    el.textContent = 'Preset locked — tap lock to unlock';
-    el.style.background = 'rgba(120, 53, 15, 0.92)';
-    el.style.color = '#fde68a';
+    el.textContent = text;
+    el.style.background = theme.background;
+    el.style.color = theme.color;
     el.style.padding = '0.45rem 0.7rem';
     el.style.borderRadius = '0.45rem';
-    el.style.border = '1px solid rgba(245,158,11,0.5)';
-    clearTimeout(flashLockToast._t);
-    flashLockToast._t = setTimeout(() => { el.style.display = 'none'; }, 2200);
+    el.style.border = theme.border;
+    clearTimeout(flashStatToast._t);
+    flashStatToast._t = setTimeout(() => { el.style.display = 'none'; }, durationMs);
 }
 
 try {
@@ -901,18 +922,30 @@ if (isTransparencyMode) {
     applyTransparencyDomState(true);
 }
 
+// Weeks on fire's preset loader: set by startWeeksOnFire() once the engine is up.
+// Null in a normal session, and in weeks mode against a bundle old enough to
+// seed its own playlist.
+let weeksOnFire = null;
+
+function pickWeeksPreset() {
+    if (weeksOnFire) {
+        void weeksOnFire.loader.loadRandom();
+    } else if (typeof window.loadRandomWeeksPreset === 'function') {
+        // Bundles built before the glue lost its XHR loaders install this themselves.
+        window.loadRandomWeeksPreset();
+    } else {
+        console.warn('[ProjectM] Weeks mode: preset scanner not ready yet');
+    }
+}
+
 function randomPreset() {
     if (isPresetLocked) {
         flashLockToast();
         return;
     }
     if (weeksOnFireMode) {
-        if (typeof window.loadRandomWeeksPreset === 'function') {
-            console.log('[ProjectM] Random Weeks Preset');
-            window.loadRandomWeeksPreset();
-        } else {
-            console.warn('[ProjectM] Weeks mode: preset scanner not ready yet');
-        }
+        console.log('[ProjectM] Random Weeks Preset');
+        pickWeeksPreset();
         return;
     }
     console.log('[ProjectM] Random Preset');
@@ -927,12 +960,8 @@ function randomCustom() {
         return;
     }
     if (weeksOnFireMode) {
-        if (typeof window.loadRandomWeeksPreset === 'function') {
-            console.log('[ProjectM] Random Weeks Preset (custom slot)');
-            window.loadRandomWeeksPreset();
-        } else {
-            console.warn('[ProjectM] Weeks mode: preset scanner not ready yet');
-        }
+        console.log('[ProjectM] Random Weeks Preset (custom slot)');
+        pickWeeksPreset();
         return;
     }
     console.log('[ProjectM] Random Custom');
@@ -1468,6 +1497,10 @@ async function attemptInit() {
                     console.warn('[ProjectM] Render worker unavailable, rendering on the main thread:', reason);
                 },
                 onError: (detail) => {
+                    if (detail.code === PRESET_SWITCH_FAILED) {
+                        flashPresetFailedToast(detail.error?.preset ?? detail.message);
+                        return;
+                    }
                     console.error('[ProjectM] context init error:', detail);
                 },
             });
@@ -1539,6 +1572,10 @@ async function attemptInit() {
                 console.info('[ProjectM] Rendering in the render worker; the preset dev tools and experimental bridge are inactive (use ?renderWorker=0 for them).');
             }
 
+            // The engine only reports; the page fetches. Main-thread engines get
+            // the page's textures (the render worker's VFS is not reachable here).
+            void loadPageTextures({ module: Module });
+
             if (!window._pmStartupPresetsLoaded) {
                 window._pmStartupPresetsLoaded = true;
                 if (!weeksOnFireMode) {
@@ -1575,8 +1612,14 @@ async function attemptInit() {
                             }
                         }
                     }
+                } else if (bundleScansAssets()) {
+                    console.log('[ProjectM] Weeks on fire: preset playlist seeded by the WASM bundle');
                 } else {
-                    console.log('[ProjectM] Weeks on fire: preset playlist seeded by WASM bootstrap');
+                    weeksOnFire = startWeeksOnFire({
+                        writePreset: (vfsPath, bytes, mode) => pmContext.transport.writePreset(vfsPath, bytes, mode),
+                        onPresetLoaded: updatePresetDisplay,
+                        playSong: () => import('./projectm-song-loader.js').then((mod) => mod.playRandomCatalogSong()),
+                    });
                 }
             }
             startPresetAutoSwitch();

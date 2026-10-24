@@ -46,6 +46,7 @@ export const WASM_CALLBACK_NAMES = Object.freeze([
     'pmOnTranspiledShaderStored',
     'pmReportInitError',
     'pmHideInitError',
+    'pmOnPresetSwitchFailed',
 ]);
 
 /**
@@ -62,6 +63,7 @@ const POSITIONAL_FIELDS = Object.freeze({
     pmOnTranspiledShaderStored: ['key', 'kind', 'glsl'],
     pmReportInitError: ['code', 'detail'],
     pmHideInitError: [],
+    pmOnPresetSwitchFailed: ['preset', 'message'],
 });
 
 /**

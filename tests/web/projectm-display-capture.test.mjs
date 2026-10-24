@@ -14,7 +14,7 @@ import {
     describeCaptureError,
     startDisplayAudioCapture,
 } from '../../html/projectm-display-capture.js';
-import { CAPTURE_PROCESSOR_NAME } from '../../html/flac-player/projectm-pcm-bridge.js';
+import { CAPTURE_PROCESSOR_NAME } from '../../html/projectm-pcm-bridge.js';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 

@@ -356,7 +356,7 @@ int init()
     }
     ConfigureWasmOpenMPThreadCount();
     WasmWebGLApplyModuleCanvasSelectorsIfPresent();
-    js_init_projectm_dom();
+    js_init_projectm_glue();
     // Canvas missing / create failed / make-current failed / software context
     // refused each have their own code (WasmWebGLContext.hpp), already reported.
     if (const int contextRc = WasmWebGLCreateAndActivateContext(); contextRc != 0)

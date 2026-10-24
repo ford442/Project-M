@@ -3,7 +3,7 @@
 // Drives html/audio-capture.html: the user shares a browser tab (or a screen
 // with "share system audio"), the video track is dropped at once, and the
 // audio track is tapped by the same AudioWorklet capture processor the FLAC
-// player bridge uses (html/flac-player/projectm-pcm-bridge.js), so the host
+// player bridge uses (html/projectm-pcm-bridge.js), so the host
 // receiver (html/projectm-external-pcm.js) sees exactly the contract it already
 // handles:
 //
@@ -29,7 +29,7 @@ import {
     createPcmSender,
     interleaveStereo,
     resolveFeedTarget,
-} from './flac-player/projectm-pcm-bridge.js';
+} from './projectm-pcm-bridge.js';
 
 export const DISPLAY_CAPTURE_PRODUCER = 'projectm-display-capture';
 

@@ -14,19 +14,20 @@
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
+#include <stop_token>
 #include <thread>
 #include <utility>
+#include <vector>
 
 static_assert(kWasmPresetPrepareThreads >= kMaxHosts,
               "Every WasmHost runs a prepare thread; PTHREAD_POOL_SIZE must pre-spawn one Worker per host");
 
-// State shared by the host side and the prepare thread. The thread holds its
-// own reference, so a queue destroyed while a job runs leaves this alive until
-// the job finishes and the thread exits.
+// State shared by the host side and the prepare thread. The queue joins the
+// thread before it is destroyed, so this never outlives either of them.
 struct PresetPrepareQueue::Shared {
     std::mutex mutex;
-    std::condition_variable wake;
-    bool stop = false;
+    // _any: waits on the thread's stop token too, so request_stop() wakes it.
+    std::condition_variable_any wake;
     uintptr_t hostHandle = 0;
     uint64_t latestGeneration = 0;                 //!< Generation of the latest Post().
     std::optional<PresetPrepareRequest> pending;   //!< Posted, not yet picked up by the thread.
@@ -66,13 +67,13 @@ void OnPreparedOnMainThread(void* hostHandle)
     emscripten_set_timeout(&ActivateFromEventLoop, 0.0, hostHandle);
 }
 
-void PrepareThreadMain(const std::shared_ptr<PresetPrepareQueue::Shared>& shared)
+void PrepareThreadMain(const std::stop_token& stop, PresetPrepareQueue::Shared* shared)
 {
     std::unique_lock<std::mutex> lock(shared->mutex);
     while (true)
     {
-        shared->wake.wait(lock, [&] { return shared->stop || shared->pending.has_value(); });
-        if (shared->stop)
+        shared->wake.wait(lock, stop, [&] { return shared->pending.has_value(); });
+        if (stop.stop_requested())
         {
             break;
         }
@@ -89,7 +90,7 @@ void PrepareThreadMain(const std::shared_ptr<PresetPrepareQueue::Shared>& shared
         projectm_preset_prepare_run(request.job);
 
         lock.lock();
-        if (shared->stop || request.generation != shared->latestGeneration)
+        if (stop.stop_requested() || request.generation != shared->latestGeneration)
         {
             // Superseded or abandoned while it ran.
             projectm_preset_prepare_free(request.job);
@@ -112,24 +113,29 @@ void PrepareThreadMain(const std::shared_ptr<PresetPrepareQueue::Shared>& shared
 } // namespace
 
 PresetPrepareQueue::PresetPrepareQueue(uintptr_t hostHandle)
-    : m_shared(std::make_shared<Shared>())
+    : m_shared(std::make_unique<Shared>())
 {
     m_shared->hostHandle = hostHandle;
-    // Detached: the host never waits for this thread. Joining would block the
-    // main runtime thread (the browser's, in the classic topology) for as long
-    // as a transpile takes.
-    std::thread([shared = m_shared]() { PrepareThreadMain(shared); }).detach();
+    m_thread = std::jthread([shared = m_shared.get()](const std::stop_token& stop) { PrepareThreadMain(stop, shared); });
 }
 
 PresetPrepareQueue::~PresetPrepareQueue()
 {
     {
         std::lock_guard<std::mutex> lock(m_shared->mutex);
-        m_shared->stop = true;
         FreeRequest(m_shared->pending);
         FreeRequest(m_shared->completed);
     }
-    m_shared->wake.notify_all();
+    // Joined, not detached. A detached thread hands its pooled Worker back only
+    // once this (main runtime) thread next yields to the event loop, so a host
+    // destroyed and recreated in one JS task needed one Worker more than
+    // PTHREAD_POOL_SIZE holds, and the new host's prepare thread never started.
+    // Joining from here returns the Worker to the pool synchronously. It waits
+    // for a job the thread is running to finish (a transpile cannot be cut
+    // short); while it waits this thread still runs proxied calls, so a job
+    // that reads the preset file through the main thread completes.
+    m_thread.request_stop();
+    m_thread.join();
 }
 
 uint64_t PresetPrepareQueue::Post(PresetPrepareRequest request)

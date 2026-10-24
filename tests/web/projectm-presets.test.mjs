@@ -7,7 +7,6 @@ import test from 'node:test';
 
 import {
     fetchApiPreset,
-    FALLBACK_PRESET_API_BASES,
     getConfiguredPresetApiBase,
     getPresetApiBases,
     loadRandomApiPreset,
@@ -114,8 +113,12 @@ test('getPresetApiBases dedupes and orders preferred, storage override, then fal
     assert.deepEqual(bases, ['https://preferred.example', 'https://fallback-a.example']);
 });
 
-test('FALLBACK_PRESET_API_BASES no longer lists the dead storage.1ink.us endpoint', () => {
-    assert.ok(!FALLBACK_PRESET_API_BASES.some((b) => b.includes('storage.1ink.us')));
+test('the default preset API base list does not include the dead storage.1ink.us endpoint', () => {
+    // Its /api/presets/random returns 404 (checked 2026-10-07): listing it
+    // only added a failing request to every load.
+    const bases = getPresetApiBases({ includeStorageOverride: false });
+    assert.ok(bases.length > 0);
+    assert.ok(!bases.some((b) => b.includes('storage.1ink.us')));
 });
 
 test('getConfiguredPresetApiBase: query beats window global beats storage beats default', () => {

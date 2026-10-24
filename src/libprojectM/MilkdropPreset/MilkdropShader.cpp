@@ -61,6 +61,7 @@ namespace {
 // the declarations it actually built differed from the prediction. Test/diagnostic counters.
 std::atomic<uint64_t> g_preparedGlslUsed{0};
 std::atomic<uint64_t> g_preparedGlslMismatched{0};
+std::atomic<uint64_t> g_renderThreadTranspiles{0};
 
 auto IsRandomTextureName(const std::string& lowerCaseName, const std::locale& loc) -> bool
 {
@@ -116,7 +117,8 @@ void MilkdropShader::LoadPrepared(PreparedMilkdropShader prepared)
 {
     m_source = std::move(prepared.source);
     m_prepared.reset();
-    if (prepared.transpiled)
+    // Kept for its speculative GLSL, or for the transpile cache state the load began with.
+    if (prepared.transpiled || prepared.transpileCacheKey)
     {
         m_prepared = std::make_unique<PreparedMilkdropShader>(std::move(prepared));
     }
@@ -238,7 +240,7 @@ void MilkdropShader::PrepareTranspile(ShaderType type, PreparedMilkdropShader& s
     }
 
     const auto typeIndex = static_cast<size_t>(type);
-    if (!predictable || (typeIndex < context.cachedGlsl.size() && context.cachedGlsl.at(typeIndex)))
+    if (!predictable || (typeIndex < context.cachedGlsl.size() && context.cachedGlsl.at(typeIndex).has_value()))
     {
         return;
     }
@@ -260,6 +262,11 @@ auto MilkdropShader::PreparedGlslUseCount() -> uint64_t
 auto MilkdropShader::PreparedGlslMismatchCount() -> uint64_t
 {
     return g_preparedGlslMismatched.load();
+}
+
+auto MilkdropShader::RenderThreadTranspileCount() -> uint64_t
+{
+    return g_renderThreadTranspiles.load();
 }
 
 void MilkdropShader::LoadTexturesAndCompile(PresetState& presetState)
@@ -569,7 +576,7 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
     }
 
     // Bind all texture and sampler descriptors. This includes the main and blur textures.
-    GLint textureUnit{0};
+    int textureUnit{0};
     for (auto& desc : m_mainTextureDescriptors)
     {
         // Update main texture, swaps every frame.
@@ -649,7 +656,18 @@ void MilkdropShader::GetReferencedSamplers(const std::string& program, MilkdropS
         if (end != std::string::npos)
         {
             std::string const sampler = stripped.substr(static_cast<int>(found), static_cast<int>(end - found));
-            source.samplerNames.insert(sampler);
+            // A sampler "XY_name" already provides texsize_name. When "name" itself looks
+            // prefixed (e.g. "pm_depth_map"), loading it separately would strip that part too
+            // and bind a different, usually missing, texture.
+            bool const sizedByPrefixedSampler =
+                sampler.length() > 3 && sampler.at(2) == '_' &&
+                std::any_of(source.samplerNames.begin(), source.samplerNames.end(), [&sampler](const std::string& name) {
+                    return name.length() == sampler.length() + 3 && name.at(2) == '_' && name.compare(3, std::string::npos, sampler) == 0;
+                });
+            if (!sizedByPrefixedSampler)
+            {
+                source.samplerNames.insert(sampler);
+            }
         }
 
         found = stripped.find("texsize_", found);
@@ -730,7 +748,11 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
         texSizeDeclarations.insert(desc.TexSizeDeclaration());
     }
 
-    const auto& cacheKey = Renderer::GetTranspiledGlslCacheKey();
+    // A prepared load uses the key and cached GLSL captured when it began: the host may have ended
+    // its cache load (and cleared the key) since. Only a load prepared and initialized in one call
+    // reads the key now.
+    const std::string cacheKey = prepared && prepared->transpileCacheKey ? *prepared->transpileCacheKey
+                                                                          : Renderer::GetTranspiledGlslCacheKey();
     const int shaderTypeInt = static_cast<int>(m_type);
 
     auto compileGlsl = [&](const std::string& glslCode) {
@@ -753,7 +775,9 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
     m_deferredLinkUsesCachedGlsl = false;
     if (useTranspileCache && !cacheKey.empty())
     {
-        if (auto cachedGlsl = Renderer::LookupTranspiledGlsl(cacheKey, shaderTypeInt))
+        std::optional<std::string> cachedGlsl = prepared && prepared->cachedGlsl ? std::move(prepared->cachedGlsl)
+                                                                                 : Renderer::LookupTranspiledGlsl(cacheKey, shaderTypeInt);
+        if (cachedGlsl)
         {
             try
             {
@@ -777,7 +801,7 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
     std::string glslCode;
     std::string errorMessage;
     bool transpiled{false};
-    if (prepared && prepared->samplerDeclarations == samplerDeclarations && prepared->texSizeDeclarations == texSizeDeclarations)
+    if (prepared && prepared->transpiled && prepared->samplerDeclarations == samplerDeclarations && prepared->texSizeDeclarations == texSizeDeclarations)
     {
         g_preparedGlslUsed++;
         glslCode = std::move(prepared->glsl);
@@ -786,12 +810,13 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
     }
     else
     {
-        if (prepared)
+        if (prepared && prepared->transpiled)
         {
             g_preparedGlslMismatched++;
 
             LOG_DEBUG("[MilkdropShader] Prepared " + shaderTypeString + " shader declarations differ from the render thread's; transpiling again");
         }
+        g_renderThreadTranspiles++;
         transpiled = ShaderTranspiler::TranspileToGlsl(program, samplerDeclarations, texSizeDeclarations,
                                                        MilkdropStaticShaders::Get()->GetGlslGeneratorVersion(),
                                                        glslCode, errorMessage);

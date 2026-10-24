@@ -5,7 +5,7 @@ workflow with northern-lights orbital, rainy Watershed, firefly Redwood, and
 galaxy swarm Candy World variants.
 
 Companion: [`SIGNATURE_SERIES_WORKFLOW.md`](SIGNATURE_SERIES_WORKFLOW.md) ·
-briefs: [`grok_agent/signature_series_briefs.md`](../grok_agent/signature_series_briefs.md)
+briefs: [`docs/agents/grok/signature_series_briefs.md`](agents/grok/signature_series_briefs.md)
 
 ## Release summary
 
@@ -46,8 +46,8 @@ space/galaxy tones with core glow in composite.
 
 ### Quarantined (4)
 
-Moved to `custom_milk_quarantine/` — redundant `fractal_echo_*` variants that failed
-the June 2026 WASM capture baseline. See [`custom_milk_quarantine/README.md`](../custom_milk_quarantine/README.md).
+Moved to `presets/quarantine/` — redundant `fractal_echo_*` variants that failed
+the June 2026 WASM capture baseline. See [`presets/quarantine/README.md`](../presets/quarantine/README.md).
 
 ### Hardened (3)
 
@@ -69,7 +69,7 @@ node scripts/promote_preset.mjs presets/drafts/my_preset.milk --skip-capture-che
 node scripts/generate_custom_preset_manifest.mjs
 ```
 
-## weeks_presets audit
+## presets/weeks audit
 
 Latest static audit (426 community presets, 0 errors):
 

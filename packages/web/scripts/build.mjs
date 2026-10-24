@@ -47,8 +47,9 @@ const ENTRY = 'projectm-element.js';
 // silently fell back to the main thread.
 const EXTRA_RUNTIME_MODULES = ['projectm-render-worker.js'];
 
-const IMPORT_RE = /from\s+['"](\.\/[^'"]+)['"]/g;
-const TYPES_IMPORT_RE = /import\(['"](\.\/[^'"]+\.ts)['"]\)/g;
+// `./x.js` and `../x.js` alike: html/context/*.js import modules one directory up.
+const IMPORT_RE = /from\s+['"](\.{1,2}\/[^'"]+)['"]/g;
+const TYPES_IMPORT_RE = /import\(['"](\.{1,2}\/[^'"]+\.ts)['"]\)/g;
 
 async function exists(path) {
   try {
@@ -260,9 +261,10 @@ async function main() {
   // reaches it. html/projectm-worklet-playback.js resolves it against its own
   // module URL (import.meta.url), i.e. against dist/ — without this copy an npm
   // consumer's worklet repair asked their site for a file that was never shipped.
+  await mkdir(join(distRoot, 'worklets'), { recursive: true });
   await copyFile(
-    resolve(packageRoot, '..', '..', 'projectm_audio_processor.js'),
-    join(distRoot, 'projectm_audio_processor.js'),
+    resolve(packageRoot, '..', '..', 'html', 'worklets', 'projectm-audio-processor.js'),
+    join(distRoot, 'worklets', 'projectm-audio-processor.js'),
   );
   const outputs = Object.keys(esm.metafile.outputs)
     .filter((f) => f.endsWith('.js'))
@@ -273,7 +275,7 @@ async function main() {
   }
   console.log('  dist/projectm-web.iife.js (global `projectM`)');
   console.log('  dist/projectm-render-worker.js (classic worker, loaded by URL)');
-  console.log('  dist/projectm_audio_processor.js (AudioWorklet processor, loaded by URL)');
+  console.log('  dist/worklets/projectm-audio-processor.js (AudioWorklet processor, loaded by URL)');
 
   // Outside dist/ on purpose: it is 25 kB of bundle-analysis metadata that
   // every consumer would otherwise download with the package.

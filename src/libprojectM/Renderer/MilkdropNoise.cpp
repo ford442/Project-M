@@ -2,7 +2,6 @@
 
 #include <OpenMpConfig.hpp>
 
-#include "Renderer/OpenGL.h"
 #include "Renderer/Texture.hpp"
 
 #include <RandomSeed.hpp>
@@ -38,42 +37,42 @@ auto NoiseSeed(const char* domain, int size, int zoomFactor) -> uint32_t
 
 auto MilkdropNoise::LowQuality() -> std::shared_ptr<Texture>
 {
-    return std::make_shared<Texture>("noise_lq", generate2D(256, 1).data(), GL_TEXTURE_2D, 256, 256, 0, GL_RGBA8, GetPreferredInternalFormat(), GL_UNSIGNED_BYTE, false);
+    return std::make_shared<Texture>("noise_lq", generate2D(256, 1).data(), Device::TextureTarget::Texture2D, 256, 256, 0, Device::TextureFormat::RGBA8, false, GetPreferredPixelOrder());
 }
 
 auto MilkdropNoise::LowQualityLite() -> std::shared_ptr<Texture>
 {
-    return std::make_shared<Texture>("noise_lq_lite", generate2D(32, 1).data(), GL_TEXTURE_2D, 32, 32, 0, GL_RGBA8, GetPreferredInternalFormat(), GL_UNSIGNED_BYTE, false);
+    return std::make_shared<Texture>("noise_lq_lite", generate2D(32, 1).data(), Device::TextureTarget::Texture2D, 32, 32, 0, Device::TextureFormat::RGBA8, false, GetPreferredPixelOrder());
 }
 
 auto MilkdropNoise::MediumQuality() -> std::shared_ptr<Texture>
 {
-    return std::make_shared<Texture>("noise_mq", generate2D(256, 4).data(), GL_TEXTURE_2D, 256, 256, 0, GL_RGBA8, GetPreferredInternalFormat(), GL_UNSIGNED_BYTE, false);
+    return std::make_shared<Texture>("noise_mq", generate2D(256, 4).data(), Device::TextureTarget::Texture2D, 256, 256, 0, Device::TextureFormat::RGBA8, false, GetPreferredPixelOrder());
 }
 
 auto MilkdropNoise::HighQuality() -> std::shared_ptr<Texture>
 {
-    return std::make_shared<Texture>("noise_hq", generate2D(256, 8).data(), GL_TEXTURE_2D, 256, 256, 0, GL_RGBA8, GetPreferredInternalFormat(), GL_UNSIGNED_BYTE, false);
+    return std::make_shared<Texture>("noise_hq", generate2D(256, 8).data(), Device::TextureTarget::Texture2D, 256, 256, 0, Device::TextureFormat::RGBA8, false, GetPreferredPixelOrder());
 }
 
 auto MilkdropNoise::LowQualityVolume() -> std::shared_ptr<Texture>
 {
-    return std::make_shared<Texture>("noisevol_lq", generate3D(32, 1).data(), GL_TEXTURE_3D, 32, 32, 32, GL_RGBA8, GetPreferredInternalFormat(), GL_UNSIGNED_BYTE, false);
+    return std::make_shared<Texture>("noisevol_lq", generate3D(32, 1).data(), Device::TextureTarget::Texture3D, 32, 32, 32, Device::TextureFormat::RGBA8, false, GetPreferredPixelOrder());
 }
 
 auto MilkdropNoise::HighQualityVolume() -> std::shared_ptr<Texture>
 {
-    return std::make_shared<Texture>("noisevol_hq", generate3D(32, 4).data(), GL_TEXTURE_3D, 32, 32, 32, GL_RGBA8, GetPreferredInternalFormat(), GL_UNSIGNED_BYTE, false);
+    return std::make_shared<Texture>("noisevol_hq", generate3D(32, 4).data(), Device::TextureTarget::Texture3D, 32, 32, 32, Device::TextureFormat::RGBA8, false, GetPreferredPixelOrder());
 }
 
-auto MilkdropNoise::GetPreferredInternalFormat() -> int
+auto MilkdropNoise::GetPreferredPixelOrder() -> Device::PixelOrder
 {
 #ifndef USE_GLES
-    // We use GL_BGRA, as this is the best general-use format according to Khronos.
-    return GL_BGRA;
+    // We use BGRA, as this is the best general-use format according to Khronos.
+    return Device::PixelOrder::Bgra;
 #else
-    // GLES only supports GL_RGB and GL_RGBA, so we always use the latter.
-    return GL_RGBA;
+    // GLES only supports RGB and RGBA, so we always use the latter.
+    return Device::PixelOrder::Rgba;
 #endif
 }
 

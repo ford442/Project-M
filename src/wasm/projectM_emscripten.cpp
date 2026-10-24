@@ -252,30 +252,31 @@ static void TearDownEngineForRebind()
 }
 
 extern "C" {
+// User sprites on the active host. The id it returns is what the projectm_sprite_*
+// exports (which take get_projectm_handle()) operate on.
 EMSCRIPTEN_KEEPALIVE
-void create_sprite()
+uint32_t create_sprite(const char* type, const char* code)
 {
     WasmHost& H = Host();
-    auto& app_data = H.appData;
-    const char* new_sprite_code =
-        "[preset01]"
-        "img='textures/rv_IP_20250421_060250.png';"
-        "per_frame_1=blendmode=1;"
-        "per_frame_2=x = 0.5;"       // Center X
-        "per_frame_3=y = 0.5;"       // Center Y
-        "per_frame_4=z = 0.0;"       // Center Y
-        "per_frame_5=scaling = 1.0;" // Make it huge (twice the screen height)
-        "per_pixel_2=a = 1;"         // Fully opaque
-        "per_pixel_3=r = 1.0;"       // Bright Red
-        "per_pixel_4=g = 0.0;"
-        "per_pixel_5=b = 1.0;";
-
-    if (!app_data.projectm_engine)
+    if (!H.appData.projectm_engine || type == nullptr || code == nullptr)
     {
-        return;
+        return 0;
     }
-    projectm_sprite_create(app_data.projectm_engine, "milkdrop", new_sprite_code);
-    return;
+    return projectm_sprite_create(H.appData.projectm_engine, type, code);
+}
+
+// Re-reads a texture file the host rewrote in the VFS (the experimental bridge's
+// /textures/pm_depth_map.png) into the active host's loaded texture, so a running
+// preset samples the new image without a reload. 1 if a loaded texture was updated.
+EMSCRIPTEN_KEEPALIVE
+int reload_texture(const char* name)
+{
+    WasmHost& H = Host();
+    if (!H.appData.projectm_engine || name == nullptr)
+    {
+        return 0;
+    }
+    return projectm_reload_texture(H.appData.projectm_engine, name) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -364,12 +365,12 @@ int init()
         return contextRc;
     }
 
-    // Phase 2: Detect the best available floating-point texture format for the
-    // dual ping-pong FBO system. Default is RGBA16F -> RGBA32F -> RGBA8.
-    // Hosts can opt into RGBA32F-first probing with ?fboPrecision=high.
-    // This must be called after the WebGL context is made current so that
-    // extension availability can be probed reliably.
-    g_dualFbo.DetectFormat(WasmWebGLGetContext(), WasmWebGLGetContextConfig().fboPrecision);
+    // Pick the dual-FBO colour format from the extensions the context reported
+    // (FboFloatFormat in WasmGraphics.hpp): RGBA16F when renderable, RGBA32F
+    // only for fboPrecision "high", RGBA8 for "byte" or as the fallback. The
+    // preference comes from the host's create_host_with_config() config (the JS
+    // layer maps ?fboPrecision= onto it); nothing here reads the URL.
+    g_dualFbo.DetectFormat(H.contextCaps, H.contextConfig.fboPrecision);
 
     // Must happen before the first preset renders, since these paths are decided once.
     ApplyRenderPathOverrides();

@@ -2,7 +2,7 @@
 // Build html/featured_pack_manifest.json — curated 30–50 showcase presets.
 //
 // Combines Signature Series + verified custom presets with light-tier picks
-// from weeks_presets/ (audit report). Run after generate_custom_preset_manifest.mjs.
+// from presets/weeks/ (audit report; deployed as weeks_presets/). Run after generate_custom_preset_manifest.mjs.
 //
 // Usage: node scripts/build_featured_pack.mjs [--check] [--max N]
 
@@ -60,10 +60,13 @@ function buildPack() {
         if (p.status !== 'broken') add(p);
     }
 
-    // 4. Light reactive weeks_presets, then medium if still under target
+    // 4. Light reactive presets/weeks entries, then medium if still under target
     if (existsSync(auditPath)) {
         const audit = JSON.parse(readFileSync(auditPath, 'utf8'));
-        const weeks = (audit.corpora || []).find((c) => c.dir === 'weeks_presets');
+        // The corpus is audited at its source path (presets/weeks); its entries
+        // are fetched from the deployed path, `base: 'weeks_presets'` below.
+        // 'weeks_presets' is the dir name in reports written before the move.
+        const weeks = (audit.corpora || []).find((c) => c.dir === 'presets/weeks' || c.dir === 'weeks_presets');
         const allWeeks = (weeks?.results || []).filter((r) => r.ok);
 
         const tierPasses = ['light', 'medium'];

@@ -37,11 +37,15 @@ HOSTS=(
     "$PROJECT_ROOT/html/projectm_panel.1ink"
     "$PROJECT_ROOT/html/projectm.1ink"
     "$PROJECT_ROOT/html/projectm_new.1ink"
-    "$PROJECT_ROOT/html/projectm_test.1ink"
     # Host-layer modules that recover engine state. They talk to a
     # RenderTransport, never to the Module, so recovery works the same in the
     # render worker (where no Module exists on this thread) as on the main thread.
     "$PROJECT_ROOT/html/projectm-context-loss.js"
+    # The page shell both first-party pages boot (their inline scripts are
+    # now a single import of it).
+    "$PROJECT_ROOT/html/projectm-app-shell.js"
+    "$PROJECT_ROOT/html/projectm-app-shell-ui.js"
+    "$PROJECT_ROOT/html/projectm-bezel.js"
 )
 
 # Allowlist of raw `Module._*` symbols that may remain temporarily. These are

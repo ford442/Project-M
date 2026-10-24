@@ -3,7 +3,7 @@
 # Canonical definitions live in cmake/EmscriptenWasmFlags.cmake.
 # Regenerate: scripts/sync_wasm_link_common.sh
 #
-# Source from build_wasm_smoke_wrapper.sh, build_projectm.sh, colab_build.sh:
+# Sourced by scripts/build_wasm_smoke_wrapper.sh (via scripts/build_wasm.sh):
 #   source "$(dirname "${BASH_SOURCE[0]}")/wasm_link_common.inc.sh"
 
 # shellcheck disable=SC2034  # consumed by sourcing scripts
@@ -56,6 +56,16 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _attach_worklet_ingest
     _connect_media_element_source
     _create_sprite
+    _projectm_sprite_create
+    _projectm_sprite_destroy
+    _projectm_sprite_destroy_all
+    _projectm_sprite_get_sprite_count
+    _projectm_sprite_get_sprite_ids
+    _projectm_sprite_set_max_sprites
+    _projectm_sprite_get_max_sprites
+    _projectm_sprite_get_var
+    _projectm_sprite_set_var
+    _reload_texture
     _stop_worklet_playback
     _set_audio_source_to_stream
     _set_preset_locked
@@ -102,6 +112,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _dual_fbo_get_idle_release_seconds
     _dual_fbo_is_preset_b_ready
     _dual_fbo_get_format
+    _get_context_snapshot
     _dual_fbo_render_preset_a
     _dual_fbo_render_preset_b
     _transition_start
@@ -169,17 +180,33 @@ projectm_wasm_simd_compile_args() {
         -matomics
         -mnontrapping-fptoint
         -msign-ext
+    )
+}
+
+# Code generation semantics (PROJECTM_WASM_CODEGEN_COMPILE_FLAGS in
+# cmake/EmscriptenWasmFlags.cmake, which says why each is there). Same for the
+# wrapper TUs as for the libraries.
+projectm_wasm_codegen_compile_args() {
+    local -n _out=$1
+    _out=(
         -fno-strict-aliasing
         -fno-math-errno
     )
 }
 
-# Optional env overrides:
-#   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link. Required when the static
-#                                    libs were configured with -DPROJECTM_WASM_LTO=ON (bitcode).
-#   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default 5)
+# PROJECTM_WASM_LTO=1 adds -flto to the final wrapper link. The wrapper script
+# sets it from the libraries' own record (projectm-wasm-wrapper-flags.txt), so
+# it always matches how they were compiled.
+#
+# PTHREAD_POOL_SIZE is a constant (5): the wrapper's compiled-in
+# kWasmPthreadPoolSize and its static_assert must describe the pool the bundle
+# really has. An environment override that disagrees is an error, not a knob.
 projectm_wasm_pthread_pool_size() {
-    echo "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-5}"
+    if [[ -n "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-}" && "${PROJECTM_WASM_PTHREAD_POOL_SIZE}" != "5" ]]; then
+        echo "PROJECTM_WASM_PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE} is not configurable (this tree's pool is 5); edit cmake/EmscriptenWasmFlags.cmake" >&2
+        return 1
+    fi
+    echo "5"
 }
 
 
@@ -194,7 +221,7 @@ projectm_wasm_pthread_script_url_pre_js() {
 projectm_wasm_common_link_args() {
     local -n _out=$1
     local pthread_pool_size
-    pthread_pool_size="$(projectm_wasm_pthread_pool_size)"
+    pthread_pool_size="$(projectm_wasm_pthread_pool_size)" || return 1
     local pthread_script_url_pre_js
     pthread_script_url_pre_js="$(projectm_wasm_pthread_script_url_pre_js)"
 
@@ -218,6 +245,8 @@ projectm_wasm_common_link_args() {
         -fopenmp=libomp
         "${exception_args[@]}"
         -s SHARED_MEMORY=1
+        -s STACK_SIZE=1048576
+        -s DEFAULT_PTHREAD_STACK_SIZE=524288
         -s MIN_WEBGL_VERSION=2
         -s MAX_WEBGL_VERSION=2
         -s USE_WEBGL2=1
@@ -234,6 +263,7 @@ projectm_wasm_common_link_args() {
         -s EXPORT_NAME=createModule
         -s MODULARIZE=1
         -s DEFAULT_TO_CXX=1
+        -s INVOKE_RUN=0
         -s EXPORTED_FUNCTIONS="$(projectm_wasm_join_exported_functions)"
         -s EXPORTED_RUNTIME_METHODS="$(projectm_wasm_exported_runtime_methods)"
         --pre-js "${pthread_script_url_pre_js}"

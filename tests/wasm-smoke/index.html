@@ -21,7 +21,6 @@
   <button id="musicBtn" type="button" hidden></button>
   <button id="milkBtn" type="button" hidden></button>
   <button id="customMilkBtn" type="button" hidden></button>
-  <button id="createSpriteBtn" type="button" hidden></button>
   <select id="meshSize" hidden><option value="high">high</option></select>
   <script>
     const result = {
@@ -553,7 +552,9 @@
       Module.ccall('add_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
       Module.ccall('load_preset_file', null, ['string'], ['/presets/tests/000-empty.milk']);
       Module._set_mesh(32, 24);
-      Module._create_sprite();
+      if (Module.ccall('create_sprite', 'number', ['string', 'string'], ['milkdrop', 'img=x']) !== 0) {
+        throw new Error('create_sprite() without an engine returned a sprite id');
+      }
       Module._start_render(64, 64);
       Module._set_window_size(64, 64);
       Module._render_frame();
@@ -687,7 +688,7 @@
         // A heavy preset is prepared (parsed, HLSL transpiled) off the render
         // thread: the running main loop must keep drawing the current preset
         // until the new one is activated.
-        const heavySrc = params.get('heavy') || '/custom_milk_fixed/milk011.milk';
+        const heavySrc = params.get('heavy') || '/presets/custom/milk011.milk';
         await writePresetToMemfs(Module, heavySrc, '/presets/heavy.milk');
         const frameMs = await measureFrameIntervalMs(Module);
         const framesAtRequest = Module._get_rendered_frame_count();

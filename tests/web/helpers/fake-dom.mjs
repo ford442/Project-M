@@ -29,6 +29,33 @@ export class FakeElement {
         this._bySelector = new Map();
         /** @type {Map<string, Set<(event: any) => void>>} */
         this._listeners = new Map();
+        /** @type {FakeElement | null} */
+        this.parentNode = null;
+        /** @type {Record<string, string>} */
+        this.dataset = {};
+        /** @type {Map<string, string>} */
+        this._attributes = new Map();
+        this.hidden = false;
+        this.value = '';
+    }
+
+    setAttribute(name, value) { this._attributes.set(name, String(value)); }
+    getAttribute(name) { return this._attributes.get(name) ?? null; }
+    focus() {}
+    /** Only an exact match on this element: enough for event delegation tests. */
+    closest(selector) { return this._matchedBy?.has(selector) ? this : null; }
+
+    /** Detaches this element from its parent, as a real `remove()` does. */
+    remove() {
+        this.parentNode?.removeChild(this);
+    }
+
+    removeChild(child) {
+        const index = this.children.indexOf(child);
+        if (index >= 0) this.children.splice(index, 1);
+        child.parentNode = null;
+        this._onRemove?.(child);
+        return child;
     }
 
     addEventListener(type, listener) {
@@ -51,16 +78,30 @@ export class FakeElement {
     }
 
     appendChild(child) {
+        child.parentNode?.removeChild?.(child);
         this.children.push(child);
+        child.parentNode = this;
         return child;
+    }
+
+    append(...nodes) {
+        for (const node of nodes) this.appendChild(node);
     }
 
     /** Lazily mints one element per selector, so repeat lookups are stable. */
     querySelector(selector) {
         if (!this._bySelector.has(selector)) {
-            this._bySelector.set(selector, new FakeElement('div'));
+            const minted = new FakeElement('div');
+            minted._matchedBy = new Set([selector]);
+            minted.parentNode = this;
+            this._bySelector.set(selector, minted);
         }
         return this._bySelector.get(selector);
+    }
+
+    /** One minted element per selector, as a list. */
+    querySelectorAll(selector) {
+        return [this.querySelector(selector)];
     }
 }
 
@@ -80,6 +121,12 @@ export function createFakeDocument() {
     const body = new FakeElement('body');
     head.appendChild = (child) => { FakeElement.prototype.appendChild.call(head, child); return register(child); };
     body.appendChild = (child) => { FakeElement.prototype.appendChild.call(body, child); return register(child); };
+    // A removed element no longer resolves by id, as in a real document.
+    const unregister = (child) => {
+        if (child?.id && elementsById.get(child.id) === child) elementsById.delete(child.id);
+    };
+    head._onRemove = unregister;
+    body._onRemove = unregister;
 
     const document = {
         head,

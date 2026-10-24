@@ -5,18 +5,17 @@ OpenGL ES, but not identical, so a few additional considerations apply to get pr
 
 ## Additional Build Settings
 
-A few additional build settings will be required when building an Emscripten wrapper. Pass these flags/parameterrs to
-the Emscripten linker:
+This fork's flags are not a list to copy from here. They are defined once, in
+[`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake); `scripts/wasm_link_common.inc.sh` (the
+wrapper link) and `cmake/generated/ProjectMWasmBuildConfig.hpp` are generated from it
+([Emscripten flag single source of truth](#emscripten-flag-single-source-of-truth)). The values in force, with what
+each is for, are in the [flag matrix](#flag-matrix-cmake-lib-link-vs-shell-wrapper-link) and, for the heap, in
+[Heap model](#heap-model). Do not carry settings over from older Emscripten notes: the heap is fixed
+(`ALLOW_MEMORY_GROWTH=0`) and the GL emulation layers are off (`FULL_ES2=0`, `FULL_ES3=0`).
 
-- `-sUSE_SDL=2`: Recommended if you use Emscripten's built-in SDL2 port to set up the rendering context. This
-  flag will link the appropriate library. (Not used by this fork's `projectM_emscripten.cpp` wrapper, which sets up
-  its own WebGL context — see `src/wasm/WasmWebGLContext.cpp`.)
-- `-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2`: Forces native WebGL 2, which maps directly onto OpenGL ES 3.0.
-- `-sFULL_ES3=1` / `-sFULL_ES2=1`: Emulation layers for client-side vertex arrays and buffer mapping on top of WebGL.
-  libprojectM needs neither (it draws from bound VBOs/EBOs only), and this fork builds with both **off** — see
-  `cmake/EmscriptenWasmFlags.cmake` for the verification record.
-- `-sALLOW_MEMORY_GROWTH=1`: Allows allocating additional memory if necessary. This may be required to load additional
-  textures etc. in projectM.
+The WebGL context is not created through SDL: `src/wasm/WasmWebGLContext.cpp` calls
+`emscripten_webgl_create_context()` directly. Its attributes are described under
+[WebGL context attributes](#webgl-context-attributes).
 
 ## Dual-Pipeline Preset Transitions
 
@@ -106,7 +105,7 @@ layer (`projectm-core.html`).
 | `preserveDrawingBuffer` | `1 << 1` | `preserveDrawingBuffer` | `false` | Screenshot/capture hosts set `true` (`?capture=1`) for a stable back-buffer |
 | `depth` | `1 << 2` | `depth` | `false` | Milkdrop's depth use lives on preset FBOs (#246). Sprites that depth-test against the canvas opt in (`?depth=1`) |
 | `stencil` | `1 << 3` | `stencil` | `false` | Same reasoning as `depth`; `?depth=1` restores both |
-| `alpha` | `1 << 4` | `contextAlpha` | `true` | Transparency overlays (#135). The `alpha` option is a **separate** canvas-CSS compositing hint and never sets this bit. |
+| `alpha` | `1 << 4` | `contextAlpha` | `false`; follows `transparent` | An opaque canvas unless the page wants transparency (#135): the browser composites an alpha-less canvas without blending. A page with a runtime transparency toggle asks for it up front (`contextAlpha: true`, as `projectm-core.html` does). The `alpha` option is a **separate** canvas-CSS compositing hint and never sets this bit. See [Canvas alpha](#canvas-alpha). |
 | `premultipliedAlpha` | `1 << 5` | `premultipliedAlpha` | `true` | Browser compositing default; transparency-keying hosts with straight alpha turn it off |
 | `failIfMajorPerformanceCaveat` | `1 << 6` | `failIfMajorPerformanceCaveat` | `false` | Off so software GL still starts (smoke, goldens). Production hosts opt in to refuse a software renderer: init code `8`. Whether a renderer counts as a caveat is the browser's call — headless Chromium 151 with `--use-angle=swiftshader` (CI) accepts SwiftShader even for a plain `getContext()` with the flag, so the refusal path is not exercised there. |
 | `explicitSwapControl` | `1 << 7` | `explicitSwapControl`, or `presentMode: 'manual'` | `false` | Manual present; needs the explicit-swap link flavor (see [Link flavors](#link-flavors)), otherwise init code `9` |
@@ -129,6 +128,109 @@ for the next context created — a `create_host()` issued while it is active, or
 It can only express the original seven attributes (premultipliedAlpha on, everything newer off). No
 in-tree caller uses either; `createConfiguredHost()` only falls back to them for a bundle without
 `create_host_with_config()`, and refuses a config they cannot express rather than drop part of it.
+
+### Canvas alpha
+
+What reaches the canvas's alpha channel is part of the contract, because with `alpha: true` the browser
+composites it over the page:
+
+- **Transparency off** (the default): every pixel has alpha 1. On an opaque canvas (`contextAlpha` off,
+  the default) that is the browser's doing; on a canvas with alpha the engine fills the channel with 1
+  after each direct-path frame (`FillAlphaOfOpaqueFrame()` in `WasmRenderLoop.cpp`) and the dual-FBO
+  compositor writes 1. A preset's alpha channel is what its blend modes left behind (video echo,
+  the darken/brighten filters), not coverage, and used to show the page through.
+- **Transparency on**: valid premultiplied output. A pixel whose brightest channel is under the threshold
+  is cut out to `(0, 0, 0, 0)`, every other pixel is opaque. libprojectM's transparency pass
+  (`CopyTexture`), the transition shader, the flash limiter's blend and the dual-FBO compositor
+  (`WasmCompositorShader.hpp`) all keep `rgb <= a`; before, a cut-out pixel kept its colour over alpha 0,
+  which a premultiplied canvas adds onto the page.
+- Turning transparency on for a context whose canvas has no alpha channel draws the cut-out pixels black
+  and `ProjectMContext.setTransparent()` logs it once.
+
+`ColorOutputTest` (native, `tests/libprojectM/`) holds each shader to this; `context_attributes.mjs --check`
+reads the canvas pixels back in a browser.
+
+### One canvas, one context
+
+A canvas keeps the first WebGL context it hands out: every later `getContext()` returns that one and
+ignores the attributes it is given, and destroying Emscripten's handle does not undo it. So a host
+re-created on the same element — `destroy_host()` then a create, a `ProjectMContext` started again with
+a different `transparent` — used to come up with the **old** attributes while its config said otherwise.
+
+Each context the engine creates is stamped, on the canvas object, with the request it was made for.
+A create that lands on a canvas stamped with a different request (or, unstamped, holding a context whose
+alpha / depth / stencil / premultipliedAlpha / preserveDrawingBuffer differ: page script got there first)
+destroys what it got, swaps the element for a fresh copy (`cloneNode(false)`: same id, classes, inline
+style and width/height attributes, same place in the document), and creates the context again on the copy.
+The copy announces itself with a bubbling `projectm-canvas-replaced` event (`detail.previous` is the old
+element); `ProjectMContext` follows it, so `context.canvas` is the element being drawn into. A page that
+holds the element itself should listen for it too. Context-loss recovery re-creates the context with the
+same request and keeps the element.
+
+In the render worker the canvas arrived by transfer and only the page could give it a new one, so there the
+engine logs the mismatch and carries on; the snapshot below reports what the context really has.
+
+### Reading what was negotiated
+
+The attributes above are what the host *asks for*. What it got is `get_context_snapshot()`, one packed int
+(`WasmContextSnapshotBit` in `WasmWebGLContext.hpp`), surfaced as the read-only `ProjectMContext.contextSnapshot`
+after `start()`:
+
+```js
+const context = await createProjectMContext({ canvas, fboPrecision: 'high' });
+context.contextSnapshot;
+// { floatColorBuffer: true, floatBlend: true, loseContext: true,
+//   fboFormat: 1, fboFormatName: 'RGBA32F',
+//   attributes: { antialias: false, preserveDrawingBuffer: false, depth: false, stencil: false,
+//                 contextAlpha: false, premultipliedAlpha: true, failIfMajorPerformanceCaveat: false,
+//                 explicitSwapControl: false, desynchronized: false, powerPreference: 'high-performance' },
+//   mismatches: [] }
+```
+
+On a GPU without `EXT_color_buffer_float` the same `'high'` request ends up as `RGBA16F` (if
+`EXT_color_buffer_half_float` exists) or `RGBA8`, and `fboFormat` says so.
+
+| Field | Meaning |
+|-------|---------|
+| `floatColorBuffer` | `EXT_color_buffer_float` is present: `RGBA16F` / `RGBA32F` render targets work |
+| `floatBlend` | `EXT_float_blend` is present: blending into `RGBA32F` targets works |
+| `loseContext` | `WEBGL_lose_context` is present on the context, so a loss can be simulated ([Testing context loss](#testing-context-loss)) |
+| `fboFormat` / `fboFormatName` | The dual-FBO format `DetectFormat()` picked, in the `fboPrecision` numbering (`0` RGBA16F, `1` RGBA32F, `2` RGBA8). Differs from the requested `fboPrecision` when the GPU cannot do it |
+| `attributes` | The context's real attributes, read from `getContextAttributes()` after creation, under the option names (`contextAlpha` is WebGL's `alpha`). `explicitSwapControl` is the request (WebGL does not report it). `null` on a bundle that predates them |
+| `mismatches` | "Requested vs effective": one `{ attribute, requested, effective }` per attribute the context does not have as the config asked, logged once by `ProjectMContext` with `console.warn`. A browser may decline `antialias` or `desynchronized`; anything else means the canvas could not be given a context of its own (the render worker, see above). Manual present expects `preserveDrawingBuffer`: Emscripten creates its offscreen back buffer's context with it |
+
+It reports and requests nothing: there is no extra context attribute. The capabilities are probed once, when the
+context is created, and are independent of the format chosen (a host that asked for `fboPrecision: 'byte'` still sees
+`floatColorBuffer: true` on a float-capable GPU). The object is frozen. It is `null` before `start()` resolves, on a
+bundle that predates the export, and after `destroy()`. A successful context-loss recovery builds a new context, so
+it is read again then. In the render-worker topology it describes the worker's context; the worker sends the value in
+its `ready` and `context-recovered` messages rather than answering a `ccall`, because the main thread waits for
+neither (a `ccall` for an export the bundle lacks is never answered).
+
+### The SDL test UI's framebuffer
+
+`projectM-Test-UI` (`src/sdl-test-ui/setup.cpp`, `initGL()`) requests the same default framebuffer as the canvas
+above: double buffered, **no alpha channel requested** (the canvas is opaque by default), **no depth, no stencil,
+no multisampling**. SDL's own defaults often add a depth buffer and the driver may add MSAA, so a preset bug chased
+in the test UI would otherwise disagree with the browser. Like `?aa=1` / `?depth=1` on the canvas, both are opt-in,
+by environment variable. A GLES build (`ENABLE_GLES`) asks for OpenGL ES **3.0**, the API WebGL 2 exposes, so a
+shader or call that needs more fails in the test UI as it does in the browser:
+
+| Variable | Requests |
+|----------|----------|
+| `PROJECTM_UI_AA=1` | 4x multisampled default framebuffer |
+| `PROJECTM_UI_DEPTH=1` | 24-bit depth + 8-bit stencil |
+| `PROJECTM_UI_GLES32=1` | OpenGL ES 3.2 instead of 3.0 (GLES builds only) |
+
+A context that cannot be created or made current, or a GL loader that fails, ends the UI with the error rather
+than rendering with null entry points.
+
+On startup the UI logs what the driver actually gave (`SDL_GL_GetAttribute()` after the context exists), e.g.
+`Framebuffer: double buffer 1, alpha 0, depth 0, stencil 0, multisample buffers 0 (samples 0)` (a display may
+still hand out an alpha channel), and warns when it
+differs from the request. SDL reports a missing depth or stencil buffer on a core-profile context as a failed query
+(`OpenGL error: 00000502`) with the value left at 0; the UI reads that as size 0. A display with no matching visual
+(for example MSAA on Xvfb) makes window creation fail with a message naming these variables.
 
 ### Manual present (`explicitSwapControl`)
 
@@ -157,7 +259,10 @@ the old size.
 
 `tests/wasm-smoke/context_attributes.mjs --module <bundle.js> --check` (its own CI step, not part of
 the default smoke) creates hosts through `create_host_with_config()` in a real browser: it reads every
-attribute back from the context (`Module.ctx.getContextAttributes()`), checks that a
+attribute back from the context (`Module.ctx.getContextAttributes()`) and holds the snapshot's
+`attributes` to it; re-creates a host on its element with other attributes (fresh element, event, size and
+CSS carried over), with the same attributes (element kept), and on an element page script already took a
+context from (replaced); reads canvas pixels back for the [canvas alpha](#canvas-alpha) contract; checks that a
 `failIfMajorPerformanceCaveat` host agrees with the browser's own answer to the same request (up when
 the browser accepts it, init code `8` when it refuses), and that `explicitSwapControl` is refused with
 init code `9` — or, with `--explicit-swap` against the explicit-swap flavor, comes up with FBO 0
@@ -165,12 +270,14 @@ redirected to Emscripten's offscreen back buffer.
 
 ### Link flavors
 
-`scripts/build_wasm_smoke_wrapper.sh` links the production bundle by default. Two opt-in flavors
-change the link and tag the build-id (`+gl-debug`, `+explicit-swap`), so
-`scripts/prepare_deploy_bundle.sh` and `deploy.py` refuse to ship them:
+`scripts/build_wasm.sh` (through `scripts/build_wasm_smoke_wrapper.sh`) links the production
+bundle by default. The opt-in flavors change the link and tag the build-id (`+gl-debug`,
+`+explicit-swap`, `+debug`), so `scripts/build_wasm.sh --stage`, `scripts/prepare_deploy_bundle.sh`
+and `deploy.py` refuse to ship them:
 
 | Variable | Adds | For |
 |----------|------|-----|
+| `--debug` (`PROJECTM_WASM_DEBUG=1`) | `-sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2` | Runtime checks: wild pointers, stack overflow on any thread, pthread-pool exhaustion warnings. CI runs the smoke, the host churn test (`tests/wasm-smoke/host_churn.mjs`) and the deepest-nesting presets (`scripts/deepest_presets.mjs`) on it. Output defaults to `cmake-build/wasm-smoke-debug/` |
 | `PROJECTM_WASM_GL_DEBUG=1` | `-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1` | A bad context attribute or GL call is reported instead of showing as a black canvas. Production keeps `GL_TRACK_ERRORS=0`. |
 | `PROJECTM_WASM_EXPLICIT_SWAP=1` | `-sOFFSCREEN_FRAMEBUFFER=1`, `-DPROJECTM_WASM_OFFSCREEN_FRAMEBUFFER=1` | `explicitSwapControl` (manual present) |
 
@@ -180,8 +287,10 @@ The production `-s` settings are otherwise unchanged: `MIN/MAX_WEBGL_VERSION=2`,
 worker path registers the transferred canvas on `specialHTMLTargets['#mcanvas']` on purpose, and
 turning that setting on would proxy GL back to the main thread.
 
-Required float texture extensions (`EXT_color_buffer_float`, `EXT_float_blend`, half-float samplers) are enabled
-explicitly after the context is made current. Browser presentation does **not** call `eglSwapBuffers()` — frames are
+The float extensions (`EXT_color_buffer_float`, `EXT_color_buffer_half_float`, `EXT_float_blend`,
+`OES_texture_float_linear`) are enabled in one place, `ProjectMEnableRequiredWebGLExtensions()`, right after
+the context is made current; what it found is the host's `WasmContextCaps`, which `DetectFormat()` and the
+snapshot read instead of asking WebGL again. Browser presentation does **not** call `eglSwapBuffers()` — frames are
 presented when the WebGL canvas is composited by the browser (or, with `explicitSwapControl`, when committed).
 
 ### Canvas color space (sRGB)
@@ -194,11 +303,18 @@ Display-P3 panels (the compositor maps sRGB → the display) instead of
 reinterpreting the same RGB numbers as P3.
 
 This runs for both the main-thread canvas and the OffscreenCanvas render-worker
-path (via Emscripten's `GLctx`). Dual-FBO `RGBA16F` intermediates remain a
-precision/feedback choice and are **not** Display-P3 or HDR output. Do **not**
+path (via Emscripten's `GLctx`). Dual-FBO `RGBA16F` intermediates are **not**
+Display-P3 or HDR output, and not extra feedback precision either: libprojectM
+renders each frame through 8-bit targets before it gets there (see
+[Dual-FBO precision policy](#dual-fbo-precision-policy-wasm)). Do **not**
 set `drawingBufferColorSpace = "display-p3"` without a final sRGB→P3 convert in
 the compositor — that would change preset appearance. `ENABLE_HDR_RENDERING` /
 `ENABLE_HDR_P3` are separate libprojectM fidelity flags and are off by default.
+With `ENABLE_HDR_P3` the composite shader's output runs linear → Reinhard tone
+map → BT.709-to-Display-P3 matrix (on linear light) → sRGB transfer
+(`ShaderTranspiler::HdrOutputFunctions()`); the matrix used to come after the
+transfer, on encoded values. `ColorOutputTest` pins pure BT.709 red to encoded
+P3 `(0.9175, 0.2003, 0.1386)` within 1/255.
 
 ## Configurable canvas selectors
 
@@ -302,6 +418,50 @@ Still shared, by design:
 (run by the C++ format gate) rejects object-like `#define` aliases of `WasmHost` state in
 `src/wasm/`.
 
+## Building the bundle
+
+One command builds what CI tests and what `deploy.py` uploads:
+
+```bash
+source /path/to/emsdk/emsdk_env.sh        # 6.0.6, see "Emscripten SDK version"
+scripts/build_wasm.sh                     # libraries + link + checks -> cmake-build/wasm-smoke/
+scripts/build_wasm.sh --stage             # ... and stage for deploy.py (repo root + pm/)
+scripts/build_wasm.sh --lto               # whole-program LTO (rebuilds the libraries)
+scripts/build_wasm.sh --link-only --debug # runtime-checks flavor -> cmake-build/wasm-smoke-debug/
+```
+
+`build_emscripten.yml` and `scripts/colab_build.sh` run the same script. It runs, in order:
+`scripts/build_wasm_install.sh` (incremental configure/build/install of the static libraries,
+Release, so `NDEBUG`), `scripts/build_wasm_smoke_wrapper.sh` (the `src/wasm/` wrapper link),
+`scripts/check_wasm_bundle_features.sh` (below) and, with `--stage`,
+`scripts/prepare_deploy_bundle.sh`. Defaults: `INSTALL_DIR=install`,
+`CMAKE_BUILD_DIR=cmake-build-wasm`, `OUT_DIR=cmake-build/wasm-smoke`; `--help` lists the rest.
+
+**Nothing changes the binary after the link.** At `-O3` the link already runs `wasm-opt -O3`; the
+old `optimize.sh` ran it a second time on the *staged* bundle (saving 604 B, 0.04%) plus an
+optional WasmEdge AOT pass browsers cannot use, after the hashes and the `.br`/`.gz` copies were
+made, so the deployed bundle was one no gate had seen. It is now `scripts/optimize.sh`, benchmarks
+only. `scripts/build_projectm.sh` (hardcoded `/root/emsdk`, host-built projectm-eval, install to
+`/usr/local`) and `git.sh` are gone.
+
+**The wrapper compiles like the library.** The `src/wasm/` TUs include internal libprojectM
+headers, so they must see the same `config.h` and compile definitions (`PRJM_F_SIZE`,
+`PROJECTM_STATIC_DEFINE`, `NDEBUG`, …) or the two halves disagree on a type's layout (an ODR
+violation the linker does not report). CMake writes them to
+`<CMAKE_BUILD_DIR>/projectm-wasm-wrapper-flags.txt` (`projectm_write_emscripten_wrapper_flags()`
+in `cmake/EmscriptenWasmFlags.cmake`, from the targets' `COMPILE_DEFINITIONS`), and both the
+wrapper link and `scripts/check_cpp_tidy.sh` read that file. It also records whether the libraries
+were built for LTO; the link follows it, fails if `PROJECTM_WASM_LTO` in the environment says
+otherwise, and checks the archives really are bitcode (or wasm objects).
+
+**`<bundle>.build-id`.** Line 1 is the source fingerprint (`scripts/wasm_source_fingerprint.sh`)
+plus the flavor tags. Then `key=value` facts: `wasm-sha256` and `js-sha256` of the linked
+binary and glue, `lto-libs` / `lto-link`, `ndebug`, `emcc`. Staging rewrites the glue's bundle name,
+so the staged id carries the staged `js-sha256` and the link's as `link-js-sha256`. Two builds of the
+same tree with the same SDK give the same hashes, in any build directory (checked 2026-10-23: a
+fresh `cmake-build-wasm-repro` and an incremental `cmake-build-wasm-bw` both produced
+`wasm-sha256=941a0ab7…`).
+
 ## Emscripten flag single source of truth
 
 WASM compile/link flags, `EXPORTED_FUNCTIONS`, and the OpenMP/pthread pool cap are defined in
@@ -310,7 +470,37 @@ WASM compile/link flags, `EXPORTED_FUNCTIONS`, and the OpenMP/pthread pool cap a
 - The `ENABLE_EMSCRIPTEN` block in `CMakeLists.txt` (static lib build)
 - The generated `scripts/wasm_link_common.inc.sh` (final `projectM_emscripten.cpp` wrapper link)
 - The generated `cmake/generated/ProjectMWasmBuildConfig.hpp` (`kWasmOpenMpThreads`,
-  `kWasmPresetPrepareThreads`, `kWasmPthreadPoolSize`)
+  `kWasmPresetPrepareThreads`, `kWasmPthreadPoolSize`, `kWasmStackSize`, `kWasmPthreadStackSize`)
+- `<CMAKE_BUILD_DIR>/projectm-wasm-wrapper-flags.txt` (the libraries' `config.h`, definitions and
+  LTO state for the wrapper compile; see [Building the bundle](#building-the-bundle))
+
+The thread counts are constants in the module, not cache options: the pool size is baked into both
+the link (`PTHREAD_POOL_SIZE`) and the header's `static_assert`, and a smaller pool than OpenMP plus
+the prepare threads need brings back the lazy-Worker hang (see "Main-thread freeze on 033/034"). A
+`-DPROJECTM_WASM_PTHREAD_POOL_SIZE=…` that disagrees is a configure error, and the wrapper link
+rejects a `PROJECTM_WASM_PTHREAD_POOL_SIZE` environment override.
+
+**Stacks.** `STACK_SIZE=1MB` (main thread) and `DEFAULT_PTHREAD_STACK_SIZE=512KB` (every pthread,
+the preset prepare thread included). Emscripten's defaults are 64 KB each. The prepare thread parses
+equations (projectM-eval) and transpiles shaders (hlslparser), and both recurse once per nesting
+level: `tests/libprojectM/data/PresetPrepare/prepare-deep-nesting.milk` (64 levels) overflows a
+64 KB pthread stack on the `--debug` link, 32 levels fit, and 512 KB handles 256. Real presets nest
+at most 5 deep (`node scripts/deepest_presets.mjs --verbose`). Six pthreads cost 3 MB of the
+256 MB heap.
+
+**`INVOKE_RUN=0`** is in the canonical wrapper list (every host calls `init*()` /
+`create_host*()` itself). Evaluated and **not** adopted (2026-10-23, same tree, glue sizes):
+`-sTEXTDECODER=2` saves 401 B raw / 158 B gzip, and `-sINCOMING_MODULE_JS_API=[…]` (the 14
+properties any host in `html/`, `packages/web/` or the tests passes to `createModule`) saves
+744 B / 265 B. The `.wasm` is unchanged either way. The first drops the decoder fallback for
+no measurable gain; the second makes any `Module` property a host passes that is missing from the
+list silently ignored. Neither is worth that.
+
+**`-fno-strict-aliasing`, `-fno-math-errno`** are `PROJECTM_WASM_CODEGEN_COMPILE_FLAGS`, not SIMD
+flags. An audit with GCC `-O3 -fstrict-aliasing -Wstrict-aliasing=2` over the native build
+(2026-10-23) found nothing, and the SIMD code in `WaveformAligner` loads and stores through
+`wasm_v128_load`/`wasm_v128_store`, which are `may_alias`. The flag stays as a safety net for the
+vendored code; dropping it would need a golden-image run.
 
 Regenerate derived artifacts after editing the CMake module:
 
@@ -352,7 +542,11 @@ Safari 16.4 is therefore the floor. What is deliberately **not** used:
 `scripts/check_wasm_bundle_features.sh <bundle>.wasm` disassembles the linked bundle and fails on
 relaxed-SIMD or Memory64 instructions; `build_emscripten.yml` runs it because Chromium, which runs
 every browser gate, supports all of them and would never notice. It also covers prebuilt archives
-the link pulls in (`omp/libomp.a`). Browser minimums above are from
+the link pulls in (`omp/libomp.a`). `scripts/build_wasm.sh` runs it on every link, and it checks the
+build as well: main and pthread stack sizes match `ProjectMWasmBuildConfig.hpp` (read from the
+binary and glue, not from the flags), every TU was built with `NDEBUG` (no `__assert_fail` in the
+symbol map, except on the `--debug` flavor whose `ASSERTIONS` libc legitimately has it), and the
+`.build-id`'s `lto-libs` equals `lto-link`. Browser minimums above are from
 [webassembly.org/features](https://webassembly.org/features/) as of 2026-09.
 
 ## Heap model
@@ -362,7 +556,7 @@ The heap is fixed: `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0`. The measured
 `tests/wasm-smoke/measure-heap.mjs` on a relink with `-sINITIAL_MEMORY=16mb`, so any allocation past
 16 MiB shows up as growth, and it was the same at 1920x1080 and 3840x2160 for `000-empty`,
 `110-per_pixel`, `261-compshader-noisevol_lq`, `270-compshader-solid-color`, and the heavy
-`custom_milk_fixed/` presets `milk001_variant`, `milk011` and `fractal_tunnel_grok`, across a
+`presets/custom/` presets `milk001_variant`, `milk011` and `fractal_tunnel_grok`, across a
 dual-FBO transition. Framebuffers and textures live in GPU memory, not the heap. A forced 64 MB
 `malloc` did show up (19.25 to 89.5 MiB), so the probe does see growth. 256 MB is about 13x the
 high-water mark and the same initial reservation as before, so nothing that fit before can fail now.
@@ -395,14 +589,23 @@ The index includes imports, so use the number exactly as the browser printed it.
 
 ## Deploy staleness guard
 
-`scripts/build_wasm_smoke_wrapper.sh` records a source fingerprint
+`scripts/build_wasm_smoke_wrapper.sh` writes `projectm-v.030-thread.build-id` next to its outputs
+(format in [Building the bundle](#building-the-bundle)). Line 1, the source fingerprint
 (`scripts/wasm_source_fingerprint.sh`: working-tree contents of `src/`, `vendor/`, `cmake/`, the
-build scripts, submodule commits and link env knobs) as `projectm-v.030-thread.build-id` next to
-its outputs. `scripts/prepare_deploy_bundle.sh` rebuilds by default (incremental libs + relink) and
-stages the id as `<bundle>.build-id`; `deploy.py` refuses to upload a canonical bundle whose id does
-not match the tree it runs from (`--allow-stale-wasm` overrides). `PROJECTM_DEPLOY_REUSE_BUILD=1`
-lets `prepare_deploy_bundle.sh` skip the rebuild, but only for outputs whose id matches.
-`scripts/build_wasm_install.sh` no longer skips when the libs already exist.
+build scripts, submodule commits and the extra-link-flags knob), answers "was this built from this
+tree"; the binary hashes answer "is this the binary that was built".
+`scripts/prepare_deploy_bundle.sh` rebuilds by default (through `scripts/build_wasm.sh`) and stages
+the id as `<bundle>.build-id`. `deploy.py` refuses to upload:
+
+- a canonical bundle whose fingerprint does not match the tree it runs from
+  (`--allow-stale-wasm` overrides), and
+- any staged copy (`<bundle>.wasm`, `.js`, `pm/` mirrors, their `.br`/`.gz`, legacy
+  `.1ijs`/`.3ijs`) that does not decode to the build-id's `wasm-sha256` / `js-sha256`. Not
+  overridable: that file is a binary nobody tested.
+
+`python3 deploy.py --check-bundle` runs both checks without the network; `build_emscripten.yml` runs
+it after `scripts/build_wasm.sh --stage`. `PROJECTM_DEPLOY_REUSE_BUILD=1` lets
+`prepare_deploy_bundle.sh` skip the rebuild, but only for outputs whose fingerprint matches.
 
 ## WASM host source layout
 
@@ -419,7 +622,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmShaderCache.cpp` | Transpiled-GLSL cache hooks (host-page store/lookup), `shader_cache_*` and `get_glsl_generator_version()` exports |
 | `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, applied once from `init()` |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
-| `WasmGraphics.hpp` | Dual ping-pong FBO manager, `GLStateGuard`, `gl_reset_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
+| `WasmGraphics.hpp` | Dual ping-pong FBO manager, `RenderStateGuard`, `reset_render_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
 | `WasmPresent.cpp` | The end of a frame: flash-limiter switches (forwarding to libprojectM's C API), per-host frame readback (`capture_frame_*`, taken in `render_frame()` before a manual-present commit) and the commit counter. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
 | `WasmDeterminism.cpp` | Virtual clock (`WasmNow()`, `DeterministicFrameTick()`), deterministic RNG switch, main-loop pause — `set_deterministic_*` / `set_render_loop_paused` exports. See [GRAPHICS_BENCHMARK_HARNESS.md](GRAPHICS_BENCHMARK_HARNESS.md) |
@@ -475,13 +678,17 @@ If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
 | Setting | CMake lib link | Shell wrapper link | Notes |
 |---------|:--------------:|:------------------:|-------|
 | `SHARED_MEMORY=1`, `-pthread` | yes | yes | Required for the pthread pool + SharedArrayBuffer. No `WASM_WORKERS`: every thread is a pthread |
-| `PTHREAD_POOL_SIZE` | yes (`5`) | yes (`5`, overridable via `PROJECTM_WASM_PTHREAD_POOL_SIZE`) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 2) |
+| `PTHREAD_POOL_SIZE` | yes (`5`) | yes (`5`; an env override is rejected) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 2) |
+| `STACK_SIZE=1MB`, `DEFAULT_PTHREAD_STACK_SIZE=512KB` | yes | yes | See [Emscripten flag single source of truth](#emscripten-flag-single-source-of-truth) |
+| `INVOKE_RUN=0` | no | yes | Hosts call `init*()` / `create_host*()` themselves |
+| `-fno-strict-aliasing -fno-math-errno` | compile | compile | `PROJECTM_WASM_CODEGEN_COMPILE_FLAGS` |
+| `-include config.h`, libprojectM's compile definitions | compile | compile (`projectm-wasm-wrapper-flags.txt`) | Same type layouts on both sides of the link |
 | `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0` | yes | yes | Fixed heap; see [Heap model](#heap-model) |
 | `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
 | `GL_TRACK_ERRORS=0` | yes | yes | No per-call GL error tracking. (`GL_POOL_TEMP_BUFFERS` is gone: with the heap under 2 GB the garbage-free WebGL2 upload APIs are on and it no longer reaches the glue) |
 | `-msimd128`, no `-mrelaxed-simd` | compile + link | compile + link | The [feature floor](#wasm-feature-floor) |
 | `-fwasm-exceptions` | compile + link | compile + link | C++ exception ABI, unconditional. The JS-trampoline fallback (`PROJECTM_WASM_EXCEPTIONS=js`) only existed because of ASYNCIFY and is rejected now |
-| `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`) | link (`PROJECTM_WASM_LTO=1`) | Opt-in whole-program LTO: the static libs become bitcode. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
+| `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`, `scripts/build_wasm.sh --lto`) | link (follows the libraries) | Opt-in whole-program LTO: the static libs become bitcode. One switch, the CMake cache entry; the link reads it from `projectm-wasm-wrapper-flags.txt`. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
 | `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | no | yes | Single list in `EmscriptenWasmFlags.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
 | `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
@@ -828,14 +1035,14 @@ popup:
 - `projectm.1ink` — FLAC + MOD sections wired (MOD player section added
   alongside the existing FLAC section).
 
-`projectm_test.1ink` is a standalone UI mockup (no projectM module load at
-all — every button is a `console.log` stub) and is out of scope for
-external-player wiring.
+`docs/mockups/projectm_test.1ink` is a standalone UI mockup (no projectM
+module load at all — every button is a `console.log` stub). It is not
+deployed and is out of scope for external-player wiring.
 
 ### Manual reactivity check
 
 To confirm an external source feels comparable to local playback on a bass-heavy preset
-(e.g. `custom_milk_fixed/milk011.milk`):
+(e.g. `presets/custom/milk011.milk`):
 
 1. Load the reference preset and play a local file via `#track`; note the visual response.
 2. Open the FLAC player popup and play a similarly-loud track; compare reactivity.
@@ -947,7 +1154,7 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
 
 - **Direct-to-canvas path** (steady state — the common case): when no preset
   crossfade is active, `render_frame()` calls `projectm_opengl_render_frame(pm)`
-  straight to FBO 0 (the browser canvas), wrapped in a `GLStateGuard`. This is
+  straight to FBO 0 (the browser canvas), wrapped in a `RenderStateGuard`. This is
   the same single-pass path used before the dual-FBO transition work landed.
 - **Dual-FBO compositor path** (preset crossfades only): when
   `g_transitionActive` is true and both Preset A/B FBOs plus
@@ -971,7 +1178,7 @@ loop via `emscripten_set_main_loop()`. `renderLoop()` itself does not call
 - **Legacy single-pass fallback** (before `start_render()` has run, or if the
   compositor shader failed to initialise while a transition is active):
   `render_frame()` calls `projectm_opengl_render_frame(pm)` directly, which
-  renders straight to FBO 0, wrapped in a `GLStateGuard` for parity with the
+  renders straight to FBO 0, wrapped in a `RenderStateGuard` for parity with the
   dual-FBO path's per-pass guards.
 
 Either path leaves the finished frame in FBO 0 and increments
@@ -1073,7 +1280,7 @@ black-canvas/regressions in the render pipeline without a full browser.
   the report and PNGs can be compared against a known-minimal preset:
 
   ```bash
-  node scripts/capture_custom_milk_screenshots.mjs --preset custom_milk_fixed/milk012.milk
+  node scripts/capture_custom_milk_screenshots.mjs --preset presets/custom/milk012.milk
   ```
 
   `capture_report.json` includes `canvasMeanRgb`, `presetSwitchFailed`, and `consoleErrors` per
@@ -1082,11 +1289,10 @@ black-canvas/regressions in the render pipeline without a full browser.
 
 ### Rebuilding the WASM smoke bundle
 
-The capture script defaults to the **prebuilt** module at the repo root
-(`projectm-v.030-thread.1ijs` + `projectm-v.030-thread.wasm`). These are *not*
-regenerated automatically, so any change to `projectM_emscripten.cpp` — including
-fixes to `render_frame()` — has **no effect on screenshots until the smoke
-wrapper is rebuilt and the artifacts are refreshed**.
+The capture script defaults to `cmake-build/wasm-smoke/projectm-v.030-thread.js`,
+the output of `scripts/build_wasm.sh` (see [Building the bundle](#building-the-bundle)).
+Nothing rebuilds it for you: a change to `src/wasm/` or the engine has **no effect on
+screenshots until you rerun `scripts/build_wasm.sh`**.
 
 #### Emscripten SDK version
 
@@ -1119,63 +1325,15 @@ An older note here said a newer SDK (5.0.4) rendered an all-black canvas for
 every preset. That does not reproduce on 6.0.6 with the current source.
 
 Emscripten 6.0.6 does not emit a separate `projectm-v.030-thread.worker.js`;
-pthread workers load the main glue script. The `.worker.js` steps below only
-apply to bundles from older SDKs.
+pthread workers load the main glue script.
 
-To rebuild after changing `projectM_emscripten.cpp` (or projectM itself):
-
-```bash
-# 1. Build + install projectM static libs for wasm (BUILD_TESTING off keeps
-#    this fast; Release defines NDEBUG, as scripts/build_wasm_install.sh does).
-emcmake cmake -S . -B cmake-build-wasm -DBUILD_TESTING=NO -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX=install-wasm
-cmake --build cmake-build-wasm -j"$(nproc)"
-cmake --install cmake-build-wasm
-
-# 2. Build the smoke wrapper against the installed libs.
-INSTALL_DIR=$PWD/install-wasm OUT_DIR=$PWD/cmake-build-wasm/wasm-smoke \
-  scripts/build_wasm_smoke_wrapper.sh
-# -> writes cmake-build-wasm/wasm-smoke/projectm-v.030-thread.{js,wasm,worker.js}
-```
-
-`scripts/build_wasm_smoke_wrapper.sh` does **not** pass `-flto` unless
-`PROJECTM_WASM_LTO=1`, which pairs with static libs configured with
-`-DPROJECTM_WASM_LTO=ON` (`PROJECTM_WASM_LTO=1 scripts/build_wasm_install.sh`),
-i.e. whole-program LTO over LLVM bitcode archives. The wrapper TUs are then
-compiled to native objects first and only the link runs LTO: emsdk 6.0.6 does
-not register `EM_JS` functions defined in bitcode as JS imports, which is why a
-plain `-flto` wrapper compile used to fail with undefined `js_report_init_success`,
-`js_init_projectm_glue` (then `js_init_projectm_dom`) and the other `EM_JS` symbols. Sizes and timings:
-`docs/PERFORMANCE.md` ("Whole-program LTO").
-
-Then point the capture script at the freshly built module, either by **copying
-the artifacts to the repo root** (what the committed bundle expects):
+To rebuild after changing `src/wasm/` (or projectM itself), then capture:
 
 ```bash
-cp cmake-build-wasm/wasm-smoke/projectm-v.030-thread.js        projectm-v.030-thread.js
-cp cmake-build-wasm/wasm-smoke/projectm-v.030-thread.wasm      projectm-v.030-thread.wasm
-cp cmake-build-wasm/wasm-smoke/projectm-v.030-thread.worker.js projectm-v.030-thread.worker.js
-iconv -f UTF-8 -t UTF-16 projectm-v.030-thread.js -o projectm-v.030-thread.1ijs
-iconv -f UTF-8 -t UTF-32 projectm-v.030-thread.js -o projectm-v.030-thread.3ijs
-```
-
-> **Don't forget `projectm-v.030-thread.worker.js`.** The `-pthread`/
-> `PTHREAD_POOL_SIZE` build spawns one Worker per logical core to load this
-> file at startup. If it's missing at the repo root, every worker request
-> comes back blocked (`net::ERR_BLOCKED_BY_RESPONSE` under the capture
-> script's `Cross-Origin-Embedder-Policy: require-corp`), the module never
-> finishes initializing, and `capture.html` times out waiting for
-> `is_preset_ready()` — even though the exact same build works fine when
-> referenced via `PROJECTM_WASM_JS` pointing directly at the build directory
-> (where the worker file sits next to the `.js`).
-
-…or, without copying, by setting `PROJECTM_WASM_JS` to the freshly built `.js`
-(the script finds the sibling `.wasm` automatically and accepts `.js`, `.ijs`,
-or `.1ijs`; the sibling `.worker.js` is found the same way):
-
-```bash
-PROJECTM_WASM_JS=cmake-build-wasm/wasm-smoke/projectm-v.030-thread.js \
-  node scripts/capture_custom_milk_screenshots.mjs --preset custom_milk_fixed/milk012.milk
+scripts/build_wasm.sh            # -> cmake-build/wasm-smoke/projectm-v.030-thread.{js,wasm}
+node scripts/capture_custom_milk_screenshots.mjs --preset presets/custom/milk012.milk
+# another build: PROJECTM_WASM_JS=<path to its .js> (the sibling .wasm is found
+# automatically; legacy .1ijs/.ijs glue is accepted too)
 ```
 
 Verify the rebuilt module renders non-black output by capturing a known-good
@@ -1202,7 +1360,15 @@ mean/median/p95 stats. See [docs/PERFORMANCE.md](PERFORMANCE.md) for details.
   `GL_LINEAR` sampler on an unfilterable format leaves the texture incomplete and it samples as
   black (common on mobile/iOS GPUs). The compositor draws the FBOs 1:1, so nothing is lost.
 - Force byte: `fboPrecision: 'byte'` pins `RGBA8` (debug the degraded path on a float-capable GPU)
-- Fallback: `RGBA8` (degraded-mode banner in `html/projectm-fbo-format.js`)
+- Fallback: `RGBA8` (degraded-mode banner in `html/projectm-fbo-format.js`), also where a float format
+  ends up when its framebuffer turns out incomplete at the first transition (`CreateFBOWithFallback()`
+  re-creates every surface as `RGBA8`; the compositor dithers that output, and the snapshot's
+  `fboFormat` follows)
+
+What any of these formats can hold is bounded by what goes in: the dual FBOs receive each preset's
+finished frame, which libprojectM rendered through 8-bit feedback, warp and composite targets
+(`ENABLE_HDR_RENDERING` is off in the WASM build). A float format keeps the crossfade from rounding a
+second time; it does not remove the feedback banding of recursive presets, which happens upstream.
 
 Before #258 the chain fell back to `RGBA32F` whenever `EXT_color_buffer_half_float` was missing,
 even though `EXT_color_buffer_float` already makes `RGBA16F` renderable — doubling VRAM and
@@ -1218,8 +1384,8 @@ worker topology it travels in the worker's `init` message.
 
 `RGBA32F` is 16 bytes/px against 8 for `RGBA16F`, across four surfaces (A_Read/A_Write,
 B_Read/B_Write) — so the default halves both transition VRAM and compositor bandwidth during a
-crossfade. Half-float's 10-bit mantissa is still well beyond what an 8-bit display resolves, so
-this is not the `RGBA8` degraded path and carries no banding risk on float-capable GPUs.
+crossfade. Half-float's 10-bit mantissa is still well beyond what an 8-bit display resolves, so the
+crossfade itself adds no rounding on float-capable GPUs.
 
 Because the saving is on the transition path only, measure it with the crossfade-gated benchmark
 (`?benchmark=1&crossfade=1`, see [docs/PERFORMANCE.md](PERFORMANCE.md)) — a steady-state
@@ -1229,42 +1395,9 @@ the before/after JSON pair to `benchmark-results/`.
 
 ## Initializing Emscripten's OpenGL Context
 
-In addition to the above linker flags, some additional initialization steps must be performed to set up the OpenGL
-rendering context for projectM. Specifically, the `OES_texture_float` WenGL extension must be loaded explicitly to
-support the required texture format for the motion vector grid. The following code template can be used to set up a
-proper SDL2/WebGL context for projectM:
-
-```c
-
-#include <emscripten.h>
-#include <emscripten/html5_webgl.h>
-
-#include <GL/gl.h>
-
-#include <SDL.h>
-
-int main(void)
-{
-    // Init SDL's video and audio subsystems
-    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
-
-    // Create the SDL window (will be tied to the Emscripten HTML5 canvas)
-    SDL_window* window = NULL;
-    SDL_renderer* renderer = NULL;
-    SDL_CreateWindowAndRenderer(1024, 768, SDL_WINDOW_OPENGL, &window, &renderer);
-    if (window == NULL || renderer == NULL)
-    {
-        fprintf(stderr, "Failed to create SDL renderer: %s\n", SDL_GetError());
-        return 1;
-    }
-
-    // Enable floating-point texture support for motion vector grid.
-    auto webGlContext = emscripten_webgl_get_current_context();
-    emscripten_webgl_enable_extension(webGlContext, "OES_texture_float");
-
-    // Initialize projectM and put all other stuff below.
-    
-    return 0;
-}
-
-```
+There is nothing to initialize by hand: `WasmWebGLCreateAndActivateContext()`
+(`src/wasm/WasmWebGLContext.cpp`) creates the WebGL 2 context with `emscripten_webgl_create_context()` and enables
+the extensions projectM needs. Float *textures* are core in WebGL 2; rendering to them needs `EXT_color_buffer_float`
+(and `EXT_float_blend` to blend into `RGBA32F`). The WebGL 1 names (`OES_texture_float` and friends) do not exist on a
+WebGL 2 context and are not used. What was negotiated is readable from JS afterwards:
+[Reading what was negotiated](#reading-what-was-negotiated).

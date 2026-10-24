@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderer/OpenGL.h"
+#include "Renderer/Device/RenderDevice.hpp"
 
 namespace libprojectM {
 namespace Renderer {
@@ -16,8 +16,8 @@ public:
      * Constructor. Creates a new VAO.
      */
     VertexArray()
+        : m_vaoID(m_device->CreateVertexArray())
     {
-        glGenVertexArrays(1, &m_vaoID);
     }
 
     /**
@@ -25,8 +25,8 @@ public:
      */
     virtual ~VertexArray()
     {
-        glDeleteVertexArrays(1, &m_vaoID);
-        m_vaoID = 0;
+        m_device->DestroyVertexArray(m_vaoID);
+        m_vaoID = {};
     }
 
     /**
@@ -34,7 +34,7 @@ public:
      */
     void Bind() const
     {
-        glBindVertexArray(m_vaoID);
+        m_device->Commands().BindVertexArray(m_vaoID);
     }
 
     /**
@@ -42,11 +42,12 @@ public:
      */
     static void Unbind()
     {
-        glBindVertexArray(0);
+        Device::Commands().BindVertexArray({});
     }
 
 private:
-    GLuint m_vaoID{0}; //!< The vertex array object ID for this mesh's vertex data.
+    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the VAO.
+    Device::VertexArrayHandle m_vaoID; //!< The vertex array object for this mesh's vertex data.
 
 };
 

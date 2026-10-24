@@ -336,3 +336,10 @@ if(ENABLE_INSTALL)
     endif()
 
 endif()
+
+if(ENABLE_EMSCRIPTEN)
+    # How these objects were compiled, for the src/wasm/ wrapper TUs that
+    # scripts/build_wasm_smoke_wrapper.sh compiles against the internal headers
+    # (cmake/EmscriptenWasmFlags.cmake).
+    projectm_write_emscripten_wrapper_flags(projectM_main Audio MilkdropPreset Renderer UserSprites)
+endif()

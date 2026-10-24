@@ -90,42 +90,35 @@ jobs:
             bash "${{ github.workspace }}/scripts/build_libomp_emscripten.sh"
           fi
 
-      - name: Configure Build
-        run: |
-          emcmake cmake -G "Unix Makefiles" \
-            -S "${{ github.workspace }}" \
-            -B "${{ github.workspace }}/cmake-build" \
-            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_VERBOSE_MAKEFILE=YES \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DBUILD_TESTING=YES \
-            -DENABLE_OPENMP=ON \
-            -DGTest_DIR="${{ github.workspace }}/build-gtest/dist/emscripten/lib/lib/cmake/GTest"
+      # The one build entry point (docs/EMSCRIPTEN.md "Building the bundle"):
+      # the same command Colab and a local deploy run, so the bundle every gate
+      # below tests is the bundle deploy.py would upload. It configures, builds
+      # and installs the libraries (Release, so NDEBUG), links the wrapper with
+      # src/wasm's -Werror ratchet, checks the result
+      # (scripts/check_wasm_bundle_features.sh: feature floor, stack sizes,
+      # NDEBUG, LTO agreement) and stages it with its build-id. BUILD_TESTING
+      # also builds the unit tests: the link is the gate for the wasm ABI
+      # choices above. They are not *run*: they need a native GL context and
+      # the host filesystem (under Emscripten ctest cannot launch them);
+      # build_linux.yml runs the same suite natively. Browser-side behaviour is
+      # covered by the smoke, golden and audio steps below.
+      # PROJECTM_BUILDS_MERGE_URL= keeps staging off the live site's manifest.
+      - name: Build, link and stage the bundle (scripts/build_wasm.sh --stage)
+        env:
+          BUILD_TESTING: 'ON'
+          GTEST_DIR: ${{ github.workspace }}/build-gtest/dist/emscripten/lib/lib/cmake/GTest
+          CMAKE_BUILD_DIR: ${{ github.workspace }}/cmake-build
+          INSTALL_DIR: ${{ github.workspace }}/install
+          OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke
+          PROJECTM_WASM_WERROR: '1'
+          PROJECTM_BUILDS_MERGE_URL: ''
+        run: scripts/build_wasm.sh --stage
 
-      # Release, the flavour scripts/build_wasm_install.sh deploys: the smoke,
-      # golden and audio gates below should measure what ships. (This step used
-      # to be called "Build Debug" while EmscriptenWasmFlags.cmake forced -O3
-      # over whatever the build type said.)
-      - name: Build
-        run: emmake cmake --build "${{ github.workspace }}/cmake-build" --parallel
-
-      # The unit tests are *built* here (the link is the gate for the wasm ABI
-      # choices above) but not *run*: they need a native GL context and the host
-      # filesystem, and under Emscripten ctest cannot even launch them (xvfb-run
-      # executes the .js directly, "Permission denied"; the playlist test cannot
-      # see tests/playlist/data). build_linux.yml runs the same ctest suite
-      # natively. Browser-side behaviour is covered by the smoke, golden and
-      # audio steps below.
-
-      # - name: Build Release
-      #   run: emcmake cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --parallel
-
-      - name: Install
-        run: |
-          cd "${{ github.workspace }}/cmake-build" && emmake make install
-          
-        # emcmake cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --target install
+      # What deploy.py checks before an upload, without the upload: the staged
+      # bundle was built from this tree, and every staged copy (.wasm, .js,
+      # .br, .gz) is the binary the link recorded in its build-id.
+      - name: Staged bundle matches its build-id
+        run: python3 deploy.py --check-bundle
 
       - name: Verify WASM link flags are in sync
         run: scripts/verify_wasm_link_common.sh
@@ -149,15 +142,6 @@ jobs:
           CLANG_TIDY="$(pipx environment --value PIPX_BIN_DIR)/clang-tidy" \
             scripts/check_cpp_tidy.sh "${{ github.workspace }}/cmake-build"
 
-      # PROJECTM_WASM_WERROR=1: src/wasm's -Wall -Wextra warning ratchet
-      # (scripts/build_wasm_smoke_wrapper.sh).
-      - name: Build WASM Smoke Wrapper
-        env:
-          PROJECTM_WASM_WERROR: '1'
-          INSTALL_DIR: ${{ github.workspace }}/install
-          OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke
-        run: scripts/build_wasm_smoke_wrapper.sh
-
       # A JS minifier that renames properties (--closure 1) breaks the names the
       # engine's EM_JS code shares with html/ without failing any browser test
       # below — the module still boots and renders. See docs/PERFORMANCE.md.
@@ -168,13 +152,6 @@ jobs:
       # stack, so the Asyncify runtime must not creep back into the bundle.
       - name: No Asyncify in the bundle
         run: scripts/check_no_asyncify.sh "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
-
-      # Chromium runs every gate below and supports Relaxed SIMD; Safari does
-      # not, and rejects the whole module over one such instruction. Static
-      # check against the documented floor (docs/EMSCRIPTEN.md "Wasm feature
-      # floor"). setup-emsdk exports EMSDK, where wasm-dis lives.
-      - name: Bundle stays inside the browser feature floor
-        run: scripts/check_wasm_bundle_features.sh "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.wasm"
 
       - name: Validate WASM Artifacts
         run: |
@@ -221,13 +198,14 @@ jobs:
       # Manual present only exists in the explicit-swap link flavor
       # (OFFSCREEN_FRAMEBUFFER; never deployed): N deterministic ticks must be N
       # commits, and its capture must go through the asynchronous pack buffer.
-      - name: Build WASM Smoke Wrapper (explicit-swap flavor)
+      - name: Link the explicit-swap flavor
         env:
           PROJECTM_WASM_WERROR: '1'
           PROJECTM_WASM_EXPLICIT_SWAP: '1'
+          CMAKE_BUILD_DIR: ${{ github.workspace }}/cmake-build
           INSTALL_DIR: ${{ github.workspace }}/install
           OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke-explicit-swap
-        run: scripts/build_wasm_smoke_wrapper.sh
+        run: scripts/build_wasm.sh --link-only
 
       - name: Present pass (manual present)
         run: node tests/wasm-smoke/present_pass.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke-explicit-swap/projectm-v.030-thread.js" --explicit-swap
@@ -237,16 +215,44 @@ jobs:
       # silently read through, which is how the host lifecycle bugs (playlist
       # use-after-free, null-engine exports, unvalidated engine handles) went
       # unnoticed. The smoke's lifecycle section drives exactly those paths.
-      - name: Build WASM Smoke Wrapper (SAFE_HEAP debug)
+      # --debug is ASSERTIONS=2, SAFE_HEAP and STACK_OVERFLOW_CHECK=2.
+      - name: Link the runtime-checks (debug) flavor
         env:
           PROJECTM_WASM_WERROR: '1'
+          CMAKE_BUILD_DIR: ${{ github.workspace }}/cmake-build
           INSTALL_DIR: ${{ github.workspace }}/install
           OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke-debug
-          PROJECTM_WASM_EXTRA_LINK_FLAGS: -sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2
-        run: scripts/build_wasm_smoke_wrapper.sh
+        run: scripts/build_wasm.sh --link-only --debug
 
       - name: Run WASM Browser Smoke Test (SAFE_HEAP debug)
         run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke-debug/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
+
+      # 100 hosts created and destroyed while their preset preparations run.
+      # destroy_host must join the host's prepare thread (a detached one keeps
+      # its pooled Worker and the next host's thread finds the pool exhausted,
+      # which ASSERTIONS reports), without deadlocking, and a long-lived host's
+      # loads must keep completing.
+      - name: Host churn with preparations in flight (debug)
+        run: node tests/wasm-smoke/host_churn.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke-debug/projectm-v.030-thread.js"
+
+      # The prepare thread parses equations and transpiles shaders on a
+      # DEFAULT_PTHREAD_STACK_SIZE stack; both recurse once per nesting level.
+      # Load the most deeply nested presets on the STACK_OVERFLOW_CHECK=2 link
+      # (prepare-deep-nesting.milk is the deliberate worst case: 64 levels,
+      # which overflow a 64 KB stack). Excluded: presets whose per_frame code
+      # never compiles (no `;` between statements, "unexpected VAR(L2 C1)" on
+      # every build): milk013-015 (see the screenshot smoke below) and
+      # cinematic_pedal_steel_rain.
+      - name: Deepest presets on the stack-checked link (debug)
+        env:
+          PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke-debug/projectm-v.030-thread.js
+        run: |
+          presets="$(node scripts/deepest_presets.mjs --top 3 --exclude milk013,milk014,milk015,cinematic_pedal_steel_rain --verbose)"
+          node scripts/capture_custom_milk_screenshots.mjs \
+            --presets "$presets" \
+            --allow-dark \
+            --out screenshots/ci-stack \
+            --frames 30
 
       # The render loop must keep drawing the current preset while the next one
       # is prepared (it used to stop for the whole load). Frame count is the gate;
@@ -255,14 +261,14 @@ jobs:
       - name: Preset switch keeps rendering
         run: node tests/wasm-smoke/preset_switch_stall.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" --max-ratio 0
 
-      # Smoke subset only (not all of custom_milk_fixed/) to keep PR runtime
-      # down; see docs/kimi_preset_authoring_plan.md section 9 for the full
+      # Smoke subset only (not all of presets/custom/) to keep PR runtime
+      # down; see docs/agents/kimi_preset_authoring_plan.md section 9 for the full
       # baseline/upgrade/diff workflow run manually or in the nightly job.
       #
       # milk013 is not in this list on purpose: its per_frame code has no `;`
       # between statements, so it has never compiled ("unexpected VAR(L2 C1)",
       # identical on bundles from before this gate existed; milk014/milk015 are
-      # the same, docs/kimi_preset_authoring_plan.md). A preset that fails on
+      # the same, docs/agents/kimi_preset_authoring_plan.md). A preset that fails on
       # every build cannot catch a regression, it only keeps this job red. Add it
       # back once its per_frame code is repaired.
       - name: Capture Preset Screenshot Smoke
@@ -361,3 +367,4 @@ jobs:
             path: |
               install/**
               cmake-build/wasm-smoke/**
+              projectm-v.*-thread.build-id

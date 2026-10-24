@@ -18,10 +18,6 @@
 #include <optional>
 #include <string>
 
-#ifndef GL_COMPLETION_STATUS_KHR
-#define GL_COMPLETION_STATUS_KHR 0x91B1
-#endif
-
 namespace libprojectM {
 namespace Renderer {
 
@@ -105,7 +101,7 @@ public:
     [[nodiscard]] auto IsCompilePending() const -> bool;
 
     /**
-     * @brief Whether the driver has finished a pending compile and link (GL_COMPLETION_STATUS_KHR).
+     * @brief Whether the driver has finished a pending compile and link.
      *
      * Does not block. Only call with KHR_parallel_shader_compile available (see
      * ParallelCompileSupported()); true if nothing is pending.
@@ -120,9 +116,9 @@ public:
     void FinishCompileProgram();
 
     /**
-     * @brief Whether the current GL context supports KHR_parallel_shader_compile.
+     * @brief Whether the current device supports KHR_parallel_shader_compile.
      *
-     * The GL context must be current.
+     * The device's context must be current.
      */
     [[nodiscard]] static auto ParallelCompileSupported() -> bool;
 
@@ -151,6 +147,13 @@ public:
      * Unbinds the program.
      */
     static void Unbind();
+
+    /**
+     * @brief Returns the location of an active vertex input of the linked program.
+     * @param attribute The vertex input name.
+     * @return The location, or -1 if the program has no such active input.
+     */
+    [[nodiscard]] auto AttributeLocation(const char* attribute) const -> int;
 
     /**
      * @brief Sets a single float uniform.
@@ -219,7 +222,7 @@ public:
     /**
      * @brief Sets consecutive elements of a vec4 array uniform in one call.
      * The program must be bound before calling this method!
-     * Elements past the highest one the program actually uses are ignored by GL.
+     * Elements past the highest one the program actually uses are ignored.
      * @param uniform The uniform name, e.g. "u_pp_q" (starts at element 0).
      * @param values The first of @a count vectors to set.
      * @param count The number of vectors to set.
@@ -243,7 +246,7 @@ public:
     void SetUniformMat4x4(const char* uniform, const glm::mat4x4& values) const;
 
     /**
-     * @brief Parses the shading language version string returned from OpenGL.
+     * @brief Parses the shading language version string the current device reports.
      * If this function does not return a good version (e.g. "major" not >0), then OpenGL is probably
      * not properly initialized or the context not made current.
      * @return The parsed version, or {0,0} if the version could not be parsed.
@@ -255,24 +258,10 @@ private:
      * @brief Shader objects of a compile started with BeginCompileProgram().
      */
     struct PendingCompile {
-        GLuint vertexShader{};            //!< Vertex shader object.
-        GLuint fragmentShader{};          //!< Fragment shader object.
+        Device::PendingProgram stages;    //!< Shader stage objects.
         std::string vertexShaderSource;   //!< For error reports.
         std::string fragmentShaderSource; //!< For error reports.
     };
-
-    /**
-     * @brief Creates a shader object and starts compiling it, without checking the result.
-     * @param source The shader source.
-     * @param type The shader type, e.g. GL_VERTEX_SHADER.
-     * @return The shader ID.
-     */
-    static auto BeginCompileShader(const std::string& source, GLenum type) -> GLuint;
-
-    /**
-     * @brief Detaches and deletes a pending compile's shader objects.
-     */
-    void DeleteShaders(const PendingCompile& pending);
 
     /**
      * @brief Abandons a pending compile, if any.
@@ -280,17 +269,23 @@ private:
     void ReleasePendingCompile();
 
     /**
-     * @brief Returns a uniform's location, asking GL only the first time a name is used.
+     * @brief Returns a uniform's location, asking the device only the first time a name is used.
      * @param uniform The uniform name.
      * @return The location, or -1 if the program has no such active uniform.
      */
-    auto UniformLocation(const char* uniform) const -> GLint;
+    auto UniformLocation(const char* uniform) const -> int;
 
+    /**
+     * @brief Sets a uniform of the bound program, ignoring names the program does not use.
+     */
+    void SetUniform(const char* uniform, Device::UniformType type, int count, const void* data) const;
+
+    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the program.
     std::unique_ptr<PendingCompile> m_pending; //!< Compile started but not finished, if any.
-    GLuint m_shaderProgram{}; //!< The program ID.
+    Device::ProgramHandle m_shaderProgram; //!< The program.
 
     //! Uniform locations looked up since the last link, by name. Cleared on relink.
-    mutable std::map<std::string, GLint, std::less<>> m_uniformLocations;
+    mutable std::map<std::string, int, std::less<>> m_uniformLocations;
 };
 
 } // namespace Renderer

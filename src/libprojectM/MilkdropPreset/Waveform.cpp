@@ -7,8 +7,6 @@
 
 #include <Renderer/BlendMode.hpp>
 
-#include <../Renderer/OpenGL.h>
-
 #include <algorithm>
 #include <cmath>
 
@@ -34,10 +32,8 @@ void Waveform::Draw(const PerFrameContext& presetPerFrameContext)
         }
     }
 
-#ifndef USE_GLES
-    glDisable(GL_LINE_SMOOTH);
-#endif
-    glLineWidth(1);
+    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
+    Renderer::Device::Commands().SetLineWidth(1.0f);
 
     auto shader = m_presetState.untexturedShader.lock();
     shader->Bind();
@@ -242,7 +238,7 @@ void Waveform::MaximizeColors(const PerFrameContext& presetPerFrameContext)
         }
     }
 
-    glVertexAttrib4f(1, waveR, waveG, waveB, m_tempAlpha);
+    Renderer::Device::Commands().SetConstantVertexAttribute(1, {waveR, waveG, waveB, m_tempAlpha});
 }
 
 } // namespace MilkdropPreset

@@ -39,10 +39,19 @@ struct PresetPrepareContext {
     std::set<std::string> volumeTextureNames; //!< Renderer::TextureManager::VolumeTextureNames().
 
     /**
-     * Per shader type (warp, composite): the transpiled-GLSL cache holds this load's shader, so
-     * the render thread will compile the cached GLSL and preparation skips the transpile.
+     * The transpiled-GLSL cache key armed when the load began (Renderer::GetTranspiledGlslCacheKey()),
+     * possibly empty. nullopt for a load prepared and initialized in one call, which reads the key
+     * when it compiles. The host may clear or replace the key before a prepared load is activated
+     * (shader_cache_end_load() right after load_preset_file()), so the activation uses this copy.
      */
-    std::array<bool, 2> cachedGlsl{};
+    std::optional<std::string> transpileCacheKey;
+
+    /**
+     * Per shader type (warp, composite): the GLSL the transpiled-GLSL cache held for this load's
+     * shader when it began. The render thread compiles it instead of transpiling, so preparation
+     * skips the transpile for that type.
+     */
+    std::array<std::optional<std::string>, 2> cachedGlsl{};
 
     /**
      * The preset file's bytes, read by the caller. A file preparation parses these instead of

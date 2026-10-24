@@ -131,7 +131,7 @@ test('the stage table puts the copies beside the CPU per-pixel bucket and as a s
                 perPixelEvalMs: stat(3),
             },
             {
-                preset: '/custom_milk_fixed/milk015.milk',
+                preset: '/presets/custom/milk015.milk',
                 category: 'dual-fbo-cut',
                 mode: 'crossfade',
                 frameMs: stat(9),

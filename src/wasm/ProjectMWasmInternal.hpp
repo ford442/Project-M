@@ -41,39 +41,6 @@
 #include <MilkdropPreset/MilkdropStaticShaders.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
 
-#ifndef USE_GLES
-#define GL_GLEXT_PROTOTYPES
-#define GL_FRAGMENT_PRECISION_HIGH
-#include <GL/gl.h>
-#include <GL/glext.h>
-#include <GLES3/gl31.h>
-// #include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
-#include <GLES3/gl3.h>
-#endif
-
-#ifndef GL_CONTEXT_PROFILE_MASK
-#define GL_CONTEXT_PROFILE_MASK 0x9126
-#endif
-#ifndef GL_CONTEXT_COMPATIBILITY_PROFILE_BIT
-#define GL_CONTEXT_COMPATIBILITY_PROFILE_BIT 0x00000002
-#endif
-#ifndef GL_CONTEXT_CORE_PROFILE_BIT
-#define GL_CONTEXT_CORE_PROFILE_BIT 0x00000001
-#endif
-#ifndef CONTEXT_FLAG_NO_ERROR_BIT_KHR
-#define CONTEXT_FLAG_NO_ERROR_BIT_KHR 0x00000008
-#endif
-#ifndef GL_ANISOTROPIC_FILTER
-#define GL_ANISOTROPIC_FILTER 0x3000
-#endif
-#ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
-#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
-#endif
-#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
-#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
-#endif
-
 // =============================================================================
 // AppData – per-instance engine/playlist/loading triple.
 //

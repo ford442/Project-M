@@ -106,16 +106,16 @@ void PresetTransition::BeginPass(int passNumber, int viewportWidth, int viewport
                 m_passFramebuffer->CreateColorAttachment(0, 0);
             }
             m_passFramebuffer->SetSize(viewportWidth, viewportHeight);
-            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &m_originalDrawFbo);
+            m_originalDrawFbo = Device::Commands().BoundRenderTarget(Device::TargetBinding::Draw);
             m_passFramebuffer->Bind(0);
         }
         else if (passNumber == 1)
         {
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(m_originalDrawFbo));
+            Device::Commands().BindRenderTarget(Device::TargetBinding::Draw, m_originalDrawFbo);
         }
     }
 
-    glViewport(0, 0, viewportWidth, viewportHeight);
+    Device::Commands().SetViewport({0, 0, viewportWidth, viewportHeight});
     m_transitionShader->SetUniformInt("iPass", passNumber);
 }
 
@@ -125,7 +125,7 @@ void PresetTransition::EndPass()
     {
         // Restore the original draw framebuffer so pass 1 (and subsequent code)
         // can safely sample the intermediate texture.
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(m_originalDrawFbo));
+        Device::Commands().BindRenderTarget(Device::TargetBinding::Draw, m_originalDrawFbo);
     }
 
     m_currentPass = -1;
@@ -293,31 +293,27 @@ void PresetTransition::Draw(const Preset& oldPreset,
     // High-quality linear filtering is set on both transition textures.
     // This makes wipes, curls, and other effects look much smoother,
     // matching the quality of classic Milkdrop transitions.
-    glActiveTexture(GL_TEXTURE0);
+    auto& commands = Device::Commands();
+    constexpr auto texture2D = Device::TextureTarget::Texture2D;
+
+    commands.SetActiveTextureUnit(0);
     m_transitionShader->SetUniformInt("iChannel0", 0);
     oldTex->Bind(0, m_presetSampler);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    commands.SetBoundTextureFilter(0, texture2D, Device::FilterMode::Linear);
 
-    glActiveTexture(GL_TEXTURE1);
+    commands.SetActiveTextureUnit(1);
     m_transitionShader->SetUniformInt("iChannel1", 1);
     newTex->Bind(1, m_presetSampler);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    commands.SetBoundTextureFilter(1, texture2D, Device::FilterMode::Linear);
 
     // Optional anisotropic filtering on desktop for even sharper transitions.
-    // Safe to skip on Emscripten/WebGL where the extension may not be present.
-#ifdef GL_EXT_texture_filter_anisotropic
-    GLfloat maxAniso = 0.0f;
-    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAniso);
+    // Skipped on Emscripten/WebGL where the extension may not be present (reported as 0).
+    const float maxAniso = Device::Current().MaxTextureAnisotropy();
     if (maxAniso > 1.0f)
     {
-        glActiveTexture(GL_TEXTURE0);
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
-        glActiveTexture(GL_TEXTURE1);
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
+        commands.SetBoundTextureMaxAnisotropy(0, texture2D, maxAniso);
+        commands.SetBoundTextureMaxAnisotropy(1, texture2D, maxAniso);
     }
-#endif
 
     int textureUnit = 2;
     std::vector<TextureSamplerDescriptor> noiseDescriptors(m_noiseTextureNames.size());
@@ -348,11 +344,10 @@ void PresetTransition::Draw(const Preset& oldPreset,
         auto pass0Tex = GetPassTexture(0);
         if (pass0Tex)
         {
-            glActiveTexture(GL_TEXTURE0 + textureUnit);
+            commands.SetActiveTextureUnit(textureUnit);
             m_transitionShader->SetUniformInt("iLastPassTex", textureUnit);
             pass0Tex->Bind(textureUnit, m_presetSampler);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            commands.SetBoundTextureFilter(textureUnit, texture2D, Device::FilterMode::Linear);
         }
 
         m_mesh.Draw();
@@ -360,7 +355,6 @@ void PresetTransition::Draw(const Preset& oldPreset,
         // Unbind pass texture if it was bound.
         if (pass0Tex)
         {
-            glActiveTexture(GL_TEXTURE0 + textureUnit);
             pass0Tex->Unbind(textureUnit);
         }
     }
@@ -376,19 +370,15 @@ void PresetTransition::Draw(const Preset& oldPreset,
     // Clean up — explicitly unbind each texture unit to leave the driver in a
     // predictable state. This prevents texture leakage during rapid preset
     // switches, which is especially important on Emscripten/WebGL.
-    glActiveTexture(GL_TEXTURE0);
     oldTex->Unbind(0);
-
-    glActiveTexture(GL_TEXTURE1);
     newTex->Unbind(1);
 
     for (int i = 2; i < textureUnit; i++)
     {
-        glActiveTexture(GL_TEXTURE0 + i);
         noiseDescriptors[i - 2].Unbind(i);
     }
 
-    glActiveTexture(GL_TEXTURE0);
+    commands.SetActiveTextureUnit(0);
 
     Mesh::Unbind();
     Shader::Unbind();

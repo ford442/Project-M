@@ -14,6 +14,7 @@ set(INCLUDE_FILES
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/projectm_perf.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/render_opengl.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/rhythm.h
+        ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/texture_reload.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/touch.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/user_sprites.h
 
@@ -30,6 +31,8 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
+        ColorOutputTest.cpp
+        ExperimentalDepthSamplerTest.cpp
         FinalCompositeMeshTest.cpp
         FlashLimiterTest.cpp
         FramebufferTest.cpp
@@ -51,8 +54,10 @@ add_executable(projectM-unittest
         PerfGpuStageTest.cpp
         PerPixelGlslLoweringTest.cpp
         PerPixelGpuRenderTest.cpp
+        RenderDeviceTest.cpp
         RhythmAnalyzerTest.cpp
         ShaderCacheTest.cpp
+        UserSpriteApiTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>
@@ -69,8 +74,8 @@ target_compile_definitions(projectM-unittest
         PROJECTM_SOURCE_DIR="${PROJECTM_SOURCE_DIR}"
         PROJECTM_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data"
         PROJECTM_PRESET_TESTS_DIR="${PROJECTM_SOURCE_DIR}/presets/tests"
-        PROJECTM_CUSTOM_MILK_FIXED_DIR="${PROJECTM_SOURCE_DIR}/custom_milk_fixed"
-        PROJECTM_WEEKS_PRESETS_DIR="${PROJECTM_SOURCE_DIR}/weeks_presets"
+        PROJECTM_CUSTOM_MILK_FIXED_DIR="${PROJECTM_SOURCE_DIR}/presets/custom"
+        PROJECTM_WEEKS_PRESETS_DIR="${PROJECTM_SOURCE_DIR}/presets/weeks"
         )
 
 # Test includes a header file from libprojectM with its full path in the source dir.

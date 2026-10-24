@@ -106,6 +106,19 @@ public:
      */
     auto PresetValues() const -> const ValueMap&;
 
+    /**
+     * @brief Returns the directives of the preset's <tt>// pm:experimental</tt> header line.
+     *
+     * Experimental presets (presets/experimental/, docs/EXPERIMENTAL_PRESET_HOOKS.md) opt
+     * into host features with a comment line such as
+     * <tt>// pm:experimental depth=auto depth-texture=pm_depth_map</tt>. Milkdrop ignores the
+     * line; this returns everything after <tt>pm:experimental</tt> on the first one, or an
+     * empty string if the preset has none.
+     *
+     * @return The directive text, e.g. "depth=auto depth-texture=pm_depth_map".
+     */
+    auto ExperimentalDirectives() const -> const std::string&;
+
 protected:
     /**
      * @brief Parses a single line and stores the result in the value map.
@@ -126,7 +139,8 @@ private:
      */
     static auto ToLower(std::string str) -> std::string;
 
-    ValueMap m_presetValues; //!< Map with preset keys and their value.
+    ValueMap m_presetValues;            //!< Map with preset keys and their value.
+    std::string m_experimentalDirectives; //!< Text after the first "// pm:experimental", if any.
 };
 
 } // namespace MilkdropPreset

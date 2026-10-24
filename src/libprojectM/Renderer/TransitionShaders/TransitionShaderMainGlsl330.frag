@@ -26,5 +26,7 @@ void main() {
             alpha = 0.0;
         }
     }
-    _prjm_transition_out = vec4(finalColor, alpha);
+    // Premultiplied: a cut-out pixel is (0, 0, 0, 0), not a dim colour with alpha 0,
+    // which a premultipliedAlpha canvas would add to the page underneath.
+    _prjm_transition_out = vec4(finalColor * alpha, alpha);
 }

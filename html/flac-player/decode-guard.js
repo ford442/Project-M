@@ -523,16 +523,28 @@ function withStreamInfo(result, info) {
     return next;
 }
 
+/**
+ * @typedef {typeof AudioWorkletNode & { __projectMChannelGuard?: boolean }} AudioWorkletNodeCtor
+ */
+
+/**
+ * Wraps `windowRef.AudioWorkletNode` so every `outputChannelCount` entry is
+ * clamped to what the engine accepts. Returns the undo.
+ *
+ * @param {{ AudioWorkletNode?: AudioWorkletNodeCtor }} [windowRef]
+ * @returns {() => void}
+ */
 export function installAudioWorkletChannelGuard(windowRef = globalThis) {
     const Original = windowRef.AudioWorkletNode;
     if (typeof Original !== 'function' || Original.__projectMChannelGuard) {
         return () => {};
     }
+    const NativeNode = Original;
 
     /**
-     * @param {unknown} context
+     * @param {BaseAudioContext} context
      * @param {string} name
-     * @param {any} [options]
+     * @param {AudioWorkletNodeOptions} [options]
      */
     function GuardedAudioWorkletNode(context, name, options) {
         const nextOptions = options ? { ...options } : options;
@@ -541,15 +553,18 @@ export function installAudioWorkletChannelGuard(windowRef = globalThis) {
                 (/** @type {unknown} */ count) => clampAudioChannelCount(count)
             );
         }
-        return new Original(context, name, nextOptions);
+        return new NativeNode(context, name, nextOptions);
     }
 
     GuardedAudioWorkletNode.prototype = Original.prototype;
-    GuardedAudioWorkletNode.__projectMChannelGuard = true;
-    windowRef.AudioWorkletNode = GuardedAudioWorkletNode;
+    // Called with `new` (it returns the real node, which replaces the implicit
+    // this), so it stands in for the constructor.
+    const Guarded = /** @type {AudioWorkletNodeCtor} */ (/** @type {unknown} */ (GuardedAudioWorkletNode));
+    Guarded.__projectMChannelGuard = true;
+    windowRef.AudioWorkletNode = Guarded;
 
     return () => {
-        if (windowRef.AudioWorkletNode === GuardedAudioWorkletNode) {
+        if (windowRef.AudioWorkletNode === Guarded) {
             windowRef.AudioWorkletNode = Original;
         }
     };
@@ -690,7 +705,15 @@ export function installWorkerFlacDecodeGuard(windowRef = globalThis, options = {
                     return;
                 }
                 this.__projectMDecodes.delete(data.id);
-                recover(pending, data).then((next) => this.__projectMReply(next));
+                recover(pending, data).then(
+                    (next) => this.__projectMReply(next),
+                    (error) => {
+                        // Never leave the player waiting: hand it the worker's
+                        // own answer, as if the guard were not there.
+                        log('decode recovery failed; passing the worker result through', error);
+                        this.__projectMReply(data);
+                    }
+                );
             };
         }
 

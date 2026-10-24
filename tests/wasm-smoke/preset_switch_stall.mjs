@@ -12,7 +12,7 @@
  *
  * Usage:
  *   node tests/wasm-smoke/preset_switch_stall.mjs --module cmake-build/wasm-smoke/projectm-v.030-thread.js
- *   node tests/wasm-smoke/preset_switch_stall.mjs --module <js> --preset-b custom_milk_fixed/milk011.milk
+ *   node tests/wasm-smoke/preset_switch_stall.mjs --module <js> --preset-b presets/custom/milk011.milk
  *   node tests/wasm-smoke/preset_switch_stall.mjs --module <js> --gpu --max-ratio 1.5
  *
  * Software GL (the default) is what CI has. There the frame-count check is the
@@ -38,7 +38,7 @@ function parseArgs(argv) {
     const options = {
         module: process.env.PROJECTM_WASM_JS || 'cmake-build/wasm-smoke/projectm-v.030-thread.js',
         presetA: 'presets/tests/000-empty.milk',
-        presetB: 'custom_milk_fixed/milk011.milk',
+        presetB: 'presets/custom/milk011.milk',
         width: 1280,
         height: 720,
         maxRatio: 2,

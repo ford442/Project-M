@@ -364,12 +364,12 @@ int init()
         return contextRc;
     }
 
-    // Phase 2: Detect the best available floating-point texture format for the
-    // dual ping-pong FBO system. Default is RGBA16F -> RGBA32F -> RGBA8.
-    // Hosts can opt into RGBA32F-first probing with ?fboPrecision=high.
-    // This must be called after the WebGL context is made current so that
-    // extension availability can be probed reliably.
-    g_dualFbo.DetectFormat(WasmWebGLGetContext(), WasmWebGLGetContextConfig().fboPrecision);
+    // Pick the dual-FBO colour format from the extensions the context reported
+    // (FboFloatFormat in WasmGraphics.hpp): RGBA16F when renderable, RGBA32F
+    // only for fboPrecision "high", RGBA8 for "byte" or as the fallback. The
+    // preference comes from the host's create_host_with_config() config (the JS
+    // layer maps ?fboPrecision= onto it); nothing here reads the URL.
+    g_dualFbo.DetectFormat(H.contextCaps, H.contextConfig.fboPrecision);
 
     // Must happen before the first preset renders, since these paths are decided once.
     ApplyRenderPathOverrides();

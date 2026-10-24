@@ -12,12 +12,14 @@ Core behavior belongs in shared modules:
 
 - `projectm-init.js`: script loading and reusable WASM/canvas bootstrap helpers.
 - `projectm-presets.js`: API preset fetch, VFS writes, startup preset loading, and random preset loading.
-- `projectm-preset-picker.js`: named, searchable picker for the curated `custom_milk_fixed` presets, with known-good/known-broken status badges. Reads `custom_presets_manifest.json` (regenerate with `scripts/generate_custom_preset_manifest.mjs`); loads the raw `.milk` from a resilient list of bases (override via `localStorage.customPresetBase`). Backs the "Random Custom" button and a right-click "🎛 Presets" browser in `projectm-core.html`.
+- `projectm-preset-picker.js`: named, searchable picker for the curated `presets/custom` presets, with known-good/known-broken status badges. Reads `custom_presets_manifest.json` (regenerate with `scripts/generate_custom_preset_manifest.mjs`); loads the raw `.milk` from a resilient list of bases (override via `localStorage.customPresetBase`). Backs the "Random Custom" button and a right-click "🎛 Presets" browser in `projectm-core.html`.
 - `projectm-preset-dev.js`: hot-reload dev panel (`?devPreset=1`), URL polling, inline `.milk` editor. See `docs/SIGNATURE_SERIES_WORKFLOW.md`.
 - `projectm-preset-tweaker.js`: header param sliders (decay, zoom, warp, wave RGB) used by the dev panel.
 - `projectm-external-pcm.js`: external MOD/FLAC `postMessage` PCM contract, origin allowlist, queued feeding, and preallocated transfer buffers.
 - `projectm-audio-source-router.js`: exclusive single-active-source policy (element / external / worklet).
-- `projectm-context.js`: typed **embed context API** (`ProjectMContext`) — WASM bootstrap, resize/DPR, presets, audio modes, transparency.
+- `projectm-context.js`: typed **embed context API** (`ProjectMContext`) — WASM bootstrap, resize/DPR, presets, audio modes, transparency. The class holds the state, lifecycle and public methods; the work is in `context/boot.js` (glue, Module / render worker / engine creation), `context/audio.js` (audio router + source wiring), `context/presets.js` (preset loads, rhythm controls and events) and `context/render.js` (canvas sizing, resize, fps, snapshot, flash stats). Those keep no state and never read `import.meta.url`: the package build bundles into flat chunks, so the default WASM base is read in `projectm-context.js` and passed down.
+- `projectm-perf.js`: perf HUD + `?benchmark=1` harness. The HUD is `projectm-perf-hud.js`, the stats keys and summaries `projectm-perf-stats.js`, the crossfade benchmark's transition pump `projectm-perf-crossfade.js`, and `?presetSwitchBench=1` `projectm-perf-preset-switch.js`.
+- `projectm-preset-sources.js`: where preset files are fetched from (local copies, then the CDN). The cache (`projectm-preset-cache.js`) and loader (`projectm-preset-library.js`) take a resolver and default to it; `pickWeightedRandom()` in the library is the one random picker.
 - `projectm-element.js`: **`<project-m-visualizer>`** custom element + lifecycle events (`pm-ready`, `pm-preset-changed`, `pm-error`, `pm-fps`).
 - `projectm-wasm-version.js`: canonical WASM bundle version + CDN URL helpers (keep in sync with deploy scripts).
 - `projectm-transitions.js`: readiness polling before starting dual-FBO transitions.
@@ -62,8 +64,9 @@ make no `Module` calls at all. Enforced by
 `scripts/check_core_host_public_api.sh` (CI: `.github/workflows/host_layer_gate.yml`)
 against every first-party host under `html/`: `projectm-core.html`,
 `embed-demo.html`, `embed-multi-iframe.html`, `projectm_panel2.1ink`,
-`projectm_panel.1ink`, `projectm.1ink`, `projectm_new.1ink`,
-`projectm_test.1ink`.
+`projectm_panel.1ink`, `projectm.1ink`, `projectm_new.1ink`, and the page
+shell both full hosts boot (`projectm-app-shell.js`, `projectm-app-shell-ui.js`,
+`projectm-bezel.js`).
 
 ### Page globals
 
@@ -209,9 +212,10 @@ Known limits, deliberately not papered over:
 Anything / glTF hooks) was ported to the opt-in
 `projectm-experimental-bridge.js` (see `docs/EXPERIMENTAL_PRESET_HOOKS.md`);
 other inline chrome (build picker, APNG export, bezel/frame overlays) was not
-ported and is only available via git history. `projectm_test.1ink` remains a
-real harness/test page (already has no raw `Module._` / `Module.ccall`
-public-API calls) and is gated (see above).
+ported and is only available via git history. The Tailwind-CDN UI mockup
+that used to sit here as `projectm_test.1ink` (no module load, every button a
+`console.log` stub) is not deployed any more; it lives at
+`docs/mockups/projectm_test.1ink`.
 
 ## `.1ink` Deprecation Path
 
@@ -253,26 +257,32 @@ back into the dual-source problem this migration started from:
 
 ### Coverage
 
-**All 36 `html/projectm-*.js` modules are checkJs-clean and in the `include` of
-one of the two tsconfigs** — there is no unconverted backlog. Add new modules to
+**Every `.js` file that deploys is checkJs-clean and in the `include` of one of
+the three tsconfigs** — `html/projectm-*.js`, `html/context/*.js`,
+`html/worklets/*.js` and the first-party `html/flac-player/*.js` (its vendored
+bundle excepted) — and the pages' inline scripts are at most ten-line
+`boot(document)` calls into those modules (`tests/web/page-modules.test.mjs`
+enforces it), so there is no unconverted backlog. Add new modules to
 `tsconfig.json` in the same commit that creates them; a module left out is not
 checked, and (as `projectm-worklet-playback.js` and then
 `projectm-song-loader.js` both showed) being *reachable* from a checked module
 is not the same as being listed: `projectm-song-loader.js` shipped fully
 JSDoc-annotated but unlisted, and picked up eleven errors the moment it was
-added. Verify with `ls html/projectm-*.js | wc -l` against the two `include`
-lists rather than trusting a green `npm run typecheck`, which only proves the
-listed set is clean.
+added. Verify against the `include` lists rather than trusting a green
+`npm run typecheck`, which only proves the listed set is clean.
 
-Two programs, because the libs are mutually exclusive:
+Three programs, because the libs are mutually exclusive:
 
 | tsconfig | lib | Covers |
 |---|---|---|
 | `tsconfig.json` | `DOM` | every module that runs on the main thread |
 | `tsconfig.worker.json` | `WebWorker` | `projectm-render-worker.js` only |
+| `tsconfig.worklet.json` | `ES2022` + `@types/audioworklet` | `worklets/*.js` (the AudioWorklet processor) |
 
-`npm run typecheck` runs both, so `scripts/check_html_types.sh` (CI:
-`build_linux.yml` / `build_emscripten.yml`) gates both.
+`npm run typecheck` runs all three, so `scripts/check_html_types.sh` (CI:
+`build_linux.yml` / `build_emscripten.yml`) and `web_lint_gate.yml` gate them.
+ESLint (`eslint.config.mjs`) lints exactly the files these programs include,
+type-aware, so "linted" and "type-checked" are the same set.
 
 The worker and its main-thread bridge only meet across `postMessage`, so the
 wire format lives in `projectm-render-worker-types.ts` — included by both
@@ -341,7 +351,7 @@ Every HTML-facing PR should state which hosts are affected and which shared modu
 
 - Does the change affect `projectm-core.html`, panel hosts, full hosts, or the test harness?
 - Does Random Preset still go through `projectm-presets.js`?
-- Does the custom preset picker still load through `projectm-preset-picker.js`, and is `custom_presets_manifest.json` regenerated if `custom_milk_fixed/` or the capture baseline changed?
+- Does the custom preset picker still load through `projectm-preset-picker.js`, and is `custom_presets_manifest.json` regenerated if `presets/custom/` or the capture baseline changed?
 - Does external PCM still go through `projectm-external-pcm.js`?
 - Did the change add a `window.pm*` write? Engine callbacks go through `subscribeWasmCallback()`; convenience names belong in `projectm-legacy-globals.js` (`scripts/check_host_globals.sh` enforces it).
 - Does FLAC/MOD UI still go through `projectm-audio-player.js`?

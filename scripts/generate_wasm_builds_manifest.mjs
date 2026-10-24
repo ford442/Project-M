@@ -114,7 +114,10 @@ function scanLocal(root) {
         const buildIdPath = [join(root, `${bundle}.build-id`), join(pm, `${bundle}.build-id`)].find(existsSync);
         builds[version] = buildEntry(version, readFileSync(join(pm, name)), readFileSync(wasmPath), {
             worker,
-            buildId: buildIdPath ? readFileSync(buildIdPath, 'utf8').trim() : null,
+            // Line 1 is the source fingerprint; the key=value lines after it
+            // (binary hashes, build settings) are deploy.py's, and the hashes
+            // are in the entry already.
+            buildId: buildIdPath ? readFileSync(buildIdPath, 'utf8').split('\n')[0].trim() : null,
         });
     }
     for (const name of readdirSync(pm)) {

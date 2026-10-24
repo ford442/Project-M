@@ -107,6 +107,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "dual_fbo_get_idle_release_seconds|public|direct|number||Configured preset-A idle release threshold in seconds"
     "dual_fbo_is_preset_b_ready|public|direct|boolean||Whether preset-B shaders are ready"
     "dual_fbo_get_format|public|direct|number||Dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the fboPrecision numbering)"
+    "get_context_snapshot|public|direct|number||What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot"
     "dual_fbo_render_preset_a|internal|direct|void||Render preset A into dual FBO"
     "dual_fbo_render_preset_b|internal|direct|void||Render preset B into dual FBO"
     "transition_start|public|direct|void||Start visual preset transition blend"

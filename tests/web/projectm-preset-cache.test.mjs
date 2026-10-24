@@ -12,13 +12,13 @@ import {
     PRESET_STORE,
     SHADER_STORE,
     cachePreset,
-    defaultBasesForBase,
     getCachedPreset,
     openPresetCacheDb,
     preloadFavoritePresets,
     preloadFeaturedPack,
     touchShaderCacheEntry,
 } from '../../html/projectm-preset-cache.js';
+import { defaultBasesForBase } from '../../html/projectm-preset-sources.js';
 import {
     fakeStoreContents,
     installFakeIndexedDb,

@@ -31,14 +31,23 @@ class FakeEventTarget {
     }
 }
 
+/** `data-pm-action` -> `pmAction`, as the DOM's dataset does. */
+const dataKey = (attribute) => attribute.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+
 /**
- * The selector forms the host modules use: `tag`, `.class`, `tag.class.class`, `#id`.
+ * The selector forms the host modules use: `tag`, `.class`, `tag.class.class`,
+ * `#id`, and `[data-x]` / `[data-x="value"]`.
  * @param {FakeElement} element
  * @param {string} selector
  */
 function matches(element, selector) {
     const idMatch = /^#([\w-]+)$/.exec(selector);
     if (idMatch) return element.id === idMatch[1];
+    const dataMatch = /^\[(data-[\w-]+)(?:="([^"]*)")?\]$/.exec(selector);
+    if (dataMatch) {
+        const value = element.dataset?.[dataKey(dataMatch[1])];
+        return value !== undefined && (dataMatch[2] === undefined || value === dataMatch[2]);
+    }
     const parts = /^([a-zA-Z][\w-]*)?((?:\.[\w-]+)*)$/.exec(selector);
     if (!parts) return false;
     const [, tag, classes] = parts;
@@ -66,9 +75,29 @@ export class FakeElement extends FakeEventTarget {
             add: (name) => { if (!String(this.className).split(/\s+/).includes(name)) this.className = `${this.className} ${name}`.trim(); },
             remove: (name) => { this.className = String(this.className).split(/\s+/).filter((n) => n !== name).join(' '); },
             contains: (name) => String(this.className).split(/\s+/).includes(name),
+            toggle: (name, force) => {
+                const on = force === undefined ? !this.classList.contains(name) : !!force;
+                if (on) this.classList.add(name);
+                else this.classList.remove(name);
+                return on;
+            },
         };
+        /** @type {Record<string, string>} */
+        this.dataset = {};
+        this.hidden = false;
+        this.offsetWidth = 0;
         this.innerHTML = '';
         this.textContent = '';
+    }
+    closest(selector) {
+        for (let node = this; node; node = node.parentElement) {
+            if (matches(node, selector)) return node;
+        }
+        return null;
+    }
+    replaceChildren(...nodes) {
+        for (const child of [...this.children]) child.remove();
+        this.append(...nodes);
     }
     append(...nodes) {
         for (const node of nodes) this.appendChild(node);
@@ -78,6 +107,28 @@ export class FakeElement extends FakeEventTarget {
         this.children.push(child);
         child._setConnected(this.isConnected);
         return child;
+    }
+    get parentNode() {
+        return this.parentElement;
+    }
+    /** @param {FakeElement} fresh @param {FakeElement} old */
+    replaceChild(fresh, old) {
+        const index = this.children.indexOf(old);
+        if (index < 0) throw new Error('NotFoundError: not a child');
+        old.parentElement = null;
+        old._setConnected(false);
+        fresh.parentElement = this;
+        this.children[index] = fresh;
+        fresh._setConnected(this.isConnected);
+        return old;
+    }
+    /** A shallow copy: tag, id, classes and inline style; never children or listeners. */
+    cloneNode() {
+        const copy = this.tagName === 'CANVAS' ? new FakeCanvas() : new FakeElement(this.tagName);
+        copy.id = this.id;
+        copy.className = this.className;
+        copy.style = { ...this.style };
+        return copy;
     }
     remove() {
         const parent = this.parentElement;
@@ -166,7 +217,15 @@ class FakeWorker {
         this.onerror = null;
         FakeWorker.instances.push(this);
     }
-    postMessage(message) { this.messages.push(message); }
+    postMessage(message) {
+        this.messages.push(message);
+        // A live worker answers shutdown at once (see shutdown() in
+        // html/projectm-render-worker.js); a test that wants a wedged one
+        // sets `answersShutdown = false`.
+        if (message?.type === 'shutdown' && this.answersShutdown !== false && !this.terminated) {
+            this.emit({ type: 'shutdown-complete' });
+        }
+    }
     terminate() { this.terminated = true; }
     /** Deliver a message from the worker side. */
     emit(data) { this.onmessage?.({ data }); }

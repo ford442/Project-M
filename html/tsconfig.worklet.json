@@ -1,0 +1,24 @@
+{
+  "//": [
+    "Separate program for the AudioWorklet processors in worklets/.",
+    "",
+    "They run in an AudioWorkletGlobalScope: no DOM, no WebWorker lib, just",
+    "AudioWorkletProcessor / registerProcessor / sampleRate / currentFrame. Those",
+    "come from @types/audioworklet, which conflicts with lib.dom, so (like the",
+    "render worker) they cannot share a program with the host modules."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022"],
+    "types": ["audioworklet"]
+  },
+  "include": ["worklets/*.js"]
+}

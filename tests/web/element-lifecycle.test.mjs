@@ -311,7 +311,7 @@ test('a failing preset-url change is reported as a pm-error, not left unhandled'
 });
 
 test('loadPreset and loadPresetFile need a running context', async () => {
-    await withEnv({}, async (env) => {
+    await withEnv({}, async () => {
         const element = new ProjectMVisualizerElement();
         await assert.rejects(element.loadPreset('https://cdn.test/a.milk'), /failed to initialize/);
         await assert.rejects(element.loadPresetFile({ name: 'a.milk' }), /failed to initialize/);

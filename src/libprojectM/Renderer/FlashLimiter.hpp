@@ -99,8 +99,11 @@ public:
      *
      * @param targetFramebuffer The framebuffer the frame belongs in.
      * @param secondsSinceLastFrame Frame time step: how far the luminance envelopes relax.
+     * @param premultipliedAlpha The frame's alpha is coverage with premultiplied colour
+     *        (transparency mode), so a limited frame keeps its colour within its alpha.
+     *        Otherwise the alpha is passed along and never touches the colour.
      */
-    void EndFrame(GLuint targetFramebuffer, double secondsSinceLastFrame);
+    void EndFrame(GLuint targetFramebuffer, double secondsSinceLastFrame, bool premultipliedAlpha = false);
 
     /**
      * @brief Frames that were blended toward the previous frame since the limiter was

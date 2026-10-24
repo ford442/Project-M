@@ -10,6 +10,15 @@ import type { ProjectMModule } from './generated/projectm-wasm-api.ts';
 import type { PerfFrameStats, RhythmEvent } from './projectm-render-worker-types.ts';
 
 /**
+ * What every `setup*()` export returns (on its own, or as part of a richer
+ * handle): `dispose()` undoes what the setup did — listeners off, timers
+ * cleared, the DOM it added removed. Idempotent. See projectm-disposables.js.
+ */
+export interface Disposable {
+    dispose(): void;
+}
+
+/**
  * The subset of the Emscripten module instance the host modules touch, before
  * it is known to be fully booted. Every member is optional because the host
  * defensively feature-detects each symbol before use (the WASM build's
@@ -174,7 +183,6 @@ declare global {
          * legacy depth-module loader guard it shares with the B3HD hosts.
          */
         pmExperimental?: Record<string, unknown>;
-        __pmDepthModuleLoading?: Promise<boolean>;
         /** Legacy global preset-label updater used by the full `.1ink` hosts. */
         updatePresetDisplay?: (name: string, options?: { text?: string }) => void;
         /** Mesh-quality hook (legacy shim; backed by `setupMeshQuality()`). */
@@ -270,18 +278,15 @@ declare global {
     var projectMLoadSongIntoWorklet:
         | ((path: string, loop?: boolean, startPlaying?: boolean) => void)
         | undefined;
-    /** Progress of the in-flight worklet song load. */
+    /**
+     * Progress of the in-flight worklet song load. Shared with the engine's
+     * `js_load_song_into_worklet` EM_JS; read it through getSongLoadState().
+     */
     // eslint-disable-next-line no-var
     var projectMSongLoadState: 'loading' | 'loaded' | 'error' | undefined;
     /** VFS path of the most recent song handed to the worklet. */
     // eslint-disable-next-line no-var
     var projectMLastSongPath: string | undefined;
-    /** Guards double-installation of the worklet safety net. */
-    // eslint-disable-next-line no-var
-    var __projectMWorkletSafetyNetInstalled: boolean | undefined;
-    /** Supersession token so a stale BroadcastChannel load can be discarded. */
-    // eslint-disable-next-line no-var
-    var __projectMSongLoadToken: string | undefined;
 
     /**
      * Weeks-on-Fire demo-mode globals (projectm-weeks-on-fire.js). The FLAC

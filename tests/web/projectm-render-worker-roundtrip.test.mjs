@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 import { setupRenderWorker } from '../../html/projectm-render-worker-host.js';
-import { createWorkerTransport } from '../../html/projectm-render-transport.js';
+import { createWorkerTransport, selectRenderTopology } from '../../html/projectm-render-transport.js';
 
 const WORKER_PATH = fileURLToPath(new URL('../../html/projectm-render-worker.js', import.meta.url));
 const WORKER_SOURCE = readFileSync(WORKER_PATH, 'utf8');
@@ -361,4 +361,67 @@ test('stats come back to the host carrying the render scale', async () => {
     assert.equal(stats.fboFormat, 0);
     assert.equal(stats.renderScale, 1);
     assert.equal(typeof stats.fps, 'number');
+});
+
+// ---- A boot that throws after createModule() ------------------------------------
+//
+// The real host half and the real worker half: the engine's create call throws
+// once the module has loaded. Before init() reported its own failures this was an
+// unhandled rejection in the worker, no message crossed, and selectRenderTopology()
+// waited for a 'ready' that never came. Now it resolves null — the caller's cue to
+// fall back to the main thread — long before the boot deadline.
+
+test('a boot that throws after createModule() reaches selectRenderTopology as a fallback, well inside the deadline', async () => {
+    const module = engineModule();
+    module.ccall = (name) => {
+        if (name === 'create_host_with_config') throw new Error('RuntimeError: null function or function signature mismatch');
+        return undefined;
+    };
+    /** @type {any} */
+    let worker;
+    const previousWorker = globalThis.Worker;
+    const previousOffscreen = globalThis.OffscreenCanvas;
+    globalThis.Worker = class {
+        constructor() {
+            worker = connectedWorker(module);
+            return worker;
+        }
+    };
+    globalThis.OffscreenCanvas = class { getContext() { return {}; } };
+    const reasons = [];
+    try {
+        const startedAt = Date.now();
+        const transport = await selectRenderTopology({
+            canvas: { transferControlToOffscreen: () => ({}) },
+            preferWorker: true,
+            scriptSrc: 'https://projectm.test/pm/projectm-v.036-thread.js',
+            width: 640,
+            height: 360,
+            bootTimeoutMs: 5000,
+            onFallback: (reason) => reasons.push(reason),
+        });
+        assert.equal(transport, null, 'no transport: the caller falls back');
+        assert.ok(Date.now() - startedAt < 5000, 'settled by the init-error, not the deadline');
+        assert.equal(worker.terminated, true, 'the failed worker was terminated');
+        assert.equal(reasons.length, 1);
+        assert.match(reasons[0], /failed to boot \(init code -?\d+\): render worker init threw: .*null function/);
+    } finally {
+        globalThis.Worker = previousWorker;
+        globalThis.OffscreenCanvas = previousOffscreen;
+        if (previousWorker === undefined) delete globalThis.Worker;
+        if (previousOffscreen === undefined) delete globalThis.OffscreenCanvas;
+    }
+});
+
+test('shutdown crosses to the real worker, destructs its engine, and terminates on the answer', async () => {
+    const { handle, module, worker } = await connect();
+    let destructed = 0;
+    module._destruct = () => { destructed += 1; };
+
+    const done = handle.shutdown();
+    await worker.settle();
+    await done;
+
+    assert.equal(destructed, 1);
+    assert.equal(worker.terminated, true);
 });

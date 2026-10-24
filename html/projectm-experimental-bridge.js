@@ -3,10 +3,12 @@
 // Does not modify Milkdrop parsing; only injects host-side assets via the WASM VFS.
 
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { createDisposables } from './projectm-disposables.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('./projectm-disposables.js').Disposables} Disposables
  */
 
 /**
@@ -136,6 +138,14 @@ async function imageToPngBytes(imageSource, maxSize = 512) {
 }
 
 /**
+ * The one in-flight (or finished) depth-module load. The module injects a
+ * `<script type="module">` into the page, so a second call must share it.
+ *
+ * @type {Promise<boolean> | null}
+ */
+let depthModuleLoading = null;
+
+/**
  * Lazy-load the legacy UTF-32 Depth Anything / Transformers.js module used by B3HD.
  * @param {string} url
  */
@@ -144,8 +154,8 @@ async function imageToPngBytes(imageSource, maxSize = 512) {
  * @returns {Promise<boolean>}
  */
 export async function loadDepthModule(url = DEFAULT_DEPTH_MODULE_URL) {
-    if (window.__pmDepthModuleLoading) return window.__pmDepthModuleLoading;
-    window.__pmDepthModuleLoading = (async () => {
+    if (depthModuleLoading) return depthModuleLoading;
+    depthModuleLoading = (async () => {
         const xhr = new XMLHttpRequest();
         const buf = await /** @type {Promise<ArrayBuffer>} */ (new Promise((resolve, reject) => {
             xhr.open('GET', url, true);
@@ -164,7 +174,7 @@ export async function loadDepthModule(url = DEFAULT_DEPTH_MODULE_URL) {
         document.body.appendChild(scr);
         return true;
     })();
-    return window.__pmDepthModuleLoading;
+    return depthModuleLoading;
 }
 
 /**
@@ -190,8 +200,11 @@ function requestGltfLoad(title) {
  * Ensure a hidden #resultImage exists so the depth module can write results
  * even on projectm-core.html (which has no legacy depth DOM).
  */
-/** @returns {HTMLImageElement} */
-function ensureResultImage() {
+/**
+ * @param {Disposables} owned Removes the element again if this call created it.
+ * @returns {HTMLImageElement}
+ */
+function ensureResultImage(owned) {
     const existing = /** @type {HTMLImageElement | null} */ (
         document.getElementById('resultImage')
     );
@@ -201,7 +214,7 @@ function ensureResultImage() {
     el.alt = 'Depth Anything result';
     el.hidden = true;
     el.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';
-    document.body.appendChild(el);
+    owned.append(document.body, el);
     return el;
 }
 
@@ -278,13 +291,14 @@ export function buildDepthSpriteCode(opts = {}) {
  * @param {object} [options]
  * @param {URLSearchParams} [options.params]
  * @param {HTMLCanvasElement} [options.canvas]
- * @returns {{ enabled: boolean } & Record<string, unknown>}
+ * @returns {{ enabled: boolean, dispose: () => void } & Record<string, unknown>}
  */
 export function setupExperimentalBridge(module, options = {}) {
     const params = options.params || new URLSearchParams(location.search);
     if (params.get('experimental') !== '1') {
-        return { enabled: false };
+        return { enabled: false, dispose() {} };
     }
+    const owned = createDisposables({ label: 'pm:experimental' });
 
     const depthModuleUrl = params.get('depthModule') || DEFAULT_DEPTH_MODULE_URL;
     const state = {
@@ -365,7 +379,9 @@ export function setupExperimentalBridge(module, options = {}) {
     // Inputs travel on imageChannel; only *results* (role=depth-result or explicit flag)
     // are auto-injected. Legacy posts without a role are treated as inputs.
     const imageChannel = new BroadcastChannel('imageChannel');
-    imageChannel.addEventListener('message', async (event) => {
+    owned.add(() => imageChannel.close());
+    owned.listen(imageChannel, 'message', async (message) => {
+        const event = /** @type {MessageEvent} */ (message);
         const data = event.data || {};
         const isResult = data.role === 'depth-result' || data.depthResult === true;
         if (!isResult) return;
@@ -384,7 +400,7 @@ export function setupExperimentalBridge(module, options = {}) {
         }
     });
 
-    const resultImage = ensureResultImage();
+    const resultImage = ensureResultImage(owned);
     const observer = new MutationObserver(async () => {
         if (!resultImage.src || resultImage.src === state.lastResultSrc) return;
         // Ignore empty data URLs / about:blank
@@ -403,6 +419,7 @@ export function setupExperimentalBridge(module, options = {}) {
         }
     });
     observer.observe(resultImage, { attributes: true, attributeFilter: ['src'] });
+    owned.add(() => observer.disconnect());
 
     const onPresetLoaded = async (/** @type {Event} */ event) => {
         const { path, text: detailText } =
@@ -441,27 +458,28 @@ export function setupExperimentalBridge(module, options = {}) {
             setStatus(`glTF export mode: ${meta['gltf-export']}`);
         }
     };
-    window.addEventListener('pm:preset-loaded', onPresetLoaded);
+    owned.listen(window, 'pm:preset-loaded', onPresetLoaded);
 
     // Remember milk text from local loads so depth:auto works without re-reading VFS races.
     const onPresetText = (/** @type {Event} */ event) => {
         const detail = /** @type {CustomEvent<{ text?: string }>} */ (event).detail;
         if (detail?.text) state.lastMilkText = detail.text;
     };
-    window.addEventListener('pm:preset-text', onPresetText);
+    owned.listen(window, 'pm:preset-text', onPresetText);
 
-    injectPanel(module, state, api);
+    injectPanel(module, state, api, owned);
     console.info('[pm:experimental] bridge active — see docs/EXPERIMENTAL_PRESET_HOOKS.md');
     return {
         enabled: true,
         state,
         api,
-        /** Detaches the window listeners, the image channel and the result observer. */
+        /**
+         * Detaches the window listeners, the image channel and the result
+         * observer, and removes the panel (and the #resultImage this call made).
+         * A second setup after this builds a fresh panel bound to its own state.
+         */
         dispose() {
-            window.removeEventListener('pm:preset-loaded', onPresetLoaded);
-            window.removeEventListener('pm:preset-text', onPresetText);
-            imageChannel.close();
-            observer.disconnect();
+            owned.dispose();
         },
     };
 }
@@ -484,9 +502,12 @@ function setStatus(message, isError = false) {
  *           runDepthFromUpload: (imageDataUrl: string) => Promise<string>,
  *           spawnDepthSpriteHint: () => string }} api
  *   Passed in rather than read back off `window.pmExperimental`.
+ * @param {Disposables} owned Takes the panel, its style and its listeners down on dispose.
  */
-function injectPanel(module, state, api) {
-    if (document.getElementById('pm-experimental-panel')) return;
+function injectPanel(module, state, api, owned) {
+    // A panel left by a bridge that was never disposed is bound to that
+    // bridge's state; replace it rather than leave this bridge without controls.
+    document.getElementById('pm-experimental-panel')?.remove();
 
     const style = document.createElement('style');
     style.textContent = `
@@ -511,7 +532,7 @@ function injectPanel(module, state, api) {
   border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px;
 }
 `;
-    document.head.appendChild(style);
+    owned.append(document.head, style);
 
     const panel = document.createElement('div');
     panel.id = 'pm-experimental-panel';
@@ -532,9 +553,11 @@ function injectPanel(module, state, api) {
 </div>
 <div id="pm-experimental-status" class="pm-experimental-status">Idle</div>
 `;
-    document.body.appendChild(panel);
+    owned.append(document.body, panel);
+    /** @param {string} selector */
+    const control = (selector) => panel.querySelector(selector);
 
-    document.getElementById('pm-exp-load-depth')?.addEventListener('click', async () => {
+    owned.listen(control('#pm-exp-load-depth'), 'click', async () => {
         try {
             setStatus('Loading Depth Anything module…');
             await loadDepthModule(state.depthModuleUrl);
@@ -544,7 +567,7 @@ function injectPanel(module, state, api) {
         }
     });
 
-    document.getElementById('pm-exp-capture')?.addEventListener('click', async () => {
+    owned.listen(control('#pm-exp-capture'), 'click', async () => {
         const canvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector('#mcanvas'));
         try {
             setStatus('Capturing canvas → depth pipeline…');
@@ -555,7 +578,7 @@ function injectPanel(module, state, api) {
         }
     });
 
-    document.getElementById('pm-exp-bind')?.addEventListener('click', async () => {
+    owned.listen(control('#pm-exp-bind'), 'click', async () => {
         try {
             setStatus('Binding depth result…');
             await api.bindDepthResult();
@@ -565,7 +588,7 @@ function injectPanel(module, state, api) {
         }
     });
 
-    document.getElementById('pm-exp-upload')?.addEventListener('change', async (e) => {
+    owned.listen(control('#pm-exp-upload'), 'change', (e) => {
         const file = /** @type {HTMLInputElement} */ (e.target).files?.[0];
         if (!file) return;
         const reader = new FileReader();
@@ -583,13 +606,13 @@ function injectPanel(module, state, api) {
         reader.readAsDataURL(file);
     });
 
-    document.getElementById('pm-exp-gltf-load')?.addEventListener('click', () => {
+    owned.listen(control('#pm-exp-gltf-load'), 'click', () => {
         const title = prompt('glTF scene title / URL key:', 'projectm_scene') || 'projectm_scene';
         requestGltfLoad(title);
         setStatus(`Posted loaderChannel: ${title}`);
     });
 
-    document.getElementById('pm-exp-gltf-save')?.addEventListener('click', () => {
+    owned.listen(control('#pm-exp-gltf-save'), 'click', () => {
         const title = prompt('Export title:', window.currentPresetName || 'projectm_snapshot');
         const saveName = document.getElementById('saveName');
         const savedName = /** @type {HTMLInputElement | null} */ (
@@ -601,7 +624,7 @@ function injectPanel(module, state, api) {
         window.dispatchEvent(new CustomEvent('pm:gltf-save-requested', { detail: { title } }));
     });
 
-    document.getElementById('pm-exp-sprite')?.addEventListener('click', () => {
+    owned.listen(control('#pm-exp-sprite'), 'click', () => {
         api.spawnDepthSpriteHint();
     });
 }

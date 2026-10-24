@@ -21,7 +21,7 @@ test('the format index maps to the name the benchmark records', () => {
     for (const [index, name] of [[0, 'RGBA16F'], [1, 'RGBA32F'], [2, 'RGBA8']]) {
         const dom = installFakeDom();
         try {
-            assert.equal(setupFboFormatIndicator(fakeModule(index)), name);
+            assert.equal(setupFboFormatIndicator(fakeModule(index)).format(), name);
             // projectm-perf.js reads the format straight off the module for its
             // report; the indicator publishes nothing on window.
             assert.equal(getFboFormatName(fakeModule(index)), name);
@@ -35,8 +35,8 @@ test('the format index maps to the name the benchmark records', () => {
 test('an unrecognised format index degrades to RGBA8 rather than undefined', () => {
     const dom = installFakeDom();
     try {
-        assert.equal(setupFboFormatIndicator(fakeModule(7)), 'RGBA8');
-        assert.equal(setupFboFormatIndicator(fakeModule(-1)), 'RGBA8');
+        assert.equal(setupFboFormatIndicator(fakeModule(7)).format(), 'RGBA8');
+        assert.equal(setupFboFormatIndicator(fakeModule(-1)).format(), 'RGBA8');
         assert.equal(getFboFormatName(fakeModule(7)), 'RGBA8');
     } finally {
         dom.restore();
@@ -63,8 +63,11 @@ test('only the RGBA8 fallback shows the degraded-mode banner', () => {
         assert.match(banner.textContent, /Degraded rendering mode/);
 
         // A second call reuses the existing banner instead of stacking another.
-        setupFboFormatIndicator(fakeModule(2));
+        const second = setupFboFormatIndicator(fakeModule(2));
         assert.equal(dom.document.body.children.filter((el) => el.id === BANNER_ID).length, 1);
+        // Only the call that created the banner takes it down.
+        second.dispose();
+        assert.ok(dom.document.getElementById(BANNER_ID));
     } finally {
         dom.restore();
     }

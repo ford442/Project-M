@@ -18,6 +18,7 @@
 
 import { getExternalPcmStats } from './projectm-external-pcm.js';
 import { readPcmRingCounters, readPcmRingDescriptor } from './projectm-pcm-ring.js';
+import { asDisposable } from './projectm-disposables.js';
 
 /**
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
@@ -259,12 +260,12 @@ export function setupPcmHud({
     const statsFn = () => latest;
     g.projectMPcmStats = statsFn;
 
-    return () => {
+    return asDisposable(() => {
         clearInterval(timer);
         if (g.projectMPcmStats === statsFn) {
             delete g.projectMPcmStats;
         }
         overlay?.remove();
         overlay = null;
-    };
+    });
 }

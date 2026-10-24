@@ -30,6 +30,7 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
+        ColorOutputTest.cpp
         FlashLimiterTest.cpp
         FramebufferTest.cpp
         HeadlessGlContext.cpp
@@ -68,8 +69,8 @@ target_compile_definitions(projectM-unittest
         PROJECTM_SOURCE_DIR="${PROJECTM_SOURCE_DIR}"
         PROJECTM_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data"
         PROJECTM_PRESET_TESTS_DIR="${PROJECTM_SOURCE_DIR}/presets/tests"
-        PROJECTM_CUSTOM_MILK_FIXED_DIR="${PROJECTM_SOURCE_DIR}/custom_milk_fixed"
-        PROJECTM_WEEKS_PRESETS_DIR="${PROJECTM_SOURCE_DIR}/weeks_presets"
+        PROJECTM_CUSTOM_MILK_FIXED_DIR="${PROJECTM_SOURCE_DIR}/presets/custom"
+        PROJECTM_WEEKS_PRESETS_DIR="${PROJECTM_SOURCE_DIR}/presets/weeks"
         )
 
 # Test includes a header file from libprojectM with its full path in the source dir.

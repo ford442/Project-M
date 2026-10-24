@@ -4,7 +4,7 @@
  *
  * Usage:
  *   node scripts/toml_to_milk.mjs presets/drafts/foo.toml
- *   node scripts/toml_to_milk.mjs presets/drafts/foo.toml -o custom_milk_fixed/foo.milk
+ *   node scripts/toml_to_milk.mjs presets/drafts/foo.toml -o presets/custom/foo.milk
  *
  * TOML format (minimal — not full TOML parser; line-oriented for agent drafts):
  *

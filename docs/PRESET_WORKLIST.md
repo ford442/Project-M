@@ -6,11 +6,11 @@
 
 Last run: `2026-07-31T05:16:40.554Z`
 
-## `custom_milk_fixed`
+## `presets/custom`
 
 No presets in the `heavy` tier. 🎉
 
-## `weeks_presets`
+## `presets/weeks`
 
 44 of 426 presets are in the `heavy` tier.
 

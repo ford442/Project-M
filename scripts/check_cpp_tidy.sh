@@ -104,6 +104,19 @@ fi
 if [[ ! -d "$INSTALL_DIR/include/projectM-4" ]]; then
     missing_prerequisite "no installed projectM-4 headers under $INSTALL_DIR/include (set INSTALL_DIR)."
 fi
+# The libraries' -include config.h and compile definitions, as the wrapper
+# compile gets them (scripts/build_wasm_smoke_wrapper.sh reads the same file).
+WRAPPER_FLAGS_FILE="$BUILD_DIR/projectm-wasm-wrapper-flags.txt"
+if [[ ! -s "$WRAPPER_FLAGS_FILE" ]]; then
+    missing_prerequisite "$WRAPPER_FLAGS_FILE missing (build dir configured by an older tree; reconfigure it)."
+fi
+lib_compile_args=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+        "" | "-D") ;;
+        *) lib_compile_args+=("$line") ;;
+    esac
+done < "$WRAPPER_FLAGS_FILE"
 
 # Narrow, hand-picked check list — deliberately not the full .clang-tidy
 # groups. -checks= on the command line resets the effective list (the
@@ -142,7 +155,7 @@ COMPILE_ARGS=(
     -I "$PROJECT_ROOT/vendor/hlslparser/src"
     -I "$PROJECT_ROOT/vendor/glad/include"
     -I "$PROJECT_ROOT/vendor"
-    -DUSE_GLES
+    "${lib_compile_args[@]}"
 )
 
 shopt -s nullglob

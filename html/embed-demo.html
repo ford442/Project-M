@@ -62,27 +62,8 @@
   ></project-m-visualizer>
 
   <script type="module">
-    import './projectm-element.js';
-
-    const status = document.getElementById('status');
-    const viz = document.querySelector('project-m-visualizer');
-
-    viz.addEventListener('pm-ready', () => {
-      status.textContent = 'Ready';
-    });
-
-    viz.addEventListener('pm-preset-changed', (event) => {
-      status.textContent = `Preset: ${event.detail.name}`;
-    });
-
-    viz.addEventListener('pm-error', (event) => {
-      status.textContent = `Error: ${event.detail.message}`;
-      console.error(event.detail);
-    });
-
-    viz.addEventListener('pm-fps', (event) => {
-      status.dataset.fps = String(Math.round(event.detail.fps));
-    });
+  import { bootEmbedDemo } from './projectm-embed-demo.js';
+  bootEmbedDemo(document);
   </script>
 </body>
 </html>

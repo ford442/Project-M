@@ -3,7 +3,8 @@
  * Used by ?audioTest=1 debug panel and tests/wasm-smoke/audio_reactivity.html.
  */
 
-import { feedPcmThroughRing } from './projectm-pcm-ring.js';
+import { createDisposables } from './projectm-disposables.js';
+import { feedPcm } from './projectm-pcm-ring.js';
 
 // projectM's internal analysis buffer size (AudioBufferSamples). Kept as the
 // generators' default chunk length — it is a convenient, engine-shaped block
@@ -174,38 +175,18 @@ export function trimToAnalysisWindow(buffer, samplesPerChannel, window = PROJECT
  * @param {Float32Array} buffer Interleaved PCM.
  * @param {number} [channels]
  * @param {number} [samplesPerChannel]
+ * @param {number} [host] The engine to feed (create_host*()'s handle); 0 is
+ *   the module's active host.
  * @returns {boolean} true if the chunk was handed to the engine.
  */
-export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel) {
+export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel, host = 0) {
     if (!module) return false;
     const frames = samplesPerChannel ?? (channels === 1 ? buffer.length : buffer.length / 2);
-
-    // Preferred path: the WASM-owned PCM ring, the same one the worklet and
-    // external PCM write to, so a synthetic feed exercises the real ingest
-    // rather than a test-only shortcut.
-    return feedPcmThroughRing(module, buffer, {
-        channels,
-        fallback: () => {
-            // Feature-detect every symbol used below: the WASM build's exported
-            // set varies by link flags, and HEAPF32/_free were previously
-            // assumed present.
-            if (!module._projectm_pcm_add_float_wrapper || !module._malloc
-                || !module._free || !module.HEAPF32) {
-                return false;
-            }
-            const { buffer: trimmed, samplesPerChannel: windowFrames } =
-                trimToAnalysisWindow(buffer, frames);
-            const ptr = module._malloc(trimmed.length * 4);
-            if (!ptr) return false;
-            try {
-                module.HEAPF32.set(trimmed, ptr >> 2);
-                module._projectm_pcm_add_float_wrapper(0, ptr, windowFrames, channels);
-                return true;
-            } finally {
-                module._free(ptr);
-            }
-        },
-    });
+    // The same ingest the worklet and external PCM use, so a synthetic feed
+    // exercises the real path rather than a test-only shortcut. Trimmed to the
+    // analysis window: a test signal longer than that only costs a copy.
+    const { buffer: trimmed } = trimToAnalysisWindow(buffer, frames);
+    return feedPcm({ module, host }, trimmed, { channels });
 }
 
 /**
@@ -215,15 +196,18 @@ export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel)
  * @param {SyntheticFeedMode} [mode]
  * @param {object} [options]
  * @param {number} [options.channels]
+ * @param {number} [options.host] The engine to feed; 0 is the module's active host.
  * @param {(frame: number, mode: SyntheticFeedMode) => void} [options.onFrame]
  * @returns {() => void} Stops the feed.
  */
 export function startSyntheticFeed(module, mode = 'bass', {
     channels = 1,
+    host = 0,
     onFrame,
 } = {}) {
     let frame = 0;
     let running = true;
+    let rafId = 0;
 
     /** @type {Record<SyntheticFeedMode, () => Float32Array>} */
     const generators = {
@@ -249,13 +233,17 @@ export function startSyntheticFeed(module, mode = 'bass', {
                 }
                 return stereo;
             })();
-        feedPcmToModule(module, buf, channels);
+        feedPcmToModule(module, buf, channels, undefined, host);
         onFrame?.(frame, mode);
         frame += 1;
-        requestAnimationFrame(tick);
+        rafId = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
-    return () => { running = false; };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+        running = false;
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = 0;
+    };
 }
 
 /**
@@ -265,15 +253,29 @@ export function startSyntheticFeed(module, mode = 'bass', {
  *   The module, or a getter re-read on each click (it may not exist yet at setup).
  * @param {object} [options]
  * @param {Document} [options.documentRef]
- * @returns {HTMLDivElement | null} The panel, or null when not enabled.
+ * @param {() => number} [options.hostRef] The engine the feed is for, re-read on
+ *   each click (create_host*()'s handle; 0 or absent is the active host).
+ * @param {string} [options.search] Query string to read `?audioTest=1` from.
+ * @returns {{ element: HTMLDivElement | null, dispose: () => void }} `element`
+ *   is null when the panel is not enabled. `dispose()` stops the feed and
+ *   removes the panel.
  */
-export function setupAudioTestPanel(moduleRef, { documentRef = document } = {}) {
-    const params = new URLSearchParams(globalThis.location?.search || '');
-    if (params.get('audioTest') !== '1') return null;
+export function setupAudioTestPanel(moduleRef, {
+    documentRef = document,
+    hostRef,
+    search = globalThis.location?.search || '',
+} = {}) {
+    const params = new URLSearchParams(search);
+    if (params.get('audioTest') !== '1') return { element: null, dispose() {} };
+
+    const owned = createDisposables({ label: 'projectM audio test panel' });
+    // One panel per page: a second setup replaces the first.
+    documentRef.getElementById?.('pm-audio-test')?.remove();
 
     const panel = documentRef.createElement('div');
     panel.id = 'pm-audio-test';
     panel.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99998;background:#111;color:#7dd3fc;font:11px/1.4 monospace;padding:8px 10px;border:1px solid #38bdf8;border-radius:6px;max-width:14rem';
+    // eslint-disable-next-line no-restricted-syntax -- the mode names are a constant list
     panel.innerHTML = `
       <div style="font-weight:bold;margin-bottom:6px">Audio Reactivity Test</div>
       <div style="display:flex;flex-wrap:wrap;gap:4px">
@@ -282,20 +284,25 @@ export function setupAudioTestPanel(moduleRef, { documentRef = document } = {}) 
       </div>
       <div id="pm-audio-test-status" style="margin-top:6px;opacity:0.8">stopped</div>
     `;
-    documentRef.body.appendChild(panel);
+    owned.append(documentRef.body, panel);
 
     /** @type {(() => void) | null} */
     let stopFeed = null;
+    owned.add(() => {
+        stopFeed?.();
+        stopFeed = null;
+    });
+    const handle = { element: panel, dispose: () => owned.dispose() };
     const status = panel.querySelector('#pm-audio-test-status');
     if (!status) {
-        return panel;
+        return handle;
     }
 
     const buttons = /** @type {NodeListOf<HTMLButtonElement>} */ (
         panel.querySelectorAll('button[data-mode]')
     );
     buttons.forEach((btn) => {
-        btn.addEventListener('click', () => {
+        owned.listen(btn, 'click', () => {
             const module = typeof moduleRef === 'function' ? moduleRef() : moduleRef;
             if (!module) {
                 status.textContent = 'module not ready';
@@ -305,10 +312,11 @@ export function setupAudioTestPanel(moduleRef, { documentRef = document } = {}) 
             const mode = /** @type {SyntheticFeedMode} */ (btn.dataset.mode);
             status.textContent = `feeding: ${mode}`;
             stopFeed = startSyntheticFeed(module, mode, {
+                host: hostRef?.() ?? 0,
                 onFrame: (f) => { status.textContent = `feeding: ${mode} (frame ${f})`; },
             });
         });
     });
 
-    return panel;
+    return handle;
 }

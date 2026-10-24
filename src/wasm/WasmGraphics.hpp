@@ -10,6 +10,8 @@
 #pragma once
 
 #include "ProjectMWasmInternal.hpp"
+#include "WasmCompositorShader.hpp"
+#include "WasmWebGLContext.hpp"
 
 // =============================================================================
 // Phase 2: Dual Ping-Pong FBO Architecture with Floating-Point Texture Support
@@ -24,7 +26,8 @@
  * returns the one DetectFormat() picked, in the same numbering. The two used
  * to disagree (the getter returned 0 for RGBA32F and 1 for RGBA16F).
  *
- * Selection (DetectFormat()):
+ * Selection (DetectFormat(), from the extensions the context probed once at
+ * creation, WasmContextCaps):
  *   RGBA16F – default whenever it is renderable: WebGL 2 plus either
  *             EXT_color_buffer_float or EXT_color_buffer_half_float. Always
  *             filterable in WebGL 2.
@@ -34,12 +37,19 @@
  *             GL_NEAREST (a linear filter would leave them incomplete, which
  *             samples as black).
  *   RGBA8   – last resort, or forced with fboPrecision "byte"; shaders must
- *             clamp output to [0,1].
+ *             clamp output to [0,1]. Also where a float format ends up when a
+ *             framebuffer with it turns out incomplete (CreateFBO()).
+ *
+ * What a float format buys here is limited: these textures receive frames
+ * libprojectM already rendered through RGBA8 feedback, warp and composite
+ * targets (ENABLE_HDR_RENDERING is off in the WASM build), so RGBA16F only
+ * keeps the crossfade itself from adding a second 8-bit quantization. The
+ * recursive-feedback banding lives upstream of this stage.
  */
 enum class FboFloatFormat : int
 {
     RGBA16F = 0, //!< GL_RGBA16F – default on capable GPUs (fboPrecision "half")
-    RGBA32F = 1, //!< GL_RGBA32F – opt-in high precision for recursive feedback (fboPrecision "high")
+    RGBA32F = 1, //!< GL_RGBA32F – opt-in high precision (fboPrecision "high")
     RGBA8 = 2    //!< GL_RGBA8   – fallback; negative alpha corruption possible without clamping (fboPrecision "byte")
 };
 
@@ -79,16 +89,17 @@ public:
     }
 
     /**
-     * @brief Picks the FBO colour format by probing WebGL 2 extensions.
+     * @brief Picks the FBO colour format from the context's float support.
      *
-     * Call once after the WebGL context has been made current and before any FBO
+     * Call once after the WebGL context has been created and before any FBO
      * allocation. See FboFloatFormat for the selection rules.
      *
-     * @param ctx The active Emscripten WebGL context handle.
+     * @param caps What the context offers, probed (and enabled) once when it was
+     *        created; this class enables no extensions itself.
      * @param precisionMode The preferred format, as an FboFloatFormat value
      *        (set_context_config()'s fboPrecision).
      */
-    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, int precisionMode = 0)
+    void DetectFormat(const WasmContextCaps& caps, int precisionMode = 0)
     {
         m_filter = GL_LINEAR;
         if (precisionMode == static_cast<int>(FboFloatFormat::RGBA8))
@@ -99,18 +110,16 @@ public:
         }
         // In WebGL 2, EXT_color_buffer_float makes both RGBA16F and RGBA32F
         // renderable; EXT_color_buffer_half_float covers RGBA16F alone.
-        const bool hasFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE);
-        const bool hasHalfFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE);
-        const bool halfRenderable = hasFloat || hasHalfFloat;
+        const bool halfRenderable = caps.floatColorBuffer || caps.halfFloatColorBuffer;
 
-        if (precisionMode == static_cast<int>(FboFloatFormat::RGBA32F) && hasFloat)
+        if (precisionMode == static_cast<int>(FboFloatFormat::RGBA32F) && caps.floatColorBuffer)
         {
             m_format = FboFloatFormat::RGBA32F;
             // RGBA32F is not filterable in core WebGL 2. A GL_LINEAR sampler on
             // it without this extension makes the texture incomplete, and an
             // incomplete texture samples as black. The compositor draws the
             // FBOs 1:1 onto the canvas, so GL_NEAREST loses nothing there.
-            if (emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear") != EM_TRUE)
+            if (!caps.floatLinear)
             {
                 m_filter = GL_NEAREST;
                 printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in), GL_NEAREST: OES_texture_float_linear unavailable.\n");
@@ -129,7 +138,7 @@ public:
         {
             m_format = FboFloatFormat::RGBA8;
             printf("DualFBO: Float textures unavailable, falling back to GL_RGBA8 (degraded mode).\n");
-            printf("DualFBO: WARNING – recursive warp/feedback presets may show banding; output is dithered/clamped in CompositingBlendShader.\n");
+            printf("DualFBO: transitions crossfade at 8 bits (dithered/clamped in CompositingBlendShader).\n");
             printf("DualFBO: Host page can query this via Module._dual_fbo_get_format() (2 == RGBA8).\n");
         }
     }
@@ -158,7 +167,7 @@ public:
         m_width = width;
         m_height = height;
 
-        if (!CreateFBO(kARead, width, height) || !CreateFBO(kAWrite, width, height))
+        if (!CreateFBOWithFallback(kARead, width, height) || !CreateFBOWithFallback(kAWrite, width, height))
         {
             ReleaseFBO(kARead);
             ReleaseFBO(kAWrite);
@@ -188,7 +197,7 @@ public:
             return true;
         }
 
-        if (!CreateFBO(kBRead, width, height) || !CreateFBO(kBWrite, width, height))
+        if (!CreateFBOWithFallback(kBRead, width, height) || !CreateFBOWithFallback(kBWrite, width, height))
         {
             ReleaseFBO(kBRead);
             ReleaseFBO(kBWrite);
@@ -485,6 +494,38 @@ private:
         }
 
         return true;
+    }
+
+    /**
+     * @brief CreateFBO(), and if a float format turns out not to be renderable
+     *        after all, CreateFBO() again in GL_RGBA8.
+     *
+     * DetectFormat() only knows which extensions the context reported; a driver
+     * can still refuse the framebuffer (GL_FRAMEBUFFER_UNSUPPORTED). Rather than
+     * lose the transition, the manager switches to RGBA8 for good: slots that
+     * already hold float textures are re-specified in RGBA8 too, so the pairs
+     * stay alike, and the compositor dithers from here on (it reads GetFormat()
+     * every frame; so does get_context_snapshot()).
+     */
+    bool CreateFBOWithFallback(int index, int width, int height)
+    {
+        if (CreateFBO(index, width, height))
+        {
+            return true;
+        }
+        if (m_format == FboFloatFormat::RGBA8)
+        {
+            return false;
+        }
+        fprintf(stderr, "DualFBO: %s framebuffer incomplete; falling back to GL_RGBA8 (dithered).\n",
+                m_format == FboFloatFormat::RGBA32F ? "GL_RGBA32F" : "GL_RGBA16F");
+        m_format = FboFloatFormat::RGBA8;
+        m_filter = GL_LINEAR;
+        for (int slot = 0; slot < 4; ++slot)
+        {
+            ResizeFBOTexture(slot, m_width, m_height);
+        }
+        return CreateFBO(index, width, height);
     }
 
     /**
@@ -790,76 +831,13 @@ public:
     {
         Release();
 
-        // GLSL ES 3.00 vertex shader: maps NDC positions and derives UV coords.
-        static const char* kVertSrc = R"(#version 300 es
-in vec2 aPosition;
-out vec2 vTexCoord;
-void main() {
-    vTexCoord = aPosition * 0.5 + 0.5;
-    gl_Position = vec4(aPosition, 0.0, 1.0);
-}
-)";
-
-        // GLSL ES 3.00 fragment shader: blends two textures with mix().
-        //
-        // uDither is set to 1.0 only when the dual-FBO source textures are
-        // GL_RGBA8 (see FboFloatFormat::RGBA8 / DetectFormat()). RGBA8
-        // intermediate textures accumulate visible 8-bit banding in
-        // recursive warp/feedback presets; an ordered dither breaks up that
-        // banding in the final on-screen image without requiring any preset
-        // shader changes. clamp() guards against out-of-range values landing
-        // on the (always 8-bit) canvas regardless of source format.
-        //
-        // Output is display-referred sRGB-like RGB written to a canvas tagged
-        // drawingBufferColorSpace="srgb" (see ProjectMApplySrgbCanvasColorSpace).
-        // Do not reinterpret these numbers as Display-P3 without a convert.
-        static const char* kFragSrc = R"(#version 300 es
-precision highp float;
-uniform sampler2D uTexA;
-uniform sampler2D uTexB;
-uniform float uBlend;
-uniform float uDither;
-uniform int u_transparencyEnabled;
-uniform float u_transparencyThreshold;
-in vec2 vTexCoord;
-out vec4 fragColor;
-
-// 4x4 Bayer ordered-dither matrix, normalized to [-0.5, 0.5] / 255.
-const float kBayer[16] = float[16](
-     0.0,  8.0,  2.0, 10.0,
-    12.0,  4.0, 14.0,  6.0,
-     3.0, 11.0,  1.0,  9.0,
-    15.0,  7.0, 13.0,  5.0
-);
-
-void main() {
-    vec4 colorA = texture(uTexA, vTexCoord);
-    vec4 colorB = texture(uTexB, vTexCoord);
-    vec4 color = mix(colorA, colorB, uBlend);
-
-    if (uDither > 0.5) {
-        ivec2 p = ivec2(mod(gl_FragCoord.xy, 4.0));
-        float threshold = (kBayer[p.y * 4 + p.x] / 16.0 - 0.5) / 255.0;
-        color.rgb += threshold;
-    }
-
-    fragColor = clamp(color, 0.0, 1.0);
-
-    if (u_transparencyEnabled > 0) {
-        float maxComponent = max(max(fragColor.r, fragColor.g), fragColor.b);
-        if (maxComponent < u_transparencyThreshold) {
-            fragColor = vec4(0.0, 0.0, 0.0, 0.0);
-        }
-    }
-}
-)";
-
-        GLuint vert = CompileShader(GL_VERTEX_SHADER, kVertSrc);
+        // Sources and the alpha contract: WasmCompositorShader.hpp.
+        GLuint vert = CompileShader(GL_VERTEX_SHADER, kCompositorVertexShader);
         if (!vert)
         {
             return false;
         }
-        GLuint frag = CompileShader(GL_FRAGMENT_SHADER, kFragSrc);
+        GLuint frag = CompileShader(GL_FRAGMENT_SHADER, kCompositorFragmentShader);
         if (!frag)
         {
             glDeleteShader(vert);

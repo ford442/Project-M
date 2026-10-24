@@ -197,8 +197,19 @@ export interface RenderWorkerCaptureFrameMessage extends RenderWorkerEngineScope
     timeoutMs?: number;
 }
 
+/**
+ * Host → worker: the host is done with this worker. The worker stops its stats
+ * tick, flushes buffered perf frames, destructs its engine and answers
+ * {@link RenderWorkerShutdownCompleteMessage}; the host terminates it on that
+ * answer, or after a short deadline if none comes.
+ */
+export interface RenderWorkerShutdownMessage {
+    type: 'shutdown';
+}
+
 export type RenderWorkerHostMessage =
     | RenderWorkerInitMessage
+    | RenderWorkerShutdownMessage
     | RenderWorkerResizeMessage
     | RenderWorkerPcmMessage
     | RenderWorkerPresetMessage
@@ -317,12 +328,36 @@ export interface RenderWorkerReadyMessage {
      * The host stamps it on every control message it sends back.
      */
     host: number;
+    /**
+     * `get_context_snapshot()`'s packed result for the worker's context (see
+     * `decodeContextSnapshot()` in projectm-context-config.js). Absent from a
+     * bundle that predates the export.
+     */
+    contextSnapshot?: number;
 }
 
 /** Worker → host: this browser/worker cannot run the offscreen path. */
 export interface RenderWorkerUnsupportedMessage {
     type: 'unsupported';
     reason: string;
+}
+
+/**
+ * Worker → host: the boot failed after the module started loading — the
+ * factory rejected, engine creation failed, or something after it threw. Sent
+ * instead of 'ready', at most once. The host treats it as a failed boot and
+ * falls back to the main-thread topology.
+ */
+export interface RenderWorkerInitErrorMessage {
+    type: 'init-error';
+    /** Init error code (as in {@link RenderWorkerErrorMessage}), or -1 when the module could not say. */
+    code: number;
+    message: string;
+}
+
+/** Worker → host: the answer to {@link RenderWorkerShutdownMessage}. */
+export interface RenderWorkerShutdownCompleteMessage {
+    type: 'shutdown-complete';
 }
 
 /** Worker → host: a recoverable failure the host should surface. */
@@ -392,11 +427,16 @@ export interface RenderWorkerPcmRingMessage {
     descriptor: PcmRingDescriptor;
 }
 
-/** Worker → host: the result of a `ccall` that carried a `requestId`. */
+/**
+ * Worker → host: the result of a `ccall` that carried a `requestId`. `error`
+ * instead of `result` when the call threw (an export the bundle lacks) or the
+ * worker had no engine to call; the host rejects the caller's promise with it.
+ */
 export interface RenderWorkerCcallResultMessage {
     type: 'ccall-result';
     requestId: number;
-    result: unknown;
+    result?: unknown;
+    error?: string;
 }
 
 /**
@@ -429,6 +469,8 @@ export interface RenderWorkerContextRestoredMessage {
 export interface RenderWorkerContextRecoveredMessage {
     type: 'context-recovered';
     status: number;
+    /** As in {@link RenderWorkerReadyMessage}, for the rebuilt context; sent when `status` is `0`. */
+    contextSnapshot?: number;
 }
 
 /**
@@ -485,6 +527,7 @@ export type RenderWorkerMessage =
     | RenderWorkerContextRecoveredMessage
     | RenderWorkerReadyMessage
     | RenderWorkerUnsupportedMessage
+    | RenderWorkerInitErrorMessage
     | RenderWorkerErrorMessage
     | RenderWorkerStatsMessage
     | RenderWorkerPcmRingMessage
@@ -492,7 +535,8 @@ export type RenderWorkerMessage =
     | RenderWorkerPerfFramesMessage
     | RenderWorkerPerfHudMessage
     | RenderWorkerRhythmEventMessage
-    | RenderWorkerFrameCapturedMessage;
+    | RenderWorkerFrameCapturedMessage
+    | RenderWorkerShutdownCompleteMessage;
 
 /** A context-loss notification relayed from the worker. */
 export type RenderWorkerContextEvent = 'lost' | 'restored';
@@ -505,6 +549,12 @@ export interface RenderWorkerHandle {
      * then). Every control message this handle posts carries it.
      */
     engineHost(): number;
+    /**
+     * `get_context_snapshot()`'s packed result for the worker's context, as its
+     * last 'ready' or successful recovery reported it; null before that, and from
+     * a bundle that predates the export.
+     */
+    contextSnapshot(): number | null;
     /**
      * Subscribes to the worker's context-loss notifications. Returns the
      * unsubscribe function.
@@ -566,6 +616,16 @@ export interface RenderWorkerHandle {
         args: unknown[],
     ): Promise<unknown>;
     ccallVoid(name: string, argTypes: string[], args: unknown[]): void;
+    /**
+     * Ends the worker: posts 'shutdown', terminates it on 'shutdown-complete'
+     * or after `timeoutMs`, and rejects every ccall and capture still waiting.
+     * Idempotent; resolves once the worker is terminated.
+     */
+    shutdown(options?: { timeoutMs?: number }): Promise<void>;
+    /** Terminates the worker at once (a failed boot) and rejects whatever is pending. */
+    terminate(): void;
+    /** `shutdown()` without waiting for it: the `{ dispose }` every setup*() returns. */
+    dispose(): void;
 }
 
 /** Writer half of the WASM-owned PCM ring (html/projectm-pcm-ring.js). */

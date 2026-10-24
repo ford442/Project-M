@@ -202,6 +202,7 @@ constexpr char MixFragmentShader[] = R"(
 uniform sampler2D frame_texture;
 uniform sampler2D held_texture;
 uniform sampler2D state_texture;
+uniform int premultiplied_alpha;
 
 out vec4 color;
 
@@ -216,8 +217,16 @@ void main()
         return;
     }
     vec4 held = texelFetch(held_texture, pixel, 0);
-    vec3 blended = mix(SrgbToLinear(held.rgb), SrgbToLinear(frame.rgb), blend);
-    color = vec4(LinearToSrgb(blended), mix(held.a, frame.a, blend));
+    vec3 blended = LinearToSrgb(mix(SrgbToLinear(held.rgb), SrgbToLinear(frame.rgb), blend));
+    float alpha = mix(held.a, frame.a, blend);
+    // The colour mixes in linear light and the alpha does not, so next to a pixel
+    // transparency mode cut out the encoded colour can exceed the alpha. Only then is the
+    // alpha coverage; otherwise it is blend-mode leftovers and must not dim the colour.
+    if (premultiplied_alpha > 0)
+    {
+        blended = min(blended, vec3(alpha));
+    }
+    color = vec4(blended, alpha);
 }
 )";
 
@@ -308,7 +317,7 @@ auto FlashLimiter::BeginFrame(int width, int height) -> bool
     return true;
 }
 
-void FlashLimiter::EndFrame(GLuint targetFramebuffer, double secondsSinceLastFrame)
+void FlashLimiter::EndFrame(GLuint targetFramebuffer, double secondsSinceLastFrame, bool premultipliedAlpha)
 {
     if (!m_allocated)
     {
@@ -352,6 +361,7 @@ void FlashLimiter::EndFrame(GLuint targetFramebuffer, double secondsSinceLastFra
     m_mixShader->SetUniformInt("frame_texture", 0);
     m_mixShader->SetUniformInt("held_texture", 1);
     m_mixShader->SetUniformInt("state_texture", 2);
+    m_mixShader->SetUniformInt("premultiplied_alpha", premultipliedAlpha ? 1 : 0);
     BindTexture(0, m_frame.texture);
     BindTexture(1, m_held.at(previous).texture);
     BindTexture(2, m_state.at(next).texture);

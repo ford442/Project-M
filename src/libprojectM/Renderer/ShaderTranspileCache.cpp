@@ -40,8 +40,9 @@ void ClearTranspiledGlslCacheKey()
     g_cacheKey.clear();
 }
 
-auto GetTranspiledGlslCacheKey() -> const std::string&
+auto GetTranspiledGlslCacheKey() -> std::string
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     return g_cacheKey;
 }
 

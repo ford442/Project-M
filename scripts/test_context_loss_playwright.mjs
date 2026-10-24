@@ -10,7 +10,9 @@
  *   1. the page hears about it (the "Graphics paused" overlay appears),
  *   2. the engine really was torn down (get_projectm_handle() drops to 0),
  *   3. after restoreContext() the overlay goes away, the engine is rebuilt
- *      (get_projectm_handle() is nonzero again) and nothing was reported as an error.
+ *      (get_projectm_handle() is nonzero again) and nothing was reported as an error,
+ *   4. ProjectMContext.contextSnapshot is populated before the loss and read again
+ *      from the rebuilt context afterwards (a new object, not the old one kept).
  *
  * Usage:
  *   node scripts/test_context_loss_playwright.mjs <projectm-v.NNN-thread.js> [worker|main ...]
@@ -121,6 +123,14 @@ async function checkTopology(browser, baseUrl, topology) {
 
     check(await engineHandle(page) > 0, 'an engine exists before the loss');
 
+    const snapshot = await page.evaluate(() => window.__pmContextLoss.rememberSnapshot());
+    check(
+        snapshot !== null
+            && typeof snapshot.floatColorBuffer === 'boolean'
+            && ['RGBA16F', 'RGBA32F', 'RGBA8'].includes(snapshot.fboFormatName),
+        `contextSnapshot reports what the context negotiated (${JSON.stringify(snapshot)})`,
+    );
+
     await page.evaluate(() => window.__pmContextLoss.loseContext({ restoreDelay: 800 }));
 
     check(await waitFor(page, () => window.__pmContextLoss.overlayVisible(), 15000), 'the "Graphics paused" overlay appears');
@@ -138,6 +148,8 @@ async function checkTopology(browser, baseUrl, topology) {
     }
     check(true, 'the overlay goes away once the context is restored');
     check(await engineHandle(page) > 0, 'the engine was rebuilt');
+    check(await page.evaluate(() => window.__pmContextLoss.snapshotWasReread()),
+        `contextSnapshot was read again from the rebuilt context (${JSON.stringify(await page.evaluate(() => window.__pmContextLoss.contextSnapshot()))})`);
     const errors = await page.evaluate(() => window.__pmContextLoss.errors);
     check(errors.length === 0, `no errors reported (${JSON.stringify(errors)})`);
 

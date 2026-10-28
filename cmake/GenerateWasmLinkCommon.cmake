@@ -125,6 +125,11 @@ foreach(_flag IN LISTS PROJECTM_WASM_SIMD_COMPILE_FLAGS)
     string(APPEND _simd_flag_lines "        ${_flag}\n")
 endforeach()
 
+set(_codegen_flag_lines "")
+foreach(_flag IN LISTS PROJECTM_WASM_CODEGEN_COMPILE_FLAGS)
+    string(APPEND _codegen_flag_lines "        ${_flag}\n")
+endforeach()
+
 set(_shared_plain_lines "")
 foreach(_flag IN LISTS PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS)
     string(APPEND _shared_plain_lines "        ${_flag}\n")
@@ -153,7 +158,7 @@ file(WRITE "${_inc_out}" "# wasm_link_common.inc.sh
 # Canonical definitions live in cmake/EmscriptenWasmFlags.cmake.
 # Regenerate: scripts/sync_wasm_link_common.sh
 #
-# Source from build_wasm_smoke_wrapper.sh, build_projectm.sh, colab_build.sh:
+# Sourced by scripts/build_wasm_smoke_wrapper.sh (via scripts/build_wasm.sh):
 #   source \"\$(dirname \"\${BASH_SOURCE[0]}\")/wasm_link_common.inc.sh\"
 
 # shellcheck disable=SC2034  # consumed by sourcing scripts
@@ -180,12 +185,28 @@ projectm_wasm_simd_compile_args() {
 ${_simd_flag_lines}    )
 }
 
-# Optional env overrides:
-#   PROJECTM_WASM_LTO=1              add -flto to the final wrapper link. Required when the static
-#                                    libs were configured with -DPROJECTM_WASM_LTO=ON (bitcode).
-#   PROJECTM_WASM_PTHREAD_POOL_SIZE  pre-spawned pthread Workers (default ${PROJECTM_WASM_PTHREAD_POOL_SIZE})
+# Code generation semantics (PROJECTM_WASM_CODEGEN_COMPILE_FLAGS in
+# cmake/EmscriptenWasmFlags.cmake, which says why each is there). Same for the
+# wrapper TUs as for the libraries.
+projectm_wasm_codegen_compile_args() {
+    local -n _out=\$1
+    _out=(
+${_codegen_flag_lines}    )
+}
+
+# PROJECTM_WASM_LTO=1 adds -flto to the final wrapper link. The wrapper script
+# sets it from the libraries' own record (projectm-wasm-wrapper-flags.txt), so
+# it always matches how they were compiled.
+#
+# PTHREAD_POOL_SIZE is a constant (${PROJECTM_WASM_PTHREAD_POOL_SIZE}): the wrapper's compiled-in
+# kWasmPthreadPoolSize and its static_assert must describe the pool the bundle
+# really has. An environment override that disagrees is an error, not a knob.
 projectm_wasm_pthread_pool_size() {
-    echo \"\${PROJECTM_WASM_PTHREAD_POOL_SIZE:-${PROJECTM_WASM_PTHREAD_POOL_SIZE}}\"
+    if [[ -n \"\${PROJECTM_WASM_PTHREAD_POOL_SIZE:-}\" && \"\${PROJECTM_WASM_PTHREAD_POOL_SIZE}\" != \"${PROJECTM_WASM_PTHREAD_POOL_SIZE}\" ]]; then
+        echo \"PROJECTM_WASM_PTHREAD_POOL_SIZE=\${PROJECTM_WASM_PTHREAD_POOL_SIZE} is not configurable (this tree's pool is ${PROJECTM_WASM_PTHREAD_POOL_SIZE}); edit cmake/EmscriptenWasmFlags.cmake\" >&2
+        return 1
+    fi
+    echo \"${PROJECTM_WASM_PTHREAD_POOL_SIZE}\"
 }
 
 
@@ -200,7 +221,7 @@ projectm_wasm_pthread_script_url_pre_js() {
 projectm_wasm_common_link_args() {
     local -n _out=\$1
     local pthread_pool_size
-    pthread_pool_size=\"\$(projectm_wasm_pthread_pool_size)\"
+    pthread_pool_size=\"\$(projectm_wasm_pthread_pool_size)\" || return 1
     local pthread_script_url_pre_js
     pthread_script_url_pre_js=\"\$(projectm_wasm_pthread_script_url_pre_js)\"
 
@@ -256,7 +277,13 @@ constexpr int kWasmOpenMpThreads = ${PROJECTM_WASM_OPENMP_THREADS};
 constexpr int kWasmPresetPrepareThreads = ${PROJECTM_WASM_PRESET_PREPARE_THREADS};
 
 // Pre-spawned pthread Workers (PTHREAD_POOL_SIZE), enough for both of the above.
+// The link uses exactly this value; it cannot be overridden.
 constexpr int kWasmPthreadPoolSize = ${PROJECTM_WASM_PTHREAD_POOL_SIZE};
+
+// STACK_SIZE (main runtime thread) and DEFAULT_PTHREAD_STACK_SIZE (every
+// pthread: OpenMP helpers, preset prepare threads), in bytes.
+constexpr int kWasmStackSize = ${PROJECTM_WASM_STACK_SIZE};
+constexpr int kWasmPthreadStackSize = ${PROJECTM_WASM_PTHREAD_STACK_SIZE};
 
 static_assert(kWasmOpenMpThreads - 1 + kWasmPresetPrepareThreads <= kWasmPthreadPoolSize,
               \"PTHREAD_POOL_SIZE must cover the OpenMP helpers and the preset prepare threads\");

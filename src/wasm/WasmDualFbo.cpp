@@ -173,74 +173,74 @@ void dual_fbo_swap_preset_b()
 
 /** @brief Returns the Preset A Read FBO ID (bind as render target). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_read_fbo()
+uint32_t dual_fbo_get_a_read_fbo()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetAReadFBO();
+    return g_dualFbo.GetAReadFBO().id;
 }
 
 /** @brief Returns the Preset A Write FBO ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_write_fbo()
+uint32_t dual_fbo_get_a_write_fbo()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetAWriteFBO();
+    return g_dualFbo.GetAWriteFBO().id;
 }
 
 /** @brief Returns the Preset A Read texture ID (sample as history/feedback). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_read_tex()
+uint32_t dual_fbo_get_a_read_tex()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetAReadTex();
+    return g_dualFbo.GetAReadTex().id;
 }
 
 /** @brief Returns the Preset A Write texture ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_a_write_tex()
+uint32_t dual_fbo_get_a_write_tex()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetAWriteTex();
+    return g_dualFbo.GetAWriteTex().id;
 }
 
 /** @brief Returns the Preset B Read FBO ID (bind as render target). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_read_fbo()
+uint32_t dual_fbo_get_b_read_fbo()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetBReadFBO();
+    return g_dualFbo.GetBReadFBO().id;
 }
 
 /** @brief Returns the Preset B Write FBO ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_write_fbo()
+uint32_t dual_fbo_get_b_write_fbo()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetBWriteFBO();
+    return g_dualFbo.GetBWriteFBO().id;
 }
 
 /** @brief Returns the Preset B Read texture ID (sample as history/feedback). */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_read_tex()
+uint32_t dual_fbo_get_b_read_tex()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetBReadTex();
+    return g_dualFbo.GetBReadTex().id;
 }
 
 /** @brief Returns the Preset B Write texture ID. */
 EMSCRIPTEN_KEEPALIVE
-GLuint dual_fbo_get_b_write_tex()
+uint32_t dual_fbo_get_b_write_tex()
 {
     WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
-    return g_dualFbo.GetBWriteTex();
+    return g_dualFbo.GetBWriteTex().id;
 }
 
 /**
@@ -365,8 +365,8 @@ void dual_fbo_render_preset_a()
                 static_cast<void*>(pm), static_cast<int>(g_dualFbo.IsPresetAAllocated()));
         return;
     }
-    GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
-    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
+    RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO().id);
 }
 
 /**
@@ -374,7 +374,7 @@ void dual_fbo_render_preset_a()
  *        save/restore isolation.
  *
  * Must be called after dual_fbo_render_preset_a() during a transition frame.
- * Before rendering, gl_reset_state_between_pipelines() is called to eliminate
+ * Before rendering, reset_render_state_between_pipelines() is called to eliminate
  * any additive blend or texture state left by Preset A's draw – this prevents
  * the "white screen" / additive bleed artefacts.
  *
@@ -393,9 +393,9 @@ void dual_fbo_render_preset_b()
         return;
     }
     // Force-reset GL state left by Preset A's draw before entering Preset B's pipeline.
-    gl_reset_state_between_pipelines();
-    GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
-    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
+    reset_render_state_between_pipelines();
+    RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+    projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO().id);
 }
 
 } // extern "C"

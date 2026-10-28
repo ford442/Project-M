@@ -75,16 +75,13 @@ void MotionVectors::Draw(const PerFrameContext& presetPerFrameContext, std::shar
 
     motionTexture->Bind(0, m_sampler);
 
-    glVertexAttrib4f(1,
-                     static_cast<float>(*presetPerFrameContext.mv_r),
-                     static_cast<float>(*presetPerFrameContext.mv_g),
-                     static_cast<float>(*presetPerFrameContext.mv_b),
-                     static_cast<float>(*presetPerFrameContext.mv_a));
+    Renderer::Device::Commands().SetConstantVertexAttribute(1, {static_cast<float>(*presetPerFrameContext.mv_r),
+                                                              static_cast<float>(*presetPerFrameContext.mv_g),
+                                                              static_cast<float>(*presetPerFrameContext.mv_b),
+                                                              static_cast<float>(*presetPerFrameContext.mv_a)});
 
-    glLineWidth(1);
-#ifndef USE_GLES
-    glEnable(GL_LINE_SMOOTH);
-#endif
+    Renderer::Device::Commands().SetLineWidth(1.0f);
+    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, true);
 
     auto& lineVertices = m_motionVectorMesh.Vertices();
 
@@ -116,9 +113,7 @@ void MotionVectors::Draw(const PerFrameContext& presetPerFrameContext, std::shar
     Renderer::Mesh::Unbind();
     Renderer::Shader::Unbind();
 
-#ifndef USE_GLES
-    glDisable(GL_LINE_SMOOTH);
-#endif
+    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
 
     Renderer::BlendMode::SetBlendActive(false);
 }

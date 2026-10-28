@@ -8,6 +8,7 @@ No SFTP passwords are stored in this repo.
 Usage:
   python deploy.py                  # upload bundle (default: test staging)
   python deploy.py --dry-run        # list files that would be uploaded
+  python deploy.py --check-bundle   # staged bundle vs this tree + its build-id (no network)
   python deploy.py --target prod    # DreamHost projectm.1ink.us (needs Contabo DEPLOY_BASE_DIR_PROD)
   python deploy.py --target test,go # multi-target
 
@@ -27,6 +28,8 @@ Requirements:
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import io
 import json
 import os
@@ -38,7 +41,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import requests
+try:
+    import requests
+except ImportError:  # --check-bundle runs without it (CI); everything else needs it
+    requests = None  # type: ignore[assignment]
 
 # ============================================================
 # PER-PROJECT CONFIGURATION
@@ -53,8 +59,6 @@ DEPLOY_FILE_PATTERNS: list = [
     "projectm-v.*-thread.1ijs",
     "projectm-v.*-thread.3ijs",
     "projectm-v.*-thread.worker.js",
-    # AudioWorklet loaded by WasmAudioBridge.cpp via addModule('projectm_audio_processor.js')
-    "projectm_audio_processor.js",
 ]
 
 # Optional on-disk pm/ mirror (also auto-generated in the zip from root WASM files).
@@ -85,7 +89,12 @@ DEPLOY_MIRROR_SUBDIRS: list = ["pm"]
 # Shared browser modules and demo hosts (flattened to the deploy root).
 DEPLOY_HTML_GLOBS: list = [
     "html/projectm-*.js",
+    # ProjectMContext's parts (projectm-context.js imports ./context/*.js).
+    "html/context/*.js",
     "html/generated/*.js",
+    # AudioWorklet processors -> worklets/ (WasmAudioBridge.cpp's addModule and
+    # html/projectm-worklet-playback.js both load worklets/projectm-audio-processor.js).
+    "html/worklets/*.js",
     "html/projectm*.1ink",  # projectm_panel2.1ink, projectm.1ink, etc.
     "html/projectm-core.html",
     "html/projectm-core.css",
@@ -105,6 +114,26 @@ DEPLOY_HTML_GLOBS: list = [
     # Legacy /flac/ decoder (BroadcastChannel sng/file).
     "html/flac-decode/example/**/*",
 ]
+
+# Extra archive names for a file that moved in the repo: {deployed name: repo
+# path}. The file is uploaded under its new name by the globs above and under
+# each name here too, so a URL baked into something already deployed (a WASM
+# bundle's EM_JS, a bookmarked page) keeps resolving.
+DEPLOY_PATH_ALIASES: dict = {
+    # WASM bundles linked before the move to html/worklets/ addModule() this
+    # page-relative name. Drop it once every bundle in pm/builds.json is newer.
+    "projectm_audio_processor.js": "html/worklets/projectm-audio-processor.js",
+}
+
+# Preset corpora: {repo folder: deployed folder}. The corpora live under
+# presets/ in the repo, but the site fetches them from these top-level names
+# (every manifest's `base`, html/projectm-preset-sources.js, the WASM glue's
+# EM_JS), so they deploy there. Opt-in with --with-presets: it uploads ~460
+# .milk files that most deploys have no reason to send again.
+DEPLOY_PRESET_DIRS: dict = {
+    "presets/custom": "custom_milk_fixed",
+    "presets/weeks": "weeks_presets",
+}
 
 # Deploy under this remote folder (empty = use PROJECT_NAME).
 # Matches the original SFTP remote target: projectm.1ink.us/
@@ -144,13 +173,17 @@ def _unique_paths(paths: list[Path]) -> list[Path]:
     return ordered
 
 
-def collect_deploy_files() -> list[Path]:
+def collect_deploy_files(with_presets: bool = False) -> list[Path]:
     matched: list[Path] = []
     for pattern in DEPLOY_FILE_PATTERNS + DEPLOY_PM_GLOBS:
         matched.extend(HERE.glob(pattern))
 
     for pattern in DEPLOY_HTML_GLOBS:
         matched.extend(HERE.glob(pattern))
+
+    if with_presets:
+        for folder in DEPLOY_PRESET_DIRS:
+            matched.extend(HERE.glob(f"{folder}/**/*.milk"))
 
     # `**` globs include directories (html/flac-player, html/flac-player/vendor,
     # empty song folders). Zip only files — Path.read_bytes() on a dir is
@@ -170,6 +203,10 @@ def zip_entry_name(file: Path) -> str:
         return str(Path("flac", *relative.parts[2:]))
     if relative.parts and relative.parts[0] == "html":
         return str(Path(*relative.parts[1:]))
+    for folder, deployed in DEPLOY_PRESET_DIRS.items():
+        prefix = tuple(Path(folder).parts)
+        if relative.parts[: len(prefix)] == prefix:
+            return str(Path(deployed, *relative.parts[len(prefix):]))
     return str(relative)
 
 
@@ -271,10 +308,14 @@ def build_song_indexes(remote_sizes: dict[str, int], target_site: str) -> dict[s
     return out
 
 
-def build_zip(skip_sizes: dict[str, int] | None = None, generated: dict[str, bytes] | None = None) -> bytes:
+def build_zip(
+    skip_sizes: dict[str, int] | None = None,
+    generated: dict[str, bytes] | None = None,
+    with_presets: bool = False,
+) -> bytes:
     """Zip WASM artifacts (plus pm/ mirrors), shared html host files, and `generated` (archive name -> bytes)."""
     generated = generated or {}
-    matched = collect_deploy_files()
+    matched = collect_deploy_files(with_presets)
 
     if not matched:
         print("ERROR: No files matched deploy patterns:")
@@ -334,6 +375,13 @@ def build_zip(skip_sizes: dict[str, int] | None = None, generated: dict[str, byt
 
         for archive_name, data in generated.items():
             _zip_write(zf, archive_name, data, skip_sizes, allow_size_skip=False)
+
+        for alias, source in DEPLOY_PATH_ALIASES.items():
+            source_path = HERE / source
+            if source_path.is_file():
+                _zip_write(zf, alias, source_path.read_bytes(), skip_sizes)
+            else:
+                print(f"  ! warning: {source} missing; skipped {alias} alias")
 
         # Keep production URL /1ink.1ink identical to panel2 (stop hand-editing drift).
         if panel2_bytes is not None:
@@ -397,19 +445,31 @@ def deploy_bundle(zip_bytes: bytes, target_site: str) -> bool:
     return False
 
 
+def canonical_bundle() -> str | None:
+    """``projectm-v.NNN-thread`` for PROJECTM_WASM_VERSION, or None if unreadable."""
+    version_js = (HERE / "html" / "projectm-wasm-version.js").read_text(encoding="utf-8")
+    match = re.search(r"PROJECTM_WASM_VERSION\s*=\s*'([^']+)'", version_js)
+    return f"projectm-v.{match.group(1)}-thread" if match else None
+
+
+def read_build_id(path: Path) -> tuple[str, dict[str, str]]:
+    """Line 1 (source fingerprint + flavor tags) and the key=value lines after it."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    facts = dict(line.split("=", 1) for line in lines[1:] if "=" in line)
+    return (lines[0].strip() if lines else ""), facts
+
+
 def check_staged_bundle_is_current() -> str | None:
     """Return an error if the canonical staged bundle was not built from this tree.
 
     scripts/prepare_deploy_bundle.sh stages ``<bundle>.build-id`` next to the
-    bundle: the source fingerprint (scripts/wasm_source_fingerprint.sh) the
-    link was made from. Uploading a bundle older than its sources is the worst
-    failure this repo has, because the golden-image gate runs in CI, not here.
+    bundle: line 1 is the source fingerprint (scripts/wasm_source_fingerprint.sh)
+    the link was made from. Uploading a bundle older than its sources is the
+    worst failure this repo has, because the golden-image gate runs in CI, not here.
     """
-    version_js = (HERE / "html" / "projectm-wasm-version.js").read_text(encoding="utf-8")
-    match = re.search(r"PROJECTM_WASM_VERSION\s*=\s*'([^']+)'", version_js)
-    if not match:
+    bundle = canonical_bundle()
+    if bundle is None:
         return "could not read PROJECTM_WASM_VERSION from html/projectm-wasm-version.js"
-    bundle = f"projectm-v.{match.group(1)}-thread"
     if not (HERE / f"{bundle}.wasm").exists():
         return None  # nothing staged for the canonical version; host files only
     stamp = HERE / f"{bundle}.build-id"
@@ -425,7 +485,7 @@ def check_staged_bundle_is_current() -> str | None:
     except (OSError, subprocess.CalledProcessError) as error:
         detail = getattr(error, "stderr", "") or str(error)
         return f"could not fingerprint this tree (needs bash + git): {detail.strip()}"
-    recorded = stamp.read_text(encoding="utf-8").strip()
+    recorded, _ = read_build_id(stamp)
     if recorded != current:
         return (
             f"{bundle}.wasm was built from a different tree "
@@ -433,6 +493,79 @@ def check_staged_bundle_is_current() -> str | None:
             "re-run scripts/prepare_deploy_bundle.sh"
         )
     return None
+
+
+def _decompress_brotli(data: bytes) -> bytes:
+    try:
+        import brotli  # type: ignore[import-not-found]
+
+        return brotli.decompress(data)
+    except ImportError:
+        pass
+    # No brotli module: node is on any machine that staged the bundle
+    # (prepare_deploy_bundle.sh runs scripts/generate_wasm_builds_manifest.mjs).
+    result = subprocess.run(
+        ["node", "-e", "process.stdout.write(require('zlib').brotliDecompressSync(require('fs').readFileSync(0)))"],
+        input=data,
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout
+
+
+def check_staged_bundle_binaries() -> list[str]:
+    """Every staged copy of the canonical bundle must be the binary the link produced.
+
+    ``<bundle>.build-id`` records the sha256 of the .wasm and of the staged glue.
+    The repo-root and pm/ copies, the .br/.gz siblings html/.htaccess serves to
+    clients that accept them, and any legacy UTF-16/32 glue must all decode to
+    those bytes. Anything that rewrote one of them after staging (a post-link
+    optimiser, a minifier, a hand copy) would otherwise ship a binary no gate
+    saw, and a different one depending on the client's Accept-Encoding.
+    """
+    bundle = canonical_bundle()
+    if bundle is None or not (HERE / f"{bundle}.wasm").exists():
+        return []
+    stamp = HERE / f"{bundle}.build-id"
+    if not stamp.exists():
+        return []  # check_staged_bundle_is_current() reports it
+    _, facts = read_build_id(stamp)
+    expected = {"wasm": facts.get("wasm-sha256"), "js": facts.get("js-sha256")}
+    if not expected["wasm"] or not expected["js"]:
+        return [f"{stamp.name} records no binary hashes: re-stage with scripts/build_wasm.sh --stage"]
+
+    errors = []
+    legacy_encodings = {"1ijs": "utf-16", "3ijs": "utf-32"}
+    for directory in (HERE, HERE / "pm"):
+        for kind, digest in expected.items():
+            base = directory / f"{bundle}.{kind}"
+            candidates = [(base, lambda data: data)]
+            candidates.append((base.with_name(base.name + ".gz"), gzip.decompress))
+            candidates.append((base.with_name(base.name + ".br"), _decompress_brotli))
+            if kind == "js":
+                for suffix, encoding in legacy_encodings.items():
+                    candidates.append(
+                        (
+                            directory / f"{bundle}.{suffix}",
+                            lambda data, encoding=encoding: data.decode(encoding).encode("utf-8"),
+                        )
+                    )
+            for path, decode in candidates:
+                if not path.exists():
+                    if path == base:
+                        errors.append(f"{path.relative_to(HERE)} is missing")
+                    continue
+                try:
+                    actual = hashlib.sha256(decode(path.read_bytes())).hexdigest()
+                except (OSError, ValueError, subprocess.CalledProcessError) as error:
+                    errors.append(f"{path.relative_to(HERE)} could not be decoded: {error}")
+                    continue
+                if actual != digest:
+                    errors.append(
+                        f"{path.relative_to(HERE)} has sha256 {actual[:12]}… (decoded), "
+                        f"not the build-id's {kind} ({digest[:12]}…)"
+                    )
+    return errors
 
 
 def main():
@@ -454,11 +587,44 @@ def main():
         help="Upload even if the staged canonical bundle's build-id does not match this tree",
     )
     parser.add_argument(
+        "--check-bundle",
+        action="store_true",
+        help="Only check the staged bundle against this tree and its build-id (no network); "
+        "exit 1 on any mismatch. What CI runs after scripts/build_wasm.sh --stage.",
+    )
+    parser.add_argument(
+        "--with-presets",
+        action="store_true",
+        help="Also upload the preset corpora (presets/custom, presets/weeks) under their "
+        "deployed names (custom_milk_fixed/, weeks_presets/); see DEPLOY_PRESET_DIRS",
+    )
+    parser.add_argument(
         "--no-song-index",
         action="store_true",
         help="Do not regenerate songs/ (and mp3_songs/, mod_songs/) index.json + index.html",
     )
     args = parser.parse_args()
+
+    if args.check_bundle:
+        problems = []
+        bundle = canonical_bundle()
+        if bundle is None or not (HERE / f"{bundle}.wasm").exists():
+            problems.append(f"nothing staged for {bundle or 'the canonical version'}: run scripts/build_wasm.sh --stage")
+        stale = check_staged_bundle_is_current()
+        if stale:
+            problems.append(stale)
+        problems.extend(check_staged_bundle_binaries())
+        if problems:
+            report = "\n  ".join(problems)
+            print(f"ERROR: staged bundle check failed:\n  {report}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Staged bundle {canonical_bundle()} matches this tree and its build-id.")
+        sys.exit(0)
+
+    if requests is None:
+        print("ERROR: deploy.py needs the requests package: pip install requests", file=sys.stderr)
+        sys.exit(1)
+
     targets = _parse_targets(args.target)
 
     stale = check_staged_bundle_is_current()
@@ -468,6 +634,19 @@ def main():
             sys.exit(1)
         print(f"WARNING: {stale}", file=sys.stderr)
 
+    # Not overridable: a mismatch here is not "old", it is a binary nobody tested.
+    mismatched = check_staged_bundle_binaries()
+    if mismatched:
+        report = "\n  ".join(mismatched)
+        if not args.dry_run:
+            print(
+                f"ERROR: staged bundle files do not match its build-id:\n  {report}\n"
+                "Re-stage with scripts/build_wasm.sh --stage (nothing may modify the bundle afterwards).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"WARNING: staged bundle files do not match its build-id:\n  {report}", file=sys.stderr)
+
     print(f"\n=== Deploying '{PROJECT_NAME}' via Contabo -> {', '.join(targets)} ===\n")
 
     print("Building zip archive...")
@@ -476,7 +655,7 @@ def main():
     first_target = targets[0]
     skip_sizes = fetch_remote_sizes(DEPLOY_FOLDER or PROJECT_NAME, first_target)
     song_indexes = {} if args.no_song_index else build_song_indexes(skip_sizes, first_target)
-    zip_bytes = build_zip(skip_sizes, song_indexes)
+    zip_bytes = build_zip(skip_sizes, song_indexes, with_presets=args.with_presets)
     print(f"Archive size: {len(zip_bytes) / 1024:.1f} KB\n")
 
     if args.dry_run:

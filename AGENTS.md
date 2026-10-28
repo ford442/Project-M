@@ -21,14 +21,19 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 ```
 ├── cmake/                  # CMake modules and helper scripts
 ├── docs/                   # Sphinx/Doxygen documentation sources
-├── presets/                # CMake target for preset data directories
+├── presets/                # Preset data: tests/ (parser fixtures, CMake-installed), custom/ (curated
+│                           # corpus), weeks/ (community corpus), quarantine/, drafts/. Deployed as
+│                           # custom_milk_fixed/ and weeks_presets/ (deploy.py DEPLOY_PRESET_DIRS)
 ├── scripts/                # Build and upload helper shell scripts
 ├── src/
 │   ├── api/                # C API headers (projectM-4/*.h) + export header generation
 │   ├── libprojectM/        # Core visualization library
 │   │   ├── Audio/          # PCM, FFT, loudness, beat detection, waveform alignment
 │   │   ├── MilkdropPreset/ # Preset parsing, Milkdrop equation/shader evaluation, waveforms
-│   │   ├── Renderer/       # OpenGL rendering, textures, shader cache, transitions
+│   │   ├── Renderer/       # Rendering, textures, shader cache, transitions
+│   │   │   ├── Device/     # The render-device seam (IRenderDevice/ICommandList); Device/Gl/ is the
+│   │   │   │               # only GL backend code (docs/RENDER_DEVICE.md)
+│   │   │   └── Platform/   # GL context/loader glue
 │   │   ├── UserSprites/    # User sprite rendering
 │   │   ├── ProjectM.hpp    # Main C++ class
 │   │   └── ProjectMCWrapper.cpp  # C API implementation
@@ -79,7 +84,7 @@ Keep the repo root source-focused. Policy for binary/build artifacts:
 
 - **Never commit built WASM bundles** (`projectm-v.*-thread.{js,wasm,1ijs,3ijs,worker.js}`,
   `pm/projectm-v.*-thread.*`, `pm/builds.json*`). These are build+deploy output — produced by
-  `scripts/prepare_deploy_bundle.sh` and uploaded via `deploy.py`, never checked in.
+  `scripts/build_wasm.sh --stage` and uploaded via `deploy.py`, never checked in.
   Only UTF-8 `.js` glue is deployed now; hosts find each build through the
   `pm/builds.json` manifest (see [`docs/adr/0001-wasm-and-media-hosting.md`](docs/adr/0001-wasm-and-media-hosting.md)
   for the manifest, `.htaccess` headers, song indexes, and the header checks).
@@ -107,7 +112,7 @@ Keep the repo root source-focused. Policy for binary/build artifacts:
 
 | Layer | Technology |
 |-------|------------|
-| Language | C++20 (enforced by CMake) |
+| Language | C++20 requested, **C++17 in practice**: `cmake/FilesystemSupport.cmake` resets `CMAKE_CXX_STANDARD` to 17 whenever `std::filesystem` is available, so the libraries build as gnu++17. Write C++17 (no defaulted `operator==`, no designated initializers) |
 | Build System | CMake >= 3.21 |
 | Graphics | OpenGL Core 3.3 or OpenGL ES 3.2 |
 | Math | GLM (bundled or system) |
@@ -158,7 +163,7 @@ sudo cmake --build . --target install
 | `BUILD_TESTING` | `OFF` | Build the unit test suite. |
 | `ENABLE_PLAYLIST` | `ON` | Build the playlist management library. |
 | `ENABLE_SDL_UI` | `OFF` | Build the SDL2 developer test UI (`projectM-Test-UI`). |
-| `ENABLE_GLES` | `OFF` | Use OpenGL ES 3 instead of OpenGL Core. Forced `ON` on Android/Emscripten. |
+| `ENABLE_GLES` | `OFF` | Use OpenGL ES 3 instead of OpenGL Core. Forced `ON` on Android/Emscripten. Sets the `USE_GLES` define (`config.h`, glad) from this one value. |
 | `ENABLE_EMSCRIPTEN` | auto | Set automatically when using Emscripten toolchain. |
 | `ENABLE_CXX_INTERFACE` | `OFF` | **Experimental/unsupported.** Export C++ symbols for `ProjectM` and `PCM` classes. |
 | `ENABLE_SYSTEM_GLM` | `OFF` | Use system-installed GLM instead of bundled. |
@@ -173,7 +178,7 @@ sudo cmake --build . --target install
 | `ENABLE_MACOS_FRAMEWORK` | `OFF` | Build macOS Framework bundles instead of plain dylibs. |
 | `ENABLE_INSTALL` | `OFF` | Enable install targets when built as a CMake sub-project. |
 | `ENABLE_WERROR_RATCHET` | `OFF` | Warnings as errors in the warning-clean directories (today `src/libprojectM/MilkdropPreset`). CI turns it on. |
-| `PROJECTM_WASM_LTO` | `OFF` | **Emscripten only.** Build the static libs as LLVM bitcode for whole-program LTO; link the bundle with `PROJECTM_WASM_LTO=1`. |
+| `PROJECTM_WASM_LTO` | `OFF` | **Emscripten only.** Build the static libs as LLVM bitcode for whole-program LTO (`scripts/build_wasm.sh --lto`). The only LTO switch: the wrapper link reads it from the build dir and refuses a disagreeing `PROJECTM_WASM_LTO` env var. |
 
 ### Using vcpkg (especially on Windows)
 
@@ -196,6 +201,9 @@ Defines the stable **C API** used by all language bindings and frontends. Header
   the WASM host's prepare thread
 - `rhythm.h` — fork extension: tempo/beat/bar/section info, tempo hint, preset switching on bars or
   sections, transitions in beats, beat-aligned hard cuts (see `docs/AUDIO_PIPELINE.md`)
+- `texture_reload.h` — fork extension: `projectm_reload_texture()` re-reads a loaded texture's file
+  in place, so running presets sample a rewritten image without a reload (the experimental depth
+  map; see `docs/EXPERIMENTAL_PRESET_HOOKS.md`)
 
 Export headers (`projectM_export.h`, `projectM_cxx_export.h`) are generated by CMake.
 
@@ -204,6 +212,8 @@ The core visualization engine. It is subdivided into:
 - **Audio/** — `PCM`, `MilkdropFFT`, `Loudness`, `WaveformAligner`, `FrameAudioData`, `RhythmAnalyzer` (tempo, beat phase, onsets, sections → the `pm_*` preset variables). Handles all audio ingestion and feature extraction.
 - **MilkdropPreset/** — Preset factory, file parser, HLSL/GLSL shader generation, equation evaluation, custom waveforms, and the Milkdrop preset format implementation.
 - **Renderer/** — `Renderer`, `RenderContext`, texture managers, shader cache, transition shaders, and platform abstractions.
+  Everything draws through `Renderer/Device/` (`Device::Current()`, `Device::Commands()`); only
+  `Renderer/Device/Gl/` and `Renderer/Platform/` call GL. See [`docs/RENDER_DEVICE.md`](docs/RENDER_DEVICE.md).
 - **UserSprites/** — `SpriteManager` and shaders for user-provided sprite overlays.
 - **ProjectM.hpp/cpp** — The main orchestrator class. Owns the audio pipeline, preset manager, renderer, and time keeper.
 - **ProjectMCWrapper.cpp** — Thin C wrappers around the C++ `ProjectM` and `PCM` classes.
@@ -246,6 +256,11 @@ Third-party code that is compiled as part of the project:
   clang-format clean, and a repo-wide reformat in one commit would drown
   every other diff in noise. Widen the list one reformatted directory at a
   time instead of doing it all at once.
+- JavaScript has its own gate: `npm run format:check` (`scripts/check_web_format.sh`)
+  runs Prettier (`.prettierrc.json`) over a growing PATHS list in that script, and
+  `web_lint_gate.yml` runs it. Same rollout as the C++ one: reformat one directory
+  in a commit that does nothing else, add that SHA to `.git-blame-ignore-revs`,
+  then add the directory to PATHS. `.editorconfig` holds the editor defaults.
 - **`EM_JS`/`EM_ASYNC_JS`/`EM_ASM*` macro bodies in `src/wasm/` are wrapped in
   `// clang-format off` / `// clang-format on`.** Those bodies are literal
   JavaScript, not C++; clang-format tokenizes `===`/`!==` as separate `==`
@@ -267,6 +282,25 @@ Third-party code that is compiled as part of the project:
   `build_emscripten.yml`); `-Winvalid-pp-token` is off there because it only
   fires on JavaScript literals inside `EM_JS` bodies. Widen one clean directory at
   a time, like `check_cpp_format.sh`.
+
+### Render-device seam
+- No direct GL outside `src/libprojectM/Renderer/Device/Gl/` and
+  `src/libprojectM/Renderer/Platform/`: no `gl*(` call, no `Renderer/OpenGL.h` or
+  glad include. Add what you need to `IRenderDevice`/`ICommandList` and implement it
+  in `GlDevice` (see [`docs/RENDER_DEVICE.md`](docs/RENDER_DEVICE.md)).
+  `scripts/check_gl_seam.sh` enforces it over its `PATHS` list (`src/libprojectM`,
+  `src/wasm`), and `cpp_format_gate.yml` runs it. Comments are ignored, but string
+  literals are not.
+- Handles are values whose id is the GL name on the GL backend, and
+  `RenderTargetHandle{0}` is the default framebuffer. Resource wrappers capture
+  `Device::Current()` when they are constructed.
+- `PROJECTM_DEVICE_VALIDATION=1` turns on `ResourceStateTracker`, which logs each
+  distinct feedback hazard (a texture sampled while attached to the draw target, or a
+  blit or copy that reads what it writes) once, as `[RenderDevice] Feedback hazard: ...`.
+  It is off by default.
+- Device changes must stay bit-identical unless they mean to change output. Check
+  with the WASM goldens and `PresetCompat`, plus a before/after render of the preset
+  corpora if the change touches draw order.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:
@@ -345,7 +379,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 | Directory | Framework | Coverage |
 |-----------|-----------|----------|
-| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
+| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), the color output contract (`ColorOutputTest`, GPU: canvas alpha opaque or valid premultiplied, Display-P3 encode order; see `docs/EMSCRIPTEN.md` "Canvas alpha"), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), the render-device seam (`RenderDeviceTest`: the feedback-hazard tracker without GL, `GlDevice` clear/readback, state capture/restore and a real feedback draw on GPU), the user-sprite C API (`UserSpriteApiTest`, GPU) and the experimental `pm_depth` sampler plus `projectm_reload_texture()` (`ExperimentalDepthSamplerTest`: header parsing and rewrite without GL, in-place reload on GPU), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
 
@@ -361,13 +395,34 @@ repo root:
 npm install               # installs html/'s devDependencies once, hoisted
 npm test                  # every tests/web/*.test.mjs (coverage-gated, see
                            # scripts/test_web_embed.sh) + the packages/web build
-npm run typecheck         # tsc over html/'s two tsconfigs
+npm run typecheck         # tsc over html/'s three tsconfigs (DOM, worker, AudioWorklet)
+npm run lint              # ESLint (eslint.config.mjs) over html/, packages/web/src, tests/web
+npm run format:check      # Prettier over scripts/check_web_format.sh's PATHS list
 ```
 
 `scripts/test_web_embed.sh` and `scripts/check_html_types.sh` still work
 standalone (each falls back to installing its own dependencies if the root
 workspace hasn't been installed yet) and are what CI (`web_host_tests.yml`)
-actually runs `npm test` / `npm run typecheck` through.
+actually runs `npm test` / `npm run typecheck` through. `web_lint_gate.yml` runs
+lint, format and typecheck with no `paths:` filter, so it can be a required check.
+
+ESLint is type-aware: each file group is parsed with the tsconfig program that
+type-checks it, so the set of linted files and the set of type-checked files is
+the same. The rules are the ones the host layer was bitten by:
+`no-floating-promises`, `no-misused-promises`, `require-await`,
+`no-unused-vars`, plus two `no-restricted-syntax` bans — assigning `window.*`
+anywhere but `projectm-globals.js` (publish through `claimGlobal()`), and
+`innerHTML`/`outerHTML` from anything but a constant string. A justified
+exception carries an `eslint-disable-next-line` with the reason; an unused
+disable is itself an error. `scripts/check_host_globals.sh` is the name-aware
+version of the `window.*` rule (it also scans `html/context/` and `html/worklets/`).
+
+Every `.js` that deploys is in a program, including what used to be inline page
+script: `projectm-core.html` and `projectm_panel2.1ink` boot the shared page
+shell (`html/projectm-app-shell.js` + `projectm-app-shell-ui.js`) with a
+four-line `<script type="module">`, the redirect stubs load
+`projectm-redirect-stub.js`, and `tests/web/page-modules.test.mjs` fails any
+deployed page whose inline script grows past ten lines.
 
 #### What the suite gates
 
@@ -382,7 +437,8 @@ which:
    it node <= 22 folds the test files (~100% covered by definition) into the
    "all files" row and node >= 23 does not, so the same tree scored 74.97% in
    CI and 64.91% locally. The number now means "coverage of `html/`" on any
-   node version. `web_host_tests.yml` pins the node major the floor was
+   node version. `--test-coverage-exclude='html/flac-player/vendor/**'` keeps
+   the vendored buffer polyfill, which the flac boot test loads, out of it too. `web_host_tests.yml` pins the node major the floor was
    measured on.
 3. **`tests/web/untested-modules.txt` is out of date.** A coverage floor can
    only score files the suite imported, so a module with *no* tests is
@@ -452,7 +508,7 @@ must also build with MSVC: no `M_PI`, `setenv` or other POSIX-only names.
 ### Preset Compatibility Harness
 
 `tests/libprojectM/PresetCompatTest.cpp` parses every `.milk` preset in `presets/tests/` and
-(optionally) `custom_milk_fixed/` and transpiles its warp/composite shaders from HLSL to GLSL,
+(optionally) `presets/custom/` and transpiles its warp/composite shaders from HLSL to GLSL,
 without requiring an OpenGL context. It reports the file path and error message for any preset
 that fails to parse or transpile.
 
@@ -460,12 +516,12 @@ that fails to parse or transpile.
 # Run only the preset compatibility tests (presets/tests/ only)
 ctest --test-dir <build-dir> -R PresetCompat --build-config Debug --verbose
 
-# Or build + run directly, including custom_milk_fixed/ and optionally checking an
+# Or build + run directly, including presets/custom/ and optionally checking an
 # additional preset directory
 scripts/test_presets.sh [<preset-dir>] [<build-dir>]
 ```
 
-`custom_milk_fixed/` currently contains some presets with known shader-format issues, so it is
+`presets/custom/` currently contains some presets with known shader-format issues, so it is
 opt-in via `PROJECTM_TEST_CUSTOM_MILK_FIXED=1` (set automatically by
 `scripts/test_presets.sh` and the nightly `preset_compat.yml` workflow) to avoid breaking the
 default `projectM-unittest` CTest run used by the main CI build.
@@ -474,11 +530,11 @@ To check an arbitrary preset collection without using the script, build `project
 and set `PROJECTM_PRESET_COMPAT_DIR` to its path before running the binary with
 `--gtest_filter=*PresetCompat*`.
 
-A parse/transpile pass does not mean a preset runs: `custom_milk_fixed/milk013`–`milk015` have
+A parse/transpile pass does not mean a preset runs: `presets/custom/milk013`–`milk015` have
 `per_frame` code without `;` between statements, pass `PresetCompat`, and fail in the engine
 with `[PerFrameContext] Could not compile per-frame code ... unexpected VAR(L2 C1)` (on every
 build, not a regression). Keep them out of the CI screenshot smoke list in `build_emscripten.yml`
-until the preset is repaired; see `docs/kimi_preset_authoring_plan.md`.
+until the preset is repaired; see `docs/agents/kimi_preset_authoring_plan.md`.
 
 ---
 
@@ -492,6 +548,7 @@ GitHub Actions workflows are in `.github/workflows/`:
 - `build_android.yml` — Android NDK build (arm64-v8a, armeabi-v7a, x86_64)
 - `push_release.yml` — Release artifact publishing
 - `upstream_sync_reminder.yml` — monthly upstream drift report + tracking issue (see [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md))
+- `web_lint_gate.yml` — ESLint + Prettier + typecheck over the browser host layer; no `paths:` filter, meant to be required
 
 Conventions shared by the push/PR workflows:
 - Each has a `concurrency` group per workflow + ref: a newer push to a branch or PR cancels the
@@ -521,14 +578,23 @@ documented in `docs/UPSTREAM_SYNC.md`.
 ### WASM Bundle Deployment
 
 `deploy.py` uploads the compiled WASM/JS bundle to `storage.noahcohn.com` /
-`projectm.1ink.us/`. It requires `DEPLOY_TOKEN` as an environment variable (no default —
+`projectm.1ink.us/`. `--with-presets` also uploads the preset corpora under the
+names the site fetches them by (`presets/custom/` → `custom_milk_fixed/`,
+`presets/weeks/` → `weeks_presets/`). It requires `DEPLOY_TOKEN` as an environment variable (no default —
 see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for usage and token rotation).
 
-**It refuses a stale bundle.** `scripts/prepare_deploy_bundle.sh` rebuilds before staging (both
-steps are incremental) and stages a source fingerprint as `<bundle>.build-id`; `deploy.py` fails
-if that does not match the tree it runs from (`--allow-stale-wasm` overrides). It also stages
-`<bundle>.symbols` (not uploaded, gitignored) for symbolizing production stack traces; keep it
-per deployed version. See `docs/EMSCRIPTEN.md` "Deploy staleness guard".
+**One build command.** `scripts/build_wasm.sh` (libraries, wrapper link, bundle checks; `--stage`
+also stages for `deploy.py`) is what CI, `scripts/colab_build.sh` and local deploys run, so the
+deployed binary is the one CI tested. Nothing may rewrite the bundle after the link (no wasm-opt
+pass, no minifier): see `docs/EMSCRIPTEN.md` "Building the bundle". The `src/wasm/` TUs compile
+with the libraries' `config.h` and definitions from `<build>/projectm-wasm-wrapper-flags.txt`.
+
+**It refuses a stale bundle.** Staging writes `<bundle>.build-id`: a source fingerprint plus the
+sha256 of the linked `.wasm` and `.js`. `deploy.py` fails if the fingerprint does not match the tree
+it runs from (`--allow-stale-wasm` overrides) or if any staged copy, `.br`/`.gz` included, does not
+match those hashes (not overridable). `python deploy.py --check-bundle` runs both checks offline.
+Staging also writes `<bundle>.symbols` (not uploaded, gitignored) for symbolizing production stack
+traces; keep it per deployed version. See `docs/EMSCRIPTEN.md` "Deploy staleness guard".
 
 **Browser floor: Safari 16.4 / Chrome 91 / Firefox 89.** The bundle uses SIMD128 but not Relaxed
 SIMD (which Safari cannot compile); `scripts/check_wasm_bundle_features.sh` gates that in CI.
@@ -617,13 +683,17 @@ cmake --build cmake-build-cxx-api --config Debug
 
 ### Emscripten smoke test (matches WASM CI)
 
-After an Emscripten configure/build/install, run the same wrapper and browser smoke used by `.github/workflows/build_emscripten.yml`:
+Build with the same command as `.github/workflows/build_emscripten.yml`, then run its browser smoke:
 
 ```bash
-INSTALL_DIR="$PWD/install" OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
+source /path/to/emsdk/emsdk_env.sh
+scripts/build_wasm.sh            # -> cmake-build/wasm-smoke/projectm-v.030-thread.{js,wasm}
 npm install --no-save --no-package-lock playwright
 npx playwright install chromium
 node tests/wasm-smoke/run.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js presets/tests/000-empty.milk
+# runtime-checks flavor (ASSERTIONS=2, SAFE_HEAP, STACK_OVERFLOW_CHECK=2) + the host churn test:
+scripts/build_wasm.sh --link-only --debug
+node tests/wasm-smoke/host_churn.mjs --module cmake-build/wasm-smoke-debug/projectm-v.030-thread.js
 ```
 
 ### Running the SDL2 developer test UI
@@ -638,6 +708,8 @@ cp ../src/sdl-test-ui/config.inp config.inp
 ```
 
 Requires `DISPLAY` and OpenGL (Mesa llvmpipe software rendering works). No ALSA/PulseAudio device is needed — the UI falls back to synthetic PCM when capture fails. Keys: `Left`/`Right` preset, `Space` lock, `f` fullscreen, `q` quit.
+
+The UI's default framebuffer matches the browser canvas: no alpha channel requested, no depth, no stencil, no MSAA (it logs the real values at startup), and a GLES build asks for OpenGL ES 3.0 like WebGL 2 (`PROJECTM_UI_GLES32=1` for 3.2). Opt in, like `?aa=1` / `?depth=1` on the canvas, with `PROJECTM_UI_AA=1` (4x MSAA) and `PROJECTM_UI_DEPTH=1` (24-bit depth + 8-bit stencil); see `docs/EMSCRIPTEN.md` "The SDL test UI's framebuffer".
 
 ### Services
 

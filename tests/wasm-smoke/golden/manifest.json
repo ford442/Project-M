@@ -41,7 +41,7 @@
     { "path": "presets/tests/270-compshader-solid-color.milk", "label": "composite shader, solid output" },
     { "path": "presets/tests/300-beatdetect-bassmidtreb.milk", "label": "beat detection, bass/mid/treble" },
     {
-      "path": "custom_milk_fixed/milk011.milk",
+      "path": "presets/custom/milk011.milk",
       "label": "heavy multi-pass warp + blur",
       "settleFrames": 60
     }

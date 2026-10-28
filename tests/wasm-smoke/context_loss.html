@@ -72,8 +72,15 @@
       }
     };
 
+    // ProjectMContext.contextSnapshot: remembered before the loss so that, afterwards,
+    // a fresh object (not the old one kept) proves recovery read the new context.
+    let rememberedSnapshot = null;
+
     window.__pmContextLoss = {
       errors,
+      rememberSnapshot: () => (rememberedSnapshot = context.contextSnapshot),
+      contextSnapshot: () => context.contextSnapshot,
+      snapshotWasReread: () => context.contextSnapshot !== null && context.contextSnapshot !== rememberedSnapshot,
       topology: () => context.getRenderTopology(),
       overlayVisible: () => !!overlay()?.classList.contains('visible'),
       engineHandle,

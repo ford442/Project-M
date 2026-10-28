@@ -109,7 +109,7 @@ void PresentSolidFrame(FlashLimiter& limiter, const TargetFramebuffer& target, f
     ASSERT_TRUE(limiter.BeginFrame(kWidth, kHeight));
     glClearColor(grey, grey, grey, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    limiter.EndFrame(target.Id(), 1.0 / 60.0);
+    limiter.EndFrame({target.Id()}, 1.0 / 60.0);
 }
 
 class FlashLimiterTest : public testing::Test
@@ -155,7 +155,7 @@ TEST_F(FlashLimiterTest, DisabledAllocatesNothingAndDoesNotTakeTheFrame)
     FlashLimiter limiter;
     EXPECT_FALSE(limiter.Enabled());
     EXPECT_FALSE(limiter.BeginFrame(kWidth, kHeight));
-    EXPECT_EQ(limiter.PresentedFramebuffer(), 0u);
+    EXPECT_FALSE(limiter.PresentedFramebuffer().Valid());
     EXPECT_EQ(limiter.ClampedFrames(), 0u);
 }
 
@@ -219,7 +219,7 @@ TEST_F(FlashLimiterTest, UnchangedFrameIsCopiedExactly)
             glClear(GL_COLOR_BUFFER_BIT);
         }
         glDisable(GL_SCISSOR_TEST);
-        limiter.EndFrame(target.Id(), 1.0 / 60.0);
+        limiter.EndFrame({target.Id()}, 1.0 / 60.0);
     }
     const auto presented = target.Read();
 
@@ -273,7 +273,7 @@ TEST_F(FlashLimiterTest, ResizeReseedsTheHistoryButKeepsTheCount)
     ASSERT_TRUE(limiter.BeginFrame(kWidth / 2, kHeight / 2));
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    limiter.EndFrame(target.Id(), 1.0 / 60.0);
+    limiter.EndFrame({target.Id()}, 1.0 / 60.0);
     EXPECT_EQ(limiter.ClampedFrames(), 1u) << "a frame after a resize is a new start";
 }
 

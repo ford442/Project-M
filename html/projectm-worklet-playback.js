@@ -32,10 +32,11 @@ import {
 
 // Resolved against THIS module, not the page. A bare relative URL goes through
 // the page's base, so a bundle served from node_modules or a CDN asked the
-// embedding site for /projectm_audio_processor.js and got a 404. In the
-// first-party deploy the modules and the page share a directory, so the two
-// agree there; packages/web copies the processor next to its bundle to match.
-const PROCESSOR_URL = new URL('projectm_audio_processor.js', import.meta.url).href;
+// embedding site for the processor and got a 404. In the first-party deploy
+// the modules and the page share a directory, so this and WasmAudioBridge.cpp's
+// page-relative addModule() agree there; packages/web copies the processor to
+// dist/worklets/ to match.
+const PROCESSOR_URL = new URL('worklets/projectm-audio-processor.js', import.meta.url).href;
 const PROCESSOR_NAME = 'projectm-audio-processor';
 
 /**
@@ -312,6 +313,25 @@ export async function ensureWorkletReady({
 }
 
 /**
+ * The song-load state is the one piece of song state the engine shares with the
+ * host: the baked `js_load_song_into_worklet` EM_JS (src/wasm/WasmAudioBridge.cpp)
+ * writes `globalThis.projectMSongLoadState` too, so it cannot move into a
+ * context. It is page-scoped for the same reason the worklet node is: one
+ * AudioContext and one worklet per page. This module is its only host-side
+ * writer (scripts/check_host_globals.sh enforces that).
+ *
+ * @returns {'loading' | 'loaded' | 'error' | undefined}
+ */
+export function getSongLoadState() {
+    return globalThis.projectMSongLoadState;
+}
+
+/** @param {'loading' | 'loaded' | 'error'} state */
+function setSongLoadState(state) {
+    globalThis.projectMSongLoadState = state;
+}
+
+/**
  * Decode a VFS WAV path and send it to the worklet (same contract as
  * `js_load_song_into_worklet`). Used when hosts want to drive playback without
  * relying on the baked EM_JS early-return.
@@ -330,11 +350,11 @@ export async function loadSongIntoWorklet(filePath, loop = true, startPlaying = 
         return false;
     }
 
-    if (globalThis.projectMSongLoadState === 'loading') {
+    if (getSongLoadState() === 'loading') {
         console.warn('[projectM] loadSongIntoWorklet: load already in progress, skipping', filePath);
         return false;
     }
-    globalThis.projectMSongLoadState = 'loading';
+    setSongLoadState('loading');
     notifyWorkletSourceActive();
 
     try {
@@ -345,7 +365,7 @@ export async function loadSongIntoWorklet(filePath, loop = true, startPlaying = 
         const fileDataUint8Array = FS.readFile(filePath);
         console.log(`[projectM] loadSongIntoWorklet: read ${fileDataUint8Array.length} bytes from ${filePath}`);
         if (fileDataUint8Array.length === 0) {
-            globalThis.projectMSongLoadState = 'error';
+            setSongLoadState('error');
             return false;
         }
 
@@ -375,11 +395,11 @@ export async function loadSongIntoWorklet(filePath, loop = true, startPlaying = 
             loop,
             startPlaying,
         });
-        globalThis.projectMSongLoadState = 'loaded';
+        setSongLoadState('loaded');
         return true;
     } catch (err) {
         console.error('[projectM] loadSongIntoWorklet failed:', err);
-        globalThis.projectMSongLoadState = 'error';
+        setSongLoadState('error');
         return false;
     }
 }
@@ -400,11 +420,11 @@ export async function loadWavBytesIntoWorklet(wavBytes, loop = true, startPlayin
         return false;
     }
 
-    if (globalThis.projectMSongLoadState === 'loading') {
+    if (getSongLoadState() === 'loading') {
         console.warn('[projectM] loadWavBytesIntoWorklet: load already in progress');
         return false;
     }
-    globalThis.projectMSongLoadState = 'loading';
+    setSongLoadState('loading');
     notifyWorkletSourceActive();
 
     try {
@@ -437,11 +457,11 @@ export async function loadWavBytesIntoWorklet(wavBytes, loop = true, startPlayin
             loop,
             startPlaying,
         });
-        globalThis.projectMSongLoadState = 'loaded';
+        setSongLoadState('loaded');
         return true;
     } catch (err) {
         console.error('[projectM] loadWavBytesIntoWorklet failed:', err);
-        globalThis.projectMSongLoadState = 'error';
+        setSongLoadState('error');
         return false;
     }
 }
@@ -452,6 +472,8 @@ export async function loadWavBytesIntoWorklet(wavBytes, loop = true, startPlayin
  * @property {Set<ReturnType<typeof setTimeout>>} timers
  * @property {() => void} releaseLoadHook
  * @property {boolean} disposed
+ * @property {string | null} latestToken The newest 'file' message; an older
+ *   message's retry timer sees a different token and stands down.
  */
 
 /** How many live callers hold the safety net; the last release tears it down. */
@@ -483,6 +505,7 @@ function createSafetyNet() {
             (path, loop, startPlaying) => loadSongIntoWorklet(path, loop !== false, startPlaying !== false)
         ),
         disposed: false,
+        latestToken: null,
     };
 
     if (typeof BroadcastChannel === 'undefined') {
@@ -493,7 +516,7 @@ function createSafetyNet() {
     net.channel = channel;
     channel.addEventListener('message', (ea) => {
         const token = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        globalThis.__projectMSongLoadToken = token;
+        net.latestToken = token;
         const payload = ea?.data?.data;
 
         // Beat WASM's 250ms pl() timer so the worklet node exists first.
@@ -503,7 +526,7 @@ function createSafetyNet() {
 
         const timer = setTimeout(async () => {
             net.timers.delete(timer);
-            if (net.disposed || globalThis.__projectMSongLoadToken !== token) {
+            if (net.disposed || net.latestToken !== token) {
                 return;
             }
             try {
@@ -511,7 +534,7 @@ function createSafetyNet() {
                 if (!ready || net.disposed) {
                     return;
                 }
-                const state = globalThis.projectMSongLoadState;
+                const state = getSongLoadState();
                 // Baked EM_JS used to return without setting state when the worklet
                 // was missing; retry from VFS path (new builds) or raw WAV bytes.
                 if (state === 'loaded' || state === 'loading') {

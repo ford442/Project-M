@@ -1,6 +1,16 @@
 // projectm-preset-tweaker.js — simple header param sliders for live preset tuning.
 
+import { createDisposables } from './projectm-disposables.js';
+
 const TWEAKER_ID = 'pm-preset-tweaker';
+
+/**
+ * The tweaker on the page, if any. One strip per dev panel: a second setup
+ * replaces the first instead of stacking a second set of sliders under it.
+ *
+ * @type {{ dispose(): void } | null}
+ */
+let activeTweaker = null;
 
 /**
  * One tunable `.milk` header parameter.
@@ -46,7 +56,9 @@ function parseHeaderValue(milkText, key) {
  */
 function patchHeaderValue(milkText, key, value) {
     const re = new RegExp(`^${key}=[-\\d.]+`, 'm');
-    const line = `${key}=${value.toFixed(6).replace(/\\.?0+$/, '')}`;
+    // Trailing zeros off ("0.960000" -> "0.96", "1.000000" -> "1"); toFixed()
+    // always leaves a decimal point for this to stop at.
+    const line = `${key}=${value.toFixed(6).replace(/\.?0+$/, '')}`;
     if (re.test(milkText)) {
         return milkText.replace(re, line);
     }
@@ -64,67 +76,79 @@ function patchHeaderValue(milkText, key, value) {
  * @param {object} options
  * @param {(patchedMilk: string) => Promise<void> | void} options.onApply
  * @param {() => string} [options.getSource] Defaults to the dev-panel editor's contents.
- * @returns {{ syncFromMilk: (milkText: string) => void, patchHeaderValue: typeof patchHeaderValue }}
+ * @param {Document} [options.documentRef]
+ * @returns {{ syncFromMilk: (milkText: string) => void, patchHeaderValue: typeof patchHeaderValue, dispose: () => void }}
  */
 export function setupPresetTweaker(options) {
+    const documentRef = options.documentRef ?? document;
+    activeTweaker?.dispose();
+    const owned = createDisposables({ label: 'projectM preset tweaker' });
+
     const getSource = options.getSource || (() => {
         const ed = /** @type {HTMLTextAreaElement | null} */ (
-            document.getElementById('pm-dev-editor')
+            documentRef.getElementById('pm-dev-editor')
         );
         return ed ? ed.value : '';
     });
 
-    let root = document.getElementById(TWEAKER_ID);
-    if (!root) {
-        root = document.createElement('div');
-        root.id = TWEAKER_ID;
-        root.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #334155';
-        root.innerHTML = '<strong style="color:#94a3b8">Param tweaker</strong>';
-        const devPanel = document.getElementById('pm-preset-dev-panel');
-        if (devPanel) devPanel.appendChild(root);
-    }
+    const root = documentRef.createElement('div');
+    root.id = TWEAKER_ID;
+    root.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #334155';
+    const heading = documentRef.createElement('strong');
+    heading.style.color = '#94a3b8';
+    heading.textContent = 'Param tweaker';
+    root.appendChild(heading);
+    const devPanel = documentRef.getElementById('pm-preset-dev-panel');
+    if (devPanel) owned.append(devPanel, root);
 
     /** @type {Record<string, { input: HTMLInputElement, p: TweakerParam }>} */
     const sliders = {};
     PARAMS.forEach((p) => {
-        const row = document.createElement('div');
+        const row = documentRef.createElement('div');
         row.style.cssText = 'display:flex;align-items:center;gap:6px;margin:4px 0';
-        const label = document.createElement('label');
+        const label = documentRef.createElement('label');
         label.textContent = p.label;
         label.style.flex = '0 0 52px';
-        const input = document.createElement('input');
+        const input = documentRef.createElement('input');
         input.type = 'range';
         input.min = String(p.min);
         input.max = String(p.max);
         input.step = String(p.step);
         input.value = String(p.def);
         input.style.flex = '1';
-        const val = document.createElement('span');
+        const val = documentRef.createElement('span');
         val.style.flex = '0 0 48px';
         val.textContent = String(p.def);
-        input.addEventListener('input', () => { val.textContent = input.value; });
+        owned.listen(input, 'input', () => { val.textContent = input.value; });
         row.append(label, input, val);
         root.appendChild(row);
         sliders[p.key] = { input, p };
     });
 
-    const applyBtn = document.createElement('button');
+    const applyBtn = documentRef.createElement('button');
     applyBtn.type = 'button';
     applyBtn.textContent = 'Apply tweaker';
     applyBtn.style.marginTop = '6px';
     root.appendChild(applyBtn);
 
-    applyBtn.addEventListener('click', () => {
+    owned.listen(applyBtn, 'click', () => {
         let text = getSource();
         if (!text.trim()) return;
         PARAMS.forEach((p) => {
             const v = parseFloat(sliders[p.key].input.value);
             text = patchHeaderValue(text, p.key, v);
         });
-        void options.onApply(text);
+        // onApply loads the patched preset; a failure (a bad edit) is reported,
+        // not left as an unhandled rejection.
+        Promise.resolve()
+            .then(() => options.onApply(text))
+            .catch((error) => {
+                console.error('[projectM] preset tweaker apply failed:', error);
+            });
     });
 
-    return {
+    const handle = {
+        /** @param {string} milkText */
         syncFromMilk(milkText) {
             PARAMS.forEach((p) => {
                 const cur = parseHeaderValue(milkText, p.key);
@@ -134,7 +158,13 @@ export function setupPresetTweaker(options) {
             });
         },
         patchHeaderValue,
+        dispose() {
+            owned.dispose();
+            if (activeTweaker === handle) activeTweaker = null;
+        },
     };
+    activeTweaker = handle;
+    return handle;
 }
 
 export { PARAMS, patchHeaderValue, parseHeaderValue };

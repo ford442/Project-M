@@ -26,9 +26,9 @@ namespace Renderer {
  * Attribute data is stored in individual buffers. When setting the buffers via their Set() methods,
  * the user has to make sure that all buffers have at least the same length as the main vertex buffer.
  *
- * Keep in mind that only 8 attribute arrays are guaranteed to be supported by the OpenGL spec.
+ * Keep in mind that only 8 attribute arrays are guaranteed to be supported by the OpenGL / WebGL spec.
  *
- * The Mesh class always uses vertex indices to render, using glDrawElements. If the index buffer is
+ * The Mesh class always uses vertex indices to render, using indexed draws. If the index buffer is
  * empty on the first draw call, it will be populated with a 1:1 mapping of the vertex buffer. If
  * the vertex count changes, the caller has to make sure that the index array is updated accordingly.
  *
@@ -38,16 +38,10 @@ namespace Renderer {
 class Mesh
 {
 public:
-    enum class PrimitiveType : uint8_t
-    {
-        Points,        //!< Renders each vertex as a single texel.
-        Lines,         //!< Renders individual lines, one for each 2 vertices.
-        LineStrip,     //!< Renders all vertices as a continuous line.
-        LineLoop,      //!< Renders all vertices as a continuous line, plus an additional line from the last to first vertex.
-        Triangles,     //!< Renders vertices as individual triangles, with three vertices/indices making up one triangle.
-        TriangleStrip, //!< Renders vertices as a continuous strip of triangles, where 2 vertices are shared between each old and new triangle.
-        TriangleFan    //!< Renders a fan of triangles, with the first vertex being used as the first vertex of all rendered triangles.
-    };
+    /**
+     * Primitive assembly mode: points, lines, line strip or loop, triangles, triangle strip or fan.
+     */
+    using PrimitiveType = Device::PrimitiveType;
 
     /**
      * Constructor. Creates the mesh with a default rendering mode of PrimitiveType::Lines.

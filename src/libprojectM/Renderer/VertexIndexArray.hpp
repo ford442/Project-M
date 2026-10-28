@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderer/OpenGL.h"
+#include "Renderer/Device/RenderDevice.hpp"
 #include "Renderer/VertexBufferUsage.hpp"
 
 #include <cstddef>
@@ -141,7 +141,8 @@ public:
     auto operator[](size_t index) const -> uint32_t;
 
 private:
-    GLuint m_veabID{};   //!< The ID of the OpenGL vertex element array buffer object.
+    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the buffer.
+    Device::BufferHandle m_veabID; //!< The vertex element array buffer object.
     size_t m_veabSize{}; //!< Stores the last number if items uploaded to the GPU.
 
     VertexBufferUsage m_vboUsage{VertexBufferUsage::StaticDraw}; //!< The buffer usage hint.

@@ -1,10 +1,5 @@
 #include "Renderer/TextureAttachment.hpp"
 
-// OpenGL ES might not define this constant in its headers, e.g. in the iOS and Emscripten SDKs.
-#ifndef GL_STENCIL_INDEX
-#define GL_STENCIL_INDEX 0x1901
-#endif
-
 namespace libprojectM {
 namespace Renderer {
 
@@ -17,11 +12,9 @@ TextureAttachment::TextureAttachment(AttachmentType attachment, int width, int h
     }
 }
 
-TextureAttachment::TextureAttachment(GLint internalFormat, GLenum format, GLenum type, int width, int height)
+TextureAttachment::TextureAttachment(Device::TextureFormat format, int width, int height)
     : m_attachmentType(AttachmentType::Color)
-    , m_internalFormat(internalFormat)
-    , m_format(format)
-    , m_type(type)
+    , m_colorFormat(format)
 {
     if (width > 0 && height > 0)
     {
@@ -58,9 +51,7 @@ void TextureAttachment::SetSize(int width, int height)
 
 void TextureAttachment::ReplaceTexture(int width, int height)
 {
-    GLint internalFormat;
-    GLint textureFormat;
-    GLenum pixelFormat;
+    Device::TextureDesc desc;
 
     // Don't replace if size hasn't changed
     if (m_texture->Width() == width && m_texture->Height() == height)
@@ -71,43 +62,29 @@ void TextureAttachment::ReplaceTexture(int width, int height)
     switch(m_attachmentType)
     {
         case AttachmentType::Color:
-            if (m_internalFormat == 0)
+            if (m_colorFormat)
             {
-#ifdef PROJECTM_HDR_RENDERING
-                internalFormat = GL_RGBA16F;
-                textureFormat  = GL_RGBA;
-                pixelFormat    = GL_HALF_FLOAT;
-#elif defined(PROJECTM_SRGB_FRAMEBUFFER)
-                internalFormat = GL_SRGB8_ALPHA8;
-                textureFormat  = GL_RGBA;
-                pixelFormat    = GL_UNSIGNED_BYTE;
-#else
-                internalFormat = GL_RGBA;
-                textureFormat  = GL_RGBA;
-                pixelFormat    = GL_UNSIGNED_BYTE;
-#endif
+                desc.format = *m_colorFormat;
             }
             else
             {
-                internalFormat = m_internalFormat;
-                textureFormat = m_format;
-                pixelFormat = m_type;
+#ifdef PROJECTM_HDR_RENDERING
+                desc.format = Device::TextureFormat::RGBA16F;
+#elif defined(PROJECTM_SRGB_FRAMEBUFFER)
+                desc.format = Device::TextureFormat::SRGB8Alpha8;
+#else
+                desc.format = Device::TextureFormat::RGBA;
+#endif
             }
             break;
         case AttachmentType::Depth:
-            internalFormat = GL_DEPTH_COMPONENT24;
-            textureFormat = GL_DEPTH_COMPONENT;
-            pixelFormat = GL_FLOAT;
+            desc.format = Device::TextureFormat::Depth24;
             break;
         case AttachmentType::Stencil:
-            internalFormat = GL_STENCIL_INDEX8;
-            textureFormat = GL_STENCIL_INDEX;
-            pixelFormat = GL_UNSIGNED_BYTE;
+            desc.format = Device::TextureFormat::Stencil8;
             break;
         case AttachmentType::DepthStencil:
-            internalFormat = GL_DEPTH24_STENCIL8;
-            textureFormat = GL_DEPTH_STENCIL;
-            pixelFormat = GL_UNSIGNED_INT_24_8;
+            desc.format = Device::TextureFormat::Depth24Stencil8;
             break;
 
         default:
@@ -116,19 +93,15 @@ void TextureAttachment::ReplaceTexture(int width, int height)
 
     m_texture.reset();
 
-    GLuint textureId;
-    glGenTextures(1, &textureId);
-    glBindTexture(GL_TEXTURE_2D, textureId);
-    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, textureFormat, pixelFormat, nullptr);
+    desc.target = Device::TextureTarget::Texture2D;
+    desc.width = width;
+    desc.height = height;
+    desc.sampling = Device::TextureSampling{Device::FilterMode::Nearest, Device::WrapMode::ClampToEdge};
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    auto& device = Device::Current();
+    const auto texture = device.CreateTexture(desc, nullptr);
 
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    m_texture = std::make_shared<class Texture>("", textureId, GL_TEXTURE_2D, width, height, false);
+    m_texture = std::make_shared<class Texture>("", texture, Device::TextureTarget::Texture2D, width, height, false);
 }
 
 } // namespace Renderer

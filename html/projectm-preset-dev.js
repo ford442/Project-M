@@ -4,6 +4,7 @@
 import { getLocalPresetVfsPath, updatePresetDisplay } from './projectm-presets.js';
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
 import { setupPresetTweaker } from './projectm-preset-tweaker.js';
+import { createDisposables } from './projectm-disposables.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
@@ -96,12 +97,14 @@ function requireEl(root, selector) {
     return el;
 }
 
+/** @returns {(() => void) | null} Removes the style element, when this call added it. */
 function injectStyles() {
-    if (document.getElementById(STYLE_ID)) return;
+    if (document.getElementById(STYLE_ID)) return null;
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = STYLE_CSS;
     document.head.appendChild(style);
+    return () => style.remove();
 }
 
 /**
@@ -146,35 +149,36 @@ async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenRead
  * @param {object} [options]
  * @param {(opts?: { module?: ProjectMModuleLike | null, durationSec?: number }) => Promise<boolean>} [options.startTransitionWhenReady]
  * @param {URLSearchParams} [options.params]
- * @returns {{ enabled: boolean } & Record<string, unknown>}
+ * @returns {{ enabled: boolean, dispose: () => void } & Record<string, unknown>}
  */
 export function setupPresetDevTools(Module, options = {}) {
     const params = options.params || new URLSearchParams(location.search);
     const enabled = params.get('devPreset') === '1' || params.get('localPresets') === '1';
     if (!enabled) {
-        return { enabled: false };
+        return { enabled: false, dispose() {} };
     }
 
-    injectStyles();
-    let panel = document.getElementById(PANEL_ID);
-    if (!panel) {
-        panel = document.createElement('div');
-        panel.id = PANEL_ID;
-        panel.innerHTML = `
-            <h4>Preset dev — hot reload</h4>
-            <div class="pm-dev-row">
-                <input type="text" id="pm-dev-url" placeholder="Poll URL (optional)" />
-                <button type="button" id="pm-dev-poll-toggle">Poll</button>
-            </div>
-            <textarea id="pm-dev-editor" spellcheck="false" placeholder="Paste .milk here — Ctrl+S or Apply to reload"></textarea>
-            <div class="pm-dev-row">
-                <button type="button" id="pm-dev-apply">Apply (reload)</button>
-                <button type="button" id="pm-dev-fetch">Fetch URL once</button>
-            </div>
-            <div class="pm-dev-status" id="pm-dev-status"></div>
-        `;
-        document.body.appendChild(panel);
-    }
+    const owned = createDisposables({ label: 'projectM preset dev' });
+    owned.add(injectStyles());
+    // A second setup (a retried init) replaces the first panel rather than
+    // binding a second set of listeners to it.
+    document.getElementById(PANEL_ID)?.remove();
+    const panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.innerHTML = `
+        <h4>Preset dev — hot reload</h4>
+        <div class="pm-dev-row">
+            <input type="text" id="pm-dev-url" placeholder="Poll URL (optional)" />
+            <button type="button" id="pm-dev-poll-toggle">Poll</button>
+        </div>
+        <textarea id="pm-dev-editor" spellcheck="false" placeholder="Paste .milk here — Ctrl+S or Apply to reload"></textarea>
+        <div class="pm-dev-row">
+            <button type="button" id="pm-dev-apply">Apply (reload)</button>
+            <button type="button" id="pm-dev-fetch">Fetch URL once</button>
+        </div>
+        <div class="pm-dev-status" id="pm-dev-status"></div>
+    `;
+    owned.append(document.body, panel);
 
     const statusEl = requireEl(panel, '#pm-dev-status');
     const editor = /** @type {HTMLTextAreaElement} */ (requireEl(panel, '#pm-dev-editor'));
@@ -228,24 +232,31 @@ export function setupPresetDevTools(Module, options = {}) {
         return text;
     }
 
-    requireEl(panel, '#pm-dev-apply').addEventListener('click', () => {
+    owned.listen(requireEl(panel, '#pm-dev-apply'), 'click', () => {
         void reloadFromText(editor.value).catch((e) => setStatus(String(e), true));
     });
 
-    requireEl(panel, '#pm-dev-fetch').addEventListener('click', () => {
+    owned.listen(requireEl(panel, '#pm-dev-fetch'), 'click', () => {
         const url = urlInput.value.trim();
         if (!url) return setStatus('Enter a URL', true);
         void fetchUrl(url).catch((e) => setStatus(String(e), true));
     });
 
-    editor.addEventListener('keydown', (e) => {
+    owned.listen(editor, 'keydown', (event) => {
+        const e = /** @type {KeyboardEvent} */ (event);
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
             void reloadFromText(editor.value).catch((err) => setStatus(String(err), true));
         }
     });
+    owned.add(() => {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    });
 
-    pollBtn.addEventListener('click', () => {
+    owned.listen(pollBtn, 'click', () => {
         if (pollTimer) {
             clearInterval(pollTimer);
             pollTimer = null;
@@ -273,17 +284,17 @@ export function setupPresetDevTools(Module, options = {}) {
         }, pollMs);
     });
 
-    const tweaker = setupPresetTweaker({
+    const tweaker = owned.add(setupPresetTweaker({
         // No `module` here: setupPresetTweaker never reads one — it works purely
         // on the .milk text and hands the patched result back through onApply.
         onApply: async (patchedText) => {
             editor.value = patchedText;
             await reloadFromText(patchedText, 'tweaked.milk');
         },
-    });
+    }));
 
     if (params.get('devPoll') === '1' && devUrl) {
-        setTimeout(() => pollBtn.click(), 500);
+        owned.setTimeout(() => pollBtn.click(), 500);
     }
 
     // Nothing is written to `window`; pages whose console workflow still calls
@@ -293,12 +304,9 @@ export function setupPresetDevTools(Module, options = {}) {
         enabled: true,
         reloadFromText,
         tweaker,
-        /** Stops the URL poller; the panel itself stays in the page. */
+        /** Stops the URL poller and removes the panel, its listeners and its styles. */
         dispose() {
-            if (pollTimer) {
-                clearInterval(pollTimer);
-                pollTimer = null;
-            }
+            owned.dispose();
         },
     };
 }

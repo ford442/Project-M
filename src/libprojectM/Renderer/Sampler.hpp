@@ -4,7 +4,7 @@
 */
 #pragma once
 
-#include <Renderer/OpenGL.h>
+#include <Renderer/Device/RenderDevice.hpp>
 
 #include <memory>
 
@@ -35,7 +35,7 @@ public:
      * @param wrapMode
      * @param filterMode
      */
-    Sampler(GLint wrapMode, GLint filterMode);
+    Sampler(Device::WrapMode wrapMode, Device::FilterMode filterMode);
 
     Sampler(Sampler&& other) = default;
     auto operator=(Sampler&& other) -> Sampler& = default;
@@ -46,42 +46,43 @@ public:
      * @brief Binds the sampler to the given texture unit.
      * @param unit The texture unit to bind the current sampler to.
      */
-    void Bind(GLuint unit) const;
+    void Bind(int unit) const;
 
     /**
      * @brief Unbinds a previously bound sampler from the given texture unit.
      * @param unit The texture unit to unbind the sampler from.
      */
-    static void Unbind(GLuint unit);
+    static void Unbind(int unit);
 
     /**
      * @brief Returns the sampler wrap mode.
      * @return The sampler texture wrap mode.
      */
-    auto WrapMode() const -> GLint;
+    auto WrapMode() const -> Device::WrapMode;
 
     /**
      * @brief Sets a new wrap mode for this sampler.
      * @param wrapMode the new wrap mode.
      */
-    void WrapMode(GLint wrapMode);
+    void WrapMode(Device::WrapMode wrapMode);
 
     /**
      * @brief Returns the sampler filter mode.
      * @return The sampler filter mode.
      */
-    auto FilterMode() const -> GLint;
+    auto FilterMode() const -> Device::FilterMode;
 
     /**
      * @brief Sets a new filter mode for this sampler.
      * @param filterMode the new filter mode.
      */
-    void FilterMode(GLint filterMode);
+    void FilterMode(Device::FilterMode filterMode);
 
 private:
-    GLuint m_samplerId{0}; //!< the OpenGL Sampler name/ID.
-    GLint m_wrapMode{0}; //!< The texture wrap mode.
-    GLint m_filterMode{0}; //!< The texture filtering mode.
+    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the sampler.
+    Device::SamplerHandle m_sampler;                      //!< The sampler object.
+    Device::WrapMode m_wrapMode{};                        //!< The texture wrap mode.
+    Device::FilterMode m_filterMode{};                    //!< The texture filtering mode.
 };
 
 } // namespace Renderer

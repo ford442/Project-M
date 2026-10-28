@@ -75,6 +75,14 @@ HeadlessGlContext::HeadlessGlContext()
         return;
     }
 
+    // The first context takes one more video reference and never gives it back, so the subsystem
+    // stays up between suites. Quitting it and initialising it again mid-run sometimes brought the
+    // next suite's context up through a different path (SDL probed Wayland on the way), and projectM's
+    // GL resolver, pinned to the backend of the first projectm_create(), then refused it: later GPU
+    // suites failed projectm_create() or skipped in about one run in three.
+    static const bool keepVideoUp = SDL_InitSubSystem(SDL_INIT_VIDEO) == 0;
+    static_cast<void>(keepVideoUp);
+
     m_valid = true;
 }
 

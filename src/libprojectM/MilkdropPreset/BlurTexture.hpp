@@ -109,7 +109,7 @@ public:
      *                     free unit, which can be the same as the input slot if no blur textures
      *                     are used.
      */
-    void Bind(GLint& unit, Renderer::Shader& shader) const;
+    void Bind(int& unit, Renderer::Shader& shader) const;
 
     /**
      * @brief Returns properly scaled and clamped vlur values from the given context.
@@ -131,7 +131,7 @@ private:
     {
         Undecided, //!< Not probed yet.
         Direct,    //!< Blur textures are attached to the FBO and rendered into directly.
-        Copy       //!< Legacy path: render into a scratch attachment, then glCopyTexSubImage2D.
+        Copy       //!< Legacy path: render into a scratch attachment, then copy it into the texture.
     };
 
     /**
@@ -176,12 +176,13 @@ private:
     float m_appliedResolutionScale{1.0f};  //!< Scale actually baked into the currently allocated textures.
 
     Renderer::Framebuffer m_blurFramebuffer;                                        //!< Scratch framebuffer, only used by the legacy copy path.
-    // TEMPORARY: raw GL FBO instead of Renderer::Framebuffer. It predates
+    // TEMPORARY: raw render target instead of Renderer::Framebuffer. It predates
     // Framebuffer::AttachmentStorage::External, which now lets a Framebuffer hold
     // caller-owned textures without SetSize() reallocating them (see FramebufferTest).
     // Migrating also needs SetAttachment() to bind while the FBO has no size of its own,
     // because each pass targets a differently sized blur texture.
-    GLuint m_directFramebufferId{};                                                 //!< FBO used to render blur passes straight into the blur textures.
+    Renderer::Device::IRenderDevice* m_device{&Renderer::Device::Current()};       //!< The device that owns the direct render target.
+    Renderer::Device::RenderTargetHandle m_directFramebufferId;                     //!< FBO used to render blur passes straight into the blur textures.
     RenderPath m_renderPath{RenderPath::Undecided};                                 //!< How blur results reach the blur textures.
     std::shared_ptr<Renderer::Sampler> m_blurSampler;                               //!< The blur sampler.
     std::array<std::shared_ptr<Renderer::Texture>, NumBlurTextures> m_blurTextures; //!< The blur textures for each pass.

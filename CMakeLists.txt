@@ -98,7 +98,6 @@ file(TOUCH "${PROJECTM_DUMMY_SOURCE_FILE}")
 
 if(CMAKE_SYSTEM_NAME STREQUAL Emscripten)
     set(ENABLE_EMSCRIPTEN ON CACHE BOOL "Build for web with emscripten. Will also build the SDL2-based entrypoint." FORCE)
-    option(USE_PTHREADS "Enable multithreading support" OFF)
 else()
     set(ENABLE_EMSCRIPTEN OFF CACHE BOOL "Build for web with emscripten. Requires emscripten toolset for building." FORCE)
 endif()
@@ -180,13 +179,6 @@ if(ENABLE_EMSCRIPTEN)
     include(EmscriptenWasmFlags)
     projectm_apply_emscripten_lib_compile_flags()
     projectm_apply_emscripten_lib_link_flags()
-
-    # if(USE_PTHREADS)
-    #     add_compile_options("SHELL:-pthread")
-    #     add_link_options("SHELL:-pthread")
-    # endif()
-
-    set(USE_GLES ON)
 else()
     if(ENABLE_SDL_UI)
         find_package(SDL2 REQUIRED)
@@ -197,7 +189,6 @@ else()
 
     if(ENABLE_GLES)
         message(STATUS "Building for OpenGL Embedded Profile")
-        set(USE_GLES ON)
     else()
         message(STATUS "Building for OpenGL Core Profile")
         if(WIN32)
@@ -206,6 +197,10 @@ else()
         endif()
     endif()
 endif()
+
+# config.h's USE_GLES and vendor/glad's GLES loader. ENABLE_GLES is forced ON for
+# Emscripten and Android (the cmake_dependent_option above).
+set(USE_GLES ${ENABLE_GLES})
 
 # Disable trace/debug logging in release builds unless explicitly requested
 add_compile_definitions(
@@ -279,7 +274,19 @@ message(STATUS "    OpenGL ES:                   ${ENABLE_GLES}")
 message(STATUS "    macOS Framework:             ${ENABLE_MACOS_FRAMEWORK}")
 message(STATUS "    Emscripten:                  ${ENABLE_EMSCRIPTEN}")
 if(CMAKE_SYSTEM_NAME STREQUAL Emscripten)
-    message(STATUS "    - PThreads:              ${USE_PTHREADS}")
+    # Threading is not optional: -pthread, SHARED_MEMORY=1 and PTHREAD_POOL_SIZE
+    # come from cmake/EmscriptenWasmFlags.cmake. Report the pool size the bundle
+    # is actually linked with, i.e. the one the generated build config carries.
+    set(_projectm_wasm_build_config "${PROJECTM_SOURCE_DIR}/cmake/generated/ProjectMWasmBuildConfig.hpp")
+    set(_projectm_wasm_pool_size "unknown")
+    if(EXISTS "${_projectm_wasm_build_config}")
+        file(STRINGS "${_projectm_wasm_build_config}" _projectm_wasm_pool_line
+                REGEX "^constexpr int kWasmPthreadPoolSize = [0-9]+")
+        if(_projectm_wasm_pool_line MATCHES "kWasmPthreadPoolSize = ([0-9]+)")
+            set(_projectm_wasm_pool_size "${CMAKE_MATCH_1}")
+        endif()
+    endif()
+    message(STATUS "    - PThreads:              always on (pool of ${_projectm_wasm_pool_size} Workers)")
     message(STATUS "    - Build type:            ${CMAKE_BUILD_TYPE}")
 endif()
 message(STATUS "    Use system GLM:              ${ENABLE_SYSTEM_GLM}")

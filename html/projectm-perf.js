@@ -2,21 +2,24 @@
 //
 // Optional frame-time profiling HUD and headless benchmark harness for the
 // projectM WASM build. See docs/PERFORMANCE.md.
+//
+// This module wires an engine's perf frames to the pieces and collects the
+// benchmark samples; the pieces are:
+//
+//   projectm-perf-hud.js           the on-screen HUD
+//   projectm-perf-stats.js         stats keys, summaries, OpenMP / FBO facts
+//   projectm-perf-crossfade.js     the crossfade benchmark's transition pump
+//   projectm-perf-preset-switch.js the preset-switch (shader cache) benchmark
 
-import {
-    getOmpEnabled,
-    getOmpMaxThreads,
-    getOmpThreadCountInParallel,
-    getOmpBlocktime,
-    loadPresetFile,
-    setPerfHud,
-    transitionIsActive,
-} from './generated/projectm-wasm-api.js';
-import { FORMAT_NAMES, getFboFormatName } from './projectm-fbo-format.js';
-import { measurePresetSwitchTimings } from './projectm-shader-cache.js';
-import { fetchFeaturedManifest, loadPresetEntry } from './projectm-preset-library.js';
-import { startTransitionWhenReady } from './projectm-transitions.js';
+import { loadPresetFile, setPerfHud } from './generated/projectm-wasm-api.js';
+import { FORMAT_NAMES } from './projectm-fbo-format.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
+import { setHudVisible, updateHud } from './projectm-perf-hud.js';
+import { SAMPLE_KEYS, collectOpenmpInfo, readFboFormat, summarize } from './projectm-perf-stats.js';
+import { crossfadeActive, pumpCrossfade } from './projectm-perf-crossfade.js';
+import { runPresetSwitchBench } from './projectm-perf-preset-switch.js';
+
+export { setHudVisible };
 
 // - HUD: toggled via setPerfHud(module, 1/0). Shows FPS, total frame time, and bars.
 // - Benchmark mode: append `?benchmark=1&frames=1000&preset=/presets/foo.milk` to
@@ -43,6 +46,9 @@ import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
 /**
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('./projectm-perf-stats.js').PerfBarKey} PerfBarKey
+ * @typedef {import('./projectm-perf-stats.js').PerfSummary} PerfSummary
+ * @typedef {import('./projectm-perf-stats.js').OpenmpInfo} OpenmpInfo
  */
 
 /**
@@ -52,352 +58,6 @@ import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
  *
  * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
- */
-
-/** CPU submit-time buckets (libprojectM PerfTimers.hpp). */
-/** @typedef {'audioMs' | 'rhythmMs' | 'perFrameEvalMs' | 'perPixelEvalMs' | 'blurMs' | 'waveformsShapesMs' | 'compositeMs'} PerfCpuKey */
-/** GPU TIME_ELAPSED buckets: one per libprojectM GPU stage, plus the whole frame. */
-/** @typedef {'gpuWarpMs' | 'gpuBlurMs' | 'gpuShapesMs' | 'gpuCopyMs' | 'gpuCompositeMs' | 'gpuPresentMs' | 'gpuOtherMs' | 'gpuMs'} PerfGpuKey */
-/** Every {@link PerfFrameStats} key the benchmark summarizes besides totalMs/fps. */
-/** @typedef {PerfCpuKey | PerfGpuKey} PerfBarKey */
-
-/**
- * @typedef {object} PerfSummary
- * @property {number} mean
- * @property {number} median
- * @property {number} p95
- * @property {number} min
- * @property {number} max
- */
-
-const STYLE_ID = 'pm-perf-hud-style';
-const HUD_ID = 'pm-perf-hud';
-
-/** @type {ReadonlyArray<PerfCpuKey>} */
-const CPU_KEYS = ['audioMs', 'rhythmMs', 'perFrameEvalMs', 'perPixelEvalMs', 'blurMs', 'waveformsShapesMs', 'compositeMs'];
-/** @type {ReadonlyArray<PerfGpuKey>} */
-const GPU_KEYS = ['gpuWarpMs', 'gpuBlurMs', 'gpuShapesMs', 'gpuCopyMs', 'gpuCompositeMs', 'gpuPresentMs', 'gpuOtherMs', 'gpuMs'];
-/** @type {ReadonlyArray<PerfBarKey>} */
-const SAMPLE_KEYS = [...CPU_KEYS, ...GPU_KEYS];
-
-/**
- * One HUD row per stage, with the CPU bucket and the GPU bucket that time it.
- * A null column is a stage that side cannot see: audio and per-frame equations
- * issue no GL, and the CPU has no bucket of its own for the flips (they are
- * inside `compositeMs`), the output blit, or the unattributed remainder.
- *
- * @type {ReadonlyArray<{ id: string, label: string, cpu: PerfCpuKey | 'totalMs' | null, gpu: PerfGpuKey | null, color: string }>}
- */
-const ROWS = [
-    { id: 'audio', label: 'Audio FFT/Loudness', cpu: 'audioMs', gpu: null, color: '#60a5fa' },
-    { id: 'rhythm', label: 'Rhythm (tempo/beat)', cpu: 'rhythmMs', gpu: null, color: '#93c5fd' },
-    { id: 'perFrame', label: 'Per-frame eval', cpu: 'perFrameEvalMs', gpu: null, color: '#34d399' },
-    { id: 'perPixel', label: 'Per-pixel/warp', cpu: 'perPixelEvalMs', gpu: 'gpuWarpMs', color: '#fbbf24' },
-    { id: 'blur', label: 'Blur', cpu: 'blurMs', gpu: 'gpuBlurMs', color: '#a78bfa' },
-    { id: 'shapes', label: 'Waveforms/shapes', cpu: 'waveformsShapesMs', gpu: 'gpuShapesMs', color: '#f472b6' },
-    { id: 'copy', label: 'Y-flip copies', cpu: null, gpu: 'gpuCopyMs', color: '#fb923c' },
-    { id: 'composite', label: 'Composite', cpu: 'compositeMs', gpu: 'gpuCompositeMs', color: '#22d3ee' },
-    { id: 'present', label: 'Present', cpu: null, gpu: 'gpuPresentMs', color: '#4ade80' },
-    { id: 'other', label: 'Other', cpu: null, gpu: 'gpuOtherMs', color: '#94a3b8' },
-    { id: 'total', label: 'Total', cpu: 'totalMs', gpu: 'gpuMs', color: '#f87171' },
-];
-
-const STYLE_CSS = `
-#${HUD_ID} {
-  position: fixed;
-  top: 8px;
-  right: 8px;
-  z-index: 99998;
-  display: none;
-  min-width: 220px;
-  padding: 10px 12px;
-  background: linear-gradient(160deg, #1b2436, #0d1117);
-  border: 1px solid #2a3f5f;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  font-family: "Lucida Console", "Courier New", monospace;
-  font-size: 11px;
-  line-height: 1.4;
-  color: #e2e8f0;
-  pointer-events: none;
-}
-#${HUD_ID}.visible {
-  display: block;
-}
-#${HUD_ID} .pm-perf-hud-title {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: bold;
-  color: #cbd5e1;
-}
-#${HUD_ID} .pm-perf-hud-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-}
-#${HUD_ID} .pm-perf-hud-label {
-  flex: 0 0 110px;
-  color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-#${HUD_ID} .pm-perf-hud-bar-track {
-  flex: 1 1 auto;
-  height: 8px;
-  background: #1e293b;
-  border-radius: 4px;
-  overflow: hidden;
-}
-#${HUD_ID} .pm-perf-hud-bar-fill,
-#${HUD_ID} .pm-perf-hud-bar-fill-gpu {
-  display: block;
-  height: 50%;
-  width: 0%;
-  transition: width 0.1s linear;
-}
-#${HUD_ID} .pm-perf-hud-bar-fill-gpu {
-  opacity: 0.55;
-}
-#${HUD_ID} .pm-perf-hud-value,
-#${HUD_ID} .pm-perf-hud-gpu {
-  flex: 0 0 52px;
-  text-align: right;
-  color: #e2e8f0;
-}
-#${HUD_ID} .pm-perf-hud-gpu {
-  color: #fca5a5;
-}
-#${HUD_ID} .pm-perf-hud-head {
-  color: #64748b;
-}
-`;
-
-/** @type {HTMLDivElement | null} */
-let hudEl = null;
-let hudVisible = false;
-let lastDomUpdate = 0;
-const DOM_UPDATE_INTERVAL_MS = 200;
-
-function injectStyles() {
-    if (document.getElementById(STYLE_ID)) {
-        return;
-    }
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.textContent = STYLE_CSS;
-    document.head.appendChild(style);
-}
-
-function ensureHud() {
-    // The cached element is only good while it is still the one in the document.
-    // Checking identity rather than just non-null keeps the HUD from writing into a
-    // detached node after the page it was built for is gone.
-    hudEl = /** @type {HTMLDivElement | null} */ (document.getElementById(HUD_ID));
-    if (hudEl) {
-        return hudEl;
-    }
-
-    injectStyles();
-
-    hudEl = document.createElement('div');
-    hudEl.id = HUD_ID;
-
-    const rows = ROWS.map((row) => `
-        <div class="pm-perf-hud-row" data-key="${row.id}">
-            <span class="pm-perf-hud-label">${row.label}</span>
-            <span class="pm-perf-hud-bar-track"><span class="pm-perf-hud-bar-fill" style="background:${row.color}"></span><span class="pm-perf-hud-bar-fill-gpu" style="background:${row.color}"></span></span>
-            <span class="pm-perf-hud-value">-</span>
-            <span class="pm-perf-hud-gpu">-</span>
-        </div>
-    `).join('');
-
-    hudEl.innerHTML = `
-        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms<span data-key="topology"></span><span data-key="linkPending"></span><span data-key="flashClamped"></span></h3>
-        <div class="pm-perf-hud-row pm-perf-hud-head">
-            <span class="pm-perf-hud-label">stage</span>
-            <span class="pm-perf-hud-bar-track" style="background:none">CPU bar / GPU bar</span>
-            <span class="pm-perf-hud-value">CPU</span>
-            <span class="pm-perf-hud-gpu">GPU</span>
-        </div>
-        ${rows}
-    `;
-    document.body.appendChild(hudEl);
-
-    return hudEl;
-}
-
-/**
- * Shows or hides the on-screen perf HUD. `setupPerfTools()` subscribes it to
- * `pmSetPerfHudEnabled`, which C++ calls via js_perf_hud_set_enabled() when
- * set_perf_hud() is toggled.
- * @param {boolean} enabled
- */
-export function setHudVisible(enabled) {
-    hudVisible = !!enabled;
-    if (hudVisible) {
-        ensureHud().classList.add('visible');
-    } else if (hudEl) {
-        hudEl.classList.remove('visible');
-    }
-}
-
-/**
- * A HUD cell: `-` for a stage that side cannot see, `n/a` for one it can but
- * has no number for (no timer-query extension, or no result yet).
- *
- * @param {string | null} key
- * @param {PerfFrameStats} stats
- * @returns {{ text: string, ms: number }}
- */
-function cell(key, stats) {
-    if (!key) {
-        return { text: '-', ms: 0 };
-    }
-    const value = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (stats))[key];
-    if (typeof value !== 'number' || value < 0) {
-        return { text: 'n/a', ms: 0 };
-    }
-    return { text: value.toFixed(2) + 'ms', ms: value };
-}
-
-/**
- * @param {PerfFrameStats} stats
- * @param {string} topology
- */
-function updateHud(stats, topology) {
-    if (!hudVisible) {
-        return;
-    }
-    const now = performance.now();
-    if (now - lastDomUpdate < DOM_UPDATE_INTERVAL_MS) {
-        return;
-    }
-    lastDomUpdate = now;
-
-    const el = ensureHud();
-    const fpsEl = el.querySelector('[data-key="fps"]');
-    const totalEl = el.querySelector('[data-key="totalMs"]');
-    const topologyEl = el.querySelector('[data-key="topology"]');
-    const linkEl = el.querySelector('[data-key="linkPending"]');
-    if (fpsEl) fpsEl.textContent = stats.fps.toFixed(0);
-    if (totalEl) totalEl.textContent = stats.totalMs.toFixed(2);
-    // Which topology produced the numbers: the worker's frames are relayed, and
-    // a comparison across topologies is not like for like.
-    if (topologyEl) topologyEl.textContent = topology === 'worker' ? ' · worker' : '';
-    if (linkEl) linkEl.textContent = stats.shaderLinkPending ? ' · linking shaders' : '';
-    // This engine's flash limiter, while it is on: how many frames it has had
-    // to hold back (docs/FLASH_LIMITER.md).
-    const flashEl = el.querySelector('[data-key="flashClamped"]');
-    if (flashEl) {
-        const clamped = stats.flashClampedFrames;
-        flashEl.textContent = typeof clamped === 'number' && clamped >= 0 ? ` · flash-limited ${clamped}` : '';
-    }
-
-    // perPixelEvalMs means different work on the two paths, so the row says which one
-    // produced it rather than leaving two incomparable numbers looking alike.
-    const perPixelRow = el.querySelector('.pm-perf-hud-row[data-key="perPixel"]');
-    const perPixelLabel = perPixelRow && perPixelRow.querySelector('.pm-perf-hud-label');
-    if (perPixelLabel) {
-        const path = stats.perPixelEvalPath === 'gpu' ? 'gpu' : 'cpu';
-        perPixelLabel.textContent = 'Per-pixel/warp [' + path + ']';
-    }
-
-    ROWS.forEach((row) => {
-        const rowEl = el.querySelector(`.pm-perf-hud-row[data-key="${row.id}"]`);
-        if (!rowEl) {
-            return;
-        }
-        const cpu = cell(row.cpu, stats);
-        const gpu = cell(row.gpu, stats);
-        // Each bar is a share of its own column's frame total, so CPU and GPU
-        // read on the same scale: which stage dominates that side of the frame.
-        const cpuPct = stats.totalMs > 0 ? Math.min(100, (cpu.ms / stats.totalMs) * 100) : 0;
-        const gpuPct = stats.gpuMs > 0 ? Math.min(100, (gpu.ms / stats.gpuMs) * 100) : 0;
-        const cpuFill = /** @type {HTMLElement | null} */ (rowEl.querySelector('.pm-perf-hud-bar-fill'));
-        const gpuFill = /** @type {HTMLElement | null} */ (rowEl.querySelector('.pm-perf-hud-bar-fill-gpu'));
-        const cpuEl = rowEl.querySelector('.pm-perf-hud-value');
-        const gpuEl = rowEl.querySelector('.pm-perf-hud-gpu');
-        if (cpuFill) cpuFill.style.width = cpuPct + '%';
-        if (gpuFill) gpuFill.style.width = gpuPct + '%';
-        if (cpuEl) cpuEl.textContent = cpu.text;
-        if (gpuEl) gpuEl.textContent = gpu.text;
-    });
-}
-
-/**
- * @param {number[]} sortedValues Ascending.
- * @param {number} p Fraction in [0, 1].
- * @returns {number}
- */
-function percentile(sortedValues, p) {
-    if (sortedValues.length === 0) {
-        return 0;
-    }
-    const idx = Math.min(sortedValues.length - 1, Math.floor(p * sortedValues.length));
-    return sortedValues[idx];
-}
-
-/**
- * @param {ProjectMModule | null | undefined} Module
- * `blocktimeMs` is the libomp spin-wait window: 0 means helper threads sleep
- * as soon as a parallel region ends, 200 (libomp's default) means they spin
- * through every frame gap and starve the page's AudioWorklet. -1 means the
- * bundle has no libomp, and older bundles without the export report null.
- *
- * @param {ProjectMModule | null | undefined} Module
- * @returns {{ compiled: boolean, maxThreads: number, parallelThreadsObserved: number, blocktimeMs: number | null }}
- */
-function collectOpenmpInfo(Module) {
-    if (!Module || typeof Module._get_omp_enabled !== 'function') {
-        return { compiled: false, maxThreads: 1, parallelThreadsObserved: 1, blocktimeMs: null };
-    }
-    return {
-        compiled: getOmpEnabled(Module) !== 0,
-        maxThreads: getOmpMaxThreads(Module),
-        parallelThreadsObserved: typeof Module._get_omp_thread_count_in_parallel === 'function'
-            ? getOmpThreadCountInParallel(Module)
-            : 1,
-        blocktimeMs: typeof Module._get_omp_blocktime === 'function'
-            ? getOmpBlocktime(Module)
-            : null,
-    };
-}
-
-/**
- * @param {number[]} values
- * @returns {PerfSummary}
- */
-function summarize(values) {
-    const sorted = values.slice().sort((a, b) => a - b);
-    const sum = sorted.reduce((a, b) => a + b, 0);
-    return {
-        mean: sorted.length ? sum / sorted.length : 0,
-        median: percentile(sorted, 0.5),
-        p95: percentile(sorted, 0.95),
-        min: sorted.length ? sorted[0] : 0,
-        max: sorted.length ? sorted[sorted.length - 1] : 0,
-    };
-}
-
-/**
- * The dual-FBO format name for the benchmark record, or null when the bundle
- * cannot say (older bundles, or a module that is not initialised yet).
- *
- * @param {ProjectMModule} Module
- * @returns {string | null}
- */
-function readFboFormat(Module) {
-    try {
-        return getFboFormatName(Module);
-    } catch {
-        return null;
-    }
-}
-
-/**
- * @typedef {{ compiled: boolean, maxThreads: number, parallelThreadsObserved: number, blocktimeMs: number | null }} OpenmpInfo
  */
 
 /**
@@ -543,22 +203,11 @@ function startPerfTools(source) {
     let benchmarkDone = false;
     let disposed = false;
 
-    // In crossfade mode only frames rendered while a blend is actually in
-    // progress are representative — everything else is a steady-state frame
-    // that never touches the Preset B FBOs.
-    function crossfadeActive() {
-        try {
-            return !!Module && transitionIsActive(Module);
-        } catch {
-            return false;
-        }
-    }
-
     const unsubscribeHudToggle = source.onPerfHudEnabled(setHudVisible);
     const unsubscribeFrames = source.onPerfFrame((stats) => {
         updateHud(stats, source.topology);
 
-        if (samples && !benchmarkDone && (!crossfadeBench || crossfadeActive())) {
+        if (samples && !benchmarkDone && (!crossfadeBench || crossfadeActive(Module))) {
             // Bound locally so the narrowing survives into the closure below.
             const collected = samples;
             collected.totalMs.push(stats.totalMs);
@@ -614,7 +263,7 @@ function startPerfTools(source) {
     /** @param {NonNullable<typeof samples>} samples */
     function finishBenchmark(samples) {
         /** @type {Record<PerfBarKey, PerfSummary>} */
-        const breakdownMs = /** @type {any} */ ({});
+        const breakdownMs = /** @type {Record<PerfBarKey, PerfSummary>} */ ({});
         SAMPLE_KEYS.forEach((key) => {
             breakdownMs[key] = summarize(samples.breakdown[key]);
         });
@@ -671,66 +320,13 @@ function startPerfTools(source) {
         };
 
         if (crossfadeBench && Module) {
-            pumpCrossfade(Module);
-        }
-    }
-
-    /**
-     * Keeps a soft-cut transition running until the benchmark has collected
-     * `frames` in-crossfade samples. Each time the blend finishes, the next
-     * preset is loaded to start a new one.
-     *
-     * @param {ProjectMModule} Module
-     */
-    async function pumpCrossfade(Module) {
-        const playlist = await resolveCrossfadePresets();
-        if (!playlist.length) {
-            console.warn('[projectM benchmark] crossfade mode: no presets available to transition between');
-            return;
-        }
-
-        let index = 0;
-        while (!benchmarkDone && !disposed) {
-            if (!crossfadeActive()) {
-                const entry = playlist[index % playlist.length];
-                index += 1;
-                try {
-                    if (typeof entry === 'string') {
-                        loadPresetFile(Module, entry);
-                    } else {
-                        await loadPresetEntry(entry, {});
-                    }
-                    await startTransitionWhenReady({ module: Module, durationSec: crossfadeSec });
-                } catch (err) {
-                    console.warn('[projectM benchmark] crossfade step failed:', err);
-                }
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-    }
-
-    /**
-     * Presets to cycle through in crossfade mode: an explicit
-     * `?crossfadePresets=a.milk,b.milk` list, else the `?preset=` file, else the
-     * first two featured-pack presets.
-     */
-    async function resolveCrossfadePresets() {
-        const explicit = (params.get('crossfadePresets') || '')
-            .split(',')
-            .map((p) => p.trim())
-            .filter(Boolean);
-        if (explicit.length) {
-            return explicit;
-        }
-        if (presetPath) {
-            return [presetPath];
-        }
-        try {
-            const manifest = await fetchFeaturedManifest();
-            return (manifest.presets || []).slice(0, 2);
-        } catch (err) {
-            console.warn('[projectM benchmark] crossfade mode: featured manifest unavailable:', err);
-            return [];
+            pumpCrossfade(Module, {
+                params,
+                durationSec: crossfadeSec,
+                stopped: () => benchmarkDone || disposed,
+            }).catch((error) => {
+                console.warn('[projectM benchmark] crossfade pump stopped:', error);
+            });
         }
     }
 
@@ -741,20 +337,7 @@ function startPerfTools(source) {
         console.warn('[projectM] presetSwitchBench needs the main-thread topology (?renderWorker=0)');
     }
     if (presetSwitchBench && Module) {
-        fetchFeaturedManifest()
-            .then((manifest) => {
-                const presets = (manifest.presets || []).slice(0, 3);
-                if (!presets.length) {
-                    console.warn('[projectM] presetSwitchBench: no featured presets in manifest');
-                    return null;
-                }
-                return measurePresetSwitchTimings(Module, presets, {
-                    loadEntry: (entry, opts) => loadPresetEntry(entry, opts),
-                });
-            })
-            .catch((err) => {
-                console.warn('[projectM] presetSwitchBench failed:', err);
-            });
+        void runPresetSwitchBench(Module);
     }
 
     return { benchmarkRequested, crossfadeBench, presetSwitchBench, dispose };

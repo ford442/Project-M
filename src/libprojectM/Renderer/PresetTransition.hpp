@@ -187,7 +187,7 @@ private:
 
     Mesh m_mesh;                                                                                      //!< The mesh used to draw the transition effect.
     std::shared_ptr<Shader> m_transitionShader;                                                       //!< The compiled shader used for this transition.
-    std::shared_ptr<Sampler> m_presetSampler{std::make_shared<Sampler>(GL_CLAMP_TO_EDGE, GL_LINEAR)}; //!< Sampler for preset textures. Uses bilinear interpolation and no repeat.
+    std::shared_ptr<Sampler> m_presetSampler{std::make_shared<Sampler>(Device::WrapMode::ClampToEdge, Device::FilterMode::Linear)}; //!< Sampler for preset textures. Uses bilinear interpolation and no repeat.
 
     double m_durationSeconds{3.0};  //!< Transition duration in seconds.
     double m_transitionStartTime{}; //!< Start time of this transition. Duration is measured from this point.
@@ -204,7 +204,7 @@ private:
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
 
     std::shared_ptr<Framebuffer> m_passFramebuffer; //!< Intermediate FBO for multi-pass transitions (pass 0 output).
-    GLint m_originalDrawFbo{0};                     //!< Original draw framebuffer saved before pass 0 binds the intermediate FBO.
+    Device::RenderTargetHandle m_originalDrawFbo;   //!< Original draw framebuffer saved before pass 0 binds the intermediate FBO.
 
     glm::ivec4 m_staticRandomValues{}; //!< Four random integers, remaining static during the whole transition.
 

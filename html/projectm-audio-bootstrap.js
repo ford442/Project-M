@@ -9,6 +9,8 @@
 // (external-PCM-only mode, e.g. MOD/FLAC players) are unaffected: setupAudioUnlock() is
 // a no-op when `window.projectMAudioContext_Global_Cpp` does not exist.
 
+import { asDisposable } from './projectm-disposables.js';
+
 const STYLE_ID = 'pm-audio-unlock-style';
 const OVERLAY_ID = 'pm-audio-unlock';
 
@@ -150,7 +152,7 @@ export async function ensureAudioRunning() {
 export function setupAudioUnlock() {
     const ctx = getAudioContext();
     if (!ctx || ctx.state !== 'suspended') {
-        return () => {};
+        return asDisposable(() => {});
     }
 
     showOverlay();
@@ -161,6 +163,9 @@ export function setupAudioUnlock() {
             if (running) {
                 detach();
             }
+        }, (error) => {
+            // The next gesture tries again; nothing to undo here.
+            console.warn('[projectM] audio unlock attempt failed:', error);
         });
     };
     const onStateChange = () => {
@@ -183,5 +188,5 @@ export function setupAudioUnlock() {
     document.addEventListener('keydown', onGesture);
     ctx.addEventListener('statechange', onStateChange);
 
-    return detach;
+    return asDisposable(detach);
 }

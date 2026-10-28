@@ -96,7 +96,7 @@ private:
 
     CodeContext m_codeContext;                         //!< Sprite init and per-frame code.
     std::shared_ptr<Renderer::Texture> m_texture;      //!< The sprite image, loaded via a name like other textures in Milkdrop presets.
-    Renderer::Sampler m_sampler{GL_REPEAT, GL_LINEAR}; //!< Texture sampler settings
+    Renderer::Sampler m_sampler{Renderer::Device::WrapMode::Repeat, Renderer::Device::FilterMode::Linear}; //!< Texture sampler settings
     std::weak_ptr<Renderer::Shader> m_spriteShader;    //!< The shader used to draw the user sprite.
     Renderer::Mesh m_mesh;                             //!< A simple quad.
     bool m_spriteDone{false};                          //!< If true, the sprite will be removed from the list.

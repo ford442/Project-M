@@ -184,7 +184,7 @@ test('repair loads the processor from a URL resolved against the module, not the
     assert.equal(await ensureWorkletReady({ timeoutMs: 1000, pollMs: 10 }), true);
 
     assert.equal(urls.length, 1);
-    const expected = new URL('../../html/projectm_audio_processor.js', import.meta.url).href;
+    const expected = new URL('../../html/worklets/projectm-audio-processor.js', import.meta.url).href;
     assert.equal(urls[0], expected, 'an absolute URL beside the module, so a bundle in node_modules does not ask the page');
     clearMockAudioEnv();
 });

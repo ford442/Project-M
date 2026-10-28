@@ -4,6 +4,7 @@
 #include "Renderer/TextureTypes.hpp"
 
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -61,6 +62,20 @@ public:
     void PurgeTextures();
 
     /**
+     * @brief Re-reads a texture loaded from a file and updates it in place.
+     *
+     * The texture search paths are rescanned first, so a file written since the last preset
+     * load is found. Every preset already sampling the texture sees the new image on its next
+     * frame, without being reloaded.
+     *
+     * @param name The texture's file base name, without extension or filter/wrap prefix, e.g. "pm_depth_map".
+     * @return true if a texture of that name was loaded from a file and has been updated;
+     *         false if none was (it is then loaded on the next preset load that asks for it,
+     *         and a running preset keeps whatever it got), the file is gone or can't be decoded.
+     */
+    auto ReloadTexture(const std::string& name) -> bool;
+
+    /**
      * @brief Sets a callback function for loading textures from non-filesystem sources.
      * @param callback The callback function, or nullptr to disable.
      */
@@ -76,7 +91,7 @@ public:
     auto ScannedTextureFileNames() -> std::vector<std::string>;
 
     /**
-     * @brief Names of the currently known textures that are volume (GL_TEXTURE_3D) textures.
+     * @brief Names of the currently known textures that are volume (3D) textures.
      *
      * GetTexture() returns a stored texture with its own type; every texture it has to load is 2D.
      * @return The texture names, as GetTexture() looks them up.
@@ -118,11 +133,14 @@ private:
 
     void AddTextureFile(const std::string& fileName, const std::string& baseName);
 
-    static void ExtractTextureSettings(const std::string& qualifiedName, GLint& wrapMode, GLint& filterMode, std::string& name);
+    static void ExtractTextureSettings(const std::string& qualifiedName, Device::WrapMode& wrapMode, Device::FilterMode& filterMode, std::string& name);
 
     void ScanTextures();
 
-    static uint32_t TextureFormatFromChannels(int channels);
+    /**
+     * @brief The unsized 8-bit format for an image with 1-4 channels, or nothing for any other count.
+     */
+    static auto TextureFormatFromChannels(int channels) -> std::optional<Device::TextureFormat>;
 
     std::vector<std::string> m_textureSearchPaths;  //!< Search paths to scan for textures.
     std::string m_currentPresetDir;                 //!< Path of the current preset to add to the search list.
@@ -131,7 +149,8 @@ private:
 
     std::shared_ptr<Texture> m_placeholderTexture;                          //!< Texture used if a requested file couldn't be found. A black 1x1 texture.
     std::map<std::string, std::shared_ptr<Texture>> m_textures;             //!< All loaded textures, including generated ones.
-    std::map<std::pair<GLint, GLint>, std::shared_ptr<Sampler>> m_samplers; //!< The four sampler objects for each combination of wrap and filter modes.
+    std::set<std::string> m_fileTextures;                                   //!< Names in m_textures that LoadTexture() read from a file.
+    std::map<std::pair<Device::WrapMode, Device::FilterMode>, std::shared_ptr<Sampler>> m_samplers; //!< The four sampler objects for each combination of wrap and filter modes.
     std::map<std::string, UsageStats> m_textureStats;                       //!< Map with texture stats for user-loaded files.
     std::vector<std::string> m_randomTextures;
     std::vector<std::string> m_extensions{".jpg", ".jpeg", ".dds", ".png", ".tga", ".bmp", ".dib"};

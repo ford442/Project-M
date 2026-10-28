@@ -645,7 +645,7 @@ in [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md). What is in the tree:
   `pmOnPerfFrame` and in the `?benchmark=1` JSON, a `Per-pixel/warp [gpu|cpu]` HUD row,
   and `?perPixelEval=cpu` for the A/B.
 
-Coverage across `presets/tests`, `custom_milk_fixed` and `weeks_presets`: **186 of the
+Coverage across `presets/tests`, `presets/custom` and `presets/weeks`: **186 of the
 241 presets with per-pixel code compile to GLSL**; 55 stay on the CPU, 14 of them for
 `thresh` alone. Nine presets from the top of [`PRESET_WORKLIST.md`](PRESET_WORKLIST.md)
 now run on the GPU path, against the five #227 asked for.

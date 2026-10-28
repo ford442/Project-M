@@ -10,29 +10,29 @@ namespace libprojectM {
 namespace Renderer {
 
 VertexIndexArray::VertexIndexArray()
+    : m_veabID(m_device->CreateBuffer())
 {
-    glGenBuffers(1, &m_veabID);
 }
 
 VertexIndexArray::VertexIndexArray(VertexBufferUsage usage)
-    : m_vboUsage(usage)
+    : m_veabID(m_device->CreateBuffer())
+    , m_vboUsage(usage)
 {
-    glGenBuffers(1, &m_veabID);
 }
 
 VertexIndexArray::~VertexIndexArray()
 {
-    glDeleteBuffers(1, &m_veabID);
+    m_device->DestroyBuffer(m_veabID);
 }
 
 void VertexIndexArray::Bind() const
 {
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_veabID);
+    m_device->Commands().BindBuffer(Device::BufferKind::Index, m_veabID);
 }
 
 void VertexIndexArray::Unbind()
 {
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    Device::Commands().BindBuffer(Device::BufferKind::Index, {});
 }
 
 auto VertexIndexArray::Get() -> std::vector<uint32_t>&
@@ -105,15 +105,9 @@ void VertexIndexArray::Update()
         return;
     }
 
-    if (m_veabSize == m_indices.size())
-    {
-        glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, static_cast<GLsizei>(sizeof(uint32_t) * m_indices.size()), m_indices.data());
-    }
-    else
-    {
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizei>(sizeof(uint32_t) * m_indices.size()), m_indices.data(), VertexBufferUsageToGL(m_vboUsage));
-        m_veabSize = m_indices.size();
-    }
+    const bool reallocate = m_veabSize != m_indices.size();
+    m_device->Commands().UploadBoundBuffer(Device::BufferKind::Index, m_indices.data(), sizeof(uint32_t) * m_indices.size(), m_vboUsage, reallocate);
+    m_veabSize = m_indices.size();
 }
 
 auto VertexIndexArray::operator[](size_t index) -> uint32_t&

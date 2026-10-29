@@ -36,13 +36,10 @@ struct PresetPrepareQueue::Shared {
 
 namespace {
 
+// Drops a request; its PreparedJob frees the job.
 void FreeRequest(std::optional<PresetPrepareRequest>& request)
 {
-    if (request)
-    {
-        projectm_preset_prepare_free(request->job);
-        request.reset();
-    }
+    request.reset();
 }
 
 // A macrotask on the main runtime thread, with no C++ frames below it. The
@@ -87,13 +84,12 @@ void PrepareThreadMain(const std::stop_token& stop, PresetPrepareQueue::Shared* 
         lock.unlock();
 
         // The expensive part: parse and HLSL-to-GLSL transpile.
-        projectm_preset_prepare_run(request.job);
+        projectm_preset_prepare_run(request.job.get());
 
         lock.lock();
         if (stop.stop_requested() || request.generation != shared->latestGeneration)
         {
-            // Superseded or abandoned while it ran.
-            projectm_preset_prepare_free(request.job);
+            // Superseded or abandoned while it ran: `request` frees its job here.
             continue;
         }
         FreeRequest(shared->completed);
@@ -234,11 +230,11 @@ void RequestPresetPrepare(WasmHost& host, const char* path, bool hardCut, std::o
     std::string contents;
     if (ReadWholeFile(path, contents))
     {
-        request.job = projectm_preset_prepare_begin_file_contents(pm, path, contents.data(), contents.size());
+        request.job.reset(projectm_preset_prepare_begin_file_contents(pm, path, contents.data(), contents.size()));
     }
     else
     {
-        request.job = projectm_preset_prepare_begin_file(pm, path);
+        request.job.reset(projectm_preset_prepare_begin_file(pm, path));
     }
     request.path = path;
     request.hardCut = hardCut;
@@ -345,7 +341,7 @@ void ActivatePreparedPreset(WasmHost& host)
     auto& pm = host.appData.projectm_engine;
     if (prepared && pm == nullptr)
     {
-        projectm_preset_prepare_free(prepared->job);
+        prepared.reset(); // frees the job: no engine to load it into
         host.appData.loading = EM_FALSE;
     }
     else if (prepared)
@@ -356,7 +352,7 @@ void ActivatePreparedPreset(WasmHost& host)
         // on_preset_switch_failed(), which clears `loading` and tells the page.
         // A switch still pending from an older load is superseded, in the engine
         // and here.
-        projectm_load_prepared_preset(pm, prepared->job, !prepared->hardCut);
+        projectm_load_prepared_preset(pm, prepared->job.release(), !prepared->hardCut);
         host.pendingSwitch = PendingPresetSwitch{prepared->hardCut, prepared->playlistIndex};
     }
     PollPendingSwitch(host);

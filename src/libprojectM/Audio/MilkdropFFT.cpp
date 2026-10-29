@@ -179,7 +179,9 @@ void MilkdropFFT::TimeToFrequencyDomain(const std::vector<float>& waveformData, 
     }
 
     // 1. Set up input to the FFT
-    std::vector<std::complex<float>> spectrumData(m_numFrequencies, std::complex<float>());
+    // A member, reset rather than reallocated: this runs twice per frame.
+    auto& spectrumData = m_spectrumScratch;
+    spectrumData.assign(m_numFrequencies, std::complex<float>());
 #if __cplusplus >= 202002L
     // std::span: zero-overhead bounds-safe view into the input and envelope arrays.
     std::span<const float> waveSpan(waveformData.data(), m_samplesIn);

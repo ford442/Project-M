@@ -104,12 +104,19 @@ private:
      * Texture usage statistics. Used to determine when to purge a texture.
      */
     struct UsageStats {
-        UsageStats(uint32_t size)
+        UsageStats(uint64_t size)
             : sizeBytes(size){};
 
         uint32_t age{};       //!< Age of the texture. Represents the number of presets loaded since it was last retrieved.
-        uint32_t sizeBytes{}; //!< The texture in-memory size in bytes.
+        uint64_t sizeBytes{}; //!< The texture in-memory size in bytes.
     };
+
+    /**
+     * @brief Bytes of an RGBA8 image, computed in 64 bits: the dimensions come from user image
+     *        files, and width * height * 4 in int or uint32_t overflows from 32768x32768 up.
+     * @return 0 for a non-positive dimension.
+     */
+    static auto RgbaImageBytes(int width, int height) -> uint64_t;
 
     /**
      * A scanned texture file on the disk.

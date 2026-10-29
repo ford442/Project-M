@@ -132,7 +132,7 @@ void TextureManager::PurgeTextures()
         return;
     }
 
-    uint32_t biggestBytes = 0;
+    double biggestBytes = 0.0;
     std::string biggestName;
     for (const auto& stat : m_textureStats)
     {
@@ -201,13 +201,23 @@ auto TextureManager::ReloadTexture(const std::string& name) -> bool
         auto stats = m_textureStats.find(lowerCaseName);
         if (stats != m_textureStats.end())
         {
-            stats->second.sizeBytes = static_cast<uint32_t>(width) * static_cast<uint32_t>(height) * 4;
+            stats->second.sizeBytes = RgbaImageBytes(width, height);
         }
         LOG_DEBUG("[TextureManager] Reloaded texture \"" + name + "\" from file: " + file.filePath);
         return true;
     }
 
     return false;
+}
+
+auto TextureManager::RgbaImageBytes(int width, int height) -> uint64_t
+{
+    if (width <= 0 || height <= 0)
+    {
+        return 0;
+    }
+    // At most (2^31 - 1)^2 * 4 < 2^64: cannot overflow.
+    return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u;
 }
 
 auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSamplerDescriptor
@@ -320,7 +330,7 @@ auto TextureManager::LoadTexture(const ScannedFile& file) -> std::shared_ptr<Tex
 
     imageData.reset();
 
-    uint32_t const memoryBytes = width * height * 4; // RGBA, unsigned byte color channels.
+    uint64_t const memoryBytes = RgbaImageBytes(width, height); // RGBA, unsigned byte color channels.
     m_textures[file.lowerCaseBaseName] = newTexture;
     m_textureStats.insert({file.lowerCaseBaseName, {memoryBytes}});
     m_fileTextures.insert(file.lowerCaseBaseName);

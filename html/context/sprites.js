@@ -4,10 +4,10 @@
 // from Milkdrop sprite code, reading and setting its expression variables, and
 // destroying it, in either render topology.
 //
-// Every call goes through the raw projectm_sprite_* exports with the engine's
-// own handle rather than through create_sprite(): a bundle older than these
+// Every call goes through the projectm_sprite_*_wrapper exports with the engine's
+// own handle (validated there, so a stale one is a no-op) rather than through create_sprite(): a bundle older than these
 // exports has a zero-argument create_sprite() of the same name that ignores its
-// arguments, so only the projectm_sprite_* names tell a new bundle from an old
+// arguments, so only the projectm_sprite_*_wrapper names tell a new bundle from an old
 // one. The handle is asked for on every call, because recovering a lost WebGL
 // context builds a new engine.
 
@@ -24,7 +24,7 @@ function spriteTransport(transport, method) {
     if (!transport) {
         throw new Error(`${method}(): the context has not started`);
     }
-    if (!transport.supports('projectmSpriteCreate')) {
+    if (!transport.supports('projectmSpriteCreateWrapper')) {
         throw new Error(`${method}(): this projectM bundle predates the user-sprite exports`);
     }
     return transport;
@@ -50,7 +50,7 @@ async function engineHandle(transport) {
  */
 export async function createSpriteOn(transport, code, type) {
     const t = spriteTransport(transport, 'createSprite');
-    const id = Number(await t.call('projectmSpriteCreate', await engineHandle(t), type, code));
+    const id = Number(await t.call('projectmSpriteCreateWrapper', await engineHandle(t), type, code));
     if (!id) {
         throw new Error('createSprite(): the engine refused the sprite (unknown type, code that does not compile, or the sprite limit)');
     }
@@ -64,7 +64,7 @@ export async function createSpriteOn(transport, code, type) {
  */
 export async function destroySpriteOn(transport, id) {
     const t = spriteTransport(transport, 'destroySprite');
-    await t.call('projectmSpriteDestroy', await engineHandle(t), id);
+    await t.call('projectmSpriteDestroyWrapper', await engineHandle(t), id);
 }
 
 /**
@@ -75,7 +75,7 @@ export async function destroySpriteOn(transport, id) {
  */
 export async function getSpriteVarOn(transport, id, name) {
     const t = spriteTransport(transport, 'getSpriteVar');
-    return Number(await t.call('projectmSpriteGetVar', await engineHandle(t), id, name));
+    return Number(await t.call('projectmSpriteGetVarWrapper', await engineHandle(t), id, name));
 }
 
 /**
@@ -87,5 +87,5 @@ export async function getSpriteVarOn(transport, id, name) {
  */
 export async function setSpriteVarOn(transport, id, name, value) {
     const t = spriteTransport(transport, 'setSpriteVar');
-    await t.call('projectmSpriteSetVar', await engineHandle(t), id, name, value);
+    await t.call('projectmSpriteSetVarWrapper', await engineHandle(t), id, name, value);
 }

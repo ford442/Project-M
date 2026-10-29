@@ -335,14 +335,14 @@ export function buildDepthSpriteCode(opts = {}) {
 
 /**
  * Spawns the depth overlay sprite on the active host, or returns 0 on a bundle
- * whose create_sprite() predates its arguments (only the projectm_sprite_*
+ * whose create_sprite() predates its arguments (only the projectm_sprite_*_wrapper
  * exports tell the two apart).
  * @param {ProjectMModuleLike | null | undefined} module
  * @param {{ image?: string, scale?: number, blendmode?: number }} [opts]
  * @returns {number} The sprite id, 0 if none was created.
  */
 export function spawnDepthSprite(module, opts = {}) {
-    if (typeof /** @type {Record<string, unknown>} */ (module)?._projectm_sprite_create !== 'function') {
+    if (typeof /** @type {Record<string, unknown>} */ (module)?._projectm_sprite_create_wrapper !== 'function') {
         return 0;
     }
     return Number(createSprite(/** @type {ProjectMModule} */ (module), 'milkdrop', buildDepthSpriteCode(opts))) || 0;
@@ -428,7 +428,7 @@ export function setupExperimentalBridge(module, options = {}) {
         },
         /**
          * Spawn the depth overlay sprite. Returns its id (destroy it with
-         * ProjectMContext.destroySprite() or projectm_sprite_destroy), or 0 on a
+         * ProjectMContext.destroySprite() or projectm_sprite_destroy_wrapper), or 0 on a
          * bundle without the sprite exports.
          * @param {{ image?: string, scale?: number, blendmode?: number }} [opts]
          */

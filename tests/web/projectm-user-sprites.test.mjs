@@ -1,4 +1,4 @@
-// Unit tests for the user-sprite surface: the projectm_sprite_* / create_sprite
+// Unit tests for the user-sprite surface: the projectm_sprite_*_wrapper / create_sprite
 // exports as the generated wrapper and both render transports see them,
 // ProjectMContext's sprite methods (html/context/sprites.js), and the
 // experimental bridge's sprite and in-place depth-texture paths.
@@ -32,15 +32,15 @@ const EXPORTS = readFileSync(fileURLToPath(new URL('../../cmake/EmscriptenWasmFl
 /** The sprite API of projectM-4/user_sprites.h, by generated wrapper name. */
 const SPRITE_CALLS = {
     createSprite: 'create_sprite',
-    projectmSpriteCreate: 'projectm_sprite_create',
-    projectmSpriteDestroy: 'projectm_sprite_destroy',
-    projectmSpriteDestroyAll: 'projectm_sprite_destroy_all',
-    projectmSpriteGetSpriteCount: 'projectm_sprite_get_sprite_count',
-    projectmSpriteGetSpriteIds: 'projectm_sprite_get_sprite_ids',
-    projectmSpriteSetMaxSprites: 'projectm_sprite_set_max_sprites',
-    projectmSpriteGetMaxSprites: 'projectm_sprite_get_max_sprites',
-    projectmSpriteGetVar: 'projectm_sprite_get_var',
-    projectmSpriteSetVar: 'projectm_sprite_set_var',
+    projectmSpriteCreateWrapper: 'projectm_sprite_create_wrapper',
+    projectmSpriteDestroyWrapper: 'projectm_sprite_destroy_wrapper',
+    projectmSpriteDestroyAllWrapper: 'projectm_sprite_destroy_all_wrapper',
+    projectmSpriteGetSpriteCountWrapper: 'projectm_sprite_get_sprite_count_wrapper',
+    projectmSpriteGetSpriteIdsWrapper: 'projectm_sprite_get_sprite_ids_wrapper',
+    projectmSpriteSetMaxSpritesWrapper: 'projectm_sprite_set_max_sprites_wrapper',
+    projectmSpriteGetMaxSpritesWrapper: 'projectm_sprite_get_max_sprites_wrapper',
+    projectmSpriteGetVarWrapper: 'projectm_sprite_get_var_wrapper',
+    projectmSpriteSetVarWrapper: 'projectm_sprite_set_var_wrapper',
 };
 
 /** @param {string} symbol */
@@ -63,18 +63,18 @@ function fakeSpriteEngine({ handle = 4096 } = {}) {
     /** @type {Record<string, (...args: any[]) => unknown>} */
     const impl = {
         get_projectm_handle: () => handle,
-        projectm_sprite_create: (pm, type, code) => {
+        projectm_sprite_create_wrapper: (pm, type, code) => {
             checkHandle(pm);
             if (type !== 'milkdrop' || !String(code).includes('img=')) return 0;
             const id = nextId++;
             sprites.set(id, new Map([['x', 0.5]]));
             return id;
         },
-        projectm_sprite_destroy: (pm, id) => { checkHandle(pm); sprites.delete(id); },
-        projectm_sprite_get_var: (pm, id, name) => { checkHandle(pm); return sprites.get(id)?.get(name) ?? 0; },
-        projectm_sprite_set_var: (pm, id, name, value) => { checkHandle(pm); sprites.get(id)?.set(name, value); },
-        projectm_sprite_get_sprite_count: (pm) => { checkHandle(pm); return sprites.size; },
-        create_sprite: (type, code) => impl.projectm_sprite_create(handle, type, code),
+        projectm_sprite_destroy_wrapper: (pm, id) => { checkHandle(pm); sprites.delete(id); },
+        projectm_sprite_get_var_wrapper: (pm, id, name) => { checkHandle(pm); return sprites.get(id)?.get(name) ?? 0; },
+        projectm_sprite_set_var_wrapper: (pm, id, name, value) => { checkHandle(pm); sprites.get(id)?.set(name, value); },
+        projectm_sprite_get_sprite_count_wrapper: (pm) => { checkHandle(pm); return sprites.size; },
+        create_sprite: (type, code) => impl.projectm_sprite_create_wrapper(handle, type, code),
     };
     const invoke = (symbol, args) => {
         calls.push({ symbol, args });
@@ -142,10 +142,10 @@ test('the worker transport posts each sprite call as a ccall under the generated
     const worker = createWorkerTransport(engine.workerHandle);
     const main = createModuleTransport(engine.module);
 
-    const id = await worker.call('projectmSpriteCreate', 4096, 'milkdrop', 'img=x');
-    await worker.call('projectmSpriteSetVar', 4096, id, 'x', 0.25);
-    assert.equal(await worker.call('projectmSpriteGetVar', 4096, id, 'x'), 0.25);
-    assert.equal(await main.call('projectmSpriteGetVar', 4096, id, 'x'), 0.25, 'the module transport reaches the same export');
+    const id = await worker.call('projectmSpriteCreateWrapper', 4096, 'milkdrop', 'img=x');
+    await worker.call('projectmSpriteSetVarWrapper', 4096, id, 'x', 0.25);
+    assert.equal(await worker.call('projectmSpriteGetVarWrapper', 4096, id, 'x'), 0.25);
+    assert.equal(await main.call('projectmSpriteGetVarWrapper', 4096, id, 'x'), 0.25, 'the module transport reaches the same export');
 
     for (const message of /** @type {Array<{ symbol: string, returnType: unknown, argTypes: string[] }>} */ (engine.workerHandle.posted)) {
         const [jsName] = Object.entries(SPRITE_CALLS).find(([, symbol]) => symbol === message.symbol) ?? [];
@@ -173,7 +173,7 @@ for (const topology of ['main', 'worker']) {
         assert.equal(engine.sprites.size, 0);
         assert.equal(await getSpriteVarOn(transport, id, 'px'), 0, 'a destroyed sprite reads as 0');
 
-        // Never the old-bundle-ambiguous create_sprite(): only projectm_sprite_* tell bundles apart.
+        // Never the old-bundle-ambiguous create_sprite(): only projectm_sprite_*_wrapper tell bundles apart.
         assert.ok(!engine.calls.some((call) => call.symbol === 'create_sprite'));
     });
 }
@@ -182,7 +182,7 @@ test('the sprite methods reject before start(), on an old bundle, and when the e
     await assert.rejects(createSpriteOn(null, 'img=x', 'milkdrop'), /has not started/);
 
     const engine = fakeSpriteEngine();
-    delete engine.module._projectm_sprite_create;
+    delete engine.module._projectm_sprite_create_wrapper;
     await assert.rejects(createSpriteOn(createModuleTransport(engine.module), 'img=x', 'milkdrop'), /predates the user-sprite exports/);
     await assert.rejects(getSpriteVarOn(createModuleTransport(engine.module), 1, 'x'), /predates/);
 
@@ -196,8 +196,8 @@ test('the sprite methods reject before start(), on an old bundle, and when the e
 test('a worker whose bundle lacks the export rejects instead of hanging', async () => {
     const engine = fakeSpriteEngine();
     const realCcall = engine.workerHandle.ccall.bind(engine.workerHandle);
-    engine.workerHandle.ccall = (symbol, ...rest) => (symbol === 'projectm_sprite_get_var'
-        ? Promise.reject(new Error('ccall projectm_sprite_get_var failed: missing export'))
+    engine.workerHandle.ccall = (symbol, ...rest) => (symbol === 'projectm_sprite_get_var_wrapper'
+        ? Promise.reject(new Error('ccall projectm_sprite_get_var_wrapper failed: missing export'))
         : realCcall(symbol, ...rest));
     await assert.rejects(getSpriteVarOn(createWorkerTransport(engine.workerHandle), 1, 'x'), /missing export/);
 });
@@ -264,7 +264,7 @@ test('spawnDepthSprite creates the overlay through create_sprite() only on a bun
     assert.equal(engine.calls.at(-1)?.symbol, 'create_sprite');
 
     const old = fakeSpriteEngine();
-    delete old.module._projectm_sprite_create;
+    delete old.module._projectm_sprite_create_wrapper;
     assert.equal(spawnDepthSprite(old.module), 0, 'an old create_sprite() would ignore the code and draw its demo');
     assert.equal(old.calls.length, 0);
 });

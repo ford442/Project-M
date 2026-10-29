@@ -428,6 +428,36 @@
       Module._render_frame();
       mark('destroy_host freed its host; stale set_active_host handle ignored');
 
+      // 3b. Host C takes the slot B freed (and may reuse B's memory). Its handle
+      // must differ, and B's host and engine handles must not reach C.
+      if (typeof Module._projectm_sprite_get_max_sprites_wrapper === 'function') {
+        const handleC = Module.ccall('create_host', 'number', ['string', 'string'],
+          ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
+        if (!handleC) throw new Error('create_host() into the freed slot failed');
+        if (handleC === handleB) throw new Error('the reused host slot reissued the destroyed host\'s handle');
+        const engineC = Module._get_projectm_handle();
+        if (!engineC || engineC === staleEngine) {
+          throw new Error('the reused host slot reissued the destroyed engine\'s handle');
+        }
+        Module.ccall('set_active_host', null, ['number'], [handleB]);
+        if (Module._get_active_host() !== handleC) {
+          throw new Error('set_active_host(destroyed handle) selected the host in its slot');
+        }
+        const limitC = Module._projectm_sprite_get_max_sprites_wrapper(engineC);
+        Module._projectm_sprite_set_max_sprites_wrapper(staleEngine, 1);
+        if (Module._projectm_sprite_get_max_sprites_wrapper(engineC) !== limitC) {
+          throw new Error('a stale engine handle drove the engine in its slot');
+        }
+        if (Module._projectm_sprite_get_max_sprites_wrapper(staleEngine) !== 0
+            || Module.ccall('projectm_sprite_create_wrapper', 'number', ['number', 'string', 'string'],
+              [staleEngine, 'milkdrop', 'img=x']) !== 0) {
+          throw new Error('a stale engine handle was accepted by the sprite wrappers');
+        }
+        Module.ccall('destroy_host', null, ['number'], [handleC]);
+        Module.ccall('set_active_host', null, ['number'], [handleA]);
+        mark('reused host slot: new handles, stale host/engine handles rejected');
+      }
+
       // 4. A legacy export before any create_host() must not take a slot. Tear
       // every host down, touch the compat default, then create kMaxHosts hosts.
       Module.ccall('destroy_host', null, ['number'], [handleA]);

@@ -121,44 +121,68 @@ private:
 };
 
 #ifdef ENABLE_DEBUG_LOGGING
-#define LOG_TRACE(message)                                                            \
-    if (Logging::HasCallback() && Logging::GetLogLevel() == Logging::LogLevel::Trace) \
-    {                                                                                 \
-        Logging::Log(message, Logging::LogLevel::Trace);                              \
-    }
+#define LOG_TRACE(message)                                                                \
+    do                                                                                    \
+    {                                                                                     \
+        if (Logging::HasCallback() && Logging::GetLogLevel() == Logging::LogLevel::Trace) \
+        {                                                                                 \
+            Logging::Log(message, Logging::LogLevel::Trace);                              \
+        }                                                                                 \
+    } while (0)
 
-#define LOG_DEBUG(message)                                                            \
-    if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Debug) \
-    {                                                                                 \
-        Logging::Log(message, Logging::LogLevel::Debug);                              \
-    }
+#define LOG_DEBUG(message)                                                                \
+    do                                                                                    \
+    {                                                                                     \
+        if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Debug) \
+        {                                                                                 \
+            Logging::Log(message, Logging::LogLevel::Debug);                              \
+        }                                                                                 \
+    } while (0)
 #else
-#define LOG_TRACE(message)
-#define LOG_DEBUG(message)
+#define LOG_TRACE(message) \
+    do                     \
+    {                      \
+    } while (0)
+#define LOG_DEBUG(message) \
+    do                     \
+    {                      \
+    } while (0)
 #endif
 
-#define LOG_INFO(message)                                                                   \
-    if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Information) \
+#define LOG_INFO(message)                                                                       \
+    do                                                                                          \
+    {                                                                                           \
+        if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Information) \
+        {                                                                                       \
+            Logging::Log(message, Logging::LogLevel::Information);                              \
+        }                                                                                       \
+    } while (0)
+
+#define LOG_WARN(message)                                                                   \
+    do                                                                                      \
     {                                                                                       \
-        Logging::Log(message, Logging::LogLevel::Information);                              \
-    }
+        if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Warning) \
+        {                                                                                   \
+            Logging::Log(message, Logging::LogLevel::Warning);                              \
+        }                                                                                   \
+    } while (0)
 
-#define LOG_WARN(message)                                                               \
-    if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Warning) \
-    {                                                                                   \
-        Logging::Log(message, Logging::LogLevel::Warning);                              \
-    }
+#define LOG_ERROR(message)                                                                \
+    do                                                                                    \
+    {                                                                                     \
+        if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Error) \
+        {                                                                                 \
+            Logging::Log(message, Logging::LogLevel::Error);                              \
+        }                                                                                 \
+    } while (0)
 
-#define LOG_ERROR(message)                                                            \
-    if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Error) \
-    {                                                                                 \
-        Logging::Log(message, Logging::LogLevel::Error);                              \
-    }
-
-#define LOG_FATAL(message)                                                            \
-    if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Fatal) \
-    {                                                                                 \
-        Logging::Log(message, Logging::LogLevel::Fatal);                              \
-    }
+#define LOG_FATAL(message)                                                                \
+    do                                                                                    \
+    {                                                                                     \
+        if (Logging::HasCallback() && Logging::GetLogLevel() <= Logging::LogLevel::Fatal) \
+        {                                                                                 \
+            Logging::Log(message, Logging::LogLevel::Fatal);                              \
+        }                                                                                 \
+    } while (0)
 
 } // namespace libprojectM

@@ -19,7 +19,7 @@ MilkdropPreparedPreset::MilkdropPreparedPreset(const std::string& absoluteFilePa
     : m_absoluteFilePath(absoluteFilePath)
     , m_parser(std::make_unique<PresetFileParser>())
 {
-    LOG_DEBUG("[MilkdropPreset] Loading preset from file \"" + absoluteFilePath + "\".")
+    LOG_DEBUG("[MilkdropPreset] Loading preset from file \"" + absoluteFilePath + "\".");
 
     bool parsed{false};
     if (context.fileContents)
@@ -36,7 +36,7 @@ MilkdropPreparedPreset::MilkdropPreparedPreset(const std::string& absoluteFilePa
     if (!parsed)
     {
         const std::string error = "[MilkdropPreset] Could not parse preset file \"" + absoluteFilePath + "\".";
-        LOG_ERROR(error)
+        LOG_ERROR(error);
         throw MilkdropPresetLoadException(error);
     }
 
@@ -51,7 +51,7 @@ MilkdropPreparedPreset::MilkdropPreparedPreset(std::istream& presetData, const P
     if (!m_parser->Read(presetData))
     {
         const std::string error = "[MilkdropPreset] Could not parse preset data.";
-        LOG_ERROR(error)
+        LOG_ERROR(error);
         throw MilkdropPresetLoadException(error);
     }
 

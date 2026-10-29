@@ -1,6 +1,7 @@
 #include "Renderer/FlashLimiter.hpp"
 
 #include "Renderer/Shader.hpp"
+#include "Renderer/ShaderPrelude.hpp"
 
 #include <Logging.hpp>
 
@@ -12,12 +13,6 @@ namespace libprojectM {
 namespace Renderer {
 
 namespace {
-
-#ifdef USE_GLES
-constexpr char ShaderVersion[] = "#version 300 es\n\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n";
-#else
-constexpr char ShaderVersion[] = "#version 330\n\n";
-#endif
 
 /// Side of the square luminance grid the frame is reduced to.
 constexpr int LumaGridSize{32};
@@ -232,7 +227,7 @@ void main()
 
 auto BuildFragmentShader(const char* body) -> std::string
 {
-    std::string source(ShaderVersion);
+    std::string source(kShaderPrelude);
     source.append(CommonFunctions);
     source.append(body);
     return source;
@@ -527,7 +522,7 @@ auto FlashLimiter::CompileShaders() -> bool
 
     try
     {
-        const std::string vertexShader = std::string(ShaderVersion) + FullscreenVertexShader;
+        const std::string vertexShader = std::string(kShaderPrelude) + FullscreenVertexShader;
         auto downsample = std::make_unique<Shader>();
         downsample->CompileProgram(vertexShader, BuildFragmentShader(DownsampleFragmentShader));
         auto state = std::make_unique<Shader>();

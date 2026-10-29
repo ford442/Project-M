@@ -68,10 +68,12 @@ fi
 # imports the minified bundle, and letting a 44 kB generated artifact into the
 # "all files" row would make the floor measure the bundler. And
 # html/flac-player/vendor/** is third-party (the Buffer polyfill the FLAC
-# player shell loads): ~150 functions nobody here writes or tests.
-COVERAGE_LINES_MIN=88.7
-COVERAGE_BRANCHES_MIN=83.5
-COVERAGE_FUNCTIONS_MIN=77.4
+# player shell loads): ~150 functions nobody here writes or tests. scripts/**
+# is build and audit tooling that a few tests import; it is not the host layer
+# the floor is about (re-measured without it on 2026-10-29: 91.31 / 83.97 / 79.46).
+COVERAGE_LINES_MIN=91.0
+COVERAGE_BRANCHES_MIN=83.7
+COVERAGE_FUNCTIONS_MIN=79.2
 
 # Modules the run is expected NOT to load; see the file's header.
 UNTESTED_LEDGER="tests/web/untested-modules.txt"
@@ -84,6 +86,7 @@ test_status=0
 node --experimental-test-coverage \
     --test-coverage-exclude='tests/**' \
     --test-coverage-exclude='packages/**' \
+    --test-coverage-exclude='scripts/**' \
     --test-coverage-exclude='html/flac-player/vendor/**' \
     --test-coverage-lines="$COVERAGE_LINES_MIN" \
     --test-coverage-branches="$COVERAGE_BRANCHES_MIN" \

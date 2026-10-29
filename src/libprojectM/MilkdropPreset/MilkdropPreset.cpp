@@ -324,7 +324,7 @@ void MilkdropPreset::PerFrameUpdate()
 
 void MilkdropPreset::Load(const std::string& pathname)
 {
-    LOG_DEBUG("[MilkdropPreset] Loading preset from file \"" + pathname + "\".")
+    LOG_DEBUG("[MilkdropPreset] Loading preset from file \"" + pathname + "\".");
 
     SetFilename(ParseFilename(pathname));
 
@@ -333,7 +333,7 @@ void MilkdropPreset::Load(const std::string& pathname)
     if (!parser.Read(pathname))
     {
         const std::string error = "[MilkdropPreset] Could not parse preset file \"" + pathname + "\".";
-        LOG_ERROR(error)
+        LOG_ERROR(error);
         throw MilkdropPresetLoadException(error);
     }
 
@@ -349,7 +349,7 @@ void MilkdropPreset::Load(std::istream& stream)
     if (!parser.Read(stream))
     {
         const std::string error = "[MilkdropPreset] Could not parse preset data.";
-        LOG_ERROR(error)
+        LOG_ERROR(error);
         throw MilkdropPresetLoadException(error);
     }
 

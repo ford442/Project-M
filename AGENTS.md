@@ -89,7 +89,7 @@ Keep the repo root source-focused. Policy for binary/build artifacts:
   `pm/builds.json` manifest (see [`docs/adr/0001-wasm-and-media-hosting.md`](docs/adr/0001-wasm-and-media-hosting.md)
   for the manifest, `.htaccess` headers, song indexes, and the header checks).
   `.gitignore` matches any version (`projectm-v.*-thread.*`), not just one. The
-  canonical current version is `PROJECTM_WASM_BUNDLE` in `html/projectm-init.js`
+  canonical current version is `PROJECTM_WASM_BUNDLE` in `html/projectm-wasm-version.js`
   (also the default in `scripts/verify_deploy_urls.sh` and
   `scripts/prepare_deploy_bundle.sh`'s `PROJECTM_WASM_VERSION`) — update all three
   together when bumping the bundle version. (`scripts/build_wasm_smoke_wrapper.sh`

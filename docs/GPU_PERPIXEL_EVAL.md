@@ -14,7 +14,7 @@ state carried from one vertex to the next, `rand()`, `megabuf` — runs in a sma
 slice, in vertex order, that hands its values to the shader as vertex attributes
 ([Phase 1.5](#phase-15--cheaper-correct-at-the-edges-more-presets)). The CPU evaluator
 stays authoritative for the 12 presets where that slice would not pay off. Phase 2 (WGSL
-emitter) waits for #260's toolchain work to merge (PR #265 is still open), and Phase 3
+emitter) is unblocked (#260's toolchain work merged as PR #265 on 2026-09-25), and Phase 3
 (WebGPU renderer) after it; both remain design only — **no compiler or renderer code for
 those.**
 
@@ -99,7 +99,7 @@ plus one GPU-eval prototype; the backend comes last.
 |-------|----------|--------------|--------|
 | **1** Eval IR → GLSL vertex displacement | WebGL2 | No | **Landed.** Keep #227 open as the epic |
 | **1.5** Upload/uniform/cache fixes, edge fixes, CPU slice for carried state and `rand()` | WebGL2 | No | #261, first half. **Implemented** |
-| **2** `WgslGenerator` next to `GLSLGenerator` | GLSL still ships | No | #261, second half: WGSL corpus test. Waits for #260 (PR #265) |
+| **2** `WgslGenerator` next to `GLSLGenerator` | GLSL still ships | No | #261, second half: WGSL corpus test. Unblocked: #260 merged (PR #265) |
 | **3** `RendererWgpu` / `ENABLE_WEBGPU` | Native wgpu + emdawnwebgpu | Yes | Only after Phase 2 is green |
 
 Do **not** merge WebGPU code (Phase 3) until Phase 2's WGSL corpus test is green.
@@ -566,7 +566,7 @@ it lands, the vendored build is the only GPU-capable configuration.
 
 **Status (2026-09-25): not started.** #261 schedules Phase 2 after the toolchain tiering
 work of #260, because it adds a code generator that must stay out of the WebGL2 bundle;
-#260's PR (#265) is still open. The plan #261 fixes, following the decision below:
+#260's PR (#265) merged on 2026-09-25, so it can start. The plan #261 fixes, following the decision below:
 
 1. `vendor/hlslparser/src/WGSLGenerator.{h,cpp}` next to `GLSLGenerator`, walking the same
    `HLSLTree`, behind `ENABLE_WGSL_EMIT` (off in the WASM bundle, on for native and CI).

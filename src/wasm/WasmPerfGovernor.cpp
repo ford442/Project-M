@@ -252,7 +252,7 @@ EM_JS(void, js_perf_report_frame, (
 //   - Blur level cap (blurMs / fullscreen blur pass cost, see BlurTexture)
 //   - Internal render scale (gpuMs fill-rate cost: canvas backing-store
 //     resolution vs. its unchanged CSS display size — see
-//     html/projectm-fps-governor.js / syncModuleSize() for how the JS host
+//     html/projectm-fps-governor.js / syncCanvasSize() for how the JS host
 //     applies this by shrinking canvas.width/height while leaving
 //     canvas.style.width/height alone, letting the browser's own
 //     bitmap-to-CSS-box scaling do the "present upscale" for free)
@@ -317,7 +317,7 @@ EM_JS(void, js_governor_report_tier, (double host, int tier), {
 
 // Notifies the host page of the tier's internal render scale (1.0/0.75/0.5), so
 // it can shrink the canvas backing store while keeping its CSS display size fixed
-// (see html/projectm-fps-governor.js and syncModuleSize() in projectm-core.html).
+// (see html/projectm-fps-governor.js and syncCanvasSize() in html/context/render.js).
 // This is a *push* notification; get_governor_render_scale() below is the pull
 // counterpart for late-binding hosts.
 // clang-format off

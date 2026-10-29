@@ -26,10 +26,6 @@ TextureManager::TextureManager(const std::vector<std::string>& textureSearchPath
     Preload();
 }
 
-void TextureManager::SetCurrentPresetPath(const std::string&)
-{
-}
-
 TextureSamplerDescriptor TextureManager::GetTexture(const std::string& fullName)
 {
     std::string unqualifiedName;

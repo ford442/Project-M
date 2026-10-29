@@ -25,7 +25,7 @@
 |---|---|
 | `docs/WRITING_NEW_MILK_PRESETS_GUIDE.md` | Canonical syntax, pitfalls, quick-start |
 | `docs/agents/briefs/milk011_creative_brief.md` | Example creative brief → preset breakdown |
-| `docs/authoring/milk_kimi_swarm.md` | Multi-agent role prompts (Designer, Validator, etc.) |
+| `docs/archive/authoring/milk_kimi_swarm.md` | Multi-agent role prompts (Designer, Validator, etc.) |
 | `presets/tests/` | Small fixtures for parser tests |
 | `presets/custom/` | Curated AI/community presets (regression set) |
 | `presets/weeks/` | Large preset corpus |

@@ -97,7 +97,6 @@ DEPLOY_HTML_GLOBS: list = [
     "html/worklets/*.js",
     "html/projectm*.1ink",  # projectm_panel2.1ink, projectm.1ink, etc.
     "html/projectm-core.html",
-    "html/projectm-core.css",
     "html/embed-demo.html",
     "html/audio-capture.html",  # tab/system audio capture popup (projectm-display-capture.js)
     "html/.htaccess",  # encoding, types, caching, legacy-glue redirect (docs/adr/0001-wasm-and-media-hosting.md)

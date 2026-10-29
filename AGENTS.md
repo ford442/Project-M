@@ -112,7 +112,7 @@ Keep the repo root source-focused. Policy for binary/build artifacts:
 
 | Layer | Technology |
 |-------|------------|
-| Language | C++20 requested, **C++17 in practice**: `cmake/FilesystemSupport.cmake` resets `CMAKE_CXX_STANDARD` to 17 whenever `std::filesystem` is available, so the libraries build as gnu++17. Write C++17 (no defaulted `operator==`, no designated initializers) |
+| Language | C++20, strict (`-std=c++20`, `CMAKE_CXX_EXTENSIONS OFF`), the same standard the `src/wasm/` wrapper TUs use. `cmake/FilesystemSupport.cmake` only raises the standard to 17 for `std::filesystem` when it is lower. Defaulted `operator==`, `std::span` and designated initializers are available |
 | Build System | CMake >= 3.21 |
 | Graphics | OpenGL Core 3.3 or OpenGL ES 3.2 |
 | Math | GLM (bundled or system) |

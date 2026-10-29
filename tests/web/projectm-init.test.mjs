@@ -11,7 +11,9 @@ import {
     loadScript,
     observeModuleSize,
     resetWasmScriptCacheForTests,
-    resolveWasmScriptUrl
+    resolveWasmScriptUrl,
+    syncModuleSize,
+    watchDevicePixelRatio
 } from '../../html/projectm-init.js';
 
 test('ensureDefaultWasmQueryParam adds wasm when missing', () => {
@@ -623,5 +625,73 @@ test('observeModuleSize returns null without a container or a ResizeObserver', (
         assert.equal(observeModuleSize({ container: {} }), null);
     } finally {
         if (original !== undefined) globalThis.ResizeObserver = original;
+    }
+});
+
+function fakeResolutionWindow(devicePixelRatio) {
+    const queries = [];
+    const win = {
+        devicePixelRatio,
+        matchMedia(media) {
+            const listeners = new Set();
+            const query = {
+                media,
+                addEventListener: (type, fn) => listeners.add(fn),
+                removeEventListener: (type, fn) => listeners.delete(fn),
+                fire: () => [...listeners].forEach((fn) => fn()),
+                listeners,
+            };
+            queries.push(query);
+            return query;
+        },
+    };
+    return { win, queries };
+}
+
+test('watchDevicePixelRatio fires on a ratio change and re-arms for the new ratio', () => {
+    const { win, queries } = fakeResolutionWindow(1);
+    let changes = 0;
+    const stop = watchDevicePixelRatio(win, () => changes++);
+    assert.equal(queries[0].media, '(resolution: 1dppx)');
+
+    win.devicePixelRatio = 2;
+    queries[0].fire();
+    assert.equal(changes, 1);
+    assert.equal(queries[0].listeners.size, 0, 'the stale query is let go');
+    assert.equal(queries[1].media, '(resolution: 2dppx)');
+
+    stop();
+    assert.equal(queries[1].listeners.size, 0);
+    queries[1].fire();
+    assert.equal(changes, 1, 'nothing after stop()');
+});
+
+test('watchDevicePixelRatio is a no-op without matchMedia', () => {
+    assert.doesNotThrow(() => watchDevicePixelRatio(undefined, () => {})());
+    assert.doesNotThrow(() => watchDevicePixelRatio({}, () => {})());
+});
+
+test('syncModuleSize snaps the CSS box to the rounded backing store', () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = { devicePixelRatio: 1.5 };
+    try {
+        const canvas = () => ({ style: {} });
+        const mainCanvas = canvas();
+        const secondaryCanvas = canvas();
+        const sizes = [];
+        const ok = syncModuleSize({
+            module: { _set_window_size: (w, h) => sizes.push([w, h]) },
+            container: { getBoundingClientRect: () => ({ width: 333.3, height: 200.2 }) },
+            mainCanvas,
+            secondaryCanvas,
+        });
+        assert.equal(ok, true);
+        assert.deepEqual(sizes, [[500, 300]]);
+        assert.equal(mainCanvas.width, 500);
+        assert.equal(mainCanvas.style.width, `${500 / 1.5}px`);
+        assert.equal(mainCanvas.style.height, '200px');
+        assert.equal(secondaryCanvas.style.width, mainCanvas.style.width);
+    } finally {
+        globalThis.window = originalWindow;
     }
 });

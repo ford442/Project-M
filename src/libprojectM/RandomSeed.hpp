@@ -1,6 +1,6 @@
 /**
  * @file RandomSeed.hpp
- * @brief Process-global seed source for every RNG in libprojectM.
+ * @brief Seed source for every RNG in libprojectM; a facade over EngineContext.
  *
  * projectM's visual output is a function of (preset, audio, frame index, time,
  * RNG). Four of those five are already injectable from the host — the fifth was
@@ -24,12 +24,13 @@
  * same values in deterministic mode. For a capture harness rendering one preset
  * per page that is the desired behaviour, not a limitation.
  *
- * Not covered here: libc `rand()`, used by `MilkdropShader`'s per-frame
- * `rand_frame` uniform. `SetDeterministicSeed()` calls `std::srand()` so that
- * stream is pinned too, but it is a single global sequence — it reproduces only
- * when the sequence of calls into it is itself identical, which holds when the
- * frame schedule is deterministic (the harness's whole purpose) and does not
- * hold if you interleave two engines in one process.
+ * `Get()` and `Next()` draw from EngineContext::Current(): the engine the
+ * calling code runs for (see EngineContext.hpp), so two engines in one process
+ * draw independently. `SetDeterministicSeed()` sets the process default every
+ * engine without a seed of its own follows; ProjectM::SetSeed() gives one engine
+ * its own. `Next()` replaces the libc `rand()` stream MilkdropShader's
+ * rand_preset/rand_frame values used to come from, which was one sequence shared
+ * by every engine and so reproduced only with one engine per process.
  */
 #pragma once
 
@@ -39,18 +40,19 @@ namespace libprojectM {
 namespace RandomSeed {
 
 /**
- * @brief Switches the library into deterministic seeding and pins libc rand().
+ * @brief Switches every engine without its own seed to deterministic seeding, and
+ *        restarts their random streams.
  * @param seed The host-chosen seed. Any value is valid, including 0.
  */
 void SetDeterministicSeed(uint32_t seed);
 
 /**
- * @brief Returns to `std::random_device` seeding. Does not un-seed libc rand().
+ * @brief Returns engines without their own seed to `std::random_device` seeding.
  */
 void ClearDeterministicSeed();
 
 /**
- * @brief Whether deterministic seeding is currently active.
+ * @brief Whether the process default seed is set.
  */
 auto IsDeterministic() -> bool;
 
@@ -62,6 +64,11 @@ auto IsDeterministic() -> bool;
  *         mode; a pure function of (host seed, domain) in deterministic mode.
  */
 auto Get(const char* domain) -> uint32_t;
+
+/**
+ * @brief The next value of the current engine's random stream (EngineContext::NextRandom()).
+ */
+auto Next() -> uint32_t;
 
 } // namespace RandomSeed
 } // namespace libprojectM

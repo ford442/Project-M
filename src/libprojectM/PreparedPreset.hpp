@@ -19,6 +19,7 @@
 
 namespace libprojectM {
 
+class EngineContext;
 class Preset;
 
 /**
@@ -34,6 +35,12 @@ struct PresetPrepareContext {
      * thread, where transpiling ahead of time gains nothing.
      */
     bool transpileShaders{false};
+
+    /**
+     * The engine the preparation draws random numbers for. PresetPrepareJob::Run() installs it as
+     * EngineContext::Current() on whichever thread runs it; shared so a job may outlive the engine.
+     */
+    std::shared_ptr<EngineContext> engineContext;
 
     std::vector<std::string> textureFiles;    //!< Renderer::TextureManager::ScannedTextureFileNames(), for random textures.
     std::set<std::string> volumeTextureNames; //!< Renderer::TextureManager::VolumeTextureNames().

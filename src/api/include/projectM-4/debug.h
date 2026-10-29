@@ -68,13 +68,12 @@ PROJECTM_EXPORT void projectm_write_debug_image_on_next_frame(projectm_handle in
  * frame — see docs/GRAPHICS_BENCHMARK_HARNESS.md.
  *
  * Scope and caveats:
- *  - The setting is **process-global**, not per instance: there is one RNG
- *    policy for the library, so this takes no handle.
- *  - It also calls std::srand(), which pins the libc rand() stream behind
- *    MilkdropShader's per-frame `rand_frame` uniform. That single global
- *    sequence reproduces only when the sequence of draws from it is itself
- *    identical — true for a deterministic single-engine frame schedule, not
- *    true if two engines render interleaved in one process.
+ *  - The setting is the **process default**: it applies to every instance that
+ *    has no seed of its own (@a projectm_set_seed()), including instances
+ *    created later, and restarts their random streams.
+ *  - Each instance draws from its own stream (shader `rand_preset`/`rand_frame`
+ *    values, random texture picks), so instances in one process do not
+ *    disturb each other's sequences. libc rand() is no longer used.
  *  - Objects sharing a call site (e.g. the two PresetStates alive during a
  *    crossfade) draw the same values, by design: seeds do not depend on call
  *    ordering, so adding a call site elsewhere cannot invalidate goldens.
@@ -89,8 +88,7 @@ PROJECTM_EXPORT void projectm_set_deterministic_seed(uint32_t seed);
 /**
  * @brief Returns RNG seeding to std::random_device.
  *
- * Does not restore the libc rand() stream disturbed by
- * @a projectm_set_deterministic_seed().
+ * Instances with a seed of their own (@a projectm_set_seed()) keep it.
  *
  * @since 4.2.0
  */
@@ -102,6 +100,27 @@ PROJECTM_EXPORT void projectm_clear_deterministic_seed(void);
  * @since 4.2.0
  */
 PROJECTM_EXPORT bool projectm_is_deterministic_seed_set(void);
+
+/**
+ * @brief Gives one instance its own deterministic seed.
+ *
+ * Like @a projectm_set_deterministic_seed(), but for @a instance alone: it then ignores the
+ * process default until @a projectm_clear_seed(). Two instances with different seeds render
+ * independently and reproducibly, on one thread or on several. Set it before loading the
+ * presets it should cover; a preset already loaded keeps the values it drew.
+ *
+ * @param instance The projectM instance handle.
+ * @param seed The seed. Any value is valid, including 0.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_seed(projectm_handle instance, uint32_t seed);
+
+/**
+ * @brief Makes @a instance follow the process default seed again.
+ * @param instance The projectM instance handle.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_clear_seed(projectm_handle instance);
 
 #ifdef __cplusplus
 } // extern "C"

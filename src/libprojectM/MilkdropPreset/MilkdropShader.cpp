@@ -14,6 +14,7 @@
 #include <Renderer/TextureManager.hpp>
 
 #include <Logging.hpp>
+#include <RandomSeed.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
@@ -28,7 +29,8 @@ namespace MilkdropPreset {
 
 using libprojectM::MilkdropPreset::MilkdropStaticShaders;
 
-static auto floatRand = []() { return static_cast<float>(rand() % 7381) / 7380.0f; };
+// The engine's random stream, not libc rand(): one sequence per engine, seeded with it.
+static auto floatRand = []() { return static_cast<float>(RandomSeed::Next() % 7381) / 7380.0f; };
 
 MilkdropShader::MilkdropShader(ShaderType type)
     : m_type(type)

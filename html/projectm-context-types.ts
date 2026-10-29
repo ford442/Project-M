@@ -351,6 +351,10 @@ export interface ProjectMContextOptions {
     onAudioSourceChange?: (status: ProjectMAudioSourceStatus) => void;
     /** Reuse an existing {@link AudioSourceRouter} (e.g. legacy `projectm-core.html`). */
     audioRouter?: import('./projectm-audio-source-router.js').AudioSourceRouter;
+    /**
+     * Pins the devicePixelRatio the canvas is sized with. Omit it to follow the
+     * window's live ratio (browser zoom, moving to another display).
+     */
     devicePixelRatio?: number;
     documentRef?: Document;
     windowRef?: Window & typeof globalThis;
@@ -394,7 +398,6 @@ export type ProjectMResolvedContextOptions = Required<
         | 'audioSource'
         | 'presetLocked'
         | 'renderTopology'
-        | 'devicePixelRatio'
     >
 > &
     ProjectMContextOptions;

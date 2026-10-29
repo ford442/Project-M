@@ -106,8 +106,28 @@ jobs:
             path: install/*
 
   sanitizers:
-    name: "Debug + ASan/UBSan: unit tests, PresetCompat"
+    name: "Debug + ASan/UBSan (${{ matrix.compiler.name }}): unit tests, PresetCompat"
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          # GCC's -fsanitize=undefined has no float-cast-overflow, so a NaN or
+          # 1e30 from a preset equation cast to int goes unnoticed there. The
+          # clang leg adds it and also runs PresetCompat over presets/custom/.
+          # -fno-sanitize=enum: C API tests deliberately pass out-of-range enum
+          # values (100, 42, ...) that the wrappers reject; clang's enum check
+          # flags merely loading such a parameter, which C callers can always do.
+          - name: gcc
+            cc: gcc
+            cxx: g++
+            sanitize: undefined,address
+            custom_corpus: ''
+          - name: clang
+            cc: clang
+            cxx: clang++
+            sanitize: undefined,float-cast-overflow,address -fno-sanitize=enum
+            custom_corpus: '1'
 
     steps:
       - uses: actions/checkout@v7
@@ -136,10 +156,12 @@ jobs:
             -B "${{ github.workspace }}/cmake-build" \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTING=YES \
-            -DCMAKE_C_FLAGS="-fsanitize=undefined,address -fno-omit-frame-pointer" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=undefined,address -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined,address" \
-            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=undefined,address"
+            -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} \
+            -DCMAKE_C_FLAGS="-fsanitize=${{ matrix.compiler.sanitize }} -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=${{ matrix.compiler.sanitize }} -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=${{ matrix.compiler.sanitize }}" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=${{ matrix.compiler.sanitize }}"
 
       - name: Build Debug
         run: cmake --build "${{ github.workspace }}/cmake-build" --config "Debug" --parallel
@@ -155,7 +177,10 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/sanitizers/lsan.supp:print_suppressions=0
           GTEST_FILTER: '-*BenchTest.*'
-        run: ctest --test-dir "${{ github.workspace }}/cmake-build" --output-on-failure --build-config "Debug"
+        run: |
+          # PresetCompatTest treats any value, even an empty one, as "on".
+          if [ -n "${{ matrix.compiler.custom_corpus }}" ]; then export PROJECTM_TEST_CUSTOM_MILK_FIXED=1; fi
+          ctest --test-dir "${{ github.workspace }}/cmake-build" --output-on-failure --build-config "Debug"
 
   transition-shaders:
     name: Transition shader GLSL/GLES validation

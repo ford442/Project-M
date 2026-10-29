@@ -1252,16 +1252,17 @@ bool projectm_reload_texture(projectm_handle instance, const char* texture_name)
         return projectMInstance->ReloadTexture(texture_name);
     });
 }
+
 void projectm_set_log_callback(projectm_log_callback callback, bool current_thread_only, void* user_data)
 {
     CApiGuard(__func__, [&] {
         if (current_thread_only)
         {
-            libprojectM::Logging::SetThreadCallback({reinterpret_cast<libprojectM::Logging::CallbackFunction>(callback), user_data});
+            libprojectM::Logging::SetThreadCallback({callback, user_data});
         }
         else
         {
-            libprojectM::Logging::SetGlobalCallback({reinterpret_cast<libprojectM::Logging::CallbackFunction>(callback), user_data});
+            libprojectM::Logging::SetGlobalCallback({callback, user_data});
         }
     });
 }

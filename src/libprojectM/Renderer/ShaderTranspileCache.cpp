@@ -46,22 +46,33 @@ auto GetTranspiledGlslCacheKey() -> std::string
     return g_cacheKey;
 }
 
+// The hooks run outside g_mutex, on a copy taken under it: they reach host code (JS in the
+// WASM build), which may call back into any of the functions here, and the mutex is not
+// recursive. A hook replaced while a copy runs finishes on the old one.
 auto LookupTranspiledGlsl(const std::string& cacheKey, int shaderType) -> std::optional<std::string>
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_lookup)
+    TranspiledGlslLookupFn lookup;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        lookup = g_lookup;
+    }
+    if (!lookup)
     {
         return std::nullopt;
     }
-    return g_lookup(cacheKey, shaderType);
+    return lookup(cacheKey, shaderType);
 }
 
 void StoreTranspiledGlsl(const std::string& cacheKey, int shaderType, const std::string& glsl)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_store)
+    TranspiledGlslStoreFn store;
     {
-        g_store(cacheKey, shaderType, glsl);
+        std::lock_guard<std::mutex> lock(g_mutex);
+        store = g_store;
+    }
+    if (store)
+    {
+        store(cacheKey, shaderType, glsl);
     }
 }
 

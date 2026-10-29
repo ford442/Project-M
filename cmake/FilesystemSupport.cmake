@@ -16,7 +16,11 @@ set(CMAKE_CXX_STANDARD ${_old_CMAKE_CXX_STANDARD})
 unset(_old_CMAKE_CXX_STANDARD)
 
 if(NOT ENABLE_BOOST_FILESYSTEM AND STD_FILESYSTEM_EXISTS)
-    set(CMAKE_CXX_STANDARD 17)
+    # std::filesystem needs C++17. Only raise the standard; the root CMakeLists.txt asks for 20,
+    # and this used to reset it to 17 unconditionally.
+    if(CMAKE_CXX_STANDARD LESS 17)
+        set(CMAKE_CXX_STANDARD 17)
+    endif()
 
     set(PROJECTM_FILESYSTEM_NAMESPACE std)
     set(PROJECTM_FILESYSTEM_INCLUDE <filesystem>)

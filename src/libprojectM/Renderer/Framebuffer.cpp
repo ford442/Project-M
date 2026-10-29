@@ -1,6 +1,10 @@
 #include "Renderer/Framebuffer.hpp"
 
+#include <Logging.hpp>
+
 #include <atomic>
+#include <cstdio>
+#include <string>
 
 namespace libprojectM {
 namespace Renderer {
@@ -159,6 +163,7 @@ bool Framebuffer::SetSize(int width, int height)
             texture.second->SetSize(width, height);
             commands.AttachTexture(TargetBinding::ReadDraw, texture.first, texture.second->Texture()->Handle());
         }
+        EnsureComplete(attachments.first);
     }
     commands.BindRenderTarget(TargetBinding::ReadDraw, {});
 
@@ -339,7 +344,74 @@ void Framebuffer::AddOwnedAttachment(int framebufferIndex, AttachmentPoint point
         commands.AttachTexture(TargetBinding::ReadDraw, point, texture->Handle());
     }
     UpdateDrawBuffers(framebufferIndex);
+    EnsureComplete(framebufferIndex);
     commands.BindRenderTarget(TargetBinding::ReadDraw, {});
+}
+
+void Framebuffer::EnsureComplete(int framebufferIndex)
+{
+    if (m_width <= 0 || m_height <= 0)
+    {
+        return; // nothing is allocated yet; SetSize() checks once it is
+    }
+
+    // A slot still being assembled (only a depth or stencil attachment so far) is
+    // incomplete by definition; check targets that have a color attachment to draw to.
+    const auto& slotAttachments = m_attachments.at(framebufferIndex);
+    bool hasColor = false;
+    for (const auto& entry : slotAttachments)
+    {
+        hasColor = hasColor || entry.second->Type() == TextureAttachment::AttachmentType::Color;
+    }
+    if (!hasColor)
+    {
+        return;
+    }
+
+    auto& commands = m_device->Commands();
+    commands.BindRenderTarget(TargetBinding::ReadDraw, m_framebufferIds.at(framebufferIndex));
+    const auto status = commands.CheckRenderTarget(TargetBinding::ReadDraw);
+    if (status.complete)
+    {
+        return;
+    }
+
+    // Typically an RGBA16F/RGBA32F (HDR) or sRGB color target the driver cannot render to.
+    // Drawing into it silently produces nothing, so swap every owned color attachment that
+    // is not already RGBA8 for an RGBA8 one: the picture loses precision, not everything.
+    bool replaced = false;
+    const auto& externalSlots = m_externalAttachments[framebufferIndex];
+    for (auto& [point, attachment] : m_attachments.at(framebufferIndex))
+    {
+        if (externalSlots.count(point) != 0 || attachment->Type() != TextureAttachment::AttachmentType::Color)
+        {
+            continue;
+        }
+        const auto format = attachment->ColorFormat();
+        if (format && (*format == Device::TextureFormat::RGBA8 || *format == Device::TextureFormat::RGBA))
+        {
+            continue;
+        }
+        attachment = std::make_shared<TextureAttachment>(Device::TextureFormat::RGBA8, m_width, m_height);
+        commands.AttachTexture(TargetBinding::ReadDraw, point, attachment->Texture()->Handle());
+        replaced = true;
+    }
+
+    char code[16];
+    std::snprintf(code, sizeof(code), "0x%04X", static_cast<unsigned>(status.code));
+    if (!replaced)
+    {
+        LOG_ERROR(std::string("[Framebuffer] Render target is incomplete (status ") + code + ") and its color attachments are already RGBA8.");
+        return;
+    }
+    if (commands.CheckRenderTarget(TargetBinding::ReadDraw).complete)
+    {
+        LOG_WARN(std::string("[Framebuffer] Render target is incomplete (status ") + code + ") with its color format; fell back to RGBA8.");
+    }
+    else
+    {
+        LOG_ERROR(std::string("[Framebuffer] Render target is incomplete (status ") + code + ") even after falling back to RGBA8.");
+    }
 }
 
 void Framebuffer::UpdateDrawBuffers(int framebufferIndex)

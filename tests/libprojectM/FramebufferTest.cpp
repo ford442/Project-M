@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <optional>
 
 namespace {
 
@@ -181,4 +182,44 @@ TEST_F(FramebufferTest, RemovingAnExternalSlotClearsExternalFlag)
     EXPECT_EQ(BoundColorTextureName(framebuffer, 0), texture->TextureID());
     // The removed external texture was not resized behind the caller's back.
     EXPECT_EQ(external->Texture()->Width(), 32);
+}
+
+TEST_F(FramebufferTest, UnrenderableColorFormatFallsBackToRgba8)
+{
+    using libprojectM::Renderer::Device::TextureFormat;
+
+    // A depth format as a color target is never color-renderable, the same failure an
+    // HDR RGBA16F target hits on a driver without float render targets.
+    Framebuffer framebuffer(1);
+    framebuffer.SetSize(16, 16);
+    framebuffer.CreateColorAttachment(0, 0, TextureFormat::Depth24);
+
+    const auto attachment = framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0);
+    ASSERT_NE(attachment, nullptr);
+    EXPECT_EQ(attachment->ColorFormat(), std::optional<TextureFormat>(TextureFormat::RGBA8));
+    EXPECT_EQ(BoundColorTextureName(framebuffer, 0), attachment->Texture()->TextureID());
+
+    framebuffer.Bind(0);
+    EXPECT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), static_cast<GLenum>(GL_FRAMEBUFFER_COMPLETE));
+    Framebuffer::Unbind();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+TEST_F(FramebufferTest, UnrenderableColorFormatFallsBackAfterResize)
+{
+    using libprojectM::Renderer::Device::TextureFormat;
+
+    // Created before the size is known (as MilkdropPreset does): the check runs in SetSize().
+    Framebuffer framebuffer(1);
+    framebuffer.CreateColorAttachment(0, 0, TextureFormat::Depth24);
+    framebuffer.SetSize(16, 16);
+
+    const auto attachment = framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0);
+    ASSERT_NE(attachment, nullptr);
+    EXPECT_EQ(attachment->ColorFormat(), std::optional<TextureFormat>(TextureFormat::RGBA8));
+
+    framebuffer.Bind(0);
+    EXPECT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), static_cast<GLenum>(GL_FRAMEBUFFER_COMPLETE));
+    Framebuffer::Unbind();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }

@@ -258,6 +258,14 @@ private:
     void UpdateDrawBuffers(int framebufferIndex);
 
     /**
+     * @brief Checks the framebuffer's completeness once its attachments are allocated, and
+     *        replaces owned color attachments the driver cannot render to with RGBA8 ones
+     *        (logging a warning). Leaves the framebuffer bound to ReadDraw.
+     * @param framebufferIndex The framebuffer index.
+     */
+    void EnsureComplete(int framebufferIndex);
+
+    /**
      * @brief Removes the given attachment type from the framebuffer.
      * @param framebufferIndex The framebuffer index.
      * @param attachmentType The attachment type to remove.

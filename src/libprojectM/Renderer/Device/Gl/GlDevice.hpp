@@ -11,6 +11,9 @@
 #include "Renderer/Device/RenderDevice.hpp"
 #include "Renderer/Device/ResourceStateTracker.hpp"
 
+#include <set>
+#include <string>
+
 namespace libprojectM {
 namespace Renderer {
 namespace Device {
@@ -81,7 +84,15 @@ public:
     void RestoreState(const StateSnapshot& state) override;
 
 private:
+    /**
+     * @brief With validation on, drains glGetError() and logs each distinct error once,
+     *        as "[RenderDevice] GL error ... after <operation>". A no-op otherwise, so
+     *        release paths never pay for the round trip (a sync point under WebGL).
+     */
+    void ReportGlErrors(const char* operation);
+
     ResourceStateTracker& m_tracker;
+    std::set<std::string> m_reportedGlErrors; //!< "<operation>:<code>" pairs already logged.
 };
 
 /**

@@ -23,8 +23,9 @@ void PCM::AddToBuffer(
         return;
     }
 
-    size_t const writeStart = m_start.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(m_pcmMutex);
+    // Read under the lock: two producers reading it first would both write from the same start.
+    size_t const writeStart = m_start.load(std::memory_order_relaxed);
     for (size_t i = 0; i < sampleCount; i++)
     {
         size_t const bufferOffset = (writeStart + i) % AudioBufferSamples;
@@ -140,8 +141,10 @@ auto PCM::GetFrameAudioData() const -> FrameAudioData
 
 void PCM::UpdateSpectrum(const WaveformBuffer& waveformData, SpectrumBuffer& spectrumData)
 {
-    std::vector<float> waveformSamples(AudioBufferSamples);
-    std::vector<float> spectrumValues;
+    // Members, not locals: this runs for both channels every frame.
+    auto& waveformSamples = m_fftInput;
+    auto& spectrumValues = m_fftOutput;
+    waveformSamples.resize(AudioBufferSamples);
 
     size_t oldI{0};
     for (size_t i = 0; i < AudioBufferSamples; i++)
@@ -153,7 +156,7 @@ void PCM::UpdateSpectrum(const WaveformBuffer& waveformData, SpectrumBuffer& spe
 
     m_fft.TimeToFrequencyDomain(waveformSamples, spectrumValues);
 
-    std::copy(spectrumValues.begin(), spectrumValues.end(), spectrumData.begin());
+    std::copy(spectrumValues.begin(), spectrumValues.begin() + std::min(spectrumValues.size(), spectrumData.size()), spectrumData.begin());
 }
 
 void PCM::CopyNewWaveformData(const WaveformBuffer& source, WaveformBuffer& destination)

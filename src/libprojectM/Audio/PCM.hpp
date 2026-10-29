@@ -131,6 +131,8 @@ private:
     SpectrumBuffer m_spectrumR{0.f}; //!< Right-channel spectrum data.
 
     MilkdropFFT m_fft{WaveformSamples, SpectrumSamples, true}; //!< Spectrum analyzer instance.
+    std::vector<float> m_fftInput;                             //!< UpdateSpectrum() scratch: the damped waveform.
+    std::vector<float> m_fftOutput;                            //!< UpdateSpectrum() scratch: the FFT's result.
 
     // Rhythm analysis sees every sample, not just the latest AudioBufferSamples: a mono copy
     // of the input goes into a larger ring, drained once per frame by UpdateRhythmAnalysis().

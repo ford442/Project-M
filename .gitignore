@@ -124,3 +124,6 @@ benchmark-results/gpu-stages.md
 # Cloned on demand by scripts/build_libomp_emscripten.sh (LLVM OpenMP sources)
 /vendor/llvm-project/
 /vendor/llvm-openmp/
+
+# Preset capture images (screenshots/README.md); only capture_report.json is tracked.
+screenshots/**/*.png

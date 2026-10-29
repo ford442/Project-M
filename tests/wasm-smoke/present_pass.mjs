@@ -83,6 +83,8 @@ try {
     browser = await launchChromium(chromium, 'software');
     const page = await browser.newPage();
     page.on('pageerror', (error) => console.error('[browser:pageerror]', error.message));
+    // PM_DEBUG_CONSOLE=1 forwards the page's console, for debugging a failing run.
+    if (process.env.PM_DEBUG_CONSOLE) page.on('console', (m) => console.log('[browser]', m.text()));
     await page.goto(pageUrl, { waitUntil: 'load', timeout: 60000 });
     const handle = await page.waitForFunction(() => window.__projectMPresentResult, null, { timeout: 300000 });
     const result = await handle.jsonValue();

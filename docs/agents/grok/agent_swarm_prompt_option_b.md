@@ -19,7 +19,7 @@ All files are in `docs/` and `docs/agents/grok/`:
 
 - `docs/option_b_milkdrop_parity.md` — Master roadmap with 6 phases (B1–B6) + detailed sub-plans for all 7 gaps
 - `docs/agents/grok/multi_pass_starter.md` — Starter code for 2-pass support (already partially implemented)
-- `docs/milkdrop2_vs_projectm_multipass.md` — Comparison of Milkdrop2 vs Project-M multi-pass approach
+- `docs/archive/milkdrop2_vs_projectm_multipass.md` — Comparison of Milkdrop2 vs Project-M multi-pass approach
 - `docs/agents/grok/openmp_candidates.md` — OpenMP parallelization opportunities (Phase B6)
 - `docs/agents/grok/glsl_shader_system_overview.md` — Current state of the GLSL transition shader system
 

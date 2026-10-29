@@ -198,15 +198,24 @@
       }
       if (!presetReady) throw new Error('worker mode: preset never became ready');
 
+      // Exactly one rendered frame per block, a fixed 1/60 s apart. With the
+      // worker's own loop running, frames landed whenever its rAF fired and the
+      // engine's time-based smoothing (bass relative to its running average) saw
+      // whatever wall-clock gaps the polling produced: on a slow CI runner the
+      // 80 Hz window decayed under the 2x-silence threshold. A paused loop and
+      // the virtual clock are how the golden harness pins frames too.
+      await handle.ccall('set_render_loop_paused', null, ['number'], [1]);
+      await handle.ccall('set_deterministic_clock', null, ['number', 'number'], [1, 60]);
       let framesFed = 0;
       const feedFrame = async (block) => {
-        // One block per rendered frame, like the main-thread leg.
-        const target = (await read('get_rendered_frame_count')) + 1;
         handle.feedPcm(block, 1);
         framesFed += block.length;
-        while ((await read('get_rendered_frame_count')) < target) await sleep(4);
+        // Messages reach the worker in order, so this frame drains the block.
+        await handle.ccall('render_frame', null, [], []);
       };
-      const levels = await measureWindows(feedFrame, () => handle.captureFrame());
+      const levels = await measureWindows(feedFrame, () => handle.captureFrame({ renderFrame: true }));
+      await handle.ccall('set_deterministic_clock', null, ['number', 'number'], [0, 60]);
+      await handle.ccall('set_render_loop_paused', null, ['number'], [0]);
 
       // Let the worker's render loop drain what is still outstanding.
       await sleep(500);
@@ -248,7 +257,7 @@
       const wasmScript = params.get('wasm') || './projectm-v.030-thread.js';
       await loadScript(wasmScript);
 
-      const Module = await createModule({
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js',
         canvas: document.getElementById('mcanvas'),
         secondaryCanvas: document.getElementById('scanvas'),
       });

@@ -69,7 +69,7 @@
       const loadTimeoutMs = parseInt(params.get('loadTimeoutMs') || '60000', 10);
 
       await loadScript(params.get('module'));
-      const Module = await createModule({
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js',
         noInitialRun: true,
         locateFile: (path, prefix) => prefix + path,
       });

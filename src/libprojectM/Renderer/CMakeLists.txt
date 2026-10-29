@@ -78,6 +78,7 @@ add_library(Renderer OBJECT
         Shader.hpp
         ShaderCache.cpp
         ShaderCache.hpp
+        ShaderPrelude.hpp
         ShaderTranspileCache.cpp
         ShaderTranspileCache.hpp
         Texture.cpp

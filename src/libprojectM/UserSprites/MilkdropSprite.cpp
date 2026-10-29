@@ -10,6 +10,7 @@
 
 #include <Renderer/BlendMode.hpp>
 #include <Renderer/ShaderCache.hpp>
+#include <Renderer/ShaderPrelude.hpp>
 #include <Renderer/TextureManager.hpp>
 
 #include <Utils.hpp>
@@ -47,17 +48,9 @@ void MilkdropSprite::Init(const std::string& spriteData, const Renderer::RenderC
     auto spriteShader = renderContext.shaderCache->Get("milkdrop_user_sprite");
     if (!spriteShader)
     {
-        // ToDo: Better handle this in the shader class to reduce duplicate code.
-#ifdef USE_GLES
-        // GLES also requires a precision specifier for variables and samplers
-        constexpr char versionHeader[] = "#version 300 es\n\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp sampler3D;\n";
-#else
-        constexpr char versionHeader[] = "#version 330\n\n";
-#endif
-
         spriteShader = std::make_shared<Renderer::Shader>();
-        spriteShader->CompileProgram(static_cast<const char*>(versionHeader) + kMilkdropSpriteVertexGlsl330,
-                                     static_cast<const char*>(versionHeader) + kMilkdropSpriteFragmentGlsl330);
+        spriteShader->CompileProgram(std::string(Renderer::kShaderPrelude) + kMilkdropSpriteVertexGlsl330,
+                                     std::string(Renderer::kShaderPrelude) + kMilkdropSpriteFragmentGlsl330);
         renderContext.shaderCache->Insert("milkdrop_user_sprite", spriteShader);
     }
 
@@ -317,6 +310,7 @@ MilkdropSprite::CodeContext::CodeContext()
 
 MilkdropSprite::CodeContext::~CodeContext()
 {
+    // The context does not own compiled code; free it first, while the context is still alive.
     projectm_eval_code_destroy(perFrameCodeHandle);
     projectm_eval_context_destroy(spriteCodeContext);
 

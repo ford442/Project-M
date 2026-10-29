@@ -9,6 +9,8 @@ set(PROJECTM_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
+# -std=c++20, not gnu++20: the WASM wrapper TUs compile with -std=c++20 against the same headers.
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE YES)
 
 # Don't export any symbols except those explicitly exported.

@@ -277,6 +277,17 @@ void render_frame()
         return;
     }
 
+    // A lost context stays usable as a JS object until the page's
+    // "webglcontextlost" handler tears the engine down, which runs as a later
+    // task. A frame in between must not touch GL: WebGL's createProgram() and
+    // createShader() return null on a lost context, and Emscripten's
+    // glCreateProgram() then throws ("Cannot set properties of null (setting
+    // 'name')") out of whatever compiled a shader that frame.
+    if (H.glCtx != 0 && emscripten_is_webgl_context_lost(H.glCtx))
+    {
+        return;
+    }
+
     // Switch to a preset the prepare thread has finished, if any. Its GL half
     // (preset objects, shader compile + link) runs here, on this host's context,
     // between frames of the current preset rather than in place of them.

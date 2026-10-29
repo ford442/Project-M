@@ -61,7 +61,7 @@ root, because hosts `import './projectm-*.js'`):
 - `projectm-*.js`, `projectm-*.1ink` (re-encoded as UTF-8 with a BOM at zip
   time; earlier deploys wrote UTF-16 LE, which still renders because a BOM
   decides the encoding before the header charset), `1ink.1ink` (alias of
-  `projectm_panel2.1ink`), `projectm-core.html`, `projectm-core.css`
+  `projectm_panel2.1ink`), `projectm-core.html`
 - `songs/`, `mp3_songs/`, `mod_songs/`: `deploy.py` regenerates each folder's
   `index.json` + `index.html` (`scripts/generate_songs_manifest.mjs`) from the
   target's file list. The songs themselves are uploaded out of band;

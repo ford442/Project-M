@@ -80,7 +80,7 @@
       canvas.height = height;
 
       await loadScript(params.get('module'));
-      const Module = await createModule({
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js',
         noInitialRun: true,
         primaryCanvasSelector: '#pm-stall-main',
         secondaryCanvasSelector: '#pm-stall-secondary',

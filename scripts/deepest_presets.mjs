@@ -14,7 +14,7 @@
 // Prints a comma-separated list of repo-relative .milk paths (the form
 // scripts/capture_custom_milk_screenshots.mjs --presets takes). Default dirs:
 // tests/libprojectM/data/PresetPrepare (prepare-deep-nesting.milk, the
-// deliberate worst case), presets/tests and custom_milk_fixed.
+// deliberate worst case), presets/tests and presets/custom.
 
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
@@ -75,7 +75,7 @@ function parseArgs(argv) {
         opts.dirs = [
             join(root, 'tests', 'libprojectM', 'data', 'PresetPrepare'),
             join(root, 'presets', 'tests'),
-            join(root, 'custom_milk_fixed'),
+            join(root, 'presets', 'custom'),
         ];
     }
     return opts;

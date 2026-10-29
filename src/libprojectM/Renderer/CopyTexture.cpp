@@ -1,4 +1,5 @@
 #include "Renderer/CopyTexture.hpp"
+#include "Renderer/ShaderPrelude.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -25,12 +26,6 @@ auto BlitPathEnabled() -> bool
 }
 
 } // anonymous namespace
-
-#ifdef USE_GLES
-static constexpr char ShaderVersion[] = "#version 300 es\n\nprecision highp float;\nprecision highp int;\n";
-#else
-static constexpr char ShaderVersion[] = "#version 330\n\n";
-#endif
 
 static constexpr char CopyTextureVertexShader[] = R"(
 layout(location = 0) in vec2 position;
@@ -446,8 +441,8 @@ std::shared_ptr<Shader> CopyTexture::BindShader(ShaderCache& shaderCache)
 
     if (!shader)
     {
-        std::string vertexShader(ShaderVersion);
-        std::string fragmentShader(ShaderVersion);
+        std::string vertexShader(kShaderPrelude);
+        std::string fragmentShader(kShaderPrelude);
         vertexShader.append(CopyTextureVertexShader);
         fragmentShader.append(CopyTextureFragmentShader);
 

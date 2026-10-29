@@ -194,9 +194,9 @@ projectm_wasm_codegen_compile_args() {
     )
 }
 
-# PROJECTM_WASM_LTO=1 adds -flto to the final wrapper link. The wrapper script
-# sets it from the libraries' own record (projectm-wasm-wrapper-flags.txt), so
-# it always matches how they were compiled.
+# PROJECTM_WASM_LTO=1 adds -flto to the final wrapper link. The projectM_wasm
+# CMake target follows the libraries' own cache entry, so it always matches how
+# they were compiled.
 #
 # PTHREAD_POOL_SIZE is a constant (5): the wrapper's compiled-in
 # kWasmPthreadPoolSize and its static_assert must describe the pool the bundle

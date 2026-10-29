@@ -10,14 +10,11 @@
 # per-directory PATHS list. Start narrow, widen the check list and the
 # directory coverage together as each is cleared.
 #
-# Why this does not use compile_commands.json: src/wasm/*.cpp is compiled by
-# scripts/build_wasm_smoke_wrapper.sh, not by CMake, so the Emscripten
-# build's compile_commands.json has no entry for any of these files.
-# clang-tidy then silently borrowed the flags of a neighbouring libprojectM
-# TU (em++ with no --target), and every file failed with
-# "unknown target CPU 'wasm32'" before a single check ran. Instead the
-# compile flags are spelled out below, mirroring the wrapper's include list
-# plus the wasm32 target and emsdk sysroot that em++ would add.
+# Compile flags come from <build dir>/compile_commands.json: the src/wasm/
+# TUs are the projectM_wasm CMake target (src/wasm/CMakeLists.txt), so the
+# database has their real em++ command lines. em++ adds the wasm32 target and
+# the emsdk sysroot itself, which clang-tidy's driver does not know, so those
+# are passed as extra arguments.
 #
 # clang-tidy version: emsdk's libc++ headers need a recent Clang front end
 # (clang-tidy 18 fails on __builtin_clzg / __GCC_DESTRUCTIVE_SIZE and crashes
@@ -28,15 +25,14 @@
 # Needs:
 #   - em++ on PATH (source emsdk_env.sh), for the sysroot
 #   - an Emscripten CMake build dir with generated headers
-#     (src/libprojectM/MilkdropPreset/MilkdropStaticShaders.hpp etc.)
-#   - an install prefix with include/projectM-4/ (INSTALL_DIR)
+#     (src/libprojectM/MilkdropPreset/MilkdropStaticShaders.hpp etc.) and a
+#     compile_commands.json (scripts/build_wasm_install.sh turns it on)
 #
 # Usage:
 #   scripts/check_cpp_tidy.sh [cmake build dir]
 #   (defaults to $PROJECT_ROOT/cmake-build, matching build_emscripten.yml)
 #
 # Environment:
-#   INSTALL_DIR        install prefix (default: $PROJECT_ROOT/install)
 #   CLANG_TIDY         clang-tidy binary to use
 #   CPP_TIDY_REQUIRED  set to 1 to fail instead of skipping when a
 #                      prerequisite is missing (CI sets this)
@@ -54,7 +50,6 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 BUILD_DIR="${1:-$PROJECT_ROOT/cmake-build}"
-INSTALL_DIR="${INSTALL_DIR:-$PROJECT_ROOT/install}"
 MIN_CLANG_TIDY_MAJOR=22
 
 missing_prerequisite() {
@@ -101,22 +96,9 @@ fi
 if [[ ! -f "$BUILD_DIR/src/libprojectM/MilkdropPreset/MilkdropStaticShaders.hpp" ]]; then
     missing_prerequisite "no configured+built Emscripten build dir at $BUILD_DIR (generated headers missing)."
 fi
-if [[ ! -d "$INSTALL_DIR/include/projectM-4" ]]; then
-    missing_prerequisite "no installed projectM-4 headers under $INSTALL_DIR/include (set INSTALL_DIR)."
+if [[ ! -s "$BUILD_DIR/compile_commands.json" ]] || ! grep -q 'src/wasm/WasmHost.cpp' "$BUILD_DIR/compile_commands.json"; then
+    missing_prerequisite "$BUILD_DIR/compile_commands.json has no src/wasm/ entries (configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; scripts/build_wasm_install.sh does)."
 fi
-# The libraries' -include config.h and compile definitions, as the wrapper
-# compile gets them (scripts/build_wasm_smoke_wrapper.sh reads the same file).
-WRAPPER_FLAGS_FILE="$BUILD_DIR/projectm-wasm-wrapper-flags.txt"
-if [[ ! -s "$WRAPPER_FLAGS_FILE" ]]; then
-    missing_prerequisite "$WRAPPER_FLAGS_FILE missing (build dir configured by an older tree; reconfigure it)."
-fi
-lib_compile_args=()
-while IFS= read -r line || [[ -n "$line" ]]; do
-    case "$line" in
-        "" | "-D") ;;
-        *) lib_compile_args+=("$line") ;;
-    esac
-done < "$WRAPPER_FLAGS_FILE"
 
 # Narrow, hand-picked check list — deliberately not the full .clang-tidy
 # groups. -checks= on the command line resets the effective list (the
@@ -133,30 +115,13 @@ CHECKS='-*,bugprone-*,-bugprone-easily-swappable-parameters,performance-*,-perfo
 # filter to every header, which would drag in vendor/ and the sysroot).
 HEADER_FILTER='/src/wasm/'
 
-# Keep in sync with projectm_wasm_wrapper_include_args in
-# scripts/build_wasm_smoke_wrapper.sh.
-COMPILE_ARGS=(
-    -x c++
-    -std=c++20
-    --target=wasm32-unknown-emscripten
-    "--sysroot=$SYSROOT"
-    -isystem "$SYSROOT/include/compat"
-    -isystem "$SYSROOT/include/c++/v1"
-    -D__EMSCRIPTEN__
-    -pthread
-    -fopenmp
-    -msimd128
-    -I "$INSTALL_DIR/include"
-    -I "$PROJECT_ROOT"
-    -I "$PROJECT_ROOT/cmake/generated"
-    -I "$PROJECT_ROOT/omp"
-    -I "$PROJECT_ROOT/src/libprojectM"
-    -I "$BUILD_DIR/src/libprojectM"
-    -I "$BUILD_DIR/src/api/include"
-    -I "$PROJECT_ROOT/vendor/hlslparser/src"
-    -I "$PROJECT_ROOT/vendor/glad/include"
-    -I "$PROJECT_ROOT/vendor"
-    "${lib_compile_args[@]}"
+# What em++ adds on top of the database's command lines.
+EXTRA_ARGS=(
+    --extra-arg=--target=wasm32-unknown-emscripten
+    "--extra-arg=--sysroot=$SYSROOT"
+    "--extra-arg=-isystem$SYSROOT/include/compat"
+    "--extra-arg=-isystem$SYSROOT/include/c++/v1"
+    --extra-arg=-D__EMSCRIPTEN__
 )
 
 shopt -s nullglob
@@ -174,7 +139,7 @@ echo "  checks: $CHECKS"
 failed=0
 for f in "${files[@]}"; do
     if ! "$CLANG_TIDY" --quiet --header-filter="$HEADER_FILTER" --checks="$CHECKS" \
-        --warnings-as-errors='*' "$f" -- "${COMPILE_ARGS[@]}"; then
+        --warnings-as-errors='*' -p "$BUILD_DIR" "${EXTRA_ARGS[@]}" "$f"; then
         failed=1
     fi
 done

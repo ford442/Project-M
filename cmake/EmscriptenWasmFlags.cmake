@@ -79,11 +79,9 @@ set(PROJECTM_WASM_EXCEPTION_ARGS -fwasm-exceptions)
 # optimises across them and the wrapper TUs. The static libs and the wrapper
 # link must use the same setting (a bitcode archive only links with -flto).
 # There is one switch: this cache variable (scripts/build_wasm.sh --lto sets
-# it). The wrapper link does not choose; scripts/build_wasm_smoke_wrapper.sh
-# reads the value this configure recorded (projectm-wasm-wrapper-flags.txt in
-# the build dir, see projectm_write_emscripten_wrapper_flags() below), checks
-# the archives agree, and a PROJECTM_WASM_LTO in its environment that disagrees
-# fails the link. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
+# it). The projectM_wasm target (src/wasm/CMakeLists.txt) links with -flto
+# exactly when it is ON, and scripts/build_wasm_smoke_wrapper.sh refuses a
+# PROJECTM_WASM_LTO in its environment that disagrees. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
 set(PROJECTM_WASM_LTO OFF CACHE BOOL "Compile the WASM static libraries to LLVM bitcode (-flto); link the bundle with PROJECTM_WASM_LTO=1.")
 
 # Browser wrapper exports (projectM_emscripten.cpp final emcc link).
@@ -448,52 +446,13 @@ function(projectm_apply_emscripten_lib_link_flags)
     string(JOIN " " _shell_args ${_all_link_args})
     string(APPEND _shell_args " -s PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE}")
     string(APPEND _shell_args " -s EXPORTED_RUNTIME_METHODS='${PROJECTM_WASM_EXPORTED_RUNTIME_METHODS_STR}'")
-    # No EXPORTED_FUNCTIONS here. CMake never links the browser bundle (that is
-    # scripts/build_wasm_smoke_wrapper.sh); the only executables these options
-    # reach are the unit tests, which do not contain the wrapper's
+    # No EXPORTED_FUNCTIONS here. The browser bundle (projectM_wasm,
+    # src/wasm/CMakeLists.txt) resets these options and sets its own; the other
+    # executables they reach are the unit tests, which do not contain the wrapper's
     # EMSCRIPTEN_KEEPALIVE symbols. Emscripten 6.x rejects the link with
     # "symbol exported via --export not found: init" for every missing name.
     string(APPEND _shell_args " --pre-js ${PROJECTM_WASM_PTHREAD_SCRIPT_URL_PRE_JS}")
     add_link_options("SHELL:${_shell_args}")
-endfunction()
-
-# Writes <build dir>/projectm-wasm-wrapper-flags.txt: how this build compiled
-# libprojectM, one compiler argument per line, for the wrapper TUs in src/wasm/.
-# Those are compiled by scripts/build_wasm_smoke_wrapper.sh, not by CMake, yet
-# include libprojectM's internal headers (ProjectMWasmInternal.hpp), so they
-# must see the same preprocessor state as the objects in the archives or the
-# two sides disagree about inline functions and class layouts (ODR):
-#   - -include config.h, which every libprojectM TU gets (features.cmake);
-#   - the compile definitions of the libprojectM object libraries, directory
-#     and transitive ones included (PRJM_ENABLE_OPENMP, *_STATIC_DEFINE, ...);
-#   - -DNDEBUG when the build type defines it, so the wrapper's assert()s are
-#     compiled out exactly when the library's are;
-#   - -DPROJECTM_WASM_LIB_LTO=0|1, which the wrapper link follows (it has no LTO
-#     switch of its own; see PROJECTM_WASM_LTO above).
-# `targets` are the object libraries whose definitions to collect.
-function(projectm_write_emscripten_wrapper_flags)
-    set(_definitions "")
-    foreach(_target IN LISTS ARGN)
-        list(APPEND _definitions "$<TARGET_PROPERTY:${_target},COMPILE_DEFINITIONS>")
-    endforeach()
-
-    string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type)
-    set(_ndebug_line "")
-    if(" ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${_build_type}} " MATCHES " [-/]DNDEBUG ")
-        set(_ndebug_line "-DNDEBUG\n")
-    endif()
-    if(PROJECTM_WASM_LTO)
-        set(_lto 1)
-    else()
-        set(_lto 0)
-    endif()
-
-    # One argument per line, verbatim: values keep their quotes
-    # (DATADIR_PATH="..."), which a response file would need escaped. Empty
-    # definitions (generator expressions that evaluate to nothing) come out as
-    # a bare "-D" line, which the reader skips.
-    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/projectm-wasm-wrapper-flags.txt"
-         CONTENT "-include\n${PROJECTM_BINARY_DIR}/include/config.h\n${_ndebug_line}-DPROJECTM_WASM_LIB_LTO=${_lto}\n-D$<JOIN:$<REMOVE_DUPLICATES:${_definitions}>,\n-D>\n")
 endfunction()
 
 # Absolute path to the --pre-js that restores Module.mainScriptUrlOrBlob, so the

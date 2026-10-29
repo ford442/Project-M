@@ -238,6 +238,10 @@ include(features.cmake)
 
 add_subdirectory(presets)
 add_subdirectory(src)
+if(ENABLE_EMSCRIPTEN)
+    # The browser bundle (projectM_wasm); see src/wasm/CMakeLists.txt.
+    add_subdirectory(src/wasm)
+endif()
 
 if(BUILD_TESTING)
     enable_testing()

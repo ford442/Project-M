@@ -18,6 +18,7 @@
 // and their exports in WasmDualFbo.cpp.
 #include "WasmGraphics.hpp"
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 #include "WasmWebGLContext.hpp"
 
 // Renders one frame for the currently-active host. renderLoop() makes each
@@ -103,13 +104,13 @@ void start_render(int width, int height)
     // context was lost and not yet restored).
     if (!pm)
     {
-        fprintf(stderr, "start_render: no engine on this host; call init() first.\n");
+        WASM_LOG_WARN("start_render: no engine on this host; call init() first.");
         return;
     }
     using RenderDevice::Capability;
     auto& commands = RenderDevice::Commands();
     commands.Clear(RenderDevice::ClearColor | RenderDevice::ClearDepth | RenderDevice::ClearStencil);
-    printf("Setting window size: %i x %i\n", width, height);
+    WASM_LOG_INFO("Setting window size: %i x %i", width, height);
     commands.SetViewport({0, 0, width, height}); //  viewport/scissor after UsePrg runs at full resolution
     commands.SetEnabled(Capability::ScissorTest, true);
     commands.SetScissor({0, 0, width, height});
@@ -131,7 +132,7 @@ void start_render(int width, int height)
     // context is current.
     if (!g_compositorShader.Init())
     {
-        fprintf(stderr, "start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.\n");
+        WASM_LOG_ERROR("start_render: CompositingBlendShader failed to initialise – transitions will be unavailable.");
     }
 
     // The state everything above established is what each preset render is
@@ -398,7 +399,7 @@ void render_frame()
         // Start the Preset A idle clock: from here nothing samples the pair
         // until the next transition, so ReleaseDualFboIfIdle() can reclaim it.
         g_transitionEndTime = WasmNow();
-        fprintf(stderr, "Phase5: Transition complete – Preset B promoted to A.\n");
+        WASM_LOG_INFO("Phase5: Transition complete – Preset B promoted to A.");
     }
     FlushRhythmEvents(H);
     // A requested capture reads what the compositor just drew, before the commit.

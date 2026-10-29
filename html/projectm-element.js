@@ -303,6 +303,11 @@ export class ProjectMVisualizerElement extends HTMLElement {
         const renderTopology = /** @type {ProjectMRenderTopology} */ (
             this.getAttribute('render-topology') || 'auto'
         );
+        // An embed is a guest on someone else's page: it does not ask for the
+        // discrete GPU unless the page says so (power-preference="high-performance").
+        const powerPreference = /** @type {'default' | 'low-power' | 'high-performance'} */ (
+            this.getAttribute('power-preference') || 'default'
+        );
 
         /** @type {ProjectMContext} */
         let context;
@@ -325,6 +330,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 audioElement: this.getAttribute('audio-element') || undefined,
                 externalPcmOrigins: parseOriginList(this.getAttribute('external-pcm-origins')),
                 renderTopology,
+                powerPreference,
                 onRenderWorkerFallback: (reason) => {
                     console.info('[project-m-visualizer] rendering on the main thread:', reason);
                 },

@@ -5,6 +5,7 @@
 // timeline state. Exposes the dual_fbo_* and transition_* EMSCRIPTEN_KEEPALIVE
 // C exports that JavaScript drives during a preset crossfade.
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 
 // =============================================================================
 // Per-instance host state (#168 Phase B).
@@ -83,7 +84,7 @@ bool dual_fbo_begin_transition()
     int h = g_dualFbo.Height();
     if (w <= 0 || h <= 0)
     {
-        fprintf(stderr, "DualFBO: Cannot begin transition – viewport size unknown (start_render() has not run).\n");
+        WASM_LOG_ERROR("DualFBO: Cannot begin transition – viewport size unknown (start_render() has not run).");
         return false;
     }
 
@@ -93,7 +94,7 @@ bool dual_fbo_begin_transition()
     const bool allocatedAHere = !g_dualFbo.IsPresetAAllocated();
     if (allocatedAHere && !g_dualFbo.AllocatePresetA(w, h))
     {
-        fprintf(stderr, "DualFBO: Failed to lazily allocate Preset A FBOs.\n");
+        WASM_LOG_ERROR("DualFBO: Failed to lazily allocate Preset A FBOs.");
         return false;
     }
 
@@ -283,8 +284,8 @@ void dual_fbo_set_idle_release_seconds(float seconds)
     WasmHost& H = Host();
     auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
     g_dualFboIdleReleaseSec = seconds;
-    fprintf(stderr, "DualFBO: Preset A idle release set to %.2f s.\n",
-            static_cast<double>(seconds));
+    WASM_LOG_INFO("DualFBO: Preset A idle release set to %.2f s.",
+                  static_cast<double>(seconds));
 }
 
 /**
@@ -361,8 +362,8 @@ void dual_fbo_render_preset_a()
     auto& g_dualFbo = H.dualFbo;
     if (!pm || !g_dualFbo.IsPresetAAllocated())
     {
-        fprintf(stderr, "dual_fbo_render_preset_a: not ready (pm=%p, presetAAllocated=%d)\n",
-                static_cast<void*>(pm), static_cast<int>(g_dualFbo.IsPresetAAllocated()));
+        WASM_LOG_ERROR("dual_fbo_render_preset_a: not ready (pm=%p, presetAAllocated=%d)",
+                       static_cast<void*>(pm), static_cast<int>(g_dualFbo.IsPresetAAllocated()));
         return;
     }
     RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
@@ -388,8 +389,8 @@ void dual_fbo_render_preset_b()
     auto& g_dualFbo = H.dualFbo;
     if (!pm || !g_dualFbo.IsPresetBAllocated())
     {
-        fprintf(stderr, "dual_fbo_render_preset_b: not ready (pm=%p, presetBAllocated=%d)\n",
-                static_cast<void*>(pm), static_cast<int>(g_dualFbo.IsPresetBAllocated()));
+        WASM_LOG_ERROR("dual_fbo_render_preset_b: not ready (pm=%p, presetBAllocated=%d)",
+                       static_cast<void*>(pm), static_cast<int>(g_dualFbo.IsPresetBAllocated()));
         return;
     }
     // Force-reset GL state left by Preset A's draw before entering Preset B's pipeline.
@@ -440,9 +441,9 @@ void transition_start()
     auto& g_presetBReady = H.presetBReady;
     if (!g_dualFbo.IsPresetAAllocated() || !g_dualFbo.IsPresetBAllocated())
     {
-        fprintf(stderr, "transition_start: dual FBOs not allocated (A=%d, B=%d) – call dual_fbo_begin_transition() first.\n",
-                static_cast<int>(g_dualFbo.IsPresetAAllocated()),
-                static_cast<int>(g_dualFbo.IsPresetBAllocated()));
+        WASM_LOG_ERROR("transition_start: dual FBOs not allocated (A=%d, B=%d) – call dual_fbo_begin_transition() first.",
+                       static_cast<int>(g_dualFbo.IsPresetAAllocated()),
+                       static_cast<int>(g_dualFbo.IsPresetBAllocated()));
         return;
     }
     if (!g_compositorShader.IsInitialized())
@@ -452,7 +453,7 @@ void transition_start()
         // timer only advances inside the compositor branch of render_frame(),
         // so B would never be promoted and both pairs would stay resident for
         // the rest of the session. Fall back to an explicit hard cut instead.
-        fprintf(stderr, "transition_start: compositor unavailable – hard-cutting to Preset B.\n");
+        WASM_LOG_WARN("transition_start: compositor unavailable – hard-cutting to Preset B.");
         g_dualFbo.PromoteBtoA();
         g_transitionBlend = 0.0f;
         g_transitionActive = false;
@@ -466,8 +467,8 @@ void transition_start()
     // transition_set_duration_beats() is resolved against the tempo now, once: a
     // tempo change mid-crossfade must not make the blend jump.
     H.activeTransitionDuration = ResolveTransitionDuration(H);
-    fprintf(stderr, "Phase5: Transition started (duration=%.2f s, configured %.2f s).\n",
-            static_cast<double>(H.activeTransitionDuration), static_cast<double>(g_transitionDuration));
+    WASM_LOG_INFO("Phase5: Transition started (duration=%.2f s, configured %.2f s).",
+                  static_cast<double>(H.activeTransitionDuration), static_cast<double>(g_transitionDuration));
 }
 
 /**
@@ -496,7 +497,7 @@ void transition_cancel()
     // Start the Preset A idle clock here too – a cancelled transition leaves the
     // A pair allocated with nothing left to sample it.
     g_transitionEndTime = WasmNow();
-    fprintf(stderr, "Phase5: Transition cancelled.\n");
+    WASM_LOG_INFO("Phase5: Transition cancelled.");
 }
 
 /**
@@ -536,8 +537,8 @@ void transition_set_duration(float seconds)
     WasmHost& H = Host();
     auto& g_transitionDuration = H.transitionDuration;
     g_transitionDuration = seconds >= 0.0f ? seconds : 0.0f;
-    fprintf(stderr, "Phase5: Transition duration set to %.2f s.\n",
-            static_cast<double>(g_transitionDuration));
+    WASM_LOG_INFO("Phase5: Transition duration set to %.2f s.",
+                  static_cast<double>(g_transitionDuration));
 }
 
 /**

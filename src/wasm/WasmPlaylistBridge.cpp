@@ -3,6 +3,7 @@
 // Preset playlist bridge: projectM preset-switch callbacks, playlist path /
 // preset add helpers, load_preset_file(), and preset-readiness queries.
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 
 // Per-instance host state (#168 Phase B). The engine/playlist/loading triple
 // and the preset-readiness gate are members of the WasmHost that owns them.
@@ -60,7 +61,7 @@ void on_preset_switch_failed(const char* preset_filename, const char* message, v
     WasmHost& H = CallbackHost(user_data);
     auto& app_data = H.appData;
     auto& g_presetSwitchFailed = H.presetSwitchFailed;
-    printf("Preset switch failed (%s): %s\n", preset_filename, message);
+    WASM_LOG_WARN("Preset switch failed (%s): %s", preset_filename, message);
     g_presetSwitchFailed = true;
     app_data.loading = EM_FALSE;
     js_report_preset_switch_failed(EventHostHandle(H), preset_filename, message);
@@ -86,7 +87,7 @@ void on_preset_switch_requested(bool is_hard_cut, void* user_data)
     {
         return;
     }
-    printf("projectM is requesting a preset switch (hard_cut: %s)!\n", is_hard_cut ? "true" : "false");
+    WASM_LOG_INFO("projectM is requesting a preset switch (hard_cut: %s)!", is_hard_cut ? "true" : "false");
     projectm_playlist_play_next(app_data.playlist, is_hard_cut);
     return;
 }
@@ -146,7 +147,7 @@ void add_existing_vfs_presets()
             added++;
         }
     }
-    printf("Added %d existing VFS presets to playlist.\n", added);
+    WASM_LOG_INFO("Added %d existing VFS presets to playlist.", added);
     return;
 }
 
@@ -183,7 +184,7 @@ void add_custom_milk_paths(int count)
             added++;
         }
     }
-    printf("Added %d of %d custom milk presets to playlist.\n", added, count);
+    WASM_LOG_INFO("Added %d of %d custom milk presets to playlist.", added, count);
     return;
 }
 

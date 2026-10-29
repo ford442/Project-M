@@ -356,6 +356,9 @@ Third-party code that is compiled as part of the project:
 - The project uses an internal logging framework (see `Logging.hpp`).
 - `TRACE` and `DEBUG` levels are stripped in release builds unless `ENABLE_VERBOSE_LOGGING=ON`.
 - Prefer the project's logging macros over `printf` or `std::cout`.
+- `src/wasm/` logs with `WASM_LOG_INFO/WARN/ERROR` (`WasmLog.hpp`), which go through `Logging` to
+  the browser console and `globalThis.pmOnLog(level, message)`. `scripts/check_wasm_no_printf.sh`
+  (in `cpp_format_gate.yml`) fails any `printf`/`fprintf` there.
 
 ---
 

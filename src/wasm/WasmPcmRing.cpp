@@ -42,6 +42,7 @@
 // still lands on the same storage slot either side of a wrap, and distances are
 // computed modulo it.
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 
 #include <cstddef>
 #include <cstdlib>
@@ -164,7 +165,7 @@ int pcm_ring_init(int capacity_frames)
         ring.data = static_cast<float*>(calloc(static_cast<size_t>(capacity_frames) * 2, sizeof(float)));
         if (!ring.header || !ring.data)
         {
-            fprintf(stderr, "pcm_ring_init: allocation failed for %d frames\n", capacity_frames);
+            WASM_LOG_ERROR("pcm_ring_init: allocation failed for %d frames", capacity_frames);
             free(ring.header);
             free(ring.data);
             ring.header = nullptr;

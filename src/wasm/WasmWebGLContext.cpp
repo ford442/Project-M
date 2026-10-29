@@ -4,6 +4,7 @@
 // CSS selectors. See docs/EMSCRIPTEN.md § WebGL context attributes.
 #include "WasmWebGLContext.hpp"
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 
 // Per-instance host state (#168 Phase B). The WebGL context handle and the
 // canvas CSS selectors were process-global, so a second engine could not own a
@@ -238,7 +239,9 @@ static EmscriptenWebGLContextAttributes ProjectMWebGLAttributes(const WasmContex
     attrs.antialias = cfg.antialias != 0;
     attrs.premultipliedAlpha = cfg.premultipliedAlpha != 0;
     attrs.preserveDrawingBuffer = cfg.preserveDrawingBuffer != 0;
-    attrs.enableExtensionsByDefault = true;
+    // Off: only ProjectMEnableRequiredWebGLExtensions() enables extensions, so behaviour does not depend on which
+    // extensions a browser happens to offer, and get_context_snapshot() can list the set.
+    attrs.enableExtensionsByDefault = false;
     attrs.failIfMajorPerformanceCaveat = cfg.failIfMajorPerformanceCaveat != 0;
     attrs.explicitSwapControl = cfg.explicitSwapControl != 0;
     attrs.desynchronized = cfg.desynchronized != 0;
@@ -274,47 +277,66 @@ static bool WebGL2AvailableWithoutPerformanceCaveat()
 
 // The one place this host enables WebGL extensions; everything else (the
 // dual-FBO format choice included) reads the answers from WasmContextCaps.
-// enableExtensionsByDefault stays on: libprojectM uses extensions it never
-// enables itself (anisotropic filtering, KHR_parallel_shader_compile).
+// enableExtensionsByDefault is off, so this list is the context's whole
+// extension set (get_context_snapshot() reports it). The perf HUD's GPU timer
+// enables EXT_disjoint_timer_query_webgl2 itself, from JS, only when asked to time.
 static WasmContextCaps ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx)
 {
     WasmContextCaps caps;
+    const auto enable = [ctx](const char* name) {
+        return emscripten_webgl_enable_extension(ctx, name) == EM_TRUE;
+    };
     // Float *textures* are core in WebGL 2; only rendering to them needs an
     // extension. (OES_texture_float / OES_texture_half_float[_linear] are
     // WebGL 1 names and do not exist on a WebGL 2 context.)
-    caps.floatColorBuffer = emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE;
+    caps.floatColorBuffer = enable("EXT_color_buffer_float");
     if (!caps.floatColorBuffer)
     {
-        fprintf(stderr, "Warning: EXT_color_buffer_float not supported; float FBO rendering will not be available\n");
+        WASM_LOG_WARN("Warning: EXT_color_buffer_float not supported; float FBO rendering will not be available");
     }
     // RGBA16F alone, on GPUs that cannot render to RGBA32F.
-    caps.halfFloatColorBuffer = emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE;
-    caps.floatLinear = emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear") == EM_TRUE;
-    caps.floatBlend = emscripten_webgl_enable_extension(ctx, "EXT_float_blend") == EM_TRUE;
+    caps.halfFloatColorBuffer = enable("EXT_color_buffer_half_float");
+    caps.floatLinear = enable("OES_texture_float_linear");
+    caps.floatBlend = enable("EXT_float_blend");
     if (!caps.floatBlend)
     {
-        fprintf(stderr, "Warning: EXT_float_blend not supported; float blending will not be available\n");
+        WASM_LOG_WARN("Warning: EXT_float_blend not supported; float blending will not be available");
     }
+    // libprojectM reads these itself: GlDevice::MaxTextureAnisotropy() and
+    // SupportsParallelShaderCompile(). Emscripten's glGetStringi lists what the
+    // browser supports, not what is enabled, so they must be enabled here.
+    caps.textureFilterAnisotropic = enable("EXT_texture_filter_anisotropic");
+    caps.parallelShaderCompile = enable("KHR_parallel_shader_compile");
     // Not needed to render: observed so get_context_snapshot() can tell a host
     // whether this context can be made to lose itself (context-loss testing).
-    caps.loseContext = emscripten_webgl_enable_extension(ctx, "WEBGL_lose_context") == EM_TRUE;
+    caps.loseContext = enable("WEBGL_lose_context");
     return caps;
 }
 
 /**
- * Pin the canvas color spaces to sRGB after the context is current.
+ * Tag the canvas color spaces after the context is current.
  *
  * Milkdrop presets are authored in an sRGB / Rec.709-like cube. Explicitly
  * tagging the drawing buffer and texture unpack path keeps that look stable
  * on Display-P3 (and future wide-gamut) panels: the browser/OS maps sRGB →
  * the panel, instead of silently reinterpreting RGB numbers as P3.
  *
+ * A bundle built with ENABLE_HDR_P3 (PROJECTM_HDR_P3) encodes its composite
+ * output in Display-P3 (ShaderTranspiler's HdrOutputFunctions), so its drawing
+ * buffer is tagged display-p3; tagging it srgb would make the browser show P3
+ * numbers as sRGB. Images are still sRGB files, so unpack stays srgb.
+ *
  * Uses Emscripten's GLctx so this works for both the main-thread canvas and
  * the OffscreenCanvas render-worker path (no DOM query).
  * Properties are no-ops on browsers that lack WebGL color management.
  */
-static void ProjectMApplySrgbCanvasColorSpace()
+static void ProjectMApplyCanvasColorSpace()
 {
+#ifdef PROJECTM_HDR_P3
+    constexpr int displayP3 = 1;
+#else
+    constexpr int displayP3 = 0;
+#endif
     // clang-format off
     EM_ASM({
         try
@@ -326,7 +348,7 @@ static void ProjectMApplySrgbCanvasColorSpace()
             }
             if ('drawingBufferColorSpace' in gl)
             {
-                gl.drawingBufferColorSpace = 'srgb';
+                gl.drawingBufferColorSpace = $0 ? 'display-p3' : 'srgb';
             }
             if ('unpackColorSpace' in gl)
             {
@@ -336,7 +358,7 @@ static void ProjectMApplySrgbCanvasColorSpace()
         catch (e)
         {
         }
-    });
+    }, displayP3);
     // clang-format on
 }
 
@@ -483,12 +505,12 @@ static int CreateAndActivate(WasmHost& H, const WasmContextConfig& cfg)
     {
         if (cfg.failIfMajorPerformanceCaveat != 0 && WebGL2AvailableWithoutPerformanceCaveat())
         {
-            fprintf(stderr, "WebGL context on %s refused: failIfMajorPerformanceCaveat (software renderer)\n", selector);
+            WASM_LOG_WARN("WebGL context on %s refused: failIfMajorPerformanceCaveat (software renderer)", selector);
             js_report_init_error(kInitPerformanceCaveat,
                                  "Only a software WebGL 2 renderer is available and failIfMajorPerformanceCaveat refused it");
             return kInitPerformanceCaveat;
         }
-        fprintf(stderr, "Failed to create WebGL context on %s\n", selector);
+        WASM_LOG_ERROR("Failed to create WebGL context on %s", selector);
         js_report_init_error(kInitContextCreateFailed, "Failed to create WebGL 2 context");
         return kInitContextCreateFailed;
     }
@@ -496,7 +518,7 @@ static int CreateAndActivate(WasmHost& H, const WasmContextConfig& cfg)
     const EMSCRIPTEN_RESULT em_res = emscripten_webgl_make_context_current(H.glCtx);
     if (em_res != EMSCRIPTEN_RESULT_SUCCESS)
     {
-        fprintf(stderr, "Failed to activate the WebGL context for rendering\n");
+        WASM_LOG_ERROR("Failed to activate the WebGL context for rendering");
         js_report_init_error(kInitMakeCurrentFailed, "Failed to activate the WebGL context for rendering");
         WasmWebGLDestroyContext();
         return kInitMakeCurrentFailed;
@@ -522,7 +544,7 @@ int WasmWebGLCreateAndActivateContext()
 
     if (!WasmWebGLCanvasElementExists(g_mainCanvasSelector))
     {
-        fprintf(stderr, "Failed to find primary canvas selector: %s\n", g_mainCanvasSelector);
+        WASM_LOG_ERROR("Failed to find primary canvas selector: %s", g_mainCanvasSelector);
         js_report_init_error(kInitCanvasMissing, "Primary canvas selector not found in document");
         return kInitCanvasMissing;
     }
@@ -534,7 +556,7 @@ int WasmWebGLCreateAndActivateContext()
     // rather than report it as "no WebGL 2".
     if (cfg.explicitSwapControl != 0)
     {
-        fprintf(stderr, "explicitSwapControl requested, but this bundle was linked without OFFSCREEN_FRAMEBUFFER\n");
+        WASM_LOG_ERROR("explicitSwapControl requested, but this bundle was linked without OFFSCREEN_FRAMEBUFFER");
         js_report_init_error(kInitExplicitSwapUnavailable,
                              "explicitSwapControl needs a bundle linked with PROJECTM_WASM_EXPLICIT_SWAP=1");
         return kInitExplicitSwapUnavailable;
@@ -556,13 +578,13 @@ int WasmWebGLCreateAndActivateContext()
         WasmWebGLDestroyContext();
         if (ReplaceCanvasElement(g_mainCanvasSelector))
         {
-            fprintf(stderr, "WebGL context on %s had other attributes; created it on a fresh canvas element\n", g_mainCanvasSelector);
+            WASM_LOG_WARN("WebGL context on %s had other attributes; created it on a fresh canvas element", g_mainCanvasSelector);
         }
         else
         {
-            fprintf(stderr, "Warning: WebGL context on %s had other attributes and the canvas cannot be replaced here; "
-                            "get_context_snapshot() reports the ones it has\n",
-                    g_mainCanvasSelector);
+            WASM_LOG_WARN("Warning: WebGL context on %s had other attributes and the canvas cannot be replaced here; "
+                          "get_context_snapshot() reports the ones it has",
+                          g_mainCanvasSelector);
         }
         if (const int rc = CreateAndActivate(H, cfg); rc != 0)
         {
@@ -580,11 +602,11 @@ int WasmWebGLCreateAndActivateContext()
         (H.contextCaps.attributeFlags != GrantedContextFlags(requestedFlags) ||
          H.contextCaps.powerPreference != cfg.powerPreference))
     {
-        fprintf(stderr, "WebGL context on %s: attributes 0x%x (power %d) requested, 0x%x (power %d) granted\n",
-                g_mainCanvasSelector, requestedFlags, cfg.powerPreference,
-                H.contextCaps.attributeFlags, H.contextCaps.powerPreference);
+        WASM_LOG_WARN("WebGL context on %s: attributes 0x%x (power %d) requested, 0x%x (power %d) granted",
+                      g_mainCanvasSelector, requestedFlags, cfg.powerPreference,
+                      H.contextCaps.attributeFlags, H.contextCaps.powerPreference);
     }
-    ProjectMApplySrgbCanvasColorSpace();
+    ProjectMApplyCanvasColorSpace();
     return 0;
 }
 
@@ -653,6 +675,11 @@ int get_context_snapshot()
     snapshot |= caps.floatColorBuffer ? kSnapshotFloatColorBuffer : 0;
     snapshot |= caps.floatBlend ? kSnapshotFloatBlend : 0;
     snapshot |= caps.loseContext ? kSnapshotLoseContext : 0;
+    snapshot |= caps.halfFloatColorBuffer ? kSnapshotHalfFloatColorBuffer : 0;
+    snapshot |= caps.floatLinear ? kSnapshotFloatLinear : 0;
+    snapshot |= caps.textureFilterAnisotropic ? kSnapshotTextureFilterAnisotropic : 0;
+    snapshot |= caps.parallelShaderCompile ? kSnapshotParallelShaderCompile : 0;
+    snapshot |= kSnapshotExtensionsKnown;
     snapshot |= (static_cast<int>(H.dualFbo.GetFormat()) & kSnapshotFormatMask) << kSnapshotFormatShift;
     if (caps.attributesKnown)
     {

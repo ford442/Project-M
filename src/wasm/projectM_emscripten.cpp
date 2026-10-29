@@ -19,6 +19,7 @@
 // See docs/EMSCRIPTEN.md ("Where to add a WASM export").
 #include "WasmGraphics.hpp"
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 #include "WasmWebGLContext.hpp"
 
 #include <emscripten/threading.h>
@@ -323,6 +324,8 @@ int rebind_canvases(const char* primary, const char* secondary)
 EMSCRIPTEN_KEEPALIVE
 int init()
 {
+    // Before the engine exists, so libprojectM's own LOG_* messages reach the console too.
+    WasmInstallLogSink();
     WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& app_data = H.appData;
@@ -351,7 +354,7 @@ int init()
     // context-loss overlay's "tap to restore" can call this early.
     if (H.glCtx != 0 && emscripten_is_webgl_context_lost(H.glCtx))
     {
-        fprintf(stderr, "init: refused – the WebGL context is lost; retry after webglcontextrestored.\n");
+        WASM_LOG_WARN("init: refused – the WebGL context is lost; retry after webglcontextrestored.");
         js_report_init_error(kInitContextLost, "WebGL context is lost; waiting for the browser to restore it");
         return kInitContextLost;
     }
@@ -378,7 +381,7 @@ int init()
     pm = projectm_create();
     if (!pm)
     {
-        fprintf(stderr, "Failed to create projectM handle\n");
+        WASM_LOG_ERROR("Failed to create projectM handle");
         js_report_init_error(3, "projectm_create() returned null");
         return 3;
     }
@@ -413,7 +416,7 @@ int init()
     ReapplyEngineSettings(H);
     InstallShaderTranspileCacheHooks();
     // projectm_playlist_connect(app_data.playlist,app_data.projectm_engine);
-    printf("  --==  projectM initialized!  ==--\n");
+    WASM_LOG_INFO("  --==  projectM initialized!  ==--");
     // Allocate this host's PCM ring before any producer can look for it: the
     // worklet bootstrap below reads the ring registry as soon as its module
     // resolves, and an already-running worklet (a second create_host()) is sent
@@ -541,7 +544,7 @@ void set_preset_locked(bool locked)
         return;
     }
     projectm_set_preset_locked(pm, locked);
-    printf("Preset lock set to: %s\n", locked ? "true" : "false");
+    WASM_LOG_INFO("Preset lock set to: %s", locked ? "true" : "false");
     return;
 }
 

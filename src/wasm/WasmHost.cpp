@@ -8,6 +8,7 @@
 //
 // See WasmHost.hpp and docs/EMSCRIPTEN.md ("Multi-instance host state").
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 
 #include <cstdlib>
 #include <memory>
@@ -58,7 +59,7 @@ WasmHost& Host()
         WasmHost* def = AllocateHost();
         if (def == nullptr)
         {
-            fprintf(stderr, "projectM: could not allocate the default host (out of memory).\n");
+            WASM_LOG_ERROR("projectM: could not allocate the default host (out of memory).");
             abort();
         }
         def->implicitDefault = true;
@@ -256,13 +257,13 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
     WasmHost* host = adopted ? previous : AllocateHost();
     if (host == nullptr && LiveHostCount() < kMaxHosts)
     {
-        fprintf(stderr, "create_host: refused – out of memory for a new host.\n");
+        WASM_LOG_ERROR("create_host: refused – out of memory for a new host.");
         js_report_init_error_for_host(kNoEventHost, 4, "Out of memory for a new projectM instance");
         return 0;
     }
     if (host == nullptr)
     {
-        fprintf(stderr, "create_host: refused – already at kMaxHosts (%d) instances.\n", kMaxHosts);
+        WASM_LOG_WARN("create_host: refused – already at kMaxHosts (%d) instances.", kMaxHosts);
         // No engine exists to name: the active host is the caller's previous
         // one, and this failure is not its.
         js_report_init_error_for_host(kNoEventHost, 4, "Maximum projectM instances per Module reached");
@@ -302,7 +303,7 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
     const int rc = init();
     if (rc != 0)
     {
-        fprintf(stderr, "create_host: init() failed (rc=%d); rolling back.\n", rc);
+        WASM_LOG_ERROR("create_host: init() failed (rc=%d); rolling back.", rc);
         ReleaseHost(host);
         if (previous != nullptr && !adopted)
         {
@@ -358,8 +359,8 @@ void set_active_host(uintptr_t handle)
     WasmHost* host = HostFromHandle(handle);
     if (host == nullptr)
     {
-        fprintf(stderr, "set_active_host: ignoring unknown or destroyed host handle %lu.\n",
-                static_cast<unsigned long>(handle));
+        WASM_LOG_WARN("set_active_host: ignoring unknown or destroyed host handle %lu.",
+                      static_cast<unsigned long>(handle));
         return;
     }
     SetActiveHost(host);

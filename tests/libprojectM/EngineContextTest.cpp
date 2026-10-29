@@ -12,6 +12,7 @@
 #include "TestGl.hpp"
 
 #include <EngineContext.hpp>
+#include <MilkdropPreset/EvalRandom.hpp>
 #include <RandomSeed.hpp>
 
 #include <gtest/gtest.h>
@@ -148,6 +149,39 @@ TEST_F(EngineContextTest, ParallelThreadsDrawTheirOwnStreams)
     EXPECT_EQ(gotA, expectedA);
     EXPECT_EQ(gotB, expectedB);
 }
+
+#ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
+TEST_F(EngineContextTest, EvalRandFollowsTheEngineSeed)
+{
+    // rand() in preset code: an expression context seeded under an engine draws a stream
+    // that only that engine's seed decides.
+    const auto drawEval = [](EngineContext& engine) {
+        const ScopedEngineContext scope(engine);
+        auto* context = projectm_eval_context_create(nullptr, nullptr);
+        libprojectM::MilkdropPreset::SeedEvalRandom(context);
+        auto* code = projectm_eval_code_compile(context, "rand(1000000)");
+        std::vector<double> values;
+        for (int i = 0; i < 16; i++)
+        {
+            values.push_back(projectm_eval_code_execute(code));
+        }
+        projectm_eval_code_destroy(code);
+        projectm_eval_context_destroy(context);
+        return values;
+    };
+
+    EngineContext first;
+    EngineContext again;
+    EngineContext other;
+    first.SetSeed(42);
+    again.SetSeed(42);
+    other.SetSeed(43);
+    const auto firstValues = drawEval(first);
+    drawEval(other);
+    EXPECT_EQ(drawEval(again), firstValues);
+    EXPECT_NE(drawEval(other), firstValues);
+}
+#endif
 
 namespace {
 

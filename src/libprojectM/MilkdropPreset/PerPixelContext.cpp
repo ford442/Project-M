@@ -3,6 +3,8 @@
 #include "MilkdropPresetExceptions.hpp"
 #include "PerFrameContext.hpp"
 
+#include "EvalRandom.hpp"
+
 #include <Logging.hpp>
 
 #define REG_VAR(var) \
@@ -14,6 +16,7 @@ namespace MilkdropPreset {
 PerPixelContext::PerPixelContext(projectm_eval_mem_buffer gmegabuf, PRJM_EVAL_F (*globalRegisters)[100])
     : perPixelCodeContext(projectm_eval_context_create(gmegabuf, globalRegisters))
 {
+    SeedEvalRandom(perPixelCodeContext);
 }
 
 PerPixelContext::~PerPixelContext()

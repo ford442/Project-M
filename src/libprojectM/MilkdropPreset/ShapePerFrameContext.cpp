@@ -3,6 +3,8 @@
 #include "CustomShape.hpp"
 #include "MilkdropPresetExceptions.hpp"
 
+#include "EvalRandom.hpp"
+
 #include <Logging.hpp>
 
 #define REG_VAR(var) \
@@ -14,6 +16,7 @@ namespace MilkdropPreset {
 ShapePerFrameContext::ShapePerFrameContext(projectm_eval_mem_buffer gmegabuf, PRJM_EVAL_F (*globalRegisters)[100])
     : perFrameCodeContext(projectm_eval_context_create(gmegabuf, globalRegisters))
 {
+    SeedEvalRandom(perFrameCodeContext);
 }
 
 ShapePerFrameContext::~ShapePerFrameContext()

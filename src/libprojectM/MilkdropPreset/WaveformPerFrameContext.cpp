@@ -4,6 +4,8 @@
 #include "MilkdropPresetExceptions.hpp"
 #include "PerFrameContext.hpp"
 
+#include "EvalRandom.hpp"
+
 #include <Logging.hpp>
 
 #define REG_VAR(var) \
@@ -15,6 +17,7 @@ namespace MilkdropPreset {
 WaveformPerFrameContext::WaveformPerFrameContext(projectm_eval_mem_buffer gmegabuf, PRJM_EVAL_F (*globalRegisters)[100])
     : perFrameCodeContext(projectm_eval_context_create(gmegabuf, globalRegisters))
 {
+    SeedEvalRandom(perFrameCodeContext);
 }
 
 WaveformPerFrameContext::~WaveformPerFrameContext()

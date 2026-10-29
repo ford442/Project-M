@@ -293,6 +293,7 @@ The `.wasm`/glue artifacts are still **not** in the tarball — fetch them with
 | `target-fps` | Target frame rate (default `60`) |
 | `transparent` | Enable near-black transparency mode |
 | `locked` | Lock preset (no auto-switch) |
+| `power-preference` | WebGL `powerPreference`: `default` (the default for embeds), `low-power`, or `high-performance` |
 | `require-cross-origin-isolation` | When `"false"`, skip the COOP/COEP pre-check (WASM may still fail) |
 | `external-pcm-origins` | JSON array or comma-separated origin allowlist for `postMessage` PCM |
 

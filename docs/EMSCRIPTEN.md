@@ -293,9 +293,9 @@ the context is made current; what it found is the host's `WasmContextCaps`, whic
 snapshot read instead of asking WebGL again. Browser presentation does **not** call `eglSwapBuffers()` — frames are
 presented when the WebGL canvas is composited by the browser (or, with `explicitSwapControl`, when committed).
 
-### Canvas color space (sRGB)
+### Canvas color space (sRGB, or Display-P3 with `ENABLE_HDR_P3`)
 
-After the context is current, `ProjectMApplySrgbCanvasColorSpace()` sets
+After the context is current, `ProjectMApplyCanvasColorSpace()` sets
 `drawingBufferColorSpace` and `unpackColorSpace` to `"srgb"` when the browser
 exposes those WebGL color-management properties. Milkdrop content is authored
 in an sRGB / Rec.709-like cube; pinning the tag keeps that look stable on
@@ -314,7 +314,11 @@ With `ENABLE_HDR_P3` the composite shader's output runs linear → Reinhard tone
 map → BT.709-to-Display-P3 matrix (on linear light) → sRGB transfer
 (`ShaderTranspiler::HdrOutputFunctions()`); the matrix used to come after the
 transfer, on encoded values. `ColorOutputTest` pins pure BT.709 red to encoded
-P3 `(0.9175, 0.2003, 0.1386)` within 1/255.
+P3 `(0.9175, 0.2003, 0.1386)` within 1/255. That is the final convert the
+warning above asks for, so a bundle built with `ENABLE_HDR_P3` (`PROJECTM_HDR_P3`
+reaches the wrapper through `projectm-wasm-wrapper-flags.txt`) tags its drawing
+buffer `"display-p3"`. Tagging it `"srgb"` would show the P3-encoded numbers as
+sRGB. `unpackColorSpace` stays `"srgb"`, because texture files are sRGB.
 
 ## Configurable canvas selectors
 

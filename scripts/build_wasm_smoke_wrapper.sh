@@ -67,6 +67,8 @@ projectm_wasm_wrapper_include_args() {
         -I "$PROJECT_ROOT/omp"
         -I "$LIBPROJECTM_SOURCE_INCLUDE"
         -I "$LIBPROJECTM_GENERATED_INCLUDE"
+        # projectM_cxx_export.h, for Logging.hpp (WasmLog.cpp).
+        -I "$CMAKE_BUILD_DIR/src/api/include"
         -I "$PROJECT_ROOT/vendor/hlslparser/src"
         -I "$PROJECT_ROOT/vendor/glad/include"
         -I "$PROJECT_ROOT/vendor"
@@ -193,6 +195,7 @@ wrapper_sources=(
     "$PROJECT_ROOT/src/wasm/WasmJsBindings.cpp"
     "$PROJECT_ROOT/src/wasm/WasmDeterminism.cpp"
     "$PROJECT_ROOT/src/wasm/WasmPresent.cpp"
+    "$PROJECT_ROOT/src/wasm/WasmLog.cpp"
 )
 
 # Prefer em++ so the final link always pulls in libc++ / libc++abi. Linking the

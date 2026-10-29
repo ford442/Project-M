@@ -203,6 +203,11 @@ test('the snapshot layout matches WasmContextSnapshotBit and the format field in
         kSnapshotFloatBlend: 'floatBlend',
         kSnapshotLoseContext: 'loseContext',
         kSnapshotAttributesKnown: 'attributesKnown',
+        kSnapshotHalfFloatColorBuffer: 'halfFloatColorBuffer',
+        kSnapshotFloatLinear: 'floatLinear',
+        kSnapshotTextureFilterAnisotropic: 'textureFilterAnisotropic',
+        kSnapshotParallelShaderCompile: 'parallelShaderCompile',
+        kSnapshotExtensionsKnown: 'extensionsKnown',
     };
     const found = [...header.matchAll(/(kSnapshot(?!Format)\w+)\s*=\s*1\s*<<\s*(\d+)/g)];
     assert.equal(found.length, Object.keys(names).length, 'every C++ snapshot bit has a JS counterpart');
@@ -232,7 +237,7 @@ test('the snapshot layout matches WasmContextSnapshotBit and the format field in
 test('decodeContextSnapshot reads each capability and the format on its own', () => {
     assert.deepEqual(decodeContextSnapshot(packSnapshot()), {
         floatColorBuffer: false, floatBlend: false, loseContext: false, fboFormat: 0, fboFormatName: 'RGBA16F',
-        attributes: null, mismatches: [],
+        extensions: null, attributes: null, mismatches: [],
     });
     assert.equal(decodeContextSnapshot(packSnapshot({ floatColorBuffer: true }))?.floatColorBuffer, true);
     assert.equal(decodeContextSnapshot(packSnapshot({ floatBlend: true }))?.floatBlend, true);
@@ -241,8 +246,19 @@ test('decodeContextSnapshot reads each capability and the format on its own', ()
     // One capability set must not leak into the others.
     assert.deepEqual(decodeContextSnapshot(packSnapshot({ floatBlend: true })), {
         floatColorBuffer: false, floatBlend: true, loseContext: false, fboFormat: 0, fboFormatName: 'RGBA16F',
-        attributes: null, mismatches: [],
+        extensions: null, attributes: null, mismatches: [],
     });
+});
+
+test('decodeContextSnapshot lists the enabled extensions only when the bundle reports the whole set', () => {
+    const b = CONTEXT_SNAPSHOT_BITS;
+    const bits = b.valid | b.floatColorBuffer | b.floatLinear | b.parallelShaderCompile | b.loseContext;
+    assert.equal(decodeContextSnapshot(bits)?.extensions, null, 'an older bundle enabled everything; the list is unknown');
+    const snapshot = decodeContextSnapshot(bits | b.extensionsKnown);
+    assert.deepEqual(snapshot?.extensions,
+        ['EXT_color_buffer_float', 'OES_texture_float_linear', 'KHR_parallel_shader_compile', 'WEBGL_lose_context']);
+    assert.ok(Object.isFrozen(snapshot?.extensions));
+    assert.deepEqual(decodeContextSnapshot(b.valid | b.extensionsKnown)?.extensions, []);
 });
 
 test('decodeContextAttributes names each flag and the power preference', () => {

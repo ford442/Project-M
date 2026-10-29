@@ -238,14 +238,14 @@ body.has-lock .led--lock { background: #f59e0b; box-shadow: 0 0 7px 2px rgba(245
 <audio crossorigin id="track" preload="none" style="pointer-events:none;"></audio>
 
 <!-- External audio players (PCM via postMessage) -->
-<section id="flacPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
+<section id="flacPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3250;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div class="ext-player-header">
     <span>FLAC Player</span>
     <button type="button" class="ext-player-hide" data-pm-action="closeAudioPlayer">Hide</button>
   </div>
   <iframe id="flacFrame" style="width:100%;height:calc(100% - 32px);border:none;background:#000;" allow="autoplay; fullscreen"></iframe>
 </section>
-<section id="modPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3400;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
+<section id="modPlayerSection" class="ext-player-section" style="display:none;position:fixed;z-index:3250;top:12vh;left:8vw;width:84vw;height:76vh;background:#000;border:2px solid #333;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,0.9);overflow:hidden;">
   <div class="ext-player-header">
     <span>MOD Player</span>
     <button type="button" class="ext-player-hide" data-pm-action="closeAudioPlayer">Hide</button>

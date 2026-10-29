@@ -82,6 +82,12 @@ public:
      */
     void SetSize(int width, int height);
 
+    /**
+     * @brief The color format this attachment was created with, or nullopt for the build's
+     *        default color format (RGBA, RGBA16F with HDR, sRGB with an sRGB framebuffer).
+     */
+    auto ColorFormat() const -> std::optional<Device::TextureFormat>;
+
 private:
     /**
      * @brief Replaces the current texture with a new one, e.g. if the framebuffer was resized.

@@ -27,6 +27,11 @@ auto TextureAttachment::Type() const -> TextureAttachment::AttachmentType
     return m_attachmentType;
 }
 
+auto TextureAttachment::ColorFormat() const -> std::optional<Device::TextureFormat>
+{
+    return m_colorFormat;
+}
+
 auto TextureAttachment::Texture() const -> std::shared_ptr<class Texture>
 {
     return m_texture;

@@ -2,6 +2,9 @@
 
 #include "Renderer/Device/Gl/GlEnums.hpp"
 
+#include <Logging.hpp>
+
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -117,6 +120,30 @@ void GlCommandList::BeginPass(const RenderPassDesc& pass)
 void GlCommandList::EndPass()
 {
     m_tracker.OnEndPass();
+    ReportGlErrors("EndPass");
+}
+
+void GlCommandList::ReportGlErrors(const char* operation)
+{
+    if (!m_tracker.Enabled())
+    {
+        return;
+    }
+    // Bounded: a lost context can report GL_CONTEXT_LOST on every call.
+    for (int drained = 0; drained < 8; ++drained)
+    {
+        const GLenum error = glGetError();
+        if (error == GL_NO_ERROR)
+        {
+            return;
+        }
+        char code[16];
+        std::snprintf(code, sizeof(code), "0x%04X", static_cast<unsigned>(error));
+        if (m_reportedGlErrors.insert(std::string(operation) + ":" + code).second)
+        {
+            LOG_WARN(std::string("[RenderDevice] GL error ") + code + " after " + operation);
+        }
+    }
 }
 
 void GlCommandList::BindRenderTarget(TargetBinding binding, RenderTargetHandle target)
@@ -465,12 +492,14 @@ void GlCommandList::Draw(PrimitiveType primitive, int first, int count)
 {
     glDrawArrays(ToGl(primitive), first, count);
     m_tracker.OnDraw();
+    ReportGlErrors("Draw");
 }
 
 void GlCommandList::DrawIndexed(PrimitiveType primitive, int count)
 {
     glDrawElements(ToGl(primitive), count, GL_UNSIGNED_INT, nullptr);
     m_tracker.OnDraw();
+    ReportGlErrors("DrawIndexed");
 }
 
 void GlCommandList::Blit(const Rect& source, const Rect& destination, FilterMode filter)
@@ -479,6 +508,7 @@ void GlCommandList::Blit(const Rect& source, const Rect& destination, FilterMode
                       destination.x, destination.y, destination.x + destination.width, destination.y + destination.height,
                       GL_COLOR_BUFFER_BIT, static_cast<GLenum>(ToGl(filter)));
     m_tracker.OnBlit();
+    ReportGlErrors("Blit");
 }
 
 void GlCommandList::ReadPixels(const Rect& area, void* destination)

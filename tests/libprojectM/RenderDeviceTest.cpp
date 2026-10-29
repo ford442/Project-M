@@ -440,3 +440,32 @@ TEST_F(GlDeviceTest, ValidationReportsARealFeedbackDraw)
     // The feedback draw itself is undefined behaviour, not a GL error.
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
 }
+
+TEST_F(GlDeviceTest, ValidationReportsGlErrorsOncePerOperation)
+{
+    std::vector<std::string> logged;
+    projectm_set_log_callback(&CollectLog, true, &logged);
+    projectm_set_log_level(PROJECTM_LOG_LEVEL_WARN, true);
+    auto& commands = m_device->Commands();
+    const auto countGlErrors = [&logged] {
+        return std::count_if(logged.begin(), logged.end(), [](const std::string& message) {
+            return message.find("[RenderDevice] GL error 0x0501 after Draw") != std::string::npos;
+        });
+    };
+
+    // Off: the device leaves the error for whoever polls next.
+    commands.Draw(Device::PrimitiveType::Triangles, 0, -1); // GL_INVALID_VALUE
+    EXPECT_EQ(countGlErrors(), 0);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_INVALID_VALUE));
+
+    // On: drained and logged, once however often the same operation fails.
+    m_device->Validation().SetEnabled(true);
+    commands.Draw(Device::PrimitiveType::Triangles, 0, -1);
+    commands.Draw(Device::PrimitiveType::Triangles, 0, -1);
+    m_device->Validation().SetEnabled(false);
+
+    projectm_set_log_callback(nullptr, true, nullptr);
+    projectm_set_log_level(PROJECTM_LOG_LEVEL_NOTSET, true);
+    EXPECT_EQ(countGlErrors(), 1);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}

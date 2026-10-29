@@ -27,8 +27,19 @@ extern "C" void destruct();
 // the WasmHost structs they point at, not here.
 // =============================================================================
 static std::unique_ptr<WasmHost> g_hosts[kMaxHosts];
+// Advanced whenever a slot is freed, so handles issued for the slot's previous
+// occupant stop matching (see HostHandle()).
+static uintptr_t g_slotGeneration[kMaxHosts] = {};
 static WasmHost* g_activeHost = nullptr;
 bool g_mainLoopRegistered = false;
+
+namespace {
+constexpr unsigned kHandleSlotBits = 8;
+constexpr uintptr_t kHandleSlotMask = (uintptr_t{1} << kHandleSlotBits) - 1;
+static_assert(kMaxHosts < static_cast<int>(kHandleSlotMask), "slot index + 1 must fit the handle's low byte");
+// Generations wrap here: 24 bits on wasm32, and JS reads handles as `>>> 0`.
+constexpr uintptr_t kGenerationMask = (uintptr_t{1} << (32 - kHandleSlotBits)) - 1;
+} // namespace
 
 WasmHost* AllocateHost()
 {
@@ -39,6 +50,10 @@ WasmHost* AllocateHost()
             // nothrow: an allocation failure is reported to the caller (null)
             // like the cap is, not thrown through an extern "C" export.
             g_hosts[i].reset(new (std::nothrow) WasmHost());
+            if (g_hosts[i])
+            {
+                g_hosts[i]->handle = static_cast<uintptr_t>(i + 1) | (g_slotGeneration[i] << kHandleSlotBits);
+            }
             return g_hosts[i].get();
         }
     }
@@ -132,11 +147,12 @@ void ReleaseHost(WasmHost* host)
     // own context before destroying it, so their destructors find nothing left
     // to delete and issue no GL calls. The prepare queue's destructor joins the
     // host's prepare thread (WasmPresetPrepare.cpp).
-    for (auto& slot : g_hosts)
+    for (int i = 0; i < kMaxHosts; ++i)
     {
-        if (slot.get() == host)
+        if (g_hosts[i].get() == host)
         {
-            slot.reset();
+            g_hosts[i].reset();
+            g_slotGeneration[i] = (g_slotGeneration[i] + 1) & kGenerationMask;
             break;
         }
     }
@@ -177,7 +193,7 @@ WasmHost* ActiveHostOrNull()
 
 uintptr_t HostHandle(const WasmHost& host)
 {
-    return reinterpret_cast<uintptr_t>(&host);
+    return host.handle;
 }
 
 double EventHostHandle(const WasmHost& host)
@@ -192,34 +208,18 @@ double ActiveEventHostHandle()
 
 WasmHost* HostFromHandle(uintptr_t handle)
 {
-    if (handle == 0)
+    const auto slot = static_cast<int>(handle & kHandleSlotMask) - 1;
+    if (slot < 0 || slot >= kMaxHosts || !g_hosts[slot] || g_hosts[slot]->handle != handle)
     {
         return nullptr;
     }
-    for (int i = 0; i < kMaxHosts; ++i)
-    {
-        if (g_hosts[i] && HostHandle(*g_hosts[i]) == handle)
-        {
-            return g_hosts[i].get();
-        }
-    }
-    return nullptr;
+    return g_hosts[slot].get();
 }
 
 projectm_handle EngineFromHandle(uintptr_t engineHandle)
 {
-    if (engineHandle == 0)
-    {
-        return nullptr;
-    }
-    for (int i = 0; i < kMaxHosts; ++i)
-    {
-        if (g_hosts[i] && reinterpret_cast<uintptr_t>(g_hosts[i]->appData.projectm_engine) == engineHandle)
-        {
-            return g_hosts[i]->appData.projectm_engine;
-        }
-    }
-    return nullptr;
+    const WasmHost* host = HostFromHandle(engineHandle);
+    return host != nullptr ? host->appData.projectm_engine : nullptr;
 }
 
 int LiveHostCount()
@@ -317,8 +317,8 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
 extern "C" {
 
 // Creates a new engine instance bound to the given canvas selectors, makes it
-// the active host, and initialises it. Returns the opaque host handle (a
-// WasmHost* as an integer) on success, or 0 if the Module is already at the
+// the active host, and initialises it. Returns the opaque host handle (see
+// HostHandle()) on success, or 0 if the Module is already at the
 // kMaxHosts cap or initialisation failed (get_last_init_error() says which).
 // The previously-active host is restored on failure so a rejected create has no
 // side effects on the caller's current instance.
@@ -365,7 +365,7 @@ void set_active_host(uintptr_t handle)
     SetActiveHost(host);
 }
 
-// Returns the active host handle (a WasmHost* as an integer), or 0 if none.
+// Returns the active host handle (see HostHandle()), or 0 if none.
 EMSCRIPTEN_KEEPALIVE
 uintptr_t get_active_host()
 {

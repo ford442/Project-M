@@ -133,12 +133,12 @@ symbol's doc text is not an API change and needs nothing.
 | `captureFrameIndex` | `capture_frame_index` | `get_rendered_frame_count()` right after the captured frame |
 | `captureFrameRelease` | `capture_frame_release` | |
 | `createSprite` | `create_sprite` | User sprite on the active host from `(type, code)`; returns its id, 0 if refused. See "User sprites" below |
-| `getProjectmHandle` | `get_projectm_handle` | The active host's engine handle: the `pmHandle` the `projectm_sprite_*` exports take |
-| `projectmSpriteCreate` | `projectm_sprite_create` | `projectm_sprite_*` are `projectM-4/user_sprites.h`, exported as they are |
-| `projectmSpriteDestroy` / `projectmSpriteDestroyAll` | `projectm_sprite_destroy` / `_destroy_all` | |
-| `projectmSpriteGetSpriteCount` / `projectmSpriteGetSpriteIds` | `projectm_sprite_get_sprite_count` / `_get_sprite_ids` | `spriteIds` is a heap pointer to `count` uint32s |
-| `projectmSpriteGetMaxSprites` / `projectmSpriteSetMaxSprites` | `projectm_sprite_get_max_sprites` / `_set_max_sprites` | Default 16; at the limit the oldest sprite makes room |
-| `projectmSpriteGetVar` / `projectmSpriteSetVar` | `projectm_sprite_get_var` / `_set_var` | A sprite expression variable; 0 for an unknown sprite or name |
+| `getProjectmHandle` | `get_projectm_handle` | The active host's engine handle (its host handle; 0 without an engine): the `pmHandle` the `projectm_sprite_*_wrapper` and PCM exports take |
+| `projectmSpriteCreateWrapper` | `projectm_sprite_create_wrapper` | `projectM-4/user_sprites.h` behind a validated `pmHandle`: a stale or unknown handle is a no-op returning 0. (Before 0.3.0 the raw `projectm_sprite_*` exports took the engine's address, so a handle kept past `destroy_host()` could drive whichever engine reused that memory.) |
+| `projectmSpriteDestroyWrapper` / `projectmSpriteDestroyAllWrapper` | `projectm_sprite_destroy_wrapper` / `_destroy_all` | |
+| `projectmSpriteGetSpriteCountWrapper` / `projectmSpriteGetSpriteIdsWrapper` | `projectm_sprite_get_sprite_count_wrapper` / `_get_sprite_ids` | `spriteIds` is a heap pointer to `count` uint32s |
+| `projectmSpriteGetMaxSpritesWrapper` / `projectmSpriteSetMaxSpritesWrapper` | `projectm_sprite_get_max_sprites_wrapper` / `_set_max_sprites` | Default 16; at the limit the oldest sprite makes room |
+| `projectmSpriteGetVarWrapper` / `projectmSpriteSetVarWrapper` | `projectm_sprite_get_var_wrapper` / `_set_var` | A sprite expression variable; 0 for an unknown sprite or name |
 
 Export names are also listed in `PUBLIC_WASM_API` inside the generated module.
 
@@ -167,7 +167,7 @@ of your own that the code reads, as above.
 
 `create_sprite(type, code)` replaced a zero-argument export of the same name that ignored
 its caller and drew a fixed demo sprite. A host calling `create_sprite` on a bundle that
-may be older should check for `_projectm_sprite_create` first; only that name tells the two
+may be older should check for `_projectm_sprite_create_wrapper` first; only that name tells the two
 apart.
 
 ### Rhythm events (`pmOnRhythmEvent`)

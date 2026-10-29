@@ -271,7 +271,9 @@ redirected to Emscripten's offscreen back buffer.
 ### Link flavors
 
 `scripts/build_wasm.sh` (through `scripts/build_wasm_smoke_wrapper.sh`) links the production
-bundle by default. The opt-in flavors change the link and tag the build-id (`+gl-debug`,
+bundle by default. The flavors are `projectM_wasm` cache options (`PROJECTM_WASM_GL_DEBUG`,
+`PROJECTM_WASM_EXPLICIT_SWAP`, `PROJECTM_WASM_DEBUG`), which the script sets from the environment
+variables of the same name and resets on every run. The opt-in flavors change the link and tag the build-id (`+gl-debug`,
 `+explicit-swap`, `+debug`), so `scripts/build_wasm.sh --stage`, `scripts/prepare_deploy_bundle.sh`
 and `deploy.py` refuse to ship them:
 
@@ -316,7 +318,7 @@ map → BT.709-to-Display-P3 matrix (on linear light) → sRGB transfer
 transfer, on encoded values. `ColorOutputTest` pins pure BT.709 red to encoded
 P3 `(0.9175, 0.2003, 0.1386)` within 1/255. That is the final convert the
 warning above asks for, so a bundle built with `ENABLE_HDR_P3` (`PROJECTM_HDR_P3`
-reaches the wrapper through `projectm-wasm-wrapper-flags.txt`) tags its drawing
+reaches the wrapper TUs through `config.h`) tags its drawing
 buffer `"display-p3"`. Tagging it `"srgb"` would show the P3-encoded numbers as
 sRGB. `unpackColorSpace` stays `"srgb"`, because texture files are sRGB.
 
@@ -436,7 +438,8 @@ scripts/build_wasm.sh --link-only --debug # runtime-checks flavor -> cmake-build
 
 `build_emscripten.yml` and `scripts/colab_build.sh` run the same script. It runs, in order:
 `scripts/build_wasm_install.sh` (incremental configure/build/install of the static libraries,
-Release, so `NDEBUG`), `scripts/build_wasm_smoke_wrapper.sh` (the `src/wasm/` wrapper link),
+Release, so `NDEBUG`), `scripts/build_wasm_smoke_wrapper.sh` (builds the `projectM_wasm` target
+in that build dir and copies it to `OUT_DIR`),
 `scripts/check_wasm_bundle_features.sh` (below) and, with `--stage`,
 `scripts/prepare_deploy_bundle.sh`. Defaults: `INSTALL_DIR=install`,
 `CMAKE_BUILD_DIR=cmake-build-wasm`, `OUT_DIR=cmake-build/wasm-smoke`; `--help` lists the rest.
@@ -451,12 +454,15 @@ only. `scripts/build_projectm.sh` (hardcoded `/root/emsdk`, host-built projectm-
 **The wrapper compiles like the library.** The `src/wasm/` TUs include internal libprojectM
 headers, so they must see the same `config.h` and compile definitions (`PRJM_F_SIZE`,
 `PROJECTM_STATIC_DEFINE`, `NDEBUG`, …) or the two halves disagree on a type's layout (an ODR
-violation the linker does not report). CMake writes them to
-`<CMAKE_BUILD_DIR>/projectm-wasm-wrapper-flags.txt` (`projectm_write_emscripten_wrapper_flags()`
-in `cmake/EmscriptenWasmFlags.cmake`, from the targets' `COMPILE_DEFINITIONS`), and both the
-wrapper link and `scripts/check_cpp_tidy.sh` read that file. It also records whether the libraries
-were built for LTO; the link follows it, fails if `PROJECTM_WASM_LTO` in the environment says
-otherwise, and checks the archives really are bitcode (or wasm objects).
+violation the linker does not report). The `projectM_wasm` target (`src/wasm/CMakeLists.txt`) gets
+them from the libprojectM object libraries' `COMPILE_DEFINITIONS` and the global `-include
+config.h`, in the same build dir, and resets everything else it would inherit (warning set,
+visibility, PIC), so it compiles the way the hand-written `em++` link it replaced did: the bundle
+is byte-identical (checked 2026-10-29 for the default, `+debug`, `+gl-debug` and `+explicit-swap`
+flavors). Do not set a visibility preset on it: even `-fvisibility=default` changes the objects.
+LTO follows the libraries' `PROJECTM_WASM_LTO` cache entry, and the script fails if
+`PROJECTM_WASM_LTO` in the environment says otherwise. `scripts/check_cpp_tidy.sh` reads the
+target's command lines from `compile_commands.json`.
 
 **`<bundle>.build-id`.** Line 1 is the source fingerprint (`scripts/wasm_source_fingerprint.sh`)
 plus the flavor tags. Then `key=value` facts: `wasm-sha256` and `js-sha256` of the linked
@@ -475,8 +481,8 @@ WASM compile/link flags, `EXPORTED_FUNCTIONS`, and the OpenMP/pthread pool cap a
 - The generated `scripts/wasm_link_common.inc.sh` (final `projectM_emscripten.cpp` wrapper link)
 - The generated `cmake/generated/ProjectMWasmBuildConfig.hpp` (`kWasmOpenMpThreads`,
   `kWasmPresetPrepareThreads`, `kWasmPthreadPoolSize`, `kWasmStackSize`, `kWasmPthreadStackSize`)
-- `<CMAKE_BUILD_DIR>/projectm-wasm-wrapper-flags.txt` (the libraries' `config.h`, definitions and
-  LTO state for the wrapper compile; see [Building the bundle](#building-the-bundle))
+- The `projectM_wasm` target in `src/wasm/CMakeLists.txt` (the bundle link itself; see
+  [Building the bundle](#building-the-bundle))
 
 The thread counts are constants in the module, not cache options: the pool size is baked into both
 the link (`PTHREAD_POOL_SIZE`) and the header's `static_assert`, and a smaller pool than OpenMP plus
@@ -644,9 +650,9 @@ guideline for a single unit by design, because splitting the FBO manager,
 state guard, and compositing shader across headers would fragment one tightly
 coupled subsystem.
 
-All non-header TUs are passed to the final `emcc` link in
-`scripts/build_wasm_smoke_wrapper.sh` (`wrapper_sources`). Add new `.cpp` files
-to that array.
+All non-header TUs are the sources of the `projectM_wasm` target
+(`PROJECTM_WASM_WRAPPER_SOURCES` in `src/wasm/CMakeLists.txt`). Add new `.cpp`
+files to that list.
 
 ### Where to add a WASM export
 
@@ -674,25 +680,25 @@ To add a new `EMSCRIPTEN_KEEPALIVE` C export:
 4. Keep export **names** stable — hosts and `cmake/WasmApiManifest.cmake` depend
    on them.
 
-If you add a new `.cpp` TU, also add it to the `wrapper_sources` array in
-`scripts/build_wasm_smoke_wrapper.sh`.
+If you add a new `.cpp` TU, also add it to `PROJECTM_WASM_WRAPPER_SOURCES` in
+`src/wasm/CMakeLists.txt`.
 
-### Flag matrix (CMake lib link vs. shell wrapper link)
+### Flag matrix (CMake lib link vs. bundle link)
 
-| Setting | CMake lib link | Shell wrapper link | Notes |
+| Setting | CMake lib link | Bundle link (`projectM_wasm`) | Notes |
 |---------|:--------------:|:------------------:|-------|
 | `SHARED_MEMORY=1`, `-pthread` | yes | yes | Required for the pthread pool + SharedArrayBuffer. No `WASM_WORKERS`: every thread is a pthread |
 | `PTHREAD_POOL_SIZE` | yes (`5`) | yes (`5`; an env override is rejected) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 2) |
 | `STACK_SIZE=1MB`, `DEFAULT_PTHREAD_STACK_SIZE=512KB` | yes | yes | See [Emscripten flag single source of truth](#emscripten-flag-single-source-of-truth) |
 | `INVOKE_RUN=0` | no | yes | Hosts call `init*()` / `create_host*()` themselves |
 | `-fno-strict-aliasing -fno-math-errno` | compile | compile | `PROJECTM_WASM_CODEGEN_COMPILE_FLAGS` |
-| `-include config.h`, libprojectM's compile definitions | compile | compile (`projectm-wasm-wrapper-flags.txt`) | Same type layouts on both sides of the link |
+| `-include config.h`, libprojectM's compile definitions | compile | compile (the libraries' `COMPILE_DEFINITIONS`) | Same type layouts on both sides of the link |
 | `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0` | yes | yes | Fixed heap; see [Heap model](#heap-model) |
 | `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
 | `GL_TRACK_ERRORS=0` | yes | yes | No per-call GL error tracking. (`GL_POOL_TEMP_BUFFERS` is gone: with the heap under 2 GB the garbage-free WebGL2 upload APIs are on and it no longer reaches the glue) |
 | `-msimd128`, no `-mrelaxed-simd` | compile + link | compile + link | The [feature floor](#wasm-feature-floor) |
 | `-fwasm-exceptions` | compile + link | compile + link | C++ exception ABI, unconditional. The JS-trampoline fallback (`PROJECTM_WASM_EXCEPTIONS=js`) only existed because of ASYNCIFY and is rejected now |
-| `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`, `scripts/build_wasm.sh --lto`) | link (follows the libraries) | Opt-in whole-program LTO: the static libs become bitcode. One switch, the CMake cache entry; the link reads it from `projectm-wasm-wrapper-flags.txt`. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
+| `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`, `scripts/build_wasm.sh --lto`) | link (follows the libraries) | Opt-in whole-program LTO: the static libs become bitcode. One switch, the CMake cache entry, which the bundle target follows. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
 | `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | no | yes | Single list in `EmscriptenWasmFlags.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
 | `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |

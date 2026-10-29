@@ -248,7 +248,7 @@
       const wasmScript = params.get('wasm') || './projectm-v.030-thread.js';
       await loadScript(wasmScript);
 
-      const Module = await createModule({
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js',
         canvas: document.getElementById('mcanvas'),
         secondaryCanvas: document.getElementById('scanvas'),
       });

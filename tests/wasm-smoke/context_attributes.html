@@ -295,7 +295,7 @@
     async function run() {
       const params = new URLSearchParams(location.search);
       await loadScript(params.get('module'));
-      const Module = await createModule({ noInitialRun: true, locateFile: (path, prefix) => prefix + path });
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js', noInitialRun: true, locateFile: (path, prefix) => prefix + path });
       if (typeof Module._get_last_init_error !== 'function') {
         throw new Error('bundle predates create_host_with_config()/get_last_init_error()');
       }

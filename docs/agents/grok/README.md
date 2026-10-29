@@ -16,7 +16,7 @@ This directory contains files and templates to help collaborate with Grok (and o
 - `plan_template.md` — Template for new feature plans
 - `diff_template.md` — Template for clean unified diffs
 - `code_review_checklist.md` — Checklist for reviewing AI-generated code
-- `docs/authoring/kimi_prompt_short.md` — Short copy-paste prompts for quick tasks
+- `docs/archive/authoring/kimi_prompt_short.md` — Short copy-paste prompts for quick tasks
 
 ## Agent onboarding docs
 

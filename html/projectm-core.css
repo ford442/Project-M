@@ -63,16 +63,6 @@ canvas.emscripten {
   background-color: rgba(255, 255, 255, 0.0);
 }
 
-#mcanvas {
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-}
-
-#scanvas {
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-}
-
 #bg-layer {
   position: absolute;
   z-index: 2999;
@@ -306,12 +296,11 @@ html {
   overflow: hidden;
 }
 
-/* ====== IMAGE QUALITY OPTIMIZATION ====== */
-canvas {
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-  image-rendering: pixelated;
-}
+/* ====== IMAGE QUALITY ====== */
+/* Canvases keep the default (smooth) image-rendering. The backing store is
+   sized to the device-pixel box, so at full render scale there is nothing to
+   resample; when the quality governor lowers the render scale the browser
+   upscales it, and pixelated/crisp-edges turned that into visible blocks. */
 
 /* Prevent zoom on double-tap */
 input, button {

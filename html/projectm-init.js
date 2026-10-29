@@ -635,16 +635,56 @@ export function syncModuleSize({
     secondaryCanvas.width = width;
     secondaryCanvas.height = height;
 
-    mainCanvas.style.width = rect.width + 'px';
-    mainCanvas.style.height = rect.height + 'px';
-    secondaryCanvas.style.width = rect.width + 'px';
-    secondaryCanvas.style.height = rect.height + 'px';
+    // The CSS box is the rounded backing store over the DPR, not the raw
+    // (often fractional) container size, so the bitmap maps 1:1 onto device
+    // pixels instead of being resampled by a fraction of a pixel.
+    const cssWidth = width / dpr + 'px';
+    const cssHeight = height / dpr + 'px';
+    mainCanvas.style.width = cssWidth;
+    mainCanvas.style.height = cssHeight;
+    secondaryCanvas.style.width = cssWidth;
+    secondaryCanvas.style.height = cssHeight;
 
     if (module._set_window_size) module._set_window_size(width, height);
     if (module._set_aspect_correction && aspectCorrection !== undefined) {
         module._set_aspect_correction(aspectCorrection ? 1 : 0);
     }
     return true;
+}
+
+/**
+ * Calls `onChange` whenever the window's devicePixelRatio changes: browser
+ * zoom, or the window moving to a display with a different pixel density.
+ * The second case leaves the container's CSS size alone, so a ResizeObserver
+ * never sees it and the backing store would stay at the old density.
+ *
+ * @param {{ matchMedia?: (query: string) => MediaQueryList, devicePixelRatio?: number } | undefined} windowRef
+ * @param {() => void} onChange
+ * @returns {() => void} Stops watching.
+ */
+export function watchDevicePixelRatio(windowRef, onChange) {
+    if (!windowRef || typeof windowRef.matchMedia !== 'function') {
+        return () => {};
+    }
+    const win = windowRef;
+    /** @type {MediaQueryList | null} */
+    let query = null;
+    const listener = () => {
+        query?.removeEventListener?.('change', listener);
+        arm();
+        onChange();
+    };
+    // A resolution query only matches the ratio it was built for, so it is
+    // rebuilt for the new ratio after every change.
+    const arm = () => {
+        query = win.matchMedia?.(`(resolution: ${win.devicePixelRatio || 1}dppx)`) ?? null;
+        query?.addEventListener?.('change', listener);
+    };
+    arm();
+    return () => {
+        query?.removeEventListener?.('change', listener);
+        query = null;
+    };
 }
 
 /**

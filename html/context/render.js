@@ -5,7 +5,7 @@
 // monitor, the bound engine view, and the read-only reports about rendering
 // (the WebGL context snapshot, the flash limiter's stats).
 
-import { observeModuleSize } from '../projectm-init.js';
+import { observeModuleSize, watchDevicePixelRatio } from '../projectm-init.js';
 import { decodeContextSnapshot } from '../projectm-context-config.js';
 import { bindModuleToHost } from '../generated/projectm-wasm-api.js';
 
@@ -17,6 +17,18 @@ import { bindModuleToHost } from '../generated/projectm-wasm-api.js';
  * @typedef {import('../projectm-context-types.ts').ProjectMContextSnapshot} ProjectMContextSnapshot
  * @typedef {import('../projectm-render-worker-types.ts').WasmContextConfig} WasmContextConfig
  */
+
+/**
+ * The devicePixelRatio to size the canvas with: the host's explicit
+ * `devicePixelRatio` option when it set one, otherwise the window's current
+ * ratio, read at the time of the call so zoom and display changes are seen.
+ *
+ * @param {{ devicePixelRatio?: number; windowRef?: { devicePixelRatio?: number } }} options
+ * @returns {number}
+ */
+export function resolveDevicePixelRatio(options) {
+    return options.devicePixelRatio || options.windowRef?.devicePixelRatio || globalThis.devicePixelRatio || 1;
+}
 
 /**
  * @param {{ transport: RenderTransport | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number; renderScale?: number }} options
@@ -58,20 +70,26 @@ export function syncCanvasSize({
     const width = Math.max(1, Math.round(rect.width * devicePixelRatio * scale));
     const height = Math.max(1, Math.round(rect.height * devicePixelRatio * scale));
 
+    // The CSS box is the rounded layout size over the DPR rather than the raw
+    // (often fractional) container rect, so at full render scale the bitmap
+    // lands 1:1 on device pixels instead of being resampled by a fraction.
+    const cssWidth = `${layoutWidth / devicePixelRatio}px`;
+    const cssHeight = `${layoutHeight / devicePixelRatio}px`;
+
     if (ownsBackingStore) {
         mainCanvas.width = width;
         mainCanvas.height = height;
     }
-    mainCanvas.style.width = `${rect.width}px`;
-    mainCanvas.style.height = `${rect.height}px`;
+    mainCanvas.style.width = cssWidth;
+    mainCanvas.style.height = cssHeight;
 
     if (secondaryCanvas) {
         if (ownsBackingStore) {
             secondaryCanvas.width = width;
             secondaryCanvas.height = height;
         }
-        secondaryCanvas.style.width = `${rect.width}px`;
-        secondaryCanvas.style.height = `${rect.height}px`;
+        secondaryCanvas.style.width = cssWidth;
+        secondaryCanvas.style.height = cssHeight;
     }
 
     // The worker scales the layout size by its own copy of the render scale,
@@ -89,7 +107,8 @@ export function syncCanvasSize({
 
 /**
  * Follows the container's size: a ResizeObserver where there is one, window
- * resizes on the given window otherwise.
+ * resizes on the given window otherwise. Either way it also follows the
+ * window's devicePixelRatio, which can change without the container resizing.
  *
  * @param {object} options
  * @param {Element} options.container
@@ -99,19 +118,33 @@ export function syncCanvasSize({
  *   Null when there is neither (nothing to undo).
  */
 export function followContainerSize({ container, windowRef, onResize }) {
+    const target = /** @type {any} */ (windowRef ?? globalThis);
+    const stopDprWatch = watchDevicePixelRatio(target, onResize);
     const observer = observeModuleSize({ container, sync: onResize });
     if (observer) {
-        return { observer, dispose: () => observer.disconnect() };
+        return {
+            observer,
+            dispose: () => {
+                observer.disconnect();
+                stopDprWatch();
+            },
+        };
     }
     // No ResizeObserver: fall back to window resizes, on the same window the
     // context is told to use, and take the listener off again.
-    const target = /** @type {EventTarget | undefined} */ (windowRef ?? globalThis);
     if (typeof target?.addEventListener !== 'function') {
+        stopDprWatch();
         return null;
     }
     const listener = () => onResize();
     target.addEventListener('resize', listener);
-    return { observer: null, dispose: () => target.removeEventListener('resize', listener) };
+    return {
+        observer: null,
+        dispose: () => {
+            target.removeEventListener('resize', listener);
+            stopDprWatch();
+        },
+    };
 }
 
 /**

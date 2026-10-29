@@ -317,6 +317,8 @@ MilkdropSprite::CodeContext::CodeContext()
 
 MilkdropSprite::CodeContext::~CodeContext()
 {
+    // The context does not own compiled code; free it first, while the context is still alive.
+    projectm_eval_code_destroy(perFrameCodeHandle);
     projectm_eval_context_destroy(spriteCodeContext);
 
     spriteCodeContext = nullptr;

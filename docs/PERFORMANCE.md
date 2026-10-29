@@ -439,8 +439,8 @@ tier 2 — and the browser's own canvas-bitmap-to-CSS-box scaling does the "pres
 technique many canvas-based games use for dynamic resolution scaling. This is why the render-scale
 tier is a **host** responsibility (see `docs/WASM_JS_API.md#governor-v2-host-callbacks-push-vs-getters`):
 `html/projectm-fps-governor.js`'s `setupFpsGovernor(Module, { onRenderScaleChange })` wires
-`window.pmOnGovernorRenderScaleChange`, and `html/projectm-context.js`'s `syncCanvasSize()` /
-`html/projectm-core.html`'s `syncModuleSize()` (via `pmContext`) apply it. The
+`window.pmOnGovernorRenderScaleChange`, and `html/projectm-context.js`'s `syncCanvasSize()` (used by
+`projectm-core.html` through `pmContext`) applies it. The
 render-worker topology applies the same factor to the `OffscreenCanvas` it owns, via the
 `globalThis.pmOnGovernorRenderScaleChange` hook installed in
 `html/projectm-render-worker.js` — the C++ push reaches both topologies unchanged.
@@ -520,7 +520,7 @@ changes described above.
 ## Preset shader transpile cache (IndexedDB)
 
 Repeat preset visits previously re-ran HLSL parse/transpile and `glCompileShader` on every
-session. The audit in `docs/DETAILED_AUDIT_REPORT.md` estimated **50–200 ms** savings per
+session. The audit in `docs/archive/DETAILED_AUDIT_REPORT.md` estimated **50–200 ms** savings per
 revisit on mid-tier mobile from caching transpiled GLSL (compile/link still runs each session
 because WebGL program binaries are not portable across context loss).
 

@@ -24,6 +24,9 @@
 #endif
 
 #include <exception>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
 
 #include <cstring>
 #include <sstream>
@@ -50,10 +53,76 @@ void projectMWrapper::PresetSwitchFailedEvent(const std::string& presetFilename,
 
 } // namespace libprojectM
 
-libprojectM::projectMWrapper* handle_to_instance(projectm_handle instance)
+namespace {
+
+/**
+ * @brief Runs one C API export's body so that no exception crosses the C ABI.
+ *
+ * A std::exception or anything else thrown by @a body is logged with the export's name, and
+ * @a fallback is returned instead. Invalid arguments (a null handle, a null pointer the export
+ * needs) are thrown by Instance() and Required() inside the body, so they take the same path.
+ */
+template<typename Body>
+auto CApiGuard(const char* function, std::invoke_result_t<Body&> fallback, Body&& body) noexcept -> std::invoke_result_t<Body&>
 {
-    return reinterpret_cast<libprojectM::projectMWrapper*>(instance);
+    using libprojectM::Logging;
+
+    try
+    {
+        return body();
+    }
+    catch (const std::exception& e)
+    {
+        try
+        {
+            LOG_ERROR(std::string(function) + ": " + e.what());
+        }
+        catch (...)
+        {
+        }
+    }
+    catch (...)
+    {
+        try
+        {
+            LOG_ERROR(std::string(function) + ": unknown exception");
+        }
+        catch (...)
+        {
+        }
+    }
+    return fallback;
 }
+
+template<typename Body>
+void CApiGuard(const char* function, Body&& body) noexcept
+{
+    CApiGuard(function, false, [&body] {
+        body();
+        return true;
+    });
+}
+
+auto Instance(projectm_handle instance) -> libprojectM::projectMWrapper&
+{
+    if (instance == nullptr)
+    {
+        throw std::invalid_argument("null projectm_handle");
+    }
+    return *reinterpret_cast<libprojectM::projectMWrapper*>(instance);
+}
+
+template<typename T>
+auto Required(T* pointer, const char* argument) -> T*
+{
+    if (pointer == nullptr)
+    {
+        throw std::invalid_argument(std::string("null ") + argument);
+    }
+    return pointer;
+}
+
+} // namespace
 
 PROJECTM_EXPORT char* projectm_alloc_string(unsigned int length)
 {
@@ -79,12 +148,16 @@ PROJECTM_EXPORT char* projectm_alloc_string_from_std_string(const std::string& s
 
 void projectm_free_string(const char* str)
 {
-    delete[] str;
+    CApiGuard(__func__, [&] {
+        delete[] str;
+    });
 }
 
 projectm_handle projectm_create()
 {
-    return projectm_create_with_opengl_load_proc(nullptr, nullptr);
+    return CApiGuard(__func__, nullptr, [&]() -> projectm_handle {
+        return projectm_create_with_opengl_load_proc(nullptr, nullptr);
+    });
 }
 
 projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const char*, void*), void* user_data)
@@ -125,23 +198,28 @@ projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const c
 
 void projectm_destroy(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    delete projectMInstance;
+    CApiGuard(__func__, [&] {
+        delete reinterpret_cast<libprojectM::projectMWrapper*>(instance);
+    });
 }
 
 void projectm_load_preset_file(projectm_handle instance, const char* filename,
                                bool smooth_transition)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->LoadPresetFile(filename, smooth_transition);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->LoadPresetFile(Required(filename, "filename"), smooth_transition);
+    });
 }
 
 void projectm_load_preset_data(projectm_handle instance, const char* data,
                                bool smooth_transition)
 {
-    std::stringstream presetDataStream(data);
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->LoadPresetData(presetDataStream, smooth_transition);
+    CApiGuard(__func__, [&] {
+        std::stringstream presetDataStream(Required(data, "data"));
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->LoadPresetData(presetDataStream, smooth_transition);
+    });
 }
 
 struct projectm_preset_prepare_job {
@@ -150,211 +228,265 @@ struct projectm_preset_prepare_job {
 
 projectm_preset_prepare_job_handle projectm_preset_prepare_begin_file(projectm_handle instance, const char* filename)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(filename)};
+    return CApiGuard(__func__, nullptr, [&]() -> projectm_preset_prepare_job_handle {
+        auto* projectMInstance = &Instance(instance);
+        return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(Required(filename, "filename"))};
+    });
 }
 
 projectm_preset_prepare_job_handle projectm_preset_prepare_begin_file_contents(projectm_handle instance, const char* filename,
                                                                                const char* data, size_t length)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(filename, std::string(data, length))};
+    return CApiGuard(__func__, nullptr, [&]() -> projectm_preset_prepare_job_handle {
+        auto* projectMInstance = &Instance(instance);
+        std::string contents = length > 0 ? std::string(Required(data, "data"), length) : std::string();
+        return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetFile(Required(filename, "filename"), std::move(contents))};
+    });
 }
 
 projectm_preset_prepare_job_handle projectm_preset_prepare_begin_data(projectm_handle instance, const char* data)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetData(data)};
+    return CApiGuard(__func__, nullptr, [&]() -> projectm_preset_prepare_job_handle {
+        auto* projectMInstance = &Instance(instance);
+        return new projectm_preset_prepare_job{projectMInstance->BeginPreparePresetData(Required(data, "data"))};
+    });
 }
 
 void projectm_preset_prepare_run(projectm_preset_prepare_job_handle job)
 {
-    if (job != nullptr && job->job)
-    {
-        job->job->Run();
-    }
+    CApiGuard(__func__, [&] {
+        if (job != nullptr && job->job)
+        {
+            job->job->Run();
+        }
+    });
 }
 
 bool projectm_preset_prepare_failed(projectm_preset_prepare_job_handle job)
 {
-    return job != nullptr && job->job && job->job->HasRun() && job->job->Failed();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        return job != nullptr && job->job && job->job->HasRun() && job->job->Failed();
+    });
 }
 
 void projectm_load_prepared_preset(projectm_handle instance, projectm_preset_prepare_job_handle job,
                                    bool smooth_transition)
 {
-    if (job == nullptr)
-    {
-        return;
-    }
-    std::unique_ptr<projectm_preset_prepare_job> owned(job);
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->LoadPreparedPreset(std::move(owned->job), smooth_transition);
+    CApiGuard(__func__, [&] {
+        if (job == nullptr)
+        {
+            return;
+        }
+        std::unique_ptr<projectm_preset_prepare_job> owned(job);
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->LoadPreparedPreset(std::move(owned->job), smooth_transition);
+    });
 }
 
 bool projectm_poll_pending_preset(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->PollPendingPreset();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->PollPendingPreset();
+    });
 }
 
 void projectm_set_parallel_shader_compile(projectm_handle instance, bool enabled)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetParallelShaderCompile(enabled);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetParallelShaderCompile(enabled);
+    });
 }
 
 bool projectm_get_parallel_shader_compile(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->ParallelShaderCompile();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->ParallelShaderCompile();
+    });
 }
 
 void projectm_preset_prepare_free(projectm_preset_prepare_job_handle job)
 {
-    delete job;
+    CApiGuard(__func__, [&] {
+        delete job;
+    });
 }
 
 void projectm_set_preset_switch_requested_event_callback(projectm_handle instance,
                                                          projectm_preset_switch_requested_event callback, void* user_data)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->m_presetSwitchRequestedEventCallback = callback;
-    projectMInstance->m_presetSwitchRequestedEventUserData = user_data;
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->m_presetSwitchRequestedEventCallback = callback;
+        projectMInstance->m_presetSwitchRequestedEventUserData = user_data;
+    });
 }
 
 void projectm_set_preset_switch_failed_event_callback(projectm_handle instance,
                                                       projectm_preset_switch_failed_event callback, void* user_data)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->m_presetSwitchFailedEventCallback = callback;
-    projectMInstance->m_presetSwitchFailedEventUserData = user_data;
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->m_presetSwitchFailedEventCallback = callback;
+        projectMInstance->m_presetSwitchFailedEventUserData = user_data;
+    });
 }
 
 void projectm_set_texture_load_event_callback(projectm_handle instance,
                                               projectm_texture_load_event callback, void* user_data)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->m_textureLoadEventCallback = callback;
-    projectMInstance->m_textureLoadEventUserData = user_data;
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->m_textureLoadEventCallback = callback;
+        projectMInstance->m_textureLoadEventUserData = user_data;
 
-    if (callback != nullptr)
-    {
-        // Create a wrapper lambda that bridges C callback to C++ callback
-        projectMInstance->SetTextureLoadCallback(
-            [projectMInstance](const std::string& textureName, libprojectM::Renderer::TextureLoadData& data) {
-                if (projectMInstance->m_textureLoadEventCallback)
-                {
-                    projectm_texture_load_data cData{};
-                    projectMInstance->m_textureLoadEventCallback(
-                        textureName.c_str(), &cData, projectMInstance->m_textureLoadEventUserData);
+        if (callback != nullptr)
+        {
+            // Create a wrapper lambda that bridges C callback to C++ callback
+            projectMInstance->SetTextureLoadCallback(
+                [projectMInstance](const std::string& textureName, libprojectM::Renderer::TextureLoadData& data) {
+                    if (projectMInstance->m_textureLoadEventCallback)
+                    {
+                        projectm_texture_load_data cData{};
+                        projectMInstance->m_textureLoadEventCallback(
+                            textureName.c_str(), &cData, projectMInstance->m_textureLoadEventUserData);
 
-                    // Copy data from C structure to C++ structure
-                    data.data = cData.data;
-                    data.width = cData.width;
-                    data.height = cData.height;
-                    data.channels = cData.channels;
-                    data.textureId = cData.texture_id;
-                }
-            });
-    }
-    else
-    {
-        projectMInstance->SetTextureLoadCallback(nullptr);
-    }
+                        // Copy data from C structure to C++ structure
+                        data.data = cData.data;
+                        data.width = cData.width;
+                        data.height = cData.height;
+                        data.channels = cData.channels;
+                        data.textureId = cData.texture_id;
+                    }
+                });
+        }
+        else
+        {
+            projectMInstance->SetTextureLoadCallback(nullptr);
+        }
+    });
 }
 
 void projectm_set_texture_search_paths(projectm_handle instance,
                                        const char** texture_search_paths,
                                        size_t count)
 {
-    auto projectMInstance = handle_to_instance(instance);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
 
-    std::vector<std::string> texturePaths;
+        std::vector<std::string> texturePaths;
 
-    for (size_t index = 0; index < count; index++)
-    {
-        texturePaths.emplace_back(texture_search_paths[index]);
-    }
+        for (size_t index = 0; index < count; index++)
+        {
+            texturePaths.emplace_back(Required(Required(texture_search_paths, "texture_search_paths")[index], "texture search path"));
+        }
 
-    projectMInstance->SetTexturePaths(texturePaths);
+        projectMInstance->SetTexturePaths(texturePaths);
+    });
 }
 
 void projectm_reset_textures(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->ResetTextures();
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->ResetTextures();
+    });
 }
 
 void projectm_get_version_components(int* major, int* minor, int* patch)
 {
-    if (major != nullptr)
-    {
-        *major = PROJECTM_VERSION_MAJOR;
-    }
-    if (minor != nullptr)
-    {
-        *minor = PROJECTM_VERSION_MINOR;
-    }
-    if (patch != nullptr)
-    {
-        *patch = PROJECTM_VERSION_PATCH;
-    }
+    CApiGuard(__func__, [&] {
+        if (major != nullptr)
+        {
+            *major = PROJECTM_VERSION_MAJOR;
+        }
+        if (minor != nullptr)
+        {
+            *minor = PROJECTM_VERSION_MINOR;
+        }
+        if (patch != nullptr)
+        {
+            *patch = PROJECTM_VERSION_PATCH;
+        }
+    });
 }
 
 char* projectm_get_version_string()
 {
-    auto versionLength = strlen(PROJECTM_VERSION_STRING);
-    auto buffer = projectm_alloc_string(static_cast<uint32_t>(versionLength + 1));
-    strncpy(buffer, PROJECTM_VERSION_STRING, versionLength + 1);
-    return buffer;
+    return CApiGuard(__func__, nullptr, [&]() -> char* {
+        auto versionLength = strlen(PROJECTM_VERSION_STRING);
+        auto buffer = projectm_alloc_string(static_cast<uint32_t>(versionLength + 1));
+        if (buffer != nullptr)
+        {
+            strncpy(buffer, PROJECTM_VERSION_STRING, versionLength + 1);
+        }
+        return buffer;
+    });
 }
 
 char* projectm_get_vcs_version_string()
 {
-    auto versionLength = strlen(PROJECTM_VERSION_VCS);
-    auto buffer = projectm_alloc_string(static_cast<uint32_t>(versionLength + 1));
-    strncpy(buffer, PROJECTM_VERSION_VCS, versionLength + 1);
-    return buffer;
+    return CApiGuard(__func__, nullptr, [&]() -> char* {
+        auto versionLength = strlen(PROJECTM_VERSION_VCS);
+        auto buffer = projectm_alloc_string(static_cast<uint32_t>(versionLength + 1));
+        if (buffer != nullptr)
+        {
+            strncpy(buffer, PROJECTM_VERSION_VCS, versionLength + 1);
+        }
+        return buffer;
+    });
 }
 
 void projectm_opengl_render_frame(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->RenderFrame();
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->RenderFrame();
+    });
 }
 
 void projectm_opengl_render_frame_fbo(projectm_handle instance, uint32_t framebuffer_object_id)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->RenderFrame(framebuffer_object_id);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->RenderFrame(framebuffer_object_id);
+    });
 }
 
 void projectm_perf_set_enabled(bool enabled)
 {
-    libprojectM::Perf::SetEnabled(enabled);
+    CApiGuard(__func__, [&] {
+        libprojectM::Perf::SetEnabled(enabled);
+    });
 }
 
 bool projectm_perf_is_enabled()
 {
-    return libprojectM::Perf::IsEnabled();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        return libprojectM::Perf::IsEnabled();
+    });
 }
 
 void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
 {
-    const auto timings = libprojectM::Perf::GetLastFrame();
+    CApiGuard(__func__, [&] {
+        Required(out_timings, "out_timings");
+        const auto timings = libprojectM::Perf::GetLastFrame();
 
-    out_timings->audio_analysis_ms = timings[libprojectM::Perf::Field::AudioAnalysis];
-    out_timings->per_frame_eval_ms = timings[libprojectM::Perf::Field::PerFrameEval];
-    out_timings->per_pixel_eval_ms = timings[libprojectM::Perf::Field::PerPixelEval];
-    out_timings->blur_ms = timings[libprojectM::Perf::Field::Blur];
-    out_timings->waveforms_shapes_ms = timings[libprojectM::Perf::Field::WaveformsShapes];
-    out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
-    out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
-    out_timings->fps = timings.fps;
-    out_timings->shader_link_pending = timings.shaderLinkPending ? 1 : 0;
-    out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
-    out_timings->rhythm_analysis_ms = timings[libprojectM::Perf::Field::RhythmAnalysis];
+        out_timings->audio_analysis_ms = timings[libprojectM::Perf::Field::AudioAnalysis];
+        out_timings->per_frame_eval_ms = timings[libprojectM::Perf::Field::PerFrameEval];
+        out_timings->per_pixel_eval_ms = timings[libprojectM::Perf::Field::PerPixelEval];
+        out_timings->blur_ms = timings[libprojectM::Perf::Field::Blur];
+        out_timings->waveforms_shapes_ms = timings[libprojectM::Perf::Field::WaveformsShapes];
+        out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
+        out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
+        out_timings->fps = timings.fps;
+        out_timings->shader_link_pending = timings.shaderLinkPending ? 1 : 0;
+        out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
+        out_timings->rhythm_analysis_ms = timings[libprojectM::Perf::Field::RhythmAnalysis];
+    });
 }
 
 // The C and C++ enums are two spellings of one list; this is what keeps them in step.
@@ -385,232 +517,295 @@ void ForwardGpuStage(libprojectM::Perf::GpuStage stage, void* userData)
 
 void projectm_perf_set_gpu_stage_callback(projectm_perf_gpu_stage_callback callback, void* user_data)
 {
-    g_gpuStageBinding.callback = callback;
-    g_gpuStageBinding.userData = user_data;
-    libprojectM::Perf::SetGpuStageCallback(callback != nullptr ? &ForwardGpuStage : nullptr, &g_gpuStageBinding);
+    CApiGuard(__func__, [&] {
+        g_gpuStageBinding.callback = callback;
+        g_gpuStageBinding.userData = user_data;
+        libprojectM::Perf::SetGpuStageCallback(callback != nullptr ? &ForwardGpuStage : nullptr, &g_gpuStageBinding);
+    });
 }
 
 projectm_perf_gpu_stage projectm_perf_enter_gpu_stage(projectm_perf_gpu_stage stage)
 {
-    const int index = static_cast<int>(stage);
-    if (index < 0 || index >= PROJECTM_PERF_GPU_STAGE_COUNT)
-    {
-        return static_cast<projectm_perf_gpu_stage>(libprojectM::Perf::CurrentGpuStage());
-    }
-    return static_cast<projectm_perf_gpu_stage>(
-        libprojectM::Perf::EnterGpuStage(static_cast<libprojectM::Perf::GpuStage>(index)));
+    return CApiGuard(__func__, PROJECTM_PERF_GPU_STAGE_OTHER, [&]() -> projectm_perf_gpu_stage {
+        const int index = static_cast<int>(stage);
+        if (index < 0 || index >= PROJECTM_PERF_GPU_STAGE_COUNT)
+        {
+            return static_cast<projectm_perf_gpu_stage>(libprojectM::Perf::CurrentGpuStage());
+        }
+        return static_cast<projectm_perf_gpu_stage>(
+            libprojectM::Perf::EnterGpuStage(static_cast<libprojectM::Perf::GpuStage>(index)));
+    });
 }
 
 void projectm_perf_get_openmp_info(projectm_perf_openmp_info* out_info)
 {
+    CApiGuard(__func__, [&] {
+        Required(out_info, "out_info");
 #ifdef PRJM_ENABLE_OPENMP
-    out_info->compiled_enabled = true;
-    out_info->max_threads = omp_get_max_threads();
+        out_info->compiled_enabled = true;
+        out_info->max_threads = omp_get_max_threads();
 #else
-    out_info->compiled_enabled = false;
-    out_info->max_threads = 1;
+        out_info->compiled_enabled = false;
+        out_info->max_threads = 1;
 #endif
+    });
 }
 
 int projectm_perf_openmp_thread_count_in_parallel()
 {
+    return CApiGuard(__func__, 0, [&]() -> int {
 #ifdef PRJM_ENABLE_OPENMP
-    return omp_get_num_threads();
+        return omp_get_num_threads();
 #else
-    return 1;
+        return 1;
 #endif
+    });
 }
 
 void projectm_opengl_burn_texture(projectm_handle instance, uint32_t texture, int left, int top, int width, int height)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->BurnInTexture(texture, left, top, width, height);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->BurnInTexture(texture, left, top, width, height);
+    });
 }
 
 void projectm_set_deterministic_seed(uint32_t seed)
 {
-    libprojectM::RandomSeed::SetDeterministicSeed(seed);
+    CApiGuard(__func__, [&] {
+        libprojectM::RandomSeed::SetDeterministicSeed(seed);
+    });
 }
 
 void projectm_clear_deterministic_seed()
 {
-    libprojectM::RandomSeed::ClearDeterministicSeed();
+    CApiGuard(__func__, [&] {
+        libprojectM::RandomSeed::ClearDeterministicSeed();
+    });
 }
 
 bool projectm_is_deterministic_seed_set()
 {
-    return libprojectM::RandomSeed::IsDeterministic();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        return libprojectM::RandomSeed::IsDeterministic();
+    });
 }
 
 void projectm_set_frame_time(projectm_handle instance, double seconds_since_first_frame)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetFrameTime(seconds_since_first_frame);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetFrameTime(seconds_since_first_frame);
+    });
 }
 
 double projectm_get_last_frame_time(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->GetFrameTime();
+    return CApiGuard(__func__, 0.0, [&]() -> double {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->GetFrameTime();
+    });
 }
 
 void projectm_set_beat_sensitivity(projectm_handle instance, float sensitivity)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetBeatSensitivity(sensitivity);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetBeatSensitivity(sensitivity);
+    });
 }
 
 float projectm_get_beat_sensitivity(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->GetBeatSensitivity();
+    return CApiGuard(__func__, 0.0f, [&]() -> float {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->GetBeatSensitivity();
+    });
 }
 
 double projectm_get_hard_cut_duration(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->HardCutDuration();
+    return CApiGuard(__func__, 0.0, [&]() -> double {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->HardCutDuration();
+    });
 }
 
 void projectm_set_hard_cut_duration(projectm_handle instance, double seconds)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetHardCutDuration(seconds);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetHardCutDuration(seconds);
+    });
 }
 
 bool projectm_get_hard_cut_enabled(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->HardCutEnabled();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->HardCutEnabled();
+    });
 }
 
 void projectm_set_hard_cut_enabled(projectm_handle instance, bool enabled)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetHardCutEnabled(enabled);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetHardCutEnabled(enabled);
+    });
 }
 
 float projectm_get_hard_cut_sensitivity(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->HardCutSensitivity();
+    return CApiGuard(__func__, 0.0f, [&]() -> float {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->HardCutSensitivity();
+    });
 }
 
 void projectm_set_hard_cut_sensitivity(projectm_handle instance, float sensitivity)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetHardCutSensitivity(sensitivity);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetHardCutSensitivity(sensitivity);
+    });
 }
 
 double projectm_get_soft_cut_duration(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->SoftCutDuration();
+    return CApiGuard(__func__, 0.0, [&]() -> double {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->SoftCutDuration();
+    });
 }
 
 void projectm_set_soft_cut_duration(projectm_handle instance, double seconds)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetSoftCutDuration(seconds);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetSoftCutDuration(seconds);
+    });
 }
 
 double projectm_get_preset_duration(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->PresetDuration();
+    return CApiGuard(__func__, 0.0, [&]() -> double {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->PresetDuration();
+    });
 }
 
 void projectm_set_preset_duration(projectm_handle instance, double seconds)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetPresetDuration(seconds);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetPresetDuration(seconds);
+    });
 }
 
 void projectm_get_rhythm_info(projectm_handle instance, projectm_rhythm_info* out_info)
 {
-    if (out_info == nullptr)
-    {
-        return;
-    }
-    auto projectMInstance = handle_to_instance(instance);
-    const auto& rhythm = projectMInstance->RhythmInfo();
-    out_info->bpm = rhythm.bpm;
-    out_info->beat_phase = rhythm.beatPhase;
-    out_info->bar_phase = rhythm.barPhase;
-    out_info->confidence = rhythm.confidence;
-    out_info->beat_index = rhythm.beatIndex;
-    out_info->section = rhythm.section;
-    out_info->section_changed = rhythm.sectionChanged ? 1 : 0;
-    out_info->beat = rhythm.beat ? 1 : 0;
-    out_info->bar = rhythm.bar ? 1 : 0;
-    out_info->beat_pulse = rhythm.beatPulse;
-    out_info->onset = rhythm.onset;
+    CApiGuard(__func__, [&] {
+        if (out_info == nullptr)
+        {
+            return;
+        }
+        auto* projectMInstance = &Instance(instance);
+        const auto& rhythm = projectMInstance->RhythmInfo();
+        out_info->bpm = rhythm.bpm;
+        out_info->beat_phase = rhythm.beatPhase;
+        out_info->bar_phase = rhythm.barPhase;
+        out_info->confidence = rhythm.confidence;
+        out_info->beat_index = rhythm.beatIndex;
+        out_info->section = rhythm.section;
+        out_info->section_changed = rhythm.sectionChanged ? 1 : 0;
+        out_info->beat = rhythm.beat ? 1 : 0;
+        out_info->bar = rhythm.bar ? 1 : 0;
+        out_info->beat_pulse = rhythm.beatPulse;
+        out_info->onset = rhythm.onset;
+    });
 }
 
 void projectm_set_rhythm_hint(projectm_handle instance, float bpm)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetRhythmHint(bpm);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetRhythmHint(bpm);
+    });
 }
 
 float projectm_get_rhythm_hint(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->RhythmHint();
+    return CApiGuard(__func__, 0.0f, [&]() -> float {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->RhythmHint();
+    });
 }
 
 void projectm_set_preset_switch_policy(projectm_handle instance, projectm_preset_switch_policy policy, uint32_t bars)
 {
-    using Policy = libprojectM::ProjectM::PresetSwitchPolicy;
-    auto projectMInstance = handle_to_instance(instance);
-    Policy value{Policy::Timer};
-    switch (policy)
-    {
-        case PROJECTM_PRESET_SWITCH_BARS:
-            value = Policy::Bars;
-            break;
-        case PROJECTM_PRESET_SWITCH_SECTION:
-            value = Policy::Section;
-            break;
-        case PROJECTM_PRESET_SWITCH_TIMER:
-        default:
-            break;
-    }
-    projectMInstance->SetPresetSwitchPolicy(value, bars);
+    CApiGuard(__func__, [&] {
+        using Policy = libprojectM::ProjectM::PresetSwitchPolicy;
+        auto* projectMInstance = &Instance(instance);
+        Policy value{Policy::Timer};
+        switch (policy)
+        {
+            case PROJECTM_PRESET_SWITCH_BARS:
+                value = Policy::Bars;
+                break;
+            case PROJECTM_PRESET_SWITCH_SECTION:
+                value = Policy::Section;
+                break;
+            case PROJECTM_PRESET_SWITCH_TIMER:
+            default:
+                break;
+        }
+        projectMInstance->SetPresetSwitchPolicy(value, bars);
+    });
 }
 
 projectm_preset_switch_policy projectm_get_preset_switch_policy(projectm_handle instance, uint32_t* out_bars)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    if (out_bars != nullptr)
-    {
-        *out_bars = projectMInstance->PresetSwitchBars();
-    }
-    return static_cast<projectm_preset_switch_policy>(projectMInstance->GetPresetSwitchPolicy());
+    return CApiGuard(__func__, PROJECTM_PRESET_SWITCH_TIMER, [&]() -> projectm_preset_switch_policy {
+        auto* projectMInstance = &Instance(instance);
+        if (out_bars != nullptr)
+        {
+            *out_bars = projectMInstance->PresetSwitchBars();
+        }
+        return static_cast<projectm_preset_switch_policy>(projectMInstance->GetPresetSwitchPolicy());
+    });
 }
 
 void projectm_set_soft_cut_duration_beats(projectm_handle instance, double beats)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetSoftCutDurationBeats(beats);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetSoftCutDurationBeats(beats);
+    });
 }
 
 double projectm_get_soft_cut_duration_beats(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->SoftCutDurationBeats();
+    return CApiGuard(__func__, 0.0, [&]() -> double {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->SoftCutDurationBeats();
+    });
 }
 
 void projectm_set_hard_cut_on_beat(projectm_handle instance, bool enabled)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetHardCutOnBeat(enabled);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetHardCutOnBeat(enabled);
+    });
 }
 
 bool projectm_get_hard_cut_on_beat(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->HardCutOnBeat();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->HardCutOnBeat();
+    });
 }
 
 // The C and C++ enums are two spellings of one list.
@@ -621,338 +816,467 @@ static_assert(static_cast<int>(libprojectM::ProjectM::PresetSwitchPolicy::Sectio
 
 void projectm_get_mesh_size(projectm_handle instance, size_t* width, size_t* height)
 {
-    uint32_t w, h;
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->MeshSize(w, h);
-    *width = static_cast<size_t>(w);
-    *height = static_cast<size_t>(h);
+    CApiGuard(__func__, [&] {
+        uint32_t w, h;
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->MeshSize(w, h);
+        if (width != nullptr)
+        {
+            *width = static_cast<size_t>(w);
+        }
+        if (height != nullptr)
+        {
+            *height = static_cast<size_t>(h);
+        }
+    });
 }
 
 void projectm_set_texel_offset(projectm_handle instance, float offset_X, float offset_y)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetTexelOffsets(offset_X, offset_y);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetTexelOffsets(offset_X, offset_y);
+    });
 }
 
 void projectm_get_texel_offset(projectm_handle instance, float* offset_X, float* offset_y)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->TexelOffsets(*offset_X, *offset_y);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        float x{};
+        float y{};
+        projectMInstance->TexelOffsets(x, y);
+        if (offset_X != nullptr)
+        {
+            *offset_X = x;
+        }
+        if (offset_y != nullptr)
+        {
+            *offset_y = y;
+        }
+    });
 }
 
 void projectm_set_mesh_size(projectm_handle instance, size_t width, size_t height)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetMeshSize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetMeshSize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    });
 }
 
 void projectm_set_max_blur_level(projectm_handle instance, int32_t max_level)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetMaxBlurLevel(max_level);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetMaxBlurLevel(max_level);
+    });
 }
 
 int32_t projectm_get_max_blur_level(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->MaxBlurLevel();
+    return CApiGuard(__func__, 0, [&]() -> int32_t {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->MaxBlurLevel();
+    });
 }
 
 void projectm_set_blur_resolution_scale(projectm_handle instance, float scale)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetBlurResolutionScale(scale);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetBlurResolutionScale(scale);
+    });
 }
 
 float projectm_get_blur_resolution_scale(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->BlurResolutionScale();
+    return CApiGuard(__func__, 0.0f, [&]() -> float {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->BlurResolutionScale();
+    });
 }
 
 int32_t projectm_get_fps(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->TargetFramesPerSecond();
+    return CApiGuard(__func__, 0, [&]() -> int32_t {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->TargetFramesPerSecond();
+    });
 }
 
 void projectm_set_fps(projectm_handle instance, int32_t fps)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetTargetFramesPerSecond(fps);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetTargetFramesPerSecond(fps);
+    });
 }
 
 void projectm_set_aspect_correction(projectm_handle instance, bool enabled)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetAspectCorrection(enabled);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetAspectCorrection(enabled);
+    });
 }
 
 bool projectm_get_aspect_correction(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->AspectCorrection();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->AspectCorrection();
+    });
 }
 
 void projectm_set_easter_egg(projectm_handle instance, float value)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetEasterEgg(value);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetEasterEgg(value);
+    });
 }
 
 float projectm_get_easter_egg(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->EasterEgg();
+    return CApiGuard(__func__, 0.0f, [&]() -> float {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->EasterEgg();
+    });
 }
 
 void projectm_touch(projectm_handle instance, float x, float y, int pressure, projectm_touch_type touch_type)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->Touch(x, y, pressure, touch_type);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->Touch(x, y, pressure, touch_type);
+    });
 }
 
 void projectm_touch_drag(projectm_handle instance, float x, float y, int pressure)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->TouchDrag(x, y, pressure);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->TouchDrag(x, y, pressure);
+    });
 }
 
 void projectm_touch_destroy(projectm_handle instance, float x, float y)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->TouchDestroy(x, y);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->TouchDestroy(x, y);
+    });
 }
 
 void projectm_touch_destroy_all(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->TouchDestroyAll();
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->TouchDestroyAll();
+    });
 }
 
 bool projectm_get_preset_locked(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->PresetLocked();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->PresetLocked();
+    });
 }
 
 void projectm_set_preset_locked(projectm_handle instance, bool lock)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetPresetLocked(lock);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetPresetLocked(lock);
+    });
 }
 
 void projectm_get_window_size(projectm_handle instance, size_t* width, size_t* height)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    *width = static_cast<size_t>(projectMInstance->WindowWidth());
-    *height = static_cast<size_t>(projectMInstance->WindowHeight());
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        if (width != nullptr)
+        {
+            *width = static_cast<size_t>(projectMInstance->WindowWidth());
+        }
+        if (height != nullptr)
+        {
+            *height = static_cast<size_t>(projectMInstance->WindowHeight());
+        }
+    });
 }
 
 void projectm_set_window_size(projectm_handle instance, size_t width, size_t height)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetWindowSize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetWindowSize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    });
 }
 
 void projectm_set_preset_start_clean(projectm_handle instance, bool enabled)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetPresetStartClean(enabled);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetPresetStartClean(enabled);
+    });
 }
 
 bool projectm_get_preset_start_clean(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->PresetStartClean();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->PresetStartClean();
+    });
 }
 
 void projectm_set_transparency_mode(projectm_handle instance, bool enabled)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetTransparencyMode(enabled);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetTransparencyMode(enabled);
+    });
 }
 
 bool projectm_get_transparency_mode(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->TransparencyMode();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->TransparencyMode();
+    });
 }
 
 void projectm_set_transparency_threshold(projectm_handle instance, float threshold)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetTransparencyThreshold(threshold);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetTransparencyThreshold(threshold);
+    });
 }
 
 float projectm_get_transparency_threshold(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->TransparencyThreshold();
+    return CApiGuard(__func__, 0.0f, [&]() -> float {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->TransparencyThreshold();
+    });
 }
 
 void projectm_set_flash_limit_enabled(projectm_handle instance, bool enabled)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetFlashLimitEnabled(enabled);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetFlashLimitEnabled(enabled);
+    });
 }
 
 bool projectm_get_flash_limit_enabled(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->FlashLimitEnabled();
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->FlashLimitEnabled();
+    });
 }
 
 void projectm_set_flash_limit_threshold(projectm_handle instance, float threshold)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    projectMInstance->SetFlashLimitThreshold(threshold);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
+        projectMInstance->SetFlashLimitThreshold(threshold);
+    });
 }
 
 float projectm_get_flash_limit_threshold(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->FlashLimitThreshold();
+    return CApiGuard(__func__, 0.0f, [&]() -> float {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->FlashLimitThreshold();
+    });
 }
 
 uint32_t projectm_get_flash_limit_clamped_frames(projectm_handle instance)
 {
-    auto projectMInstance = handle_to_instance(instance);
-    return projectMInstance->FlashLimitClampedFrames();
+    return CApiGuard(__func__, 0, [&]() -> uint32_t {
+        auto* projectMInstance = &Instance(instance);
+        return projectMInstance->FlashLimitClampedFrames();
+    });
 }
 
 unsigned int projectm_pcm_get_max_samples()
 {
-    return libprojectM::Audio::AudioBufferSamples;
+    return CApiGuard(__func__, 0, [&]() -> unsigned int {
+        return libprojectM::Audio::AudioBufferSamples;
+    });
 }
 
 template<class BufferType>
 static auto PcmAdd(projectm_handle instance, const BufferType* samples, unsigned int count, projectm_channels channels) -> void
 {
-    auto* projectMInstance = handle_to_instance(instance);
-
-    projectMInstance->PCM().Add(samples, channels, count);
+    if (count > 0)
+    {
+        Required(samples, "samples");
+    }
+    Instance(instance).PCM().Add(samples, channels, count);
 }
 
 auto projectm_pcm_add_float(projectm_handle instance, const float* samples, unsigned int count, projectm_channels channels) -> void
 {
-    PcmAdd(instance, samples, count, channels);
+    CApiGuard(__func__, [&] {
+        PcmAdd(instance, samples, count, channels);
+    });
 }
 
 auto projectm_pcm_add_int16(projectm_handle instance, const int16_t* samples, unsigned int count, projectm_channels channels) -> void
 {
-    PcmAdd(instance, samples, count, channels);
+    CApiGuard(__func__, [&] {
+        PcmAdd(instance, samples, count, channels);
+    });
 }
 
 auto projectm_pcm_add_uint8(projectm_handle instance, const uint8_t* samples, unsigned int count, projectm_channels channels) -> void
 {
-    PcmAdd(instance, samples, count, channels);
+    CApiGuard(__func__, [&] {
+        PcmAdd(instance, samples, count, channels);
+    });
 }
 
 auto projectm_write_debug_image_on_next_frame(projectm_handle, const char*) -> void
 {
-    // UNIMPLEMENTED
+    CApiGuard(__func__, [&] {
+        // UNIMPLEMENTED
+    });
 }
 
 uint32_t projectm_sprite_create(projectm_handle instance, const char* type, const char* code)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    return CApiGuard(__func__, 0, [&]() -> uint32_t {
+        auto* projectMInstance = &Instance(instance);
 
-    return projectMInstance->AddUserSprite(type, code);
+        return projectMInstance->AddUserSprite(Required(type, "type"), Required(code, "code"));
+    });
 }
 
 void projectm_sprite_destroy(projectm_handle instance, uint32_t sprite_id)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
 
-    projectMInstance->DestroyUserSprite(sprite_id);
+        projectMInstance->DestroyUserSprite(sprite_id);
+    });
 }
 
 void projectm_sprite_destroy_all(projectm_handle instance)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
 
-    projectMInstance->DestroyAllUserSprites();
+        projectMInstance->DestroyAllUserSprites();
+    });
 }
 
 uint32_t projectm_sprite_get_sprite_count(projectm_handle instance)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    return CApiGuard(__func__, 0, [&]() -> uint32_t {
+        auto* projectMInstance = &Instance(instance);
 
-    return projectMInstance->UserSpriteCount();
+        return projectMInstance->UserSpriteCount();
+    });
 }
 
 void projectm_sprite_get_sprite_ids(projectm_handle instance, uint32_t* sprite_ids)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
 
-    auto spriteIdList = projectMInstance->UserSpriteIdentifiers();
-    for (const auto& spriteId : spriteIdList)
-    {
-        *sprite_ids = spriteId;
-        sprite_ids++;
-    }
+        auto spriteIdList = projectMInstance->UserSpriteIdentifiers();
+        if (!spriteIdList.empty())
+        {
+            Required(sprite_ids, "sprite_ids");
+        }
+        for (const auto& spriteId : spriteIdList)
+        {
+            *sprite_ids = spriteId;
+            sprite_ids++;
+        }
+    });
 }
 
 void projectm_sprite_set_max_sprites(projectm_handle instance, uint32_t max_sprites)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
 
-    projectMInstance->SetUserSpriteLimit(max_sprites);
+        projectMInstance->SetUserSpriteLimit(max_sprites);
+    });
 }
 
 uint32_t projectm_sprite_get_max_sprites(projectm_handle instance)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    return CApiGuard(__func__, 0, [&]() -> uint32_t {
+        auto* projectMInstance = &Instance(instance);
 
-    return projectMInstance->UserSpriteLimit();
+        return projectMInstance->UserSpriteLimit();
+    });
 }
 
 double projectm_sprite_get_var(projectm_handle instance, uint32_t sprite_id, const char* var_name)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    return CApiGuard(__func__, 0.0, [&]() -> double {
+        auto* projectMInstance = &Instance(instance);
 
-    return projectMInstance->UserSpriteGetVariableValue(sprite_id, var_name);
+        return projectMInstance->UserSpriteGetVariableValue(sprite_id, Required(var_name, "var_name"));
+    });
 }
 
 void projectm_sprite_set_var(projectm_handle instance, uint32_t sprite_id, const char* var_name, double value)
 {
-    auto* projectMInstance = handle_to_instance(instance);
+    CApiGuard(__func__, [&] {
+        auto* projectMInstance = &Instance(instance);
 
-    projectMInstance->UserSpriteSetVariableValue(sprite_id, var_name, value);
+        projectMInstance->UserSpriteSetVariableValue(sprite_id, Required(var_name, "var_name"), value);
+    });
 }
 
 bool projectm_reload_texture(projectm_handle instance, const char* texture_name)
 {
-    if (texture_name == nullptr)
-    {
-        return false;
-    }
+    return CApiGuard(__func__, false, [&]() -> bool {
+        if (texture_name == nullptr)
+        {
+            return false;
+        }
 
-    auto* projectMInstance = handle_to_instance(instance);
+        auto* projectMInstance = &Instance(instance);
 
-    return projectMInstance->ReloadTexture(texture_name);
+        return projectMInstance->ReloadTexture(texture_name);
+    });
 }
+
 void projectm_set_log_callback(projectm_log_callback callback, bool current_thread_only, void* user_data)
 {
-    if (current_thread_only)
-    {
-        libprojectM::Logging::SetThreadCallback({reinterpret_cast<libprojectM::Logging::CallbackFunction>(callback), user_data});
-    }
-    else
-    {
-        libprojectM::Logging::SetGlobalCallback({reinterpret_cast<libprojectM::Logging::CallbackFunction>(callback), user_data});
-    }
+    CApiGuard(__func__, [&] {
+        if (current_thread_only)
+        {
+            libprojectM::Logging::SetThreadCallback({callback, user_data});
+        }
+        else
+        {
+            libprojectM::Logging::SetGlobalCallback({callback, user_data});
+        }
+    });
 }
 
 void projectm_set_log_level(projectm_log_level log_level, bool current_thread_only)
 {
-    if (current_thread_only)
-    {
-        libprojectM::Logging::SetThreadLogLevel(static_cast<libprojectM::Logging::LogLevel>(log_level));
-    }
-    else
-    {
-        libprojectM::Logging::SetGlobalLogLevel(static_cast<libprojectM::Logging::LogLevel>(log_level));
-    }
+    CApiGuard(__func__, [&] {
+        if (current_thread_only)
+        {
+            libprojectM::Logging::SetThreadLogLevel(static_cast<libprojectM::Logging::LogLevel>(log_level));
+        }
+        else
+        {
+            libprojectM::Logging::SetGlobalLogLevel(static_cast<libprojectM::Logging::LogLevel>(log_level));
+        }
+    });
 }

@@ -1,7 +1,7 @@
 # Web / Emscripten demo: Upgrade external FLAC player to postMessage PCM bridge
 
 **Status**: Ready to implement on the player side  
-**Related**: `diagnose-mod-flac` worktree + docs/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
+**Related**: `diagnose-mod-flac` worktree + docs/archive/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
 
 ## Problem
 
@@ -39,7 +39,7 @@ Add a primary `postMessage` path (works for both popups via `window.opener` and 
 
 ### Minimal Patch
 
-See the attached diff: `patches/flac-player-bridge-upgrade-to-postmessage.diff`
+See the attached diff: `docs/archive/patches/flac-player-bridge-upgrade-to-postmessage.diff`
 
 Or apply this change around the existing bridge:
 
@@ -84,7 +84,7 @@ Or apply this change around the existing bridge:
 
 ## Resolution (in-repo sender, no bundle rebuild required)
 
-The earlier `patches/flac-player-bridge-upgrade-to-postmessage.diff` targets the
+The earlier `docs/archive/patches/flac-player-bridge-upgrade-to-postmessage.diff` targets the
 player's *minified external bundle*, whose source we don't have. Instead, the
 sender now lives in the in-repo player shell as a bundle-independent module:
 

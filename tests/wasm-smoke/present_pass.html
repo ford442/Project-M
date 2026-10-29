@@ -239,7 +239,7 @@
     async function run() {
       const params = new URLSearchParams(location.search);
       await loadScript(params.get('module'));
-      const Module = await createModule({ noInitialRun: true, locateFile: (path, prefix) => prefix + path });
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js', noInitialRun: true, locateFile: (path, prefix) => prefix + path });
       if (typeof Module._capture_frame_request !== 'function') {
         throw new Error('bundle predates the present pass (capture_frame_request)');
       }

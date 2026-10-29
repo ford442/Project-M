@@ -84,7 +84,7 @@ required to reference depth, glTF, or Transformers.js.
 | VFS `/textures/` + depth PNG inject | experimental bridge | `shapecode_N_image=pm_depth_map.png` |
 | `pm_depth` shader sampler | libprojectM (`ExperimentalDepthSampler`), gated on the header below | `tex2D(pm_depth, uv)` in warp/composite |
 | VFS `/textures/` scan + download | `projectM_emscripten.cpp` `scanTextures()` | `shapecode_N_image=foo.png`, `textured=1` |
-| `create_sprite(type, code)` / `projectm_sprite_*` / `ProjectMContext.createSprite()` | WASM exports, embed SDK | User sprites from caller code (`img=pm_depth_map` for the depth overlay) |
+| `create_sprite(type, code)` / `projectm_sprite_*_wrapper` / `ProjectMContext.createSprite()` | WASM exports, embed SDK | User sprites from caller code (`img=pm_depth_map` for the depth overlay) |
 | Header metadata (`// tags:`, `// tier:`) | `docs/PRESET_METADATA.md` | Demo UX only — not renderer |
 | `// pm:experimental …` | experimental bridge | Host orchestration only |
 
@@ -210,7 +210,7 @@ the texture already bound, at its new size, so the running preset needs no reloa
 | Depth → displacement texture | Bridge writes `/textures/pm_depth_map.png`; preset uses `shapecode_*_image` | **Done** |
 | Warp/composite `pm_depth` sampler | `// pm:experimental depth-texture=…` declares it; `tex2D(pm_depth, uv)` | **Done** |
 | Live depth refresh | `reload_texture()` updates the bound texture in place; no preset reload | **Done** |
-| Parameterized sprites | `create_sprite(type, code)`, `projectm_sprite_*`, `ProjectMContext.createSprite()` | **Done** |
+| Parameterized sprites | `create_sprite(type, code)`, `projectm_sprite_*_wrapper`, `ProjectMContext.createSprite()` | **Done** |
 | Canvas → depth → preset | “Depth from canvas” captures live viz as **input**, binds **result** | **Done** |
 | Preset metadata drives depth | `// pm:experimental depth=auto` on load | **Done** |
 | Input vs result channel split | Inputs: `role=depth-input`; results: `#resultImage` / `role=depth-result` | **Done** |
@@ -281,7 +281,7 @@ canvas, wait for depth result (or click **Bind result**).
    orchestrate depth/glTF without parser changes.
 4. **glTF export of Milkdrop state is not a product goal.** Export the parallel Three.js
    scene only; treat Milkdrop FBOs as 2D texture sources if compositing is needed later.
-5. **Done:** parameterized sprite create (`create_sprite(type, code)`, `projectm_sprite_*`,
+5. **Done:** parameterized sprite create (`create_sprite(type, code)`, `projectm_sprite_*_wrapper`,
    `ProjectMContext.createSprite()`) and the `pm_depth` warp/composite sampler, gated on the
    `// pm:experimental` header, with in-place depth refreshes.
 

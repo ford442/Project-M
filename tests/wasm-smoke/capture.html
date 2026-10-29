@@ -273,7 +273,7 @@
       setStat('module script loaded');
 
       const canvas = document.getElementById('mcanvas');
-      const Module = await createModule({
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js',
         canvas,
         noInitialRun: true,
         webglContextAttributes: { preserveDrawingBuffer: true },

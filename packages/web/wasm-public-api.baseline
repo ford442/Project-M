@@ -1,7 +1,7 @@
 # @projectm/web public WASM API surface.
 # Generated from cmake/WasmApiManifest.cmake by scripts/check_wasm_public_api.sh.
 # Do not edit by hand: run scripts/check_wasm_public_api.sh --update.
-# package-version: 0.2.0
+# package-version: 0.3.0
 add_preset_file(vfsPath:string) -> void [ccall]
 attach_worklet_ingest() -> void [direct]
 capture_frame_data_ptr() -> number [direct]
@@ -63,15 +63,15 @@ max_host_count() -> number [direct]
 pcm_ring_init(capacityFrames:number) -> number [direct]
 pm_handle_context_loss() -> void [direct]
 projectm_pcm_add_float_wrapper(pmHandle:number,audioPtr:pointer,samplesPerChannel:number,channels:number) -> void [direct]
-projectm_sprite_create(pmHandle:number,type:string,code:string) -> number [ccall]
-projectm_sprite_destroy(pmHandle:number,spriteId:number) -> void [direct]
-projectm_sprite_destroy_all(pmHandle:number) -> void [direct]
-projectm_sprite_get_max_sprites(pmHandle:number) -> number [direct]
-projectm_sprite_get_sprite_count(pmHandle:number) -> number [direct]
-projectm_sprite_get_sprite_ids(pmHandle:number,spriteIds:pointer) -> void [direct]
-projectm_sprite_get_var(pmHandle:number,spriteId:number,varName:string) -> number [ccall]
-projectm_sprite_set_max_sprites(pmHandle:number,maxSprites:number) -> void [direct]
-projectm_sprite_set_var(pmHandle:number,spriteId:number,varName:string,value:number) -> void [ccall]
+projectm_sprite_create_wrapper(pmHandle:number,type:string,code:string) -> number [ccall]
+projectm_sprite_destroy_all_wrapper(pmHandle:number) -> void [direct]
+projectm_sprite_destroy_wrapper(pmHandle:number,spriteId:number) -> void [direct]
+projectm_sprite_get_max_sprites_wrapper(pmHandle:number) -> number [direct]
+projectm_sprite_get_sprite_count_wrapper(pmHandle:number) -> number [direct]
+projectm_sprite_get_sprite_ids_wrapper(pmHandle:number,spriteIds:pointer) -> void [direct]
+projectm_sprite_get_var_wrapper(pmHandle:number,spriteId:number,varName:string) -> number [ccall]
+projectm_sprite_set_max_sprites_wrapper(pmHandle:number,maxSprites:number) -> void [direct]
+projectm_sprite_set_var_wrapper(pmHandle:number,spriteId:number,varName:string,value:number) -> void [ccall]
 rebind_canvases(primary:string,secondary:string) -> number [ccall]
 render_frame() -> void [direct]
 set_active_host(handle:number) -> void [ccall]

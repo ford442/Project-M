@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cinttypes>
 #include <cmath>
 #include <cstddef>
@@ -315,7 +316,11 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
         const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(vertexCount >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
+        // The pool was sized from omp_get_max_threads() when the preset loaded; the host can
+        // raise that later (omp_set_num_threads, OMP_NUM_THREADS). Never run more threads
+        // than there are contexts: thread 0 uses perPixelContext, thread N pool[N - 1].
+        const int contextCount = static_cast<int>(perPixelContextPool.size()) + 1;
+#pragma omp parallel for schedule(static) num_threads(contextCount) if(vertexCount >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
         for (int vertex = 0; vertex < vertexCount; vertex++)
         {
@@ -344,7 +349,11 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
         const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
 
 #ifdef PRJM_ENABLE_OPENMP
-#pragma omp parallel for schedule(static) if(vertexCount >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
+        // The pool was sized from omp_get_max_threads() when the preset loaded; the host can
+        // raise that later (omp_set_num_threads, OMP_NUM_THREADS). Never run more threads
+        // than there are contexts: thread 0 uses perPixelContext, thread N pool[N - 1].
+        const int contextCount = static_cast<int>(perPixelContextPool.size()) + 1;
+#pragma omp parallel for schedule(static) num_threads(contextCount) if(vertexCount >= libprojectM::OpenMp::kMinPerPixelMeshVerts)
 #endif
         for (int vertex = 0; vertex < vertexCount; vertex++)
         {
@@ -353,6 +362,8 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
 #else
             const int threadIndex = 0;
 #endif
+            // perPixelContext is not re-entrant, so only thread 0 may use it.
+            assert(threadIndex == 0 || static_cast<std::size_t>(threadIndex - 1) < perPixelContextPool.size());
             PerPixelContext* threadContext = &perPixelContext;
             if (threadIndex > 0 && static_cast<std::size_t>(threadIndex - 1) < perPixelContextPool.size())
             {

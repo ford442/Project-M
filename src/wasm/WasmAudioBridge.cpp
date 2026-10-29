@@ -207,7 +207,9 @@ EM_JS(void, js_initialize_worklet_system_once, (), {
 
         (async () => {
             try {
-                await audioContext.audioWorklet.addModule('worklets/projectm-audio-processor.js');
+                // Module.audioWorkletUrl lets a page that does not sit next to worklets/
+                // (the tests/wasm-smoke pages) say where the processor is.
+                await audioContext.audioWorklet.addModule(Module['audioWorkletUrl'] || 'worklets/projectm-audio-processor.js');
                 if (globalThis.projectMWorkletNode_Global_Cpp) {
                     _attach_worklet_ingest();
                     resolveReady(globalThis.projectMWorkletNode_Global_Cpp);

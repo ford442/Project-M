@@ -232,6 +232,10 @@ struct WasmHost {
     // create_host() adopts it instead of taking another slot.
     bool implicitDefault = false;
 
+    // This host's opaque handle (HostHandle()): slot index + 1 in the low byte,
+    // the slot's generation above it. Assigned by AllocateHost(); never 0.
+    uintptr_t handle = 0;
+
     // Whether start_render() has run for this host (so the shared Emscripten
     // main loop renders it). The loop itself is process-global; each host opts
     // in individually.
@@ -275,7 +279,9 @@ WasmHost* ActiveHostOrNull();
 
 // Opaque handle for a host (the value create_host() returns / JS tags ring
 // descriptors with), and the registry-checked reverse lookup (nullptr for a
-// stale or unknown handle).
+// stale or unknown handle). A handle is (slot index + 1) | generation << 8, not
+// an address: a slot's generation advances every time it is freed, so a handle
+// to a destroyed host never names the host that reuses its slot or its memory.
 uintptr_t HostHandle(const WasmHost& host);
 WasmHost* HostFromHandle(uintptr_t handle);
 
@@ -294,10 +300,10 @@ double ActiveEventHostHandle();
 // a host-filtered listener never takes it for its own.
 constexpr double kNoEventHost = -1.0;
 
-// The live engine whose address is `engineHandle` (what get_projectm_handle()
-// hands to JS), or nullptr if no live host owns it. JS passes such integers
-// back into the PCM exports; this is the check that keeps a stale or made-up
-// one from being dereferenced as an engine.
+// The live engine `engineHandle` names (what get_projectm_handle() hands to JS:
+// its host's handle), or nullptr if that host is gone or has no engine. JS
+// passes such integers back into the PCM and sprite exports; this is the check
+// that keeps a stale or made-up one from being dereferenced as an engine.
 projectm_handle EngineFromHandle(uintptr_t engineHandle);
 
 // Points libprojectM's process-wide transpiled-GLSL cache key at `host`'s

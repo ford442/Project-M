@@ -26,12 +26,6 @@ public:
     ~TextureManager() = default;
 
     /**
-     * @brief Sets the current preset path to search for textures in addition to the configured paths.
-     * @param path
-     */
-    void SetCurrentPresetPath(const std::string& path);
-
-    /**
      * @brief Loads a texture and returns a descriptor with the given name.
      * Resets the texture age to zero.
      * @param fullName

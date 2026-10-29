@@ -615,6 +615,15 @@ void WasmWebGLDestroyContext()
     auto& g_glCtx = H.glCtx;
     if (g_glCtx)
     {
+        // Release it first. Emscripten caches the calling thread's current handle in C, and
+        // destroying the context does not clear that cache. With OFFSCREEN_FRAMEBUFFER, handles
+        // are heap pointers, so the next context can get the same address back. Its
+        // make_context_current() would then hit the "already current" early return and leave
+        // GL.currentContext null (the explicit-swap present_pass crash in glGetStringi).
+        if (emscripten_webgl_get_current_context() == g_glCtx)
+        {
+            emscripten_webgl_make_context_current(0);
+        }
         emscripten_webgl_destroy_context(g_glCtx);
         g_glCtx = 0;
     }

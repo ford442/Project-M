@@ -1,7 +1,7 @@
 # Web / Emscripten demo: Integrate projectM audio bridge into the MOD/XM player
 
 **Status**: Needs implementation (currently has zero bridge)  
-**Related**: `diagnose-mod-flac` worktree + docs/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
+**Related**: `diagnose-mod-flac` worktree + docs/archive/DIAGNOSIS_MOD_FLAC_PLAYER_CONNECTION.md
 
 ## Problem
 
@@ -26,7 +26,7 @@ Add a small audio bridge that forwards time-domain data (or ideally raw rendered
 
 ### Preferred Quick Path (AnalyserNode)
 
-Hook right after the analyser is created and connected (see full recommendation in `patches/mod-player-projectm-audio-bridge-recommendation.md`).
+Hook right after the analyser is created and connected (see full recommendation in `docs/archive/patches/mod-player-projectm-audio-bridge-recommendation.md`).
 
 ```js
 if (window.opener || (window.parent !== window)) {
@@ -54,7 +54,7 @@ When using the native C++/Wasm worklet, expose the actual rendered stereo sample
 
 ## Deliverables
 
-- See the detailed guide + copy-paste code: `patches/mod-player-projectm-audio-bridge-recommendation.md`
+- See the detailed guide + copy-paste code: `docs/archive/patches/mod-player-projectm-audio-bridge-recommendation.md`
 - The host side (`html/projectm-core.html`) already has the matching robust receiver, visible launch buttons, and a local test sender for development.
 
 ## Acceptance Criteria

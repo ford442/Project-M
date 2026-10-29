@@ -279,12 +279,94 @@ int reload_texture(const char* name)
     return projectm_reload_texture(H.appData.projectm_engine, name) ? 1 : 0;
 }
 
+// The active host's engine as the pmHandle the PCM and sprite wrappers take, or
+// 0 without an engine. It is the host's handle (HostHandle()), not the engine's
+// address: a handle kept past destroy_host() then fails EngineFromHandle()
+// instead of driving whatever engine reuses that memory.
 EMSCRIPTEN_KEEPALIVE
 uintptr_t get_projectm_handle()
 {
     WasmHost& H = Host();
-    auto& app_data = H.appData;
-    return reinterpret_cast<uintptr_t>(app_data.projectm_engine);
+    return H.appData.projectm_engine != nullptr ? HostHandle(H) : 0;
+}
+
+// The projectm_sprite_* C API with a validated pmHandle (get_projectm_handle()).
+// libprojectM's own projectm_sprite_* exports take a raw engine pointer, which JS
+// cannot be trusted with; these resolve the handle first and are no-ops (0) for
+// a stale, made-up or engine-less one, like projectm_pcm_add_float_wrapper.
+EMSCRIPTEN_KEEPALIVE
+uint32_t projectm_sprite_create_wrapper(uintptr_t pmHandle, const char* type, const char* code)
+{
+    projectm_handle engine = EngineFromHandle(pmHandle);
+    return engine != nullptr ? projectm_sprite_create(engine, type, code) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void projectm_sprite_destroy_wrapper(uintptr_t pmHandle, uint32_t spriteId)
+{
+    if (projectm_handle engine = EngineFromHandle(pmHandle))
+    {
+        projectm_sprite_destroy(engine, spriteId);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void projectm_sprite_destroy_all_wrapper(uintptr_t pmHandle)
+{
+    if (projectm_handle engine = EngineFromHandle(pmHandle))
+    {
+        projectm_sprite_destroy_all(engine);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t projectm_sprite_get_sprite_count_wrapper(uintptr_t pmHandle)
+{
+    projectm_handle engine = EngineFromHandle(pmHandle);
+    return engine != nullptr ? projectm_sprite_get_sprite_count(engine) : 0;
+}
+
+// `spriteIds` must hold projectm_sprite_get_sprite_count_wrapper() entries.
+EMSCRIPTEN_KEEPALIVE
+void projectm_sprite_get_sprite_ids_wrapper(uintptr_t pmHandle, uint32_t* spriteIds)
+{
+    if (projectm_handle engine = EngineFromHandle(pmHandle))
+    {
+        projectm_sprite_get_sprite_ids(engine, spriteIds);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void projectm_sprite_set_max_sprites_wrapper(uintptr_t pmHandle, uint32_t maxSprites)
+{
+    if (projectm_handle engine = EngineFromHandle(pmHandle))
+    {
+        projectm_sprite_set_max_sprites(engine, maxSprites);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t projectm_sprite_get_max_sprites_wrapper(uintptr_t pmHandle)
+{
+    projectm_handle engine = EngineFromHandle(pmHandle);
+    return engine != nullptr ? projectm_sprite_get_max_sprites(engine) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+double projectm_sprite_get_var_wrapper(uintptr_t pmHandle, uint32_t spriteId, const char* varName)
+{
+    projectm_handle engine = EngineFromHandle(pmHandle);
+    return engine != nullptr && varName != nullptr ? projectm_sprite_get_var(engine, spriteId, varName) : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void projectm_sprite_set_var_wrapper(uintptr_t pmHandle, uint32_t spriteId, const char* varName, double value)
+{
+    projectm_handle engine = EngineFromHandle(pmHandle);
+    if (engine != nullptr && varName != nullptr)
+    {
+        projectm_sprite_set_var(engine, spriteId, varName, value);
+    }
 }
 } // extern "C"
 

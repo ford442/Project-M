@@ -62,6 +62,7 @@ import {
     meshGridFor,
     readContextSnapshot,
     readFlashLimitStats,
+    resolveDevicePixelRatio,
     startFpsMonitor,
     syncCanvasSize,
 } from './context/render.js';
@@ -235,7 +236,6 @@ export class ProjectMContext {
             audioSource: 'none',
             presetLocked: false,
             renderTopology: 'auto',
-            devicePixelRatio: globalThis.devicePixelRatio || 1,
             documentRef: typeof document !== 'undefined' ? document : undefined,
             windowRef: typeof window !== 'undefined' ? window : undefined,
             ...options,
@@ -1140,7 +1140,7 @@ export class ProjectMContext {
             mainCanvas: this.canvas,
             secondaryCanvas: this.secondaryCanvas,
             aspectCorrection: this.options.aspectCorrection,
-            devicePixelRatio: this.options.devicePixelRatio,
+            devicePixelRatio: resolveDevicePixelRatio(this.options),
             renderScale: this.renderScale,
         });
     }

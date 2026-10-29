@@ -28,9 +28,11 @@
 #include "PresetFileParser.hpp"
 
 #include <Logging.hpp>
+#include <Utils.hpp>
 #include <PerfTimers.hpp>
 
 #include <algorithm>
+#include <limits>
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
@@ -319,12 +321,12 @@ void MilkdropPreset::PerFrameUpdate()
     m_state.gammaAdj = static_cast<float>(*m_perFrameContext.gamma);
     m_state.videoEchoZoom = static_cast<float>(*m_perFrameContext.echo_zoom);
     m_state.videoEchoAlpha = static_cast<float>(*m_perFrameContext.echo_alpha);
-    m_state.videoEchoOrientation = static_cast<int>(*m_perFrameContext.echo_orient);
+    m_state.videoEchoOrientation = Utils::SaturatingToInt(*m_perFrameContext.echo_orient, std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
 }
 
 void MilkdropPreset::Load(const std::string& pathname)
 {
-    LOG_DEBUG("[MilkdropPreset] Loading preset from file \"" + pathname + "\".")
+    LOG_DEBUG("[MilkdropPreset] Loading preset from file \"" + pathname + "\".");
 
     SetFilename(ParseFilename(pathname));
 
@@ -333,7 +335,7 @@ void MilkdropPreset::Load(const std::string& pathname)
     if (!parser.Read(pathname))
     {
         const std::string error = "[MilkdropPreset] Could not parse preset file \"" + pathname + "\".";
-        LOG_ERROR(error)
+        LOG_ERROR(error);
         throw MilkdropPresetLoadException(error);
     }
 
@@ -349,7 +351,7 @@ void MilkdropPreset::Load(std::istream& stream)
     if (!parser.Read(stream))
     {
         const std::string error = "[MilkdropPreset] Could not parse preset data.";
-        LOG_ERROR(error)
+        LOG_ERROR(error);
         throw MilkdropPresetLoadException(error);
     }
 

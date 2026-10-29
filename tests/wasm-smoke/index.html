@@ -428,6 +428,36 @@
       Module._render_frame();
       mark('destroy_host freed its host; stale set_active_host handle ignored');
 
+      // 3b. Host C takes the slot B freed (and may reuse B's memory). Its handle
+      // must differ, and B's host and engine handles must not reach C.
+      if (typeof Module._projectm_sprite_get_max_sprites_wrapper === 'function') {
+        const handleC = Module.ccall('create_host', 'number', ['string', 'string'],
+          ['#pm-smoke-main-2', '#pm-smoke-secondary-2']);
+        if (!handleC) throw new Error('create_host() into the freed slot failed');
+        if (handleC === handleB) throw new Error('the reused host slot reissued the destroyed host\'s handle');
+        const engineC = Module._get_projectm_handle();
+        if (!engineC || engineC === staleEngine) {
+          throw new Error('the reused host slot reissued the destroyed engine\'s handle');
+        }
+        Module.ccall('set_active_host', null, ['number'], [handleB]);
+        if (Module._get_active_host() !== handleC) {
+          throw new Error('set_active_host(destroyed handle) selected the host in its slot');
+        }
+        const limitC = Module._projectm_sprite_get_max_sprites_wrapper(engineC);
+        Module._projectm_sprite_set_max_sprites_wrapper(staleEngine, 1);
+        if (Module._projectm_sprite_get_max_sprites_wrapper(engineC) !== limitC) {
+          throw new Error('a stale engine handle drove the engine in its slot');
+        }
+        if (Module._projectm_sprite_get_max_sprites_wrapper(staleEngine) !== 0
+            || Module.ccall('projectm_sprite_create_wrapper', 'number', ['number', 'string', 'string'],
+              [staleEngine, 'milkdrop', 'img=x']) !== 0) {
+          throw new Error('a stale engine handle was accepted by the sprite wrappers');
+        }
+        Module.ccall('destroy_host', null, ['number'], [handleC]);
+        Module.ccall('set_active_host', null, ['number'], [handleA]);
+        mark('reused host slot: new handles, stale host/engine handles rejected');
+      }
+
       // 4. A legacy export before any create_host() must not take a slot. Tear
       // every host down, touch the compat default, then create kMaxHosts hosts.
       Module.ccall('destroy_host', null, ['number'], [handleA]);
@@ -587,7 +617,7 @@
       const primarySelector = '#pm-smoke-main';
       const secondarySelector = '#pm-smoke-secondary';
 
-      const Module = await createModule({
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js',
         noInitialRun: true,
         primaryCanvasSelector: primarySelector,
         secondaryCanvasSelector: secondarySelector,
@@ -695,12 +725,20 @@
         const requestedAt = performance.now();
         Module.ccall('load_preset_file', null, ['string'], ['/presets/heavy.milk']);
         const heavyDeadline = requestedAt + PRESET_READY_TIMEOUT_MS;
+        // The last time this loop ran before the switch. The activating frame compiles the
+        // new shaders on the main thread before it reports the switch, so the time to "ready"
+        // includes that compile, which is not time the loop sat idle waiting for the prepare
+        // thread. This poll only runs while the main thread is free. If it kept running for
+        // several frame intervals and no frame was drawn, the render loop really stalled.
+        let lastFreeAt = requestedAt;
         while (Module._is_preset_ready(0) === 0) {
           if (Module._preset_switch_failed()) throw new Error('heavy preset: preset_switch_failed');
           if (performance.now() > heavyDeadline) throw new Error('heavy preset: timed out waiting for ready');
           await sleep(4);
+          if (!framesAtSwitch.has('/presets/heavy.milk')) lastFreeAt = performance.now();
         }
         const prepareMs = performance.now() - requestedAt;
+        const idleMs = lastFreeAt - requestedAt;
         if (!switchedTo.includes('/presets/heavy.milk')) {
           throw new Error('heavy preset reported ready but never switched');
         }
@@ -708,16 +746,17 @@
         // include the activating frame itself, which proves nothing: that frame is drawn even
         // if the loop was blocked for the whole prepare.
         const framesWhileLoading = framesAtSwitch.get('/presets/heavy.milk') - framesAtRequest;
-        const timing = 'prepare ' + prepareMs.toFixed(0) + ' ms, frame interval ' + frameMs.toFixed(0) + ' ms';
+        const timing = 'prepare ' + prepareMs.toFixed(0) + ' ms, main thread free for ' + idleMs.toFixed(0) +
+          ' ms of it, frame interval ' + frameMs.toFixed(0) + ' ms';
         if (framesWhileLoading >= 1) {
           mark('heavy preset prepared off-thread; ' + framesWhileLoading + ' frame(s) rendered meanwhile (' + timing + ')');
-        } else if (prepareMs > BLOCKED_LOOP_FRAMES * frameMs) {
+        } else if (idleMs > BLOCKED_LOOP_FRAMES * frameMs) {
           throw new Error('render loop produced no frames while the heavy preset was prepared (' + timing + ')');
         } else {
           // A loop that is merely out of phase with the prepare misses at most about one frame
           // interval. A prepare that short cannot show that the loop kept running, so it is
           // reported but not asserted; counting it as a failure only made this step flaky.
-          mark('heavy preset prepared in under ' + BLOCKED_LOOP_FRAMES + ' frame intervals, no frame landed in the window; '
+          mark('main thread was free for under ' + BLOCKED_LOOP_FRAMES + ' frame intervals, no frame landed in the window; '
             + 'off-thread prepare not asserted (' + timing + ')');
         }
       } else {

@@ -56,15 +56,15 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _attach_worklet_ingest
     _connect_media_element_source
     _create_sprite
-    _projectm_sprite_create
-    _projectm_sprite_destroy
-    _projectm_sprite_destroy_all
-    _projectm_sprite_get_sprite_count
-    _projectm_sprite_get_sprite_ids
-    _projectm_sprite_set_max_sprites
-    _projectm_sprite_get_max_sprites
-    _projectm_sprite_get_var
-    _projectm_sprite_set_var
+    _projectm_sprite_create_wrapper
+    _projectm_sprite_destroy_wrapper
+    _projectm_sprite_destroy_all_wrapper
+    _projectm_sprite_get_sprite_count_wrapper
+    _projectm_sprite_get_sprite_ids_wrapper
+    _projectm_sprite_set_max_sprites_wrapper
+    _projectm_sprite_get_max_sprites_wrapper
+    _projectm_sprite_get_var_wrapper
+    _projectm_sprite_set_var_wrapper
     _reload_texture
     _stop_worklet_playback
     _set_audio_source_to_stream

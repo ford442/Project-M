@@ -172,7 +172,7 @@
       canvas.width = width;
       canvas.height = height;
 
-      const Module = await createModule({
+      const Module = await createModule({ audioWorkletUrl: '../../html/worklets/projectm-audio-processor.js',
         canvas,
         noInitialRun: true,
         // Required to read the canvas back after rendering; the WASM side also

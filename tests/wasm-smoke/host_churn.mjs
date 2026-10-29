@@ -15,7 +15,7 @@
  * Run it on the runtime-checks link (scripts/build_wasm.sh --debug: ASSERTIONS=2,
  * SAFE_HEAP, STACK_OVERFLOW_CHECK=2), which is what reports pool exhaustion:
  *   node tests/wasm-smoke/host_churn.mjs --module cmake-build/wasm-smoke-debug/projectm-v.030-thread.js
- *   node tests/wasm-smoke/host_churn.mjs --module <js> --rounds 20 --heavy custom_milk_fixed/milk011.milk
+ *   node tests/wasm-smoke/host_churn.mjs --module <js> --rounds 20 --heavy presets/custom/milk011.milk
  */
 
 import { writeFileSync } from 'node:fs';
@@ -32,7 +32,7 @@ const root = resolve(process.env.PROJECTM_ROOT || detectRepoRoot(scriptDir));
 function parseArgs(argv) {
     const options = {
         module: process.env.PROJECTM_WASM_JS || 'cmake-build/wasm-smoke-debug/projectm-v.030-thread.js',
-        heavy: 'custom_milk_fixed/milk011.milk',
+        heavy: 'presets/custom/milk011.milk',
         light: 'presets/tests/000-empty.milk',
         rounds: 100,
         stayEvery: 10,

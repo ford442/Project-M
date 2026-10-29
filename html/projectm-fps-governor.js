@@ -167,8 +167,7 @@ export function getGovernorBlurCap(Module) {
  * tier change (through the WASM callback bus, so several contexts can listen at
  * once). If `onRenderScaleChange` is provided, it's called with the new scale
  * (1.0/0.75/0.5) whenever the governor steps tiers, so the host can resize the
- * canvas backing store (see syncModuleSize() in projectm-core.html / syncCanvasSize()
- * in projectm-context.js) — this is what actually applies the "internal FBO render
+ * canvas backing store (see syncCanvasSize() in html/context/render.js) — this is what actually applies the "internal FBO render
  * scale" tier; nothing here touches the canvas directly.
  *
  * This module writes nothing to `window`. Pages whose inline handlers still call

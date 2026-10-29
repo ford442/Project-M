@@ -24,36 +24,13 @@ include("${CMAKE_CURRENT_LIST_DIR}/WasmApiManifest.cmake")
 # starts once the creating thread yields; OpenMP barriers waiting on such a
 # thread from the main thread hung the 033/034 bundles (docs/PERFORMANCE.md),
 # so the pool must cover everything that can run at once.
-#
-# These are constants, not options. The same three numbers are compiled into
-# the wrapper (cmake/generated/ProjectMWasmBuildConfig.hpp, committed, with a
-# static_assert that the pool covers both) and written into the link
-# (scripts/wasm_link_common.inc.sh). Overriding one at configure or link time
-# used to change the link but not the header, so the static_assert checked a
-# pool the bundle did not have; a pool smaller than the threads brings the
-# lazy-Worker hang above back. To change them, edit them here and run
-# scripts/sync_wasm_link_common.sh.
-set(PROJECTM_WASM_OPENMP_THREADS 4)          # OpenMP team size (omp_set_num_threads).
-set(PROJECTM_WASM_PRESET_PREPARE_THREADS 2)  # One per WasmHost: >= kMaxHosts (src/wasm/WasmHost.hpp).
-math(EXPR PROJECTM_WASM_PTHREAD_POOL_SIZE "${PROJECTM_WASM_OPENMP_THREADS} - 1 + ${PROJECTM_WASM_PRESET_PREPARE_THREADS}")
-foreach(_projectm_wasm_constant IN ITEMS PROJECTM_WASM_OPENMP_THREADS PROJECTM_WASM_PRESET_PREPARE_THREADS PROJECTM_WASM_PTHREAD_POOL_SIZE)
-    # Build dirs configured before this was a constant still carry the old
-    # cache entry; that is fine as long as it agrees.
-    if(DEFINED CACHE{${_projectm_wasm_constant}} AND NOT "$CACHE{${_projectm_wasm_constant}}" STREQUAL "${${_projectm_wasm_constant}}")
-        message(FATAL_ERROR "${_projectm_wasm_constant}=$CACHE{${_projectm_wasm_constant}} is no longer configurable "
-                "(this tree's value is ${${_projectm_wasm_constant}}). Edit cmake/EmscriptenWasmFlags.cmake "
-                "and run scripts/sync_wasm_link_common.sh, or remove the cache entry.")
-    endif()
-endforeach()
-
-# Stack sizes. Emscripten's default is 64 KB for the main thread and for every
-# pthread, and the preset prepare thread runs the recursive-descent HLSL parser
-# and the projectM-eval parser on its stack (deeply nested preset code recurses
-# per nesting level). 1 MB / 512 KB is generous against that and cheap against
-# the fixed 256 MB heap (pool of PTHREAD_POOL_SIZE threads: 2.5 MB of stacks).
-# scripts/check_wasm_bundle_features.sh checks the linked glue carries both.
-set(PROJECTM_WASM_STACK_SIZE 1048576)
-set(PROJECTM_WASM_PTHREAD_STACK_SIZE 524288)
+set(PROJECTM_WASM_OPENMP_THREADS "4" CACHE STRING
+    "OpenMP team size (omp_set_num_threads). Drives kWasmOpenMpThreads in cmake/generated/ProjectMWasmBuildConfig.hpp.")
+set(PROJECTM_WASM_PRESET_PREPARE_THREADS "2" CACHE STRING
+    "Preset prepare threads, one per WasmHost: must be >= kMaxHosts in src/wasm/WasmHost.hpp.")
+math(EXPR _projectm_wasm_default_pool_size "${PROJECTM_WASM_OPENMP_THREADS} - 1 + ${PROJECTM_WASM_PRESET_PREPARE_THREADS}")
+set(PROJECTM_WASM_PTHREAD_POOL_SIZE "${_projectm_wasm_default_pool_size}" CACHE STRING
+    "Pre-spawned pthread Workers (PTHREAD_POOL_SIZE): OpenMP helpers plus preset prepare threads. Drives kWasmPthreadPoolSize in cmake/generated/ProjectMWasmBuildConfig.hpp.")
 
 # C++ exception ABI: native Wasm exception handling (-fwasm-exceptions), for
 # every TU (libprojectM-4.a, the playlist lib, the wrapper) — the ABI is baked
@@ -78,12 +55,8 @@ set(PROJECTM_WASM_EXCEPTION_ARGS -fwasm-exceptions)
 # playlist lib are compiled to LLVM bitcode (-flto) and the final wrapper link
 # optimises across them and the wrapper TUs. The static libs and the wrapper
 # link must use the same setting (a bitcode archive only links with -flto).
-# There is one switch: this cache variable (scripts/build_wasm.sh --lto sets
-# it). The wrapper link does not choose; scripts/build_wasm_smoke_wrapper.sh
-# reads the value this configure recorded (projectm-wasm-wrapper-flags.txt in
-# the build dir, see projectm_write_emscripten_wrapper_flags() below), checks
-# the archives agree, and a PROJECTM_WASM_LTO in its environment that disagrees
-# fails the link. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
+# The wrapper link reads the same choice from the PROJECTM_WASM_LTO environment
+# variable. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
 set(PROJECTM_WASM_LTO OFF CACHE BOOL "Compile the WASM static libraries to LLVM bitcode (-flto); link the bundle with PROJECTM_WASM_LTO=1.")
 
 # Browser wrapper exports (projectM_emscripten.cpp final emcc link).
@@ -137,16 +110,6 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _attach_worklet_ingest
         _connect_media_element_source
         _create_sprite
-        _projectm_sprite_create
-        _projectm_sprite_destroy
-        _projectm_sprite_destroy_all
-        _projectm_sprite_get_sprite_count
-        _projectm_sprite_get_sprite_ids
-        _projectm_sprite_set_max_sprites
-        _projectm_sprite_get_max_sprites
-        _projectm_sprite_get_var
-        _projectm_sprite_set_var
-        _reload_texture
         _stop_worklet_playback
         _set_audio_source_to_stream
         _set_preset_locked
@@ -193,7 +156,6 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _dual_fbo_get_idle_release_seconds
         _dual_fbo_is_preset_b_ready
         _dual_fbo_get_format
-        _get_context_snapshot
         _dual_fbo_render_preset_a
         _dual_fbo_render_preset_b
         _transition_start
@@ -293,24 +255,6 @@ set(PROJECTM_WASM_SIMD_COMPILE_FLAGS
         -matomics
         -mnontrapping-fptoint
         -msign-ext
-        )
-
-# Code generation semantics shared by every WASM TU (libs and wrapper). These
-# change what the optimiser may assume, not which instructions exist, which is
-# why they are not with the feature flags above.
-#  - -fno-math-errno: nothing reads errno after a libm call, so sqrt/floor & co.
-#    compile to single wasm instructions instead of libc calls.
-#  - -fno-strict-aliasing: a safety net, not a known fix. Clang accepts
-#    -Wstrict-aliasing but never emits it, so the audit was a native GCC -O3
-#    build of libprojectM, the playlist and the vendored libs with
-#    -fstrict-aliasing -Wstrict-aliasing=2 (2026-10-23): no warnings. The only
-#    wasm-only pointer reinterpretation, WaveformAligner.cpp's SIMD path, goes
-#    through wasm_v128_load/store, which are may_alias by definition. It stays
-#    because GCC only sees puns through the address of a named object, the
-#    Emscripten-only code is not in that build, and nothing measured says
-#    strict aliasing would buy the bundle anything. Dropping it needs the
-#    golden-image gate run against a build without it.
-set(PROJECTM_WASM_CODEGEN_COMPILE_FLAGS
         -fno-strict-aliasing
         -fno-math-errno
         )
@@ -336,8 +280,6 @@ set(PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS
 # prepared on a pthread while the render loop keeps running.
 set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "SHARED_MEMORY=1"
-        "STACK_SIZE=${PROJECTM_WASM_STACK_SIZE}"
-        "DEFAULT_PTHREAD_STACK_SIZE=${PROJECTM_WASM_PTHREAD_STACK_SIZE}"
         "MIN_WEBGL_VERSION=2"
         "MAX_WEBGL_VERSION=2"
         "USE_WEBGL2=1"
@@ -369,7 +311,7 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         # a -sINITIAL_MEMORY=16mb relink, 2026-09-25): 19.25 MiB including the
         # runtime and pthread stacks, identical at 1920x1080 and 3840x2160, for
         # the empty preset, per-pixel, composite-shader and the heaviest
-        # presets/custom presets, across a dual-FBO transition. Framebuffers
+        # custom_milk_fixed presets, across a dual-FBO transition. Framebuffers
         # and textures are GPU memory, not heap. 256 MB is ~13x that and the
         # same initial reservation as before, so nothing that fit then fails now.
         # What growth cost (docs/EMSCRIPTEN.md "Heap model"):
@@ -401,9 +343,6 @@ set(PROJECTM_WASM_WRAPPER_ONLY_S_LINK_SETTINGS
         "EXPORT_NAME=createModule"
         "MODULARIZE=1"
         "DEFAULT_TO_CXX=1"
-        # main() only registers the module; hosts call init()/create_host*()
-        # themselves once they have set up the canvas and the VFS.
-        "INVOKE_RUN=0"
         )
 
 function(_projectm_wasm_expand_s_link_settings settings_list out_var)
@@ -427,7 +366,6 @@ function(projectm_apply_emscripten_lib_compile_flags)
     add_compile_options(
             ${PROJECTM_WASM_EXCEPTION_ARGS}
             ${PROJECTM_WASM_SIMD_COMPILE_FLAGS}
-            ${PROJECTM_WASM_CODEGEN_COMPILE_FLAGS}
             -fopenmp=libomp
             -pthread
             )
@@ -440,8 +378,7 @@ endfunction()
 function(projectm_apply_emscripten_lib_link_flags)
     _projectm_wasm_expand_s_link_settings(PROJECTM_WASM_SHARED_S_LINK_SETTINGS _shared_s_args)
 
-    set(_all_link_args ${PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS} ${PROJECTM_WASM_EXCEPTION_ARGS} ${_shared_s_args}
-        ${PROJECTM_WASM_SIMD_COMPILE_FLAGS} ${PROJECTM_WASM_CODEGEN_COMPILE_FLAGS})
+    set(_all_link_args ${PROJECTM_WASM_SHARED_PLAIN_LINK_ARGS} ${PROJECTM_WASM_EXCEPTION_ARGS} ${_shared_s_args} ${PROJECTM_WASM_SIMD_COMPILE_FLAGS})
     if(PROJECTM_WASM_LTO)
         list(APPEND _all_link_args -flto)
     endif()
@@ -455,45 +392,6 @@ function(projectm_apply_emscripten_lib_link_flags)
     # "symbol exported via --export not found: init" for every missing name.
     string(APPEND _shell_args " --pre-js ${PROJECTM_WASM_PTHREAD_SCRIPT_URL_PRE_JS}")
     add_link_options("SHELL:${_shell_args}")
-endfunction()
-
-# Writes <build dir>/projectm-wasm-wrapper-flags.txt: how this build compiled
-# libprojectM, one compiler argument per line, for the wrapper TUs in src/wasm/.
-# Those are compiled by scripts/build_wasm_smoke_wrapper.sh, not by CMake, yet
-# include libprojectM's internal headers (ProjectMWasmInternal.hpp), so they
-# must see the same preprocessor state as the objects in the archives or the
-# two sides disagree about inline functions and class layouts (ODR):
-#   - -include config.h, which every libprojectM TU gets (features.cmake);
-#   - the compile definitions of the libprojectM object libraries, directory
-#     and transitive ones included (PRJM_ENABLE_OPENMP, *_STATIC_DEFINE, ...);
-#   - -DNDEBUG when the build type defines it, so the wrapper's assert()s are
-#     compiled out exactly when the library's are;
-#   - -DPROJECTM_WASM_LIB_LTO=0|1, which the wrapper link follows (it has no LTO
-#     switch of its own; see PROJECTM_WASM_LTO above).
-# `targets` are the object libraries whose definitions to collect.
-function(projectm_write_emscripten_wrapper_flags)
-    set(_definitions "")
-    foreach(_target IN LISTS ARGN)
-        list(APPEND _definitions "$<TARGET_PROPERTY:${_target},COMPILE_DEFINITIONS>")
-    endforeach()
-
-    string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type)
-    set(_ndebug_line "")
-    if(" ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${_build_type}} " MATCHES " [-/]DNDEBUG ")
-        set(_ndebug_line "-DNDEBUG\n")
-    endif()
-    if(PROJECTM_WASM_LTO)
-        set(_lto 1)
-    else()
-        set(_lto 0)
-    endif()
-
-    # One argument per line, verbatim: values keep their quotes
-    # (DATADIR_PATH="..."), which a response file would need escaped. Empty
-    # definitions (generator expressions that evaluate to nothing) come out as
-    # a bare "-D" line, which the reader skips.
-    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/projectm-wasm-wrapper-flags.txt"
-         CONTENT "-include\n${PROJECTM_BINARY_DIR}/include/config.h\n${_ndebug_line}-DPROJECTM_WASM_LIB_LTO=${_lto}\n-D$<JOIN:$<REMOVE_DUPLICATES:${_definitions}>,\n-D>\n")
 endfunction()
 
 # Absolute path to the --pre-js that restores Module.mainScriptUrlOrBlob, so the

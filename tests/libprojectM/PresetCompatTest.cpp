@@ -1,9 +1,7 @@
 #include "HeadlessGlContext.hpp"
-#include "TestGl.hpp"
 
 #include <gtest/gtest.h>
 
-#include <MilkdropPreset/ExperimentalDepthSampler.hpp>
 #include <MilkdropPreset/MilkdropShader.hpp>
 #include <MilkdropPreset/PresetFileParser.hpp>
 #include <MilkdropPreset/ShaderTranspiler.hpp>
@@ -20,7 +18,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -188,10 +185,8 @@ auto CheckPreset(const std::string& filePath) -> PresetCheckResult
     }
     result.parsed = true;
 
-    // Read like PresetState does, so an experimental preset's pm_depth is declared here too.
-    using libprojectM::MilkdropPreset::ExperimentalDepthSampler;
-    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, ExperimentalDepthSampler::ShaderCode(parser, "warp_"));
-    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, ExperimentalDepthSampler::ShaderCode(parser, "comp_"));
+    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, parser.GetCode("warp_"));
+    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, parser.GetCode("comp_"));
 
     return result;
 }
@@ -302,18 +297,12 @@ public:
 
     /**
      * @brief Runs @a begin, prepares the job on another thread while rendering frames here, then loads it.
-     *
-     * @a afterBegin, if set, runs right after @a begin, before the preparation starts.
      */
     template<typename BeginFunction>
-    auto LoadJob(const std::string& cacheKey, BeginFunction&& begin, const std::function<void()>& afterBegin = {}) -> LoadResult
+    auto LoadJob(const std::string& cacheKey, BeginFunction&& begin) -> LoadResult
     {
         return Load(cacheKey, [&]() {
             auto* job = begin();
-            if (afterBegin)
-            {
-                afterBegin();
-            }
             std::atomic<bool> done{false};
             std::thread worker([job, &done]() {
                 projectm_preset_prepare_run(job);
@@ -533,7 +522,7 @@ INSTANTIATE_TEST_SUITE_P(PresetTests, PresetCompat,
                          ::testing::ValuesIn(CollectPresetFiles(presetTestsDir)),
                          PresetFileTestName);
 
-// The presets/custom/ collection currently contains some presets with known format
+// The custom_milk_fixed/ collection currently contains some presets with known format
 // issues (see AGENTS.md). Testing it is opt-in via PROJECTM_TEST_CUSTOM_MILK_FIXED=1 so
 // that the default "projectM-unittest" CTest run (used by the main CI build) is not
 // broken by these pre-existing, out-of-scope failures. scripts/test_presets.sh and the
@@ -544,7 +533,7 @@ INSTANTIATE_TEST_SUITE_P(CustomMilkFixed, PresetCompat,
                                                   : std::vector<std::string>{}),
                          PresetFileTestName);
 
-// Allows ad-hoc runs against an arbitrary preset directory, e.g. presets/weeks/, via
+// Allows ad-hoc runs against an arbitrary preset directory, e.g. weeks_presets/, via
 // `PROJECTM_PRESET_COMPAT_DIR=<path> ctest -R PresetCompat`. Empty/missing by default.
 INSTANTIATE_TEST_SUITE_P(ExtraPresetDir, PresetCompat,
                          ::testing::ValuesIn(CollectPresetFiles(
@@ -701,43 +690,6 @@ TEST(PresetCompatPreparedJobs, FailedPrepareReportsTheInlineError)
     EXPECT_EQ(load.failure, inlineLoad.failure);
 }
 
-// The host's preset library ends its shader-cache load (shader_cache_end_load(), which clears the
-// key) as soon as load_preset_file() returns, unless it waits for the transition. The prepared load
-// is activated later, on the render thread: it must still compile the GLSL the cache held when it
-// began instead of transpiling there, which would be slower than having no cache at all.
-TEST(PresetCompatPreparedJobs, CacheKeyClearedBeforeActivationStillUsesCachedGlsl)
-{
-    auto* harness = PreparedGlslHarness::Get();
-    if (harness == nullptr)
-    {
-        GTEST_SKIP() << "No OpenGL context available.";
-    }
-
-    const auto preset = PrepareFixture("prepare-named-textures.milk");
-    const auto inlineLoad = harness->LoadInline(preset);
-    ASSERT_EQ(inlineLoad.glsl.count(0), 1u);
-    ASSERT_EQ(inlineLoad.glsl.count(1), 1u);
-
-    harness->SetCachedGlsl("cached-then-ended", 0, inlineLoad.glsl.at(0));
-    harness->SetCachedGlsl("cached-then-ended", 1, inlineLoad.glsl.at(1));
-    const auto transpilesBefore = libprojectM::MilkdropPreset::MilkdropShader::RenderThreadTranspileCount();
-    const auto usedBefore = libprojectM::MilkdropPreset::MilkdropShader::PreparedGlslUseCount();
-    const auto load = harness->LoadJob(
-        "cached-then-ended",
-        [&]() {
-            return projectm_preset_prepare_begin_file(harness->Instance(), preset.c_str());
-        },
-        []() {
-            libprojectM::Renderer::ClearTranspiledGlslCacheKey();
-        });
-    EXPECT_TRUE(load.failure.empty()) << load.failure;
-    EXPECT_EQ(libprojectM::MilkdropPreset::MilkdropShader::RenderThreadTranspileCount() - transpilesBefore, 0u)
-        << "The render thread transpiled a shader the cache held when the load began.";
-    // Both types were cached, so preparation transpiled neither.
-    EXPECT_EQ(libprojectM::MilkdropPreset::MilkdropShader::PreparedGlslUseCount() - usedBefore, 0u);
-    EXPECT_TRUE(load.glsl.empty()) << "A cached shader was transpiled and stored again.";
-}
-
 TEST(PresetCompatPreparedJobs, DataJobMatchesInlineData)
 {
     auto* harness = PreparedGlslHarness::Get();
@@ -773,11 +725,8 @@ TEST(PresetCompatPreparedJobs, JobOutlivesTheInstanceThatBeganIt)
     const auto preset = PrepareFixture("prepare-random-textures.milk");
     auto* other = projectm_create();
     ASSERT_NE(other, nullptr);
-    // A load records its GLSL under the cache key armed when it begins, not when it is activated.
-    libprojectM::Renderer::SetTranspiledGlslCacheKey("adopted");
     auto* orphan = projectm_preset_prepare_begin_file(other, preset.c_str());
     auto* adopted = projectm_preset_prepare_begin_file(other, preset.c_str());
-    libprojectM::Renderer::ClearTranspiledGlslCacheKey();
     projectm_destroy(other);
 
     std::thread worker([orphan, adopted]() {

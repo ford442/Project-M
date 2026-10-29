@@ -31,7 +31,6 @@
 // See docs/EMSCRIPTEN.md for details and the Chrome DevTools test procedure.
 
 import { INIT_CONTEXT_LOST } from './projectm-init-errors.js';
-import { asDisposable } from './projectm-disposables.js';
 
 /**
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
@@ -149,7 +148,7 @@ export function setupContextLossRecovery(target, {
 
     const transport = getTransport();
     if (!transport) {
-        return asDisposable(() => {});
+        return () => {};
     }
 
     /** @type {Array<() => void>} */
@@ -261,25 +260,15 @@ export function setupContextLossRecovery(target, {
     }
 
     if (documentRef) {
-        const createdOverlay = !documentRef.getElementById(OVERLAY_ID);
-        const createdStyle = !documentRef.getElementById(STYLE_ID);
         const overlay = ensureOverlay(documentRef);
         const onOverlayClick = () => {
             void restore();
         };
         overlay.addEventListener('click', onOverlayClick);
-        disposers.push(() => {
-            overlay.removeEventListener('click', onOverlayClick);
-            // Take down what this call added, so a second setup on the same
-            // page (a retried init) does not inherit a stale overlay. A visible
-            // one stays: the page is mid-loss and the message is still true.
-            if (overlay.classList?.contains('visible')) return;
-            if (createdOverlay) overlay.remove?.();
-            if (createdStyle) documentRef.getElementById(STYLE_ID)?.remove?.();
-        });
+        disposers.push(() => overlay.removeEventListener('click', onOverlayClick));
     }
 
-    return asDisposable(() => {
+    return () => {
         if (disposed) {
             return;
         }
@@ -287,5 +276,5 @@ export function setupContextLossRecovery(target, {
         for (const dispose of disposers) {
             dispose();
         }
-    });
+    };
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Promote a draft or quarantined .milk preset into presets/custom/ (deployed as custom_milk_fixed/).
+// Promote a draft or quarantined .milk preset into custom_milk_fixed/.
 //
 // Gates (draft → curated):
 //   1. Static audit — zero `error` findings (scripts/audit_presets.mjs)
@@ -23,7 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { auditText } from './audit_presets.mjs';
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const CURATED_DIR = join(PROJECT_ROOT, 'presets', 'custom');
+const CURATED_DIR = join(PROJECT_ROOT, 'custom_milk_fixed');
 const CAPTURE_REPORT = join(PROJECT_ROOT, 'screenshots', 'custom_milk_baseline', 'capture_report.json');
 
 function parseArgs(argv) {

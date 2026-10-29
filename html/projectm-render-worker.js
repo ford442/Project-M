@@ -17,7 +17,6 @@
 //   { type: 'recover-context', host }                 // rebuild the engine after a context loss
 //   { type: 'set-flash-limit', enabled, threshold, host }   // the engine's flash limiter
 //   { type: 'capture-frame', requestId, renderFrame, timeoutMs, host }  // read back the next frame
-//   { type: 'shutdown' }                              // stop the stats tick, destruct the engine
 //
 //   `host` is the engine the message is for (what 'ready' reported); the worker
 //   selects it before acting. Absent or 0 means the worker's own engine.
@@ -25,12 +24,10 @@
 // Message protocol (worker -> host):
 //   { type: 'ready', host }                           // host = this worker's engine handle
 //   { type: 'unsupported', reason }
-//   { type: 'init-error', code, message }             // init() failed or threw; the host falls back
 //   { type: 'error', message }
 //   { type: 'stats', fps, fboFormat, qualityTier, renderScale, renderPathOverrides }
 //   { type: 'pcm-ring', descriptor }
-//   { type: 'ccall-result', requestId, result } | { requestId, error }
-//   { type: 'shutdown-complete' }                     // answer to 'shutdown'; terminate now
+//   { type: 'ccall-result', requestId, result }
 //   { type: 'context-lost' }                          // webglcontextlost on the OffscreenCanvas
 //   { type: 'context-restored' }                      // webglcontextrestored; engine not rebuilt yet
 //   { type: 'context-recovered', status }             // outcome of 'recover-context' (init() code)
@@ -59,34 +56,6 @@
  * @typedef {import('./projectm-render-worker-types.ts').FlashLimitSettings} FlashLimitSettings
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
-
-/**
- * The module as this worker probes it. ProjectMModule types every manifest
- * export as present, and each is still checked with `typeof ... === 'function'`
- * before a call because an older bundle may lack it; these are the runtime
- * members the manifest does not describe at all.
- *
- * @typedef {ProjectMModule & {
- *   HEAPU8?: Uint8Array,
- *   specialHTMLTargets?: Record<string, unknown>,
- *   _create_host_with_config?: (...args: number[]) => number,
- *   FS?: { writeFile: (path: string, data: Uint8Array | string) => void, mkdirTree?: (path: string) => void },
- * }} WorkerModule
- */
-
-/**
- * The engine-to-host hooks the C++ side looks up on `globalThis` — in a worker,
- * this scope (see WasmPerfGovernor.cpp / WasmRhythm.cpp).
- *
- * @typedef {object} EngineHooks
- * @property {(...args: unknown[]) => void} [pmOnGovernorRenderScaleChange]
- * @property {(stats: PerfFrameStats) => void} [pmOnPerfFrame]
- * @property {(...args: unknown[]) => void} [pmSetPerfHudEnabled]
- * @property {(event: RhythmEvent) => void} [pmOnRhythmEvent]
- */
-
-/** `self`, with the engine hooks this worker publishes on it. */
-const hookScope = /** @type {typeof self & EngineHooks} */ (self);
 
 /**
  * The Emscripten factory that `importScripts(scriptSrc)` defines on the worker
@@ -125,7 +94,7 @@ function postToHost(message, transfer = []) {
     self.postMessage(message, transfer);
 }
 
-/** @type {WorkerModule | null} */
+/** @type {ProjectMModule | null} */
 let Module = null;
 /** This worker's engine: create_host_with_config()'s handle, 0 until it exists. */
 let engineHost = 0;
@@ -187,7 +156,7 @@ function selectEngine(host) {
     const target = host || engineHost;
     if (!target || !Module) return;
     // The common case — one engine, already active — costs no make-current.
-    const module = Module;
+    const module = /** @type {any} */ (Module);
     if (typeof module._get_active_host === 'function' && module._get_active_host() === target) return;
     try {
         Module.ccall('set_active_host', null, ['number'], [target]);
@@ -227,7 +196,7 @@ const onGovernorRenderScaleChange = (...args) => {
     renderScale = Number(values[0]) || 1;
     applySurfaceSize();
 };
-hookScope.pmOnGovernorRenderScaleChange = onGovernorRenderScaleChange;
+/** @type {any} */ (self).pmOnGovernorRenderScaleChange = onGovernorRenderScaleChange;
 
 // The perf HUD (html/projectm-perf.js) lives on the page, but the engine reports
 // to `globalThis.pmOnPerfFrame` / `pmSetPerfHudEnabled` — this scope. Relay both,
@@ -258,7 +227,7 @@ const onPerfFrame = (stats) => {
         flushPerfFrames();
     }
 };
-hookScope.pmOnPerfFrame = onPerfFrame;
+/** @type {any} */ (self).pmOnPerfFrame = onPerfFrame;
 
 /** @param {unknown[]} args `(host, enabled)`, or `(enabled)` before bundle 040. */
 const onPerfHudEnabled = (...args) => {
@@ -271,7 +240,7 @@ const onPerfHudEnabled = (...args) => {
     }
     postToHost({ type: 'perf-hud', enabled });
 };
-hookScope.pmSetPerfHudEnabled = onPerfHudEnabled;
+/** @type {any} */ (self).pmSetPerfHudEnabled = onPerfHudEnabled;
 
 // Beat/bar/section events (src/wasm/WasmRhythm.cpp) land in this scope too.
 // Relayed one by one: the engine only reports frames that carry an event, a few
@@ -281,7 +250,7 @@ const onRhythmEvent = (event) => {
     if (engineHost && event.host !== engineHost) return;
     postToHost({ type: 'rhythm-event', event: { ...event } });
 };
-hookScope.pmOnRhythmEvent = onRhythmEvent;
+/** @type {any} */ (self).pmOnRhythmEvent = onRhythmEvent;
 
 /**
  * Reads the module's PCM ring descriptor. Mirrors readPcmRingDescriptor() in
@@ -291,7 +260,7 @@ hookScope.pmOnRhythmEvent = onRhythmEvent;
  * @returns {PcmRingDescriptor | null}
  */
 function readPcmRingDescriptor() {
-    const m = Module;
+    const m = /** @type {any} */ (Module);
     if (!m || typeof m._get_pcm_ring_data_ptr !== 'function') return null;
 
     let dataPtr = m._get_pcm_ring_data_ptr();
@@ -401,7 +370,7 @@ function installContextLossHandlers(canvas) {
     canvas.addEventListener('webglcontextlost', (event) => {
         // Required for the browser to consider restoring the context at all.
         event.preventDefault();
-        const module = Module;
+        const module = /** @type {any} */ (Module);
         if (module && typeof module._pm_handle_context_loss === 'function') {
             module._pm_handle_context_loss();
         }
@@ -441,21 +410,7 @@ function recoverContext(host) {
     if (status === 0) {
         publishPcmRing();
     }
-    postToHost({ type: 'context-recovered', status, ...(status === 0 ? contextSnapshotField() : {}) });
-}
-
-/**
- * get_context_snapshot() as a message field, so the host reads what the worker's
- * context negotiated without a round trip it would have to wait for. Absent from
- * a bundle that predates the export.
- *
- * @returns {{ contextSnapshot?: number }}
- */
-function contextSnapshotField() {
-    const m = Module;
-    return m && typeof m._get_context_snapshot === 'function'
-        ? { contextSnapshot: m._get_context_snapshot() }
-        : {};
+    postToHost({ type: 'context-recovered', status });
 }
 
 function postStats() {
@@ -496,7 +451,7 @@ function postStats() {
  * @param {RenderWorkerPresetMessage} msg
  */
 function handlePreset(module, msg) {
-    const fs = /** @type {WorkerModule} */ (module).FS;
+    const fs = /** @type {any} */ (module).FS;
     if (!fs) {
         postToHost({ type: 'error', message: 'preset write failed: module has no FS' });
         return;
@@ -536,11 +491,6 @@ function handleCcall(module, msg) {
         result = module.ccall(msg.name, msg.returnType || null, msg.argTypes || [], msg.args || []);
     } catch (error) {
         postToHost({ type: 'error', message: `ccall ${msg.name} failed: ${error}` });
-        // A caller awaiting the result must hear about it too, or its promise
-        // never settles (an export an older deployed bundle lacks is the usual cause).
-        if (msg.requestId !== undefined) {
-            postToHost({ type: 'ccall-result', requestId: msg.requestId, error: `ccall ${msg.name} failed: ${error}` });
-        }
         return;
     }
     if (msg.requestId !== undefined) {
@@ -556,7 +506,7 @@ function handleCcall(module, msg) {
  * @param {FlashLimitSettings} settings
  */
 function applyFlashLimit(settings) {
-    const m = Module;
+    const m = /** @type {any} */ (Module);
     if (!m || typeof m._set_flash_limit_enabled !== 'function') return;
     if (typeof settings.threshold === 'number' && Number.isFinite(settings.threshold)) {
         m._set_flash_limit_threshold(settings.threshold);
@@ -581,7 +531,7 @@ const DEFAULT_CAPTURE_TIMEOUT_MS = 5000;
  * @param {RenderWorkerCaptureFrameMessage} msg
  */
 async function captureFrame(msg) {
-    const m = Module;
+    const m = /** @type {any} */ (Module);
     /** @param {string} error */
     const fail = (error) => postToHost({ type: 'frame-captured', requestId: msg.requestId, error });
     if (!m || typeof m._capture_frame_request !== 'function') {
@@ -622,125 +572,30 @@ async function captureFrame(msg) {
     const length = width * height * 4;
     // Copied out of the (shared) heap into a buffer of its own, which is then
     // transferred rather than cloned.
-    // Read the view now, not before the wait: a heap that grew meanwhile has a new one.
-    const heap = m.HEAPU8;
-    if (!heap) {
-        m._capture_frame_release();
-        fail('captureFrame(): this projectM bundle does not export HEAPU8');
-        return;
-    }
     const pixels = new ArrayBuffer(length);
-    new Uint8Array(pixels).set(heap.subarray(ptr, ptr + length));
+    new Uint8Array(pixels).set(m.HEAPU8.subarray(ptr, ptr + length));
     m._capture_frame_release();
     postToHost({ type: 'frame-captured', requestId: msg.requestId, width, height, pixels, frameIndex }, [pixels]);
 }
 
-/**
- * Where this worker is in its one boot. A worker hosts one engine on one
- * transferred canvas, so a second 'init' is refused rather than run: it would
- * start a second stats tick next to the first and point the engine hooks at an
- * engine the host never heard about.
- *
- * @type {'idle' | 'booting' | 'ready' | 'failed' | 'shut-down'}
- */
-let bootState = 'idle';
-
-function stopStats() {
-    if (statsInterval) {
-        clearInterval(statsInterval);
-        statsInterval = 0;
-    }
-}
-
-/** The engine's init error code, or -1 when there is no module to ask. */
-function lastInitErrorCode() {
-    const m = /** @type {{ _get_last_init_error?: () => number } | null} */ (Module);
-    try {
-        return typeof m?._get_last_init_error === 'function' ? Number(m._get_last_init_error()) : -1;
-    } catch (_) {
-        return -1;
-    }
-}
-
-/**
- * Runs {@link init} and turns every way it can fail into an `init-error` the
- * host acts on. Without this a throw after createModule() resolved — from
- * create_host_with_config(), start_render() or any setter after it — was an
- * unhandled rejection in this scope: `worker.onerror` does not fire for those,
- * so the host waited for a 'ready' that never came.
- *
- * @param {RenderWorkerInitMessage} msg
- */
-function runInit(msg) {
-    if (bootState !== 'idle') {
-        postToHost({ type: 'init-error', code: -1, message: `render worker already initialised (state: ${bootState})` });
-        return;
-    }
-    bootState = 'booting';
-    init(msg).then(
-        (ok) => {
-            if (bootState === 'booting') bootState = ok ? 'ready' : 'failed';
-        },
-        (error) => {
-            stopStats();
-            if (bootState === 'shut-down') return;
-            bootState = 'failed';
-            postToHost({
-                type: 'init-error',
-                code: lastInitErrorCode(),
-                message: `render worker init threw: ${error}`,
-            });
-        },
-    );
-}
-
-/**
- * Ends this worker's engine before the host terminates it: stops the stats
- * tick, hands over buffered perf frames, and destructs the engine the way the
- * main-thread transport does. Answers 'shutdown-complete' so the host can
- * terminate without waiting out its deadline.
- */
-function shutdown() {
-    const wasBooting = bootState === 'booting';
-    bootState = 'shut-down';
-    stopStats();
-    flushPerfFrames();
-    const m = /** @type {{ _destruct?: () => void } | null} */ (Module);
-    // A boot still in flight has no engine yet; init() sees the state and stops.
-    if (!wasBooting && m && typeof m._destruct === 'function') {
-        try {
-            m._destruct();
-        } catch (error) {
-            postToHost({ type: 'error', message: `engine shutdown failed: ${error}` });
-        }
-    }
-    Module = null;
-    engineHost = 0;
-    surface = null;
-    postToHost({ type: 'shutdown-complete' });
-}
-
-/**
- * @param {RenderWorkerInitMessage} msg
- * @returns {Promise<boolean>} Whether the engine is running and 'ready' was posted.
- */
+/** @param {RenderWorkerInitMessage} msg */
 async function init(msg) {
     if (typeof OffscreenCanvas === 'undefined' || typeof importScripts !== 'function') {
         postToHost({ type: 'unsupported', reason: 'OffscreenCanvas or importScripts unavailable in worker' });
-        return false;
+        return;
     }
 
     try {
         importScripts(msg.scriptSrc);
     } catch (error) {
         postToHost({ type: 'unsupported', reason: `failed to load ${msg.scriptSrc}: ${error}` });
-        return false;
+        return;
     }
 
     const createModule = getCreateModule();
     if (typeof createModule !== 'function') {
         postToHost({ type: 'unsupported', reason: 'createModule not defined after importScripts' });
-        return false;
+        return;
     }
 
     try {
@@ -795,12 +650,8 @@ async function init(msg) {
             },
         });
     } catch (error) {
-        postToHost({ type: 'init-error', code: -1, message: `module init failed: ${error}` });
-        return false;
-    }
-    // The host gave up (shutdown) while the module was loading.
-    if (bootState === 'shut-down') {
-        return false;
+        postToHost({ type: 'error', message: `module init failed: ${error}` });
+        return;
     }
 
     // Give the engine its canvas. emscripten_webgl_create_context("#mcanvas")
@@ -809,13 +660,13 @@ async function init(msg) {
     // and there is no document here. Registering the transferred canvas under
     // the selector the engine already uses means the C++ side needs no
     // worker-specific path at all.
-    const targets = Module.specialHTMLTargets;
+    const targets = /** @type {any} */ (Module).specialHTMLTargets;
     if (!targets) {
         postToHost({
             type: 'unsupported',
             reason: 'bundle does not export specialHTMLTargets; rebuild with the current EXPORTED_RUNTIME_METHODS',
         });
-        return false;
+        return;
     }
     targets['#mcanvas'] = msg.canvas;
 
@@ -830,14 +681,14 @@ async function init(msg) {
             overrides.copyShaderPath ? 1 : 0, overrides.perPixelForceCpu ? 1 : 0);
     }
 
-    if (typeof Module._create_host_with_config !== 'function') {
+    if (typeof /** @type {any} */ (Module)._create_host_with_config !== 'function') {
         // The host falls back to the main thread, which still drives bundles
         // like this one through the old configure-then-init exports.
         postToHost({
             type: 'unsupported',
             reason: 'bundle predates create_host_with_config(); rebuild, or render on the main thread',
         });
-        return false;
+        return;
     }
     const cfg = msg.contextConfig;
     const host = Module.ccall('create_host_with_config', 'number',
@@ -846,11 +697,11 @@ async function init(msg) {
     if (!host) {
         const code = Module._get_last_init_error ? Module._get_last_init_error() : -1;
         postToHost({
-            type: 'init-error',
+            type: 'error',
             message: `projectM engine creation failed in the render worker (init code ${code})`,
             code,
         });
-        return false;
+        return;
     }
     engineHost = Number(host);
 
@@ -884,21 +735,16 @@ async function init(msg) {
 
     publishPcmRing();
 
-    stopStats();
     statsInterval = setInterval(postStats, 500);
 
-    postToHost({ type: 'ready', host: engineHost, ...contextSnapshotField() });
-    return true;
+    postToHost({ type: 'ready', host: engineHost });
 }
 
 self.onmessage = (event) => {
     const msg = /** @type {RenderWorkerHostMessage} */ (event.data);
     switch (msg.type) {
         case 'init':
-            runInit(msg);
-            break;
-        case 'shutdown':
-            shutdown();
+            init(msg);
             break;
         case 'resize':
             // The host sends the layout size; the backing store is that times
@@ -923,10 +769,6 @@ self.onmessage = (event) => {
             if (Module) {
                 selectEngine(msg.host);
                 handleCcall(Module, msg);
-            } else if (msg.requestId !== undefined) {
-                // Before boot or after shutdown: say so rather than leave the
-                // caller's promise pending forever.
-                postToHost({ type: 'ccall-result', requestId: msg.requestId, error: `ccall ${msg.name}: no engine in the render worker` });
             }
             break;
         case 'recover-context':
@@ -939,9 +781,7 @@ self.onmessage = (event) => {
             }
             break;
         case 'capture-frame':
-            captureFrame(msg).catch((error) => {
-                postToHost({ type: 'frame-captured', requestId: msg.requestId, error: `captureFrame() threw: ${error}` });
-            });
+            captureFrame(msg);
             break;
         default:
             break;

@@ -84,6 +84,7 @@ const GENERIC_ERROR_INFO = {
     ],
 };
 
+const TROUBLESHOOTING_URL = 'https://github.com/ford442/Project-M/blob/main/docs/EMSCRIPTEN.md#init-error-codes';
 
 const STYLE_ID = 'pm-init-error-style';
 const OVERLAY_ID = 'pm-init-error';
@@ -183,8 +184,6 @@ function ensureOverlay() {
 
     overlayEl = document.getElementById(OVERLAY_ID);
     if (overlayEl) {
-        // Markup the page shipped (or a previous setup left visible): wire it too.
-        attachOverlayRetry(overlayEl);
         return overlayEl;
     }
 
@@ -195,46 +194,19 @@ function ensureOverlay() {
             <h2 class="pm-init-error-title"></h2>
             <p class="pm-init-error-message"></p>
             <ul class="pm-init-error-hints"></ul>
-            <p class="pm-init-error-docs"><a href="https://github.com/ford442/Project-M/blob/main/docs/EMSCRIPTEN.md#init-error-codes" target="_blank" rel="noopener">Troubleshooting docs</a></p>
+            <p class="pm-init-error-docs"><a href="${TROUBLESHOOTING_URL}" target="_blank" rel="noopener">Troubleshooting docs</a></p>
             <button type="button" class="pm-init-error-retry">Retry</button>
         </div>
     `;
     document.body.appendChild(overlayEl);
-    attachOverlayRetry(overlayEl);
+
+    overlayEl.querySelector('.pm-init-error-retry')?.addEventListener('click', () => {
+        if (retryCallback) {
+            retryCallback();
+        }
+    });
 
     return overlayEl;
-}
-
-/** @param {Element} overlay */
-function attachOverlayRetry(overlay) {
-    if (overlayRetryButton) return;
-    overlayRetryButton = overlay.querySelector('.pm-init-error-retry');
-    overlayRetryButton?.addEventListener('click', onOverlayRetry);
-}
-
-/** The overlay's one listener; reads the current handler, so it never goes stale. */
-function onOverlayRetry() {
-    if (retryCallback) {
-        retryCallback();
-    }
-}
-
-/** @type {Element | null} */
-let overlayRetryButton = null;
-
-/**
- * Takes the overlay down when nothing is showing in it. A visible overlay is an
- * error the user has not dismissed yet and stays; the next showInitError()
- * builds a fresh one either way.
- */
-function removeOverlayIfHidden() {
-    if (!overlayEl || overlayEl.classList.contains('visible') || typeof overlayEl.remove !== 'function') {
-        return;
-    }
-    overlayRetryButton?.removeEventListener('click', onOverlayRetry);
-    overlayRetryButton = null;
-    overlayEl.remove();
-    overlayEl = null;
 }
 
 /**
@@ -313,7 +285,6 @@ export function setupInitErrorHandling(onRetry) {
             if (retryCallback === onRetry) {
                 retryCallback = null;
             }
-            removeOverlayIfHidden();
         },
     };
 

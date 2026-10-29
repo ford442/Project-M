@@ -443,11 +443,7 @@ PROJECTM_EXPORT bool projectm_get_preset_start_clean(projectm_handle instance);
  * @brief Enables or disables transparency mode for the final framebuffer output.
  *
  * When enabled, near-black pixels in the final copy and transition shaders are
- * written as (0, 0, 0, 0) and every other pixel with alpha = 1, so hosts can
- * composite over video or page content. That output is valid premultiplied
- * alpha (and reads the same as straight alpha). When disabled, the alpha the
- * preset left in its output is passed along unchanged and carries no meaning:
- * a host whose framebuffer has an alpha channel treats such a frame as opaque.
+ * written with alpha = 0 so hosts can composite over video or page content.
  *
  * @param instance The projectM instance handle.
  * @param enabled True to enable transparency mode, false for opaque output. Default: false

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Capture PNG screenshots of presets/custom/ (deployed as custom_milk_fixed/) via headless Chromium.
+ * Capture PNG screenshots of custom_milk_fixed presets via headless Chromium.
  *
  * Usage:
  *   node scripts/capture_custom_milk_screenshots.mjs
- *   node scripts/capture_custom_milk_screenshots.mjs --preset presets/custom/milk011.milk
+ *   node scripts/capture_custom_milk_screenshots.mjs --preset custom_milk_fixed/milk011.milk
  *   node scripts/capture_custom_milk_screenshots.mjs --out screenshots/custom_milk_baseline
  *   node scripts/capture_custom_milk_screenshots.mjs --out screenshots/custom_milk_baseline --update-golden
  *   node scripts/capture_custom_milk_screenshots.mjs --allow-dark --dark-threshold 3
@@ -36,7 +36,7 @@ const scriptDir = fileURLToPath(new URL('.', import.meta.url));
 function detectProjectRoot(dir) {
   const candidates = [resolve(dir, '..'), resolve(dir, '..', '..')];
   for (const candidate of candidates) {
-    if (existsSync(join(candidate, 'presets', 'custom'))) return candidate;
+    if (existsSync(join(candidate, 'custom_milk_fixed'))) return candidate;
   }
   return resolve(dir, '..');
 }
@@ -68,13 +68,13 @@ function loadPixelmatch() {
   }
 }
 
-const moduleJs = resolve(process.env.PROJECTM_WASM_JS
-  || join(root, 'cmake-build', 'wasm-smoke', 'projectm-v.030-thread.js'));
-// Module wrapper may be `.js` (what scripts/build_wasm.sh links) or a legacy
-// `.1ijs`/`.ijs` UTF-16 copy of an old deployed bundle — either way the WASM
-// binary sits alongside as `.wasm`.
+const moduleJs = resolve(process.env.PROJECTM_WASM_JS || join(root, 'projectm-v.030-thread.1ijs'));
+// Module wrapper may be `.js` (raw Emscripten output, e.g. CI's
+// cmake-build/wasm-smoke/projectm-v.030-thread.js) or `.1ijs`/`.ijs`
+// (UTF-16 copies produced by scripts/build_projectm.sh for other deploy
+// targets) — either way the WASM binary sits alongside as `.wasm`.
 const moduleWasm = moduleJs.replace(/\.(?:1ijs|ijs|js)$/, '.wasm');
-const presetDir = join(root, 'presets', 'custom');
+const presetDir = join(root, 'custom_milk_fixed');
 const emptyPreset = join(root, 'presets', 'tests', '000-empty.milk');
 const capturePage = resolve(root, 'tests/wasm-smoke/capture.html');
 const DEFAULT_DARK_THRESHOLD = 5;
@@ -167,8 +167,8 @@ function createStaticServer() {
 }
 
 // Resolves a `--presets` entry to an absolute .milk path. Accepts:
-//   - a path ending in .milk, resolved relative to root (e.g. "presets/custom/milk011.milk")
-//   - a bare name (e.g. "milk011" or "000-empty"), looked up in presets/custom/
+//   - a path ending in .milk, resolved relative to root (e.g. "custom_milk_fixed/milk011.milk")
+//   - a bare name (e.g. "milk011" or "000-empty"), looked up in custom_milk_fixed/
 //     and presets/tests/ — keeps CI invocations short.
 function resolvePresetName(name) {
   if (name.endsWith('.milk')) return resolve(root, name);

@@ -76,24 +76,24 @@ test('the AudioWorklet processor ships next to the bundle that loads it', () => 
     // module URL, which after bundling is a file in dist/. A bare relative URL
     // resolved against the embedding page instead, so npm consumers got a 404
     // for a file the package never contained.
-    const processor = join(distRoot, 'worklets', 'projectm-audio-processor.js');
-    assert.ok(existsSync(processor), 'dist/worklets/projectm-audio-processor.js is missing');
+    const processor = join(distRoot, 'projectm_audio_processor.js');
+    assert.ok(existsSync(processor), 'dist/projectm_audio_processor.js is missing');
     assert.equal(
         readFileSync(processor, 'utf8'),
-        readFileSync(join(repoRoot, 'html', 'worklets', 'projectm-audio-processor.js'), 'utf8'),
+        readFileSync(join(repoRoot, 'projectm_audio_processor.js'), 'utf8'),
         'the shipped processor must be the repo\'s, byte for byte (it is not minified or renamed)',
     );
 
     // The URL is built from import.meta.url in the bundle, not written as a bare path.
     // (The processor names itself in a comment, so it is not one of the bundles.)
-    const chunks = readdirSync(distRoot).filter((name) => name.endsWith('.js'));
-    const referencing = chunks.filter((name) => readFileSync(join(distRoot, name), 'utf8').includes('projectm-audio-processor.js'));
+    const chunks = readdirSync(distRoot).filter((name) => name.endsWith('.js') && name !== 'projectm_audio_processor.js');
+    const referencing = chunks.filter((name) => readFileSync(join(distRoot, name), 'utf8').includes('projectm_audio_processor.js'));
     assert.ok(referencing.length > 0, 'no bundle references the processor');
     for (const name of referencing) {
         const source = readFileSync(join(distRoot, name), 'utf8');
         assert.match(
             source,
-            /new URL\(["']worklets\/projectm-audio-processor\.js["'],[^)]*\)/,
+            /new URL\(["']projectm_audio_processor\.js["'],[^)]*\)/,
             `${name} must resolve the processor with new URL(..., <module url>), not a page-relative string`,
         );
     }

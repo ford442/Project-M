@@ -14,7 +14,6 @@ import {
     shaderCacheEndLoad,
     shaderCacheImportGlsl,
 } from './generated/projectm-wasm-api.js';
-import { asDisposable } from './projectm-disposables.js';
 
 /**
  * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
@@ -253,10 +252,10 @@ export function setupShaderTranspileCacheHooks() {
             touchShaderCacheEntry(key).catch(() => {});
         },
     );
-    const dispose = asDisposable(() => {
+    const dispose = () => {
         unsubscribe();
         if (unsubscribeTranspileHook === dispose) unsubscribeTranspileHook = null;
-    });
+    };
     unsubscribeTranspileHook = dispose;
     return dispose;
 }

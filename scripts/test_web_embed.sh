@@ -16,18 +16,6 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-# The embed SDK build needs esbuild from the root workspace install. Prefer
-# `npm ci` from the repo root yourself; this is the standalone fallback, the
-# same one scripts/check_html_types.sh has for tsc. Without it a clean
-# checkout dies in packages/web/scripts/build.mjs with "Cannot find module
-# 'esbuild'" (which is what the Linux web-embed job hit once the typecheck
-# step ahead of it stopped failing first).
-if [[ ! -e node_modules/esbuild && ! -e packages/web/node_modules/esbuild ]]; then
-    echo "Workspace dependencies missing; running npm ci..."
-    npm ci
-    echo ""
-fi
-
 # Build the embed SDK BEFORE the suite: tests/web/projectm-web-package.test.mjs
 # asserts against packages/web/dist (exports map, the run-time-only render
 # worker, import.meta.url depth), so a stale or absent dist would make it pass
@@ -66,12 +54,10 @@ fi
 # Excluding them explicitly makes the number mean "coverage of html/" on
 # every version. packages/** is excluded for the same reason: the package test
 # imports the minified bundle, and letting a 44 kB generated artifact into the
-# "all files" row would make the floor measure the bundler. And
-# html/flac-player/vendor/** is third-party (the Buffer polyfill the FLAC
-# player shell loads): ~150 functions nobody here writes or tests.
-COVERAGE_LINES_MIN=88.7
-COVERAGE_BRANCHES_MIN=83.5
-COVERAGE_FUNCTIONS_MIN=77.4
+# "all files" row would make the floor measure the bundler.
+COVERAGE_LINES_MIN=84.0
+COVERAGE_BRANCHES_MIN=82.9
+COVERAGE_FUNCTIONS_MIN=75.5
 
 # Modules the run is expected NOT to load; see the file's header.
 UNTESTED_LEDGER="tests/web/untested-modules.txt"
@@ -84,7 +70,6 @@ test_status=0
 node --experimental-test-coverage \
     --test-coverage-exclude='tests/**' \
     --test-coverage-exclude='packages/**' \
-    --test-coverage-exclude='html/flac-player/vendor/**' \
     --test-coverage-lines="$COVERAGE_LINES_MIN" \
     --test-coverage-branches="$COVERAGE_BRANCHES_MIN" \
     --test-coverage-functions="$COVERAGE_FUNCTIONS_MIN" \

@@ -27,9 +27,10 @@
 // buffers, so two canvases in one Module never share a staging allocation.
 #include "WasmHost.hpp"
 
-#include <Renderer/Device/RenderDevice.hpp>
-
 #include <cstring>
+
+// Emscripten's WebGL 2 readback; glad's GLES loader has no glGetBufferSubData.
+extern "C" void emscripten_glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void* data);
 
 namespace {
 
@@ -38,10 +39,10 @@ constexpr double kFlashCountRefreshMs = 500.0;
 
 void DeleteFence(FrameCaptureState& capture)
 {
-    if (capture.fence.Valid())
+    if (capture.fence != nullptr)
     {
-        RenderDevice::Current().DestroyFence(capture.fence);
-        capture.fence = {};
+        glDeleteSync(capture.fence);
+        capture.fence = nullptr;
     }
 }
 
@@ -63,10 +64,9 @@ void ResolvePendingCapture(FrameCaptureState& capture)
 {
     const size_t bytes = static_cast<size_t>(capture.width) * static_cast<size_t>(capture.height) * 4;
     std::vector<uint8_t> bottomUp(bytes);
-    auto& device = RenderDevice::Current();
-    device.Commands().BindBuffer(RenderDevice::BufferKind::PixelPack, capture.pixelPackBuffer);
-    device.ReadBoundBuffer(RenderDevice::BufferKind::PixelPack, bytes, bottomUp.data());
-    device.Commands().BindBuffer(RenderDevice::BufferKind::PixelPack, {});
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, capture.pixelPackBuffer);
+    emscripten_glGetBufferSubData(GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(bytes), bottomUp.data());
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     DeleteFence(capture);
     StoreFlipped(capture, bottomUp.data());
     capture.status = FrameCaptureStatus::Ready;
@@ -75,11 +75,12 @@ void ResolvePendingCapture(FrameCaptureState& capture)
 // Moves a Pending capture to Ready once its fence has signalled; never waits.
 void PollPendingCapture(FrameCaptureState& capture)
 {
-    if (capture.status != FrameCaptureStatus::Pending || !capture.fence.Valid())
+    if (capture.status != FrameCaptureStatus::Pending || capture.fence == nullptr)
     {
         return;
     }
-    if (RenderDevice::Current().PollFence(capture.fence) == RenderDevice::FenceStatus::Signaled)
+    const GLenum result = glClientWaitSync(capture.fence, 0, 0);
+    if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED)
     {
         ResolvePendingCapture(capture);
     }
@@ -119,57 +120,54 @@ void TakeRequestedFrameCapture(WasmHost& host)
     capture.frameIndex = host.renderedFrameCount + 1;
 
     const bool manualPresent = host.contextConfig.explicitSwapControl != 0;
-    using RenderDevice::BufferKind;
-    using RenderDevice::TargetBinding;
-    auto& device = RenderDevice::Current();
-    auto& commands = device.Commands();
-    const auto previousRead = commands.BoundRenderTarget(TargetBinding::Read);
-    commands.BindRenderTarget(TargetBinding::Read, {});
+    GLint previousRead = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousRead);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     // A manual-present context draws "FBO 0" into Emscripten's offscreen back
     // buffer, which is a real framebuffer object; the browser's own default
     // framebuffer reads from its back buffer.
-    commands.SetReadBuffer(manualPresent ? RenderDevice::AttachmentPoint::Color0 : RenderDevice::AttachmentPoint::Back);
+    glReadBuffer(manualPresent ? GL_COLOR_ATTACHMENT0 : GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
-    const RenderDevice::Rect area{0, 0, width, height};
     const size_t bytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
     if (manualPresent)
     {
-        if (!capture.pixelPackBuffer.Valid())
+        if (capture.pixelPackBuffer == 0)
         {
-            capture.pixelPackBuffer = device.CreateBuffer();
+            glGenBuffers(1, &capture.pixelPackBuffer);
         }
-        commands.BindBuffer(BufferKind::PixelPack, capture.pixelPackBuffer);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, capture.pixelPackBuffer);
         if (capture.pixelPackBufferBytes != bytes)
         {
-            commands.UploadBoundBuffer(BufferKind::PixelPack, nullptr, bytes, RenderDevice::BufferUsage::StreamRead, true);
+            glBufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(bytes), nullptr, GL_STREAM_READ);
             capture.pixelPackBufferBytes = bytes;
         }
-        // With a pack buffer bound the destination is an offset into it.
-        commands.ReadPixels(area, nullptr);
-        commands.BindBuffer(BufferKind::PixelPack, {});
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         DeleteFence(capture);
-        capture.fence = device.CreateFence();
+        capture.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         capture.status = FrameCaptureStatus::Pending;
     }
     else
     {
         std::vector<uint8_t> bottomUp(bytes);
-        commands.ReadPixels(area, bottomUp.data());
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
         StoreFlipped(capture, bottomUp.data());
         capture.status = FrameCaptureStatus::Ready;
     }
 
-    commands.BindRenderTarget(TargetBinding::Read, previousRead);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousRead));
 }
 
 void ReleaseFrameCapture(WasmHost& host)
 {
     FrameCaptureState& capture = host.capture;
     DeleteFence(capture);
-    if (capture.pixelPackBuffer.Valid())
+    if (capture.pixelPackBuffer != 0)
     {
-        RenderDevice::Current().DestroyBuffer(capture.pixelPackBuffer);
-        capture.pixelPackBuffer = {};
+        glDeleteBuffers(1, &capture.pixelPackBuffer);
+        capture.pixelPackBuffer = 0;
     }
     capture.pixelPackBufferBytes = 0;
     capture.pixels.clear();

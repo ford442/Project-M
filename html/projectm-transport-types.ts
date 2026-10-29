@@ -142,15 +142,6 @@ export interface RenderTransport {
      */
     recoverContext(width?: number, height?: number): Promise<number>;
 
-    /**
-     * `get_context_snapshot()`'s packed result for this transport's context, or
-     * null when this bundle predates the export (or, in the worker topology,
-     * before the worker has reported one). Synchronous in both topologies: the
-     * worker reports it in its 'ready' message and after each recovery, so
-     * reading it never waits on the worker.
-     */
-    contextSnapshot(): number | null;
-
     /** Release whatever this transport owns (the worker, or the module). */
     destroy(): void;
 }

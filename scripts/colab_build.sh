@@ -7,17 +7,10 @@ set -euo pipefail
 #   %%bash
 #   /content/build_space/projectm/scripts/colab_build.sh
 #
-# Builds and stages exactly what CI builds: scripts/build_wasm.sh --stage.
-#
 # Optional env:
 #   PROJECT_ROOT, EMSDK_ROOT, REPO_URL, INSTALL_DIR, CMAKE_BUILD_DIR,
-#   PROJECTM_WASM_VERSION, ENABLE_OPENMP, BUILD_JOBS, JVM_HEAP_SIZE,
-#   PROJECTM_WASM_LTO (1 for an LTO build, i.e. build_wasm.sh --lto)
-#
-# RUN_OPTIMIZE is gone: it ran wasm-opt (and a WasmEdge AOT pass browsers cannot
-# use) over the bundle after it had been staged and precompressed, so the
-# deployed .wasm, its .br/.gz and its build-id disagreed. The link already runs
-# wasm-opt -O3; see scripts/build_wasm.sh.
+#   PROJECTM_WASM_VERSION, ENABLE_OPENMP,
+#   BUILD_JOBS, JVM_HEAP_SIZE, RUN_OPTIMIZE (1 to run optimize.sh)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -31,10 +24,7 @@ OUT_DIR="${OUT_DIR:-${PROJECT_ROOT}/cmake-build/wasm-smoke}"
 BUILD_JOBS="${BUILD_JOBS:-8}"
 JVM_HEAP_SIZE="${JVM_HEAP_SIZE:-8g}"
 ENABLE_OPENMP="${ENABLE_OPENMP:-ON}"
-if [ "${RUN_OPTIMIZE:-0}" = "1" ]; then
-    echo "Error: RUN_OPTIMIZE was removed (it rewrote the staged bundle after its hashes were taken); unset it." >&2
-    exit 1
-fi
+RUN_OPTIMIZE="${RUN_OPTIMIZE:-0}"
 
 # Match .github/workflows/build_emscripten.yml package set.
 PACKAGES=(
@@ -138,26 +128,54 @@ if [ -z "$PROJECTM_WASM_VERSION" ]; then
 fi
 bundle="projectm-v.${PROJECTM_WASM_VERSION}-thread"
 
-echo "=== Building and staging ${bundle} (scripts/build_wasm.sh --stage) ==="
-build_args=(--stage --version "$PROJECTM_WASM_VERSION")
-if [ "${PROJECTM_WASM_LTO:-0}" = "1" ]; then
-    build_args+=(--lto)
-fi
-env -u PROJECTM_WASM_LTO \
-    PROJECT_ROOT="$PROJECT_ROOT" \
+echo "=== Building libprojectM static libraries (install -> $INSTALL_DIR) ==="
+PROJECT_ROOT="$PROJECT_ROOT" \
+    INSTALL_DIR="$INSTALL_DIR" \
+    CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
+    ENABLE_OPENMP="$ENABLE_OPENMP" \
+    BUILD_TESTING=OFF \
+    bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
+
+echo "=== Building final WASM/JS wrapper ==="
+PROJECT_ROOT="$PROJECT_ROOT" \
     INSTALL_DIR="$INSTALL_DIR" \
     CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
     OUT_DIR="$OUT_DIR" \
-    ENABLE_OPENMP="$ENABLE_OPENMP" \
-    BUILD_TESTING=OFF \
-    bash "$PROJECT_ROOT/scripts/build_wasm.sh" "${build_args[@]}"
+    bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
+
+echo "=== Staging deploy artifacts (${bundle}) ==="
+# Just built above; the fingerprint check confirms it instead of relinking.
+PROJECT_ROOT="$PROJECT_ROOT" \
+    INSTALL_DIR="$INSTALL_DIR" \
+    CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
+    OUT_DIR="$OUT_DIR" \
+    PROJECTM_DEPLOY_REUSE_BUILD=1 \
+    PROJECTM_WASM_VERSION="$PROJECTM_WASM_VERSION" \
+    bash "$PROJECT_ROOT/scripts/prepare_deploy_bundle.sh"
+
+if [ "$RUN_OPTIMIZE" = "1" ]; then
+    echo "=== Running optimize.sh (optional wasm-opt) ==="
+    bash "$PROJECT_ROOT/optimize.sh" \
+        "$PROJECT_ROOT/${bundle}.wasm" || echo "Warning: optimize.sh returned non-zero"
+    # Re-run iconv if optimize.sh rewrote the JS glue.
+    if [ -s "$PROJECT_ROOT/${bundle}.js" ]; then
+        iconv -f UTF-8 -t UTF-16 "$PROJECT_ROOT/${bundle}.js" -o "$PROJECT_ROOT/${bundle}.1ijs"
+        iconv -f UTF-8 -t UTF-32 "$PROJECT_ROOT/${bundle}.js" -o "$PROJECT_ROOT/${bundle}.3ijs"
+        cp -f "$PROJECT_ROOT/${bundle}.wasm" "$PROJECT_ROOT/pm/"
+        cp -f "$PROJECT_ROOT/${bundle}.1ijs" "$PROJECT_ROOT/pm/"
+        cp -f "$PROJECT_ROOT/${bundle}.3ijs" "$PROJECT_ROOT/pm/"
+        if [ -s "$PROJECT_ROOT/${bundle}.worker.js" ]; then
+            cp -f "$PROJECT_ROOT/${bundle}.worker.js" "$PROJECT_ROOT/pm/"
+        fi
+    fi
+fi
 
 echo "=== Colab build complete ==="
 echo "Bundle: ${bundle}"
 artifact_list=(
-    "$PROJECT_ROOT/${bundle}.js"
     "$PROJECT_ROOT/${bundle}.wasm"
-    "$PROJECT_ROOT/${bundle}.build-id"
+    "$PROJECT_ROOT/${bundle}.1ijs"
+    "$PROJECT_ROOT/${bundle}.3ijs"
 )
 if [ -s "$PROJECT_ROOT/${bundle}.worker.js" ]; then
     artifact_list+=("$PROJECT_ROOT/${bundle}.worker.js")

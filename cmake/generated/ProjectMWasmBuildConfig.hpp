@@ -14,13 +14,7 @@ constexpr int kWasmOpenMpThreads = 4;
 constexpr int kWasmPresetPrepareThreads = 2;
 
 // Pre-spawned pthread Workers (PTHREAD_POOL_SIZE), enough for both of the above.
-// The link uses exactly this value; it cannot be overridden.
 constexpr int kWasmPthreadPoolSize = 5;
-
-// STACK_SIZE (main runtime thread) and DEFAULT_PTHREAD_STACK_SIZE (every
-// pthread: OpenMP helpers, preset prepare threads), in bytes.
-constexpr int kWasmStackSize = 1048576;
-constexpr int kWasmPthreadStackSize = 524288;
 
 static_assert(kWasmOpenMpThreads - 1 + kWasmPresetPrepareThreads <= kWasmPthreadPoolSize,
               "PTHREAD_POOL_SIZE must cover the OpenMP helpers and the preset prepare threads");

@@ -27,7 +27,7 @@ What the GPU path covers, in this tree, today:
 
 | | Phase 1 | Phase 1.5 |
 |---|---|---|
-| Presets with `per_pixel_*` code across `presets/tests`, `presets/custom` and `presets/weeks` | 241 of 497 | 241 of 497 |
+| Presets with `per_pixel_*` code across `presets/tests`, `custom_milk_fixed` and `weeks_presets` | 241 of 497 | 241 of 497 |
 | Compiled to GLSL (`perPixelEval=gpu`) | 186 | **227** (7 of them with a CPU slice) |
 | Kept on the CPU, each with a recorded reason | 53 | **12** |
 | Rejected by the evaluator itself (CPU error path either way) | 2 | 2 |
@@ -54,7 +54,7 @@ runs Milkdrop `per_pixel_*` equations on every warp-mesh vertex every frame via
 `projectm-eval`. At the default 80×60 grid that is **4941 vertices**. OpenMP
 (`#219` / `#220`, `kmp_set_blocktime(0)`) made the CPU path audio-safe; governor
 v2 (#178) steps the mesh down when `perPixelEvalMs` blows the frame. That is
-still the governor's first lever, and it is why 44 `presets/weeks` remain
+still the governor's first lever, and it is why 44 `weeks_presets` remain
 `heavy` in [`PRESET_WORKLIST.md`](PRESET_WORKLIST.md).
 
 [#170](https://github.com/ford442/Project-M/issues/170) moves heavy presets to
@@ -573,7 +573,7 @@ work of #260, because it adds a code generator that must stay out of the WebGL2 
 2. The per-pixel lowering emits WGSL too. Phase 1.5 already splits it into a
    language-neutral part (statement classification, liveness, the CPU slice) and the GLSL
    printer; the WGSL backend is a second printer behind the same plan.
-3. `WgslCorpusTest.cpp` transpiles every `presets/tests/` and `presets/custom/` shader to
+3. `WgslCorpusTest.cpp` transpiles every `presets/tests/` and `custom_milk_fixed/` shader to
    WGSL into the build dir, and a CI job runs a pinned `naga` (`cargo install naga-cli
    --locked`) over each file, failing on parse or validation errors.
 4. WGSL twins of the ~40 built-in GLSL files under `Renderer/Shaders/wgsl/`, validated by a

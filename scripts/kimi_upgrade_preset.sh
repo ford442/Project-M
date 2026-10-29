@@ -15,11 +15,11 @@
 #   scripts/kimi_upgrade_preset.sh <preset.milk> [<output-prompt-file>]
 #
 # Examples:
-#   scripts/kimi_upgrade_preset.sh presets/custom/milk011.milk
-#   scripts/kimi_upgrade_preset.sh presets/weeks/old_swirl.milk /tmp/kimi_prompt.txt
-#   scripts/kimi_upgrade_preset.sh presets/custom/milk011.milk | kimi
+#   scripts/kimi_upgrade_preset.sh custom_milk_fixed/milk011.milk
+#   scripts/kimi_upgrade_preset.sh weeks_presets/old_swirl.milk /tmp/kimi_prompt.txt
+#   scripts/kimi_upgrade_preset.sh custom_milk_fixed/milk011.milk | kimi
 #
-# See also: docs/agents/kimi_preset_authoring_plan.md (Kimi CLI runbook),
+# See also: docs/kimi_preset_authoring_plan.md (Kimi CLI runbook),
 # docs/WRITING_NEW_MILK_PRESETS_GUIDE.md section 9 (pitfalls checklist).
 # ================================================
 
@@ -48,7 +48,7 @@ PROMPT=$(cat <<EOF
 You are upgrading the legacy MilkDrop preset "${REL_PRESET}" to be WASM-safe and
 HLSL-9 compliant for the projectM-visualizer fork (see AGENTS.md and
 docs/WRITING_NEW_MILK_PRESETS_GUIDE.md). Apply the "old -> WASM-safe" upgrade rubric
-from docs/agents/kimi_preset_authoring_plan.md section 6, then self-check your edit against
+from docs/kimi_preset_authoring_plan.md section 6, then self-check your edit against
 the Common Pitfalls Checklist (docs/WRITING_NEW_MILK_PRESETS_GUIDE.md section 9 - The
 10 Most Frequent Errors) before finishing:
 
@@ -73,7 +73,7 @@ docs/WRITING_NEW_MILK_PRESETS_GUIDE.md section 4.
 When done, run:
   scripts/kimi_validate_preset.sh ${REL_PRESET}
 and report PASS/FAIL plus a one-line summary of what changed, per
-docs/agents/kimi_preset_authoring_plan.md section 9 (Deliverables for each Kimi session).
+docs/kimi_preset_authoring_plan.md section 9 (Deliverables for each Kimi session).
 EOF
 )
 

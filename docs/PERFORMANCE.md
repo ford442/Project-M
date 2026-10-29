@@ -92,7 +92,7 @@ Both listen through the WASM callback bus / the render transport and write nothi
 
 ## Headless benchmark mode
 
-> **Full preset benchmark guide:** [`docs/BENCHMARKING.md`](BENCHMARKING.md) — `scripts/optimize.sh --bench`,
+> **Full preset benchmark guide:** [`docs/BENCHMARKING.md`](BENCHMARKING.md) — `optimize.sh --bench`,
 > curated manifest, native parse/audio/OpenMP modes, before/after baselines.
 >
 > **Reproducible frames and the regression gates:**
@@ -606,8 +606,7 @@ Warm savings are dominated by skipping HLSL parse/transpile; `glCompileShader` +
 This section evaluates the Emscripten compile/link flags in `CMakeLists.txt` (`ENABLE_EMSCRIPTEN`
 block, roughly lines 143–222) and the equivalent flags duplicated in
 `scripts/build_wasm_smoke_wrapper.sh`, `scripts/build_projectm.sh`, and `scripts/colab_build.sh` —
-the three scripts that (at the time; `scripts/build_wasm.sh` is now the only entry point and
-`build_projectm.sh` is gone) performed the final `emcc projectM_emscripten.cpp ... -o
+the three scripts that perform the final `emcc projectM_emscripten.cpp ... -o
 projectm-v.030-thread.js` link against the prebuilt `libprojectM-4.a` /
 `libprojectM-4-playlist.a` static libraries.
 
@@ -714,8 +713,8 @@ direct passthrough (`libwebgl2.js`) with or without emulation. Evidence gathered
   composite shaders, noise textures, beat detection, and the heavy multi-pass warp + blur preset.
 - The smoke dual-FBO soft cut passes.
 - A pixel A/B against baseline covered two presets:
-  - a blur3 + warp + composite preset (`presets/weeks/total hack do try and fight it.milk`);
-  - a warp-without-composite preset (`presets/weeks/Jc - Driven by the Wind.milk`), which pays
+  - a blur3 + warp + composite preset (`weeks_presets/total hack do try and fight it.milk`);
+  - a warp-without-composite preset (`weeks_presets/Jc - Driven by the Wind.milk`), which pays
     every remaining Y-flip.
 
   Each ran on baseline, on `FULL_ES3=0` and on `-fwasm-exceptions`, with default blit and with
@@ -997,7 +996,7 @@ Preset loading is now split at the GL boundary (libprojectM `projectM-4/preset_p
   transpiles its shaders speculatively. The render thread uses that GLSL only if the sampler/texsize
   declarations it builds match the prediction, so the result is byte-identical by construction.
   `PresetCompatPrepared.GlslMatchesInlineTranspile` checks this for every test preset and
-  `presets/custom/`, with zero prediction misses.
+  `custom_milk_fixed/`, with zero prediction misses.
 - **Render thread.** `render_frame()` activates the prepared preset: GL objects, compile, init
   expressions. With `KHR_parallel_shader_compile`, the link runs on driver threads and the switch
   waits for `GL_COMPLETION_STATUS_KHR` (`shader_link_pending` in `projectm_perf_frame_timings`
@@ -1030,7 +1029,7 @@ little `.wasm` but 9 KB of glue (the `Asyncify` runtime).
 
 `tests/wasm-smoke/preset_switch_stall.mjs` (CI step "Preset switch keeps rendering") runs the
 engine's own main loop. It settles `000-empty.milk`, then hard-cuts to
-`presets/custom/milk011.milk`. It counts the frames rendered between the request and the frame
+`custom_milk_fixed/milk011.milk`. It counts the frames rendered between the request and the frame
 that switches, and compares the longest frame gap around the switch with the settled frames. Two
 runs per row, SwiftShader:
 
@@ -1065,14 +1064,6 @@ the other `EM_JS` symbols). `scripts/build_wasm_smoke_wrapper.sh` now compiles t
 native objects first and runs LTO only in the link.
 
 Result: `.wasm` **+33 KB (+2.2%)**, smoke passes, no measurable CPU difference.
-
-Remeasured 2026-10-23 with `scripts/build_wasm.sh` vs `scripts/build_wasm.sh --lto` (same tree,
-emsdk 6.0.6; the libraries now also carry the wrapper's compile definitions and the 1 MB / 512 KB
-stack settings): `.wasm` 1,659,381 → 1,758,457 B (**+99 KB, +6.0%**), gzip 587,862 → 607,627 B
-(+3.4%), brotli 451,676 → 463,540 B (+2.6%); glue +633 B; link 104 s instead of ~30 s. No runtime
-measurement on this pair yet (software GL is too noisy, see below), so the default stays off. The
-switch is now one setting: the CMake cache entry, recorded in `projectm-wasm-wrapper-flags.txt` and
-checked against the archives' format and the bundle's `.build-id` (`lto-libs` / `lto-link`).
 `scripts/benchmark_presets_wasm.mjs --software-gl` gives per-stage medians within noise: two runs of
 the *same* non-LTO bundle differ by up to ~30% per stage (for example `perPixelEvalMs` 3.18 vs
 5.36 ms on `110-per_pixel.milk`). It stays opt-in until a GPU run shows a gain worth the size.
@@ -1121,7 +1112,7 @@ Three permanently-spinning helpers plus the render loop is enough to miss the
 `AudioWorklet`'s deadline (a 128-sample quantum every ~2.7 ms at 48 kHz), which
 is heard as crackle and dropouts, **and** to slow the render loop competing for
 the same cores. Note the audio symptom is necessarily indirect: the engine
-emits no audio at all: playback is entirely `html/worklets/projectm-audio-processor.js` on the
+emits no audio at all: playback is entirely `projectm_audio_processor.js` on the
 browser's audio render thread, so no change to PCM ingest, gain, or channel
 counts inside the wasm module can alter what a listener hears.
 

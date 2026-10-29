@@ -161,31 +161,8 @@ const std::map<std::string, std::string>& PresetFileParser::PresetValues() const
     return m_presetValues;
 }
 
-auto PresetFileParser::ExperimentalDirectives() const -> const std::string&
-{
-    return m_experimentalDirectives;
-}
-
 void PresetFileParser::ParseLine(const std::string& line)
 {
-    // "// pm:experimental key=value ..." (the same shape projectm-experimental-bridge.js
-    // matches). Recorded on the side; the line still goes through the generic parse below.
-    if (m_experimentalDirectives.empty() && line.compare(0, 2, "//") == 0)
-    {
-        static const std::string marker = "pm:experimental";
-        auto const markerPos = line.find_first_not_of(" \t", 2);
-        auto const afterMarker = markerPos == std::string::npos ? markerPos : markerPos + marker.length();
-        if (markerPos != std::string::npos && line.compare(markerPos, marker.length(), marker) == 0 &&
-            afterMarker < line.length() && (line.at(afterMarker) == ' ' || line.at(afterMarker) == '\t'))
-        {
-            auto const first = line.find_first_not_of(" \t", afterMarker);
-            if (first != std::string::npos)
-            {
-                m_experimentalDirectives = line.substr(first);
-            }
-        }
-    }
-
     // Search for first delimiter, either space or equal
     auto varNameDelimiterPos = line.find_first_of(" =");
 

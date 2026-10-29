@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
     fetchCustomPresetManifest,
     loadCustomPresetFile,
+    pickRandomFromList
 } from '../../html/projectm-preset-picker.js';
 
 function jsonResponse(body, ok = true, status = 200) {
@@ -52,12 +53,25 @@ test('fetchCustomPresetManifest rejects malformed manifest', async () => {
     );
 });
 
+test('pickRandomFromList honours onlyOk, falls back when no ok presets', () => {
+    const list = [
+        { file: 'a', status: 'ok' },
+        { file: 'b', status: 'broken' }
+    ];
+    for (let i = 0; i < 20; i++) {
+        assert.equal(pickRandomFromList(list, { onlyOk: true }).file, 'a');
+    }
+    const allBroken = [{ file: 'x', status: 'broken' }];
+    assert.equal(pickRandomFromList(allBroken, { onlyOk: true }).file, 'x'); // fallback to full pool
+    assert.equal(pickRandomFromList([]), null);
+});
+
 test('loadCustomPresetFile falls through bases until one succeeds', async () => {
     const module = makeModule();
     const tried = [];
     // 404 whichever base is attempted first, so the assertion tracks
     // "retries the next base", not a hard-coded base ordering. The load path
-    // resolves bases through defaultBasesForBase() in projectm-preset-sources.js
+    // resolves bases through defaultBasesForBase() in projectm-preset-cache.js
     // (local dirs first, CDN last), the single owner of base-list ordering.
     const fetchImpl = (url) => {
         tried.push(url);

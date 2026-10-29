@@ -4,15 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>projectM</title>
-<!--
-  projectm.1ink is a deprecated redirect stub. Its unique experimental UI
-  (Depth Anything / glTF hooks) has been ported to the opt-in
-  projectm-experimental-bridge.js, loaded by projectm-core.html behind
-  ?experimental=1 (see docs/EXPERIMENTAL_PRESET_HOOKS.md and html/README.md
-  ".1ink Deprecation Path"). Previous inline content is available via git
-  history.
--->
-<script src="./projectm-redirect-stub.js" data-target="./projectm-core.html" data-set="experimental=1"></script>
+<script>
+// projectm.1ink is a deprecated redirect stub. Its unique experimental UI
+// (Depth Anything / glTF hooks) has been ported to the opt-in
+// projectm-experimental-bridge.js, loaded by projectm-core.html behind
+// ?experimental=1 (see docs/EXPERIMENTAL_PRESET_HOOKS.md and html/README.md
+// ".1ink Deprecation Path"). Previous inline content is available via git
+// history.
+(function () {
+    try {
+        var params = new URLSearchParams(window.location.search);
+        params.set('experimental', '1');
+        var query = params.toString();
+        var target = './projectm-core.html' + (query ? '?' + query : '') + window.location.hash;
+        window.location.replace(target);
+    } catch (err) {
+        window.location.href = './projectm-core.html?experimental=1';
+    }
+})();
+</script>
 <noscript>
     <meta http-equiv="refresh" content="0; url=./projectm-core.html?experimental=1">
 </noscript>

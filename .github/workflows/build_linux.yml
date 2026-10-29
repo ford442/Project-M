@@ -11,12 +11,6 @@ on:
       branches:
         - "*"
 
-# A newer push to the same branch/PR supersedes the run in flight. Never on main
-# (each merge needs a complete result) and never on tags.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
-
 jobs:
   build-shared:
     name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, Build OS: ${{ matrix.runs-on }}"
@@ -161,7 +155,7 @@ jobs:
     name: Transition shader GLSL/GLES validation
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Install glslang
         run: |
@@ -175,17 +169,7 @@ jobs:
     name: Web embed SDK checks
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-
-      # Same node major and install as web_host_tests.yml: the coverage floor in
-      # scripts/test_web_embed.sh is measured on it, and packages/web/scripts/
-      # build.mjs needs esbuild from the root workspace install.
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-
-      - name: npm ci (workspace root)
-        run: npm ci
+      - uses: actions/checkout@v4
 
       - name: Verify WASM version sync
         run: bash scripts/verify_wasm_version_sync.sh

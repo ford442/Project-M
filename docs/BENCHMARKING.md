@@ -4,10 +4,7 @@ Repeatable performance measurements for **preset loading**, **per-frame / per-pi
 cost**, **preset switch time**, and **audio pipeline** load — in both **native**
 gtest and **WASM/Playwright** environments.
 
-Primary entry point: **`scripts/optimize.sh`** (benchmark modes). It used to
-rewrite the bundle with wasm-opt as well; that is gone, because the deployed
-binary must be the one the CI gates tested (`scripts/build_wasm.sh`,
-[`docs/EMSCRIPTEN.md`](EMSCRIPTEN.md#building-the-bundle)).
+Primary entry point: **`./optimize.sh`** (wasm-opt + benchmark modes).
 
 Related: [`docs/PERFORMANCE.md`](PERFORMANCE.md) (HUD, OpenMP notes), issue
 [#117](https://github.com/ford442/Project-M/issues/117).
@@ -16,16 +13,16 @@ Related: [`docs/PERFORMANCE.md`](PERFORMANCE.md) (HUD, OpenMP notes), issue
 
 | Goal | Command |
 |------|---------|
-| Build the WASM bundle | `scripts/build_wasm.sh` |
-| Full WASM preset suite | `scripts/optimize.sh --bench wasm` |
-| WASM + audio PCM load | `scripts/optimize.sh --bench wasm --audio-load` |
-| Native parse + FFT + audio | `scripts/optimize.sh --bench native` |
-| Preset parse only | `scripts/optimize.sh --bench parse` |
-| Audio pipeline only | `scripts/optimize.sh --bench audio` |
-| OpenMP on vs off FFT | `scripts/optimize.sh --bench openmp` |
-| Everything | `scripts/optimize.sh --bench all` |
-| Save baseline | `scripts/optimize.sh --bench wasm --baseline benchmark-results/wasm-baseline.json` |
-| Compare to baseline | `scripts/optimize.sh --bench wasm --compare benchmark-results/wasm-baseline.json` |
+| Shrink WASM binary | `./optimize.sh` |
+| Full WASM preset suite | `./optimize.sh --bench wasm` |
+| WASM + audio PCM load | `./optimize.sh --bench wasm --audio-load` |
+| Native parse + FFT + audio | `./optimize.sh --bench native` |
+| Preset parse only | `./optimize.sh --bench parse` |
+| Audio pipeline only | `./optimize.sh --bench audio` |
+| OpenMP on vs off FFT | `./optimize.sh --bench openmp` |
+| Everything | `./optimize.sh --bench all` |
+| Save baseline | `./optimize.sh --bench wasm --baseline benchmark-results/wasm-baseline.json` |
+| Compare to baseline | `./optimize.sh --bench wasm --compare benchmark-results/wasm-baseline.json` |
 
 Results land in `benchmark-results/` (gitignored except `.gitkeep`).
 
@@ -38,19 +35,20 @@ cmake -G "Ninja Multi-Config" -S . -B cmake-build \
   -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc \
   -DBUILD_TESTING=ON -DENABLE_OPENMP=ON
 cmake --build cmake-build --config Release --target projectM-unittest
-scripts/optimize.sh --bench native --build-dir cmake-build
+./optimize.sh --bench native --build-dir cmake-build
 ```
 
 ### WASM benchmarks
 
 ```bash
-# Libraries + wrapper link -> cmake-build/wasm-smoke/ (see docs/EMSCRIPTEN.md)
-scripts/build_wasm.sh
+# Emscripten smoke wrapper (see scripts/build_wasm_smoke_wrapper.sh)
+INSTALL_DIR="$PWD/install" \
+  OUT_DIR="$PWD/cmake-build/wasm-smoke" scripts/build_wasm_smoke_wrapper.sh
 
 npm install --no-save playwright   # once
 npx playwright install chromium  # once
 
-scripts/optimize.sh --bench wasm
+./optimize.sh --bench wasm
 # or explicitly:
 node scripts/benchmark_presets_wasm.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js
 ```
@@ -147,15 +145,15 @@ Add presets you upgrade; re-run baseline after intentional changes.
 
 ```bash
 # 1. Baseline before change
-scripts/optimize.sh --bench wasm \
+./optimize.sh --skip-opt --bench wasm \
   --baseline benchmark-results/before-openmp.json
-scripts/optimize.sh --bench native \
+./optimize.sh --bench native \
   && cp benchmark-results/preset-benchmark-native.json benchmark-results/before-native.json
 
 # 2. Apply optimization (e.g. OpenMP pragma, SIMD flags, preset GPU migration)
 
 # 3. Compare
-scripts/optimize.sh --bench wasm \
+./optimize.sh --skip-opt --bench wasm \
   --compare benchmark-results/before-openmp.json
 
 # 4. Document in PR: fps median delta, perPixelEvalMs delta, switchReadyMs delta
@@ -177,7 +175,7 @@ Compare output highlights:
 
 | File | Role |
 |------|------|
-| `scripts/optimize.sh` | `--bench` orchestration |
+| `optimize.sh` | wasm-opt + `--bench` orchestration |
 | `scripts/benchmark_presets_wasm.mjs` | Playwright WASM runner |
 | `scripts/capture_fbo_precision_benchmark.mjs` | Crossfade-gated RGBA16F vs. RGBA32F A/B capture |
 | `scripts/benchmark_native.sh` | Native gtest JSON report |

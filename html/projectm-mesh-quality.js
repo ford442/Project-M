@@ -87,10 +87,8 @@ function writeStoredQuality(key, value) {
  *
  * @param {*} Module The Emscripten module instance (must already be initialized).
  * @param {{ params?: URLSearchParams }} [options]
- * @returns {{ quality: string, setQuality: (quality: string) => string, dispose: () => void }}
- *   The quality that was actually applied, and a setter that persists and
- *   applies a new one. `dispose()` has nothing to undo (the setting is the
- *   engine's), and is there so every setup*() can be torn down the same way.
+ * @returns {{ quality: string, setQuality: (quality: string) => string }} The quality
+ *   that was actually applied, and a setter that persists and applies a new one.
  */
 export function setupMeshQuality(Module, options = {}) {
     const params = options.params || new URLSearchParams(location.search);
@@ -103,6 +101,5 @@ export function setupMeshQuality(Module, options = {}) {
             writeStoredQuality('meshQuality', quality);
             return setMeshQuality(Module, quality);
         },
-        dispose() {},
     };
 }

@@ -3,6 +3,9 @@
 /* Define USE_GLES */
 #cmakedefine USE_GLES
 
+/* Define PROJECTM_USE_THREADS */
+#cmakedefine01 PROJECTM_USE_THREADS
+
 /* Version number of package */
 #define VERSION "@libprojectM_VERSION@"
 

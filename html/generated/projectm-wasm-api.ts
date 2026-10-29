@@ -46,12 +46,7 @@ export type ProjectMModule = EmscriptenModule & {
     _get_pcm_ring_read_index: () => number;
     _get_pcm_ring_overruns: () => number;
     _attach_worklet_ingest: () => void;
-    _projectm_sprite_destroy: (pmHandle: number, spriteId: number) => void;
-    _projectm_sprite_destroy_all: (pmHandle: number) => void;
-    _projectm_sprite_get_sprite_count: (pmHandle: number) => number;
-    _projectm_sprite_get_sprite_ids: (pmHandle: number, spriteIds: number) => void;
-    _projectm_sprite_set_max_sprites: (pmHandle: number, maxSprites: number) => void;
-    _projectm_sprite_get_max_sprites: (pmHandle: number) => number;
+    _create_sprite: () => void;
     _stop_worklet_playback: () => void;
     _set_audio_source_to_stream: (isStreaming: number) => void;
     _set_preset_locked: (locked: number) => void;
@@ -96,7 +91,6 @@ export type ProjectMModule = EmscriptenModule & {
     _dual_fbo_get_idle_release_seconds: () => number;
     _dual_fbo_is_preset_b_ready: () => boolean;
     _dual_fbo_get_format: () => number;
-    _get_context_snapshot: () => number;
     _dual_fbo_render_preset_a: () => void;
     _dual_fbo_render_preset_b: () => void;
     _transition_start: () => void;
@@ -188,16 +182,6 @@ export const WASM_API_SYMBOLS = {
     attachWorkletIngest: 'attach_worklet_ingest',
     connectMediaElementSource: 'connect_media_element_source',
     createSprite: 'create_sprite',
-    projectmSpriteCreate: 'projectm_sprite_create',
-    projectmSpriteDestroy: 'projectm_sprite_destroy',
-    projectmSpriteDestroyAll: 'projectm_sprite_destroy_all',
-    projectmSpriteGetSpriteCount: 'projectm_sprite_get_sprite_count',
-    projectmSpriteGetSpriteIds: 'projectm_sprite_get_sprite_ids',
-    projectmSpriteSetMaxSprites: 'projectm_sprite_set_max_sprites',
-    projectmSpriteGetMaxSprites: 'projectm_sprite_get_max_sprites',
-    projectmSpriteGetVar: 'projectm_sprite_get_var',
-    projectmSpriteSetVar: 'projectm_sprite_set_var',
-    reloadTexture: 'reload_texture',
     stopWorkletPlayback: 'stop_worklet_playback',
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
@@ -244,7 +228,6 @@ export const WASM_API_SYMBOLS = {
     dualFboGetIdleReleaseSeconds: 'dual_fbo_get_idle_release_seconds',
     dualFboIsPresetBReady: 'dual_fbo_is_preset_b_ready',
     dualFboGetFormat: 'dual_fbo_get_format',
-    getContextSnapshot: 'get_context_snapshot',
     dualFboRenderPresetA: 'dual_fbo_render_preset_a',
     dualFboRenderPresetB: 'dual_fbo_render_preset_b',
     transitionStart: 'transition_start',
@@ -351,17 +334,7 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     getPcmRingOverruns: { symbol: 'get_pcm_ring_overruns', returnType: 'number', argTypes: [], paramTypes: [] },
     attachWorkletIngest: { symbol: 'attach_worklet_ingest', returnType: null, argTypes: [], paramTypes: [] },
     connectMediaElementSource: { symbol: 'connect_media_element_source', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
-    createSprite: { symbol: 'create_sprite', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'] },
-    projectmSpriteCreate: { symbol: 'projectm_sprite_create', returnType: 'number', argTypes: ['number', 'string', 'string'], paramTypes: ['number', 'string', 'string'] },
-    projectmSpriteDestroy: { symbol: 'projectm_sprite_destroy', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
-    projectmSpriteDestroyAll: { symbol: 'projectm_sprite_destroy_all', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
-    projectmSpriteGetSpriteCount: { symbol: 'projectm_sprite_get_sprite_count', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
-    projectmSpriteGetSpriteIds: { symbol: 'projectm_sprite_get_sprite_ids', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
-    projectmSpriteSetMaxSprites: { symbol: 'projectm_sprite_set_max_sprites', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'] },
-    projectmSpriteGetMaxSprites: { symbol: 'projectm_sprite_get_max_sprites', returnType: 'number', argTypes: ['number'], paramTypes: ['number'] },
-    projectmSpriteGetVar: { symbol: 'projectm_sprite_get_var', returnType: 'number', argTypes: ['number', 'number', 'string'], paramTypes: ['number', 'number', 'string'] },
-    projectmSpriteSetVar: { symbol: 'projectm_sprite_set_var', returnType: null, argTypes: ['number', 'number', 'string', 'number'], paramTypes: ['number', 'number', 'string', 'number'] },
-    reloadTexture: { symbol: 'reload_texture', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
+    createSprite: { symbol: 'create_sprite', returnType: null, argTypes: [], paramTypes: [] },
     stopWorkletPlayback: { symbol: 'stop_worklet_playback', returnType: null, argTypes: [], paramTypes: [] },
     setAudioSourceToStream: { symbol: 'set_audio_source_to_stream', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setPresetLocked: { symbol: 'set_preset_locked', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
@@ -408,7 +381,6 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     dualFboGetIdleReleaseSeconds: { symbol: 'dual_fbo_get_idle_release_seconds', returnType: 'number', argTypes: [], paramTypes: [] },
     dualFboIsPresetBReady: { symbol: 'dual_fbo_is_preset_b_ready', returnType: 'boolean', argTypes: [], paramTypes: [] },
     dualFboGetFormat: { symbol: 'dual_fbo_get_format', returnType: 'number', argTypes: [], paramTypes: [] },
-    getContextSnapshot: { symbol: 'get_context_snapshot', returnType: 'number', argTypes: [], paramTypes: [] },
     dualFboRenderPresetA: { symbol: 'dual_fbo_render_preset_a', returnType: null, argTypes: [], paramTypes: [] },
     dualFboRenderPresetB: { symbol: 'dual_fbo_render_preset_b', returnType: null, argTypes: [], paramTypes: [] },
     transitionStart: { symbol: 'transition_start', returnType: null, argTypes: [], paramTypes: [] },
@@ -547,7 +519,7 @@ export function destruct(module: ProjectMModule): void {
     module._destruct();
 }
 
-/** Opaque projectM handle of the active host: the pmHandle the projectm_sprite_* exports take */
+/** Opaque projectM handle pointer */
 export function getProjectmHandle(module: ProjectMModule): number {
     return module._get_projectm_handle();
 }
@@ -752,59 +724,9 @@ export function connectMediaElementSource(module: ProjectMModule, selector: stri
     return module.ccall('connect_media_element_source', 'number', ['string'], [selector]) as number;
 }
 
-/** Create a user sprite on the active host (type 'milkdrop', code in the Milkdrop sprite format), returning its id, or 0 on failure or at the sprite limit */
-export function createSprite(module: ProjectMModule, type: string, code: string): number {
-    return module.ccall('create_sprite', 'number', ['string', 'string'], [type, code]) as number;
-}
-
-/** Create a user sprite on the engine pmHandle names (see create_sprite) */
-export function projectmSpriteCreate(module: ProjectMModule, pmHandle: number, type: string, code: string): number {
-    return module.ccall('projectm_sprite_create', 'number', ['number', 'string', 'string'], [pmHandle, type, code]) as number;
-}
-
-/** Destroy one user sprite */
-export function projectmSpriteDestroy(module: ProjectMModule, pmHandle: number, spriteId: number): void {
-    module._projectm_sprite_destroy(pmHandle, spriteId);
-}
-
-/** Destroy every user sprite */
-export function projectmSpriteDestroyAll(module: ProjectMModule, pmHandle: number): void {
-    module._projectm_sprite_destroy_all(pmHandle);
-}
-
-/** Number of live user sprites */
-export function projectmSpriteGetSpriteCount(module: ProjectMModule, pmHandle: number): number {
-    return module._projectm_sprite_get_sprite_count(pmHandle);
-}
-
-/** Write the live sprite ids, oldest first, to a uint32 array of projectm_sprite_get_sprite_count() entries on the WASM heap */
-export function projectmSpriteGetSpriteIds(module: ProjectMModule, pmHandle: number, spriteIds: number): void {
-    module._projectm_sprite_get_sprite_ids(pmHandle, spriteIds);
-}
-
-/** Sprite limit (lowering it destroys the oldest sprites over it) */
-export function projectmSpriteSetMaxSprites(module: ProjectMModule, pmHandle: number, maxSprites: number): void {
-    module._projectm_sprite_set_max_sprites(pmHandle, maxSprites);
-}
-
-/** Current sprite limit */
-export function projectmSpriteGetMaxSprites(module: ProjectMModule, pmHandle: number): number {
-    return module._projectm_sprite_get_max_sprites(pmHandle);
-}
-
-/** Value of a sprite expression variable (0 for an unknown sprite or variable) */
-export function projectmSpriteGetVar(module: ProjectMModule, pmHandle: number, spriteId: number, varName: string): number {
-    return module.ccall('projectm_sprite_get_var', 'number', ['number', 'number', 'string'], [pmHandle, spriteId, varName]) as number;
-}
-
-/** Set a sprite expression variable (per-frame code may overwrite it on the next frame) */
-export function projectmSpriteSetVar(module: ProjectMModule, pmHandle: number, spriteId: number, varName: string, value: number): void {
-    module.ccall('projectm_sprite_set_var', null, ['number', 'number', 'string', 'number'], [pmHandle, spriteId, varName, value]);
-}
-
-/** Re-read a texture file rewritten in the VFS into the active host's loaded texture so running presets sample the new image (1 if a loaded texture was updated, 0 if it was not loaded from a file) */
-export function reloadTexture(module: ProjectMModule, name: string): number {
-    return module.ccall('reload_texture', 'number', ['string'], [name]) as number;
+/** Create demo user sprite */
+export function createSprite(module: ProjectMModule): void {
+    module._create_sprite();
 }
 
 /** Stop audio worklet playback */
@@ -1037,11 +959,6 @@ export function dualFboGetFormat(module: ProjectMModule): number {
     return module._dual_fbo_get_format();
 }
 
-/** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot */
-export function getContextSnapshot(module: ProjectMModule): number {
-    return module._get_context_snapshot();
-}
-
 /** Render preset A into dual FBO */
 export function dualFboRenderPresetA(module: ProjectMModule): void {
     module._dual_fbo_render_preset_a();
@@ -1254,7 +1171,6 @@ export function captureFrameRelease(module: ProjectMModule): void {
 
 /** Stable public embed API (see docs/WASM_JS_API.md). */
 export const PUBLIC_WASM_API = [
-    getProjectmHandle,
     init,
     setCanvasSelectors,
     setContextConfig,
@@ -1287,16 +1203,6 @@ export const PUBLIC_WASM_API = [
     getPcmRingIndexModulus,
     attachWorkletIngest,
     connectMediaElementSource,
-    createSprite,
-    projectmSpriteCreate,
-    projectmSpriteDestroy,
-    projectmSpriteDestroyAll,
-    projectmSpriteGetSpriteCount,
-    projectmSpriteGetSpriteIds,
-    projectmSpriteSetMaxSprites,
-    projectmSpriteGetMaxSprites,
-    projectmSpriteGetVar,
-    projectmSpriteSetVar,
     setPresetLocked,
     setTransparencyMode,
     getTransparencyMode,
@@ -1316,7 +1222,6 @@ export const PUBLIC_WASM_API = [
     dualFboGetIdleReleaseSeconds,
     dualFboIsPresetBReady,
     dualFboGetFormat,
-    getContextSnapshot,
     transitionStart,
     transitionCancel,
     transitionIsActive,

@@ -5,9 +5,7 @@
 # working-tree contents (not just the committed index) of the C++ sources, the
 # vendored libraries, the build scripts and CMake files, the submodule commits
 # and the env knobs the link reads. Not the emcc version: the deploy check must
-# work on a machine without emsdk on PATH. Not PROJECTM_WASM_LTO either: LTO is
-# a deployable build setting, recorded as its own line in the build-id
-# (lto-libs=/lto-link=), and deploy.py runs without the build's environment.
+# work on a machine without emsdk on PATH.
 #
 # scripts/build_wasm_smoke_wrapper.sh records it next to its outputs
 # (projectm-v.030-thread.build-id); scripts/prepare_deploy_bundle.sh refuses to
@@ -31,7 +29,6 @@ inputs=(
     vendor
     omp
     scripts/wasm_link_common.inc.sh
-    scripts/build_wasm.sh
     scripts/build_wasm_install.sh
     scripts/build_wasm_smoke_wrapper.sh
 )
@@ -46,5 +43,7 @@ inputs=(
         done |
         xargs -0 -r sha1sum
     git submodule status --recursive -- vendor 2>/dev/null || true
+    echo "PROJECTM_WASM_LTO=${PROJECTM_WASM_LTO:-0}"
+    echo "PROJECTM_WASM_PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE:-}"
     echo "PROJECTM_WASM_EXTRA_LINK_FLAGS=${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}"
 } | sha1sum | cut -d' ' -f1

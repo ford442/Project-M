@@ -192,9 +192,9 @@ test('start() creates the host with its context config in one call', async () =>
 
     assert.deepEqual(calls.map((c) => c[0]), ['create_host_with_config'], 'no separate set_context_config step');
     // primary, secondary, flags, power, fbo. Flags: antialias(1) +
-    // preserveDrawingBuffer(2) + premultipliedAlpha(32); depth/stencil default
-    // off (#246), contextAlpha(16) off for a context that is not transparent.
-    assert.deepEqual(calls[0][1], ['#ctx-cfg-order', '#scanvas', 35, 1, 1]);
+    // preserveDrawingBuffer(2) + contextAlpha(16) + premultipliedAlpha(32);
+    // depth/stencil default off (#246).
+    assert.deepEqual(calls[0][1], ['#ctx-cfg-order', '#scanvas', 51, 1, 1]);
     assert.equal(errors[0]?.code, 4);
 });
 
@@ -222,7 +222,7 @@ test('a bundle without create_host_with_config still gets set_context_config the
 
     assert.deepEqual(calls.map((c) => c[0]), ['set_context_config', 'create_host']);
     // antialias, preserveDrawingBuffer, depth, stencil, alpha, power, fbo.
-    assert.deepEqual(calls[0][1], [1, 1, 0, 0, 0, 1, 1]);
+    assert.deepEqual(calls[0][1], [1, 1, 0, 0, 1, 1, 1]);
 });
 
 test('a legacy bundle refuses attributes set_context_config cannot express rather than drop them', async () => {

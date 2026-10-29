@@ -1,8 +1,8 @@
 name: Nightly Preset Screenshots
 
-# Full presets/custom/ screenshot capture (all ~23 presets) for manual
+# Full custom_milk_fixed/ screenshot capture (all ~23 presets) for manual
 # review. Kept out of the PR build_emscripten.yml job to stay within its
-# <2 min capture budget — see docs/agents/kimi_preset_authoring_plan.md section 9.
+# <2 min capture budget — see docs/kimi_preset_authoring_plan.md section 9.
 on:
   schedule:
     - cron: "0 7 * * *"
@@ -10,15 +10,15 @@ on:
 
 jobs:
   capture:
-    name: "Full presets/custom capture (transitions ON)"
+    name: "Full custom_milk_fixed capture (transitions ON)"
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
 
       - name: Setup emsdk
-        uses: emscripten-core/setup-emsdk@v16
+        uses: mymindstorm/setup-emsdk@v14
         with:
           # Same pin as build_emscripten.yml (see the note on its matrix).
           version: 6.0.6
@@ -63,10 +63,10 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
-      # No --presets filter: captures every preset in presets/custom/
+      # No --presets filter: captures every preset in custom_milk_fixed/
       # plus the 000-empty baseline. continue-on-error so a single dark/failed
       # preset doesn't prevent uploading the rest of the report for review.
-      - name: Capture All presets/custom Presets
+      - name: Capture All custom_milk_fixed Presets
         continue-on-error: true
         env:
           PROJECTM_WASM_JS: ${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js

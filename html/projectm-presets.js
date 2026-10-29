@@ -18,7 +18,7 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  * @property {'all' | 'first' | string} [updateDisplayMode]
  * @property {boolean} [returnPaths]
  * @property {boolean} [logLoaded]
- * @property {(opts: { module?: ProjectMModuleLike }) => unknown} [startTransitionWhenReady] May return a promise; it is not awaited.
+ * @property {(opts: { module?: ProjectMModuleLike }) => void} [startTransitionWhenReady]
  * @property {boolean} [updateDisplay]
  * @property {(vfsPath: string, bytes: Uint8Array) => void} [writeBytes] Where the
  *   fetched preset should be written. Supplied by hosts whose engine (and
@@ -38,6 +38,11 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  */
 
 export const DEFAULT_PRESET_API_BASE = 'https://storage.noahcohn.com';
+// storage.1ink.us used to be listed here; its /api/presets/random returns 404
+// (checked 2026-10-07), so it only added a failing request to every load.
+export const FALLBACK_PRESET_API_BASES = [
+    'https://storage.noahcohn.com'
+];
 export const LOCAL_PRESET_MAX_BYTES = 2 * 1024 * 1024;
 export const LOCAL_PRESET_LAST_NAME_KEY = 'projectm:lastLocalPresetName';
 
@@ -272,9 +277,7 @@ export async function fetchApiPreset({
             if (writer) {
                 writer(vfsPath, bytes);
             } else {
-                const fs = module?.FS;
-                if (!fs) throw new Error('Module.FS is unavailable');
-                fs.writeFile(vfsPath, bytes);
+                /** @type {NonNullable<ProjectMModuleLike['FS']>} */ (module?.FS).writeFile(vfsPath, bytes);
             }
 
             return {
@@ -401,7 +404,7 @@ export async function loadRandomApiPreset({
 
 /**
  * @param {File} file
- * @param {{ module?: ProjectMModuleLike; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => unknown; updateDisplay?: boolean; rememberLast?: boolean; documentRef?: Document }} [options]
+ * @param {{ module?: ProjectMModuleLike; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => void; updateDisplay?: boolean; rememberLast?: boolean; documentRef?: Document }} [options]
  * @returns {Promise<{ filename: string; vfsPath: string }>}
  */
 export async function loadLocalPresetFile(file, {
@@ -471,7 +474,7 @@ export async function loadLocalPresetFile(file, {
  * into a module that has just been torn down is a use-after-free.
  *
  * @param {string} url Absolute or same-origin preset URL.
- * @param {{ module?: ProjectMModuleLike; vfsPath?: string; updateDisplay?: boolean; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => unknown; windowRef?: Window; signal?: AbortSignal }} [options]
+ * @param {{ module?: ProjectMModuleLike; vfsPath?: string; updateDisplay?: boolean; startTransitionWhenReady?: (opts: { module?: ProjectMModuleLike }) => void; windowRef?: Window; signal?: AbortSignal }} [options]
  * @returns {Promise<{ url: string, vfsPath: string, filename: string }>}
  */
 export async function loadPresetFromUrl(url, {

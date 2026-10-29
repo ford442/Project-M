@@ -130,17 +130,6 @@ test('pickWeightedRandom weights favorites and known-good presets above the rest
     }
 });
 
-test('pickWeightedRandom with onlyOk only ever picks known-good presets while there are any', () => {
-    const list = [
-        { file: 'a', status: 'ok' },
-        { file: 'b', status: 'broken' },
-        { file: 'c' },
-    ];
-    for (let i = 0; i < 20; i++) {
-        assert.equal(pickWeightedRandom(list, { onlyOk: true, favorites: new Set() }).file, 'a');
-    }
-});
-
 test('pickWeightedRandom falls back rather than returning null when filters empty the pool', () => {
     const broken = { file: 'broken.milk', status: 'broken' };
     const unknown = { file: 'unknown.milk' };

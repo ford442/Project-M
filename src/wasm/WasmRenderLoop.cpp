@@ -106,21 +106,29 @@ void start_render(int width, int height)
         fprintf(stderr, "start_render: no engine on this host; call init() first.\n");
         return;
     }
-    using RenderDevice::Capability;
-    auto& commands = RenderDevice::Commands();
-    commands.Clear(RenderDevice::ClearColor | RenderDevice::ClearDepth | RenderDevice::ClearStencil);
+    // glClearColor( 1.0, 1.0, 1.0, 0.0 );
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     printf("Setting window size: %i x %i\n", width, height);
-    commands.SetViewport({0, 0, width, height}); //  viewport/scissor after UsePrg runs at full resolution
-    commands.SetEnabled(Capability::ScissorTest, true);
-    commands.SetScissor({0, 0, width, height});
-    commands.SetNicestQualityHints();
+    glViewport(0, 0, width, height); //  viewport/scissor after UsePrg runs at full resolution
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, width, height);
+    glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT, GL_NICEST);
+    glHint(GL_GENERATE_MIPMAP_HINT, GL_NICEST);
     // GL_DITHER only affects fixed-function/blit paths on most GLES drivers and
     // is a no-op for the shader-based render passes used here, but in the
     // degraded RGBA8 dual-FBO fallback (DetectFormat() already ran in init())
     // every bit of extra entropy on the final blit helps hide 8-bit banding, so
     // leave it enabled in that case instead of unconditionally disabling it.
-    commands.SetEnabled(Capability::Dither, g_dualFbo.GetFormat() == FboFloatFormat::RGBA8);
-    commands.SetCullMode(RenderDevice::FrontFace::Clockwise, RenderDevice::CullFace::Back);
+    if (g_dualFbo.GetFormat() == FboFloatFormat::RGBA8)
+    {
+        glEnable(GL_DITHER);
+    }
+    else
+    {
+        glDisable(GL_DITHER);
+    }
+    glFrontFace(GL_CW);
+    glCullFace(GL_BACK);
     // app_data.loading is left alone: it means "a preset preparation is in
     // flight", and starting the render loop does not change that.
     projectm_set_window_size(pm, width, height);
@@ -135,9 +143,9 @@ void start_render(int width, int height)
     }
 
     // The state everything above established is what each preset render is
-    // put back to (RenderStateGuard), so capture it once here instead of
-    // reading it back from GL every frame.
-    H.glBaseline = commands.CaptureState();
+    // put back to (GLStateGuard), so capture it once here instead of reading
+    // it back from GL every frame.
+    H.glBaseline = GLStateSnapshot::Capture();
 
     // Opt this host into the shared render loop. Register the process-global
     // Emscripten main loop only once; it then iterates every started host.
@@ -201,30 +209,6 @@ static bool ShouldUseDualFboCompositor()
 // 1920x1080) that nothing reads for the rest of the session. The grace period
 // keeps back-to-back preset switches from thrashing glTexImage2D; hosts can tune
 // or disable it via dual_fbo_set_idle_release_seconds().
-// The direct path presents the preset's output with a blit, alpha channel and
-// all, and a preset's alpha is blend-mode leftovers. On an opaque canvas (the
-// default) the browser ignores it. On a canvas with an alpha channel and
-// transparency mode off it would be read as coverage, and wherever it falls
-// below the colour the pixel is invalid premultiplied alpha, which browsers
-// composite differently. Overwrite it with 1. (Transparency mode writes real
-// coverage itself; the dual-FBO compositor sets its own alpha.)
-//
-// Run inside render_frame()'s RenderStateGuard, which restores the framebuffer
-// binding and scissor this changes.
-static void FillAlphaOfOpaqueFrame(projectm_handle pm)
-{
-    if (!WasmWebGLCanvasHasAlpha() || projectm_get_transparency_mode(pm))
-    {
-        return;
-    }
-    auto& commands = RenderDevice::Commands();
-    commands.BindRenderTarget(RenderDevice::TargetBinding::Draw, {});
-    commands.SetEnabled(RenderDevice::Capability::ScissorTest, false);
-    commands.SetColorMask(false, false, false, true);
-    commands.ClearColorAttachment(0, {0.0f, 0.0f, 0.0f, 1.0f});
-    commands.SetColorMask(true, true, true, true);
-}
-
 static void ReleaseDualFboIfIdle()
 {
     WasmHost& H = Host();
@@ -315,9 +299,8 @@ void render_frame()
     {
         // Direct-to-canvas path (steady state, startup, or compositor unavailable).
         ReleaseDualFboIfIdle();
-        RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+        GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame(pm);
-        FillAlphaOfOpaqueFrame(pm);
         CollectRhythmEvents(H);
         FlushRhythmEvents(H);
         TakeRequestedFrameCapture(H);
@@ -338,17 +321,17 @@ void render_frame()
     // when called. Use projectm_opengl_render_frame_fbo() so the final composite
     // lands in our Write FBO instead of clobbering the canvas directly.
     {
-        RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
-        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO().id);
+        GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetAWriteFBO());
     }
     CollectRhythmEvents(H);
     g_dualFbo.SwapPresetA();
 
     // --- Step 2: Render Preset B into its Write FBO ---
-    reset_render_state_between_pipelines();
+    gl_reset_state_between_pipelines();
     {
-        RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
-        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO().id);
+        GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+        projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO());
     }
     CollectRhythmEvents(H);
     g_dualFbo.SwapPresetB();
@@ -409,12 +392,11 @@ void set_window_size(int width, int height)
         return;
     }
     WasmWebGLResizeCanvases(width, height);
-    auto& commands = RenderDevice::Commands();
-    commands.SetViewport({0, 0, width, height});
-    commands.SetScissor({0, 0, width, height});
+    glViewport(0, 0, width, height);
+    glScissor(0, 0, width, height);
     if (H.glBaseline)
     {
-        SetBaselineViewportAndScissor(*H.glBaseline, width, height);
+        H.glBaseline->SetViewportAndScissor(width, height);
     }
     projectm_set_window_size(pm, width, height);
     // Phase 2: Resize all allocated dual ping-pong FBOs to match the new viewport.

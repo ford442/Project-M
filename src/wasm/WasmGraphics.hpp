@@ -1,32 +1,15 @@
 // WasmGraphics.hpp
 //
-// Dual ping-pong FBO architecture, RAII render-state guard, and the fullscreen
+// Dual ping-pong FBO architecture, RAII GL state guard, and the fullscreen
 // compositing/crossfade shader used by the WASM preset-transition system.
 //
 // These types are defined in a header (rather than a .cpp) because both the
 // render loop in WasmRenderLoop.cpp and the dual-FBO C exports in
 // WasmDualFbo.cpp operate on the active host's dualFbo / compositorShader
 // instances (see WasmHost).
-//
-// Everything here draws through libprojectM's render device (see
-// docs/RENDER_DEVICE.md), not GL directly: the same seam the engine uses, so a
-// second backend covers the host layer too.
 #pragma once
 
 #include "ProjectMWasmInternal.hpp"
-#include "WasmCompositorShader.hpp"
-#include "WasmWebGLContext.hpp"
-
-#include <Renderer/Device/RenderDevice.hpp>
-#include <Renderer/Point.hpp>
-#include <Renderer/Shader.hpp>
-#include <Renderer/VertexArray.hpp>
-#include <Renderer/VertexBuffer.hpp>
-
-#include <array>
-#include <memory>
-
-namespace RenderDevice = libprojectM::Renderer::Device;
 
 // =============================================================================
 // Phase 2: Dual Ping-Pong FBO Architecture with Floating-Point Texture Support
@@ -41,8 +24,7 @@ namespace RenderDevice = libprojectM::Renderer::Device;
  * returns the one DetectFormat() picked, in the same numbering. The two used
  * to disagree (the getter returned 0 for RGBA32F and 1 for RGBA16F).
  *
- * Selection (DetectFormat(), from the extensions the context probed once at
- * creation, WasmContextCaps):
+ * Selection (DetectFormat()):
  *   RGBA16F – default whenever it is renderable: WebGL 2 plus either
  *             EXT_color_buffer_float or EXT_color_buffer_half_float. Always
  *             filterable in WebGL 2.
@@ -52,19 +34,12 @@ namespace RenderDevice = libprojectM::Renderer::Device;
  *             GL_NEAREST (a linear filter would leave them incomplete, which
  *             samples as black).
  *   RGBA8   – last resort, or forced with fboPrecision "byte"; shaders must
- *             clamp output to [0,1]. Also where a float format ends up when a
- *             framebuffer with it turns out incomplete (CreateFBO()).
- *
- * What a float format buys here is limited: these textures receive frames
- * libprojectM already rendered through RGBA8 feedback, warp and composite
- * targets (ENABLE_HDR_RENDERING is off in the WASM build), so RGBA16F only
- * keeps the crossfade itself from adding a second 8-bit quantization. The
- * recursive-feedback banding lives upstream of this stage.
+ *             clamp output to [0,1].
  */
 enum class FboFloatFormat : int
 {
     RGBA16F = 0, //!< GL_RGBA16F – default on capable GPUs (fboPrecision "half")
-    RGBA32F = 1, //!< GL_RGBA32F – opt-in high precision (fboPrecision "high")
+    RGBA32F = 1, //!< GL_RGBA32F – opt-in high precision for recursive feedback (fboPrecision "high")
     RGBA8 = 2    //!< GL_RGBA8   – fallback; negative alpha corruption possible without clamping (fboPrecision "byte")
 };
 
@@ -104,19 +79,18 @@ public:
     }
 
     /**
-     * @brief Picks the FBO colour format from the context's float support.
+     * @brief Picks the FBO colour format by probing WebGL 2 extensions.
      *
-     * Call once after the WebGL context has been created and before any FBO
+     * Call once after the WebGL context has been made current and before any FBO
      * allocation. See FboFloatFormat for the selection rules.
      *
-     * @param caps What the context offers, probed (and enabled) once when it was
-     *        created; this class enables no extensions itself.
+     * @param ctx The active Emscripten WebGL context handle.
      * @param precisionMode The preferred format, as an FboFloatFormat value
      *        (set_context_config()'s fboPrecision).
      */
-    void DetectFormat(const WasmContextCaps& caps, int precisionMode = 0)
+    void DetectFormat(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx, int precisionMode = 0)
     {
-        m_filter = RenderDevice::FilterMode::Linear;
+        m_filter = GL_LINEAR;
         if (precisionMode == static_cast<int>(FboFloatFormat::RGBA8))
         {
             m_format = FboFloatFormat::RGBA8;
@@ -125,18 +99,20 @@ public:
         }
         // In WebGL 2, EXT_color_buffer_float makes both RGBA16F and RGBA32F
         // renderable; EXT_color_buffer_half_float covers RGBA16F alone.
-        const bool halfRenderable = caps.floatColorBuffer || caps.halfFloatColorBuffer;
+        const bool hasFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE);
+        const bool hasHalfFloat = (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE);
+        const bool halfRenderable = hasFloat || hasHalfFloat;
 
-        if (precisionMode == static_cast<int>(FboFloatFormat::RGBA32F) && caps.floatColorBuffer)
+        if (precisionMode == static_cast<int>(FboFloatFormat::RGBA32F) && hasFloat)
         {
             m_format = FboFloatFormat::RGBA32F;
             // RGBA32F is not filterable in core WebGL 2. A GL_LINEAR sampler on
             // it without this extension makes the texture incomplete, and an
             // incomplete texture samples as black. The compositor draws the
             // FBOs 1:1 onto the canvas, so GL_NEAREST loses nothing there.
-            if (!caps.floatLinear)
+            if (emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear") != EM_TRUE)
             {
-                m_filter = RenderDevice::FilterMode::Nearest;
+                m_filter = GL_NEAREST;
                 printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in), GL_NEAREST: OES_texture_float_linear unavailable.\n");
             }
             else
@@ -153,7 +129,7 @@ public:
         {
             m_format = FboFloatFormat::RGBA8;
             printf("DualFBO: Float textures unavailable, falling back to GL_RGBA8 (degraded mode).\n");
-            printf("DualFBO: transitions crossfade at 8 bits (dithered/clamped in CompositingBlendShader).\n");
+            printf("DualFBO: WARNING – recursive warp/feedback presets may show banding; output is dithered/clamped in CompositingBlendShader.\n");
             printf("DualFBO: Host page can query this via Module._dual_fbo_get_format() (2 == RGBA8).\n");
         }
     }
@@ -182,7 +158,7 @@ public:
         m_width = width;
         m_height = height;
 
-        if (!CreateFBOWithFallback(kARead, width, height) || !CreateFBOWithFallback(kAWrite, width, height))
+        if (!CreateFBO(kARead, width, height) || !CreateFBO(kAWrite, width, height))
         {
             ReleaseFBO(kARead);
             ReleaseFBO(kAWrite);
@@ -212,7 +188,7 @@ public:
             return true;
         }
 
-        if (!CreateFBOWithFallback(kBRead, width, height) || !CreateFBOWithFallback(kBWrite, width, height))
+        if (!CreateFBO(kBRead, width, height) || !CreateFBO(kBWrite, width, height))
         {
             ReleaseFBO(kBRead);
             ReleaseFBO(kBWrite);
@@ -301,10 +277,10 @@ public:
         m_textures[kAWrite] = m_textures[kBWrite];
 
         // Clear Preset B slots (ownership transferred; do not delete).
-        m_fbos[kBRead] = {};
-        m_fbos[kBWrite] = {};
-        m_textures[kBRead] = {};
-        m_textures[kBWrite] = {};
+        m_fbos[kBRead] = 0;
+        m_fbos[kBWrite] = 0;
+        m_textures[kBRead] = 0;
+        m_textures[kBWrite] = 0;
 
         m_presetAAllocated = true;
         m_presetBAllocated = false;
@@ -368,39 +344,38 @@ public:
     }
 
     // -------------------------------------------------------------------------
-    // Accessor functions – return device handles for use in render passes. On
-    // the WebGL device a handle's id is the GL object name the C API takes.
+    // Accessor functions – return raw OpenGL handles for use in render passes.
     // -------------------------------------------------------------------------
-    RenderDevice::RenderTargetHandle GetAReadFBO() const
+    GLuint GetAReadFBO() const
     {
         return m_fbos[kARead];
     }
-    RenderDevice::RenderTargetHandle GetAWriteFBO() const
+    GLuint GetAWriteFBO() const
     {
         return m_fbos[kAWrite];
     }
-    RenderDevice::TextureHandle GetAReadTex() const
+    GLuint GetAReadTex() const
     {
         return m_textures[kARead];
     }
-    RenderDevice::TextureHandle GetAWriteTex() const
+    GLuint GetAWriteTex() const
     {
         return m_textures[kAWrite];
     }
 
-    RenderDevice::RenderTargetHandle GetBReadFBO() const
+    GLuint GetBReadFBO() const
     {
         return m_fbos[kBRead];
     }
-    RenderDevice::RenderTargetHandle GetBWriteFBO() const
+    GLuint GetBWriteFBO() const
     {
         return m_fbos[kBWrite];
     }
-    RenderDevice::TextureHandle GetBReadTex() const
+    GLuint GetBReadTex() const
     {
         return m_textures[kBRead];
     }
-    RenderDevice::TextureHandle GetBWriteTex() const
+    GLuint GetBWriteTex() const
     {
         return m_textures[kBWrite];
     }
@@ -418,8 +393,8 @@ public:
     {
         return m_format;
     }
-    //! Linear, or Nearest when the format is not filterable here.
-    RenderDevice::FilterMode GetFilter() const
+    //! GL_LINEAR, or GL_NEAREST when the format is not filterable here.
+    GLint GetFilter() const
     {
         return m_filter;
     }
@@ -434,32 +409,43 @@ public:
 
 private:
     // -------------------------------------------------------------------------
-    // Helper: the texture description for the detected float format.
+    // Helper: return the GL internal format for the detected float format.
     // -------------------------------------------------------------------------
-    RenderDevice::TextureDesc GetTextureDesc(int width, int height) const
+    GLint GetGLInternalFormat() const
     {
-        RenderDevice::TextureDesc desc;
-        desc.width = width;
-        desc.height = height;
         switch (m_format)
         {
             case FboFloatFormat::RGBA32F:
-                desc.format = RenderDevice::TextureFormat::RGBA32F;
-                break;
+                return GL_RGBA32F;
             case FboFloatFormat::RGBA16F:
-                desc.format = RenderDevice::TextureFormat::RGBA16F;
-                break;
+                return GL_RGBA16F;
             case FboFloatFormat::RGBA8:
-                desc.format = RenderDevice::TextureFormat::RGBA8;
-                break;
+                return GL_RGBA8;
             default:
                 fprintf(stderr, "DualFBO: Unknown FboFloatFormat; falling back to GL_RGBA8.\n");
-                desc.format = RenderDevice::TextureFormat::RGBA8;
-                break;
+                return GL_RGBA8;
         }
-        // The filter DetectFormat() chose, edge clamp.
-        desc.sampling = RenderDevice::TextureSampling{m_filter, RenderDevice::WrapMode::ClampToEdge};
-        return desc;
+    }
+
+    GLenum GetGLFormat() const
+    {
+        return GL_RGBA;
+    }
+
+    GLenum GetGLType() const
+    {
+        switch (m_format)
+        {
+            case FboFloatFormat::RGBA32F:
+                return GL_FLOAT;
+            case FboFloatFormat::RGBA16F:
+                return GL_HALF_FLOAT;
+            case FboFloatFormat::RGBA8:
+                return GL_UNSIGNED_BYTE;
+            default:
+                fprintf(stderr, "DualFBO: Unknown FboFloatFormat; falling back to GL_UNSIGNED_BYTE.\n");
+                return GL_UNSIGNED_BYTE;
+        }
     }
 
     /**
@@ -472,27 +458,29 @@ private:
      */
     bool CreateFBO(int index, int width, int height)
     {
-        using RenderDevice::TargetBinding;
-        auto& device = RenderDevice::Current();
-        auto& commands = device.Commands();
+        glGenTextures(1, &m_textures[index]);
+        glBindTexture(GL_TEXTURE_2D, m_textures[index]);
+        glTexImage2D(GL_TEXTURE_2D, 0,
+                     GetGLInternalFormat(), width, height, 0,
+                     GetGLFormat(), GetGLType(), nullptr);
+        ConfigureTextureSampling(m_textures[index]);
 
-        m_textures[index] = device.CreateTexture(GetTextureDesc(width, height), nullptr);
+        glGenFramebuffers(1, &m_fbos[index]);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbos[index]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, m_textures[index], 0);
 
-        m_fbos[index] = device.CreateRenderTarget();
-        commands.BindRenderTarget(TargetBinding::ReadDraw, m_fbos[index]);
-        commands.AttachTexture(TargetBinding::ReadDraw, RenderDevice::AttachmentPoint::Color0, m_textures[index]);
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        const auto status = commands.CheckRenderTarget(TargetBinding::ReadDraw);
-        commands.BindRenderTarget(TargetBinding::ReadDraw, {});
-
-        if (!status.complete)
+        if (status != GL_FRAMEBUFFER_COMPLETE)
         {
             fprintf(stderr, "DualFBO: Framebuffer slot %d incomplete (status=0x%x).\n",
-                    index, status.code);
-            device.DestroyTexture(m_textures[index]);
-            device.DestroyRenderTarget(m_fbos[index]);
-            m_textures[index] = {};
-            m_fbos[index] = {};
+                    index, status);
+            glDeleteTextures(1, &m_textures[index]);
+            glDeleteFramebuffers(1, &m_fbos[index]);
+            m_textures[index] = 0;
+            m_fbos[index] = 0;
             return false;
         }
 
@@ -500,47 +488,20 @@ private:
     }
 
     /**
-     * @brief CreateFBO(), and if a float format turns out not to be renderable
-     *        after all, CreateFBO() again in GL_RGBA8.
-     *
-     * DetectFormat() only knows which extensions the context reported; a driver
-     * can still refuse the framebuffer (GL_FRAMEBUFFER_UNSUPPORTED). Rather than
-     * lose the transition, the manager switches to RGBA8 for good: slots that
-     * already hold float textures are re-specified in RGBA8 too, so the pairs
-     * stay alike, and the compositor dithers from here on (it reads GetFormat()
-     * every frame; so does get_context_snapshot()).
-     */
-    bool CreateFBOWithFallback(int index, int width, int height)
-    {
-        if (CreateFBO(index, width, height))
-        {
-            return true;
-        }
-        if (m_format == FboFloatFormat::RGBA8)
-        {
-            return false;
-        }
-        fprintf(stderr, "DualFBO: %s framebuffer incomplete; falling back to GL_RGBA8 (dithered).\n",
-                m_format == FboFloatFormat::RGBA32F ? "GL_RGBA32F" : "GL_RGBA16F");
-        m_format = FboFloatFormat::RGBA8;
-        m_filter = RenderDevice::FilterMode::Linear;
-        for (int slot = 0; slot < 4; ++slot)
-        {
-            ResizeFBOTexture(slot, m_width, m_height);
-        }
-        return CreateFBO(index, width, height);
-    }
-
-    /**
      * @brief Deletes the FBO and its texture at the given slot and resets handles to 0.
      */
     void ReleaseFBO(int index)
     {
-        auto& device = RenderDevice::Current();
-        device.DestroyRenderTarget(m_fbos[index]);
-        m_fbos[index] = {};
-        device.DestroyTexture(m_textures[index]);
-        m_textures[index] = {};
+        if (m_fbos[index] != 0)
+        {
+            glDeleteFramebuffers(1, &m_fbos[index]);
+            m_fbos[index] = 0;
+        }
+        if (m_textures[index] != 0)
+        {
+            glDeleteTextures(1, &m_textures[index]);
+            m_textures[index] = 0;
+        }
     }
 
     /**
@@ -551,23 +512,42 @@ private:
      */
     void ResizeFBOTexture(int index, int width, int height)
     {
-        if (!m_textures[index].Valid())
+        if (m_textures[index] == 0)
         {
             return;
         }
-        using RenderDevice::TargetBinding;
-        auto& device = RenderDevice::Current();
-        auto& commands = device.Commands();
-        device.UpdateTexture(m_textures[index], GetTextureDesc(width, height), nullptr);
+        glBindTexture(GL_TEXTURE_2D, m_textures[index]);
+        glTexImage2D(GL_TEXTURE_2D, 0,
+                     GetGLInternalFormat(), width, height, 0,
+                     GetGLFormat(), GetGLType(), nullptr);
+        ConfigureTextureSampling(m_textures[index]);
 
         // Re-attach the resized texture to the FBO.
-        commands.BindRenderTarget(TargetBinding::ReadDraw, m_fbos[index]);
-        commands.AttachTexture(TargetBinding::ReadDraw, RenderDevice::AttachmentPoint::Color0, m_textures[index]);
-        commands.BindRenderTarget(TargetBinding::ReadDraw, {});
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbos[index]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, m_textures[index], 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    std::array<RenderDevice::RenderTargetHandle, 4> m_fbos{}; //!< FBOs:     [A_Read, A_Write, B_Read, B_Write]
-    std::array<RenderDevice::TextureHandle, 4> m_textures{};  //!< Textures: [A_Read, A_Write, B_Read, B_Write]
+    /**
+     * @brief Sets the sampler parameters (the filter DetectFormat() chose, edge
+     *        clamp) on a currently-bound 2D texture. Assumes the texture is already bound.
+     *
+     * @param texId The texture whose parameters to configure (used only for clarity;
+     *              the call operates on the currently bound GL_TEXTURE_2D target).
+     */
+    void ConfigureTextureSampling(GLuint texId)
+    {
+        (void) texId; // The texture must be bound before calling this helper.
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    GLuint m_fbos[4] = {0, 0, 0, 0};     //!< FBO IDs:     [A_Read, A_Write, B_Read, B_Write]
+    GLuint m_textures[4] = {0, 0, 0, 0}; //!< Texture IDs: [A_Read, A_Write, B_Read, B_Write]
 
     int m_width = 0;  //!< Current FBO texture width in pixels
     int m_height = 0; //!< Current FBO texture height in pixels
@@ -575,20 +555,115 @@ private:
     bool m_presetAAllocated = false; //!< Whether Preset A FBOs are currently allocated
     bool m_presetBAllocated = false; //!< Whether Preset B FBOs are currently allocated
 
-    FboFloatFormat m_format = FboFloatFormat::RGBA8;                      //!< Detected colour format for textures
-    RenderDevice::FilterMode m_filter = RenderDevice::FilterMode::Linear; //!< Nearest for RGBA32F without OES_texture_float_linear
+    FboFloatFormat m_format = FboFloatFormat::RGBA8; //!< Detected colour format for textures
+    GLint m_filter = GL_LINEAR;                      //!< GL_NEAREST for RGBA32F without OES_texture_float_linear
 };
 
 // =============================================================================
-// Phase 3: RenderStateGuard – RAII WebGL state restore for preset isolation
+// Phase 3: GLStateGuard – RAII WebGL state restore for preset isolation
 // =============================================================================
 
 /**
- * @brief RAII guard that puts the host's render state back after a preset render.
+ * @brief The slice of WebGL state the host keeps stable around each preset
+ *        render.
  *
- * The state covered is RenderDevice::StateSnapshot: blend enable and function,
- * depth write mask, viewport, scissor enable and box, the active texture unit,
- * the 2D texture on unit 0 and the bound framebuffer.
+ * Covered state:
+ *   - GL_BLEND enabled flag
+ *   - Blend function (src/dst RGB + Alpha)
+ *   - GL_DEPTH_WRITEMASK
+ *   - GL_VIEWPORT
+ *   - GL_SCISSOR_TEST enabled flag
+ *   - GL_SCISSOR_BOX
+ *   - GL_ACTIVE_TEXTURE unit
+ *   - GL_TEXTURE_BINDING_2D on texture unit 0
+ *   - GL_FRAMEBUFFER_BINDING
+ */
+struct GLStateSnapshot {
+    GLboolean blendEnabled = GL_FALSE;
+    GLint blendSrcRGB = GL_ONE;
+    GLint blendDstRGB = GL_ZERO;
+    GLint blendSrcAlpha = GL_ONE;
+    GLint blendDstAlpha = GL_ZERO;
+    GLboolean depthMask = GL_TRUE;
+    GLint viewport[4] = {0, 0, 0, 0};
+    GLboolean scissorEnabled = GL_FALSE;
+    GLint scissorBox[4] = {0, 0, 0, 0};
+    GLint activeTexture = GL_TEXTURE0;
+    GLint tex0Binding = 0;
+    GLint fboBinding = 0;
+
+    /**
+     * @brief Reads the covered state back from GL: a dozen glGet* round trips,
+     *        so the render path does it once per start_render(), not per frame.
+     */
+    static GLStateSnapshot Capture()
+    {
+        GLStateSnapshot state;
+        state.blendEnabled = glIsEnabled(GL_BLEND);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &state.blendSrcRGB);
+        glGetIntegerv(GL_BLEND_DST_RGB, &state.blendDstRGB);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &state.blendSrcAlpha);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &state.blendDstAlpha);
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &state.depthMask);
+        glGetIntegerv(GL_VIEWPORT, state.viewport);
+        state.scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+        glGetIntegerv(GL_SCISSOR_BOX, state.scissorBox);
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &state.activeTexture);
+        glActiveTexture(GL_TEXTURE0);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &state.tex0Binding);
+        glActiveTexture(static_cast<GLenum>(state.activeTexture));
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &state.fboBinding);
+        return state;
+    }
+
+    /** @brief Puts the covered state back to these values. Issues no queries. */
+    void Restore() const
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(fboBinding));
+        if (blendEnabled)
+        {
+            glEnable(GL_BLEND);
+        }
+        else
+        {
+            glDisable(GL_BLEND);
+        }
+        glBlendFuncSeparate(static_cast<GLenum>(blendSrcRGB),
+                            static_cast<GLenum>(blendDstRGB),
+                            static_cast<GLenum>(blendSrcAlpha),
+                            static_cast<GLenum>(blendDstAlpha));
+        glDepthMask(depthMask);
+        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        if (scissorEnabled)
+        {
+            glEnable(GL_SCISSOR_TEST);
+        }
+        else
+        {
+            glDisable(GL_SCISSOR_TEST);
+        }
+        glScissor(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex0Binding));
+        glActiveTexture(static_cast<GLenum>(activeTexture));
+    }
+
+    /** @brief Records a viewport + scissor change the host made itself. */
+    void SetViewportAndScissor(int width, int height)
+    {
+        viewport[0] = 0;
+        viewport[1] = 0;
+        viewport[2] = width;
+        viewport[3] = height;
+        scissorBox[0] = 0;
+        scissorBox[1] = 0;
+        scissorBox[2] = width;
+        scissorBox[3] = height;
+    }
+};
+
+/**
+ * @brief RAII guard that puts the host's GL state back after a preset render.
  *
  * Given the host's baseline (WasmHost::glBaseline — captured by start_render()
  * and kept current by set_window_size()), it restores that on destruction and
@@ -601,79 +676,69 @@ private:
  * Usage:
  * @code
  *     {
- *         RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
+ *         GLStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
  *         // … render preset A …
  *     } // state restored here
  * @endcode
  */
-class RenderStateGuard
+class GLStateGuard
 {
 public:
-    explicit RenderStateGuard(const RenderDevice::StateSnapshot* baseline = nullptr)
-        : m_restore(baseline != nullptr ? *baseline : RenderDevice::Commands().CaptureState())
+    explicit GLStateGuard(const GLStateSnapshot* baseline = nullptr)
+        : m_restore(baseline != nullptr ? *baseline : GLStateSnapshot::Capture())
     {
     }
 
-    ~RenderStateGuard()
+    ~GLStateGuard()
     {
-        RenderDevice::Commands().RestoreState(m_restore);
+        m_restore.Restore();
     }
 
     // Non-copyable, non-movable.
-    RenderStateGuard(const RenderStateGuard&) = delete;
-    RenderStateGuard& operator=(const RenderStateGuard&) = delete;
-    RenderStateGuard(RenderStateGuard&&) = delete;
-    RenderStateGuard& operator=(RenderStateGuard&&) = delete;
+    GLStateGuard(const GLStateGuard&) = delete;
+    GLStateGuard& operator=(const GLStateGuard&) = delete;
+    GLStateGuard(GLStateGuard&&) = delete;
+    GLStateGuard& operator=(GLStateGuard&&) = delete;
 
 private:
-    RenderDevice::StateSnapshot m_restore;
+    GLStateSnapshot m_restore;
 };
 
 /**
- * @brief Records a viewport + scissor change the host made itself in its baseline.
- */
-inline void SetBaselineViewportAndScissor(RenderDevice::StateSnapshot& baseline, int width, int height)
-{
-    baseline.viewport = {0, 0, width, height};
-    baseline.scissorBox = {0, 0, width, height};
-}
-
-/**
- * @brief Forcefully resets blend, texture, and FBO state between two
+ * @brief Forcefully resets OpenGL blend, texture, and FBO state between two
  *        preset pipeline phases.
  *
  * Call after finishing Preset A's draw and before starting Preset B's draw to
  * prevent Preset A's additive blend/texture state from contaminating Preset B.
  *
  * Resets:
- *   - Blending disabled (One, Zero – opaque replace mode)
- *   - Texture units 0-7 unbound (2D)
+ *   - Blending disabled (GL_ONE, GL_ZERO – opaque replace mode)
+ *   - Texture units 0-7 unbound (GL_TEXTURE_2D)
  *   - FBO unbound (default framebuffer)
  *   - Depth mask enabled (default)
  */
-inline void reset_render_state_between_pipelines()
+inline void gl_reset_state_between_pipelines()
 {
     // Covers all texture units accessed by projectM shaders (warp, composite, blur, etc.).
     static constexpr int kMaxProjectMTextureUnits = 8;
 
-    auto& commands = RenderDevice::Commands();
-
     // Disable blending; reset to opaque replace mode.
-    commands.SetEnabled(RenderDevice::Capability::Blend, false);
-    commands.SetBlendFunction(RenderDevice::BlendFactor::One, RenderDevice::BlendFactor::Zero);
+    glDisable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ZERO);
 
     // Unbind textures on the first kMaxProjectMTextureUnits units.
     for (int unit = 0; unit < kMaxProjectMTextureUnits; ++unit)
     {
-        commands.BindTexture(unit, RenderDevice::TextureTarget::Texture2D, {});
+        glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + unit));
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
-    commands.SetActiveTextureUnit(0); // Leave active unit at 0 as a clean default.
+    glActiveTexture(GL_TEXTURE0); // Leave active unit at 0 as a clean default.
 
     // Reset depth mask.
-    commands.SetDepthMask(true);
+    glDepthMask(GL_TRUE);
 
     // Unbind any FBO (render to default framebuffer).
-    commands.BindRenderTarget(RenderDevice::TargetBinding::ReadDraw, {});
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 // =============================================================================
@@ -719,42 +784,143 @@ public:
      * Safe to call again (start_render() runs once per render start): the
      * previous program, VAO and VBO are released first rather than leaked.
      *
-     * @return true on success; false if compiling or linking failed (program stays uninitialised).
+     * @return true on success; false if any GL call failed (program stays uninitialised).
      */
     bool Init()
     {
         Release();
 
-        // Sources and the alpha contract: WasmCompositorShader.hpp.
-        auto program = std::make_unique<libprojectM::Renderer::Shader>();
-        try
-        {
-            program->CompileProgram(kCompositorVertexShader, kCompositorFragmentShader);
+        // GLSL ES 3.00 vertex shader: maps NDC positions and derives UV coords.
+        static const char* kVertSrc = R"(#version 300 es
+in vec2 aPosition;
+out vec2 vTexCoord;
+void main() {
+    vTexCoord = aPosition * 0.5 + 0.5;
+    gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+)";
+
+        // GLSL ES 3.00 fragment shader: blends two textures with mix().
+        //
+        // uDither is set to 1.0 only when the dual-FBO source textures are
+        // GL_RGBA8 (see FboFloatFormat::RGBA8 / DetectFormat()). RGBA8
+        // intermediate textures accumulate visible 8-bit banding in
+        // recursive warp/feedback presets; an ordered dither breaks up that
+        // banding in the final on-screen image without requiring any preset
+        // shader changes. clamp() guards against out-of-range values landing
+        // on the (always 8-bit) canvas regardless of source format.
+        //
+        // Output is display-referred sRGB-like RGB written to a canvas tagged
+        // drawingBufferColorSpace="srgb" (see ProjectMApplySrgbCanvasColorSpace).
+        // Do not reinterpret these numbers as Display-P3 without a convert.
+        static const char* kFragSrc = R"(#version 300 es
+precision highp float;
+uniform sampler2D uTexA;
+uniform sampler2D uTexB;
+uniform float uBlend;
+uniform float uDither;
+uniform int u_transparencyEnabled;
+uniform float u_transparencyThreshold;
+in vec2 vTexCoord;
+out vec4 fragColor;
+
+// 4x4 Bayer ordered-dither matrix, normalized to [-0.5, 0.5] / 255.
+const float kBayer[16] = float[16](
+     0.0,  8.0,  2.0, 10.0,
+    12.0,  4.0, 14.0,  6.0,
+     3.0, 11.0,  1.0,  9.0,
+    15.0,  7.0, 13.0,  5.0
+);
+
+void main() {
+    vec4 colorA = texture(uTexA, vTexCoord);
+    vec4 colorB = texture(uTexB, vTexCoord);
+    vec4 color = mix(colorA, colorB, uBlend);
+
+    if (uDither > 0.5) {
+        ivec2 p = ivec2(mod(gl_FragCoord.xy, 4.0));
+        float threshold = (kBayer[p.y * 4 + p.x] / 16.0 - 0.5) / 255.0;
+        color.rgb += threshold;
+    }
+
+    fragColor = clamp(color, 0.0, 1.0);
+
+    if (u_transparencyEnabled > 0) {
+        float maxComponent = max(max(fragColor.r, fragColor.g), fragColor.b);
+        if (maxComponent < u_transparencyThreshold) {
+            fragColor = vec4(0.0, 0.0, 0.0, 0.0);
         }
-        catch (const libprojectM::Renderer::ShaderException& ex)
+    }
+}
+)";
+
+        GLuint vert = CompileShader(GL_VERTEX_SHADER, kVertSrc);
+        if (!vert)
         {
-            fprintf(stderr, "CompositingBlendShader: %s\n", ex.message().c_str());
             return false;
         }
-        m_program = std::move(program);
+        GLuint frag = CompileShader(GL_FRAGMENT_SHADER, kFragSrc);
+        if (!frag)
+        {
+            glDeleteShader(vert);
+            return false;
+        }
+
+        m_program = glCreateProgram();
+        glAttachShader(m_program, vert);
+        glAttachShader(m_program, frag);
+        glLinkProgram(m_program);
+        glDeleteShader(vert);
+        glDeleteShader(frag);
+
+        GLint linked = GL_FALSE;
+        glGetProgramiv(m_program, GL_LINK_STATUS, &linked);
+        if (!linked)
+        {
+            GLint len = 0;
+            glGetProgramiv(m_program, GL_INFO_LOG_LENGTH, &len);
+            std::vector<char> log(static_cast<size_t>(len) + 1u);
+            glGetProgramInfoLog(m_program, len, nullptr, log.data());
+            fprintf(stderr, "CompositingBlendShader: link error: %s\n", log.data());
+            glDeleteProgram(m_program);
+            m_program = 0;
+            return false;
+        }
+
+        // Cache uniform / attribute locations.
+        m_locTexA = glGetUniformLocation(m_program, "uTexA");
+        m_locTexB = glGetUniformLocation(m_program, "uTexB");
+        m_locBlend = glGetUniformLocation(m_program, "uBlend");
+        m_locDither = glGetUniformLocation(m_program, "uDither");
+        m_locTransparencyEnabled = glGetUniformLocation(m_program, "u_transparencyEnabled");
+        m_locTransparencyThreshold = glGetUniformLocation(m_program, "u_transparencyThreshold");
+        m_locPos = glGetAttribLocation(m_program, "aPosition");
 
         // Fullscreen triangle-strip quad in NDC (CCW winding):
         //   (-1,-1)  (1,-1)  (-1,1)  (1,1)
-        m_vao = std::make_unique<libprojectM::Renderer::VertexArray>();
-        m_vbo = std::make_unique<libprojectM::Renderer::VertexBuffer<libprojectM::Renderer::Point>>(
-            libprojectM::Renderer::VertexBufferUsage::StaticDraw);
-        m_vbo->Set({{-1.0f, -1.0f}, {1.0f, -1.0f}, {-1.0f, 1.0f}, {1.0f, 1.0f}});
+        static const GLfloat kQuad[8] = {
+            -1.0f,
+            -1.0f,
+            1.0f,
+            -1.0f,
+            -1.0f,
+            1.0f,
+            1.0f,
+            1.0f,
+        };
 
-        const int positionLocation = m_program->AttributeLocation("aPosition");
-        m_vao->Bind();
-        m_vbo->Update();
-        if (positionLocation >= 0)
+        glGenVertexArrays(1, &m_vao);
+        glGenBuffers(1, &m_vbo);
+        glBindVertexArray(m_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(kQuad), kQuad, GL_STATIC_DRAW);
+        if (m_locPos >= 0)
         {
-            libprojectM::Renderer::VertexBuffer<libprojectM::Renderer::Point>::SetEnableAttributeArray(positionLocation, true);
-            m_vbo->InitializeAttributePointer(positionLocation);
+            glEnableVertexAttribArray(static_cast<GLuint>(m_locPos));
+            glVertexAttribPointer(static_cast<GLuint>(m_locPos), 2, GL_FLOAT, GL_FALSE, 0, nullptr);
         }
-        libprojectM::Renderer::VertexArray::Unbind();
-        libprojectM::Renderer::VertexBuffer<libprojectM::Renderer::Point>::Unbind();
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         m_initialized = true;
         fprintf(stderr, "CompositingBlendShader: initialized successfully.\n");
@@ -764,8 +930,8 @@ public:
     /**
      * @brief Blends texA and texB into the default framebuffer (screen).
      *
-     * @param texA   Preset A Read texture.
-     * @param texB   Preset B Read texture; pass an invalid handle when no transition is active.
+     * @param texA   Preset A Read texture (GL_TEXTURE_2D handle).
+     * @param texB   Preset B Read texture; pass 0 when no transition is active.
      * @param blend  Mix factor: 0.0 = full A, 1.0 = full B.
      * @param width  Viewport width in pixels.
      * @param height Viewport height in pixels.
@@ -773,49 +939,55 @@ public:
      *               (use when the source textures are GL_RGBA8, see
      *               FboFloatFormat::RGBA8).
      */
-    void Draw(RenderDevice::TextureHandle texA, RenderDevice::TextureHandle texB, float blend, int width, int height, bool dither = false,
+    void Draw(GLuint texA, GLuint texB, float blend, int width, int height, bool dither = false,
               bool transparencyMode = false, float transparencyThreshold = 0.01f)
     {
-        if (!m_initialized || !m_program)
+        if (!m_initialized || m_program == 0)
         {
             return;
         }
 
-        using RenderDevice::Capability;
-        constexpr auto texture2D = RenderDevice::TextureTarget::Texture2D;
-        auto& commands = RenderDevice::Commands();
-
         // Render to the default framebuffer (browser canvas).
-        commands.BeginPass({{}, RenderDevice::TargetBinding::ReadDraw, RenderDevice::Rect{0, 0, width, height}});
-        commands.SetEnabled(Capability::Blend, false);
-        commands.SetEnabled(Capability::DepthTest, false);
-        commands.SetDepthMask(false);
-        commands.SetEnabled(Capability::ScissorTest, false);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, width, height);
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glDisable(GL_SCISSOR_TEST);
 
-        m_program->Bind();
+        glUseProgram(m_program);
 
-        commands.BindTexture(0, texture2D, texA);
-        m_program->SetUniformInt("uTexA", 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texA);
+        glUniform1i(m_locTexA, 0);
 
-        // Fall back to texA when texB is invalid (no-transition blit).
-        commands.BindTexture(1, texture2D, texB.Valid() ? texB : texA);
-        m_program->SetUniformInt("uTexB", 1);
+        // Fall back to texA when texB is 0 (no-transition blit).
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, texB != 0u ? texB : texA);
+        glUniform1i(m_locTexB, 1);
 
-        m_program->SetUniformFloat("uBlend", blend);
-        m_program->SetUniformFloat("uDither", dither ? 1.0f : 0.0f);
-        m_program->SetUniformInt("u_transparencyEnabled", transparencyMode ? 1 : 0);
-        m_program->SetUniformFloat("u_transparencyThreshold", transparencyThreshold);
+        glUniform1f(m_locBlend, blend);
+        glUniform1f(m_locDither, dither ? 1.0f : 0.0f);
+        if (m_locTransparencyEnabled >= 0)
+        {
+            glUniform1i(m_locTransparencyEnabled, transparencyMode ? 1 : 0);
+        }
+        if (m_locTransparencyThreshold >= 0)
+        {
+            glUniform1f(m_locTransparencyThreshold, transparencyThreshold);
+        }
 
-        m_vao->Bind();
-        commands.Draw(RenderDevice::PrimitiveType::TriangleStrip, 0, 4);
-        libprojectM::Renderer::VertexArray::Unbind();
-        commands.EndPass();
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindVertexArray(0);
 
         // Clean up texture bindings.
-        commands.BindTexture(1, texture2D, {});
-        commands.BindTexture(0, texture2D, {});
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
-        libprojectM::Renderer::Shader::Unbind();
+        glUseProgram(0);
     }
 
     bool IsInitialized() const
@@ -832,17 +1004,65 @@ public:
      */
     void Release()
     {
-        m_program.reset();
-        m_vbo.reset();
-        m_vao.reset();
+        if (m_program != 0)
+        {
+            glDeleteProgram(m_program);
+            m_program = 0;
+        }
+        if (m_vbo != 0)
+        {
+            glDeleteBuffers(1, &m_vbo);
+            m_vbo = 0;
+        }
+        if (m_vao != 0)
+        {
+            glDeleteVertexArrays(1, &m_vao);
+            m_vao = 0;
+        }
         m_initialized = false;
+        m_locTexA = -1;
+        m_locTexB = -1;
+        m_locBlend = -1;
+        m_locDither = -1;
+        m_locTransparencyEnabled = -1;
+        m_locTransparencyThreshold = -1;
+        m_locPos = -1;
     }
 
 private:
+    static GLuint CompileShader(GLenum type, const char* src)
+    {
+        GLuint shader = glCreateShader(type);
+        glShaderSource(shader, 1, &src, nullptr);
+        glCompileShader(shader);
+
+        GLint compiled = GL_FALSE;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+        if (!compiled)
+        {
+            GLint len = 0;
+            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &len);
+            std::vector<char> log(static_cast<size_t>(len) + 1u);
+            glGetShaderInfoLog(shader, len, nullptr, log.data());
+            fprintf(stderr, "CompositingBlendShader: compile error (%s): %s\n",
+                    type == GL_VERTEX_SHADER ? "vert" : "frag", log.data());
+            glDeleteShader(shader);
+            return 0;
+        }
+        return shader;
+    }
+
     bool m_initialized = false;
-    std::unique_ptr<libprojectM::Renderer::Shader> m_program;
-    std::unique_ptr<libprojectM::Renderer::VertexArray> m_vao;
-    std::unique_ptr<libprojectM::Renderer::VertexBuffer<libprojectM::Renderer::Point>> m_vbo;
+    GLuint m_program = 0;
+    GLuint m_vao = 0;
+    GLuint m_vbo = 0;
+    GLint m_locTexA = -1;
+    GLint m_locTexB = -1;
+    GLint m_locBlend = -1;
+    GLint m_locDither = -1;
+    GLint m_locTransparencyEnabled = -1;
+    GLint m_locTransparencyThreshold = -1;
+    GLint m_locPos = -1;
 };
 
 // The dual-FBO manager and compositing shader are per-instance state: each

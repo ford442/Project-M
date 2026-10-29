@@ -1,6 +1,5 @@
 #include "MilkdropPreparedPreset.hpp"
 
-#include "ExperimentalDepthSampler.hpp"
 #include "FinalComposite.hpp"
 #include "MilkdropPreset.hpp"
 #include "MilkdropPresetExceptions.hpp"
@@ -74,7 +73,7 @@ void MilkdropPreparedPreset::Prepare(const PresetPrepareContext& context)
     int compositeShaderVersion{PresetState::DefaultShaderVersion};
     PresetState::ReadShaderVersions(*m_parser, presetVersion, warpShaderVersion, compositeShaderVersion);
 
-    if (auto source = PerPixelMesh::SelectWarpShaderSource(warpShaderVersion, ExperimentalDepthSampler::ShaderCode(*m_parser, "warp_")))
+    if (auto source = PerPixelMesh::SelectWarpShaderSource(warpShaderVersion, m_parser->GetCode("warp_")))
     {
         m_warpShader.emplace();
         m_warpShader->source = std::move(*source);
@@ -83,24 +82,7 @@ void MilkdropPreparedPreset::Prepare(const PresetPrepareContext& context)
     if (compositeShaderVersion > 0)
     {
         m_compositeShader.emplace();
-        m_compositeShader->source = FinalComposite::SelectCompositeShaderSource(ExperimentalDepthSampler::ShaderCode(*m_parser, "comp_"));
-    }
-
-    // The transpile cache state the load began with, for the render thread's compile.
-    if (context.transpileCacheKey)
-    {
-        const auto attachCacheState = [&context](PreparedMilkdropShader& shader, MilkdropShader::ShaderType type) {
-            shader.transpileCacheKey = context.transpileCacheKey;
-            shader.cachedGlsl = context.cachedGlsl.at(static_cast<size_t>(type));
-        };
-        if (m_warpShader)
-        {
-            attachCacheState(*m_warpShader, MilkdropShader::ShaderType::WarpShader);
-        }
-        if (m_compositeShader)
-        {
-            attachCacheState(*m_compositeShader, MilkdropShader::ShaderType::CompositeShader);
-        }
+        m_compositeShader->source = FinalComposite::SelectCompositeShaderSource(m_parser->GetCode("comp_"));
     }
 
     if (!context.transpileShaders)

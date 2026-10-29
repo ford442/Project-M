@@ -1,6 +1,5 @@
 #include "PresetState.hpp"
 
-#include "ExperimentalDepthSampler.hpp"
 #include "MilkdropStaticShaders.hpp"
 #include "PresetFileParser.hpp"
 
@@ -139,9 +138,9 @@ void PresetState::Initialize(PresetFileParser& parsedFile)
         customShapePerFrameCode[i] = parsedFile.GetCode(shapePrefix + "per_frame");
     }
 
-    // Shader code (pm_depth is rewritten only in presets marked "// pm:experimental depth...").
-    warpShader = ExperimentalDepthSampler::ShaderCode(parsedFile, "warp_");
-    compositeShader = ExperimentalDepthSampler::ShaderCode(parsedFile, "comp_");
+    // Shader code:
+    warpShader = parsedFile.GetCode("warp_");
+    compositeShader = parsedFile.GetCode("comp_");
 }
 
 void PresetState::ReadShaderVersions(PresetFileParser& parsedFile, int& presetVersion,

@@ -39,15 +39,6 @@ add_library(Renderer OBJECT
         Color.hpp
         CopyTexture.cpp
         CopyTexture.hpp
-        Device/DeviceTypes.hpp
-        Device/Gl/GlDevice.cpp
-        Device/Gl/GlDevice.hpp
-        Device/Gl/GlEnums.cpp
-        Device/Gl/GlEnums.hpp
-        Device/RenderDevice.cpp
-        Device/RenderDevice.hpp
-        Device/ResourceStateTracker.cpp
-        Device/ResourceStateTracker.hpp
         FileScanner.cpp
         FileScanner.hpp
         FlashLimiter.cpp
@@ -93,6 +84,7 @@ add_library(Renderer OBJECT
         TransitionShaderManager.hpp
         VertexArray.hpp
         VertexBuffer.hpp
+        VertexBufferUsage.cpp
         VertexBufferUsage.hpp
         VertexIndexArray.cpp
         VertexIndexArray.hpp

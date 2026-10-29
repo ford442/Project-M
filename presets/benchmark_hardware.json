@@ -26,7 +26,7 @@
       "comment": "Two Y-flips per frame: before the composite and the third flip after it."
     },
     {
-      "path": "presets/custom/milk012.milk",
+      "path": "custom_milk_fixed/milk012.milk",
       "label": "custom warp + composite shader",
       "category": "custom-warp",
       "comment": "Two Y-flips: the pre-warp flip sampler_main needs, and the pre-composite flip."
@@ -38,7 +38,7 @@
       "comment": "Full blur chain every frame, one Y-flip (pre-composite)."
     },
     {
-      "path": "presets/custom/milk015.milk",
+      "path": "custom_milk_fixed/milk015.milk",
       "label": "Dual-FBO soft cut (milk012 -> milk015)",
       "category": "dual-fbo-cut",
       "mode": "crossfade",

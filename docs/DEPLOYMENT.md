@@ -87,18 +87,16 @@ it without touching any host page.
 # 0. Activate Emscripten (once per shell). SDK 6.0.6, the version CI pins.
 source /path/to/emsdk/emsdk_env.sh
 
-# 1+2. Rebuild (incremental libs + wrapper link + bundle checks) and stage
-#      artifacts at the repo root and pm/: the same command CI runs, so the
-#      staged binary is bit-for-bit the one CI tested from this tree. A staged
-#      bundle carries a <bundle>.build-id (source fingerprint + sha256 of the
-#      .wasm and .js); deploy.py refuses one that does not match this tree, or
-#      any staged copy (.br/.gz included) that does not match those hashes
-#      (docs/EMSCRIPTEN.md "Deploy staleness guard"). Do not post-process the
-#      staged files: that is exactly what the hash check rejects.
-scripts/build_wasm.sh --stage --version 039
+# 1+2. Rebuild (incremental libs + wrapper link) and stage artifacts at the
+#      repo root and pm/. Always rebuilds: a staged bundle carries a
+#      <bundle>.build-id source fingerprint, and deploy.py refuses one that
+#      does not match this tree (docs/EMSCRIPTEN.md "Deploy staleness guard").
+#      PROJECTM_DEPLOY_REUSE_BUILD=1 skips the rebuild if the outputs match.
+PROJECTM_WASM_VERSION=039 \
+  INSTALL_DIR=install OUT_DIR=cmake-build/wasm-smoke \
+  scripts/prepare_deploy_bundle.sh
 
 # 3. Upload (ships root WASM, pm/ mirror, and html/projectm-*.js hosts)
-python deploy.py --check-bundle         # optional: the bundle checks alone, no network
 export DEPLOY_TOKEN="your_long_token_from_vps_env"
 python deploy.py --dry-run              # optional: preview bundle contents
 python deploy.py                        # staging: test.1ink.us/projectm.1ink.us/

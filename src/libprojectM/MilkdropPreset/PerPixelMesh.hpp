@@ -110,6 +110,11 @@ private:
     struct RadiusAngle {
         float radius{};
         float angle{};
+
+        static void InitializeAttributePointer(uint32_t attributeIndex)
+        {
+            glVertexAttribPointer(attributeIndex, sizeof(RadiusAngle) / sizeof(float), GL_FLOAT, GL_FALSE, sizeof(RadiusAngle), nullptr);
+        }
     };
 
     /**
@@ -120,6 +125,11 @@ private:
         float zoomExp{};
         float rot{};
         float warp{};
+
+        static void InitializeAttributePointer(uint32_t attributeIndex)
+        {
+            glVertexAttribPointer(attributeIndex, sizeof(ZoomRotWarp) / sizeof(float), GL_FLOAT, GL_FALSE, sizeof(ZoomRotWarp), nullptr);
+        }
     };
 
     /**
@@ -218,7 +228,7 @@ private:
     std::shared_ptr<Renderer::Shader> m_perPixelMeshShader;           //!< Special shader which calculates the per-pixel UV coordinates.
     std::string m_perPixelMeshShaderKey;                              //!< Cache key the above was built for, so a preset switch cannot reuse the wrong program.
     std::unique_ptr<MilkdropShader> m_warpShader;                     //!< The warp shader. Either preset-defined or a default shader.
-    Renderer::Sampler m_perPixelSampler{Renderer::Device::WrapMode::ClampToEdge, Renderer::Device::FilterMode::Linear}; //!< The main texture sampler.
+    Renderer::Sampler m_perPixelSampler{GL_CLAMP_TO_EDGE, GL_LINEAR}; //!< The main texture sampler.
 };
 
 } // namespace MilkdropPreset

@@ -1,17 +1,13 @@
 // projectm-fbo-format.js
 //
 // Surfaces the dual ping-pong FBO color format (selected once in
-// DualPingPongFramebuffer::DetectFormat(), src/wasm/WasmGraphics.hpp) to the
+// DualPingPongFramebuffer::DetectFormat(), projectM_emscripten.cpp) to the
 // host page. RGBA16F whenever it is renderable; RGBA32F only when the host
-// asks for it (?fboPrecision=high); RGBA8 otherwise, on GPUs/browsers without
-// EXT_color_buffer_float or EXT_color_buffer_half_float, or when a float
-// framebuffer turns out incomplete.
-//
-// The dual FBOs hold each preset's finished frame for the transition
-// crossfade, and libprojectM renders that frame through 8-bit targets: the
-// feedback banding of recursive presets happens before this stage whatever
-// the format here. RGBA8 only means the crossfade itself rounds to 8 bits
-// (ordered-dithered in CompositingBlendShader), hence the banner.
+// asks for it (?fboPrecision=high); RGBA8 otherwise. RGBA32F/RGBA16F are
+// full-quality; RGBA8 is a "degraded mode" fallback used on GPUs/browsers
+// without EXT_color_buffer_float or EXT_color_buffer_half_float, which
+// can show 8-bit banding in recursive warp/feedback presets (mitigated, but
+// not eliminated, by the ordered-dither + clamp in CompositingBlendShader).
 //
 // `dualFboGetFormat()` returns 0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the same
 // numbering `set_context_config()` takes for its fboPrecision preference
@@ -30,27 +26,15 @@ const BANNER_ID = 'pm-degraded-mode-banner';
  */
 export const FORMAT_NAMES = ['RGBA16F', 'RGBA32F', 'RGBA8'];
 
-/**
- * Shows the degraded-mode banner, creating it if the page has none.
- *
- * @returns {() => void} Undoes this call: removes the banner when this call
- *   created it, and does nothing when it was already there (its creator owns it).
- */
-function showBanner() {
-    const existing = document.getElementById(BANNER_ID);
-    if (existing) {
-        existing.style.display = 'block';
-        return () => {};
+function ensureBanner() {
+    let el = document.getElementById(BANNER_ID);
+    if (el) {
+        return el;
     }
-    const el = createBanner();
-    el.style.display = 'block';
-    return () => el.remove?.();
-}
 
-function createBanner() {
-    const el = document.createElement('div');
+    el = document.createElement('div');
     el.id = BANNER_ID;
-    el.textContent = 'Degraded rendering mode: this GPU/browser cannot render to half-float textures (RGBA8), so preset transitions blend at 8 bits.';
+    el.textContent = 'Degraded rendering mode: this GPU/browser lacks half-float FBO support (RGBA8). Recursive warp/feedback effects may show banding.';
     el.style.position = 'fixed';
     el.style.top = '8px';
     el.style.left = '50%';
@@ -89,25 +73,17 @@ export function getFboFormatName(Module) {
  *
  * @param {import('./generated/projectm-wasm-api.ts').ProjectMModule} Module
  *   The Emscripten module instance.
- * @returns {{ format: () => FboFormatName, dispose: () => void }} The detected
- *   format, and the undo for the banner (removed if this call added it).
+ * @returns {FboFormatName} The detected format name.
  */
 export function setupFboFormatIndicator(Module) {
     const formatIndex = dualFboGetFormat(Module);
     const formatName = FORMAT_NAMES[formatIndex] || 'RGBA8';
 
-    let hideBanner = () => {};
     if (formatIndex === 2) {
-        hideBanner = showBanner();
+        ensureBanner().style.display = 'block';
     }
 
-    return {
-        format: () => formatName,
-        dispose: () => {
-            hideBanner();
-            hideBanner = () => {};
-        },
-    };
+    return formatName;
 }
 
 /**
@@ -132,11 +108,10 @@ export function setupWorkerFboFormatIndicator(handle) {
         }
         formatName = FORMAT_NAMES[formatIndex] || 'RGBA8';
         if (formatIndex === 2) {
-            hideBanner = showBanner();
+            ensureBanner().style.display = 'block';
         }
         return true;
     };
-    let hideBanner = () => {};
 
     // The format is fixed at init(), so the first report settles it.
     let unsubscribe = () => {};
@@ -148,10 +123,6 @@ export function setupWorkerFboFormatIndicator(handle) {
 
     return {
         format: () => formatName,
-        dispose: () => {
-            unsubscribe();
-            hideBanner();
-            hideBanner = () => {};
-        },
+        dispose: () => unsubscribe(),
     };
 }

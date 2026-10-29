@@ -42,8 +42,6 @@ function fakeWindow() {
     };
 }
 
-const HEAP_OFFSET_BYTES = 64;
-
 function fakeModule({ heapSize = 4096 } = {}) {
     const heap = new Float32Array(heapSize);
     const freed = [];
@@ -51,10 +49,9 @@ function fakeModule({ heapSize = 4096 } = {}) {
     return {
         HEAPF32: heap,
         _malloc: (bytes) => {
-            // Fixed offset is fine: each test uses a fresh module/heap. Not 0:
-            // that is malloc's failure value.
+            // Fixed offset is fine: each test uses a fresh module/heap.
             void bytes;
-            return HEAP_OFFSET_BYTES;
+            return 0;
         },
         _free: (ptr) => freed.push(ptr),
         _projectm_pcm_add_float_wrapper: (pmHandle, ptr, samplesPerChannel, channels) => {
@@ -63,7 +60,7 @@ function fakeModule({ heapSize = 4096 } = {}) {
                 ptr,
                 samplesPerChannel,
                 channels,
-                firstSample: heap[ptr >> 2],
+                firstSample: heap[0],
             });
         },
         freed,
@@ -133,7 +130,7 @@ test('defaultFeedPCMToModule feeds the whole chunk, not just an analysis window'
             'must feed every frame the producer sent'
         );
         assert.equal(module.wrapperCalls[0].channels, channels);
-        assert.equal(module.HEAPF32[HEAP_OFFSET_BYTES >> 2], buffer[0], 'the chunk is fed from its first sample');
+        assert.equal(module.HEAPF32[0], buffer[0], 'the chunk is fed from its first sample');
     } finally {
         delete globalThis.Module;
     }
@@ -155,7 +152,7 @@ test('setExternalPcmGain clamps invalid values to the default and scales fed sam
         assert.equal(ok, true);
         for (let i = 0; i < buffer.length; i++) {
             assert.ok(
-                Math.abs(module.HEAPF32[(HEAP_OFFSET_BYTES >> 2) + i] - buffer[i] * 2) < 1e-6,
+                Math.abs(module.HEAPF32[i] - buffer[i] * 2) < 1e-6,
                 `sample ${i} should be scaled by the configured gain`
             );
         }

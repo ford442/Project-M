@@ -7,41 +7,21 @@ namespace Renderer {
 
 std::atomic<int> Framebuffer::s_liveInstanceCount{0};
 
-namespace {
-
-using Device::AttachmentPoint;
-using Device::TargetBinding;
-
-auto AttachmentPointFor(TextureAttachment::AttachmentType type, int attachmentIndex) -> AttachmentPoint
-{
-    switch (type)
-    {
-        case TextureAttachment::AttachmentType::Color:
-            break;
-        case TextureAttachment::AttachmentType::Depth:
-            return AttachmentPoint::Depth;
-        case TextureAttachment::AttachmentType::Stencil:
-            return AttachmentPoint::Stencil;
-        case TextureAttachment::AttachmentType::DepthStencil:
-            return AttachmentPoint::DepthStencil;
-    }
-    return Device::ColorAttachment(attachmentIndex);
-}
-
-} // anonymous namespace
-
 Framebuffer::Framebuffer()
-    : Framebuffer(1)
 {
+    ++s_liveInstanceCount;
+    m_framebufferIds.resize(1);
+    glGenFramebuffers(1, m_framebufferIds.data());
+    m_attachments.emplace(0, AttachmentsPerSlot());
 }
 
 Framebuffer::Framebuffer(int framebufferCount)
 {
     ++s_liveInstanceCount;
     m_framebufferIds.resize(framebufferCount);
+    glGenFramebuffers(framebufferCount, m_framebufferIds.data());
     for (int index = 0; index < framebufferCount; index++)
     {
-        m_framebufferIds[index] = m_device->CreateRenderTarget();
         m_attachments.emplace(index, AttachmentsPerSlot());
     }
 }
@@ -52,10 +32,7 @@ Framebuffer::~Framebuffer()
     if (!m_framebufferIds.empty())
     {
         // Delete FBOs first — this also releases driver references to attached textures.
-        for (const auto framebuffer : m_framebufferIds)
-        {
-            m_device->DestroyRenderTarget(framebuffer);
-        }
+        glDeleteFramebuffers(static_cast<int>(m_framebufferIds.size()), m_framebufferIds.data());
         m_framebufferIds.clear();
 
         m_attachments.clear();
@@ -72,16 +49,6 @@ auto Framebuffer::LiveInstanceCount() -> int
     return s_liveInstanceCount.load();
 }
 
-auto Framebuffer::Target(int framebufferIndex) const -> Device::RenderTargetHandle
-{
-    if (framebufferIndex < 0 || framebufferIndex >= static_cast<int>(m_framebufferIds.size()))
-    {
-        return {};
-    }
-
-    return m_framebufferIds.at(framebufferIndex);
-}
-
 void Framebuffer::Bind(int framebufferIndex)
 {
     if (framebufferIndex < 0 || framebufferIndex >= static_cast<int>(m_framebufferIds.size()))
@@ -89,10 +56,10 @@ void Framebuffer::Bind(int framebufferIndex)
         return;
     }
 
-    m_device->Commands().BindRenderTarget(TargetBinding::ReadDraw, m_framebufferIds.at(framebufferIndex));
+    glBindFramebuffer(GL_FRAMEBUFFER, m_framebufferIds.at(framebufferIndex));
 
-#ifdef PROJECTM_SRGB_FRAMEBUFFER
-    m_device->Commands().SetEnabled(Device::Capability::FramebufferSrgb, true);
+#if defined(PROJECTM_SRGB_FRAMEBUFFER) && !defined(USE_GLES)
+    glEnable(GL_FRAMEBUFFER_SRGB);
 #endif
 
     m_readFramebuffer = m_drawFramebuffer = framebufferIndex;
@@ -105,7 +72,7 @@ void Framebuffer::BindRead(int framebufferIndex)
         return;
     }
 
-    m_device->Commands().BindRenderTarget(TargetBinding::Read, m_framebufferIds.at(framebufferIndex));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_framebufferIds.at(framebufferIndex));
 
     m_readFramebuffer = framebufferIndex;
 }
@@ -117,18 +84,17 @@ void Framebuffer::BindDraw(int framebufferIndex)
         return;
     }
 
-    m_device->Commands().BindRenderTarget(TargetBinding::Draw, m_framebufferIds.at(framebufferIndex));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebufferIds.at(framebufferIndex));
 
     m_drawFramebuffer = framebufferIndex;
 }
 
 void Framebuffer::Unbind()
 {
-    auto& commands = Device::Commands();
-#ifdef PROJECTM_SRGB_FRAMEBUFFER
-    commands.SetEnabled(Device::Capability::FramebufferSrgb, false);
+#if defined(PROJECTM_SRGB_FRAMEBUFFER) && !defined(USE_GLES)
+    glDisable(GL_FRAMEBUFFER_SRGB);
 #endif
-    commands.BindRenderTarget(TargetBinding::Draw, {});
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 }
 
 bool Framebuffer::SetSize(int width, int height)
@@ -142,7 +108,6 @@ bool Framebuffer::SetSize(int width, int height)
     m_width = width;
     m_height = height;
 
-    auto& commands = m_device->Commands();
     for (auto& attachments : m_attachments)
     {
         Bind(attachments.first);
@@ -155,12 +120,12 @@ bool Framebuffer::SetSize(int width, int height)
                 continue;
             }
             // Detach old texture, resize (destroys old and creates new), reattach new.
-            commands.AttachTexture(TargetBinding::ReadDraw, texture.first, {});
+            glFramebufferTexture2D(GL_FRAMEBUFFER, texture.first, GL_TEXTURE_2D, 0, 0);
             texture.second->SetSize(width, height);
-            commands.AttachTexture(TargetBinding::ReadDraw, texture.first, texture.second->Texture()->Handle());
+            glFramebufferTexture2D(GL_FRAMEBUFFER, texture.first, GL_TEXTURE_2D, texture.second->Texture()->TextureID(), 0);
         }
     }
-    commands.BindRenderTarget(TargetBinding::ReadDraw, {});
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     return true;
 }
@@ -183,7 +148,23 @@ auto Framebuffer::GetAttachment(int framebufferIndex, TextureAttachment::Attachm
     }
 
     const auto& framebufferAttachments = m_attachments.at(framebufferIndex);
-    const auto textureType = AttachmentPointFor(type, attachmentIndex);
+    GLenum textureType{GL_COLOR_ATTACHMENT0};
+
+    switch (type)
+    {
+        case TextureAttachment::AttachmentType::Color:
+            textureType = GL_COLOR_ATTACHMENT0 + attachmentIndex;
+            break;
+        case TextureAttachment::AttachmentType::Depth:
+            textureType = GL_DEPTH_ATTACHMENT;
+            break;
+        case TextureAttachment::AttachmentType::Stencil:
+            textureType = GL_STENCIL_ATTACHMENT;
+            break;
+        case TextureAttachment::AttachmentType::DepthStencil:
+            textureType = GL_DEPTH_STENCIL_ATTACHMENT;
+            break;
+    }
 
     if (framebufferAttachments.find(textureType) == framebufferAttachments.end()) {
         return {};
@@ -205,10 +186,25 @@ void Framebuffer::SetAttachment(int framebufferIndex, int attachmentIndex, const
         return;
     }
 
-    const auto textureType = AttachmentPointFor(attachment->Type(), attachmentIndex);
+    GLenum textureType{GL_COLOR_ATTACHMENT0};
 
+    switch (attachment->Type())
+    {
+        case TextureAttachment::AttachmentType::Color:
+            textureType = GL_COLOR_ATTACHMENT0 + attachmentIndex;
+            break;
+        case TextureAttachment::AttachmentType::Depth:
+            textureType = GL_DEPTH_ATTACHMENT;
+            break;
+        case TextureAttachment::AttachmentType::Stencil:
+            textureType = GL_STENCIL_ATTACHMENT;
+            break;
+        case TextureAttachment::AttachmentType::DepthStencil:
+            textureType = GL_DEPTH_STENCIL_ATTACHMENT;
+            break;
+    }
     // insert_or_assign, not insert: re-attaching to an existing slot must replace the
-    // tracked attachment, otherwise the render target and m_attachments disagree and
+    // tracked attachment, otherwise GL state and m_attachments disagree and
     // GetColorAttachmentTexture() keeps returning the previous texture.
     m_attachments.at(framebufferIndex).insert_or_assign(textureType, attachment);
     if (storage == AttachmentStorage::External)
@@ -220,39 +216,48 @@ void Framebuffer::SetAttachment(int framebufferIndex, int attachmentIndex, const
         m_externalAttachments[framebufferIndex].erase(textureType);
     }
 
-    auto& commands = m_device->Commands();
-    commands.BindRenderTarget(TargetBinding::ReadDraw, m_framebufferIds.at(framebufferIndex));
+    glBindFramebuffer(GL_FRAMEBUFFER, m_framebufferIds.at(framebufferIndex));
 
     if (m_width > 0 && m_height > 0)
     {
-        commands.AttachTexture(TargetBinding::ReadDraw, textureType, attachment->Texture()->Handle());
+        glFramebufferTexture2D(GL_FRAMEBUFFER, textureType, GL_TEXTURE_2D, attachment->Texture()->TextureID(), 0);
     }
     UpdateDrawBuffers(framebufferIndex);
 
     // Reset to previous read/draw buffers
-    commands.BindRenderTarget(TargetBinding::Read, m_framebufferIds.at(m_readFramebuffer));
-    commands.BindRenderTarget(TargetBinding::Draw, m_framebufferIds.at(m_drawFramebuffer));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_framebufferIds.at(m_readFramebuffer));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebufferIds.at(m_drawFramebuffer));
 }
 
 void Framebuffer::CreateColorAttachment(int framebufferIndex, int attachmentIndex)
 {
-    CreateColorAttachment(framebufferIndex, attachmentIndex, Device::TextureFormat::RGBA);
+    CreateColorAttachment(framebufferIndex, attachmentIndex, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
 }
 
-void Framebuffer::CreateColorAttachment(int framebufferIndex, int attachmentIndex, Device::TextureFormat format)
+void Framebuffer::CreateColorAttachment(int framebufferIndex, int attachmentIndex, GLint internalFormat, GLenum format, GLenum type)
 {
     if (framebufferIndex < 0 || framebufferIndex >= static_cast<int>(m_framebufferIds.size()))
     {
         return;
     }
 
-    AddOwnedAttachment(framebufferIndex, Device::ColorAttachment(attachmentIndex),
-                       std::make_shared<TextureAttachment>(format, m_width, m_height));
+    auto textureAttachment = std::make_shared<TextureAttachment>(internalFormat, format, type, m_width, m_height);
+    const auto texture = textureAttachment->Texture();
+    m_attachments.at(framebufferIndex).insert_or_assign(GL_COLOR_ATTACHMENT0 + attachmentIndex, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_COLOR_ATTACHMENT0 + attachmentIndex);
+
+    Bind(framebufferIndex);
+    if (m_width > 0 && m_height > 0)
+    {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + attachmentIndex, GL_TEXTURE_2D, texture->TextureID(), 0);
+    }
+    UpdateDrawBuffers(framebufferIndex);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Framebuffer::RemoveColorAttachment(int framebufferIndex, int attachmentIndex)
 {
-    RemoveAttachment(framebufferIndex, Device::ColorAttachment(attachmentIndex));
+    RemoveAttachment(framebufferIndex,  GL_COLOR_ATTACHMENT0 + attachmentIndex);
 }
 
 auto Framebuffer::GetColorAttachmentTexture(int framebufferIndex, int attachmentIndex) const -> std::shared_ptr<class Texture>
@@ -263,13 +268,12 @@ auto Framebuffer::GetColorAttachmentTexture(int framebufferIndex, int attachment
     }
 
     const auto& attachment = m_attachments.at(framebufferIndex);
-    const auto point = Device::ColorAttachment(attachmentIndex);
-    if (attachment.find(point) == attachment.end())
+    if (attachment.find(GL_COLOR_ATTACHMENT0 + attachmentIndex) == attachment.end())
     {
         return {};
     }
 
-    return attachment.at(point)->Texture();
+    return attachment.at(GL_COLOR_ATTACHMENT0 + attachmentIndex)->Texture();
 }
 
 void Framebuffer::CreateDepthAttachment(int framebufferIndex)
@@ -279,13 +283,23 @@ void Framebuffer::CreateDepthAttachment(int framebufferIndex)
         return;
     }
 
-    AddOwnedAttachment(framebufferIndex, AttachmentPoint::Depth,
-                       std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::Depth, m_width, m_height));
+    auto textureAttachment = std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::Depth, m_width, m_height);
+    const auto texture = textureAttachment->Texture();
+    m_attachments.at(framebufferIndex).insert_or_assign(GL_DEPTH_ATTACHMENT, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_DEPTH_ATTACHMENT);
+
+    Bind(framebufferIndex);
+    if (m_width > 0 && m_height > 0)
+    {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texture->TextureID(), 0);
+    }
+    UpdateDrawBuffers(framebufferIndex);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Framebuffer::RemoveDepthAttachment(int framebufferIndex)
 {
-    RemoveAttachment(framebufferIndex, AttachmentPoint::Depth);
+    RemoveAttachment(framebufferIndex, GL_DEPTH_ATTACHMENT);
 }
 
 void Framebuffer::CreateStencilAttachment(int framebufferIndex)
@@ -295,13 +309,23 @@ void Framebuffer::CreateStencilAttachment(int framebufferIndex)
         return;
     }
 
-    AddOwnedAttachment(framebufferIndex, AttachmentPoint::Stencil,
-                       std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::Stencil, m_width, m_height));
+    auto textureAttachment = std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::Stencil, m_width, m_height);
+    const auto texture = textureAttachment->Texture();
+    m_attachments.at(framebufferIndex).insert_or_assign(GL_STENCIL_ATTACHMENT, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_STENCIL_ATTACHMENT);
+
+    Bind(framebufferIndex);
+    if (m_width > 0 && m_height > 0)
+    {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, texture->TextureID(), 0);
+    }
+    UpdateDrawBuffers(framebufferIndex);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Framebuffer::RemoveStencilAttachment(int framebufferIndex)
 {
-    RemoveAttachment(framebufferIndex, AttachmentPoint::Stencil);
+    RemoveAttachment(framebufferIndex, GL_STENCIL_ATTACHMENT);
 }
 
 void Framebuffer::CreateDepthStencilAttachment(int framebufferIndex)
@@ -311,35 +335,34 @@ void Framebuffer::CreateDepthStencilAttachment(int framebufferIndex)
         return;
     }
 
-    AddOwnedAttachment(framebufferIndex, AttachmentPoint::DepthStencil,
-                       std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::DepthStencil, m_width, m_height));
+    auto textureAttachment = std::make_shared<TextureAttachment>(TextureAttachment::AttachmentType::DepthStencil, m_width, m_height);
+    const auto texture = textureAttachment->Texture();
+    m_attachments.at(framebufferIndex).insert_or_assign(GL_DEPTH_STENCIL_ATTACHMENT, std::move(textureAttachment));
+    m_externalAttachments[framebufferIndex].erase(GL_DEPTH_STENCIL_ATTACHMENT);
+
+    Bind(framebufferIndex);
+    if (m_width > 0 && m_height > 0)
+    {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, texture->TextureID(), 0);
+    }
+    UpdateDrawBuffers(framebufferIndex);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Framebuffer::RemoveDepthStencilAttachment(int framebufferIndex)
 {
-    RemoveAttachment(framebufferIndex, AttachmentPoint::DepthStencil);
+    RemoveAttachment(framebufferIndex, GL_DEPTH_STENCIL_ATTACHMENT);
 }
 
 void Framebuffer::MaskDrawBuffer(int bufferIndex, bool masked)
 {
     // Invert the flag, as "true" means the color channel *will* be written.
-    m_device->Commands().SetDrawBufferWriteMask(bufferIndex, !masked);
-}
-
-void Framebuffer::AddOwnedAttachment(int framebufferIndex, AttachmentPoint point, std::shared_ptr<TextureAttachment> textureAttachment)
-{
-    const auto texture = textureAttachment->Texture();
-    m_attachments.at(framebufferIndex).insert_or_assign(point, std::move(textureAttachment));
-    m_externalAttachments[framebufferIndex].erase(point);
-
-    Bind(framebufferIndex);
-    auto& commands = m_device->Commands();
-    if (m_width > 0 && m_height > 0)
-    {
-        commands.AttachTexture(TargetBinding::ReadDraw, point, texture->Handle());
-    }
-    UpdateDrawBuffers(framebufferIndex);
-    commands.BindRenderTarget(TargetBinding::ReadDraw, {});
+    auto glMasked = static_cast<GLboolean>(!masked);
+#ifdef USE_GLES
+    glColorMask(glMasked, glMasked, glMasked, glMasked);
+#else
+    glColorMaski(bufferIndex, glMasked, glMasked, glMasked, glMasked);
+#endif
 }
 
 void Framebuffer::UpdateDrawBuffers(int framebufferIndex)
@@ -351,7 +374,7 @@ void Framebuffer::UpdateDrawBuffers(int framebufferIndex)
 
     const auto& attachments = m_attachments.at(framebufferIndex);
 
-    std::vector<AttachmentPoint> buffers;
+    std::vector<GLenum> buffers;
 
     bool hasDepthAttachment = false;
     bool hasStencilAttachment = false;
@@ -359,58 +382,65 @@ void Framebuffer::UpdateDrawBuffers(int framebufferIndex)
 
     for (const auto& attachment : attachments)
     {
-        switch (attachment.first)
+        if (attachment.first != GL_DEPTH_ATTACHMENT &&
+            attachment.first != GL_STENCIL_ATTACHMENT &&
+            attachment.first != GL_DEPTH_STENCIL_ATTACHMENT)
         {
-            case AttachmentPoint::Depth:
-                hasDepthAttachment = true;
-                break;
-            case AttachmentPoint::Stencil:
-                hasStencilAttachment = true;
-                break;
-            case AttachmentPoint::DepthStencil:
-                hasDepthStencilAttachment = true;
-                break;
-            default:
-                buffers.push_back(attachment.first);
-                break;
+            buffers.push_back(attachment.first);
+        }
+        else
+        {
+            switch (attachment.first)
+            {
+                case GL_DEPTH_ATTACHMENT:
+                    hasDepthAttachment = true;
+                    break;
+                case GL_STENCIL_ATTACHMENT:
+                    hasStencilAttachment = true;
+                    break;
+                case GL_DEPTH_STENCIL_ATTACHMENT:
+                    hasDepthStencilAttachment = true;
+                    break;
+                default:
+                    break;
+            }
         }
     }
 
     if (hasDepthAttachment)
     {
-        buffers.push_back(AttachmentPoint::Depth);
+        buffers.push_back(GL_DEPTH_ATTACHMENT);
     }
     if (hasStencilAttachment)
     {
-        buffers.push_back(AttachmentPoint::Stencil);
+        buffers.push_back(GL_STENCIL_ATTACHMENT);
     }
     if (hasDepthStencilAttachment)
     {
-        buffers.push_back(AttachmentPoint::DepthStencil);
+        buffers.push_back(GL_DEPTH_STENCIL_ATTACHMENT);
     }
 
-    m_device->Commands().SetDrawBuffers(buffers);
+    glDrawBuffers(static_cast<GLsizei>(buffers.size()), buffers.data());
 }
 
-void Framebuffer::RemoveAttachment(int framebufferIndex, AttachmentPoint attachmentType)
+void Framebuffer::RemoveAttachment(int framebufferIndex, GLenum attachmentType)
 {
     if (framebufferIndex < 0 || framebufferIndex >= static_cast<int>(m_framebufferIds.size()))
     {
         return;
     }
 
-    auto& commands = m_device->Commands();
-    commands.BindRenderTarget(TargetBinding::ReadDraw, m_framebufferIds.at(framebufferIndex));
+    glBindFramebuffer(GL_FRAMEBUFFER, m_framebufferIds.at(framebufferIndex));
 
-    commands.AttachTexture(TargetBinding::ReadDraw, attachmentType, {});
+    glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, GL_TEXTURE_2D, 0, 0);
     UpdateDrawBuffers(framebufferIndex);
 
     m_attachments.at(framebufferIndex).erase(attachmentType);
     m_externalAttachments[framebufferIndex].erase(attachmentType);
 
     // Reset to previous read/draw buffers
-    commands.BindRenderTarget(TargetBinding::Read, m_framebufferIds.at(m_readFramebuffer));
-    commands.BindRenderTarget(TargetBinding::Draw, m_framebufferIds.at(m_drawFramebuffer));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_framebufferIds.at(m_readFramebuffer));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebufferIds.at(m_drawFramebuffer));
 }
 
 } // namespace Renderer

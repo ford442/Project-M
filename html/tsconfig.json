@@ -27,12 +27,7 @@
   "include": [
     "generated/**/*.ts",
     "projectm-*.ts",
-    "projectm-*.js",
-    "context/*.js",
-    "flac-player/boot.js",
-    "flac-player/decode-guard.js",
-    "flac-player/preboot.js",
-    "flac-player/projectm-pcm-bridge.js"
+    "projectm-*.js"
   ],
   "exclude": [
     "projectm-render-worker.js"

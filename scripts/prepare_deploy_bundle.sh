@@ -24,23 +24,17 @@
 #   python deploy.py
 #   scripts/verify_deploy_urls.sh https://projectm.1ink.us/
 #
-# By default this rebuilds before staging, through scripts/build_wasm.sh (the
-# incremental library build, the link and the bundle checks). That is cheap when
-# nothing changed, and it makes "deployed a bundle older than its sources"
-# impossible, which is the point: the golden gate runs in CI, not on the machine
-# that runs deploy.py. `scripts/build_wasm.sh --stage` is the same thing in one
-# command, and what CI and scripts/colab_build.sh run.
+# By default this rebuilds before staging: scripts/build_wasm_install.sh
+# (incremental configure + build + install of the static libs) and then
+# scripts/build_wasm_smoke_wrapper.sh (the final link). Both are cheap when
+# nothing changed, and together they make "deployed a bundle older than its
+# sources" impossible, which is the point: the golden gate runs in CI, not on
+# the machine that runs deploy.py.
 #
 # PROJECTM_DEPLOY_REUSE_BUILD=1 skips the rebuild (no emsdk needed) and stages
 # the existing $OUT_DIR outputs, but only if the source fingerprint recorded
-# next to them (line 1 of projectm-v.030-thread.build-id) matches this tree; see
+# next to them (projectm-v.030-thread.build-id) matches this tree; see
 # scripts/wasm_source_fingerprint.sh.
-#
-# Nothing here changes the .wasm: it is copied, and its sha256 must still be the
-# one the link recorded. The glue is renamed, so the staged <bundle>.build-id
-# records the staged glue's sha256 (js-sha256=) along with the link's
-# (link-js-sha256=). deploy.py checks every staged copy and .br/.gz sibling
-# against those.
 
 set -euo pipefail
 
@@ -56,8 +50,8 @@ SMOKE_BUNDLE="projectm-v.030-thread"
 # #262 work, never production (docs/EMSCRIPTEN.md "Link flavors"). Their build-id
 # carries a +flavor suffix, so the reuse check below and deploy.py refuse them
 # anyway; this just says so before a rebuild.
-if [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" || "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" || "${PROJECTM_WASM_DEBUG:-0}" == "1" ]]; then
-    echo "ERROR: PROJECTM_WASM_GL_DEBUG / PROJECTM_WASM_EXPLICIT_SWAP / PROJECTM_WASM_DEBUG select a non-deployable link flavor; unset them." >&2
+if [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" || "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" ]]; then
+    echo "ERROR: PROJECTM_WASM_GL_DEBUG / PROJECTM_WASM_EXPLICIT_SWAP select a non-deployable link flavor; unset them." >&2
     exit 1
 fi
 
@@ -73,7 +67,7 @@ src_build_id="$OUT_DIR/${SMOKE_BUNDLE}.build-id"
 
 if [[ "${PROJECTM_DEPLOY_REUSE_BUILD:-0}" == "1" ]]; then
     expected_id="$("$PROJECT_ROOT/scripts/wasm_source_fingerprint.sh")"
-    recorded_id="$(head -n1 "$src_build_id" 2>/dev/null || true)"
+    recorded_id="$(cat "$src_build_id" 2>/dev/null || true)"
     if [[ "$recorded_id" != "$expected_id" ]]; then
         echo "ERROR: $OUT_DIR was not built from this tree; refusing to deploy it." >&2
         echo "  recorded build-id: ${recorded_id:-<none>}" >&2
@@ -89,30 +83,14 @@ else
         echo "PROJECTM_DEPLOY_REUSE_BUILD=1 to stage an up-to-date existing build." >&2
         exit 1
     fi
-    lto_args=()
-    if [[ "${PROJECTM_WASM_LTO:-0}" == "1" ]]; then
-        lto_args+=(--lto)
-    fi
-    env -u PROJECTM_WASM_LTO INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" OUT_DIR="$OUT_DIR" \
-        bash "$PROJECT_ROOT/scripts/build_wasm.sh" "${lto_args[@]}"
+    INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" \
+        bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
+    INSTALL_DIR="$INSTALL_DIR" CMAKE_BUILD_DIR="$CMAKE_BUILD_DIR" OUT_DIR="$OUT_DIR" \
+        bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
 fi
 
 if [[ ! -s "$src_js" || ! -s "$src_wasm" || ! -s "$src_build_id" ]]; then
     echo "ERROR: expected $src_js, $src_wasm and $src_build_id" >&2
-    exit 1
-fi
-
-build_id_value() {
-    sed -n "s/^$1=//p" "$2" | head -n1
-}
-link_wasm_sha="$(build_id_value wasm-sha256 "$src_build_id")"
-link_js_sha="$(build_id_value js-sha256 "$src_build_id")"
-if [[ -z "$link_wasm_sha" || -z "$link_js_sha" ]]; then
-    echo "ERROR: $src_build_id records no binary hashes (linked by an older tree); rebuild." >&2
-    exit 1
-fi
-if [[ "$(sha256sum "$src_wasm" | cut -d' ' -f1)" != "$link_wasm_sha" || "$(sha256sum "$src_js" | cut -d' ' -f1)" != "$link_js_sha" ]]; then
-    echo "ERROR: $OUT_DIR/${SMOKE_BUNDLE}.{wasm,js} changed after the link recorded their hashes; rebuild." >&2
     exit 1
 fi
 
@@ -131,6 +109,8 @@ cp -f "$src_wasm" "$dest_wasm"
 if [[ -s "$src_symbols" ]]; then
     cp -f "$src_symbols" "$PROJECT_ROOT/${bundle}.symbols"
 fi
+# deploy.py compares this with the tree it deploys from (same fingerprint).
+cp -f "$src_build_id" "$PROJECT_ROOT/${bundle}.build-id"
 if [[ -s "$src_worker" ]]; then
     cp -f "$src_worker" "$dest_worker"
 fi
@@ -174,16 +154,6 @@ rewrite_smoke_bundle_refs "$dest_js"
 if [[ -s "$dest_worker" ]]; then
     rewrite_smoke_bundle_refs "$dest_worker"
 fi
-
-# deploy.py compares line 1 with the tree it deploys from (same fingerprint)
-# and the hashes with every staged copy of the bundle.
-{
-    head -n1 "$src_build_id"
-    echo "wasm-sha256=$(sha256sum "$dest_wasm" | cut -d' ' -f1)"
-    echo "js-sha256=$(sha256sum "$dest_js" | cut -d' ' -f1)"
-    echo "link-js-sha256=$link_js_sha"
-    sed -n '2,$p' "$src_build_id" | grep -vE '^(wasm-sha256|js-sha256)='
-} > "$PROJECT_ROOT/${bundle}.build-id"
 
 mkdir -p "$dest_pm"
 legacy_glue=()

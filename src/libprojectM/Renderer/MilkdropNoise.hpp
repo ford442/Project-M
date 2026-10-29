@@ -67,10 +67,7 @@ public:
 
 protected:
 
-    /**
-     * @brief The texel channel order uploads are fastest in on this platform.
-     */
-    static auto GetPreferredPixelOrder() -> Device::PixelOrder;
+    static auto GetPreferredInternalFormat() -> int;
 
     /**
      * @brief Milkdrop 2D noise algorithm

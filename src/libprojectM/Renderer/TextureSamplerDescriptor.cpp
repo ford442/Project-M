@@ -23,7 +23,7 @@ auto TextureSamplerDescriptor::Empty() const -> bool
     return !m_texture || m_texture->Empty();
 }
 
-void TextureSamplerDescriptor::Bind(int unit, const Shader& shader) const
+void TextureSamplerDescriptor::Bind(GLint unit, const Shader& shader) const
 {
 
     if (m_texture && m_sampler)
@@ -47,7 +47,7 @@ void TextureSamplerDescriptor::Bind(int unit, const Shader& shader) const
     }
 }
 
-void TextureSamplerDescriptor::Unbind(int unit)
+void TextureSamplerDescriptor::Unbind(GLint unit)
 {
     if (m_texture)
     {
@@ -83,7 +83,7 @@ auto TextureSamplerDescriptor::SamplerDeclaration() const -> std::string
         return {};
     }
 
-    return SamplerDeclarationFor(m_samplerName, m_texture->Type() == Device::TextureTarget::Texture3D);
+    return SamplerDeclarationFor(m_samplerName, m_texture->Type() == GL_TEXTURE_3D);
 }
 
 auto TextureSamplerDescriptor::TexSizeDeclaration() const -> std::string

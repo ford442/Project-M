@@ -19,11 +19,12 @@
 import {
     WASM_API_SIGNATURES,
     bindModuleToHost,
+    feedPcmFloat,
 } from './generated/projectm-wasm-api.js';
 import * as wasmApi from './generated/projectm-wasm-api.js';
 import { captureFrameFromModule } from './projectm-frame-capture.js';
 import { claimGlobal } from './projectm-globals.js';
-import { feedPcm } from './projectm-pcm-ring.js';
+import { feedPcmThroughRing } from './projectm-pcm-ring.js';
 import { isRenderWorkerSupported, renderWorkerUnsupportedReason, setupRenderWorker } from './projectm-render-worker-host.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
@@ -126,10 +127,22 @@ export function createModuleTransport(module, { host = 0 } = {}) {
         },
 
         feedPcm(buffer, channels = 2) {
-            // Same ingest as every other main-thread producer: this engine's
-            // PCM ring, with the marshaling fallback for bundles built before
-            // the ring existed.
-            feedPcm({ module, host }, buffer, { channels });
+            // Same ingest as every other main-thread producer: the WASM-owned
+            // PCM ring, with the malloc/HEAPF32 marshaling only as the fallback
+            // for bundles built before the ring existed.
+            feedPcmThroughRing(module, buffer, {
+                channels,
+                hostHandle: host,
+                fallback: () => {
+                    feedPcmFloat(
+                        engine,
+                        buffer,
+                        Math.floor(buffer.length / Math.max(1, channels)),
+                        channels,
+                    );
+                    return true;
+                },
+            });
         },
 
         writePreset(vfsPath, bytes, mode = 'load') {
@@ -197,23 +210,14 @@ export function createModuleTransport(module, { host = 0 } = {}) {
                 globalThis, scope);
         },
 
-        contextSnapshot() {
-            return typeof module._get_context_snapshot === 'function'
-                ? Number(invoke('getContextSnapshot', []))
-                : null;
-        },
-
-        recoverContext(width = 0, height = 0) {
+        async recoverContext(width = 0, height = 0) {
             // init() replaces whatever engine is left and refuses with 5 while
-            // the context is still lost; nothing is built in that case. The
-            // executor turns a throw into a rejection, as the worker's does.
-            return new Promise((resolve) => {
-                const status = wasmApi.init(engine);
-                if (status === 0 && width > 0 && height > 0) {
-                    wasmApi.startRender(engine, width, height);
-                }
-                resolve(status);
-            });
+            // the context is still lost; nothing is built in that case.
+            const status = wasmApi.init(engine);
+            if (status === 0 && width > 0 && height > 0) {
+                wasmApi.startRender(engine, width, height);
+            }
+            return status;
         },
 
         destroy() {
@@ -316,30 +320,15 @@ export function createWorkerTransport(handle, { exports = null } = {}) {
             return handle.onRhythmEvent(listener);
         },
 
-        contextSnapshot() {
-            return handle.contextSnapshot();
-        },
-
         recoverContext() {
             return handle.recoverContext();
         },
 
         destroy() {
-            // Lets the worker stop its stats tick and destruct its engine before
-            // it goes; the handle terminates it on the answer or a deadline.
-            void handle.shutdown();
+            handle.worker.terminate();
         },
     };
 }
-
-/**
- * How long {@link selectRenderTopology} waits for the worker's 'ready' before it
- * gives up on it and falls back. Generous: inside it the worker downloads and
- * compiles the whole bundle, and a slow network must not cost a working
- * topology. What it bounds is a boot that will never finish — a pthread pool
- * that cannot fill, an init that wedged — which used to hang start() for good.
- */
-export const DEFAULT_RENDER_WORKER_BOOT_TIMEOUT_MS = 30000;
 
 /**
  * Point `globalThis.projectMWritePreset` at this transport.
@@ -439,8 +428,6 @@ export function canUseRenderWorker({
  * @param {(reason: string) => void} [options.onFallback]
  * @param {(message: string) => void} [options.onError]
  * @param {(stats: unknown) => void} [options.onStats]
- * @param {number} [options.bootTimeoutMs] How long to wait for 'ready' before
- *   terminating the worker and resolving null ({@link DEFAULT_RENDER_WORKER_BOOT_TIMEOUT_MS}).
  * @param {AbortSignal} [options.signal] Aborting while the worker boots
  *   terminates it and resolves null. Without this a caller that gave up (its
  *   context was destroyed mid-boot) had no handle to terminate: the worker,
@@ -463,7 +450,6 @@ export function selectRenderTopology({
     onFallback,
     onError,
     onStats,
-    bootTimeoutMs = DEFAULT_RENDER_WORKER_BOOT_TIMEOUT_MS,
     signal,
 }) {
     if (!preferWorker || signal?.aborted) {
@@ -481,22 +467,18 @@ export function selectRenderTopology({
         let settled = false;
         /** @type {ReturnType<typeof setupRenderWorker>} */
         let handle = null;
-        /** @type {ReturnType<typeof setTimeout> | 0} */
-        let bootTimer = 0;
 
         /** @param {RenderTransport | null} value */
         const settle = (value) => {
             if (settled) return;
             settled = true;
-            if (bootTimer) clearTimeout(bootTimer);
             signal?.removeEventListener('abort', onAbort);
             resolve(value);
         };
         // A boot that ends without handing out a transport must not leave its
-        // worker running: nobody else holds the handle. Terminated outright, not
-        // shut down: a worker that failed its boot may not answer anything.
+        // worker running: nobody else holds the handle.
         const abandon = () => {
-            handle?.terminate();
+            handle?.worker.terminate();
             settle(null);
         };
         const onAbort = () => {
@@ -520,11 +502,6 @@ export function selectRenderTopology({
                 onFallback?.(reason);
                 if (!settled) abandon();
             },
-            onInitError: ({ code, message }) => {
-                if (settled) return;
-                onFallback?.(`render worker failed to boot (init code ${code}): ${message}`);
-                abandon();
-            },
             // An error before 'ready' is a failed boot, so fall back; one after
             // is a live worker reporting a problem and belongs to the caller.
             onError: (message) => {
@@ -540,14 +517,6 @@ export function selectRenderTopology({
 
         if (!handle) {
             settle(null);
-            return;
-        }
-        if (bootTimeoutMs > 0 && Number.isFinite(bootTimeoutMs)) {
-            bootTimer = setTimeout(() => {
-                if (settled) return;
-                onFallback?.(`render worker did not report ready within ${bootTimeoutMs} ms`);
-                abandon();
-            }, bootTimeoutMs);
         }
     });
 }

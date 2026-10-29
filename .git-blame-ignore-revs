@@ -11,8 +11,3 @@ d6b90ab159500b45dc5e5cb1a6c4f949101989c0
 
 # style(audio): mechanical clang-format reformat of src/libprojectM/Audio/
 fe07fb3e95e0cb2ad45611319d3550837914b2fb
-
-# style(web): Prettier reformats of the browser host layer go here, one
-# directory per commit, each followed by adding that directory to the PATHS
-# list in scripts/check_web_format.sh. The files that gate starts with were
-# written already formatted, so they have no reformat commit to list.

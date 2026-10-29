@@ -4,12 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>projectM</title>
-<!--
-  projectm_panel.1ink is a deprecated redirect stub. projectm_panel2.1ink is
-  the maintained bezel host superseding it (see html/README.md ".1ink
-  Deprecation Path"). Previous inline content is available via git history.
--->
-<script src="./projectm-redirect-stub.js" data-target="./projectm_panel2.1ink"></script>
+<script>
+// projectm_panel.1ink is a deprecated redirect stub. projectm_panel2.1ink is
+// the maintained bezel host superseding it (see html/README.md ".1ink
+// Deprecation Path"). Previous inline content is available via git history.
+(function () {
+    try {
+        var target = './projectm_panel2.1ink' + window.location.search + window.location.hash;
+        window.location.replace(target);
+    } catch (err) {
+        window.location.href = './projectm_panel2.1ink';
+    }
+})();
+</script>
 <noscript>
     <meta http-equiv="refresh" content="0; url=./projectm_panel2.1ink">
 </noscript>

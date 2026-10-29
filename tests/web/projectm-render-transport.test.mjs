@@ -52,9 +52,7 @@ function fakeModule({ ring = true, capacityFrames = 4 } = {}) {
         _init: (...args) => { calls.push({ name: 'init', args }); return module.initStatus; },
         _start_render: record('start_render'),
         initStatus: 0,
-        // Not 0, which is malloc's failure value: the ring header's slot
-        // doubles as scratch (no test here has both a ring and the fallback).
-        _malloc: () => HEADER_PTR,
+        _malloc: () => 0,
         _free: () => {},
         ccall: (name, _returnType, _argTypes, args) => {
             calls.push({ name, args });
@@ -103,14 +101,6 @@ function fakeHandle() {
         },
         ccallVoid: (name, argTypes, args) => {
             posted.push({ kind: 'ccallVoid', name, argTypes, args });
-        },
-        shutdown() {
-            posted.push({ kind: 'shutdown' });
-            this.worker.terminate();
-            return Promise.resolve();
-        },
-        terminate() {
-            this.worker.terminate();
         },
     };
 }
@@ -310,8 +300,6 @@ test('destroy tears down the module on the main thread and the worker otherwise'
 
     const handle = fakeHandle();
     createWorkerTransport(handle).destroy();
-    // Shut down, not terminated outright: the worker gets to destruct its engine first.
-    assert.deepEqual(handle.posted, [{ kind: 'shutdown' }]);
     assert.equal(handle.worker.terminated, true);
 });
 
@@ -541,33 +529,4 @@ test('the worker transport relays context events and recovery through the handle
 
     assert.equal(await transport.recoverContext(1, 1), 5);
     assert.deepEqual(handle.posted, [{ kind: 'recover' }]);
-});
-
-test('contextSnapshot(): the module transport reads the export, the worker transport what the worker reported', () => {
-    const module = fakeModule();
-    module._get_context_snapshot = () => 271;
-    assert.equal(createModuleTransport(module).contextSnapshot(), 271);
-    // An export that predates the snapshot is not an error and is never called.
-    assert.equal(createModuleTransport(fakeModule()).contextSnapshot(), null);
-
-    const handle = { ...fakeHandle(), contextSnapshot: () => 521 };
-    assert.equal(createWorkerTransport(handle).contextSnapshot(), 521);
-    assert.equal(createWorkerTransport({ ...fakeHandle(), contextSnapshot: () => null }).contextSnapshot(), null);
-});
-
-test('contextSnapshot() on a shared Module activates this transport\'s engine before reading', () => {
-    const module = fakeModule();
-    // set_active_host is a ccall export in the manifest, so it lands in module.calls.
-    module._get_context_snapshot = () => { module.calls.push({ name: 'get_context_snapshot', args: [] }); return 9; };
-
-    assert.equal(createModuleTransport(module, { host: 7 }).contextSnapshot(), 9);
-    assert.deepEqual(module.calls, [
-        { name: 'set_active_host', args: [7] },
-        { name: 'get_context_snapshot', args: [] },
-    ], 'a snapshot read before the activation would describe a sibling engine');
-
-    // The default host of a single-engine Module needs no activation.
-    module.calls.length = 0;
-    createModuleTransport(module, { host: 0 }).contextSnapshot();
-    assert.deepEqual(module.calls.map((call) => call.name), ['get_context_snapshot']);
 });

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderer/Device/RenderDevice.hpp"
+#include "Renderer/OpenGL.h"
 #include "Renderer/VertexBufferUsage.hpp"
 
 #include <cstddef>
@@ -13,7 +13,9 @@ namespace Renderer {
  * @brief Wraps a vertex buffer object and manages its data.
  *
  * The templated storage class must meet a few requirements:
- * - It must only contain 1 to 4 float members, which make up one vertex attribute.
+ * - It must only contain 1 to 4 members of a single type allowed by the OpenGL specification.
+ * - It must implement a function with the following signature to initialize the attribute pointer:
+ *   <tt>static void InitializeAttributePointer(uint32_t attributeIndex)</tt>
  * - It must be default-constructible.
  *
  * @tparam VT The data storage type for this buffer.
@@ -156,8 +158,7 @@ public:
     auto operator[](size_t index) const -> const VT&;
 
 private:
-    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the buffer.
-    Device::BufferHandle m_vboID; //!< The vertex buffer object.
+    GLuint m_vboID{};   //!< The ID of the OpenGL vertex buffer object.
     size_t m_vboSize{}; //!< Stores the last number if items uploaded to the GPU.
 
     VertexBufferUsage m_vboUsage{VertexBufferUsage::StaticDraw}; //!< The buffer usage hint.
@@ -167,50 +168,53 @@ private:
 
 template<class VT>
 VertexBuffer<VT>::VertexBuffer()
-    : m_vboID(m_device->CreateBuffer())
 {
+    glGenBuffers(1, &m_vboID);
 }
 
 template<class VT>
 VertexBuffer<VT>::VertexBuffer(VertexBufferUsage usage)
-    : m_vboID(m_device->CreateBuffer())
-    , m_vboUsage(usage)
+    : m_vboUsage(usage)
 {
+    glGenBuffers(1, &m_vboID);
 }
 
 template<class VT>
 VertexBuffer<VT>::~VertexBuffer()
 {
-    m_device->DestroyBuffer(m_vboID);
+    glDeleteBuffers(1, &m_vboID);
 }
 
 template<class VT>
 void VertexBuffer<VT>::Bind() const
 {
-    m_device->Commands().BindBuffer(Device::BufferKind::Vertex, m_vboID);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vboID);
 }
 
 template<class VT>
 void VertexBuffer<VT>::Unbind()
 {
-    Device::Commands().BindBuffer(Device::BufferKind::Vertex, {});
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 template<class VT>
 void VertexBuffer<VT>::InitializeAttributePointer(uint32_t attributeIndex) const
 {
-    static_assert(sizeof(VT) % sizeof(float) == 0 && sizeof(VT) / sizeof(float) <= 4,
-                  "A vertex attribute type holds 1 to 4 floats.");
-
     Bind();
-    m_device->Commands().SetVertexAttributeLayout(static_cast<int>(attributeIndex),
-                                                  {static_cast<int>(sizeof(VT) / sizeof(float)), static_cast<int>(sizeof(VT)), 0});
+    VT::InitializeAttributePointer(attributeIndex);
 }
 
 template<class VT>
 void VertexBuffer<VT>::SetEnableAttributeArray(uint32_t attributeIndex, bool enable)
 {
-    Device::Commands().SetVertexAttributeEnabled(static_cast<int>(attributeIndex), enable);
+    if (enable)
+    {
+        glEnableVertexAttribArray(attributeIndex);
+    }
+    else
+    {
+        glDisableVertexAttribArray(attributeIndex);
+    }
 }
 
 template<class VT>
@@ -283,9 +287,15 @@ void VertexBuffer<VT>::Update()
         return;
     }
 
-    const bool reallocate = m_vboSize != m_vertices.size();
-    m_device->Commands().UploadBoundBuffer(Device::BufferKind::Vertex, m_vertices.data(), sizeof(VT) * m_vertices.size(), m_vboUsage, reallocate);
-    m_vboSize = m_vertices.size();
+    if (m_vboSize == m_vertices.size())
+    {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizei>(sizeof(VT) * m_vertices.size()), m_vertices.data());
+    }
+    else
+    {
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizei>(sizeof(VT) * m_vertices.size()), m_vertices.data(), VertexBufferUsageToGL(m_vboUsage));
+        m_vboSize = m_vertices.size();
+    }
 }
 
 template<class VT>

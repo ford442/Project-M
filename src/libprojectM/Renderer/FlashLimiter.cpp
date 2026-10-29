@@ -202,7 +202,6 @@ constexpr char MixFragmentShader[] = R"(
 uniform sampler2D frame_texture;
 uniform sampler2D held_texture;
 uniform sampler2D state_texture;
-uniform int premultiplied_alpha;
 
 out vec4 color;
 
@@ -217,16 +216,8 @@ void main()
         return;
     }
     vec4 held = texelFetch(held_texture, pixel, 0);
-    vec3 blended = LinearToSrgb(mix(SrgbToLinear(held.rgb), SrgbToLinear(frame.rgb), blend));
-    float alpha = mix(held.a, frame.a, blend);
-    // The colour mixes in linear light and the alpha does not, so next to a pixel
-    // transparency mode cut out the encoded colour can exceed the alpha. Only then is the
-    // alpha coverage; otherwise it is blend-mode leftovers and must not dim the colour.
-    if (premultiplied_alpha > 0)
-    {
-        blended = min(blended, vec3(alpha));
-    }
-    color = vec4(blended, alpha);
+    vec3 blended = mix(SrgbToLinear(held.rgb), SrgbToLinear(frame.rgb), blend);
+    color = vec4(LinearToSrgb(blended), mix(held.a, frame.a, blend));
 }
 )";
 
@@ -238,6 +229,14 @@ auto BuildFragmentShader(const char* body) -> std::string
     return source;
 }
 
+/// Binds @p texture to @p unit with no sampler object overriding its parameters.
+void BindTexture(GLuint unit, GLuint texture)
+{
+    glActiveTexture(GL_TEXTURE0 + unit);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindSampler(unit, 0);
+}
+
 } // anonymous namespace
 
 FlashLimiter::FlashLimiter() = default;
@@ -245,8 +244,11 @@ FlashLimiter::FlashLimiter() = default;
 FlashLimiter::~FlashLimiter()
 {
     Release(false);
-    m_device->DestroyVertexArray(m_vertexArray);
-    m_vertexArray = {};
+    if (m_vertexArray != 0)
+    {
+        glDeleteVertexArrays(1, &m_vertexArray);
+        m_vertexArray = 0;
+    }
 }
 
 void FlashLimiter::SetEnabled(bool enabled)
@@ -301,28 +303,27 @@ auto FlashLimiter::BeginFrame(int width, int height) -> bool
         }
     }
 
-    m_device->Commands().BeginPass({m_frame.framebuffer, Device::TargetBinding::Draw, Device::Rect{0, 0, width, height}});
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_frame.framebuffer);
+    glViewport(0, 0, width, height);
     return true;
 }
 
-void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double secondsSinceLastFrame, bool premultipliedAlpha)
+void FlashLimiter::EndFrame(GLuint targetFramebuffer, double secondsSinceLastFrame)
 {
     if (!m_allocated)
     {
         return;
     }
 
-    using Device::Capability;
-    auto& commands = m_device->Commands();
-    const bool blendEnabled = commands.IsEnabled(Capability::Blend);
-    const bool scissorEnabled = commands.IsEnabled(Capability::ScissorTest);
-    const bool cullEnabled = commands.IsEnabled(Capability::CullFace);
-    const bool depthEnabled = commands.IsEnabled(Capability::DepthTest);
-    commands.SetEnabled(Capability::Blend, false);
-    commands.SetEnabled(Capability::ScissorTest, false);
-    commands.SetEnabled(Capability::CullFace, false);
-    commands.SetEnabled(Capability::DepthTest, false);
-    commands.BindVertexArray(m_vertexArray);
+    const GLboolean blendEnabled = glIsEnabled(GL_BLEND);
+    const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+    const GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+    const GLboolean depthEnabled = glIsEnabled(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    glBindVertexArray(m_vertexArray);
 
     const int previous = m_current;
     const int next = 1 - m_current;
@@ -351,19 +352,18 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
     m_mixShader->SetUniformInt("frame_texture", 0);
     m_mixShader->SetUniformInt("held_texture", 1);
     m_mixShader->SetUniformInt("state_texture", 2);
-    m_mixShader->SetUniformInt("premultiplied_alpha", premultipliedAlpha ? 1 : 0);
     BindTexture(0, m_frame.texture);
     BindTexture(1, m_held.at(previous).texture);
     BindTexture(2, m_state.at(next).texture);
     DrawFullscreen(m_held.at(next), m_width, m_height);
 
-    for (int unit = 0; unit < 3; unit++)
+    for (GLuint unit = 0; unit < 3; unit++)
     {
-        BindTexture(unit, {});
+        BindTexture(unit, 0);
     }
-    commands.SetActiveTextureUnit(0);
+    glActiveTexture(GL_TEXTURE0);
     Shader::Unbind();
-    commands.BindVertexArray({});
+    glBindVertexArray(0);
 
     m_current = next;
     m_presented = true;
@@ -371,34 +371,35 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
     m_clampedFramesStale = true;
 
     // Present: copy the limited frame to where the frame belongs.
-    commands.BindRenderTarget(Device::TargetBinding::Read, m_held.at(next).framebuffer);
-    commands.SetReadBuffer(Device::AttachmentPoint::Color0);
-    commands.BindRenderTarget(Device::TargetBinding::Draw, targetFramebuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_held.at(next).framebuffer);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFramebuffer);
 #ifdef USE_GLES
     // Same as the unlimited path in ProjectM::RenderFrame(): FBO 0 must draw to GL_BACK.
-    if (!targetFramebuffer.Valid())
+    if (targetFramebuffer == 0)
     {
-        commands.SetDrawBuffers({Device::AttachmentPoint::Back});
+        GLenum backBuffer = GL_BACK;
+        glDrawBuffers(1, &backBuffer);
     }
 #endif
-    commands.SetViewport({0, 0, m_width, m_height});
-    if (scissorEnabled)
+    glViewport(0, 0, m_width, m_height);
+    if (scissorEnabled == GL_TRUE)
     {
-        commands.SetEnabled(Capability::ScissorTest, true);
+        glEnable(GL_SCISSOR_TEST);
     }
-    commands.Blit({0, 0, m_width, m_height}, {0, 0, m_width, m_height}, Device::FilterMode::Nearest);
+    glBlitFramebuffer(0, 0, m_width, m_height, 0, 0, m_width, m_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-    if (blendEnabled)
+    if (blendEnabled == GL_TRUE)
     {
-        commands.SetEnabled(Capability::Blend, true);
+        glEnable(GL_BLEND);
     }
-    if (cullEnabled)
+    if (cullEnabled == GL_TRUE)
     {
-        commands.SetEnabled(Capability::CullFace, true);
+        glEnable(GL_CULL_FACE);
     }
-    if (depthEnabled)
+    if (depthEnabled == GL_TRUE)
     {
-        commands.SetEnabled(Capability::DepthTest, true);
+        glEnable(GL_DEPTH_TEST);
     }
 }
 
@@ -412,9 +413,9 @@ auto FlashLimiter::ClampedFrames() -> uint32_t
     return m_clampedFrames;
 }
 
-auto FlashLimiter::PresentedFramebuffer() const -> Device::RenderTargetHandle
+auto FlashLimiter::PresentedFramebuffer() const -> GLuint
 {
-    return (m_allocated && m_presented) ? m_held.at(m_current).framebuffer : Device::RenderTargetHandle{};
+    return (m_allocated && m_presented) ? m_held.at(m_current).framebuffer : 0;
 }
 
 auto FlashLimiter::Allocate(int width, int height) -> bool
@@ -423,9 +424,9 @@ auto FlashLimiter::Allocate(int width, int height) -> bool
     {
         return false;
     }
-    if (!m_vertexArray.Valid())
+    if (m_vertexArray == 0)
     {
-        m_vertexArray = m_device->CreateVertexArray();
+        glGenVertexArrays(1, &m_vertexArray);
     }
 
     // A resize keeps the counters but the held frame no longer matches the frame size.
@@ -448,32 +449,31 @@ auto FlashLimiter::Allocate(int width, int height) -> bool
         }
     }
 
-    using Device::TargetBinding;
-    auto& commands = m_device->Commands();
-    const auto previousDraw = commands.BoundRenderTarget(TargetBinding::Draw);
+    GLint previousDraw = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousDraw);
     bool complete = true;
     for (const auto* target : {&m_frame, &m_held.at(0), &m_held.at(1), &m_luma, &m_state.at(0), &m_state.at(1)})
     {
-        commands.BindRenderTarget(TargetBinding::Draw, target->framebuffer);
-        complete = complete && commands.CheckRenderTarget(TargetBinding::Draw).complete;
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target->framebuffer);
+        complete = complete && glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     }
     if (!keepState && complete)
     {
         // Start the clamp count at zero: the count is carried in the state texture.
-        const bool scissorEnabled = commands.IsEnabled(Device::Capability::ScissorTest);
-        commands.SetEnabled(Device::Capability::ScissorTest, false);
-        commands.SetClearColor({0.0f, 0.0f, 0.0f, 0.0f});
+        const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+        glDisable(GL_SCISSOR_TEST);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         for (const auto& state : m_state)
         {
-            commands.BindRenderTarget(TargetBinding::Draw, state.framebuffer);
-            commands.Clear(Device::ClearColor);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, state.framebuffer);
+            glClear(GL_COLOR_BUFFER_BIT);
         }
-        if (scissorEnabled)
+        if (scissorEnabled == GL_TRUE)
         {
-            commands.SetEnabled(Device::Capability::ScissorTest, true);
+            glEnable(GL_SCISSOR_TEST);
         }
     }
-    commands.BindRenderTarget(TargetBinding::Draw, previousDraw);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previousDraw));
 
     if (!complete)
     {
@@ -549,60 +549,57 @@ auto FlashLimiter::CompileShaders() -> bool
 
 void FlashLimiter::DrawFullscreen(const Target& target, int width, int height) const
 {
-    auto& commands = m_device->Commands();
-    commands.BeginPass({target.framebuffer, Device::TargetBinding::Draw, Device::Rect{0, 0, width, height}});
-    commands.Draw(Device::PrimitiveType::Triangles, 0, 3);
-    commands.EndPass();
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target.framebuffer);
+    glViewport(0, 0, width, height);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
 auto FlashLimiter::ReadClampedFrames(const Target& state) const -> uint32_t
 {
-    using Device::TargetBinding;
-    auto& commands = m_device->Commands();
-    const auto previousRead = commands.BoundRenderTarget(TargetBinding::Read);
-    commands.BindRenderTarget(TargetBinding::Read, state.framebuffer);
-    commands.SetReadBuffer(Device::AttachmentPoint::Color0);
+    GLint previousRead = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousRead);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, state.framebuffer);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
     std::array<uint8_t, 4> texel{};
-    commands.ReadPixels({StateWidth - 1, 0, 1, 1}, texel.data());
-    commands.BindRenderTarget(TargetBinding::Read, previousRead);
+    glReadPixels(StateWidth - 1, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, texel.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousRead));
     return (static_cast<uint32_t>(texel[0]) << 16U) | (static_cast<uint32_t>(texel[1]) << 8U) | texel[2];
 }
 
 auto FlashLimiter::CreateTarget(int width, int height) -> Target
 {
     Target target;
-    Device::TextureDesc desc;
-    desc.width = width;
-    desc.height = height;
-    desc.format = Device::TextureFormat::RGBA8;
+    glGenTextures(1, &target.texture);
+    glBindTexture(GL_TEXTURE_2D, target.texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     // Every read is a texelFetch, but a texture is only complete (and texelFetch only
     // returns its contents) with a non-mipmapped minification filter.
-    desc.sampling = Device::TextureSampling{Device::FilterMode::Nearest, Device::WrapMode::ClampToEdge};
-    target.texture = m_device->CreateTexture(desc, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-    using Device::TargetBinding;
-    auto& commands = m_device->Commands();
-    const auto previousDraw = commands.BoundRenderTarget(TargetBinding::Draw);
-    target.framebuffer = m_device->CreateRenderTarget();
-    commands.BindRenderTarget(TargetBinding::Draw, target.framebuffer);
-    commands.AttachTexture(TargetBinding::Draw, Device::AttachmentPoint::Color0, target.texture);
-    commands.BindRenderTarget(TargetBinding::Draw, previousDraw);
+    GLint previousDraw = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousDraw);
+    glGenFramebuffers(1, &target.framebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target.framebuffer);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.texture, 0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previousDraw));
     return target;
 }
 
 void FlashLimiter::DeleteTarget(Target& target)
 {
-    m_device->DestroyRenderTarget(target.framebuffer);
-    m_device->DestroyTexture(target.texture);
+    if (target.framebuffer != 0)
+    {
+        glDeleteFramebuffers(1, &target.framebuffer);
+    }
+    if (target.texture != 0)
+    {
+        glDeleteTextures(1, &target.texture);
+    }
     target = {};
-}
-
-void FlashLimiter::BindTexture(int unit, Device::TextureHandle texture) const
-{
-    // No sampler object overrides the texture's own parameters.
-    auto& commands = m_device->Commands();
-    commands.BindTexture(unit, Device::TextureTarget::Texture2D, texture);
-    commands.BindSampler(unit, {});
 }
 
 } // namespace Renderer

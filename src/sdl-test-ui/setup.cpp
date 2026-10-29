@@ -6,7 +6,6 @@
 #include <SDL2/SDL_hints.h>
 
 #include <chrono>
-#include <cstring>
 #include <cmath>
 
 #if OGL_DEBUG
@@ -92,81 +91,11 @@ void seedRand() {
 #endif
 }
 
-namespace {
-// What initGL() asked the default framebuffer for, so dumpOpenGLInfo() can say
-// whether the driver honoured it.
-struct RequestedFramebuffer {
-    int depthSize = 0;
-    int stencilSize = 0;
-    int multisampleBuffers = 0;
-    int multisampleSamples = 0;
-} requestedFramebuffer;
-
-bool envFlag(const char* name) {
-    const char* value = getenv(name);
-    return value != nullptr && value[0] != '\0' && value[0] != '0';
-}
-
-// Size of one default-framebuffer attribute, or -1 when it cannot be read.
-//
-// SDL answers depth and stencil with glGetFramebufferAttachmentParameteriv(),
-// which a core profile context fails with a GL error ("OpenGL error: 00000502")
-// when the default framebuffer has no such buffer, leaving the value at 0. That
-// failure is the answer "none", i.e. the browser canvas' depth 0, not an unknown.
-int glAttribute(SDL_GLattr attribute) {
-    int value = 0;
-    SDL_ClearError();
-    if (SDL_GL_GetAttribute(attribute, &value) == 0) {
-        return value;
-    }
-    if (strncmp(SDL_GetError(), "OpenGL error", 12) == 0) {
-        return 0;
-    }
-    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "SDL_GL_GetAttribute(%d) failed: %s", static_cast<int>(attribute), SDL_GetError());
-    return -1;
-}
-
-// Appended to window/context creation failures: the opt-in framebuffer is the
-// likeliest thing a display does not offer (e.g. no multisampled visuals on Xvfb).
-const char* framebufferRequestHint() {
-    if (requestedFramebuffer.depthSize != 0 || requestedFramebuffer.multisampleBuffers != 0) {
-        return "PROJECTM_UI_AA / PROJECTM_UI_DEPTH ask for a framebuffer this display may not offer; unset them to get the browser canvas' one.";
-    }
-    return "";
-}
-}
-
 void initGL() {
-    // The default framebuffer matches the browser canvas that
-    // src/wasm/WasmWebGLContext.cpp creates: double buffered, 8-bit color, no
-    // alpha channel requested (the canvas is opaque unless the page asks for
-    // transparency), no depth, no stencil, no multisampling. SDL's own defaults
-    // often add a depth buffer and the driver may add MSAA, which hides preset
-    // bugs that the canvas shows. Both are opt-in, like ?aa=1 / ?depth=1 on the
-    // canvas:
-    //   PROJECTM_UI_AA=1     4x multisampled default framebuffer
-    //   PROJECTM_UI_DEPTH=1  24-bit depth + 8-bit stencil
-    // With USE_GLES the context is OpenGL ES 3.0, the API WebGL 2 exposes, so
-    // a shader or call that needs more fails here as it does in the browser:
-    //   PROJECTM_UI_GLES32=1 ask for OpenGL ES 3.2 instead
-    const bool wantAntialias = envFlag("PROJECTM_UI_AA");
-    const bool wantDepth = envFlag("PROJECTM_UI_DEPTH");
-
-    requestedFramebuffer.depthSize = wantDepth ? 24 : 0;
-    requestedFramebuffer.stencilSize = wantDepth ? 8 : 0;
-    requestedFramebuffer.multisampleBuffers = wantAntialias ? 1 : 0;
-    requestedFramebuffer.multisampleSamples = wantAntialias ? 4 : 0;
-
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, requestedFramebuffer.depthSize);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, requestedFramebuffer.stencilSize);
-    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, requestedFramebuffer.multisampleBuffers);
-    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, requestedFramebuffer.multisampleSamples);
-
 #ifdef USE_GLES
+    // use GLES 3.2
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, envFlag("PROJECTM_UI_GLES32") ? 2 : 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 #else
     // Disabling compatibility profile
@@ -180,23 +109,6 @@ void dumpOpenGLInfo() {
     SDL_Log("- GL_VERSION: %s", glGetString(GL_VERSION));
     SDL_Log("- GL_SHADING_LANGUAGE_VERSION: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
     SDL_Log("- GL_VENDOR: %s", glGetString(GL_VENDOR));
-
-    // What the driver actually gave us, not what initGL() asked for.
-    const int depthSize = glAttribute(SDL_GL_DEPTH_SIZE);
-    const int stencilSize = glAttribute(SDL_GL_STENCIL_SIZE);
-    const int multisampleBuffers = glAttribute(SDL_GL_MULTISAMPLEBUFFERS);
-    SDL_Log("- Framebuffer: double buffer %d, alpha %d, depth %d, stencil %d, multisample buffers %d (samples %d)",
-            glAttribute(SDL_GL_DOUBLEBUFFER), glAttribute(SDL_GL_ALPHA_SIZE), depthSize, stencilSize,
-            multisampleBuffers, glAttribute(SDL_GL_MULTISAMPLESAMPLES));
-
-    if (depthSize != requestedFramebuffer.depthSize || stencilSize != requestedFramebuffer.stencilSize ||
-        multisampleBuffers != requestedFramebuffer.multisampleBuffers) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "The default framebuffer differs from the request (depth %d, stencil %d, multisample buffers %d); "
-                    "it will not match the browser canvas.",
-                    requestedFramebuffer.depthSize, requestedFramebuffer.stencilSize,
-                    requestedFramebuffer.multisampleBuffers);
-    }
 }
 
 void initStereoscopicView(SDL_Window *win) {
@@ -289,26 +201,15 @@ projectMSDL *setupSDLApp() {
     initGL();
 
     SDL_Window *win = SDL_CreateWindow("projectM", 0, 0, width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-    if (!win) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to create the window: %s\n%s", SDL_GetError(), framebufferRequestHint());
-        exit(1);
-    }
     SDL_GL_GetDrawableSize(win,&width,&height);
 
     initStereoscopicView(win);
 
     SDL_GLContext glCtx = SDL_GL_CreateContext(win);
-    if (!glCtx) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to create the OpenGL context: %s\n%s", SDL_GetError(), framebufferRequestHint());
-        exit(1);
-    }
 
     SDL_SetWindowTitle(win, "projectM");
 
-    if (SDL_GL_MakeCurrent(win, glCtx) != 0) {  // associate GL context with main window
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to make the OpenGL context current: %s", SDL_GetError());
-        exit(1);
-    }
+    SDL_GL_MakeCurrent(win, glCtx);  // associate GL context with main window
     int avsync = SDL_GL_SetSwapInterval(-1); // try to enable adaptive vsync
     if (avsync == -1) { // adaptive vsync not supported
         SDL_GL_SetSwapInterval(1); // enable updates synchronized with vertical retrace
@@ -317,12 +218,10 @@ projectMSDL *setupSDLApp() {
 #ifdef USE_GLES
     if (!gladLoadGLES2(reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress))) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Error loading GLAD for GLES2\n");
-        exit(1);
     }
 #else
     if (!gladLoadGL(reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress))) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Error loading GLAD for GL Core Profile\n");
-        exit(1);
     }
 #endif
 

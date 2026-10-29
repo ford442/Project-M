@@ -9,7 +9,7 @@
 
 It is the repo's one deliberately-committed prebuilt binary. The `.a` is zipped
 only to get past the `*.a` rule in `.gitignore`; `scripts/build_wasm_install.sh`
-(run by `scripts/build_wasm.sh`) unpacks it into this directory automatically.
+and `scripts/build_projectm.sh` unpack it into this directory automatically.
 
 ## Provenance of the current archive
 

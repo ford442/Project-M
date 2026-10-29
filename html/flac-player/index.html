@@ -23,10 +23,85 @@ body {
   font-size: 14px;
 }
 </style>
-<script src="./preboot.js"></script>
+<script>
+window.global = window;
+window.process = window.process || { env: {}, browser: true };
+
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var audioOnly = params.get('projectm') === '1' || window.name === 'flac-player';
+  window.__projectMAudioOnly = audioOnly;
+  window.__projectMEmbed = audioOnly;
+  if (audioOnly) document.documentElement.setAttribute('data-projectm-audio-only', '1');
+})();
+</script>
 <script type="module">
-import { bootFlacPlayer } from './boot.js';
-void bootFlacPlayer(document);
+function showBootError(message) {
+  const el = document.getElementById('pm-flac-boot-error');
+  if (el) {
+    el.textContent = message;
+    el.style.display = 'block';
+  }
+  console.error('[projectM FLAC player]', message);
+}
+
+// ?rev= (FLAC_PLAYER_SHELL_REV in projectm-audio-player.js) versions the
+// shell's own modules, which are not content-hashed like the bundle.
+const shellRev = new URLSearchParams(window.location.search).get('rev');
+const revQuery = shellRev ? `?rev=${encodeURIComponent(shellRev)}` : '';
+
+async function loadBufferCtor() {
+  try {
+    const mod = await import('./vendor/buffer.bundle.mjs');
+    return mod.Buffer || mod.default?.Buffer;
+  } catch (localError) {
+    console.warn('[projectM FLAC player] local buffer bundle missing, using CDN fallback:', localError);
+    const mod = await import('https://esm.sh/buffer@6.0.3');
+    return mod.Buffer || mod.default;
+  }
+}
+
+async function loadPcmBridge() {
+  try {
+    return await import(`./projectm-pcm-bridge.js${revQuery}`);
+  } catch (localError) {
+    console.warn('[projectM FLAC player] local PCM bridge missing:', localError);
+    return null;
+  }
+}
+
+try {
+  const Buffer = await loadBufferCtor();
+  if (!Buffer) {
+    throw new Error('Buffer polyfill failed to load');
+  }
+  globalThis.Buffer = Buffer;
+  window.Buffer = Buffer;
+
+  try {
+    const guardMod = await import(`./decode-guard.js${revQuery}`);
+    window.__projectMFlacDecodeGuard = guardMod.installFlacPlayerDecodeGuard(window);
+  } catch (guardError) {
+    console.warn('[projectM FLAC player] decode guard unavailable:', guardError);
+  }
+
+  const bridgeMod = await loadPcmBridge();
+  if (bridgeMod?.installProjectMPcmBridge) {
+    window.__projectMPcmBridge = bridgeMod.installProjectMPcmBridge();
+  } else if (window.opener || (window.parent && window.parent !== window)) {
+    console.warn('[projectM FLAC player] PCM bridge unavailable — audio may not reach projectM host');
+  }
+
+  const bundle = document.createElement('script');
+  bundle.defer = true;
+  bundle.src = 'bundle.1be0dff2a33a879aefd0.js';
+  bundle.onerror = () => {
+    showBootError('Failed to load FLAC player bundle (bundle.1be0dff2a33a879aefd0.js).');
+  };
+  document.head.appendChild(bundle);
+} catch (error) {
+  showBootError(`FLAC player failed to start: ${error?.message || error}`);
+}
 </script>
 </head>
 <body>

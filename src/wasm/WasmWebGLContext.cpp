@@ -18,16 +18,11 @@
 //
 // Per host (#246): each WasmHost owns the config its context was (or will be)
 // created with, so two engines in one Module can differ in antialias /
-// fboPrecision / powerPreference. There is no process-wide pending slot: the
-// config travels with the create call, so nothing can land on the wrong host
-// however the JS side interleaves its awaits.
-//
-// The config is the request. What the context really has is read back from
-// getContextAttributes() into WasmContextCaps::attributeFlags when it is
-// created, because the two can differ: a canvas keeps the first context it
-// hands out and ignores the attributes of every later getContext() (see
-// WasmWebGLCreateAndActivateContext(), which swaps in a fresh canvas for that),
-// and a browser may not offer antialias or desynchronized at all.
+// fboPrecision / powerPreference. Attributes are baked at create time, so a
+// host's config is never rewritten once its context exists — the struct always
+// describes the live context. There is no process-wide pending slot: the config
+// travels with the create call, so nothing can land on the wrong host however
+// the JS side interleaves its awaits.
 
 WasmContextConfig WasmContextConfigFromArgs(int flags, int powerPreference, int fboPrecision)
 {
@@ -44,19 +39,6 @@ WasmContextConfig WasmContextConfigFromArgs(int flags, int powerPreference, int 
     cfg.powerPreference = (powerPreference >= 0 && powerPreference <= 2) ? powerPreference : 2;
     cfg.fboPrecision = (fboPrecision >= 0 && fboPrecision <= 2) ? fboPrecision : 0;
     return cfg;
-}
-
-int WasmContextConfigFlags(const WasmContextConfig& cfg)
-{
-    return (cfg.antialias != 0 ? kContextFlagAntialias : 0) |
-           (cfg.preserveDrawingBuffer != 0 ? kContextFlagPreserveDrawingBuffer : 0) |
-           (cfg.depth != 0 ? kContextFlagDepth : 0) |
-           (cfg.stencil != 0 ? kContextFlagStencil : 0) |
-           (cfg.alpha != 0 ? kContextFlagAlpha : 0) |
-           (cfg.premultipliedAlpha != 0 ? kContextFlagPremultipliedAlpha : 0) |
-           (cfg.failIfMajorPerformanceCaveat != 0 ? kContextFlagFailIfMajorPerformanceCaveat : 0) |
-           (cfg.explicitSwapControl != 0 ? kContextFlagExplicitSwapControl : 0) |
-           (cfg.desynchronized != 0 ? kContextFlagDesynchronized : 0);
 }
 
 const WasmContextConfig& WasmWebGLGetContextConfig()
@@ -272,33 +254,19 @@ static bool WebGL2AvailableWithoutPerformanceCaveat()
     // clang-format on
 }
 
-// The one place this host enables WebGL extensions; everything else (the
-// dual-FBO format choice included) reads the answers from WasmContextCaps.
-// enableExtensionsByDefault stays on: libprojectM uses extensions it never
-// enables itself (anisotropic filtering, KHR_parallel_shader_compile).
-static WasmContextCaps ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx)
+static void ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx)
 {
-    WasmContextCaps caps;
     // Float *textures* are core in WebGL 2; only rendering to them needs an
     // extension. (OES_texture_float / OES_texture_half_float[_linear] are
     // WebGL 1 names and do not exist on a WebGL 2 context.)
-    caps.floatColorBuffer = emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") == EM_TRUE;
-    if (!caps.floatColorBuffer)
+    if (emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float") != EM_TRUE)
     {
         fprintf(stderr, "Warning: EXT_color_buffer_float not supported; float FBO rendering will not be available\n");
     }
-    // RGBA16F alone, on GPUs that cannot render to RGBA32F.
-    caps.halfFloatColorBuffer = emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_half_float") == EM_TRUE;
-    caps.floatLinear = emscripten_webgl_enable_extension(ctx, "OES_texture_float_linear") == EM_TRUE;
-    caps.floatBlend = emscripten_webgl_enable_extension(ctx, "EXT_float_blend") == EM_TRUE;
-    if (!caps.floatBlend)
+    if (emscripten_webgl_enable_extension(ctx, "EXT_float_blend") != EM_TRUE)
     {
         fprintf(stderr, "Warning: EXT_float_blend not supported; float blending will not be available\n");
     }
-    // Not needed to render: observed so get_context_snapshot() can tell a host
-    // whether this context can be made to lose itself (context-loss testing).
-    caps.loseContext = emscripten_webgl_enable_extension(ctx, "WEBGL_lose_context") == EM_TRUE;
-    return caps;
 }
 
 /**
@@ -347,159 +315,6 @@ EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext()
     return g_glCtx;
 }
 
-// The attributes a context created for requestedFlags really has when the
-// browser grants everything: the explicit-swap flavor renders through an
-// offscreen back buffer, for which Emscripten creates the real context with
-// preserveDrawingBuffer.
-static int GrantedContextFlags(int requestedFlags)
-{
-    return (requestedFlags & kContextFlagExplicitSwapControl) != 0 ? requestedFlags | kContextFlagPreserveDrawingBuffer
-                                                                   : requestedFlags;
-}
-
-// A canvas keeps the first WebGL context it hands out: every later getContext()
-// returns that one and ignores the attributes it was given. Destroying the
-// Emscripten handle does not undo that. So each context this host creates is
-// stamped, on the canvas object itself, with the request it was made for, and
-// a create that lands on a canvas stamped with a different request has
-// received an old context with old attributes.
-//
-// An unstamped canvas can still hold a context from before this host (an older
-// bundle, or page script). Then the attributes a browser always grants exactly
-// as asked (alpha, depth, stencil, premultipliedAlpha, preserveDrawingBuffer)
-// give it away; antialias and desynchronized cannot, since a browser may
-// legitimately refuse those.
-//
-// Reads the current context (GLctx).
-static bool CurrentCanvasHeldAnotherContext(int requestedFlags, int powerPreference)
-{
-    const int grantedFlags = GrantedContextFlags(requestedFlags);
-    // clang-format off
-    return EM_ASM_INT({
-               try {
-                   const gl = typeof GLctx !== 'undefined' ? GLctx : null;
-                   const canvas = gl ? gl.canvas : null;
-                   if (!canvas) { return 0; }
-                   const stamp = canvas[Symbol.for('projectm.webglContextRequest')];
-                   if (stamp) { return (stamp.flags !== $0 || stamp.power !== $1) ? 1 : 0; }
-                   const a = gl.getContextAttributes();
-                   if (!a) { return 0; }
-                   const want = (bit) => ($2 & bit) !== 0;
-                   return (a.alpha !== want($3) || a.depth !== want($4) || a.stencil !== want($5)
-                           || a.premultipliedAlpha !== want($6) || a.preserveDrawingBuffer !== want($7)) ? 1 : 0;
-               } catch (e) {
-                   return 0;
-               } }, requestedFlags, powerPreference, grantedFlags, kContextFlagAlpha, kContextFlagDepth,
-           kContextFlagStencil, kContextFlagPremultipliedAlpha, kContextFlagPreserveDrawingBuffer) != 0;
-    // clang-format on
-}
-
-// Swaps the canvas element `selector` names for a fresh copy (cloneNode: same
-// id, classes, inline style and width/height attributes; no context, no
-// listeners) in the same place in the document, so the next create gets a new
-// context with the attributes asked for. Fires `projectm-canvas-replaced`
-// (bubbling, detail.previous = the old element) on the copy, for hosts that hold
-// the element itself rather than its selector.
-//
-// Returns false where there is no element to swap: in the OffscreenCanvas render
-// worker the canvas arrived by transfer, and only the page can give it a new one.
-static bool ReplaceCanvasElement(const char* selector)
-{
-    // clang-format off
-    return EM_ASM_INT({
-               try {
-                   const sel = UTF8ToString($0);
-                   const targets = typeof specialHTMLTargets !== 'undefined' ? specialHTMLTargets : null;
-                   const doc = globalThis.document;
-                   const old = (targets && targets[sel]) || (doc ? doc.querySelector(sel) : null);
-                   if (!old || typeof HTMLCanvasElement === 'undefined' || !(old instanceof HTMLCanvasElement) || !old.parentNode) {
-                       return 0;
-                   }
-                   const fresh = old.cloneNode(false);
-                   old.parentNode.replaceChild(fresh, old);
-                   if (targets && targets[sel] === old) { targets[sel] = fresh; }
-                   if (typeof Module !== 'undefined' && Module['canvas'] === old) { Module['canvas'] = fresh; }
-                   fresh.dispatchEvent(new CustomEvent('projectm-canvas-replaced', { bubbles: true, detail: { previous: old } }));
-                   return 1;
-               } catch (e) {
-                   return 0;
-               } }, selector) != 0;
-    // clang-format on
-}
-
-// Reads getContextAttributes() of the current context into caps, and stamps its
-// canvas with the request it was created for (see
-// CurrentCanvasHeldAnotherContext()).
-static void ReadContextAttributes(WasmContextCaps& caps, int requestedFlags, int powerPreference)
-{
-    // Returns the flags with the power preference at bit 16, or -1 when the
-    // context cannot say (lost). The body is a macro argument: a comma outside
-    // parentheses (an object literal's) would split it.
-    // clang-format off
-    const int packed = EM_ASM_INT({
-        try {
-            const gl = typeof GLctx !== 'undefined' ? GLctx : null;
-            const a = gl ? gl.getContextAttributes() : null;
-            if (!a) { return -1; }
-            try { gl.canvas[Symbol.for('projectm.webglContextRequest')] = ({ flags: $0, power: $1 }); } catch (e) {}
-            let flags = $0 & $10;
-            if (a.antialias) { flags |= $2; }
-            if (a.preserveDrawingBuffer) { flags |= $3; }
-            if (a.depth) { flags |= $4; }
-            if (a.stencil) { flags |= $5; }
-            if (a.alpha) { flags |= $6; }
-            if (a.premultipliedAlpha) { flags |= $7; }
-            if (a.failIfMajorPerformanceCaveat) { flags |= $8; }
-            if (a.desynchronized) { flags |= $9; }
-            const power = a.powerPreference === 'low-power' ? 1 : a.powerPreference === 'default' ? 0 : 2;
-            return flags | (power << 16);
-        } catch (e) {
-            return -1;
-        } }, requestedFlags, powerPreference, kContextFlagAntialias, kContextFlagPreserveDrawingBuffer,
-        kContextFlagDepth, kContextFlagStencil, kContextFlagAlpha, kContextFlagPremultipliedAlpha,
-        kContextFlagFailIfMajorPerformanceCaveat, kContextFlagDesynchronized, kContextFlagExplicitSwapControl);
-    // clang-format on
-    if (packed < 0)
-    {
-        return;
-    }
-    caps.attributeFlags = packed & 0xFFFF;
-    caps.powerPreference = (packed >> 16) & 0x3;
-    caps.attributesKnown = true;
-}
-
-// emscripten_webgl_create_context() + make current into H.glCtx; 0 or the
-// kInit* code, already reported.
-static int CreateAndActivate(WasmHost& H, const WasmContextConfig& cfg)
-{
-    const char* selector = H.primarySelector;
-    EmscriptenWebGLContextAttributes webgl_attrs = ProjectMWebGLAttributes(cfg);
-    H.glCtx = emscripten_webgl_create_context(selector, &webgl_attrs);
-    if (!H.glCtx)
-    {
-        if (cfg.failIfMajorPerformanceCaveat != 0 && WebGL2AvailableWithoutPerformanceCaveat())
-        {
-            fprintf(stderr, "WebGL context on %s refused: failIfMajorPerformanceCaveat (software renderer)\n", selector);
-            js_report_init_error(kInitPerformanceCaveat,
-                                 "Only a software WebGL 2 renderer is available and failIfMajorPerformanceCaveat refused it");
-            return kInitPerformanceCaveat;
-        }
-        fprintf(stderr, "Failed to create WebGL context on %s\n", selector);
-        js_report_init_error(kInitContextCreateFailed, "Failed to create WebGL 2 context");
-        return kInitContextCreateFailed;
-    }
-
-    const EMSCRIPTEN_RESULT em_res = emscripten_webgl_make_context_current(H.glCtx);
-    if (em_res != EMSCRIPTEN_RESULT_SUCCESS)
-    {
-        fprintf(stderr, "Failed to activate the WebGL context for rendering\n");
-        js_report_init_error(kInitMakeCurrentFailed, "Failed to activate the WebGL context for rendering");
-        WasmWebGLDestroyContext();
-        return kInitMakeCurrentFailed;
-    }
-    return 0;
-}
-
 int WasmWebGLCreateAndActivateContext()
 {
     WasmHost& H = Host();
@@ -537,58 +352,38 @@ int WasmWebGLCreateAndActivateContext()
     }
 #endif
 
-    if (const int rc = CreateAndActivate(H, cfg); rc != 0)
+    EmscriptenWebGLContextAttributes webgl_attrs = ProjectMWebGLAttributes(cfg);
+    g_glCtx = emscripten_webgl_create_context(g_mainCanvasSelector, &webgl_attrs);
+    if (!g_glCtx)
     {
-        return rc;
+        if (cfg.failIfMajorPerformanceCaveat != 0 && WebGL2AvailableWithoutPerformanceCaveat())
+        {
+            fprintf(stderr, "WebGL context on %s refused: failIfMajorPerformanceCaveat (software renderer)\n", g_mainCanvasSelector);
+            js_report_init_error(kInitPerformanceCaveat,
+                                 "Only a software WebGL 2 renderer is available and failIfMajorPerformanceCaveat refused it");
+            return kInitPerformanceCaveat;
+        }
+        fprintf(stderr, "Failed to create WebGL context on %s\n", g_mainCanvasSelector);
+        js_report_init_error(kInitContextCreateFailed, "Failed to create WebGL 2 context");
+        return kInitContextCreateFailed;
     }
 
-    // Rebind = new canvas: a context created for another request (a previous
-    // host or Module on this canvas, a legacy set_context_config() before this
-    // re-init) would otherwise be reused as is, and the config would describe
-    // attributes the canvas does not have.
-    const int requestedFlags = WasmContextConfigFlags(cfg);
-    if (CurrentCanvasHeldAnotherContext(requestedFlags, cfg.powerPreference))
+    const EMSCRIPTEN_RESULT em_res = emscripten_webgl_make_context_current(g_glCtx);
+    if (em_res != EMSCRIPTEN_RESULT_SUCCESS)
     {
+        fprintf(stderr, "Failed to activate the WebGL context for rendering\n");
+        js_report_init_error(kInitMakeCurrentFailed, "Failed to activate the WebGL context for rendering");
         WasmWebGLDestroyContext();
-        if (ReplaceCanvasElement(g_mainCanvasSelector))
-        {
-            fprintf(stderr, "WebGL context on %s had other attributes; created it on a fresh canvas element\n", g_mainCanvasSelector);
-        }
-        else
-        {
-            fprintf(stderr, "Warning: WebGL context on %s had other attributes and the canvas cannot be replaced here; "
-                            "get_context_snapshot() reports the ones it has\n",
-                    g_mainCanvasSelector);
-        }
-        if (const int rc = CreateAndActivate(H, cfg); rc != 0)
-        {
-            return rc;
-        }
+        return kInitMakeCurrentFailed;
     }
 
     // Do NOT call gl* here. With USE_GLES, Renderer/OpenGL.h maps gl* → glad_gl*
     // function pointers that remain NULL until GladLoader::Initialize() runs inside
     // projectm_create(). Calling glHint here raises RuntimeError: null function
     // (projectm-v.035-thread regression). Hints are set in start_render() after GLAD loads.
-    H.contextCaps = ProjectMEnableRequiredWebGLExtensions(g_glCtx);
-    ReadContextAttributes(H.contextCaps, requestedFlags, cfg.powerPreference);
-    if (H.contextCaps.attributesKnown &&
-        (H.contextCaps.attributeFlags != GrantedContextFlags(requestedFlags) ||
-         H.contextCaps.powerPreference != cfg.powerPreference))
-    {
-        fprintf(stderr, "WebGL context on %s: attributes 0x%x (power %d) requested, 0x%x (power %d) granted\n",
-                g_mainCanvasSelector, requestedFlags, cfg.powerPreference,
-                H.contextCaps.attributeFlags, H.contextCaps.powerPreference);
-    }
+    ProjectMEnableRequiredWebGLExtensions(g_glCtx);
     ProjectMApplySrgbCanvasColorSpace();
     return 0;
-}
-
-bool WasmWebGLCanvasHasAlpha()
-{
-    const WasmHost& H = Host();
-    return H.contextCaps.attributesKnown ? (H.contextCaps.attributeFlags & kContextFlagAlpha) != 0
-                                         : H.contextConfig.alpha != 0;
 }
 
 void WasmWebGLCommitFrameIfExplicit()
@@ -614,42 +409,7 @@ void WasmWebGLDestroyContext()
         emscripten_webgl_destroy_context(g_glCtx);
         g_glCtx = 0;
     }
-    H.contextCaps = WasmContextCaps{};
 }
-
-extern "C" {
-// The WebGL contract this host negotiated, in one int (see WasmContextSnapshotBit):
-// float color buffer / float blend / WEBGL_lose_context as observed on the
-// context, the dual-FBO format in the FboFloatFormat numbering at
-// kSnapshotFormatShift, and the attributes the context really has
-// (getContextAttributes()) at kSnapshotAttributesShift / kSnapshotPowerShift.
-// All of it is settled during init(), except that the dual-FBO format can still
-// drop to RGBA8 if a float framebuffer turns out incomplete at the first
-// transition (CreateFBOWithFallback()). 0 while the host has no context, which
-// is also what JS gets before init().
-EMSCRIPTEN_KEEPALIVE
-int get_context_snapshot()
-{
-    WasmHost& H = Host();
-    if (H.glCtx == 0)
-    {
-        return 0;
-    }
-    const WasmContextCaps& caps = H.contextCaps;
-    int snapshot = kSnapshotValid;
-    snapshot |= caps.floatColorBuffer ? kSnapshotFloatColorBuffer : 0;
-    snapshot |= caps.floatBlend ? kSnapshotFloatBlend : 0;
-    snapshot |= caps.loseContext ? kSnapshotLoseContext : 0;
-    snapshot |= (static_cast<int>(H.dualFbo.GetFormat()) & kSnapshotFormatMask) << kSnapshotFormatShift;
-    if (caps.attributesKnown)
-    {
-        snapshot |= kSnapshotAttributesKnown;
-        snapshot |= (caps.powerPreference & kSnapshotPowerMask) << kSnapshotPowerShift;
-        snapshot |= (caps.attributeFlags & kSnapshotAttributesMask) << kSnapshotAttributesShift;
-    }
-    return snapshot;
-}
-} // extern "C"
 
 void WasmWebGLResizeCanvases(int width, int height)
 {

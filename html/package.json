@@ -4,16 +4,10 @@
   "description": "Shared browser host modules for projectM (typecheck only; not published)",
   "type": "module",
   "devDependencies": {
-    "@eslint/js": "9.39.5",
-    "@types/audioworklet": "0.0.100",
     "@wasm-audio-decoders/flac": "0.2.11",
-    "eslint": "9.39.5",
-    "globals": "17.13.0",
-    "prettier": "3.9.10",
-    "typescript": "5.8.3",
-    "typescript-eslint": "8.72.0"
+    "typescript": "5.8.3"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.worklet.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit"
   }
 }

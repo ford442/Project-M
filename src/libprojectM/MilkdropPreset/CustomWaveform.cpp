@@ -219,8 +219,10 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
 
     SmoothWave(points, colors);
 
-    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
-    Renderer::Device::Commands().SetLineWidth(1.0f);
+#ifndef USE_GLES
+    glDisable(GL_LINE_SMOOTH);
+#endif
+    glLineWidth(1);
 
     // Additive wave drawing (vice overwrite)
     if (m_additive)

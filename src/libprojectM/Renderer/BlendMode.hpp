@@ -1,12 +1,12 @@
 #pragma once
 
-#include <Renderer/Device/RenderDevice.hpp>
+#include <Renderer/OpenGL.h>
 
 namespace libprojectM {
 namespace Renderer {
 
 /**
- * A simple wrapper class around the render device's blend state.
+ * A simple wrapper class around OpenGL's blend mode functionality.
  */
 class BlendMode
 {
@@ -15,7 +15,28 @@ public:
      * Available blend functions.
      * @see https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBlendFunc.xhtml
      */
-    using Function = Device::BlendFactor;
+    enum class Function : int
+    {
+        Zero,
+        One,
+        SourceColor,
+        OneMinusSourceColor,
+        DestinationColor,
+        OneMinusDestinationColor,
+        SourceAlpha,
+        OneMinusSourceAlpha,
+        DestinationAlpha,
+        OneMinusDestinationAlpha,
+        ConstantColor,
+        OneMinusConstantColor,
+        ConstantAlpha,
+        OneMinusConstantAlpha,
+        SourceAlphaSaturate,
+        Source1Color,
+        OneMinusSource1Color,
+        Source1Alpha,
+        OneMinusSource1Alpha
+    };
 
     BlendMode() = delete;
 
@@ -41,6 +62,13 @@ public:
      */
     static void SetBlendFunction(Function srcFunc, Function dstFunc);
 
+private:
+    /**
+     * Translates the Function enum values into OpenGL constants.
+     * @param func The blend function to translate.
+     * @return the OpenGL constant for the given blend function.
+     */
+    static GLuint FunctionToGL(Function func);
 };
 
 } // namespace Renderer

@@ -99,7 +99,6 @@ symbol's doc text is not an API change and needs nothing.
 | `dualFboGetIdleReleaseSeconds` | `dual_fbo_get_idle_release_seconds` | |
 | `dualFboIsPresetBReady` | `dual_fbo_is_preset_b_ready` | |
 | `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (same numbering as `create_host_with_config`'s `fboPrecision`) |
-| `getContextSnapshot` | `get_context_snapshot` | What the host negotiated with WebGL, packed: bit 0 has a context, 1 `EXT_color_buffer_float`, 2 `EXT_float_blend`, 3 `WEBGL_lose_context`, bits 8-9 the dual-FBO format. 0 before init. Prefer `ProjectMContext.contextSnapshot`, which decodes it. See [EMSCRIPTEN.md](EMSCRIPTEN.md#reading-what-was-negotiated) |
 | `transitionStart` | `transition_start` | |
 | `transitionCancel` | `transition_cancel` | |
 | `transitionIsActive` | `transition_is_active` | |
@@ -132,43 +131,8 @@ symbol's doc text is not an API change and needs nothing.
 | `captureFrameWidth` / `captureFrameHeight` | `capture_frame_width` / `capture_frame_height` | |
 | `captureFrameIndex` | `capture_frame_index` | `get_rendered_frame_count()` right after the captured frame |
 | `captureFrameRelease` | `capture_frame_release` | |
-| `createSprite` | `create_sprite` | User sprite on the active host from `(type, code)`; returns its id, 0 if refused. See "User sprites" below |
-| `getProjectmHandle` | `get_projectm_handle` | The active host's engine handle: the `pmHandle` the `projectm_sprite_*` exports take |
-| `projectmSpriteCreate` | `projectm_sprite_create` | `projectm_sprite_*` are `projectM-4/user_sprites.h`, exported as they are |
-| `projectmSpriteDestroy` / `projectmSpriteDestroyAll` | `projectm_sprite_destroy` / `_destroy_all` | |
-| `projectmSpriteGetSpriteCount` / `projectmSpriteGetSpriteIds` | `projectm_sprite_get_sprite_count` / `_get_sprite_ids` | `spriteIds` is a heap pointer to `count` uint32s |
-| `projectmSpriteGetMaxSprites` / `projectmSpriteSetMaxSprites` | `projectm_sprite_get_max_sprites` / `_set_max_sprites` | Default 16; at the limit the oldest sprite makes room |
-| `projectmSpriteGetVar` / `projectmSpriteSetVar` | `projectm_sprite_get_var` / `_set_var` | A sprite expression variable; 0 for an unknown sprite or name |
 
 Export names are also listed in `PUBLIC_WASM_API` inside the generated module.
-
-### User sprites
-
-A user sprite is an image drawn over every preset, positioned and colored by its own
-expression code (upstream's `projectM-4/user_sprites.h`). The code is Milkdrop sprite
-code, one `key=value` per line: `img=` a texture base name from the texture paths
-(`/textures/` in the VFS, no extension), `init_N=` run once, `code_N=` run every frame.
-Variables: `x`, `y`, `sx`, `sy`, `rot`, `flipx`, `flipy`, `repeatx`, `repeaty`,
-`blendmode` (0..4), `r`, `g`, `b`, `a`, `burn`, `done`, and read-only `time`, `frame`,
-`fps`, `progress`, `bass`/`mid`/`treb` and their `_att` forms.
-
-```javascript
-const id = await context.createSprite('img=pm_depth_map\ninit_1=sx=0.5; sy=0.5;\ncode_1=x=px; y=0.5;');
-await context.setSpriteVar(id, 'px', 0.25); // code_1 reads it on the next frame
-await context.getSpriteVar(id, 'x');        // 0.25 after that frame
-await context.destroySprite(id);
-```
-
-`ProjectMContext.createSprite()` / `destroySprite()` / `getSpriteVar()` / `setSpriteVar()`
-work in both render topologies (in the worker one each is a `ccall` round trip) and reject
-on a bundle without the exports. A sprite's per-frame code runs after `setSpriteVar()`, so a
-variable the code assigns every frame is overwritten: drive the sprite through a variable
-of your own that the code reads, as above.
-
-`create_sprite(type, code)` replaced a zero-argument export of the same name that ignored
-its caller and drew a fixed demo sprite. A host calling `create_sprite` on a bundle that
-may be older should check for `_projectm_sprite_create` first; only that name tells the two
-apart.
 
 ### Rhythm events (`pmOnRhythmEvent`)
 
@@ -190,7 +154,7 @@ host, and works in both topologies (the render worker relays each event as a
 
 Used by projectM.1ink.us hosts, benchmarks, and smoke tests. **Not** a semver-stable contract for external embedders.
 
-Examples: `setPerfHud`, `getOmpEnabled`, `dual_fbo_get_*` GL handles, `add_custom_milk_paths`, legacy `add_audio_data`, `reload_texture` (the experimental bridge's in-place depth-map update; see [EXPERIMENTAL_PRESET_HOOKS.md](EXPERIMENTAL_PRESET_HOOKS.md#the-pm_depth-shader-sampler)).
+Examples: `setPerfHud`, `getOmpEnabled`, `dual_fbo_get_*` GL handles, `add_custom_milk_paths`, legacy `add_audio_data`, `create_sprite`.
 
 ### Runtime (Emscripten heap)
 

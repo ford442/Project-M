@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Renderer/OpenGL.h"
+
 #include <cstdint>
 
 namespace libprojectM {
@@ -56,6 +58,15 @@ public:
     void SetV(float v)
     {
         m_v = v;
+    }
+
+    /**
+     * @brief Initializes the attribute array pointer for this storage type.
+     * @param attributeIndex the attribute index to use.
+     */
+    static void InitializeAttributePointer(uint32_t attributeIndex)
+    {
+        glVertexAttribPointer(attributeIndex, sizeof(TextureUV) / sizeof(float), GL_FLOAT, GL_FALSE, sizeof(TextureUV), nullptr);
     }
 
 private:

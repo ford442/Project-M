@@ -9,8 +9,6 @@
 // See WasmHost.hpp and docs/EMSCRIPTEN.md ("Multi-instance host state").
 #include "WasmHost.hpp"
 
-#include <cstdlib>
-#include <memory>
 #include <new>
 
 // Engine lifecycle entry points defined in projectM_emscripten.cpp. They
@@ -26,7 +24,7 @@ extern "C" void destruct();
 // (at most kMaxHosts) live instances. All engine/GL/transition state lives in
 // the WasmHost structs they point at, not here.
 // =============================================================================
-static std::unique_ptr<WasmHost> g_hosts[kMaxHosts];
+static WasmHost* g_hosts[kMaxHosts] = {nullptr};
 static WasmHost* g_activeHost = nullptr;
 bool g_mainLoopRegistered = false;
 
@@ -34,12 +32,10 @@ WasmHost* AllocateHost()
 {
     for (int i = 0; i < kMaxHosts; ++i)
     {
-        if (!g_hosts[i])
+        if (g_hosts[i] == nullptr)
         {
-            // nothrow: an allocation failure is reported to the caller (null)
-            // like the cap is, not thrown through an extern "C" export.
-            g_hosts[i].reset(new (std::nothrow) WasmHost());
-            return g_hosts[i].get();
+            g_hosts[i] = new (std::nothrow) WasmHost();
+            return g_hosts[i];
         }
     }
     return nullptr; // at capacity
@@ -49,20 +45,12 @@ WasmHost& Host()
 {
     if (g_activeHost == nullptr)
     {
-        // Lazily bring up the compat default instance. It is left un-inited
-        // here; the legacy init() path (which calls Host()) does the
-        // engine/GL setup. With no active host every slot is free (an active
-        // host is only cleared when none is left), so only an allocation
-        // failure leaves this null, and every export dereferences the result:
-        // stop here with a message instead of reading through a null pointer.
+        // Lazily bring up the compat default instance (slot 0). It is left
+        // un-inited here; the legacy init() path (which calls Host()) does the
+        // engine/GL setup.
         WasmHost* def = AllocateHost();
-        if (def == nullptr)
-        {
-            fprintf(stderr, "projectM: could not allocate the default host (out of memory).\n");
-            abort();
-        }
         def->implicitDefault = true;
-        g_activeHost = def;
+        g_activeHost = def; // AllocateHost() cannot fail for the first slot.
     }
     return *g_activeHost;
 }
@@ -87,7 +75,7 @@ void SetActiveHost(WasmHost* host)
         // host, so set_active_host(0) used to be a silent no-op.)
         for (int i = 0; i < kMaxHosts && host == nullptr; ++i)
         {
-            host = g_hosts[i].get();
+            host = g_hosts[i];
         }
         if (host == nullptr)
         {
@@ -123,6 +111,17 @@ void ReleaseHost(WasmHost* host)
     ArmShaderCacheKeyForHost(*host);
     destruct();
 
+    int freedSlot = -1;
+    for (int i = 0; i < kMaxHosts; ++i)
+    {
+        if (g_hosts[i] == host)
+        {
+            g_hosts[i] = nullptr;
+            freedSlot = i;
+            break;
+        }
+    }
+
     if (g_activeHost == host)
     {
         g_activeHost = nullptr;
@@ -130,16 +129,9 @@ void ReleaseHost(WasmHost* host)
 
     // destruct() released the dual FBOs and the compositor under this host's
     // own context before destroying it, so their destructors find nothing left
-    // to delete and issue no GL calls. The prepare queue's destructor joins the
-    // host's prepare thread (WasmPresetPrepare.cpp).
-    for (auto& slot : g_hosts)
-    {
-        if (slot.get() == host)
-        {
-            slot.reset();
-            break;
-        }
-    }
+    // to delete and issue no GL calls.
+    delete host;
+    (void) freedSlot;
 
     // Re-point the active host at any surviving instance so subsequent legacy
     // exports keep working; Host() will lazily recreate a default if none.
@@ -147,9 +139,9 @@ void ReleaseHost(WasmHost* host)
     {
         for (int i = 0; i < kMaxHosts; ++i)
         {
-            if (g_hosts[i])
+            if (g_hosts[i] != nullptr)
             {
-                SetActiveHost(g_hosts[i].get());
+                SetActiveHost(g_hosts[i]);
                 break;
             }
         }
@@ -167,7 +159,7 @@ WasmHost* HostSlot(int index)
     {
         return nullptr;
     }
-    return g_hosts[index].get();
+    return g_hosts[index];
 }
 
 WasmHost* ActiveHostOrNull()
@@ -198,9 +190,9 @@ WasmHost* HostFromHandle(uintptr_t handle)
     }
     for (int i = 0; i < kMaxHosts; ++i)
     {
-        if (g_hosts[i] && HostHandle(*g_hosts[i]) == handle)
+        if (g_hosts[i] != nullptr && HostHandle(*g_hosts[i]) == handle)
         {
-            return g_hosts[i].get();
+            return g_hosts[i];
         }
     }
     return nullptr;
@@ -214,7 +206,7 @@ projectm_handle EngineFromHandle(uintptr_t engineHandle)
     }
     for (int i = 0; i < kMaxHosts; ++i)
     {
-        if (g_hosts[i] && reinterpret_cast<uintptr_t>(g_hosts[i]->appData.projectm_engine) == engineHandle)
+        if (g_hosts[i] != nullptr && reinterpret_cast<uintptr_t>(g_hosts[i]->appData.projectm_engine) == engineHandle)
         {
             return g_hosts[i]->appData.projectm_engine;
         }
@@ -227,7 +219,7 @@ int LiveHostCount()
     int n = 0;
     for (int i = 0; i < kMaxHosts; ++i)
     {
-        if (g_hosts[i])
+        if (g_hosts[i] != nullptr)
         {
             ++n;
         }
@@ -254,12 +246,6 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
     // selectors) carries over; the selectors are overwritten below anyway.
     const bool adopted = IsUnusedImplicitDefault(previous);
     WasmHost* host = adopted ? previous : AllocateHost();
-    if (host == nullptr && LiveHostCount() < kMaxHosts)
-    {
-        fprintf(stderr, "create_host: refused – out of memory for a new host.\n");
-        js_report_init_error_for_host(kNoEventHost, 4, "Out of memory for a new projectM instance");
-        return 0;
-    }
     if (host == nullptr)
     {
         fprintf(stderr, "create_host: refused – already at kMaxHosts (%d) instances.\n", kMaxHosts);

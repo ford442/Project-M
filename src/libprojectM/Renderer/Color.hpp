@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Renderer/OpenGL.h"
+
 #include <cmath>
 #include <cstdint>
 
@@ -158,6 +160,15 @@ public:
                      Modulo(col.G()),
                      Modulo(col.B()),
                      Modulo(col.A()));
+    }
+
+    /**
+     * @brief Initializes the attribute array pointer for this storage type.
+     * @param attributeIndex the attribute index to use.
+     */
+    static void InitializeAttributePointer(uint32_t attributeIndex)
+    {
+        glVertexAttribPointer(attributeIndex, sizeof(Color) / sizeof(float), GL_FLOAT, GL_FALSE, sizeof(Color), nullptr);
     }
 
 private:

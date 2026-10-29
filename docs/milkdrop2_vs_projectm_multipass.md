@@ -224,7 +224,7 @@ style code, not fixed uniforms). No composite-path changes were needed.
 
 No GPU/display is available in this environment (same limitation noted in
 `docs/PERFORMANCE.md`), so the following is a code-level analysis of expected
-before/after behavior for five `presets/weeks/` presets that exercise the
+before/after behavior for five `weeks_presets/` presets that exercise the
 fixed code paths, rather than rendered screenshots. All five build and load
 successfully against the native target verified above.
 

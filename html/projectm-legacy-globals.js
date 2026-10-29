@@ -52,7 +52,7 @@ export const LEGACY_GLOBAL_NAMES = Object.freeze([
 ]);
 
 /**
- * @param {object} host
+ * @param {any} host
  * @param {Record<string, unknown>} entries
  * @returns {() => void} Releases every claim made here.
  */
@@ -72,7 +72,7 @@ function claimAll(host, entries) {
  * `setupFpsGovernor()` returns.
  *
  * @param {import('./projectm-fps-governor.js').FpsGovernorApi} governor
- * @param {object} [host]
+ * @param {any} [host]
  * @returns {() => void}
  */
 export function exposeGovernorGlobals(governor, host = globalThis) {
@@ -89,7 +89,7 @@ export function exposeGovernorGlobals(governor, host = globalThis) {
  * `window.pmSetMeshQuality`, backed by the object `setupMeshQuality()` returns.
  *
  * @param {{ setQuality: (quality: string) => string }} meshQuality
- * @param {object} [host]
+ * @param {any} [host]
  * @returns {() => void}
  */
 export function exposeMeshQualityGlobals(meshQuality, host = globalThis) {
@@ -99,9 +99,8 @@ export function exposeMeshQualityGlobals(meshQuality, host = globalThis) {
 /**
  * `window.pmGetFboFormat`.
  *
- * @param {() => string | null} getFormat Returns 'RGBA32F' | 'RGBA16F' | 'RGBA8', or
- *   null while a render worker has not reported its format yet.
- * @param {object} [host]
+ * @param {() => string} getFormat Returns 'RGBA32F' | 'RGBA16F' | 'RGBA8'.
+ * @param {any} [host]
  * @returns {() => void}
  */
 export function exposeFboFormatGlobals(getFormat, host = globalThis) {
@@ -113,7 +112,7 @@ export function exposeFboFormatGlobals(getFormat, host = globalThis) {
  * `setupPresetDevTools()`. Does nothing when the dev tools are not enabled.
  *
  * @param {{ enabled: boolean, reloadFromText?: unknown }} presetDev
- * @param {object} [host]
+ * @param {any} [host]
  * @returns {() => void}
  */
 export function exposePresetDevGlobals(presetDev, host = globalThis) {
@@ -131,7 +130,7 @@ export function exposePresetDevGlobals(presetDev, host = globalThis) {
  * nothing when the bridge is not enabled.
  *
  * @param {{ enabled: boolean, api?: unknown }} experimental
- * @param {object} [host]
+ * @param {any} [host]
  * @returns {() => void}
  */
 export function exposeExperimentalGlobals(experimental, host = globalThis) {
@@ -147,7 +146,7 @@ export function exposeExperimentalGlobals(experimental, host = globalThis) {
  * them, as the popup controller does -- `openFlacPlayer` / `openModPlayer`.
  *
  * @param {import('./projectm-audio-player.js').AudioPlayerController} controller
- * @param {object} [host]
+ * @param {any} [host]
  * @returns {() => void}
  */
 export function exposeAudioPlayerGlobals(controller, host = globalThis) {
@@ -168,14 +167,6 @@ export function exposeAudioPlayerGlobals(controller, host = globalThis) {
 }
 
 /**
- * A BroadcastChannel constructor, possibly one patchBroadcastChannel() installed.
- *
- * @typedef {(new (name: string) => BroadcastChannel) & { projectMNativeBroadcastChannel?: new (name: string) => BroadcastChannel }} BroadcastChannelCtor
- */
-
-/** @typedef {{ BroadcastChannel?: BroadcastChannelCtor }} BroadcastChannelHost */
-
-/**
  * Replace `host.BroadcastChannel` with a constructor that runs every channel it
  * creates through `wrap`. This is the monkey-patch the song loader used to apply
  * on its own; it is here so that affecting every script on the page is a
@@ -191,7 +182,7 @@ export function exposeAudioPlayerGlobals(controller, host = globalThis) {
  *
  * @param {(name: string, channel: BroadcastChannel) => BroadcastChannel} wrap
  *   For the song loader, `wrapSongChannel` from projectm-song-loader.js.
- * @param {BroadcastChannelHost} [host]
+ * @param {any} [host]
  * @returns {() => void}
  */
 export function patchBroadcastChannel(wrap, host = globalThis) {
@@ -211,7 +202,7 @@ export function patchBroadcastChannel(wrap, host = globalThis) {
     // Callable-as-constructor: the function returns the wrapped channel, so
     // `new PatchedBroadcastChannel(...)` yields it in place of the implicit this.
     PatchedBroadcastChannel.prototype = NativeCtor.prototype;
-    PatchedBroadcastChannel.projectMNativeBroadcastChannel = NativeCtor;
+    /** @type {any} */ (PatchedBroadcastChannel).projectMNativeBroadcastChannel = NativeCtor;
 
     return claimGlobal(host, 'BroadcastChannel', PatchedBroadcastChannel);
 }
@@ -225,7 +216,7 @@ export function patchBroadcastChannel(wrap, host = globalThis) {
  * the setup functions instead.
  *
  * @param {object} [options]
- * @param {object} [options.host] Object to publish on. Defaults to `globalThis`.
+ * @param {any} [options.host] Object to publish on. Defaults to `globalThis`.
  * @param {import('./projectm-fps-governor.js').FpsGovernorApi} [options.governor]
  * @param {{ setQuality: (quality: string) => string }} [options.meshQuality]
  * @param {() => string} [options.fboFormat]

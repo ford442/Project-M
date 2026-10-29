@@ -17,10 +17,10 @@
 #
 # Examples:
 #   scripts/kimi_validate_preset.sh presets/tests/000-empty.milk
-#   scripts/kimi_validate_preset.sh presets/custom/milk011.milk cmake-build-verify
+#   scripts/kimi_validate_preset.sh custom_milk_fixed/milk011.milk cmake-build-verify
 #
 # See also: scripts/test_presets.sh (validates an entire directory of presets) and
-# docs/agents/kimi_preset_authoring_plan.md (Kimi CLI runbook for preset authoring).
+# docs/kimi_preset_authoring_plan.md (Kimi CLI runbook for preset authoring).
 # ================================================
 
 set -euo pipefail

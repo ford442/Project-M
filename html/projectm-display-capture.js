@@ -58,19 +58,19 @@ export const SILENCE_HINT_MS = 4000;
  * Chrome requires `video` to be requested; the track is stopped as soon as it
  * arrives. Unknown members are ignored by browsers that lack them.
  *
- * @returns {DisplayMediaStreamOptions & Record<string, unknown>}
+ * @returns {Record<string, any>}
  */
 export function buildDisplayMediaOptions() {
     return {
         video: { displaySurface: 'browser' },
-        audio: /** @type {MediaTrackConstraints} */ ({
+        audio: {
             echoCancellation: false,
             noiseSuppression: false,
             autoGainControl: false,
             channelCount: { ideal: 2 },
             // Keep the captured tab audible to the user.
             suppressLocalAudioPlayback: false,
-        }),
+        },
         preferCurrentTab: false,
         selfBrowserSurface: 'exclude',
         surfaceSwitching: 'include',
@@ -106,24 +106,6 @@ export function describeCaptureError(error) {
 }
 
 /**
- * The parts of `window` a capture reads. A plain object will do (the tests pass
- * one); every member is optional and its absence reported as unsupported.
- *
- * @typedef {object} CaptureWindow
- * @property {{ mediaDevices?: CaptureMediaDevices }} [navigator]
- * @property {typeof AudioContext} [AudioContext]
- * @property {typeof AudioContext} [webkitAudioContext] Safari before 14.1.
- * @property {typeof AudioWorkletNode} [AudioWorkletNode]
- * @property {typeof BroadcastChannel} [BroadcastChannel]
- * @property {typeof Blob} [Blob]
- * @property {{ createObjectURL?: (blob: Blob) => string, revokeObjectURL?: (url: string) => void }} [URL]
- * @property {Window | null} [opener]
- * @property {Window | null} [parent]
- */
-
-/** @typedef {{ getDisplayMedia?: (options: DisplayMediaStreamOptions) => Promise<MediaStream> }} CaptureMediaDevices */
-
-/**
  * @typedef {object} DisplayAudioCapture
  * @property {() => void} stop Ends the capture and releases stream + context. Idempotent.
  * @property {() => { blocks: number, frames: number, sampleRate: number, channels: number,
@@ -141,12 +123,12 @@ export function describeCaptureError(error) {
  *
  * @param {object} [options]
  * @param {(status: CaptureStatus) => void} [options.onStatus]
- * @param {CaptureWindow} [options.windowRef]
- * @param {CaptureMediaDevices} [options.mediaDevices]
- * @param {typeof AudioContext} [options.audioContextCtor]
- * @param {typeof AudioWorkletNode} [options.audioWorkletNodeCtor]
- * @param {typeof BroadcastChannel} [options.broadcastChannelCtor]
- * @param {typeof Blob} [options.blobCtor]
+ * @param {any} [options.windowRef]
+ * @param {any} [options.mediaDevices]
+ * @param {any} [options.audioContextCtor]
+ * @param {any} [options.audioWorkletNodeCtor]
+ * @param {any} [options.broadcastChannelCtor]
+ * @param {any} [options.blobCtor]
  * @param {(blob: Blob) => string} [options.createObjectURL]
  * @param {() => number} [options.now]
  * @param {number} [options.blockFrames]
@@ -164,7 +146,6 @@ export async function startDisplayAudioCapture({
     now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
     blockFrames = DEFAULT_BLOCK_FRAMES,
 } = {}) {
-    /** @type {CaptureWindow} */
     const win = windowRef ?? {};
     const devices = mediaDevices ?? win.navigator?.mediaDevices;
     if (!devices || typeof devices.getDisplayMedia !== 'function') {
@@ -266,7 +247,7 @@ export async function startDisplayAudioCapture({
     sink.gain.value = 0;
     sink.connect(context.destination);
 
-    /** @type {AudioWorkletNode | ScriptProcessorNode | null} */
+    /** @type {any} */
     let captureNode = null;
     /** @type {string | null} */
     let processorUrl = null;
@@ -289,8 +270,7 @@ export async function startDisplayAudioCapture({
     async function attachWorklet() {
         const WorkletNode = audioWorkletNodeCtor ?? win.AudioWorkletNode;
         const BlobCtor = blobCtor ?? win.Blob;
-        const createUrl = win.URL?.createObjectURL?.bind(win.URL);
-        const makeUrl = createObjectURL ?? createUrl ?? null;
+        const makeUrl = createObjectURL ?? (win.URL?.createObjectURL ? (/** @type {Blob} */ b) => win.URL.createObjectURL(b) : null);
         if (typeof WorkletNode !== 'function' || !context.audioWorklet || typeof BlobCtor !== 'function' || !makeUrl) {
             throw new Error('AudioWorklet unavailable');
         }
@@ -332,11 +312,10 @@ export async function startDisplayAudioCapture({
                 try { node.disconnect(); } catch { /* already gone */ }
             }
         }
-        if (captureNode && 'port' in captureNode) captureNode.port.onmessage = null;
-        else if (captureNode) captureNode.onaudioprocess = null;
+        if (captureNode?.port) captureNode.port.onmessage = null;
+        if (captureNode) captureNode.onaudioprocess = null;
         captureNode = null;
-        // close() rejects on an already-closed context; nothing to do about it.
-        try { Promise.resolve(context.close?.()).catch(() => {}); } catch { /* already closed */ }
+        try { context.close?.(); } catch { /* already closed */ }
         if (processorUrl && win.URL?.revokeObjectURL) {
             try { win.URL.revokeObjectURL(processorUrl); } catch { /* ignore */ }
         }

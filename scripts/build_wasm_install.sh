@@ -8,11 +8,14 @@
 #   - Emscripten SDK activated (source /path/to/emsdk/emsdk_env.sh)
 #   - git submodules initialized (vendor/projectm-eval)
 #
-# Usage: run scripts/build_wasm.sh, which calls this, links the wrapper and
-# checks the result. Standalone (libraries only):
+# Usage:
 #   source /path/to/emsdk/emsdk_env.sh
 #   INSTALL_DIR=install CMAKE_BUILD_DIR=cmake-build-wasm \
 #     scripts/build_wasm_install.sh
+#
+# Then:
+#   PROJECTM_WASM_VERSION=039 INSTALL_DIR=install \
+#     OUT_DIR=cmake-build/wasm-smoke scripts/prepare_deploy_bundle.sh
 
 set -euo pipefail
 
@@ -25,10 +28,9 @@ GTEST_DIR="${GTEST_DIR:-}"
 # Release defines NDEBUG, so assert() is compiled out of the shipped wasm (the
 # build used to pass no build type at all, which left every assert live).
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
-# Whole-program LTO: the static libs become LLVM bitcode (scripts/build_wasm.sh
-# --lto). The wrapper link takes the setting from the configured build dir
-# (projectm-wasm-wrapper-flags.txt) and checks the archives agree, so this is the
-# only place it is chosen. See cmake/EmscriptenWasmFlags.cmake.
+# Whole-program LTO: the static libs become LLVM bitcode. The wrapper link must
+# then run with the same PROJECTM_WASM_LTO=1 (scripts/build_wasm_smoke_wrapper.sh
+# reads it). See cmake/EmscriptenWasmFlags.cmake.
 PROJECTM_WASM_LTO="${PROJECTM_WASM_LTO:-0}"
 
 if ! command -v emcc >/dev/null 2>&1; then

@@ -205,18 +205,13 @@ test('feedPcmThroughRing prefers the ring and falls back only without one', () =
 test('installHostPcmRingWriter exposes the writer the baked EM_JS handler prefers', () => {
     const module = fakeRingModule();
     try {
-        assert.equal(installHostPcmRingWriter({}), null, 'nothing installed without a ring');
+        assert.equal(installHostPcmRingWriter({}), false, 'nothing installed without a ring');
         assert.equal(typeof globalThis.projectMWritePcmRing, 'undefined');
 
-        const release = installHostPcmRingWriter(module);
-        assert.equal(typeof release, 'function');
-        assert.equal(installHostPcmRingWriter(module), release, 'a re-attach does not stack another claim');
+        assert.equal(installHostPcmRingWriter(module), true);
         globalThis.projectMWritePcmRing(new Float32Array([0.5, -0.5]), 2);
         assert.equal(Atomics.load(module.header, 0), 1);
         assert.deepEqual(Array.from(module.data.subarray(0, 2)), [0.5, -0.5]);
-
-        release();
-        assert.equal(typeof globalThis.projectMWritePcmRing, 'undefined', 'the release takes the slot down');
     } finally {
         delete globalThis.projectMWritePcmRing;
     }

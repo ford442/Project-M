@@ -15,7 +15,7 @@ Experimental hooks documented in [`EXPERIMENTAL_PRESET_HOOKS.md`](EXPERIMENTAL_P
 
 - Harden and optimize current presets for reliability and **60fps in WASM**.
 - Create a **systematic workflow** for high-quality new custom presets.
-- Leverage AI/agent tools (`docs/agents/grok/`, Kimi, Claude, etc.) for generation and review.
+- Leverage AI/agent tools (`grok_agent/`, Kimi, Claude, etc.) for generation and review.
 - Improve demo UX around presets (browsing, metadata, transitions).
 
 ## Effort Split
@@ -61,7 +61,7 @@ Upstream sync cadence established, experimental feature prototypes evaluated.
 
 | Issue | Area | Priority | Milestone | Status |
 |-------|------|----------|-----------|--------|
-| [#111](https://github.com/ford442/Project-M/issues/111) | Audit, upgrade & harden existing presets (`presets/weeks/` + `presets/custom/`) | `P0` | M1 | closed |
+| [#111](https://github.com/ford442/Project-M/issues/111) | Audit, upgrade & harden existing presets (`weeks_presets/` + `custom_milk_fixed/`) | `P0` | M1 | closed |
 | [#112](https://github.com/ford442/Project-M/issues/112) | Extend OpenMP pragmas + SIMD to preset evaluation and rendering | `P0` | M1 | closed |
 | [#115](https://github.com/ford442/Project-M/issues/115) | Verify accurate audio data reactivity (FFT, beat, waveform, per-frame eqs) | `P1` | M2 | closed |
 | [#117](https://github.com/ford442/Project-M/issues/117) | `optimize.sh` + preset benchmarking (`docs/BENCHMARKING.md`) | `P1` | M2 | closed |
@@ -80,10 +80,10 @@ Upstream sync cadence established, experimental feature prototypes evaluated.
 The preset work operates over three corpora, described in
 [`presets/agent_manifest.json`](../presets/agent_manifest.json):
 
-- **`presets/custom/`** — curated AI-authored regression set (`milk0xx` + `fractal_echo_*`
+- **`custom_milk_fixed/`** — curated AI-authored regression set (`milk0xx` + `fractal_echo_*`
   series). Opt-in via `PROJECTM_TEST_CUSTOM_MILK_FIXED=1`. Presets that cannot render
-  are parked in `presets/quarantine/` with a stated reason; see its README.
-- **`presets/weeks/`** — large community corpus (~400 `.milk` files); validate via
+  are parked in `custom_milk_quarantine/` with a stated reason; see its README.
+- **`weeks_presets/`** — large community corpus (~400 `.milk` files); validate via
   `PROJECTM_PRESET_COMPAT_DIR` before bulk upgrades.
 - **`presets/tests/`** — small parser/shader fixtures covered by the default
   `projectM-unittest` `PresetCompat` run.
@@ -124,11 +124,11 @@ Author/validate/upgrade helpers:
 - `scripts/build_featured_pack.mjs` — curated Featured / Signature pack for B3HD (`html/featured_pack_manifest.json`).
 - [`docs/PRESET_METADATA.md`](PRESET_METADATA.md) — header-comment + sidecar JSON metadata spec.
 - `scripts/capture_custom_milk_screenshots.mjs` — capture reference screenshots.
-- `docs/agents/grok/` — agent plans, prompts, and review checklists for generation/review.
+- `grok_agent/` — agent plans, prompts, and review checklists for generation/review.
 
 Authoring references: [`docs/WRITING_NEW_MILK_PRESETS_GUIDE.md`](WRITING_NEW_MILK_PRESETS_GUIDE.md),
 [`docs/MILK_PRESET_GUIDE.md`](MILK_PRESET_GUIDE.md),
-[`docs/agents/kimi_preset_authoring_plan.md`](agents/kimi_preset_authoring_plan.md), and the
+[`docs/kimi_preset_authoring_plan.md`](kimi_preset_authoring_plan.md), and the
 `docs/milk0xx_creative_brief.md` worked examples.
 
 New-preset pipeline: [`SIGNATURE_SERIES_WORKFLOW.md`](SIGNATURE_SERIES_WORKFLOW.md) (issue #113).

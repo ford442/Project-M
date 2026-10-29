@@ -33,9 +33,72 @@ EM_JS(void, js_report_preset_switch_failed, (const char* preset_filename, const 
     const pmDoc = globalThis.document;
     const statEl = pmDoc ? pmDoc.querySelector('#stat') : null;
     if (statEl) {
-        statEl.textContent = 'Preset failed: ' + name.split('/').pop();
+        statEl.innerHTML = 'Preset failed: ' + name.split('/').pop();
         statEl.style.backgroundColor = 'red';
     }
+});
+// clang-format on
+
+// clang-format off
+EM_JS(void,getCustomShader,(),{
+var pmDoc=globalThis.document;
+if(!pmDoc){ return; }
+var pathEl=pmDoc.querySelector('#milkPath2');
+if(!pathEl){ return; }
+var pth=pathEl.innerHTML;
+var presetName = pth.split('/').pop();
+if (globalThis.updatePresetDisplay) { globalThis.updatePresetDisplay(presetName); }
+console.log('Getting preset: '+pth);
+const ff=new XMLHttpRequest();
+ff.open('GET',pth,true);
+ff.responseType='arraybuffer';
+var statEl5 = pmDoc.querySelector('#stat');
+if (statEl5) { statEl5.innerHTML='Downloading Shader'; statEl5.style.backgroundColor='yellow'; }
+ff.addEventListener("load",function(){
+let sarrayBuffer=ff.response;
+if(sarrayBuffer){
+let sfil=new Uint8ClampedArray(sarrayBuffer);
+FS.writeFile("/presets/preset_custom.milk",sfil);
+setTimeout(function(){
+Module.ccall('load_preset_file', null, ['string'], ["/presets/preset_custom.milk"]);
+var statEl6 = pmDoc.querySelector('#stat');
+if (statEl6) { statEl6.innerHTML='Downloaded Shader'; statEl6.style.backgroundColor='blue'; }
+},20);
+}
+});
+ff.send(null);
+return;
+});
+// clang-format on
+
+// clang-format off
+EM_JS(void,getShader,(int num),{
+var pmDoc=globalThis.document;
+if(!pmDoc){ return; }
+var pathEl=pmDoc.querySelector('#milkPath');
+if(!pathEl){ return; }
+var pth=pathEl.innerHTML;
+var presetName = pth.split('/').pop();
+if (globalThis.updatePresetDisplay) { globalThis.updatePresetDisplay(presetName); }
+console.log('Getting preset: '+pth);
+const ff=new XMLHttpRequest();
+ff.open('GET',pth,true);
+ff.responseType='arraybuffer';
+var statEl5 = pmDoc.querySelector('#stat');
+if (statEl5) { statEl5.innerHTML='Downloading Shader'; statEl5.style.backgroundColor='yellow'; }
+ff.addEventListener("load",function(){
+let sarrayBuffer=ff.response;
+if(sarrayBuffer){
+let sfil=new Uint8ClampedArray(sarrayBuffer);
+FS.writeFile("/presets/preset_"+num+".milk",sfil);
+setTimeout(function(){
+pmDoc.querySelector('#stat').innerHTML='Downloaded Shader';
+pmDoc.querySelector('#stat').style.backgroundColor='blue';
+},20);
+}
+});
+ff.send(null);
+return;
 });
 // clang-format on
 
@@ -131,7 +194,7 @@ function textures(xml, textureBase){
             ff.open('GET', url, true);
             ff.responseType = 'arraybuffer';
             var statEl = pmDoc.querySelector('#stat');
-            if (statEl) { statEl.textContent = 'Downloading Texture'; statEl.style.backgroundColor = 'yellow'; }
+            if (statEl) { statEl.innerHTML = 'Downloading Texture'; statEl.style.backgroundColor = 'yellow'; }
             ff.addEventListener("load", function(){
                 let sarrayBuffer = ff.response;
                 if (sarrayBuffer) {
@@ -140,7 +203,7 @@ function textures(xml, textureBase){
                     console.log('got texture: ' + filename + ' from ' + url);
                     setTimeout(function(){
                         var statEl2 = pmDoc.querySelector('#stat');
-                        if (statEl2) { statEl2.textContent = 'Downloaded Texture'; statEl2.style.backgroundColor = 'blue'; }
+                        if (statEl2) { statEl2.innerHTML = 'Downloaded Texture'; statEl2.style.backgroundColor = 'blue'; }
                     }, 500);
                 }
             });
@@ -228,7 +291,7 @@ function fetchFirst(urls){
 function getCustomMilkShaders(){
     var total = $customMilk.length;
     var statEl3 = pmDoc.querySelector('#stat');
-    if (statEl3) { statEl3.textContent = 'Downloading Custom Presets'; statEl3.style.backgroundColor = 'yellow'; }
+    if (statEl3) { statEl3.innerHTML = 'Downloading Custom Presets'; statEl3.style.backgroundColor = 'yellow'; }
     Promise.all($customMilk.map(function(entry, idx){
         return fetchFirst(entry.urls).then(function(buf){
             if (buf) {
@@ -240,14 +303,14 @@ function getCustomMilkShaders(){
         });
     })).then(function(){
         console.log('Custom milk presets downloaded (' + total + '; not adding to auto-change playlist).');
-        if (statEl3) { statEl3.textContent = 'Custom Presets Ready'; statEl3.style.backgroundColor = 'blue'; }
+        if (statEl3) { statEl3.innerHTML = 'Custom Presets Ready'; statEl3.style.backgroundColor = 'blue'; }
     });
 }
 
 function loadRandomCustomMilk(){
 if($customMilk.length===0){
 console.log('No custom milk presets available yet.');
-pmDoc.querySelector('#stat').textContent='Custom presets loading...';
+pmDoc.querySelector('#stat').innerHTML='Custom presets loading...';
 pmDoc.querySelector('#stat').style.backgroundColor='orange';
 return;
 }
@@ -256,7 +319,7 @@ var fname='/presets/custmilk_'+idx+'.milk';
 var originalName = $customMilk[idx].file;
 Module.ccall('load_preset_file', null, ['string'], [fname]);
 if (globalThis.updatePresetDisplay) { globalThis.updatePresetDisplay(originalName); }
-pmDoc.querySelector('#stat').textContent='Loaded: custmilk_'+idx+'.milk';
+pmDoc.querySelector('#stat').innerHTML='Loaded: custmilk_'+idx+'.milk';
 pmDoc.querySelector('#stat').style.backgroundColor='green';
 console.log('Loading random custom milk: '+fname);
 }
@@ -315,7 +378,7 @@ const ff=new XMLHttpRequest();
 ff.open('GET',url,true);
 ff.responseType='arraybuffer';
 var statEl=pmDoc.querySelector('#stat');
-if(statEl){statEl.textContent='Downloading Weeks Preset';statEl.style.backgroundColor='yellow';}
+if(statEl){statEl.innerHTML='Downloading Weeks Preset';statEl.style.backgroundColor='yellow';}
 ff.addEventListener("load",function(){
 var buf=ff.response;
 weeksPresetPickInFlight=false;
@@ -324,7 +387,7 @@ var vfsName='/presets/weeks_pick_'+Date.now()+'.milk';
 FS.writeFile(vfsName,new Uint8ClampedArray(buf));
 Module.ccall('load_preset_file_hard',null,['string'],[vfsName]);
 if(globalThis.updatePresetDisplay){globalThis.updatePresetDisplay(presetName);}
-if(statEl){statEl.textContent='Loaded: '+presetName;statEl.style.backgroundColor='green';}
+if(statEl){statEl.innerHTML='Loaded: '+presetName;statEl.style.backgroundColor='green';}
 }
 });
 ff.addEventListener("error",function(){
@@ -477,14 +540,14 @@ const ff=new XMLHttpRequest();
 ff.open('GET',pth,true);
 ff.responseType='arraybuffer';
 var statEl5 = pmDoc.querySelector('#stat');
-if (statEl5) { statEl5.textContent='Downloading Shader'; statEl5.style.backgroundColor='yellow'; }
+if (statEl5) { statEl5.innerHTML='Downloading Shader'; statEl5.style.backgroundColor='yellow'; }
 ff.addEventListener("load",function(){
 let sarrayBuffer=ff.response;
 if(sarrayBuffer){
 let sfil=new Uint8ClampedArray(sarrayBuffer);
 FS.writeFile(fname,sfil);
 console.log('got preset: '+fname);
-pmDoc.querySelector('#stat').textContent='Downloaded Shader';
+pmDoc.querySelector('#stat').innerHTML='Downloaded Shader';
 pmDoc.querySelector('#stat').style.backgroundColor='blue';
 const presetFileNameToLoad = fname;
 console.log("JS: Attempting to load pre-downloaded: " + presetFileNameToLoad);
@@ -536,6 +599,13 @@ if (milkBtnEl) {
 
 // #customMilkBtn is owned by the host page (randomCustom / preset picker).
 // Do not attach a second click handler here — it caused double preset loads.
+
+var createSpriteBtnEl = pmDoc.querySelector('#createSpriteBtn');
+if (createSpriteBtnEl) {
+    createSpriteBtnEl.addEventListener('click',function(){
+        Module._createSprite();
+    });
+}
 
 if (isCaptureMode) {
     console.log('projectM capture mode: skipping texture, song, and custom milk network scans.');

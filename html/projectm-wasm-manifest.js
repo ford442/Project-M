@@ -76,19 +76,13 @@ export function loadWasmBuildsManifest({
 function untilAborted(promise, signal) {
     if (!signal) return promise;
     if (signal.aborted) return Promise.resolve(null);
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         const onAbort = () => resolve(null);
         signal.addEventListener('abort', onAbort, { once: true });
-        promise.then(
-            (value) => {
-                signal.removeEventListener('abort', onAbort);
-                resolve(value);
-            },
-            (error) => {
-                signal.removeEventListener('abort', onAbort);
-                reject(error);
-            }
-        );
+        promise.then((value) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(value);
+        });
     });
 }
 

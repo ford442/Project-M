@@ -63,42 +63,6 @@ auto GetReferencedSamplers(const std::string& program) -> std::set<std::string>
     return samplerNames;
 }
 
-auto HdrOutputFunctions(ToneMap toneMap, OutputGamut gamut) -> std::string
-{
-    // HLSL; the transpiler turns saturate into clamp, lerp into mix and mul into a matrix
-    // multiply, like it does for preset code.
-    std::string source = "float3 _prjm_reinhard(float3 c) {\n"
-                         "    float lum = dot(c, float3(0.2126, 0.7152, 0.0722));\n"
-                         "    return c * (lum / ((1.0 + lum) * max(lum, 0.0001)));\n"
-                         "}\n"
-                         "float3 _prjm_linear_to_srgb(float3 c) {\n"
-                         "    float3 lo = c * 12.92;\n"
-                         "    float3 hi = 1.055 * pow(saturate(c), 1.0 / 2.4) - 0.055;\n"
-                         "    return lerp(lo, hi, step(0.0031308, c));\n"
-                         "}\n"
-                         "float3 _prjm_hdr_out(float3 c) {\n";
-    if (toneMap == ToneMap::Reinhard)
-    {
-        source.append("    c = _prjm_reinhard(c);\n");
-    }
-    if (gamut == OutputGamut::DisplayP3)
-    {
-        // Linear BT.709 -> linear Display P3 (both D65), row-major as HLSL writes it:
-        // the first row is the P3 red channel. It has to act on linear light, before
-        // the transfer function: applied to encoded values it shifts hue and saturation,
-        // most visibly in saturated reds and greens. Rows sum to 1, so white stays white.
-        source.append("    float3x3 _bt709_to_p3 = float3x3(\n"
-                      "        0.8224621, 0.1775380, 0.0000000,\n"
-                      "        0.0331941, 0.9668058, 0.0000000,\n"
-                      "        0.0170827, 0.0723974, 0.9105199);\n"
-                      "    c = mul(_bt709_to_p3, c);\n");
-    }
-    // Display P3 and sRGB share the sRGB transfer function.
-    source.append("    return _prjm_linear_to_srgb(saturate(c));\n"
-                  "}\n");
-    return source;
-}
-
 void PreprocessPresetShader(ShaderType type, std::string& program)
 {
     std::string shaderTypeString = "composite";
@@ -286,12 +250,30 @@ void PS(float4 _vDiffuse : COLOR,
 #ifdef PROJECTM_HDR_RENDERING
         // Inject HDR tone-mapping helpers into the composite shader (HLSL syntax).
         // _prjm_hdr_out is called on ret.xyz just before the output assignment,
-        // converting linear light to tone-mapped, gamma-encoded display output.
+        // converting linear light to tone-mapped, sRGB-gamma-encoded display output.
+        // The transpiler converts saturate→clamp, lerp→mix, mul→matrix multiply, etc.
+        fullSource.append(
+            "float3 _prjm_reinhard(float3 c) {\n"
+            "    float lum = dot(c, float3(0.2126, 0.7152, 0.0722));\n"
+            "    return c * (lum / ((1.0 + lum) * max(lum, 0.0001)));\n"
+            "}\n"
+            "float3 _prjm_linear_to_srgb(float3 c) {\n"
+            "    float3 lo = c * 12.92;\n"
+            "    float3 hi = 1.055 * pow(saturate(c), 1.0 / 2.4) - 0.055;\n"
+            "    return lerp(lo, hi, step(0.0031308, c));\n"
+            "}\n"
+            "float3 _prjm_hdr_out(float3 c) {\n"
+            "    c = _prjm_linear_to_srgb(_prjm_reinhard(c));\n"
 #ifdef PROJECTM_HDR_P3
-        fullSource.append(HdrOutputFunctions(ToneMap::Reinhard, OutputGamut::DisplayP3));
-#else
-        fullSource.append(HdrOutputFunctions(ToneMap::Reinhard, OutputGamut::Srgb));
+            // BT.709 → Display-P3 (D65) color matrix, row-major HLSL convention.
+            "    float3x3 _bt709_to_p3 = float3x3(\n"
+            "        0.8225, 0.1774, 0.0003,\n"
+            "        0.0331, 0.9669, 0.0003,\n"
+            "        0.0171, 0.0724, 0.9108);\n"
+            "    c = saturate(mul(_bt709_to_p3, c));\n"
 #endif
+            "    return c;\n"
+            "}\n");
 #endif
     }
 

@@ -44,7 +44,7 @@ static projectm_handle ResolvePcmTargetEngine(uintptr_t pm_handle_value)
 //
 //   * cross-origin isolated: each descriptor is posted to the processor as a
 //     `pcmRing` message tagged with `hostHandle`; the processor writes every
-//     quantum into every attached ring (html/worklets/projectm-audio-processor.js). A
+//     quantum into every attached ring (projectm_audio_processor.js). A
 //     released ring is withdrawn with `pcmRingDetach`.
 //   * not isolated: the processor posts `pcmData`, and the handler installed
 //     below writes it into every registered ring, one hop later.
@@ -207,7 +207,7 @@ EM_JS(void, js_initialize_worklet_system_once, (), {
 
         (async () => {
             try {
-                await audioContext.audioWorklet.addModule('worklets/projectm-audio-processor.js');
+                await audioContext.audioWorklet.addModule('projectm_audio_processor.js');
                 if (globalThis.projectMWorkletNode_Global_Cpp) {
                     _attach_worklet_ingest();
                     resolveReady(globalThis.projectMWorkletNode_Global_Cpp);

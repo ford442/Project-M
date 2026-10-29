@@ -9,7 +9,7 @@ limitations. Companion to issue [#115](https://github.com/ford442/Project-M/issu
 ```mermaid
 flowchart LR
   subgraph ingress [JavaScript producers]
-    WL[AudioWorklet\nhtml/worklets/projectm-audio-processor.js]
+    WL[AudioWorklet\nprojectm_audio_processor.js]
     ST[Media element\nMediaElementAudioSourceNode]
     EXT[External PCM\nprojectm-external-pcm.js]
     SYN[Synthetic test\nprojectm-synthetic-audio.js]
@@ -186,7 +186,7 @@ delays the audio by one frame instead of discarding a frame's worth of samples.
 Descriptor exports (`get_pcm_ring_data_ptr`, `get_pcm_ring_header_ptr`,
 `get_pcm_ring_capacity_frames`, `get_pcm_ring_index_modulus`) let JavaScript map
 views over the ring; `html/projectm-pcm-ring.js` is the host-side writer, and
-`html/worklets/projectm-audio-processor.js` writes each 128-sample quantum directly when the
+`projectm_audio_processor.js` writes each 128-sample quantum directly when the
 page is cross-origin isolated.
 
 ### Transports
@@ -245,7 +245,7 @@ There is no "mix" mode; see [Mixing](#mixing-not-implemented).
 
 | Path | File | Feed size | Preprocessing |
 |------|------|-----------|---------------|
-| **Worklet** (local decode) | `html/worklets/projectm-audio-processor.js` | 128-frame quantum, stereo | none — written straight to the ring |
+| **Worklet** (local decode) | `projectm_audio_processor.js` | 128-frame quantum, stereo | none — written straight to the ring |
 | **Media element** | `html/projectm-audio-element-source.js` → the same worklet | 128-frame quantum, stereo | none |
 | **External PCM** | `html/projectm-external-pcm.js` | whole chunk, stereo | optional `externalPcmGain` |
 | **Synthetic** | `html/projectm-synthetic-audio.js` | whole chunk | none |
@@ -546,7 +546,7 @@ Chunks arriving when the router is not in `'external'` are dropped (`false`).
 | Name | Description |
 |------|-------------|
 | `'none'` | No source configured (initial / reset state) |
-| `'worklet'` | Internal AudioWorklet (`html/worklets/projectm-audio-processor.js`) |
+| `'worklet'` | Internal AudioWorklet (`projectm_audio_processor.js`) |
 | `'element'` | Media element routed through the worklet (`#audio-stream-element`) |
 | `'external'` | MOD/FLAC players via `postMessage` / `BroadcastChannel` |
 
@@ -725,7 +725,7 @@ Perf HUD (`?perf=1`) shows **Audio FFT/Loudness** timing via `audio_analysis_ms`
 
 | File | Role |
 |------|------|
-| `html/worklets/projectm-audio-processor.js` | Web Audio worklet; batches PCM to main thread |
+| `projectm_audio_processor.js` | Web Audio worklet; batches PCM to main thread |
 | `projectM_emscripten.cpp` | Worklet/stream glue, `_projectm_pcm_add_float_wrapper` |
 | `html/projectm-external-pcm.js` | MOD/FLAC postMessage bridge |
 | `html/projectm-audio-source-router.js` | `AudioSourceRouter` — exclusive single-source policy, host-router registry, `playSong()` gate |

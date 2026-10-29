@@ -558,11 +558,11 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
     // Set wrap mode and bind the sampler to get interpolation right.
     if (*perFrameContext.wrap > 0.0001f)
     {
-        m_perPixelSampler.WrapMode(Renderer::Device::WrapMode::Repeat);
+        m_perPixelSampler.WrapMode(GL_REPEAT);
     }
     else
     {
-        m_perPixelSampler.WrapMode(Renderer::Device::WrapMode::ClampToEdge);
+        m_perPixelSampler.WrapMode(GL_CLAMP_TO_EDGE);
     }
     m_perPixelSampler.Bind(0);
 

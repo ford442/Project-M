@@ -5,29 +5,23 @@ name: Preset Static Audit
 # build — only Node — so it runs on every push/PR as a quick gate:
 #
 #   * self-test locks the parser/check logic against regressions,
-#   * presets/custom/ (curated corpus) is gated: any `error` fails the job,
-#   * presets/weeks/ (large community corpus) is advisory (report only).
+#   * custom_milk_fixed/ (curated corpus) is gated: any `error` fails the job,
+#   * weeks_presets/ (large community corpus) is advisory (report only).
 
 on:
   push:
     paths:
-      - 'presets/custom/**'
-      - 'presets/weeks/**'
+      - 'custom_milk_fixed/**'
+      - 'weeks_presets/**'
       - 'scripts/audit_presets.mjs'
       - '.github/workflows/preset_audit.yml'
   pull_request:
     paths:
-      - 'presets/custom/**'
-      - 'presets/weeks/**'
+      - 'custom_milk_fixed/**'
+      - 'weeks_presets/**'
       - 'scripts/audit_presets.mjs'
       - '.github/workflows/preset_audit.yml'
   workflow_dispatch: {}
-
-# A newer push to the same branch/PR supersedes the run in flight. Never on main
-# (each merge needs a complete result) and never on tags.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   preset-audit:
@@ -35,17 +29,17 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Self-test the auditor
         run: node scripts/audit_presets.mjs --selftest
 
-      - name: Gate curated corpus (presets/custom)
-        run: node scripts/audit_presets.mjs presets/custom --fail-on error
+      - name: Gate curated corpus (custom_milk_fixed)
+        run: node scripts/audit_presets.mjs custom_milk_fixed --fail-on error
 
       - name: Audit community corpus (advisory report)
-        run: node scripts/audit_presets.mjs presets/weeks --fail-on none
+        run: node scripts/audit_presets.mjs weeks_presets --fail-on none

@@ -52,16 +52,16 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Setup emsdk
-        uses: emscripten-core/setup-emsdk@v16
+        uses: mymindstorm/setup-emsdk@v14
         with:
           # Same pin as build_emscripten.yml (see the note on its matrix).
           version: 6.0.6

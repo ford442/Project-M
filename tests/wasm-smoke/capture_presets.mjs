@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Capture PNG screenshots of presets/custom/ (deployed as custom_milk_fixed/) via headless Chromium.
+ * Capture PNG screenshots of custom_milk_fixed presets via headless Chromium.
  *
  * Usage:
  *   node scripts/capture_custom_milk_screenshots.mjs
- *   node scripts/capture_custom_milk_screenshots.mjs --preset presets/custom/milk011.milk
+ *   node scripts/capture_custom_milk_screenshots.mjs --preset custom_milk_fixed/milk011.milk
  *   node scripts/capture_custom_milk_screenshots.mjs --out screenshots/custom_milk_baseline
  *
  * Requires: npm install in tests/wasm-smoke (playwright)
@@ -21,7 +21,7 @@ const scriptDir = fileURLToPath(new URL('.', import.meta.url));
 function detectProjectRoot(dir) {
   const candidates = [resolve(dir, '..'), resolve(dir, '..', '..')];
   for (const candidate of candidates) {
-    if (existsSync(join(candidate, 'presets', 'custom'))) return candidate;
+    if (existsSync(join(candidate, 'custom_milk_fixed'))) return candidate;
   }
   return resolve(dir, '..');
 }
@@ -41,7 +41,7 @@ function loadPlaywright() {
 const { chromium } = loadPlaywright();
 const moduleJs = resolve(process.env.PROJECTM_WASM_JS || join(root, 'projectm-v.030-thread.1ijs'));
 const moduleWasm = moduleJs.replace(/\.1?ijs$/, '.wasm');
-const presetDir = join(root, 'presets', 'custom');
+const presetDir = join(root, 'custom_milk_fixed');
 const capturePage = resolve(root, 'tests/wasm-smoke/capture.html');
 
 function parseArgs(argv) {

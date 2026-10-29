@@ -27,38 +27,6 @@ enum class ShaderType
 };
 
 /**
- * @brief Tone curve of the HDR composite output (see HdrOutputFunctions()).
- */
-enum class ToneMap
-{
-    None,    //!< Linear light is clamped to [0, 1], nothing else.
-    Reinhard //!< Luminance Reinhard, c * 1 / (1 + L).
-};
-
-/**
- * @brief Colour space the HDR composite output is encoded for.
- */
-enum class OutputGamut
-{
-    Srgb,     //!< BT.709 primaries, sRGB transfer function.
-    DisplayP3 //!< Display P3 primaries, sRGB transfer function.
-};
-
-/**
- * @brief The HLSL helper functions an HDR build appends to the composite shader.
- *
- * Defines `float3 _prjm_hdr_out(float3 linearBt709)`, which turns linear BT.709 light
- * into display-encoded output: tone map, then (for Display P3) the gamut matrix, both in
- * linear light, then the sRGB transfer function. Independent of the build's
- * PROJECTM_HDR_* switches, so the conversion can be tested in any build.
- *
- * @param toneMap The tone curve applied first.
- * @param gamut The output colour space.
- * @return HLSL source to place before the shader body that calls _prjm_hdr_out().
- */
-auto HdrOutputFunctions(ToneMap toneMap, OutputGamut gamut) -> std::string;
-
-/**
  * @brief Searches for "sampler_*" and "texsize_*" references in a preset shader.
  * @param program The raw (unprocessed) preset shader code.
  * @return The set of referenced texture sampler names. Always contains "main".

@@ -17,7 +17,6 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <optional>
 #include <set>
 #include <string>
 
@@ -59,9 +58,6 @@ struct PreparedMilkdropShader {
     bool transpileSucceeded{false};            //!< Result of the speculative transpile.
     std::string glsl;                          //!< Transpiled GLSL, if the transpile succeeded.
     std::string transpileError;                //!< Transpiler error message, if it failed.
-
-    std::optional<std::string> transpileCacheKey; //!< PresetPrepareContext::transpileCacheKey; nullopt: read the key at compile time.
-    std::optional<std::string> cachedGlsl;        //!< The cached GLSL for this shader when the load began, if any.
 };
 
 /**
@@ -180,11 +176,6 @@ public:
      * @brief Number of prepared shaders whose predicted declarations did not match (diagnostics/tests).
      */
     static auto PreparedGlslMismatchCount() -> uint64_t;
-
-    /**
-     * @brief Number of HLSL-to-GLSL transpiles TranspileHLSLShader() ran itself, on the render thread (diagnostics/tests).
-     */
-    static auto RenderThreadTranspileCount() -> uint64_t;
 
     /**
      * @brief Returns the contained shader.

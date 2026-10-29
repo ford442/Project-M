@@ -17,7 +17,6 @@ import {
 } from './projectm-preset-library.js';
 import { preloadFeaturedPack, preloadFavoritePresets } from './projectm-preset-cache.js';
 import { getFavorites } from './projectm-preset-favorites.js';
-import { createDisposables } from './projectm-disposables.js';
 
 /**
  * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
@@ -78,6 +77,23 @@ export async function loadCustomPresetFile(file, {
         { file, base: 'custom_milk_fixed', label: label || file },
         { module, startTransitionWhenReady, updateDisplay, fetchImpl, bases },
     );
+}
+
+/**
+ * @param {PresetEntry[]} presets
+ * @param {object} [options]
+ * @param {boolean} [options.onlyOk]
+ * @param {boolean} [options.weighted]
+ * @returns {PresetEntry | null}
+ */
+export function pickRandomFromList(presets, { onlyOk = false, weighted = true } = {}) {
+    if (weighted && presets.some((p) => typeof p.weight === 'number')) {
+        return pickWeightedRandom(presets, { onlyOk, excludeBroken: !onlyOk });
+    }
+    const pool = onlyOk ? presets.filter((p) => p.status === 'ok') : presets.filter((p) => p.status !== 'broken');
+    const effective = pool.length ? pool : presets;
+    if (!effective.length) return null;
+    return effective[Math.floor(Math.random() * effective.length)];
 }
 
 const PICKER_STYLE_ID = 'pm-preset-picker-style';
@@ -161,17 +177,13 @@ function requireEl(root, selector) {
     return el;
 }
 
-/**
- * @param {Document} documentRef
- * @returns {(() => void) | null} Removes the style element, when this call added it.
- */
+/** @param {Document} documentRef */
 function injectStyle(documentRef) {
-    if (documentRef.getElementById(PICKER_STYLE_ID)) return null;
+    if (documentRef.getElementById(PICKER_STYLE_ID)) return;
     const style = documentRef.createElement('style');
     style.id = PICKER_STYLE_ID;
     style.textContent = PICKER_CSS;
     documentRef.head.appendChild(style);
-    return () => style.remove();
 }
 
 /**
@@ -188,7 +200,6 @@ function injectStyle(documentRef) {
  * @param {() => void} [options.onLockBlocked] Called when a load is refused by the lock.
  * @param {number} [options.transitionDurationSec]
  * @param {boolean} [options.preloadFeatured]
- * @returns {PresetPicker}
  */
 export function setupPresetPicker({
     getModule,
@@ -202,11 +213,7 @@ export function setupPresetPicker({
     transitionDurationSec = 1.5,
     preloadFeatured = true,
 } = {}) {
-    const owned = createDisposables({ label: 'projectM preset picker' });
-    // One picker per page: a second setup (a retried init) replaces the first
-    // rather than stacking a second panel whose listeners hold stale closures.
-    documentRef.getElementById('pm-preset-picker')?.remove();
-    owned.add(injectStyle(documentRef));
+    injectStyle(documentRef);
 
     const panel = documentRef.createElement('section');
     panel.id = 'pm-preset-picker';
@@ -249,7 +256,7 @@ export function setupPresetPicker({
       </div>
       <div class="pm-pp-status" role="status"></div>
     `;
-    owned.append(documentRef.body, panel);
+    documentRef.body.appendChild(panel);
 
     const listEl = requireEl(panel, '.pm-pp-list');
     const searchEl = /** @type {HTMLInputElement} */ (requireEl(panel, '.pm-pp-search'));
@@ -268,8 +275,8 @@ export function setupPresetPicker({
         launcher.className = 'pm-pp-launch';
         launcher.textContent = '🎛 Presets';
         launcher.title = 'Browse presets — tags, favorites, featured pack';
-        owned.append(documentRef.body, launcher);
-        owned.listen(launcher, 'click', () => toggle());
+        documentRef.body.appendChild(launcher);
+        launcher.addEventListener('click', () => toggle());
     }
 
     /** @type {PresetEntry[]} */
@@ -335,6 +342,11 @@ export function setupPresetPicker({
             favBtn.className = `pm-pp-fav${isFavorite(p) ? ' on' : ''}`;
             favBtn.textContent = '★';
             favBtn.title = isFavorite(p) ? 'Remove favorite' : 'Add favorite';
+            favBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleFavorite(p);
+                render();
+            });
 
             const badge = documentRef.createElement('span');
             badge.className = `pm-pp-badge ${p.status || 'unknown'}`;
@@ -353,30 +365,14 @@ export function setupPresetPicker({
             li.appendChild(badge);
             li.appendChild(label);
             li.appendChild(meta);
+            li.addEventListener('click', () => loadByEntry(p));
             listEl.appendChild(li);
         }
     }
 
-    // One delegated listener for every row: rows are rebuilt on each render,
-    // and a listener per row and per star was one more set to leak each time.
-    owned.listen(listEl, 'click', (event) => {
-        const target = /** @type {Element | null} */ (event.target);
-        const row = /** @type {HTMLElement | null} */ (target?.closest?.('.pm-pp-item') ?? null);
-        const id = row?.dataset.id;
-        if (!id) return;
-        const preset = filtered.find((p) => presetId(p) === id);
-        if (!preset) return;
-        if (target?.closest?.('.pm-pp-fav')) {
-            toggleFavorite(preset);
-            render();
-            return;
-        }
-        void loadByEntry(preset);
-    });
-
     /** @param {PresetEntry | null | undefined} preset */
     async function loadByEntry(preset) {
-        if (!preset || owned.disposed) return;
+        if (!preset) return;
         currentId = presetId(preset);
         const module = getModule ? getModule() : null;
         if (!module) {
@@ -422,14 +418,14 @@ export function setupPresetPicker({
         idx = idx < 0
             ? (delta > 0 ? 0 : pool.length - 1)
             : (idx + delta + pool.length) % pool.length;
-        void loadByEntry(pool[idx]);
+        loadByEntry(pool[idx]);
     }
 
     function pickRandom({ onlyOk = false } = {}) {
         if (guardLocked()) return null;
         const pool = filterPresets(activePool(), { ...currentFilters(), onlyOk, excludeBroken: true });
         const choice = pickWeightedRandom(pool.length ? pool : activePool(), { onlyOk, excludeBroken: true });
-        if (choice) void loadByEntry(choice);
+        if (choice) loadByEntry(choice);
         return choice;
     }
 
@@ -437,13 +433,13 @@ export function setupPresetPicker({
     function close() { panel.hidden = true; if (launcher) launcher.style.display = ''; }
     function toggle() { (panel.hidden ? open : close)(); }
 
-    owned.listen(requireEl(panel, '.pm-pp-close'), 'click', close);
-    owned.listen(searchEl, 'input', render);
-    owned.listen(tierEl, 'change', render);
-    owned.listen(reactEl, 'change', render);
-    owned.listen(tagEl, 'change', render);
+    requireEl(panel, '.pm-pp-close').addEventListener('click', close);
+    searchEl.addEventListener('input', render);
+    tierEl.addEventListener('change', render);
+    reactEl.addEventListener('change', render);
+    tagEl.addEventListener('change', render);
     tabEls.forEach((tab) => {
-        owned.listen(tab, 'click', () => {
+        tab.addEventListener('click', () => {
             activeTab = tab.dataset.tab ?? 'all';
             tabEls.forEach((t) => t.classList.toggle('active', t === tab));
             render();
@@ -453,7 +449,7 @@ export function setupPresetPicker({
         panel.querySelectorAll('.pm-pp-btn')
     );
     actionButtons.forEach((btn) => {
-        owned.listen(btn, 'click', () => {
+        btn.addEventListener('click', () => {
             const act = btn.dataset.act;
             if (act === 'next') step(1);
             else if (act === 'prev') step(-1);
@@ -464,7 +460,6 @@ export function setupPresetPicker({
 
     const ready = fetchCustomPresetManifest({ url: manifestUrl })
         .then(async (data) => {
-            if (owned.disposed) return [];
             allPresets = data.presets;
             populateTagSelect();
             render();
@@ -505,22 +500,5 @@ export function setupPresetPicker({
     return {
         open, close, toggle, loadByFile, loadByEntry, step, pickRandom, ready,
         element: panel, getPresets: () => allPresets,
-        /** Removes the panel, the launcher, their listeners and (if this picker added it) the stylesheet. */
-        dispose: () => owned.dispose(),
     };
 }
-
-/**
- * @typedef {object} PresetPicker
- * @property {() => void} open
- * @property {() => void} close
- * @property {() => void} toggle
- * @property {(file: string) => Promise<void>} loadByFile
- * @property {(preset: PresetEntry | null | undefined) => Promise<void>} loadByEntry
- * @property {(delta: number) => void} step
- * @property {(options?: { onlyOk?: boolean }) => PresetEntry | null} pickRandom
- * @property {Promise<PresetEntry[]>} ready
- * @property {HTMLElement} element
- * @property {() => PresetEntry[]} getPresets
- * @property {() => void} dispose
- */

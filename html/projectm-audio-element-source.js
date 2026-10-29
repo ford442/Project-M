@@ -15,7 +15,6 @@
 // implementation to prefer, so the wiring can change without a WASM rebuild.
 
 import { getAudioContext } from './projectm-audio-bootstrap.js';
-import { claimGlobal } from './projectm-globals.js';
 
 /**
  * Source nodes already created per element. `createMediaElementSource()` throws
@@ -112,37 +111,13 @@ export function disconnectMediaElement(target, { documentRef } = {}) {
  * Installs `globalThis.projectMConnectMediaElement`, which the WASM
  * `connect_media_element_source()` export prefers over its own inline fallback.
  *
- * Every caller gets its own release; the slot (claimed through claimGlobal())
- * goes away with the last one. The hook is stateless, so one claim serves every
- * context on the page.
- *
- * @returns {() => void} Releases this caller's hold. Idempotent.
+ * @returns {void}
  */
 export function installMediaElementSourceHook() {
-    if (mediaElementHookHolds === 0) {
-        releaseMediaElementHook = claimGlobal(
-            globalThis,
-            'projectMConnectMediaElement',
-            /** @param {string} selector */
-            (selector) => connectMediaElement(selector)
-        );
-    }
-    mediaElementHookHolds += 1;
-    let released = false;
-    return () => {
-        if (released) return;
-        released = true;
-        mediaElementHookHolds -= 1;
-        if (mediaElementHookHolds === 0) {
-            releaseMediaElementHook?.();
-            releaseMediaElementHook = null;
-        }
-    };
+    /** @type {any} */ (globalThis).projectMConnectMediaElement =
+    /** @param {string} selector */
+    (selector) => connectMediaElement(selector);
 }
-
-let mediaElementHookHolds = 0;
-/** @type {(() => void) | null} */
-let releaseMediaElementHook = null;
 
 /**
  * Test seam: forgets the cached source node for `element`.

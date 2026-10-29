@@ -31,7 +31,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <thread>
 
 struct WasmHost;
 
@@ -60,8 +59,8 @@ public:
     // main runtime thread when a result is ready (see HostFromHandle()).
     explicit PresetPrepareQueue(uintptr_t hostHandle);
 
-    // Frees queued jobs, stops the thread and joins it: a job it is running
-    // finishes first, and its result is freed.
+    // Stops the thread without waiting for it: a job it is running finishes on
+    // its own and is freed there. Frees queued jobs.
     ~PresetPrepareQueue();
 
     PresetPrepareQueue(const PresetPrepareQueue&) = delete;
@@ -83,8 +82,7 @@ public:
     struct Shared;
 
 private:
-    std::unique_ptr<Shared> m_shared;
-    std::jthread m_thread; //!< Declared last: joined (by the destructor) before m_shared goes.
+    std::shared_ptr<Shared> m_shared;
 };
 
 // Main runtime thread: begins a preparation of `path` for the active host and

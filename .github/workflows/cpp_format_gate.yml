@@ -3,42 +3,34 @@ name: C++ Format Gate
 # Guards C++ style against the repo-root .clang-format for the directories
 # scripts/check_cpp_format.sh currently covers (src/wasm/ plus the other
 # directories that are already clang-format clean). See AGENTS.md's "Code
-# Formatting" section for why this isn't repo-wide yet. Also runs the static
-# source gates: host alias macros, test GL includes and the render-device seam
-# (no direct gl* calls outside Renderer/Device/Gl and Renderer/Platform).
+# Formatting" section for why this isn't repo-wide yet.
 
 on:
   push:
     paths:
       - 'src/wasm/**'
-      - 'src/libprojectM/**'
+      - 'src/libprojectM/Audio/**'
+      - 'src/libprojectM/Renderer/Platform/**'
       - 'tests/cxx-interface/**'
       - 'tests/libprojectM/**'
       - '.clang-format'
       - 'scripts/check_cpp_format.sh'
       - 'scripts/check_wasm_host_globals.sh'
       - 'scripts/check_test_gl_includes.sh'
-      - 'scripts/check_gl_seam.sh'
       - '.github/workflows/cpp_format_gate.yml'
   pull_request:
     paths:
       - 'src/wasm/**'
-      - 'src/libprojectM/**'
+      - 'src/libprojectM/Audio/**'
+      - 'src/libprojectM/Renderer/Platform/**'
       - 'tests/cxx-interface/**'
       - 'tests/libprojectM/**'
       - '.clang-format'
       - 'scripts/check_cpp_format.sh'
       - 'scripts/check_wasm_host_globals.sh'
       - 'scripts/check_test_gl_includes.sh'
-      - 'scripts/check_gl_seam.sh'
       - '.github/workflows/cpp_format_gate.yml'
   workflow_dispatch: {}
-
-# A newer push to the same branch/PR supersedes the run in flight. Never on main
-# (each merge needs a complete result) and never on tags.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   cpp-format:
@@ -46,7 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: clang-format check
         run: scripts/check_cpp_format.sh
@@ -58,7 +50,3 @@ jobs:
       # Direct glad includes in tests break only the Emscripten (GLES) build.
       - name: Test GL include gate
         run: scripts/check_test_gl_includes.sh
-
-      # WebGPU tracker, Phase A: only Renderer/Device/Gl and Renderer/Platform talk to GL.
-      - name: Render-device seam gate
-        run: scripts/check_gl_seam.sh

@@ -1,0 +1,69 @@
+// CHANGELOG 2026-06-12 (initial)
+// - Minimal worked example for docs/kimi_preset_authoring_plan.md Phase A (create)
+// - Simple bass-reactive warp pulse + treble-tinted composite
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Pattern: docs/milk011_creative_brief.md
+MILKDROP_PRESET_VERSION=200
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+fRating=3.000000
+fGammaAdj=1.000
+fDecay=0.980
+fVideoEchoZoom=1.000
+fVideoEchoAlpha=0.000
+nVideoEchoOrientation=0
+nWaveMode=0
+bAdditiveWaves=0
+bWaveDots=0
+bWaveThick=0
+bModWaveAlphaByVolume=0
+bMaximizeWaveColor=0
+bTexWrap=0
+bDarkenCenter=0
+bRedBlueStereo=0
+bBrighten=0
+bDarken=0
+bSolarize=0
+bInvert=0
+fWaveAlpha=0.001
+fWaveScale=1.002
+fWaveSmoothing=0.261
+fWaveParam=0.000
+fModWaveAlphaStart=0.500
+fModWaveAlphaEnd=1.000
+fWarpAnimSpeed=1.000
+fWarpScale=1.331
+fZoomExponent=1.0
+fShader=0.0
+zoom=1.0
+rot=0.0
+cx=0.5
+cy=0.5
+dx=0.0
+dy=0.0
+warp=0.010
+sx=1.0
+sy=1.0
+ob_size=0.01
+ib_size=0.01
+
+per_frame_init_1=decay=0.98;
+
+// q1: time, q2: bass envelope, q3: treble envelope
+per_frame_1=q1=time;
+per_frame_2=q2=bass_att;
+per_frame_3=q3=treb_att;
+
+warp_1=`
+    float2 d = uv - 0.5;
+    float pulse = 1.0 + 0.04 * q2;
+    float2 wuv = d * pulse + 0.5;
+    ret = tex2D(sampler_main, wuv).xyz;
+`
+
+comp_1=`
+    float3 col = tex2D(sampler_main, uv).xyz;
+    col = lerp(col, float3(0.6, 0.85, 1.0), 0.15 * q3);
+    ret = saturate(col);
+`

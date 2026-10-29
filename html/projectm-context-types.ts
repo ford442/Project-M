@@ -92,65 +92,6 @@ export interface ProjectMFlashLimitStats {
     clampedFrames: number;
 }
 
-/**
- * What the engine negotiated with WebGL when it created this context's canvas
- * context, from `ProjectMContext.contextSnapshot`. It reports; it requests
- * nothing — the context attributes are the ones passed at start (`antialias`,
- * `depth`, `fboPrecision`, …).
- */
-export interface ProjectMContextSnapshot {
-    /** `EXT_color_buffer_float`: float (RGBA16F / RGBA32F) render targets are available. */
-    readonly floatColorBuffer: boolean;
-    /** `EXT_float_blend`: blending into RGBA32F targets is available. */
-    readonly floatBlend: boolean;
-    /** `WEBGL_lose_context` was present on the context, so a loss can be simulated. */
-    readonly loseContext: boolean;
-    /**
-     * The dual-FBO colour format in use: 0 RGBA16F, 1 RGBA32F, 2 RGBA8 (the
-     * `fboPrecision` numbering). Differs from the requested `fboPrecision` when
-     * the GPU cannot do it, e.g. 0 or 2 where `floatColorBuffer` is false and 1
-     * was asked for.
-     */
-    readonly fboFormat: 0 | 1 | 2;
-    readonly fboFormatName: 'RGBA16F' | 'RGBA32F' | 'RGBA8';
-    /**
-     * The attributes the WebGL context really has, read back with
-     * `getContextAttributes()` when it was created. Null on bundles that predate
-     * reporting them.
-     */
-    readonly attributes: ProjectMContextAttributes | null;
-    /**
-     * Requested vs effective: where {@link attributes} differ from the options
-     * this context was started with. Empty when they agree (or cannot be
-     * compared). A browser may not offer `antialias` or `desynchronized`;
-     * anything else means the canvas could not be given a context of its own.
-     */
-    readonly mismatches: readonly ProjectMContextAttributeMismatch[];
-}
-
-/** WebGL context attributes, by the option names they are requested with. */
-export interface ProjectMContextAttributes {
-    readonly antialias: boolean;
-    readonly preserveDrawingBuffer: boolean;
-    readonly depth: boolean;
-    readonly stencil: boolean;
-    /** The WebGL `alpha` attribute. */
-    readonly contextAlpha: boolean;
-    readonly premultipliedAlpha: boolean;
-    readonly failIfMajorPerformanceCaveat: boolean;
-    /** Emscripten's, not WebGL's: honoured as requested, or start() fails (init code 9). */
-    readonly explicitSwapControl: boolean;
-    readonly desynchronized: boolean;
-    readonly powerPreference: 'default' | 'low-power' | 'high-performance';
-}
-
-/** One attribute the context does not have as requested. */
-export interface ProjectMContextAttributeMismatch {
-    readonly attribute: keyof ProjectMContextAttributes;
-    readonly requested: boolean | string;
-    readonly effective: boolean | string;
-}
-
 /** Options of `ProjectMContext.captureFrame()`. */
 export interface ProjectMCaptureFrameOptions {
     /**
@@ -235,12 +176,7 @@ export interface ProjectMContextOptions {
     meshQuality?: ProjectMMeshQuality;
     targetFps?: number;
     qualityGovernor?: boolean;
-    /**
-     * Enable near-black pixel transparency in the final blit. Also the default of
-     * {@link contextAlpha}: a canvas created without an alpha channel cannot show
-     * transparency, so a host that turns it on later with `setTransparent()` passes
-     * `contextAlpha: true` up front.
-     */
+    /** Enable near-black pixel transparency in the final blit. */
     transparent?: boolean;
     transparencyThreshold?: number;
     aspectCorrection?: boolean;
@@ -257,12 +193,7 @@ export interface ProjectMContextOptions {
      * parse the query string and pass these instead (see `projectm-core.html`).
      * Each engine in a shared Module keeps its own attributes (#246).
      */
-    /**
-     * WebGL `alpha` attribute: an alpha channel in the drawing buffer. Defaults to
-     * {@link transparent}. Off, the canvas is opaque and the page compositor draws
-     * it without blending; on, the engine writes premultiplied alpha (opaque
-     * pixels, or `(0, 0, 0, 0)` where transparency mode cuts one out).
-     */
+    /** WebGL `alpha` attribute: an alpha channel in the drawing buffer (default true — transparency overlays). */
     contextAlpha?: boolean;
     /**
      * WebGL `premultipliedAlpha` (default true). Hosts that key on canvas
@@ -361,13 +292,6 @@ export interface ProjectMContextOptions {
      * informational — the fallback is automatic.
      */
     onRenderWorkerFallback?: (reason: string) => void;
-    /**
-     * How long to wait for the render worker's 'ready' before giving up on it
-     * and falling back to the main thread (or, with `renderTopology: 'worker'`,
-     * rejecting start()). Defaults to 30 000 ms; the boot downloads and
-     * compiles the bundle inside it.
-     */
-    renderWorkerBootTimeoutMs?: number;
 }
 
 /**

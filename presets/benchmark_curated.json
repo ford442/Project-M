@@ -29,17 +29,17 @@
       "tier": "medium"
     },
     {
-      "path": "presets/custom/milk011.milk",
+      "path": "custom_milk_fixed/milk011.milk",
       "label": "optimized custom (GPU warp + per-pixel)",
       "tier": "heavy"
     },
     {
-      "path": "presets/custom/milk012.milk",
+      "path": "custom_milk_fixed/milk012.milk",
       "label": "signature series 012",
       "tier": "heavy"
     },
     {
-      "path": "presets/custom/milk015.milk",
+      "path": "custom_milk_fixed/milk015.milk",
       "label": "signature series 015",
       "tier": "heavy"
     }

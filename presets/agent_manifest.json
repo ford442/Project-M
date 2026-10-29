@@ -1,5 +1,5 @@
 {
-  "$comment": "Regression + Signature Series manifest for AI agents. See docs/SIGNATURE_SERIES_WORKFLOW.md and docs/agents/kimi_preset_authoring_plan.md.",
+  "$comment": "Regression + Signature Series manifest for AI agents. See docs/SIGNATURE_SERIES_WORKFLOW.md and docs/kimi_preset_authoring_plan.md.",
   "validator": "scripts/kimi_validate_preset.sh",
   "upgrader": "scripts/kimi_upgrade_preset.sh",
   "auditor": "scripts/audit_presets.mjs",
@@ -11,32 +11,32 @@
       "description": "Small fixtures exercising specific parser/shader features; covered by the default projectM-unittest PresetCompat run."
     },
     "regression_corpus": {
-      "path": "presets/custom",
+      "path": "custom_milk_fixed",
       "description": "Curated AI-authored presets used as the fork's regression set. Opt-in via PROJECTM_TEST_CUSTOM_MILK_FIXED=1."
     },
     "drafts": {
       "path": "presets/drafts",
-      "description": "TOML or WIP .milk drafts before promotion to presets/custom/."
+      "description": "TOML or WIP .milk drafts before promotion to custom_milk_fixed/."
     },
     "quarantine": {
-      "path": "presets/quarantine",
+      "path": "custom_milk_quarantine",
       "description": "Presets removed from the curated corpus; re-promote via scripts/promote_preset.mjs after WASM capture passes."
     },
     "bulk_corpus": {
-      "path": "presets/weeks",
+      "path": "weeks_presets",
       "description": "Large community preset corpus; validate via PROJECTM_PRESET_COMPAT_DIR before bulk upgrades."
     }
   },
   "agent_tasks": {
     "generate": {
-      "prompt": "docs/agents/grok/preset_generation_prompt.md",
-      "briefs": "docs/agents/grok/signature_series_briefs.md",
-      "output_dir": "presets/custom",
+      "prompt": "grok_agent/preset_generation_prompt.md",
+      "briefs": "grok_agent/signature_series_briefs.md",
+      "output_dir": "custom_milk_fixed",
       "naming": "<family_prefix>_<descriptor>.milk"
     },
     "review": {
-      "checklist": "docs/agents/grok/preset_review_checklist.md",
-      "code_review": "docs/agents/grok/code_review_checklist.md"
+      "checklist": "grok_agent/preset_review_checklist.md",
+      "code_review": "grok_agent/code_review_checklist.md"
     },
     "validate": {
       "static": "node scripts/audit_presets.mjs <file>",
@@ -58,25 +58,25 @@
       "prefix": "orbital_rave_",
       "mood": "neon tunnels, rave energy, fast orbit",
       "audio": ["bass_att", "treb_att"],
-      "presets": ["presets/custom/orbital_rave_zephyr.milk", "presets/custom/orbital_rave_neon.milk", "presets/custom/orbital_rave_aurora.milk", "presets/custom/orbital_rave_beatlock.milk"]
+      "presets": ["custom_milk_fixed/orbital_rave_zephyr.milk", "custom_milk_fixed/orbital_rave_neon.milk", "custom_milk_fixed/orbital_rave_aurora.milk", "custom_milk_fixed/orbital_rave_beatlock.milk"]
     },
     "watershed": {
       "prefix": "cinematic_pedal_steel_",
       "mood": "warm cinematic, pedal steel, slow pans",
       "audio": ["mid_att", "bass_att"],
-      "presets": ["presets/custom/cinematic_pedal_steel_watershed.milk", "presets/custom/cinematic_pedal_steel_horizon.milk", "presets/custom/cinematic_pedal_steel_rain.milk"]
+      "presets": ["custom_milk_fixed/cinematic_pedal_steel_watershed.milk", "custom_milk_fixed/cinematic_pedal_steel_horizon.milk", "custom_milk_fixed/cinematic_pedal_steel_rain.milk"]
     },
     "redwood": {
       "prefix": "redwood_dreams_",
       "mood": "forest, mist, nature ambient",
       "audio": ["mid", "vol"],
-      "presets": ["presets/custom/redwood_dreams_canopy.milk", "presets/custom/redwood_dreams_fog.milk", "presets/custom/redwood_dreams_firefly.milk"]
+      "presets": ["custom_milk_fixed/redwood_dreams_canopy.milk", "custom_milk_fixed/redwood_dreams_fog.milk", "custom_milk_fixed/redwood_dreams_firefly.milk"]
     },
     "candy-world": {
       "prefix": "shader_swarm_",
       "mood": "playful candy colors, particle swarms",
       "audio": ["treb_att", "bass_att"],
-      "presets": ["presets/custom/shader_swarm_candy.milk", "presets/custom/shader_swarm_reactive.milk", "presets/custom/shader_swarm_galaxy.milk", "presets/custom/shader_swarm_onsets.milk"]
+      "presets": ["custom_milk_fixed/shader_swarm_candy.milk", "custom_milk_fixed/shader_swarm_reactive.milk", "custom_milk_fixed/shader_swarm_galaxy.milk", "custom_milk_fixed/shader_swarm_onsets.milk"]
     }
   },
   "signature_series": {
@@ -85,62 +85,62 @@
     "batch_size_goal": "5-10",
     "prefixes": ["orbital_rave_", "cinematic_pedal_steel_", "redwood_dreams_", "shader_swarm_"],
     "presets": [
-      "presets/custom/orbital_rave_zephyr.milk",
-      "presets/custom/orbital_rave_neon.milk",
-      "presets/custom/orbital_rave_aurora.milk",
-      "presets/custom/cinematic_pedal_steel_watershed.milk",
-      "presets/custom/cinematic_pedal_steel_horizon.milk",
-      "presets/custom/cinematic_pedal_steel_rain.milk",
-      "presets/custom/redwood_dreams_canopy.milk",
-      "presets/custom/redwood_dreams_fog.milk",
-      "presets/custom/redwood_dreams_firefly.milk",
-      "presets/custom/shader_swarm_candy.milk",
-      "presets/custom/shader_swarm_reactive.milk",
-      "presets/custom/shader_swarm_galaxy.milk",
-      "presets/custom/orbital_rave_beatlock.milk",
-      "presets/custom/shader_swarm_onsets.milk"
+      "custom_milk_fixed/orbital_rave_zephyr.milk",
+      "custom_milk_fixed/orbital_rave_neon.milk",
+      "custom_milk_fixed/orbital_rave_aurora.milk",
+      "custom_milk_fixed/cinematic_pedal_steel_watershed.milk",
+      "custom_milk_fixed/cinematic_pedal_steel_horizon.milk",
+      "custom_milk_fixed/cinematic_pedal_steel_rain.milk",
+      "custom_milk_fixed/redwood_dreams_canopy.milk",
+      "custom_milk_fixed/redwood_dreams_fog.milk",
+      "custom_milk_fixed/redwood_dreams_firefly.milk",
+      "custom_milk_fixed/shader_swarm_candy.milk",
+      "custom_milk_fixed/shader_swarm_reactive.milk",
+      "custom_milk_fixed/shader_swarm_galaxy.milk",
+      "custom_milk_fixed/orbital_rave_beatlock.milk",
+      "custom_milk_fixed/shader_swarm_onsets.milk"
     ]
   },
   "known_good": [
     "presets/tests/000-empty.milk",
-    "presets/custom/milk011.milk",
-    "presets/custom/milk011_optimized.milk",
-    "presets/custom/fractal_echo_kimi.milk"
+    "custom_milk_fixed/milk011.milk",
+    "custom_milk_fixed/milk011_optimized.milk",
+    "custom_milk_fixed/fractal_echo_kimi.milk"
   ],
   "known_broken_fixtures": [
     "tests/libprojectM/data/PresetCompat/broken-invalid-hlsl.milk",
     "tests/libprojectM/data/PresetCompat/broken-missing-shader-body.milk"
   ],
   "worked_example": {
-    "brief": "docs/agents/briefs/milk011_creative_brief.md",
-    "preset": "presets/custom/milk011.milk"
+    "brief": "docs/milk011_creative_brief.md",
+    "preset": "custom_milk_fixed/milk011.milk"
   },
   "creative_briefs": [
-    "docs/agents/briefs/milk011_creative_brief.md",
-    "docs/agents/briefs/milk012_creative_brief.md",
-    "docs/agents/briefs/milk013_creative_brief.md",
-    "docs/agents/briefs/milk014_creative_brief.md",
-    "docs/agents/briefs/milk015_creative_brief.md",
-    "docs/agents/grok/signature_series_briefs.md"
+    "docs/milk011_creative_brief.md",
+    "docs/milk012_creative_brief.md",
+    "docs/milk013_creative_brief.md",
+    "docs/milk014_creative_brief.md",
+    "docs/milk015_creative_brief.md",
+    "grok_agent/signature_series_briefs.md"
   ],
   "new_presets_2026_07": [
-    "presets/custom/orbital_rave_zephyr.milk",
-    "presets/custom/orbital_rave_neon.milk",
-    "presets/custom/cinematic_pedal_steel_watershed.milk",
-    "presets/custom/cinematic_pedal_steel_horizon.milk",
-    "presets/custom/redwood_dreams_canopy.milk",
-    "presets/custom/redwood_dreams_fog.milk",
-    "presets/custom/shader_swarm_candy.milk",
-    "presets/custom/shader_swarm_reactive.milk"
+    "custom_milk_fixed/orbital_rave_zephyr.milk",
+    "custom_milk_fixed/orbital_rave_neon.milk",
+    "custom_milk_fixed/cinematic_pedal_steel_watershed.milk",
+    "custom_milk_fixed/cinematic_pedal_steel_horizon.milk",
+    "custom_milk_fixed/redwood_dreams_canopy.milk",
+    "custom_milk_fixed/redwood_dreams_fog.milk",
+    "custom_milk_fixed/shader_swarm_candy.milk",
+    "custom_milk_fixed/shader_swarm_reactive.milk"
   ],
   "new_presets_2026_07b": [
-    "presets/custom/orbital_rave_aurora.milk",
-    "presets/custom/cinematic_pedal_steel_rain.milk",
-    "presets/custom/redwood_dreams_firefly.milk",
-    "presets/custom/shader_swarm_galaxy.milk"
+    "custom_milk_fixed/orbital_rave_aurora.milk",
+    "custom_milk_fixed/cinematic_pedal_steel_rain.milk",
+    "custom_milk_fixed/redwood_dreams_firefly.milk",
+    "custom_milk_fixed/shader_swarm_galaxy.milk"
   ],
   "new_presets_2026_10_rhythm": [
-    "presets/custom/orbital_rave_beatlock.milk",
-    "presets/custom/shader_swarm_onsets.milk"
+    "custom_milk_fixed/orbital_rave_beatlock.milk",
+    "custom_milk_fixed/shader_swarm_onsets.milk"
   ]
 }

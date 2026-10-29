@@ -61,8 +61,52 @@
   </p>
 
   <script type="module">
-  import { bootAudioCapturePage } from './projectm-audio-capture-page.js';
-  bootAudioCapturePage(document);
+    import { startDisplayAudioCapture } from './projectm-display-capture.js';
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusEl = document.getElementById('status');
+    const statsEl = document.getElementById('stats');
+
+    let capture = null;
+    let statsTimer = 0;
+
+    function setStatus({ state, message }) {
+      statusEl.dataset.state = state;
+      statusEl.textContent = message;
+      const running = state === 'capturing' || state === 'silent' || state === 'requesting';
+      startBtn.disabled = running;
+      stopBtn.disabled = !running || state === 'requesting';
+      if (!running) {
+        capture = null;
+        if (statsTimer) { clearInterval(statsTimer); statsTimer = 0; }
+      }
+    }
+
+    function renderStats() {
+      if (!capture) { statsEl.textContent = ''; return; }
+      const s = capture.stats();
+      const seconds = s.sampleRate ? (s.frames / s.sampleRate).toFixed(1) : '0.0';
+      statsEl.textContent = `${s.captureKind} · ${s.sampleRate || '?'} Hz · ${s.blocks} blocks · ${seconds}s sent via ${s.via}`;
+    }
+
+    // Must run straight from the click: getDisplayMedia() needs a user gesture.
+    startBtn.addEventListener('click', async () => {
+      if (capture) return;
+      const handle = await startDisplayAudioCapture({ onStatus: setStatus });
+      if (!handle) return;
+      capture = handle;
+      statsTimer = setInterval(renderStats, 500);
+      renderStats();
+    });
+
+    stopBtn.addEventListener('click', () => {
+      if (capture) capture.stop();
+    });
+
+    window.addEventListener('pagehide', () => {
+      if (capture) capture.stop();
+    });
   </script>
 </body>
 </html>

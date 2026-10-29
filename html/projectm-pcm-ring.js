@@ -33,8 +33,6 @@
 // `hostHandle` to read / write a specific engine's ring: the host is activated
 // for the synchronous descriptor read and the previous selection restored.
 
-import { claimGlobal } from './projectm-globals.js';
-
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
  */
@@ -296,115 +294,22 @@ export function feedPcmThroughRing(module, buffer, { channels = 2, fallback = nu
 }
 
 /**
- * The engine a PCM chunk is for.
- *
- * @typedef {object} PcmTarget
- * @property {ProjectMModuleLike | null | undefined} module
- * @property {number} [host] create_host*()'s handle; 0 or absent is the
- *   module's active host, the single-engine default.
- */
-
-/**
- * A preallocated heap block the marshaling fallback may reuse instead of a
- * malloc/free per chunk. The caller owns it.
- *
- * @typedef {object} PcmScratch
- * @property {number} ptr Byte offset in the module heap.
- * @property {number} capacity Floats it holds.
- */
-
-/**
- * Hands interleaved PCM to one engine. The only place the host layer calls
- * `_projectm_pcm_add_float_wrapper`: every main-thread producer (external PCM,
- * the synthetic test feed, the main-thread transport) comes through here, so
- * which engine a chunk reaches is decided once, from `target.host`, instead of
- * each producer hand-rolling malloc -> HEAPF32.set -> wrapper(0, ...) and
- * feeding whichever engine is active.
- *
- * Writes into the engine's PCM ring when the bundle has one. Bundles from
- * before the ring get the marshaling fallback, with the host handle passed to
- * the wrapper (which resolves it to that engine; 0 is the active one).
- *
- * @param {PcmTarget} target
- * @param {Float32Array} frames Interleaved stereo, or mono when `channels` is 1.
- * @param {object} [options]
- * @param {number} [options.channels]
- * @param {PcmScratch | null} [options.scratch]
- * @returns {boolean} true when the chunk reached the engine.
- */
-export function feedPcm(target, frames, { channels = 2, scratch = null } = {}) {
-    const module = target?.module;
-    if (!module || !frames || frames.length === 0) return false;
-    const host = target.host || 0;
-    const normalizedChannels = channels === 1 ? 1 : 2;
-
-    const writer = getPcmRingWriter(module, host);
-    if (writer) {
-        return writer.write(frames, normalizedChannels) > 0;
-    }
-
-    const m = /** @type {any} */ (module);
-    if (typeof m._projectm_pcm_add_float_wrapper !== 'function' || !m.HEAPF32) {
-        return false;
-    }
-    const samplesPerChannel = Math.floor(frames.length / normalizedChannels);
-    if (samplesPerChannel <= 0) return false;
-
-    const useScratch = !!scratch && scratch.ptr > 0 && frames.length <= scratch.capacity;
-    let ptr = useScratch ? /** @type {PcmScratch} */ (scratch).ptr : 0;
-    if (!ptr) {
-        if (typeof m._malloc !== 'function') return false;
-        ptr = m._malloc(frames.length * 4);
-        // 0 is malloc's failure value, never a usable block.
-        if (!ptr) return false;
-    }
-    try {
-        m.HEAPF32.set(frames, ptr >> 2);
-        m._projectm_pcm_add_float_wrapper(host, ptr, samplesPerChannel, normalizedChannels);
-        return true;
-    } finally {
-        if (!useScratch && typeof m._free === 'function') {
-            m._free(ptr);
-        }
-    }
-}
-
-/**
  * Installs `globalThis.projectMWritePcmRing`, the writer the baked EM_JS worklet
  * handler prefers over its own inline copy (see
  * `js_install_worklet_pcm_handler` in src/wasm/WasmAudioBridge.cpp). Hosts that
  * load this module get one implementation of the write; hosts that do not still
  * work, one copy of the logic later.
  *
- * The slot is claimed through claimGlobal(), once per module: installing again
- * for the module whose writer is already visible returns the same release, so
- * a worklet that re-attaches does not stack claims.
- *
  * @param {ProjectMModuleLike | null | undefined} module
- * @returns {(() => void) | null} Releases the claim; null when the module has
- *   no ring (nothing was installed).
+ * @returns {boolean} true when a writer was installed.
  */
 export function installHostPcmRingWriter(module) {
-    if (!module || !moduleHasPcmRing(module)) return null;
-    const existing = hostRingWriterClaims.get(module);
-    if (existing && /** @type {any} */ (globalThis).projectMWritePcmRing === existing.write) {
-        return existing.release;
-    }
-    existing?.release();
-
+    if (!moduleHasPcmRing(module)) return false;
+    /** @type {any} */ (globalThis).projectMWritePcmRing =
     /** @param {Float32Array} buffer @param {number} [channels] */
-    const write = (buffer, channels = 2) => {
+    (buffer, channels = 2) => {
         const writer = getPcmRingWriter(module);
         if (writer) writer.write(buffer, channels);
     };
-    const releaseClaim = claimGlobal(globalThis, 'projectMWritePcmRing', write);
-    const release = () => {
-        if (hostRingWriterClaims.get(module)?.release === release) hostRingWriterClaims.delete(module);
-        releaseClaim();
-    };
-    hostRingWriterClaims.set(module, { write, release });
-    return release;
+    return true;
 }
-
-/** @type {WeakMap<object, { write: (buffer: Float32Array, channels?: number) => void, release: () => void }>} */
-const hostRingWriterClaims = new WeakMap();

@@ -7,17 +7,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
     CONTEXT_CONFIG_FLAGS,
-    CONTEXT_SNAPSHOT_ATTRIBUTES_MASK,
-    CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT,
-    CONTEXT_SNAPSHOT_BITS,
-    CONTEXT_SNAPSHOT_FORMAT_MASK,
-    CONTEXT_SNAPSHOT_FORMAT_SHIFT,
-    CONTEXT_SNAPSHOT_POWER_MASK,
-    CONTEXT_SNAPSHOT_POWER_SHIFT,
-    contextAttributeMismatches,
     createConfiguredHost,
-    decodeContextAttributes,
-    decodeContextSnapshot,
     legacyContextConfigArgs,
     resolveFlashLimit,
     resolveWasmContextConfig,
@@ -25,22 +15,13 @@ import {
 
 const F = CONTEXT_CONFIG_FLAGS;
 
-test('defaults: an opaque canvas (WebGL alpha off), premultipliedAlpha on, everything else off, high-performance, RGBA16F', () => {
+test('defaults: WebGL alpha and premultipliedAlpha on, everything else off, high-performance, RGBA16F', () => {
     assert.deepEqual(resolveWasmContextConfig(), {
-        flags: F.premultipliedAlpha,
+        flags: F.contextAlpha | F.premultipliedAlpha,
         powerPreference: 2,
         fboPrecision: 0,
     });
     assert.deepEqual(resolveWasmContextConfig({}), resolveWasmContextConfig());
-});
-
-test('a transparent context asks for WebGL alpha unless contextAlpha says otherwise', () => {
-    assert.notEqual(resolveWasmContextConfig({ transparent: true }).flags & F.contextAlpha, 0);
-    assert.equal(resolveWasmContextConfig({ transparent: false }).flags & F.contextAlpha, 0);
-    // A host that toggles transparency at runtime asks for the alpha channel up front...
-    assert.notEqual(resolveWasmContextConfig({ transparent: false, contextAlpha: true }).flags & F.contextAlpha, 0);
-    // ...and contextAlpha: false is honoured even for a transparent context.
-    assert.equal(resolveWasmContextConfig({ transparent: true, contextAlpha: false }).flags & F.contextAlpha, 0);
 });
 
 test('the alpha option is a CSS hint: it never decides the WebGL alpha bit', () => {
@@ -59,7 +40,7 @@ test('each boolean option sets exactly its own bit', () => {
         ['preserveDrawingBuffer', true, F.preserveDrawingBuffer],
         ['depth', true, F.depth],
         ['stencil', true, F.stencil],
-        ['contextAlpha', true, F.contextAlpha],
+        ['contextAlpha', false, F.contextAlpha],
         ['premultipliedAlpha', false, F.premultipliedAlpha],
         ['failIfMajorPerformanceCaveat', true, F.failIfMajorPerformanceCaveat],
         ['explicitSwapControl', true, F.explicitSwapControl],
@@ -128,8 +109,7 @@ test('the flag bits match WasmContextConfigFlag in WasmWebGLContext.hpp', () => 
 
 test('legacyContextConfigArgs produces set_context_config()\'s seven arguments', () => {
     const config = resolveWasmContextConfig({ antialias: true, stencil: true, powerPreference: 'low-power', fboPrecision: 'byte' });
-    assert.deepEqual(legacyContextConfigArgs(config), [1, 0, 0, 1, 0, 1, 2]);
-    assert.equal(legacyContextConfigArgs(resolveWasmContextConfig({ transparent: true }))[4], 1);
+    assert.deepEqual(legacyContextConfigArgs(config), [1, 0, 0, 1, 1, 1, 2]);
 });
 
 /** @param {Record<string, unknown>} [extra] */
@@ -171,161 +151,4 @@ test('on an older bundle the owned-Module path keeps set_context_config + init_w
     });
     assert.deepEqual(result, { handle: 0, code: 0 });
     assert.deepEqual(module.calls.map(([name]) => name), ['set_context_config', 'init_with_canvases']);
-});
-
-// ---- get_context_snapshot() ---------------------------------------------------------
-
-/**
- * Packs a snapshot the way get_context_snapshot() does, from the exported layout.
- * `attributes` (flags) and `power` are the context's real ones; leaving
- * `attributes` out packs a snapshot from a bundle that does not report them.
- *
- * @param {{ valid?: boolean, floatColorBuffer?: boolean, floatBlend?: boolean, loseContext?: boolean, format?: number, attributes?: number, power?: number }} [fields]
- */
-function packSnapshot({ valid = true, floatColorBuffer = false, floatBlend = false, loseContext = false, format = 0, attributes, power = 2 } = {}) {
-    const b = CONTEXT_SNAPSHOT_BITS;
-    return (valid ? b.valid : 0)
-        | (floatColorBuffer ? b.floatColorBuffer : 0)
-        | (floatBlend ? b.floatBlend : 0)
-        | (loseContext ? b.loseContext : 0)
-        | (format << CONTEXT_SNAPSHOT_FORMAT_SHIFT)
-        | (attributes === undefined
-            ? 0
-            : b.attributesKnown | (power << CONTEXT_SNAPSHOT_POWER_SHIFT) | (attributes << CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT));
-}
-
-test('the snapshot layout matches WasmContextSnapshotBit and the format field in WasmWebGLContext.hpp', () => {
-    const header = readFileSync(new URL('../../src/wasm/WasmWebGLContext.hpp', import.meta.url), 'utf8');
-    /** @type {Record<string, keyof typeof CONTEXT_SNAPSHOT_BITS>} C++ enumerator → JS key */
-    const names = {
-        kSnapshotValid: 'valid',
-        kSnapshotFloatColorBuffer: 'floatColorBuffer',
-        kSnapshotFloatBlend: 'floatBlend',
-        kSnapshotLoseContext: 'loseContext',
-        kSnapshotAttributesKnown: 'attributesKnown',
-    };
-    const found = [...header.matchAll(/(kSnapshot(?!Format)\w+)\s*=\s*1\s*<<\s*(\d+)/g)];
-    assert.equal(found.length, Object.keys(names).length, 'every C++ snapshot bit has a JS counterpart');
-    for (const [, cxxName, shift] of found) {
-        const key = names[cxxName];
-        assert.ok(key, `${cxxName} is not mapped`);
-        assert.equal(CONTEXT_SNAPSHOT_BITS[key], 1 << Number(shift), `${cxxName} / ${key}`);
-    }
-
-    const formatShift = header.match(/kSnapshotFormatShift\s*=\s*(\d+)/);
-    const formatMask = header.match(/kSnapshotFormatMask\s*=\s*(0x[0-9a-fA-F]+|\d+)/);
-    assert.equal(Number(formatShift?.[1]), CONTEXT_SNAPSHOT_FORMAT_SHIFT);
-    assert.equal(Number(formatMask?.[1]), CONTEXT_SNAPSHOT_FORMAT_MASK);
-
-    /** @param {string} name */
-    const constant = (name) => Number(header.match(new RegExp(`${name}\\s*=\\s*(0x[0-9a-fA-F]+|\\d+)`))?.[1]);
-    assert.equal(constant('kSnapshotPowerShift'), CONTEXT_SNAPSHOT_POWER_SHIFT);
-    assert.equal(constant('kSnapshotPowerMask'), CONTEXT_SNAPSHOT_POWER_MASK);
-    assert.equal(constant('kSnapshotAttributesShift'), CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT);
-    assert.equal(constant('kSnapshotAttributesMask'), CONTEXT_SNAPSHOT_ATTRIBUTES_MASK);
-    // The attribute field holds every flag, and stays inside a signed 32-bit int.
-    const allFlags = Object.values(F).reduce((all, bit) => all | bit, 0);
-    assert.equal(allFlags & ~CONTEXT_SNAPSHOT_ATTRIBUTES_MASK, 0);
-    assert.ok(CONTEXT_SNAPSHOT_ATTRIBUTES_MASK << CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT > 0);
-});
-
-test('decodeContextSnapshot reads each capability and the format on its own', () => {
-    assert.deepEqual(decodeContextSnapshot(packSnapshot()), {
-        floatColorBuffer: false, floatBlend: false, loseContext: false, fboFormat: 0, fboFormatName: 'RGBA16F',
-        attributes: null, mismatches: [],
-    });
-    assert.equal(decodeContextSnapshot(packSnapshot({ floatColorBuffer: true }))?.floatColorBuffer, true);
-    assert.equal(decodeContextSnapshot(packSnapshot({ floatBlend: true }))?.floatBlend, true);
-    assert.equal(decodeContextSnapshot(packSnapshot({ loseContext: true }))?.loseContext, true);
-
-    // One capability set must not leak into the others.
-    assert.deepEqual(decodeContextSnapshot(packSnapshot({ floatBlend: true })), {
-        floatColorBuffer: false, floatBlend: true, loseContext: false, fboFormat: 0, fboFormatName: 'RGBA16F',
-        attributes: null, mismatches: [],
-    });
-});
-
-test('decodeContextAttributes names each flag and the power preference', () => {
-    const none = decodeContextAttributes(0, 0);
-    assert.equal(none.powerPreference, 'default');
-    for (const [name, bit] of Object.entries(F)) {
-        const attributes = decodeContextAttributes(bit, 1);
-        assert.equal(attributes.powerPreference, 'low-power');
-        for (const key of Object.keys(F)) {
-            assert.equal(/** @type {any} */ (attributes)[key], key === name, `${name} must set only ${name}`);
-            assert.equal(/** @type {any} */ (none)[key], false);
-        }
-    }
-    assert.equal(decodeContextAttributes(0, 2).powerPreference, 'high-performance');
-    assert.ok(Object.isFrozen(none));
-});
-
-test('the snapshot reports the context\'s real attributes, field by field', () => {
-    const flags = F.contextAlpha | F.premultipliedAlpha | F.depth | F.desynchronized;
-    const snapshot = decodeContextSnapshot(packSnapshot({ floatColorBuffer: true, format: 1, attributes: flags, power: 1 }));
-    assert.deepEqual(snapshot?.attributes, decodeContextAttributes(flags, 1));
-    // The fields next to it are untouched.
-    assert.equal(snapshot?.floatColorBuffer, true);
-    assert.equal(snapshot?.floatBlend, false);
-    assert.equal(snapshot?.fboFormat, 1);
-    // Without a requested config there is nothing to compare against.
-    assert.deepEqual(snapshot?.mismatches, []);
-});
-
-test('requested vs effective: the snapshot lists each attribute the context did not get', () => {
-    const requested = resolveWasmContextConfig({ transparent: true });
-    // A context the canvas already held: opaque, with a depth buffer, low-power.
-    const effectiveFlags = F.premultipliedAlpha | F.depth;
-    const snapshot = decodeContextSnapshot(packSnapshot({ attributes: effectiveFlags, power: 1 }), requested);
-    assert.deepEqual(snapshot?.mismatches, [
-        { attribute: 'depth', requested: false, effective: true },
-        { attribute: 'contextAlpha', requested: true, effective: false },
-        { attribute: 'powerPreference', requested: 'high-performance', effective: 'low-power' },
-    ]);
-    assert.ok(Object.isFrozen(snapshot?.mismatches));
-    assert.ok(snapshot?.mismatches.every((entry) => Object.isFrozen(entry)));
-
-    // The same context, asked for exactly what it has: no mismatches.
-    const agreeing = { flags: effectiveFlags, powerPreference: 1, fboPrecision: 0 };
-    assert.deepEqual(decodeContextSnapshot(packSnapshot({ attributes: effectiveFlags, power: 1 }), agreeing)?.mismatches, []);
-    // A bundle that does not report attributes has none to compare.
-    assert.deepEqual(decodeContextSnapshot(packSnapshot(), requested)?.mismatches, []);
-});
-
-test('manual present expects preserveDrawingBuffer: Emscripten forces it for the offscreen back buffer', () => {
-    const requested = resolveWasmContextConfig({ presentMode: 'manual' });
-    const granted = requested.flags | F.preserveDrawingBuffer;
-    assert.deepEqual(contextAttributeMismatches(requested, decodeContextAttributes(granted, 2)), []);
-    // Without manual present the same back buffer is a real difference.
-    const browser = resolveWasmContextConfig();
-    assert.deepEqual(contextAttributeMismatches(browser, decodeContextAttributes(browser.flags | F.preserveDrawingBuffer, 2)), [
-        { attribute: 'preserveDrawingBuffer', requested: false, effective: true },
-    ]);
-});
-
-test('decodeContextSnapshot maps the format field to FboFloatFormat, unknown values to RGBA8', () => {
-    // The fboPrecision numbering, as dual_fbo_get_format() reports it.
-    for (const [format, name] of [[0, 'RGBA16F'], [1, 'RGBA32F'], [2, 'RGBA8']]) {
-        const snapshot = decodeContextSnapshot(packSnapshot({ format }));
-        assert.equal(snapshot?.fboFormat, format);
-        assert.equal(snapshot?.fboFormatName, name);
-    }
-    const unknown = decodeContextSnapshot(packSnapshot({ format: 3 }));
-    assert.equal(unknown?.fboFormat, 2);
-    assert.equal(unknown?.fboFormatName, 'RGBA8');
-});
-
-test('a snapshot with no context behind it decodes to null, not to a false RGBA16F', () => {
-    assert.equal(decodeContextSnapshot(0), null, 'get_context_snapshot() answers 0 before init');
-    // Capability bits without the valid bit are not a snapshot either.
-    assert.equal(decodeContextSnapshot(packSnapshot({ valid: false, floatColorBuffer: true, format: 1 })), null);
-    assert.equal(decodeContextSnapshot(Number.NaN), null);
-    assert.equal(decodeContextSnapshot(/** @type {any} */ (undefined)), null);
-});
-
-test('the decoded snapshot is frozen: a host cannot edit what the engine reported', () => {
-    const snapshot = decodeContextSnapshot(packSnapshot({ floatColorBuffer: true }));
-    assert.ok(snapshot && Object.isFrozen(snapshot));
-    assert.throws(() => { /** @type {any} */ (snapshot).floatColorBuffer = false; }, TypeError);
-    assert.equal(snapshot.floatColorBuffer, true);
 });

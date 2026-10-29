@@ -39,46 +39,48 @@ public:
     /**
      * @brief Constructor. Allocates a new, empty texture with the given size and format.
      * @param name Optional name of the texture for referencing in Milkdrop shaders.
-     * @param target The texture target, 2D or 3D.
+     * @param target The texture target, either TEXTURE_2D or TEXTURE_3D.
      * @param width Width in pixels.
      * @param height Height in pixels.
      * @param depth Depth in pixels (for 3D textures).
-     * @param format Storage format.
+     * @param internalFormat OpenGL internal texture format.
+     * @param format OpenGL texture format.
+     * @param type Storage type for each color channel.
      * @param isUserTexture true if the texture is an externally-loaded image, false if it's an internal texture.
      */
-    explicit Texture(std::string name, Device::TextureTarget target, int width, int height, int depth,
-                     Device::TextureFormat format, bool isUserTexture);
+    explicit Texture(std::string name, GLenum target, int width, int height, int depth,
+                     GLint internalFormat, GLenum format, GLenum type, bool isUserTexture);
 
     /**
-     * @brief Constructor. Creates a new texture instance from an existing device texture.
+     * @brief Constructor. Creates a new texture instance from an existing OpenGL texture.
      * @param name Optional name of the texture for referencing in Milkdrop shaders.
-     * @param texture The texture (on the GL backend, a host's GL texture name is a valid handle).
-     * @param target The texture target type.
+     * @param texID The OpenGL texture name (ID).
+     * @param target The texture target type, e.g. GL_TEXTURE_2D.
      * @param width Width in pixels.
      * @param height Height in pixels.
      * @param isUserTexture true if the texture is an externally-loaded image, false if it's an internal texture.
      * @param owned If true (default), the class takes ownership and will delete the texture when destroyed.
      *              If false, the texture is managed externally and won't be deleted.
      */
-    explicit Texture(std::string name, Device::TextureHandle texture, Device::TextureTarget target,
+    explicit Texture(std::string name, GLuint texID, GLenum target,
                      int width, int height,
                      bool isUserTexture, bool owned = true);
 
     /**
      * @brief Constructor. Creates a new texture from image data with the given size and format.
      * @param name Optional name of the texture for referencing in Milkdrop shaders.
-     * @param data The texture data to upload, in the format's layout.
-     * @param target The texture target, 2D or 3D.
+     * @param data The texture data to upload.
+     * @param target The texture target, either TEXTURE_2D or TEXTURE_3D.
      * @param width Width in pixels.
      * @param height Height in pixels.
      * @param depth Depth in pixels (for 3D textures).
-     * @param format Storage format.
+     * @param internalFormat OpenGL internal texture format.
+     * @param format OpenGL texture format.
+     * @param type Storage type for each color channel.
      * @param isUserTexture true if the texture is an externally-loaded image, false if it's an internal texture.
-     * @param dataOrder Channel order of @a data.
      */
-    explicit Texture(std::string name, const void* data, Device::TextureTarget target, int width, int height, int depth,
-                     Device::TextureFormat format, bool isUserTexture,
-                     Device::PixelOrder dataOrder = Device::PixelOrder::Rgba);
+    explicit Texture(std::string name, const void* data, GLenum target, int width, int height, int depth,
+                     GLint internalFormat, GLenum format, GLenum type, bool isUserTexture);
 
     Texture(Texture&& other) = default;
     auto operator=(Texture&& other) -> Texture& = default;
@@ -91,25 +93,19 @@ public:
      * @param slot The texture unit to bind the texture to.
      * @param sampler An optional sampler to bind in the same slot.
      */
-    void Bind(int slot, const Sampler::Ptr& sampler = nullptr) const;
+    void Bind(GLint slot, const Sampler::Ptr& sampler = nullptr) const;
 
     /**
      * Unbinds the texture to the given texture unit.
      * @param slot The texture unit to unbind the texture from.
      */
-    void Unbind(int slot) const;
+    void Unbind(GLint slot) const;
 
     /**
-     * @brief Returns the device texture.
-     * @return The texture handle, invalid if the texture is empty.
+     * @brief Returns the OpenGL texture name/ID.
+     * @return The OpenGL texture name/ID.
      */
-    auto Handle() const noexcept -> Device::TextureHandle;
-
-    /**
-     * @brief Returns the backend's texture id (on the GL backend, the GL texture name).
-     * @return The texture id, 0 if the texture is empty.
-     */
-    auto TextureID() const noexcept -> uint32_t;
+    auto TextureID() const noexcept -> GLuint;
 
     /**
      * @brief Returns the texture name, e.g. base filename.
@@ -118,10 +114,10 @@ public:
     auto Name() const noexcept -> const std::string&;
 
     /**
-     * @brief Returns the texture target.
-     * @return The texture target, 2D or 3D.
+     * @brief Returns the OpenGL texture type.
+     * @return The texture type, e.g. GL_TEXTURE_2D.
      */
-    auto Type() const noexcept -> Device::TextureTarget;
+    auto Type() const noexcept -> GLenum;
 
     /**
      * @brief Returns the width of the texture image in pixels.
@@ -160,31 +156,25 @@ public:
      */
     void Update(const void* data) const;
 
-    /**
-     * @brief Replaces the image with one of a possibly different size, keeping the device texture.
-     *
-     * Everything holding this texture (preset sampler descriptors, sprites) samples the new
-     * image from the next draw on, without being told. Only for textures this object owns.
-     *
-     * @param data The new image data, in the texture's format.
-     * @param width The new width in pixels.
-     * @param height The new height in pixels.
-     */
-    void Replace(const void* data, int width, int height);
-
 private:
     /**
      * @brief Creates a new, blank texture with the given size.
      */
     void CreateNewTexture();
 
-    Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the texture.
-    Device::TextureHandle m_texture;                      //!< The texture.
-    Device::TextureDesc m_desc;                           //!< Target, size and format.
+    GLuint m_textureId{0};    //!< The OpenGL texture name/ID.
+    GLenum m_target{GL_NONE}; //!< The OpenGL texture target, e.g. GL_TEXTURE_2D.
 
     std::string m_name;          //!< The texture name for identifying it in shaders.
+    int m_width{0};              //!< Texture width in pixels.
+    int m_height{0};             //!< Texture height in pixels.
+    int m_depth{0};              //!< Texture depth in pixels. Only used for 3D textures.
     bool m_isUserTexture{false}; //!< true if it's a user texture, false if an internal one.
     bool m_owned{true};          //!< true if this class owns the texture and should delete it.
+
+    GLint m_internalFormat{}; //!< OpenGL internal format, e.g. GL_RGBA8
+    GLenum m_format{};        //!< OpenGL color format, e.g. GL_RGBA
+    GLenum m_type{};          //!< OpenGL component storage type, e.g. GL_UNSIGNED _BYTE
 };
 
 } // namespace Renderer

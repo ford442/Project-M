@@ -235,7 +235,7 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
 
     m_mesh.Update();
 
-    Renderer::Device::Commands().SetConstantVertexAttribute(1, {r, g, b, a});
+    glVertexAttrib4f(1, r, g, b, a);
 
     switch (blendMode)
     {
@@ -276,7 +276,7 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
         }
 
         // Reset to original FBO
-        Renderer::Device::Commands().BindRenderTarget(Renderer::Device::TargetBinding::Draw, {static_cast<uint32_t>(outputFramebufferObject)});
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(outputFramebufferObject));
     }
 
     m_texture->Unbind(0);

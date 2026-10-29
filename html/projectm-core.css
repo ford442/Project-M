@@ -114,8 +114,7 @@ canvas.emscripten {
   backdrop-filter: blur(4px);
 }
 
-#transparencyBtn.active,
-#transparencyBtn.engaged {
+#transparencyBtn.active {
   background: rgba(180, 0, 180, 0.85);
   color: #fff;
   box-shadow: 0 0 18px rgba(255, 0, 255, 0.45);

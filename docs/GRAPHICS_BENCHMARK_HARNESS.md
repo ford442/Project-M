@@ -187,9 +187,9 @@ be sampled:
 |---|---|---|
 | `baseline` | `presets/tests/000-empty.milk` | fixed per-frame cost |
 | `no-composite` | `presets/tests/110-per_pixel.milk` | old-school preset: two Y-flips (pre-composite + third flip) |
-| `custom-warp` | `presets/custom/milk012.milk` | custom warp shader: pre-warp flip + pre-composite flip |
+| `custom-warp` | `custom_milk_fixed/milk012.milk` | custom warp shader: pre-warp flip + pre-composite flip |
 | `blur3` | `presets/tests/280-compshader-blur3.milk` | full blur chain every frame, one flip |
-| `dual-fbo-cut` | `milk012 → presets/custom/milk015.milk`, `mode: "crossfade"` | only frames rendered mid-blend: both presets into the Dual-FBO pair + the compositor |
+| `dual-fbo-cut` | `milk012 → custom_milk_fixed/milk015.milk`, `mode: "crossfade"` | only frames rendered mid-blend: both presets into the Dual-FBO pair + the compositor |
 
 The flip counts per shape are pinned by `tests/libprojectM/PerfGpuStageTest.cpp`.
 The crossfade entry samples soft cuts from the previous entry, back and forth,

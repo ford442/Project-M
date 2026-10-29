@@ -28,14 +28,12 @@ const slotsByHost = new WeakMap();
 /**
  * Publish `value` as `host[key]` until the returned function is called.
  *
- * @param {object} host The object carrying the slot, usually `window` / `globalThis`.
+ * @param {any} host The object carrying the slot, usually `window` / `globalThis`.
  * @param {string} key
  * @param {unknown} value
  * @returns {() => void} Releases this claim only. Idempotent.
  */
 export function claimGlobal(host, key, value) {
-    // Slots are keyed by arbitrary page-global names, so the host is a bag here.
-    const bag = /** @type {Record<string, unknown>} */ (host);
     let slots = slotsByHost.get(host);
     if (!slots) {
         slots = new Map();
@@ -45,8 +43,8 @@ export function claimGlobal(host, key, value) {
     let slot = slots.get(key);
     if (!slot) {
         slot = {
-            hadOwn: Object.prototype.hasOwnProperty.call(bag, key),
-            original: bag[key],
+            hadOwn: Object.prototype.hasOwnProperty.call(host, key),
+            original: host[key],
             claims: [],
         };
         slots.set(key, slot);
@@ -54,7 +52,7 @@ export function claimGlobal(host, key, value) {
 
     const claim = { value };
     slot.claims.push(claim);
-    bag[key] = value;
+    host[key] = value;
 
     const ownSlot = slot;
     const ownSlots = slots;
@@ -71,7 +69,7 @@ export function claimGlobal(host, key, value) {
         }
         const wasVisible = index === ownSlot.claims.length - 1;
         ownSlot.claims.splice(index, 1);
-        const stillOurs = bag[key] === claim.value;
+        const stillOurs = host[key] === claim.value;
 
         if (ownSlot.claims.length === 0) {
             ownSlots.delete(key);
@@ -79,15 +77,15 @@ export function claimGlobal(host, key, value) {
                 return;
             }
             if (ownSlot.hadOwn) {
-                bag[key] = ownSlot.original;
+                host[key] = ownSlot.original;
             } else {
-                delete bag[key];
+                delete host[key];
             }
             return;
         }
 
         if (wasVisible && stillOurs) {
-            bag[key] = ownSlot.claims[ownSlot.claims.length - 1].value;
+            host[key] = ownSlot.claims[ownSlot.claims.length - 1].value;
         }
     };
 }
@@ -95,7 +93,7 @@ export function claimGlobal(host, key, value) {
 /**
  * How many live claims a slot has. For tests and diagnostics.
  *
- * @param {object} host
+ * @param {any} host
  * @param {string} key
  * @returns {number}
  */

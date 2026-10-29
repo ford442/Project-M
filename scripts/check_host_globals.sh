@@ -32,14 +32,7 @@
 #   3. assign `<global>.BroadcastChannel = ...` (monkey-patching a platform
 #      constructor affects every script on the page);
 #   4. call claimGlobal() with a literal `pm*` name (that is rule 1 by another
-#      route);
-#   5. assign a `projectM*` / `__projectM*` / `__pm*` name on one of them,
-#      unless OWNED_GLOBALS below names that file as the name's one writer.
-#      These are the page-scoped slots the baked engine glue reads or writes
-#      by name (the AudioContext, the worklet node, the song-load state, the
-#      weeks-on-fire flag) plus a few page-once guards. Each has exactly one
-#      host-side owner; anything else that needs the value imports the owner.
-#      Per-context state belongs on the ProjectMContext, not here.
+#      route).
 #
 # To listen to an engine callback use subscribeWasmCallback() from
 # projectm-wasm-callbacks.js. To publish a convenience name, add an installer to
@@ -77,69 +70,23 @@ ALLOWED_FILES=(
 mapfile -t FILES < <(
     {
         find html -maxdepth 1 -type f -name 'projectm-*.js'
-        # Only the subdirectories that exist: a failing find would end the list
-        # here under `set -e` and leave the host pages below unscanned.
-        for subdir in html/context html/worklets; do
-            if [[ -d "$subdir" ]]; then
-                find "$subdir" -maxdepth 1 -type f -name '*.js'
-            fi
-        done
         find html -maxdepth 1 -type f \( -name '*.html' -o -name '*.1ink' \)
     } | sort -u
 )
 
-GLOBAL_OBJ='(window|globalThis|windowRef|self)\)?'
+GLOBAL_OBJ='(window|globalThis|windowRef|self)'
 LEGACY_NAMES='(cycleAudioPlayer|closeAudioPlayer|flacPlayer|modPlayer|openFlacPlayer|openModPlayer)'
 
 # name: extended regex. Each matches an *assignment* (`=` not followed by
 # another `=`), so reads such as `window.pmGetFboFormat()` and comparisons are
 # fine.
 declare -A RULES=(
-    ["assigns a window.pm* global"]="${GLOBAL_OBJ}(\\??\\.pm[A-Za-z0-9_]*|\\[['\"]pm[A-Za-z0-9_]*['\"]\\])[[:space:]]*=([^=>]|$)"
+    ["assigns a window.pm* global"]="${GLOBAL_OBJ}(\\??\\.pm[A-Za-z0-9_]*|\\[['\"]pm[A-Za-z0-9_]*['\"]\\])[[:space:]]*=[^=>]"
     ["defines a pm* property on a page global"]="defineProperty\\([[:space:]]*${GLOBAL_OBJ}[[:space:]]*,[[:space:]]*['\"]pm[A-Za-z0-9_]*['\"]"
-    ["assigns a legacy popup-player global"]="${GLOBAL_OBJ}\\??\\.${LEGACY_NAMES}[[:space:]]*=([^=>]|$)"
-    ["monkey-patches BroadcastChannel"]="${GLOBAL_OBJ}\\??\\.BroadcastChannel[[:space:]]*=([^=>]|$)"
+    ["assigns a legacy popup-player global"]="${GLOBAL_OBJ}\\??\\.${LEGACY_NAMES}[[:space:]]*=[^=>]"
+    ["monkey-patches BroadcastChannel"]="${GLOBAL_OBJ}\\??\\.BroadcastChannel[[:space:]]*=[^=>]"
     ["claims a pm* global by literal name"]="claimGlobal\\([^,()]+,[[:space:]]*['\"]pm[A-Za-z0-9_]*['\"]"
 )
-
-# Rule 5's ownership table: "<global name> <the one file that may assign it>".
-# Add a line only for a slot the engine glue shares by name or a page-once
-# guard; say which in the comment.
-OWNED_GLOBALS=(
-    # Read by the engine's audio EM_JS (src/wasm/WasmAudioBridge.cpp).
-    "projectMAudioContext_Global_Cpp html/projectm-worklet-playback.js"
-    "projectMWorkletNode_Global_Cpp html/projectm-worklet-playback.js"
-    # Also written by js_load_song_into_worklet; read via getSongLoadState().
-    "projectMSongLoadState html/projectm-worklet-playback.js"
-    # Read by src/wasm/WasmJsBindings.cpp at module start.
-    "__projectMWeeksOnFire html/projectm-weeks-on-fire.js"
-    # Console readouts, never read by code.
-    "__projectMWeeksPaths html/projectm-weeks-on-fire.js"
-    "__projectMSongCatalog html/projectm-song-loader.js"
-    # Page-once guard: the interceptor wraps the page's 'sng' channel, and the
-    # module can be loaded twice under different ?v= URLs.
-    "__projectMSongLoaderInstalled html/projectm-song-loader.js"
-)
-
-owner_of() {
-    local name="$1" entry
-    for entry in "${OWNED_GLOBALS[@]}"; do
-        if [[ "${entry%% *}" == "$name" ]]; then
-            echo "${entry#* }"
-            return 0
-        fi
-    done
-    return 1
-}
-
-OWNED_PATTERN="${GLOBAL_OBJ}(\\??\\.|\\[['\"])((__)?projectM[A-Za-z0-9_]*|__pm[A-Za-z0-9_]*)(['\"]\\])?[[:space:]]*=([^=>]|$)"
-
-# Drops same-line /* ... */ blocks (JSDoc casts such as
-# `/** @type {any} */ (globalThis).x = ...`) so the line is judged by its code,
-# not dropped as a comment line. Line numbers are unchanged.
-strip_inline_comments() {
-    sed -E 's#/\*([^*]|\*+[^*/])*\*+/##g' "$1"
-}
 
 is_allowed() {
     local file="$1" allowed
@@ -162,8 +109,7 @@ for file in "${FILES[@]}"; do
         # Drop comment-only lines (// ..., * ..., /* ...) so prose that shows an
         # assignment as an example is not a violation.
         hits="$(
-            strip_inline_comments "$file" \
-                | grep -nE "${RULES[$rule]}" \
+            grep -nE "${RULES[$rule]}" "$file" \
                 | grep -vE '^[0-9]+:[[:space:]]*(//|\*|/\*)' \
                 || true
         )"
@@ -173,27 +119,6 @@ for file in "${FILES[@]}"; do
             failed=1
         fi
     done
-done
-
-# Rule 5 runs over every file, the shim and the bus included: owning a slot is
-# per name, not per file.
-for file in "${FILES[@]}"; do
-    [[ "$file" == "html/projectm-render-worker.js" ]] && continue
-    while IFS= read -r hit; do
-        [[ -z "$hit" ]] && continue
-        name="$(grep -oE "((__)?projectM[A-Za-z0-9_]*|__pm[A-Za-z0-9_]*)" <<<"${hit#*:}" | head -n1)"
-        owner="$(owner_of "$name" || true)"
-        if [[ "$owner" != "$file" ]]; then
-            echo "FAIL: $file assigns page global $name (owner: ${owner:-none -- add one to OWNED_GLOBALS or keep it in module/context state}):" >&2
-            echo "  $hit" >&2
-            failed=1
-        fi
-    done < <(
-        strip_inline_comments "$file" \
-            | grep -nE "$OWNED_PATTERN" \
-            | grep -vE '^[0-9]+:[[:space:]]*(//|\*|/\*)' \
-            || true
-    )
 done
 
 if [[ "$failed" -ne 0 ]]; then

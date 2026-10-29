@@ -1,0 +1,104 @@
+// CHANGELOG 2026-06-19 (initial)
+// - Crystal Lattice: hexagonal warp feedback + prismatic comp + rotating hex emblem
+// Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/milk014_creative_brief.md (variant)
+// Audio: q2=bass_att lattice pulse, q3=mid_att refraction, q4=treb_att spectral sparks
+MILKDROP_PRESET_VERSION=200
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+presetname=Crystal Lattice
+fRating=3.0
+fGammaAdj=1.2
+fDecay=0.965
+fVideoEchoZoom=1.0
+fVideoEchoAlpha=0.0
+nWaveMode=0
+bAdditiveWaves=0
+bWaveDots=0
+bWaveThick=0
+bTexWrap=1
+bDarkenCenter=0
+bBrighten=0
+bDarken=0
+fWaveAlpha=0.0
+fShader=0.0
+zoom=1.0
+rot=0.0
+cx=0.5
+cy=0.5
+dx=0.0
+dy=0.0
+warp=0.01
+sx=1.0
+sy=1.0
+ob_size=0.01
+ib_size=0.01
+mv_a=0.0
+
+per_frame_1=q1=time;
+per_frame_2=q2=bass_att;
+per_frame_3=q3=mid_att;
+per_frame_4=q4=treb_att;
+per_frame_5=q5=sin(time*0.3);
+per_frame_6=q6=cos(time*0.25);
+per_frame_7=q7=1.0+q2*0.12;
+per_frame_8=q8=time*0.15+q3*0.5;
+
+shapecode_0_enabled=1
+shapecode_0_sides=6
+shapecode_0_additive=0
+shapecode_0_thickOutline=1
+shapecode_0_num_inst=1
+shapecode_0_x=0.5
+shapecode_0_y=0.5
+shapecode_0_rad=0.1
+shapecode_0_r=0.2
+shapecode_0_g=0.7
+shapecode_0_b=1.0
+shapecode_0_a=0.4
+shapecode_0_border_r=0.5
+shapecode_0_border_g=0.9
+shapecode_0_border_b=1.0
+shapecode_0_border_a=0.5
+shape_0_per_frame1=rad=0.08+q2*0.05;
+shape_0_per_frame2=ang=q1*0.25;
+shape_0_per_frame3=r=0.2+q3*0.3;
+shape_0_per_frame4=g=0.5+0.4*sin(q1);
+shape_0_per_frame5=b=0.8+0.2*q4;
+
+per_pixel_1=zoom=1.0;
+per_pixel_2=rot=0.0;
+per_pixel_3=warp=0.01;
+
+warp_1=`shader_body
+warp_2=`{
+warp_3=`    float2 p = (uv - 0.5) * aspect.xy;
+warp_4=`    float cr = cos(q8); float sr = sin(q8);
+warp_5=`    float2 pr = float2(p.x * cr - p.y * sr, p.x * sr + p.y * cr);
+warp_6=`    float sc = 7.0 + q2 * 3.0;
+warp_7=`    float d1 = abs(dot(pr, float2(1.0, 0.0)) * sc - floor(dot(pr, float2(1.0, 0.0)) * sc + 0.5));
+warp_8=`    float d2 = abs(dot(pr, float2(0.5, 0.8660254)) * sc - floor(dot(pr, float2(0.5, 0.8660254)) * sc + 0.5));
+warp_9=`    float d3 = abs(dot(pr, float2(-0.5, 0.8660254)) * sc - floor(dot(pr, float2(-0.5, 0.8660254)) * sc + 0.5));
+warp_10=`    float dist = min(d1, min(d2, d3));
+warp_11=`    float lattice = smoothstep(0.1, 0.0, dist);
+warp_12=`    float pulse = 1.0 + q2 * 0.04 * sin(dist * 18.0 - q1 * 2.0);
+warp_13=`    float2 offset = float2(cos(d1), sin(d2)) * q3 * 0.015;
+warp_14=`    float2 wuv = pr * pulse + offset + lattice * q2 * 0.02;
+warp_15=`    ret = tex2D(sampler_main, wuv * aspect.zw + 0.5).xyz;
+warp_16=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`    float3 col = tex2D(sampler_main, uv).xyz;
+comp_4=`    float3 ice = float3(0.25, 0.65, 1.0);
+comp_5=`    col = lerp(col, col * ice * 1.2, 0.45);
+comp_6=`    float3 rainbow;
+comp_7=`    rainbow.r = sin(q1 * 0.8) * 0.5 + 0.5;
+comp_8=`    rainbow.g = sin(q1 * 0.8 + 2.094) * 0.5 + 0.5;
+comp_9=`    rainbow.b = sin(q1 * 0.8 + 4.189) * 0.5 + 0.5;
+comp_10=`    col += rainbow * q4 * 0.12;
+comp_11=`    float2 d = uv - 0.5;
+comp_12=`    col *= smoothstep(0.75, 0.25, length(d));
+comp_13=`    ret = saturate(col);
+comp_14=`}

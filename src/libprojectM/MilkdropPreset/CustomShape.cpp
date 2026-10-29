@@ -174,7 +174,8 @@ void CustomShape::Draw()
                 }
             }
 
-            Renderer::Device::Commands().SetBoundTextureWrap(0, Renderer::Device::TextureTarget::Texture2D, Renderer::Device::WrapMode::Repeat);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
             auto& uvs = m_fillMesh.UVs();
 
@@ -204,9 +205,7 @@ void CustomShape::Draw()
         m_fillMesh.Update();
         m_fillMesh.Draw();
 
-        // Unbinds on whichever unit is active, as the untextured path binds none.
-        auto& commands = Renderer::Device::Commands();
-        commands.BindTexture(commands.ActiveTextureUnit(), Renderer::Device::TextureTarget::Texture2D, {});
+        glBindTexture(GL_TEXTURE_2D, 0);
         Renderer::Sampler::Unbind(0);
 
         if (*m_perFrameContext.border_a > 0.0001f)
@@ -226,12 +225,15 @@ void CustomShape::Draw()
             shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
             shader->SetUniformFloat("vertex_point_size", 1.0f);
 
-            Renderer::Device::Commands().SetConstantVertexAttribute(1, {static_cast<float>(*m_perFrameContext.border_r),
-                                                                      static_cast<float>(*m_perFrameContext.border_g),
-                                                                      static_cast<float>(*m_perFrameContext.border_b),
-                                                                      static_cast<float>(*m_perFrameContext.border_a)});
-            Renderer::Device::Commands().SetLineWidth(1.0f);
-            Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, true);
+            glVertexAttrib4f(1,
+                             static_cast<float>(*m_perFrameContext.border_r),
+                             static_cast<float>(*m_perFrameContext.border_g),
+                             static_cast<float>(*m_perFrameContext.border_b),
+                             static_cast<float>(*m_perFrameContext.border_a));
+            glLineWidth(1);
+#ifndef USE_GLES
+            glEnable(GL_LINE_SMOOTH);
+#endif
 
             const auto iterations = m_thickOutline ? 4 : 1;
 
@@ -279,7 +281,9 @@ void CustomShape::Draw()
     Renderer::Mesh::Unbind();
     Renderer::Shader::Unbind();
 
-    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
+#ifndef USE_GLES
+    glDisable(GL_LINE_SMOOTH);
+#endif
     Renderer::BlendMode::SetBlendActive(false);
 }
 

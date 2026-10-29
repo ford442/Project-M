@@ -1,84 +1,69 @@
-// projectm-context.js
-//
-// ProjectMContext: the high-level embed API. This file holds the context's
-// state, its lifecycle (start / teardown / destroy) and its public methods;
-// the work behind them lives in context/:
-//
-//   context/boot.js     glue + Module / render worker / engine creation
-//   context/audio.js    the audio router and the configured audio source
-//   context/presets.js  preset loading, rhythm controls and rhythm events
-//   context/render.js   canvas sizing, resize, fps, snapshot, flash stats
-//
-// Those modules keep no state of their own: whatever they acquire comes back
-// here and is registered on this context's teardown list.
-
-import { setupAudioUnlock } from './projectm-audio-bootstrap.js';
-import { installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
+import { ensureAudioRunning, setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { ensureWorkletReady, installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
+import {
+    connectMediaElement,
+    disconnectMediaElement,
+    installMediaElementSourceHook,
+} from './projectm-audio-element-source.js';
+import {
+    AudioSourceRouter,
+    audioSourceToRouterSource,
+    createAudioSourceRouter,
+} from './projectm-audio-source-router.js';
 import { claimGlobal } from './projectm-globals.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 import { setupContextLossRecovery } from './projectm-context-loss.js';
-import { flushQueuedExternalPCM, setExternalPcmTransport } from './projectm-external-pcm.js';
+import {
+    defaultFeedPCMToModule,
+    flushQueuedExternalPCM,
+    setExternalPcmTransport,
+    setupExternalAudioReceiver,
+} from './projectm-external-pcm.js';
 import { setupPcmHud } from './projectm-pcm-hud.js';
 import { getGovernorRenderScale, setQualityGovernorEnabled, setTargetFps } from './projectm-fps-governor.js';
-import { installTransportPcmWriter, installTransportPresetWriter } from './projectm-render-transport.js';
-import { checkCrossOriginIsolation, INIT_CONTEXT_LOST } from './projectm-init-errors.js';
-import { setMeshQuality } from './projectm-mesh-quality.js';
-import { toDisposeFunction } from './projectm-disposables.js';
-import { updatePresetDisplay } from './projectm-presets.js';
 import {
+    buildWasmBundlePaths,
+    createProjectMModule,
+    loadProjectMWasmScript,
+    observeModuleSize,
+    resolveWasmScriptUrl,
+} from './projectm-init.js';
+import { loadWasmBuildsManifest } from './projectm-wasm-manifest.js';
+import {
+    createModuleTransport,
+    installTransportPcmWriter,
+    installTransportPresetWriter,
+    selectRenderTopology,
+} from './projectm-render-transport.js';
+import { isRenderWorkerEnabled, resolveRenderPathOverrides } from './projectm-render-worker-host.js';
+import { checkCrossOriginIsolation, checkInit, INIT_CONTEXT_LOST } from './projectm-init-errors.js';
+import { setMeshQuality } from './projectm-mesh-quality.js';
+import {
+    loadPresetFromUrl,
+    loadLocalPresetFile,
+    updatePresetDisplay,
+} from './projectm-presets.js';
+import {
+    bindModuleToHost,
     startRender,
     setPresetLocked,
     setTransparencyMode,
     switchPreset,
     destroyHost,
 } from './generated/projectm-wasm-api.js';
-import { resolveFlashLimit } from './projectm-context-config.js';
-import {
-    bootEngine,
-    contextConfigFor,
-    createAbortError,
-    createModule,
-    isAbortError,
-    loadGlueScript,
-    resolveBundlePaths,
-    resolveCanvasSelector,
-    throwIfAborted,
-} from './context/boot.js';
-import { attachAudioRouter, resolveMediaElement, wireAudioSource } from './context/audio.js';
-import {
-    RHYTHM_EVENT_TYPES,
-    RhythmEventRelay,
-    applyRhythmOptions,
-    callRhythm,
-    loadPresetFileInto,
-    loadPresetUrlInto,
-    presetSwitchPolicyArgs,
-    readRhythmInfo,
-    relayPresetEvents,
-} from './context/presets.js';
-import {
-    createEngineBinder,
-    followContainerSize,
-    meshGridFor,
-    readContextSnapshot,
-    readFlashLimitStats,
-    startFpsMonitor,
-    syncCanvasSize,
-} from './context/render.js';
-import { createSpriteOn, destroySpriteOn, getSpriteVarOn, setSpriteVarOn } from './context/sprites.js';
+import { createConfiguredHost, resolveFlashLimit, resolveWasmContextConfig } from './projectm-context-config.js';
 
 // Re-exported for embedders (`@projectm/web/context`): the encoder behind the
 // context options, for hosts that create engines through the raw exports.
 export { CONTEXT_CONFIG_FLAGS, resolveWasmContextConfig } from './projectm-context-config.js';
 
 const DEFAULT_TARGET_FPS = 60;
+let canvasIdSerial = 0;
 
-/**
- * The default WASM base: this module's URL. Read here and nowhere in
- * context/, because the package build bundles modules into flat chunks where
- * `import.meta.url` is the chunk's URL, not the source file's.
- */
-const DEFAULT_BASE_URL = import.meta.url;
+/** The events `ProjectMContext.on()` routes from the engine's rhythm analysis. */
+const RHYTHM_EVENT_TYPES = Object.freeze(['beat', 'bar', 'section']);
+/** `set_preset_switch_policy()`'s policy numbers, by name (projectM-4/rhythm.h). */
+const PRESET_SWITCH_POLICIES = Object.freeze(['timer', 'bars', 'section']);
 
 /**
  * Boot a single projectM WASM Module *without* initialising an engine, so that
@@ -114,23 +99,79 @@ export async function bootProjectMSharedModule(options = {}) {
         signal,
     } = options;
 
-    const baseUrl = wasmBaseUrl ?? DEFAULT_BASE_URL;
-    const versionPaths = await resolveBundlePaths({ baseUrl, wasmScriptUrl, wasmVersion, signal });
-    await loadGlueScript({ documentRef, baseUrl, wasmScriptUrl, wasmVersion, versionPaths, signal });
-    const module = await createModule({
+    const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+    if (!wasmScriptUrl) {
+        await loadWasmBuildsManifest({ baseUrl: resolvedBaseUrl, signal });
+    }
+    const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
+
+    if (wasmScriptUrl) {
+        await loadProjectMWasmScript({
+            documentRef,
+            baseUrl: resolvedBaseUrl,
+            pmScript: wasmScriptUrl,
+            rootScript: wasmScriptUrl,
+            forceRefresh: true,
+            signal,
+        });
+    } else {
+        await loadProjectMWasmScript({
+            documentRef,
+            baseUrl: resolvedBaseUrl,
+            ...(versionPaths
+                ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                : {}),
+            forceRefresh: Boolean(wasmVersion),
+            signal,
+        });
+    }
+
+    const module = /** @type {ProjectMModule} */ (await createProjectMModule({
+        scriptSrc: wasmScriptUrl || undefined,
+        wasmVersion,
+        baseUrl: resolvedBaseUrl,
         documentRef,
         windowRef,
-        baseUrl,
-        wasmScriptUrl,
-        wasmVersion,
+        noInitialRun: true,
         primaryCanvasSelector,
         secondaryCanvasSelector,
         signal,
-    });
+    }));
     if (windowRef) {
         windowRef.Module = module;
     }
     return module;
+}
+
+/**
+ * Ensure a canvas has a document-unique id for Emscripten CSS selectors.
+ * @param {HTMLCanvasElement} canvas
+ * @param {string} prefix
+ * @returns {string} The resulting element id (without `#`).
+ */
+function ensureCanvasElementId(canvas, prefix) {
+    if (canvas.id) {
+        return canvas.id;
+    }
+    canvasIdSerial += 1;
+    const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().slice(0, 8)
+        : `${canvasIdSerial}-${Math.random().toString(36).slice(2, 8)}`;
+    canvas.id = `${prefix}-${suffix}`;
+    return canvas.id;
+}
+
+/**
+ * @param {HTMLCanvasElement} canvas
+ * @param {string | undefined} explicitSelector
+ * @param {string} idPrefix
+ * @returns {string}
+ */
+function resolveCanvasSelector(canvas, explicitSelector, idPrefix) {
+    if (explicitSelector) {
+        return explicitSelector;
+    }
+    return `#${ensureCanvasElementId(canvas, idPrefix)}`;
 }
 
 /**
@@ -144,14 +185,117 @@ export async function bootProjectMSharedModule(options = {}) {
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
  * @typedef {import('./projectm-context-types.ts').ProjectMRenderTopology} ProjectMRenderTopology
- * @typedef {import('./projectm-audio-source-router.js').AudioSourceRouter} AudioSourceRouter
  * @typedef {import('./projectm-context-types.ts').ProjectMPresetSwitchPolicy} ProjectMPresetSwitchPolicy
  * @typedef {import('./projectm-context-types.ts').ProjectMRhythmInfo} ProjectMRhythmInfo
  * @typedef {import('./projectm-context-types.ts').ProjectMCapturedFrame} ProjectMCapturedFrame
  * @typedef {import('./projectm-context-types.ts').ProjectMCaptureFrameOptions} ProjectMCaptureFrameOptions
  * @typedef {import('./projectm-context-types.ts').ProjectMFlashLimitStats} ProjectMFlashLimitStats
- * @typedef {import('./projectm-context-types.ts').ProjectMContextSnapshot} ProjectMContextSnapshot
  */
+
+/**
+ * An error shaped like the one `fetch()` rejects with when aborted, so callers
+ * can tell "this was cancelled" from "this failed" by `error.name`.
+ *
+ * @param {string} message
+ * @returns {Error}
+ */
+function createAbortError(message) {
+    const error = new Error(message);
+    error.name = 'AbortError';
+    return error;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isAbortError(error) {
+    return !!error && typeof error === 'object' && /** @type {{ name?: unknown }} */ (error).name === 'AbortError';
+}
+
+/**
+ * @param {HTMLMediaElement | string | null | undefined} value
+ * @param {Document | undefined} documentRef
+ * @returns {HTMLMediaElement | null}
+ */
+function resolveMediaElement(value, documentRef) {
+    if (!value) {
+        return null;
+    }
+    if (typeof value === 'string') {
+        return /** @type {HTMLMediaElement | null} */ (documentRef?.querySelector(value)) ?? null;
+    }
+    return value;
+}
+
+/**
+ * @param {{ transport: RenderTransport | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number; renderScale?: number }} options
+ * @returns {boolean}
+ */
+function syncCanvasSize({
+    transport,
+    container,
+    mainCanvas,
+    secondaryCanvas,
+    aspectCorrection,
+    devicePixelRatio = globalThis.devicePixelRatio || 1,
+    renderScale = 1,
+}) {
+    if (!transport || !container || !mainCanvas) {
+        return false;
+    }
+
+    // In the worker topology the canvas has been transferred: assigning to its
+    // width/height here throws, and the governor's render scale is applied on
+    // the other side (html/projectm-render-worker.js). This thread still owns
+    // the CSS box, which is what keeps the present upscale looking the same in
+    // both topologies.
+    const ownsBackingStore = transport.topology === 'main';
+
+    const rect = container.getBoundingClientRect();
+    // The canvas backing store (width/height attributes) is rendered at
+    // renderScale * devicePixelRatio, while its CSS box size (style.width/height)
+    // always stays at the full, unscaled container size. When renderScale < 1
+    // (governor v2 stepped down internal render scale, see
+    // html/projectm-fps-governor.js), the browser's own canvas-bitmap-to-CSS-box
+    // scaling stretches the smaller backing store to fill the unchanged layout box
+    // — this is the "present upscale" for internal FBO render scale; no separate
+    // offscreen blit is needed because everything (including the dual-FBO
+    // compositor) renders at the backing-store resolution already.
+    const scale = renderScale > 0 ? renderScale : 1;
+    const layoutWidth = Math.max(1, Math.round(rect.width * devicePixelRatio));
+    const layoutHeight = Math.max(1, Math.round(rect.height * devicePixelRatio));
+    const width = Math.max(1, Math.round(rect.width * devicePixelRatio * scale));
+    const height = Math.max(1, Math.round(rect.height * devicePixelRatio * scale));
+
+    if (ownsBackingStore) {
+        mainCanvas.width = width;
+        mainCanvas.height = height;
+    }
+    mainCanvas.style.width = `${rect.width}px`;
+    mainCanvas.style.height = `${rect.height}px`;
+
+    if (secondaryCanvas) {
+        if (ownsBackingStore) {
+            secondaryCanvas.width = width;
+            secondaryCanvas.height = height;
+        }
+        secondaryCanvas.style.width = `${rect.width}px`;
+        secondaryCanvas.style.height = `${rect.height}px`;
+    }
+
+    // The worker scales the layout size by its own copy of the render scale,
+    // so sending it the already-scaled size would apply the factor twice.
+    transport.resize(
+        ownsBackingStore ? width : layoutWidth,
+        ownsBackingStore ? height : layoutHeight,
+    );
+    if (aspectCorrection !== undefined && transport.supports('setAspectCorrection')) {
+        transport.callVoid('setAspectCorrection', aspectCorrection);
+    }
+
+    return true;
+}
 
 /**
  * High-level embed API: canvas bootstrap, WASM init, resize, presets, and audio wiring.
@@ -183,8 +327,10 @@ export class ProjectMContext {
      */
     events = new EventTarget();
 
-    /** Beat/bar/section events, connected to the engine while anyone listens. */
-    #rhythm = new RhythmEventRelay((type, detail) => this.#emit(type, detail), () => this.hostHandle);
+    /** Live `on()` subscriptions to beat/bar/section; the engine reports only while there are any. */
+    #rhythmListeners = 0;
+    /** Unsubscribes from the transport's rhythm events, while subscribed. @type {(() => void) | null} */
+    #rhythmUnsubscribe = null;
 
     /**
      * Aborted by teardown: whatever `start()` is still awaiting gives up, and a
@@ -202,12 +348,8 @@ export class ProjectMContext {
     #disposers = [];
     /** The last error handed to `onError`, so one failure is reported once. */
     #reportedError = /** @type {unknown} */ (undefined);
-    /** `#engine`'s cache of the bound engine view. */
-    #bindEngine = createEngineBinder();
-    /** What the engine negotiated with WebGL; see {@link ProjectMContext#contextSnapshot}. */
-    #contextSnapshot = /** @type {ProjectMContextSnapshot | null} */ (null);
-    /** setTransparent(true) on an opaque canvas has been reported. */
-    #warnedOpaqueTransparency = false;
+    /** `#engine`'s cache: the module and host it was bound for, and the view. */
+    #engineView = /** @type {{ module: ProjectMModule, host: number, view: ProjectMModule } | null} */ (null);
 
     /** @param {ProjectMContextOptions} options */
     constructor(options) {
@@ -259,10 +401,7 @@ export class ProjectMContext {
          * @type {RenderTransport | null}
          */
         this.transport = null;
-        /**
-         * Latest stats posted by the render worker; null on the main thread.
-         * @type {(Record<string, unknown> & { fps?: number }) | null}
-         */
+        /** Latest stats posted by the render worker; null on the main thread. */
         this.workerStats = null;
         /** @type {((fps: number) => void) | undefined} */
         this.workerFpsSink = undefined;
@@ -327,6 +466,9 @@ export class ProjectMContext {
     async #run(signal) {
         const {
             requireCrossOriginIsolation,
+            wasmScriptUrl,
+            wasmBaseUrl,
+            wasmVersion,
             documentRef,
             windowRef,
             meshQuality,
@@ -334,10 +476,13 @@ export class ProjectMContext {
             qualityGovernor,
             transparent,
             transparencyThreshold,
+            aspectCorrection,
             presetLocked,
             presetUrl,
+            renderTopology,
             audioSource,
             audioElement,
+            externalPcmOrigins,
             onAudioSourceChange,
             audioRouter: existingAudioRouter,
             onReady,
@@ -364,49 +509,141 @@ export class ProjectMContext {
         }
 
         try {
-            const transport = await bootEngine({
-                options: this.options,
-                baseUrl: this.options.wasmBaseUrl ?? DEFAULT_BASE_URL,
-                canvas: this.canvas,
-                container: this.container,
-                primaryCanvasSelector: this.primaryCanvasSelector,
-                secondaryCanvasSelector: this.secondaryCanvasSelector,
-                onRuntimeError: (message) => this.#reportRuntimeError(message),
-                onStats: (stats) => {
-                    this.workerStats = stats;
-                    this.workerFpsSink?.(Number(stats.fps));
-                },
-                signal,
-            }, {
-                adoptModule: (module) => {
-                    this.module = module;
-                    this.#claimWindowModule();
-                },
-                adoptTransport: (adopted) => { this.transport = adopted; },
-                adoptHost: (handle) => { this.hostHandle = handle; },
-                replaceCanvas: (canvas) => { this.canvas = canvas; },
-                reportError: (error, code) => this.#reportError(error, code),
-            });
-            throwIfAborted(signal);
+            const resolvedBaseUrl = wasmBaseUrl ?? import.meta.url;
+            const sharedModule = this.options.sharedModule;
+            if (!wasmScriptUrl && !sharedModule) {
+                // pm/builds.json names each build's glue and exports; without
+                // it (or on timeout) the built-in table is used.
+                await loadWasmBuildsManifest({ baseUrl: resolvedBaseUrl, signal });
+                this.#throwIfAborted(signal);
+            }
+            const versionPaths = wasmVersion ? buildWasmBundlePaths(wasmVersion) : null;
 
+            if (sharedModule) {
+                // Multi-instance path (#168 Phase B): reuse a Module booted by
+                // bootProjectMSharedModule() and create a dedicated engine
+                // instance inside it. create_host() sets its own canvas
+                // selectors and inits the engine, returning an opaque handle;
+                // every engine op below activates this host first.
+                this.module = /** @type {ProjectMModule} */ (sharedModule);
+                this.ownsModule = false;
+                this.#claimWindowModule();
+                // The context config is an argument of the create call, so a
+                // sibling context starting at the same time cannot take it.
+                this.#applyRenderPathOverrides();
+                const { handle, code } = createConfiguredHost(this.module, {
+                    primary: this.primaryCanvasSelector,
+                    secondary: this.secondaryCanvasSelector || '#scanvas',
+                    config: this.#contextConfig(),
+                });
+                if (!handle) {
+                    const error = new Error(
+                        `create_host_with_config() failed (init code ${code}: instance cap reached or engine init failed)`
+                    );
+                    this.#reportError(error, code);
+                    throw error;
+                }
+                this.hostHandle = handle;
+                // Bound to this engine: every call it makes selects `handle`
+                // first, so a sibling context activating its own engine while
+                // this one awaits cannot redirect what comes after.
+                this.transport = createModuleTransport(this.module, { host: handle });
+            } else {
+                // Topology first: the render worker takes the canvas by transfer,
+                // so it has to be asked before anything on this thread touches a
+                // drawing context. A worker that cannot start falls back to the
+                // main thread here and the rest of start() is identical — that is
+                // the whole point of the transport.
+                const preferWorker = renderTopology === 'worker'
+                    || (renderTopology === 'auto' && isRenderWorkerEnabled());
+                if (preferWorker) {
+                    // Assigned before the abort check so a transport that
+                    // arrives after destroy() is still torn down by teardown.
+                    this.transport = await this.#startRenderWorker({
+                        resolvedBaseUrl,
+                        wasmScriptUrl,
+                        versionPaths,
+                        wasmVersion,
+                        targetFps,
+                        qualityGovernor,
+                        meshQuality,
+                        signal,
+                    });
+                    this.#throwIfAborted(signal);
+                    if (!this.transport && renderTopology === 'worker') {
+                        throw new Error('renderTopology="worker" was requested but the render worker could not start');
+                    }
+                }
+
+                if (!this.transport) {
+                    if (wasmScriptUrl) {
+                        await loadProjectMWasmScript({
+                            documentRef,
+                            baseUrl: resolvedBaseUrl,
+                            pmScript: wasmScriptUrl,
+                            rootScript: wasmScriptUrl,
+                            forceRefresh: true,
+                            signal,
+                        });
+                    } else {
+                        await loadProjectMWasmScript({
+                            documentRef,
+                            baseUrl: resolvedBaseUrl,
+                            ...(versionPaths
+                                ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                                : {}),
+                            forceRefresh: Boolean(wasmVersion),
+                            signal,
+                        });
+                    }
+                    this.#throwIfAborted(signal);
+
+                    // A module factory cannot be cancelled once it is running,
+                    // so this resolves even if destroy() happened meanwhile.
+                    // Assigning it first means teardown destructs it.
+                    this.module = /** @type {ProjectMModule} */ (await createProjectMModule({
+                        scriptSrc: wasmScriptUrl || undefined,
+                        wasmVersion,
+                        baseUrl: resolvedBaseUrl,
+                        documentRef,
+                        windowRef,
+                        noInitialRun: true,
+                        primaryCanvasSelector: this.primaryCanvasSelector,
+                        secondaryCanvasSelector: this.secondaryCanvasSelector,
+                        signal,
+                    }));
+                    this.#throwIfAborted(signal);
+                    this.#claimWindowModule();
+
+                    // Render paths are fixed before the first preset; the
+                    // context config travels with the create call itself.
+                    this.#applyRenderPathOverrides();
+
+                    let initCode = -1;
+                    if (!checkInit(this.module, {
+                        primaryCanvasSelector: this.primaryCanvasSelector,
+                        secondaryCanvasSelector: this.secondaryCanvasSelector,
+                        contextConfig: this.#contextConfig(),
+                        onCode: (code) => { initCode = code; },
+                    })) {
+                        const error = new Error(`projectM init failed (init code ${initCode})`);
+                        this.#reportError(error, initCode);
+                        throw error;
+                    }
+
+                    this.transport = createModuleTransport(this.module);
+                }
+            }
+
+            const transport = /** @type {RenderTransport} */ (this.transport);
             // External PCM arrives on this thread either way; tell it which
             // engine to hand the samples to. A claim, not an assignment: the
             // release below leaves a sibling context's registration alone.
             this.#own(setExternalPcmTransport(transport));
             // PCM-rate readout (host ingress, engine/worker drain); overlay with ?pcmhud=1.
-            this.#own(setupPcmHud({ transport, windowRef, documentRef }));
+            this.#own(setupPcmHud({ transport, windowRef: this.options.windowRef, documentRef: this.options.documentRef }));
 
-            this.audioRouter = attachAudioRouter({
-                existingRouter: existingAudioRouter,
-                module: this.module,
-                transport,
-                audioSource,
-                publish: (status) => {
-                    onAudioSourceChange?.(status);
-                    this.#emit('audio-source', status);
-                },
-                own: (dispose) => this.#own(dispose),
-            });
+            this.audioRouter = this.#attachAudioRouter(existingAudioRouter, transport, audioSource, onAudioSourceChange);
 
             this.#own(setupAudioUnlock());
             this.#own(installWorkletPlaybackSafetyNet());
@@ -436,7 +673,15 @@ export class ProjectMContext {
             // `await this.loadPresetUrl()` below cannot resume on a sibling's
             // engine; nothing here relies on an activation lasting.
 
-            this.resize();
+            syncCanvasSize({
+                transport,
+                container: this.container,
+                mainCanvas: this.canvas,
+                secondaryCanvas: this.secondaryCanvas,
+                aspectCorrection,
+                devicePixelRatio: this.options.devicePixelRatio,
+                renderScale: this.renderScale,
+            });
 
             const engine = this.#engine;
             if (engine) {
@@ -455,14 +700,14 @@ export class ProjectMContext {
                 setQualityGovernorEnabled(engine, qualityGovernor);
             }
             transport.callVoid('setPresetLocked', presetLocked);
-            applyRhythmOptions(this.options, this);
-            this.#rhythm.sync(transport);
+            this.#applyRhythmOptions();
+            this.#syncRhythmEvents();
 
             // Governor v2 (docs/PERFORMANCE.md): sync the starting render scale, then
             // resize on every tier change (WasmPerfGovernor.cpp pushes here via
             // js_governor_report_render_scale()). Shrinking the canvas backing store
             // while keeping its CSS size fixed is what actually applies the "internal
-            // FBO render scale" tier — see syncCanvasSize() in context/render.js.
+            // FBO render scale" tier — see the comment in syncCanvasSize() above.
             //
             // In the worker topology the backing store is not ours to shrink, so
             // the worker applies the same factor to the canvas it owns and this
@@ -476,11 +721,11 @@ export class ProjectMContext {
                 // destroying one context leaves the rest subscribed, and the
                 // engineHost filter keeps a sibling engine's tier change from
                 // resizing this canvas.
-                if (windowRef) {
+                if (this.options.windowRef) {
                     this.#own(subscribeWasmCallback('pmOnGovernorRenderScaleChange', ({ scale }) => {
                         this.renderScale = scale;
                         this.resize();
-                    }, windowRef, { engineHost: this.hostHandle }));
+                    }, this.options.windowRef, { engineHost: this.hostHandle }));
                 }
             }
             this.#watchEngineInitErrors();
@@ -495,36 +740,17 @@ export class ProjectMContext {
                 }
             }
 
-            const media = wireAudioSource({
-                audioSource,
-                media: audioSource === 'element'
-                    ? this.audioElement ?? resolveMediaElement(audioElement, documentRef)
-                    : null,
-                externalPcmOrigins: this.options.externalPcmOrigins,
-                router: this.audioRouter,
-                sharedRouter: !!existingAudioRouter,
-                transport: this.transport,
-                signal,
-                own: (dispose) => this.#own(dispose),
-            });
-            if (media) {
-                this.audioElement = media;
-            }
+            this.#wireAudio(audioSource, audioElement, externalPcmOrigins, signal);
             if (!existingAudioRouter) {
                 this.audioRouter.setModule(this.module);
                 this.audioRouter.setTransport(transport);
             }
             this.#observeResize();
-            this.#own(relayPresetEvents(windowRef, (detail) => {
-                onPresetChanged?.(detail);
-                this.#emit('preset-changed', detail);
-            }));
-
-            this.#contextSnapshot = readContextSnapshot(transport, contextConfigFor(this.options));
+            this.#wirePresetEvents(onPresetChanged);
 
             if (presetUrl) {
                 await this.loadPresetUrl(presetUrl);
-                throwIfAborted(signal);
+                this.#throwIfAborted(signal);
             }
 
             this.ready = true;
@@ -558,43 +784,21 @@ export class ProjectMContext {
     }
 
     /**
-     * Ties something a host built around this context — a `setup*()` panel, a
-     * subscription, any `{ dispose }` or disposer function — to the context's
-     * lifetime: it is disposed when the context is destroyed, newest first,
-     * alongside what start() acquired. Registered on a context that is already
-     * destroyed, it is disposed at once.
-     *
-     * @template {(() => void) | { dispose(): void } | null | undefined} T
-     * @param {T} disposable
-     * @returns {T} `disposable`, so a setup can be owned where it is made.
-     */
-    own(disposable) {
-        const dispose = toDisposeFunction(disposable);
-        if (!dispose) {
-            return disposable;
-        }
-        if (this.destroyed) {
-            try {
-                dispose();
-            } catch (error) {
-                console.warn('[ProjectMContext] cleanup step failed:', error);
-            }
-            return disposable;
-        }
-        this.#disposers.push(dispose);
-        return disposable;
-    }
-
-    /**
      * Registers an undo step for something this context just acquired. It runs
      * when the context is destroyed, and when a start that acquired it fails.
      *
-     * @param {(() => void) | { dispose(): void } | null | undefined} dispose
+     * @param {(() => void) | null | undefined} dispose
      */
     #own(dispose) {
-        const fn = toDisposeFunction(dispose);
-        if (fn) {
-            this.#disposers.push(fn);
+        if (typeof dispose === 'function') {
+            this.#disposers.push(dispose);
+        }
+    }
+
+    /** @param {AbortSignal} signal */
+    #throwIfAborted(signal) {
+        if (signal.aborted) {
+            throw createAbortError('ProjectMContext was destroyed during start()');
         }
     }
 
@@ -614,18 +818,6 @@ export class ProjectMContext {
         const message = error instanceof Error ? error.message : String(error);
         this.options.onError?.({ code, message, error });
         this.#emit('error', { code, message, error });
-    }
-
-    /**
-     * Errors from a running engine (the worker), as opposed to a failed start.
-     * Not deduplicated: each one is a separate event.
-     *
-     * @param {string} message
-     */
-    #reportRuntimeError(message) {
-        const error = new Error(message);
-        this.options.onError?.({ code: -1, message, error });
-        this.#emit('error', { code: -1, message, error });
     }
 
     /**
@@ -653,6 +845,62 @@ export class ProjectMContext {
     }
 
     /**
+     * Creates this context's audio router, or adopts the host's.
+     *
+     * A router the context created is its own and is destroyed with it. One the
+     * host injected (core.html shares a single router between the page and its
+     * context) belongs to the host: teardown only detaches this context from it
+     * and restores its status callback.
+     *
+     * @param {AudioSourceRouter | null | undefined} existingRouter
+     * @param {RenderTransport} transport
+     * @param {ProjectMAudioSource | undefined} audioSource
+     * @param {((status: ProjectMAudioSourceStatus) => void) | undefined} onAudioSourceChange
+     * @returns {AudioSourceRouter}
+     */
+    #attachAudioRouter(existingRouter, transport, audioSource, onAudioSourceChange) {
+        /** @param {ProjectMAudioSourceStatus} status */
+        const publish = (status) => {
+            onAudioSourceChange?.(status);
+            this.#emit('audio-source', status);
+        };
+
+        if (!existingRouter) {
+            const created = createAudioSourceRouter({
+                module: this.module,
+                transport,
+                initialSource: audioSourceToRouterSource(audioSource),
+                onStatusChange: publish,
+            });
+            this.#own(() => created.destroy());
+            return created;
+        }
+
+        existingRouter.setModule(this.module);
+        existingRouter.setTransport(transport);
+        const prior = existingRouter.onStatusChange;
+        /** @param {ProjectMAudioSourceStatus} status */
+        const wrapped = (status) => {
+            prior?.(status);
+            publish(status);
+        };
+        existingRouter.onStatusChange = wrapped;
+        const attachedModule = this.module;
+        this.#own(() => {
+            if (existingRouter.onStatusChange === wrapped) {
+                existingRouter.onStatusChange = prior;
+            }
+            if (existingRouter.module === attachedModule) {
+                existingRouter.setModule(null);
+            }
+            if (existingRouter.transport === transport) {
+                existingRouter.setTransport(null);
+            }
+        });
+        return existingRouter;
+    }
+
+    /**
      * Releases everything `start()` acquired, newest first, then the engine
      * itself. Safe to call at any point of a boot and more than once: the
      * failure path of a half-finished start and destroy() both come through
@@ -665,8 +913,8 @@ export class ProjectMContext {
         this.#attempt = null;
         // The transport goes away with the engine; on() listeners stay registered
         // and a later start() reconnects them.
-        this.#rhythm.detach();
-        this.#contextSnapshot = null;
+        this.#rhythmUnsubscribe?.();
+        this.#rhythmUnsubscribe = null;
 
         const disposers = this.#disposers.splice(0).reverse();
         for (const dispose of disposers) {
@@ -715,14 +963,38 @@ export class ProjectMContext {
      * @returns {Promise<{ url: string; vfsPath: string; filename: string }>}
      */
     async loadPresetUrl(url) {
-        const transport = this.#requireTransport();
-        return loadPresetUrlInto(url, {
-            transport,
-            engine: this.#engine,
-            isCurrent: () => this.transport === transport,
-            windowRef: this.options.windowRef,
-            signal: this.#attempt?.signal,
-        });
+        if (!this.transport) {
+            throw new Error('ProjectMContext is not started');
+        }
+        const transport = this.transport;
+        const signal = this.#attempt?.signal;
+        const engine = this.#engine;
+        if (engine) {
+            // The fetch yields; the load after it goes through `engine`, which
+            // selects this context's host again however long that took.
+            return loadPresetFromUrl(url, {
+                module: engine,
+                windowRef: this.options.windowRef,
+                signal,
+            });
+        }
+
+        // Worker topology: the fetch still happens here — this thread has the
+        // page's credentials and cache — and only the bytes cross, to be
+        // written into the VFS on the other side.
+        const response = await fetch(url, signal ? { signal } : undefined);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch preset (${response.status}): ${url}`);
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (signal?.aborted || this.transport !== transport) {
+            throw createAbortError(`Preset load aborted: ${url}`);
+        }
+        const filename = String(url).split('/').pop()?.split('?')[0] || 'preset.milk';
+        const vfsPath = `/presets/url_${filename.replace(/[^A-Za-z0-9._-]/g, '_')}`;
+        transport.writePreset(vfsPath, bytes);
+        updatePresetDisplay(vfsPath, { windowRef: this.options.windowRef });
+        return { url, vfsPath, filename };
     }
 
     /**
@@ -730,21 +1002,32 @@ export class ProjectMContext {
      * @returns {Promise<{ filename: string; vfsPath: string }>}
      */
     async loadPresetFile(file) {
-        const transport = this.#requireTransport();
-        return loadPresetFileInto(file, {
-            transport,
-            engine: this.#engine,
-            isCurrent: () => this.transport === transport,
-            documentRef: this.options.documentRef,
-        });
-    }
-
-    /** @returns {RenderTransport} */
-    #requireTransport() {
         if (!this.transport) {
             throw new Error('ProjectMContext is not started');
         }
-        return this.transport;
+        const transport = this.transport;
+        const engine = this.#engine;
+        if (engine) {
+            return loadLocalPresetFile(file, {
+                module: engine,
+                updateDisplay: true,
+            });
+        }
+
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (this.transport !== transport) {
+            throw createAbortError(`Preset load aborted: ${file.name}`);
+        }
+        const vfsPath = `/presets/local_${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`;
+        transport.writePreset(vfsPath, bytes);
+        let text;
+        try {
+            text = new TextDecoder().decode(bytes);
+        } catch {
+            text = undefined;
+        }
+        updatePresetDisplay(vfsPath, { documentRef: this.options.documentRef, text });
+        return { filename: file.name, vfsPath };
     }
 
     /**
@@ -770,9 +1053,10 @@ export class ProjectMContext {
             return;
         }
         const engine = this.#engine;
-        if (engine) {
-            switchPreset(engine);
+        if (!engine) {
+            return;
         }
+        switchPreset(engine);
     }
 
     /** @param {boolean} locked */
@@ -782,18 +1066,13 @@ export class ProjectMContext {
             return;
         }
         const engine = this.#engine;
-        if (engine) {
-            setPresetLocked(engine, locked);
+        if (!engine) {
+            return;
         }
+        setPresetLocked(engine, locked);
     }
 
-    /**
-     * Turns transparency mode on or off. The canvas must have an alpha channel
-     * for it to show (`contextAlpha`, which defaults to the `transparent` option
-     * at start()); on an opaque one the cut-out pixels are drawn black.
-     *
-     * @param {boolean} enabled
-     */
+    /** @param {boolean} enabled */
     setTransparent(enabled) {
         const engine = this.#engine;
         if (this.transport) {
@@ -802,11 +1081,6 @@ export class ProjectMContext {
             setTransparencyMode(engine, enabled);
         } else {
             return;
-        }
-        if (enabled && this.#contextSnapshot?.attributes?.contextAlpha === false && !this.#warnedOpaqueTransparency) {
-            this.#warnedOpaqueTransparency = true;
-            console.warn('[projectM] transparency mode is on, but this canvas was created without an alpha channel, '
-                + 'so nothing shows through; start the context with contextAlpha: true (or transparent: true)');
         }
         if (this.secondaryCanvas) {
             this.secondaryCanvas.style.display = enabled ? 'none' : 'block';
@@ -827,7 +1101,8 @@ export class ProjectMContext {
         if (!this.transport) {
             return;
         }
-        this.transport.callVoid('setMesh', ...meshGridFor(quality));
+        const grid = quality === 'low' ? [64, 48] : [80, 60];
+        this.transport.callVoid('setMesh', grid[0], grid[1]);
         return quality;
     }
 
@@ -873,7 +1148,8 @@ export class ProjectMContext {
         this.events.addEventListener(type, handler);
         const rhythm = RHYTHM_EVENT_TYPES.includes(type);
         if (rhythm) {
-            this.#rhythm.count(1, this.transport);
+            this.#rhythmListeners++;
+            this.#syncRhythmEvents();
         }
         let subscribed = true;
         return () => {
@@ -883,7 +1159,8 @@ export class ProjectMContext {
             subscribed = false;
             this.events.removeEventListener(type, handler);
             if (rhythm) {
-                this.#rhythm.count(-1, this.transport);
+                this.#rhythmListeners--;
+                this.#syncRhythmEvents();
             }
         };
     }
@@ -895,7 +1172,7 @@ export class ProjectMContext {
      * @param {number} bpm Beats per minute, or 0 to go back to estimating.
      */
     setRhythmHint(bpm) {
-        callRhythm(this.transport, 'setRhythmHint', Number.isFinite(bpm) && bpm > 0 ? bpm : 0);
+        this.#callRhythm('setRhythmHint', Number.isFinite(bpm) && bpm > 0 ? bpm : 0);
     }
 
     /**
@@ -905,7 +1182,11 @@ export class ProjectMContext {
      * @param {number} [bars] Bars per preset, or the shortest preset for `'section'`. Default 16.
      */
     setPresetSwitchPolicy(policy, bars = 16) {
-        callRhythm(this.transport, 'setPresetSwitchPolicy', ...presetSwitchPolicyArgs(policy, bars));
+        const index = PRESET_SWITCH_POLICIES.indexOf(policy);
+        if (index < 0) {
+            throw new RangeError(`unknown preset switch policy: ${policy}`);
+        }
+        this.#callRhythm('setPresetSwitchPolicy', index, Number.isFinite(bars) && bars > 0 ? Math.round(bars) : 16);
     }
 
     /**
@@ -915,7 +1196,7 @@ export class ProjectMContext {
      * @param {number} beats Beats, or 0 to use seconds only.
      */
     setTransitionDurationBeats(beats) {
-        callRhythm(this.transport, 'transitionSetDurationBeats', Number.isFinite(beats) && beats > 0 ? beats : 0);
+        this.#callRhythm('transitionSetDurationBeats', Number.isFinite(beats) && beats > 0 ? beats : 0);
     }
 
     /**
@@ -924,7 +1205,7 @@ export class ProjectMContext {
      * @param {boolean} enabled
      */
     setHardCutOnBeat(enabled) {
-        callRhythm(this.transport, 'setHardCutOnBeat', !!enabled);
+        this.#callRhythm('setHardCutOnBeat', !!enabled);
     }
 
     /**
@@ -934,8 +1215,83 @@ export class ProjectMContext {
      *
      * @returns {Promise<ProjectMRhythmInfo | null>}
      */
-    getRhythmInfo() {
-        return readRhythmInfo(this.transport);
+    async getRhythmInfo() {
+        const transport = this.transport;
+        if (!transport || !transport.supports('getRhythmBpm')) {
+            return null;
+        }
+        const [bpm, beatPhase, barPhase, confidence, beatIndex, section] = await Promise.all([
+            transport.call('getRhythmBpm'),
+            transport.call('getRhythmBeatPhase'),
+            transport.call('getRhythmBarPhase'),
+            transport.call('getRhythmConfidence'),
+            transport.call('getRhythmBeatIndex'),
+            transport.call('getRhythmSection'),
+        ]);
+        return {
+            bpm: Number(bpm),
+            beatPhase: Number(beatPhase),
+            barPhase: Number(barPhase),
+            confidence: Number(confidence),
+            beatIndex: Number(beatIndex),
+            section: Number(section),
+        };
+    }
+
+    /**
+     * One rhythm control op, skipped on a bundle that predates it.
+     *
+     * @param {string} name
+     * @param {...unknown} args
+     */
+    #callRhythm(name, ...args) {
+        const transport = this.transport;
+        if (!transport || !transport.supports(name)) {
+            return;
+        }
+        transport.callVoid(name, ...args);
+    }
+
+    /** Applies the rhythm options passed to the constructor, once the engine is up. */
+    #applyRhythmOptions() {
+        const { presetSwitchPolicy, presetSwitchBars, transitionBeats, rhythmHint } = this.options;
+        if (presetSwitchPolicy && presetSwitchPolicy !== 'timer') {
+            this.setPresetSwitchPolicy(presetSwitchPolicy, presetSwitchBars);
+        }
+        if (typeof transitionBeats === 'number' && transitionBeats > 0) {
+            this.setTransitionDurationBeats(transitionBeats);
+        }
+        if (typeof rhythmHint === 'number' && rhythmHint > 0) {
+            this.setRhythmHint(rhythmHint);
+        }
+    }
+
+    /**
+     * Connects the engine's rhythm events to this context while someone listens,
+     * and disconnects them (engine reporting included) when nobody does.
+     */
+    #syncRhythmEvents() {
+        const transport = this.transport;
+        const wanted = this.#rhythmListeners > 0 && !!transport && transport.supports('setRhythmEvents');
+        if (wanted && !this.#rhythmUnsubscribe && transport) {
+            this.#rhythmUnsubscribe = transport.onRhythmEvent((event) => {
+                // A shared Module reports every engine's events to every
+                // subscriber; keep this context's own.
+                if (this.hostHandle && event.host !== this.hostHandle) {
+                    return;
+                }
+                if (event.beat) this.#emit('beat', event);
+                if (event.bar) this.#emit('bar', event);
+                if (event.section) this.#emit('section', event);
+            });
+            transport.callVoid('setRhythmEvents', true);
+        } else if (!wanted && this.#rhythmUnsubscribe) {
+            this.#rhythmUnsubscribe();
+            this.#rhythmUnsubscribe = null;
+            if (transport && transport.supports('setRhythmEvents')) {
+                transport.callVoid('setRhythmEvents', false);
+            }
+        }
     }
 
     /**
@@ -960,71 +1316,21 @@ export class ProjectMContext {
      *
      * @returns {Promise<ProjectMFlashLimitStats | null>}
      */
-    getFlashLimitStats() {
-        return readFlashLimitStats(this.transport);
-    }
-
-    /**
-     * Adds a user sprite to this engine: an image drawn over every preset, positioned
-     * and colored by its own expression code (projectM-4/user_sprites.h). `code` is
-     * Milkdrop sprite code, one `key=value` per line:
-     *
-     * ```
-     * img=pm_depth_map          texture base name (from /textures/, no extension)
-     * init_1=x=0.5; y=0.5;      runs once
-     * code_1=a=0.5+0.4*bass;    runs every frame
-     * ```
-     *
-     * Sprite variables: x, y, sx, sy, rot, flipx, flipy, repeatx, repeaty,
-     * blendmode (0..4), r, g, b, a, burn, done, plus read-only time, frame, fps,
-     * progress, bass/mid/treb and their _att forms. Sprites survive preset
-     * switches; at the limit (16) the oldest is replaced.
-     *
-     * @param {string} code
-     * @param {{ type?: string }} [options] `type` defaults to `'milkdrop'`, the only one libprojectM knows.
-     * @returns {Promise<number>} The sprite id, for the other sprite methods. Rejects
-     *   before start(), on a bundle without the sprite exports, and when the engine
-     *   refuses the sprite (code that does not compile, an unknown type).
-     */
-    createSprite(code, { type = 'milkdrop' } = {}) {
-        return createSpriteOn(this.transport, String(code), type);
-    }
-
-    /**
-     * Removes a sprite created with {@link createSprite}. An id that no longer
-     * exists is ignored.
-     *
-     * @param {number} id
-     * @returns {Promise<void>}
-     */
-    destroySprite(id) {
-        return destroySpriteOn(this.transport, id);
-    }
-
-    /**
-     * Reads one of a sprite's expression variables (0 for an unknown sprite or name).
-     *
-     * @param {number} id
-     * @param {string} name
-     * @returns {Promise<number>}
-     */
-    getSpriteVar(id, name) {
-        return getSpriteVarOn(this.transport, id, name);
-    }
-
-    /**
-     * Sets one of a sprite's expression variables. The sprite's per-frame code runs
-     * after this, so a variable that code assigns every frame is overwritten; drive
-     * the sprite through a variable of your own that its code reads instead
-     * (`code_1=x=px;`, then set `px`).
-     *
-     * @param {number} id
-     * @param {string} name
-     * @param {number} value
-     * @returns {Promise<void>}
-     */
-    setSpriteVar(id, name, value) {
-        return setSpriteVarOn(this.transport, id, name, Number(value));
+    async getFlashLimitStats() {
+        const transport = this.transport;
+        if (!transport || !transport.supports('getFlashLimitClampedFrames')) {
+            return null;
+        }
+        const [enabled, threshold, clampedFrames] = await Promise.all([
+            transport.call('getFlashLimitEnabled'),
+            transport.call('getFlashLimitThreshold'),
+            transport.call('getFlashLimitClampedFrames'),
+        ]);
+        return {
+            enabled: !!enabled,
+            threshold: Number(threshold),
+            clampedFrames: Number(clampedFrames),
+        };
     }
 
     /**
@@ -1047,24 +1353,6 @@ export class ProjectMContext {
             return Promise.reject(new Error('captureFrame(): the context has not started'));
         }
         return this.transport.captureFrame(options);
-    }
-
-    /**
-     * What the engine negotiated with WebGL for this context: float color
-     * buffers, float blending, `WEBGL_lose_context`, the dual-FBO format it
-     * ended up with, the attributes the context really has (`attributes`) and
-     * where those differ from the options it was started with (`mismatches`,
-     * also logged as a warning). Read-only and frozen; it reports what `create_host_with_config()`
-     * already settled and requests nothing. Null until `start()` has resolved,
-     * and on a bundle that predates `get_context_snapshot()`. Read once at start,
-     * and again after a successful context-loss recovery, which builds a new
-     * context. Same in both topologies: in the worker topology it is the
-     * worker's context that is described.
-     *
-     * @returns {ProjectMContextSnapshot | null}
-     */
-    get contextSnapshot() {
-        return this.#contextSnapshot;
     }
 
     /**
@@ -1116,13 +1404,7 @@ export class ProjectMContext {
         if (!transport) {
             return -1;
         }
-        const status = await transport.recoverContext(this.canvas.width, this.canvas.height);
-        if (status === 0 && this.transport === transport) {
-            // A recovered engine runs on a new context; describe that one. (Not
-            // if destroy() landed meanwhile: that context has nothing left to describe.)
-            this.#contextSnapshot = readContextSnapshot(transport, contextConfigFor(this.options));
-        }
-        return status;
+        return transport.recoverContext(this.canvas.width, this.canvas.height);
     }
 
     resize() {
@@ -1138,29 +1420,26 @@ export class ProjectMContext {
     }
 
     /**
-     * Stops this context and releases everything it holds. A boot still in
-     * flight is aborted: its `start()` promise rejects with an `AbortError`
-     * (no `onError`, since nothing failed). Safe to call more than once.
-     */
-    destroy() {
-        const alreadyDestroyed = this.destroyed;
-        this.destroyed = true;
-        this.#teardown();
-        if (!alreadyDestroyed) {
-            this.#emit('destroy', undefined);
-        }
-    }
-
-    /**
      * This context's engine on the main thread: the module, bound to
-     * `hostHandle` so every export called through it selects this context's
-     * host first. The module itself for the single-engine default host; null in
-     * the worker topology and before start().
+     * `hostHandle` (see bindModuleToHost() in generated/projectm-wasm-api.js)
+     * so every export called through it selects this context's host first.
+     * The module itself for the single-engine default host; null in the worker
+     * topology and before start().
      *
      * @returns {ProjectMModule | null}
      */
     get #engine() {
-        return this.#bindEngine(this.module, this.hostHandle);
+        const { module, hostHandle } = this;
+        if (!module) {
+            return null;
+        }
+        const cached = this.#engineView;
+        if (cached && cached.module === module && cached.host === hostHandle) {
+            return cached.view;
+        }
+        const view = bindModuleToHost(module, hostHandle);
+        this.#engineView = { module, host: hostHandle, view };
+        return view;
     }
 
     /**
@@ -1187,20 +1466,255 @@ export class ProjectMContext {
         }, windowRef, { engineHost: this.hostHandle }));
     }
 
-    #observeResize() {
-        const follow = followContainerSize({
-            container: this.container,
-            windowRef: this.options.windowRef,
-            onResize: () => this.resize(),
-        });
-        if (!follow) {
+    /**
+     * Hand the render-path switches to the WASM host before it creates the
+     * engine. Bundles that predate the export read the switches from the URL
+     * themselves, which works on this thread.
+     */
+    #applyRenderPathOverrides() {
+        if (this.module && typeof this.module._set_render_path_overrides === 'function') {
+            const r = this.#renderPathOverrides();
+            this.module._set_render_path_overrides(
+                r.blurCopyPath ? 1 : 0,
+                r.copyShaderPath ? 1 : 0,
+                r.perPixelForceCpu ? 1 : 0
+            );
+        }
+    }
+
+    /**
+     * `create_host_with_config()`'s context arguments for this context's
+     * options — passed with the create call on the main thread, and sent in the
+     * render worker's `init` message. Defaults: MSAA off, preserveDrawingBuffer
+     * off, depth/stencil off (#246 — the canvas only receives a fullscreen quad
+     * + sprites), WebGL alpha and premultipliedAlpha on, software GL accepted,
+     * implicit present, high-performance GPU, RGBA16F precision. The `alpha`
+     * option is the canvas-CSS hint and is not part of it (`contextAlpha` is).
+     *
+     * @returns {import('./projectm-render-worker-types.ts').WasmContextConfig}
+     */
+    #contextConfig() {
+        return resolveWasmContextConfig(this.options);
+    }
+
+    /** @returns {import('./projectm-render-worker-types.ts').RenderPathOverrides} */
+    #renderPathOverrides() {
+        return this.options.renderPathOverrides
+            ?? resolveRenderPathOverrides(this.options.windowRef?.location?.search ?? '');
+    }
+
+    /**
+     * Stops this context and releases everything it holds. A boot still in
+     * flight is aborted: its `start()` promise rejects with an `AbortError`
+     * (no `onError`, since nothing failed). Safe to call more than once.
+     */
+    destroy() {
+        const alreadyDestroyed = this.destroyed;
+        this.destroyed = true;
+        this.#teardown();
+        if (!alreadyDestroyed) {
+            this.#emit('destroy', undefined);
+        }
+    }
+
+    /**
+     * @param {ProjectMAudioSource} audioSource
+     * @param {HTMLMediaElement | string | undefined} audioElementOption
+     * @param {string[] | undefined} externalPcmOrigins
+     * @param {AbortSignal} signal
+     */
+    #wireAudio(audioSource, audioElementOption, externalPcmOrigins, signal) {
+        const router = this.audioRouter;
+
+        if (audioSource === 'external') {
+            const receiver = setupExternalAudioReceiver({
+                allowedOrigins: externalPcmOrigins ?? [],
+                // This context's own engine, so the receiver keeps feeding it
+                // whatever another context registers as the page default.
+                transport: this.transport,
+                feedGate: () => router?.externalFeedGate() ?? false,
+                onFeed: router
+                    ? router.wrapExternalFeed(defaultFeedPCMToModule)
+                    : defaultFeedPCMToModule,
+            });
+            this.#own(receiver.close);
             return;
         }
-        this.resizeObserver = follow.observer;
-        this.#own(() => {
-            follow.dispose();
-            this.resizeObserver = null;
+
+        if (audioSource !== 'element') {
+            // Keep shared host routers (e.g. core.html autoSwitchOnFeed) at 'none'
+            // so the first external/worklet feed can promote the active source.
+            if (!this.options.audioRouter) {
+                router?.setActiveSource('none');
+            }
+            return;
+        }
+
+        const media = this.audioElement ?? resolveMediaElement(audioElementOption, this.options.documentRef);
+        if (!media) {
+            console.warn('[ProjectMContext] audioSource=element but no audio element was provided');
+            return;
+        }
+
+        router?.setActiveSource('element');
+        this.audioElement = media;
+        media.id = media.id || 'audio-stream-element';
+        installMediaElementSourceHook();
+        ensureAudioRunning().catch(() => {
+            // Autoplay policies may require a user gesture; host should call ensureAudioRunning().
         });
+        // The element feeds the engine through the shared worklet (and from there
+        // the PCM ring), so it cannot be connected until the worklet node exists.
+        // By then this context may have been destroyed: connecting then would wire
+        // a torn-down context's element into the shared worklet for good.
+        ensureWorkletReady()
+            .then((ready) => {
+                if (!ready || signal.aborted) {
+                    return;
+                }
+                if (connectMediaElement(media)) {
+                    this.#own(() => disconnectMediaElement(media));
+                }
+            })
+            .catch((err) => {
+                console.warn('[ProjectMContext] could not connect audio element:', err);
+            });
+    }
+
+    /**
+     * Boot the render worker and wrap it in a transport, or resolve null so
+     * start() falls back to the main thread.
+     *
+     * @param {object} options
+     * @param {string} options.resolvedBaseUrl
+     * @param {string | undefined} options.wasmScriptUrl
+     * @param {{ pmScript: string, rootScript: string, api?: string[] | null } | null} options.versionPaths
+     * @param {string | undefined} options.wasmVersion
+     * @param {number | undefined} options.targetFps
+     * @param {boolean | undefined} options.qualityGovernor
+     * @param {ProjectMMeshQuality | undefined} options.meshQuality
+     * @param {AbortSignal} options.signal
+     * @returns {Promise<RenderTransport | null>}
+     */
+    async #startRenderWorker({
+        resolvedBaseUrl,
+        wasmScriptUrl,
+        versionPaths,
+        wasmVersion,
+        targetFps,
+        qualityGovernor,
+        meshQuality,
+        signal,
+    }) {
+        // The worker importScripts() the glue itself, so it needs an absolute
+        // URL — resolved the same way the main-thread path resolves it, so both
+        // topologies load the same bundle.
+        let scriptSrc;
+        try {
+            const candidate = wasmScriptUrl ?? await resolveWasmScriptUrl({
+                documentRef: this.options.documentRef,
+                baseUrl: resolvedBaseUrl,
+                ...(versionPaths
+                    ? { pmScript: versionPaths.pmScript, rootScript: versionPaths.rootScript }
+                    : {}),
+                forceRefresh: Boolean(wasmVersion),
+                signal,
+            });
+            scriptSrc = new URL(candidate, resolvedBaseUrl).href;
+        } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
+            this.options.onRenderWorkerFallback?.(`could not resolve the WASM bundle URL: ${error}`);
+            return null;
+        }
+
+        // Ask for the layout size: the worker sizes its own backing store from
+        // it, including the governor's render scale.
+        const rect = this.container.getBoundingClientRect();
+        const dpr = this.options.devicePixelRatio || 1;
+
+        return selectRenderTopology({
+            canvas: this.canvas,
+            preferWorker: true,
+            scriptSrc,
+            width: Math.max(1, Math.round(rect.width * dpr)),
+            height: Math.max(1, Math.round(rect.height * dpr)),
+            targetFps,
+            governor: qualityGovernor,
+            meshQuality,
+            // The worker creates its context and picks its render paths in its
+            // own init(); these have to travel with the init message.
+            contextConfig: this.#contextConfig(),
+            renderPathOverrides: this.#renderPathOverrides(),
+            flashLimit: resolveFlashLimit(this.options),
+            // The manifest's export list lets transport.supports() answer for
+            // the worker's module instead of assuming every call exists.
+            wasmExports: versionPaths?.api ?? null,
+            signal,
+            onFallback: (reason) => {
+                this.options.onRenderWorkerFallback?.(reason);
+            },
+            onError: (message) => {
+                // A live worker reporting a problem after a successful boot.
+                this.#reportRuntimeError(message);
+            },
+            onStats: (stats) => {
+                this.workerStats = /** @type {any} */ (stats);
+                this.workerFpsSink?.(/** @type {any} */ (stats).fps);
+            },
+        });
+    }
+
+    /**
+     * Errors from a running engine (the worker), as opposed to a failed start.
+     * Not deduplicated: each one is a separate event.
+     *
+     * @param {string} message
+     */
+    #reportRuntimeError(message) {
+        const error = new Error(message);
+        this.options.onError?.({ code: -1, message, error });
+        this.#emit('error', { code: -1, message, error });
+    }
+
+    #observeResize() {
+        const observer = observeModuleSize({
+            container: this.container,
+            sync: () => this.resize(),
+        });
+        if (observer) {
+            this.resizeObserver = observer;
+            this.#own(() => {
+                observer.disconnect();
+                this.resizeObserver = null;
+            });
+            return;
+        }
+
+        // No ResizeObserver: fall back to window resizes, on the same window the
+        // rest of this class is told to use, and take the listener off again.
+        const target = /** @type {EventTarget | undefined} */ (this.options.windowRef ?? globalThis);
+        if (typeof target?.addEventListener === 'function') {
+            const onResize = () => this.resize();
+            target.addEventListener('resize', onResize);
+            this.#own(() => target.removeEventListener('resize', onResize));
+        }
+    }
+
+    /** @param {((detail: ProjectMPresetDetail) => void) | undefined} onPresetChanged */
+    #wirePresetEvents(onPresetChanged) {
+        const { windowRef } = this.options;
+        if (!windowRef?.addEventListener) {
+            return;
+        }
+        const listener = (/** @type {Event} */ event) => {
+            const detail = /** @type {CustomEvent<ProjectMPresetDetail>} */ (event).detail;
+            onPresetChanged?.(detail);
+            this.#emit('preset-changed', detail);
+        };
+        windowRef.addEventListener('pm:preset-loaded', listener);
+        this.#own(() => windowRef.removeEventListener('pm:preset-loaded', listener));
     }
 
     /**
@@ -1215,11 +1729,38 @@ export class ProjectMContext {
             this.workerFpsSink = onFps;
             return;
         }
-        this.#own(startFpsMonitor(this, {
-            getEngine: () => this.#engine,
-            stopped: () => signal.aborted || this.destroyed,
-            onFps,
-        }));
+
+        const sample = () => {
+            const engine = this.#engine;
+            if (signal.aborted || this.destroyed || !engine) {
+                return;
+            }
+
+            const now = performance.now();
+            const frameCount = engine._get_rendered_frame_count?.() ?? 0;
+            if (!this.fpsLastSample) {
+                this.fpsLastSample = now;
+                this.fpsFrameCount = frameCount;
+            }
+
+            const elapsed = (now - this.fpsLastSample) / 1000;
+            if (elapsed >= 1) {
+                const fps = (frameCount - this.fpsFrameCount) / elapsed;
+                onFps(fps);
+                this.fpsLastSample = now;
+                this.fpsFrameCount = frameCount;
+            }
+
+            this.fpsTimer = requestAnimationFrame(sample);
+        };
+        this.fpsTimer = requestAnimationFrame(sample);
+        this.#own(() => {
+            if (this.fpsTimer) {
+                cancelAnimationFrame(this.fpsTimer);
+                this.fpsTimer = 0;
+            }
+            this.fpsLastSample = 0;
+        });
     }
 }
 

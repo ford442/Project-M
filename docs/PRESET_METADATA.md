@@ -37,7 +37,7 @@ The first non-metadata `//` line (or `Signature Series | …` line) becomes the 
 
 ## Sidecar JSON (optional)
 
-`presets/custom/my_preset.milk.meta.json`:
+`custom_milk_fixed/my_preset.milk.meta.json`:
 
 ```json
 {
@@ -86,7 +86,7 @@ emit entries like:
 
 | File | Role |
 |------|------|
-| `html/custom_presets_manifest.json` | Full `presets/custom/` catalog |
+| `html/custom_presets_manifest.json` | Full `custom_milk_fixed/` catalog |
 | `html/featured_pack_manifest.json` | Curated 30–50 showcase presets (custom + optional weeks) |
 | `html/projectm-preset-library.js` | Filter, favorites, weighted pick, cache |
 | `html/projectm-preset-picker.js` | Browser UI |
@@ -104,5 +104,5 @@ node scripts/generate_custom_preset_manifest.mjs
 node scripts/build_featured_pack.mjs
 
 # Optional: refresh audit tiers first
-node scripts/audit_presets.mjs presets/custom --json docs/preset_audit_report.json
+node scripts/audit_presets.mjs custom_milk_fixed --json docs/preset_audit_report.json
 ```

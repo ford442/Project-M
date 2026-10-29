@@ -7,7 +7,7 @@
 # without requiring an OpenGL context. This is a fast, GPU-free way to check that a
 # directory of Milkdrop presets is at least syntactically compatible with this fork.
 #
-# By default, the harness always tests presets/tests/ and presets/custom/.
+# By default, the harness always tests presets/tests/ and custom_milk_fixed/.
 # Pass a directory as the first argument to additionally test an arbitrary preset
 # collection (e.g. a directory of community presets).
 #
@@ -16,8 +16,8 @@
 #
 # Examples:
 #   scripts/test_presets.sh
-#   scripts/test_presets.sh presets/weeks
-#   scripts/test_presets.sh presets/weeks cmake-build
+#   scripts/test_presets.sh ~/weeks_presets
+#   scripts/test_presets.sh ~/weeks_presets cmake-build
 # ================================================
 
 set -euo pipefail
@@ -48,6 +48,6 @@ if [ ! -x "${UNITTEST_BIN}" ]; then
     UNITTEST_BIN="${BUILD_DIR}/tests/libprojectM/projectM-unittest"
 fi
 
-# presets/custom/ is opt-in (see PresetCompatTest.cpp) since it currently contains some
+# custom_milk_fixed/ is opt-in (see PresetCompatTest.cpp) since it currently contains some
 # presets with known format issues; this script always includes it in the report.
 PROJECTM_TEST_CUSTOM_MILK_FIXED=1 "${UNITTEST_BIN}" --gtest_filter="*PresetCompat*"

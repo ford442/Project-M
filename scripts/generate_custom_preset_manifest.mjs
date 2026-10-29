@@ -2,7 +2,7 @@
 // Generate html/custom_presets_manifest.json — the data source for the named
 // custom-preset picker in html/projectm-core.html (see projectm-preset-picker.js).
 //
-// For each .milk in presets/custom/, emit a friendly label, metadata fields
+// For each .milk in custom_milk_fixed/, emit a friendly label, metadata fields
 // (tags, tier, reactivity, author, version), and merge screenshot-capture
 // quality status from screenshots/custom_milk_baseline/capture_report.json.
 //
@@ -23,8 +23,7 @@ import {
 } from './preset_metadata.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// Deployed (and referenced by manifest `base`) as custom_milk_fixed/.
-const presetDir = join(repoRoot, 'presets', 'custom');
+const presetDir = join(repoRoot, 'custom_milk_fixed');
 const captureReport = join(repoRoot, 'screenshots', 'custom_milk_baseline', 'capture_report.json');
 const auditPath = join(repoRoot, 'docs', 'preset_audit_report.json');
 const outPath = join(repoRoot, 'html', 'custom_presets_manifest.json');

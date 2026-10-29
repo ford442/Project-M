@@ -142,7 +142,8 @@ void TextureManager::PurgeTextures()
     {
         if (stat.second.sizeBytes > 0 && stat.second.age > 1)
         {
-            auto sizeMultiplicator = 1.0f + static_cast<float>(stat.second.age - newest) / static_cast<float>(oldest - newest);
+            // All candidates the same age makes this 0/0; weigh them equally instead of casting NaN.
+            auto sizeMultiplicator = oldest > newest ? 1.0f + static_cast<float>(stat.second.age - newest) / static_cast<float>(oldest - newest) : 1.0f;
             auto scaledSize = static_cast<uint32_t>(stat.second.sizeBytes * sizeMultiplicator);
             if (scaledSize > biggestBytes)
             {

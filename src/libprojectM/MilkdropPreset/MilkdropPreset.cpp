@@ -28,9 +28,11 @@
 #include "PresetFileParser.hpp"
 
 #include <Logging.hpp>
+#include <Utils.hpp>
 #include <PerfTimers.hpp>
 
 #include <algorithm>
+#include <limits>
 
 #ifdef PRJM_ENABLE_OPENMP
 #include <omp.h>
@@ -319,7 +321,7 @@ void MilkdropPreset::PerFrameUpdate()
     m_state.gammaAdj = static_cast<float>(*m_perFrameContext.gamma);
     m_state.videoEchoZoom = static_cast<float>(*m_perFrameContext.echo_zoom);
     m_state.videoEchoAlpha = static_cast<float>(*m_perFrameContext.echo_alpha);
-    m_state.videoEchoOrientation = static_cast<int>(*m_perFrameContext.echo_orient);
+    m_state.videoEchoOrientation = Utils::SaturatingToInt(*m_perFrameContext.echo_orient, std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
 }
 
 void MilkdropPreset::Load(const std::string& pathname)

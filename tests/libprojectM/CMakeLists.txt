@@ -58,6 +58,7 @@ add_executable(projectM-unittest
         RhythmAnalyzerTest.cpp
         ShaderCacheTest.cpp
         UserSpriteApiTest.cpp
+        UtilsTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>

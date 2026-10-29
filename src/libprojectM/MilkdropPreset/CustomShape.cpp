@@ -4,6 +4,7 @@
 
 #include <Renderer/BlendMode.hpp>
 #include <Renderer/TextureManager.hpp>
+#include <Utils.hpp>
 
 #include <vector>
 
@@ -88,19 +89,11 @@ void CustomShape::Draw()
         m_perFrameContext.LoadStateVariables(m_presetState, *this, instance);
         m_perFrameContext.ExecutePerFrameCode();
 
-        int sides = static_cast<int>(*m_perFrameContext.sides);
-        if (sides < 3)
-        {
-            sides = 3;
-        }
-        if (sides > 100)
-        {
-            sides = 100;
-        }
+        const int sides = Utils::SaturatingToInt(*m_perFrameContext.sides, 3, 100);
 
         // Additive Drawing or Overwrite
         Renderer::BlendMode::SetBlendFunction(Renderer::BlendMode::Function::SourceAlpha,
-                                              static_cast<int>(*m_perFrameContext.additive) != 0
+                                              Utils::ExpressionIsTrue(*m_perFrameContext.additive)
                                                   ? Renderer::BlendMode::Function::One
                                                   : Renderer::BlendMode::Function::OneMinusSourceAlpha);
 
@@ -142,7 +135,7 @@ void CustomShape::Draw()
         vertexData[sides + 1] = vertexData[1];
         colorData[sides + 1] = colorData[1];
 
-        m_fillMesh.SetUseUV(static_cast<int>(*m_perFrameContext.textured) != 0);
+        m_fillMesh.SetUseUV(Utils::ExpressionIsTrue(*m_perFrameContext.textured));
 
         if (m_fillMesh.UseUV())
         {

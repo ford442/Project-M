@@ -22,12 +22,12 @@ protected:
         m_logFlag2 = false;
     }
 
-    static void loggingCallback1(const char*, int, void*)
+    static void loggingCallback1(const char*, projectm_log_level, void*)
     {
         m_logFlag1 = true;
     }
 
-    static void loggingCallback2(const char*, int, void*)
+    static void loggingCallback2(const char*, projectm_log_level, void*)
     {
         m_logFlag2 = true;
     }
@@ -140,7 +140,7 @@ TEST_F(LoggingTest, GlobalCallbackUserData)
 {
     static void* returnedPointer{};
 
-    const Logging::CallbackFunction logCallback = [](const char*, int, void* userData) -> void {
+    const Logging::CallbackFunction logCallback = [](const char*, projectm_log_level, void* userData) -> void {
         returnedPointer = userData;
     };
 
@@ -163,7 +163,7 @@ TEST_F(LoggingTest, ThreadCallbackUserData)
 {
     static void* returnedPointer{};
 
-    const Logging::CallbackFunction logCallback = [](const char*, int, void* userData) -> void {
+    const Logging::CallbackFunction logCallback = [](const char*, projectm_log_level, void* userData) -> void {
         returnedPointer = userData;
     };
 
@@ -186,7 +186,7 @@ TEST_F(LoggingTest, MessageInGlobalCallback)
 {
     static std::string logMessage;
 
-    const Logging::CallbackFunction logCallback = [](const char* message, int, void*) -> void {
+    const Logging::CallbackFunction logCallback = [](const char* message, projectm_log_level, void*) -> void {
         logMessage = message;
     };
 
@@ -201,7 +201,7 @@ TEST_F(LoggingTest, MessageInThreadCallback)
 {
     static std::string logMessage;
 
-    const Logging::CallbackFunction logCallback = [](const char* message, int, void*) -> void {
+    const Logging::CallbackFunction logCallback = [](const char* message, projectm_log_level, void*) -> void {
         logMessage = message;
     };
 
@@ -216,7 +216,7 @@ TEST_P(LoggingTestWithLevels, SeverityInGlobalCallback)
 {
     static Logging::LogLevel logLevel;
 
-    Logging::CallbackFunction logCallback = [](const char*, int level, void*) -> void {
+    Logging::CallbackFunction logCallback = [](const char*, projectm_log_level level, void*) -> void {
         logLevel = static_cast<Logging::LogLevel>(level);
     };
 
@@ -231,7 +231,7 @@ TEST_P(LoggingTestWithLevels, SeverityInThreadCallback)
 {
     static Logging::LogLevel logLevel;
 
-    Logging::CallbackFunction logCallback = [](const char*, int level, void*) -> void {
+    Logging::CallbackFunction logCallback = [](const char*, projectm_log_level level, void*) -> void {
         logLevel = static_cast<Logging::LogLevel>(level);
     };
 

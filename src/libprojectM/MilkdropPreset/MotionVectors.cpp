@@ -5,8 +5,10 @@
 #include <Renderer/BlendMode.hpp>
 #include <Renderer/ShaderCache.hpp>
 #include <Renderer/TextureManager.hpp>
+#include <Utils.hpp>
 
 #include <algorithm>
+#include <limits>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -26,8 +28,8 @@ void MotionVectors::Draw(const PerFrameContext& presetPerFrameContext, std::shar
         return;
     }
 
-    int countX = static_cast<int>(*presetPerFrameContext.mv_x);
-    int countY = static_cast<int>(*presetPerFrameContext.mv_y);
+    int countX = Utils::SaturatingToInt(*presetPerFrameContext.mv_x, 0, std::numeric_limits<int>::max());
+    int countY = Utils::SaturatingToInt(*presetPerFrameContext.mv_y, 0, std::numeric_limits<int>::max());
 
     if (countX <= 0 || countY <= 0)
     {

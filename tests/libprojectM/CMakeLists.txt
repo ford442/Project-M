@@ -31,6 +31,7 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
+        CApiNullArgumentTest.cpp
         ColorOutputTest.cpp
         ExperimentalDepthSamplerTest.cpp
         FinalCompositeMeshTest.cpp

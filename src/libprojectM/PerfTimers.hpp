@@ -21,8 +21,11 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <functional>
+#include <mutex>
 
 namespace libprojectM {
 namespace Perf {
@@ -90,7 +93,7 @@ enum class GpuStage
 /**
  * @brief Called whenever the GPU stage changes. See GpuStage.
  */
-using GpuStageCallback = void (*)(GpuStage stage, void* userData);
+using GpuStageCallback = std::function<void(GpuStage stage)>;
 
 /**
  * @brief One frame's worth of CPU timings plus the derived FPS.
@@ -108,26 +111,44 @@ struct FrameTimings
     }
 };
 
+/**
+ * @brief One engine's perf timer state. Each EngineContext owns one.
+ *
+ * Frame timings and the current GPU stage belong to the engine that is rendering
+ * (EngineContext::Current()). The process default context's state holds what the
+ * handle-less C API sets: whether timers are on, the GPU stage callback engines use
+ * when they have none of their own, and the timings of the last frame any engine
+ * finished.
+ */
+struct State
+{
+    std::atomic<bool> enabled{false}; //!< Only read from the process state.
+    FrameTimings current{};
+    std::chrono::steady_clock::time_point frameStart{};
+    GpuStage gpuStage{GpuStage::Other};
+    GpuStageCallback gpuStageCallback; //!< Empty: use the process state's.
+
+    mutable std::mutex lastMutex;
+    FrameTimings last{};
+};
+
+/// The perf state of the engine rendering on this thread (EngineContext::Current()).
+auto CurrentState() -> State&;
+
+/// The process default context's perf state (the handle-less C API).
+auto ProcessState() -> State&;
+
 namespace detail {
 
-// NOTE: This state is intentionally global rather than per-ProjectM-instance.
-// The Emscripten build only ever creates a single projectM handle, and a
-// global avoids threading a timing context through MilkdropPreset, the
-// transition system, and every Renderer:: helper that ProjectM::RenderFrame()
-// touches. If this is ever embedded with multiple concurrent instances, this
-// should become per-instance state.
-inline bool g_enabled = false;
-inline FrameTimings g_current{};
-inline FrameTimings g_last{};
-inline std::chrono::steady_clock::time_point g_frameStart{};
-inline GpuStageCallback g_gpuStageCallback{nullptr};
-inline void* g_gpuStageUserData{nullptr};
-inline GpuStage g_gpuStage{GpuStage::Other};
+inline auto StageCallback(State& state) -> const GpuStageCallback&
+{
+    return state.gpuStageCallback ? state.gpuStageCallback : ProcessState().gpuStageCallback;
+}
 
 } // namespace detail
 
 /**
- * @brief Enables or disables perf timer collection.
+ * @brief Enables or disables perf timer collection, for every engine.
  *
  * When disabled, BeginFrame()/EndFrame()/Add() and ScopedTimer are all no-ops,
  * so there is no measurable overhead in release builds that don't enable the HUD
@@ -135,94 +156,112 @@ inline GpuStage g_gpuStage{GpuStage::Other};
  */
 inline void SetEnabled(bool enabled)
 {
-    detail::g_enabled = enabled;
+    ProcessState().enabled.store(enabled, std::memory_order_relaxed);
 }
 
 inline bool IsEnabled()
 {
-    return detail::g_enabled;
+    return ProcessState().enabled.load(std::memory_order_relaxed);
 }
 
 /// Call once at the start of ProjectM::RenderFrame().
 inline void BeginFrame()
 {
-    if (!detail::g_enabled)
+    if (!IsEnabled())
     {
         return;
     }
-    detail::g_current = FrameTimings{};
-    detail::g_frameStart = std::chrono::steady_clock::now();
+    auto& state = CurrentState();
+    state.current = FrameTimings{};
+    state.frameStart = std::chrono::steady_clock::now();
 }
 
 /// Records which path evaluated the per-pixel equations for the current frame.
 inline void SetPerPixelPath(PerPixelPath path)
 {
-    if (!detail::g_enabled)
+    if (!IsEnabled())
     {
         return;
     }
-    detail::g_current.perPixelPath = path;
+    CurrentState().current.perPixelPath = path;
 }
 
 /// Adds `ms` milliseconds to the given bucket for the current frame.
 inline void Add(Field field, double ms)
 {
-    if (!detail::g_enabled)
+    if (!IsEnabled())
     {
         return;
     }
-    detail::g_current.values[static_cast<std::size_t>(field)] += ms;
+    CurrentState().current.values[static_cast<std::size_t>(field)] += ms;
 }
 
 /// Records that a preset switch is waiting for its shader programs this frame.
 inline void SetShaderLinkPending(bool pending)
 {
-    if (!detail::g_enabled)
+    if (!IsEnabled())
     {
         return;
     }
-    detail::g_current.shaderLinkPending = pending;
+    CurrentState().current.shaderLinkPending = pending;
 }
 
 /// Call once at the end of ProjectM::RenderFrame(). Finalizes Total/fps and
-/// publishes the frame's timings for GetLastFrame().
+/// publishes the frame's timings for GetLastFrame(), for this engine and the process.
 inline void EndFrame()
 {
-    if (!detail::g_enabled)
+    if (!IsEnabled())
     {
         return;
     }
+    auto& state = CurrentState();
     const auto now = std::chrono::steady_clock::now();
-    const double totalMs = std::chrono::duration<double, std::milli>(now - detail::g_frameStart).count();
-    detail::g_current.values[static_cast<std::size_t>(Field::Total)] = totalMs;
-    detail::g_current.fps = totalMs > 0.0 ? 1000.0 / totalMs : 0.0;
-    detail::g_last = detail::g_current;
+    const double totalMs = std::chrono::duration<double, std::milli>(now - state.frameStart).count();
+    state.current.values[static_cast<std::size_t>(Field::Total)] = totalMs;
+    state.current.fps = totalMs > 0.0 ? 1000.0 / totalMs : 0.0;
+    {
+        const std::lock_guard<std::mutex> lock(state.lastMutex);
+        state.last = state.current;
+    }
+    auto& process = ProcessState();
+    if (&process != &state)
+    {
+        const std::lock_guard<std::mutex> lock(process.lastMutex);
+        process.last = state.current;
+    }
 }
 
-/// Returns the timings captured during the most recently completed frame.
+/// Returns the timings of the last frame finished by the engine owning `state`
+/// (for the process state: by any engine).
+inline FrameTimings GetLastFrame(const State& state)
+{
+    const std::lock_guard<std::mutex> lock(state.lastMutex);
+    return state.last;
+}
+
+/// Returns the timings of the last frame any engine finished.
 inline FrameTimings GetLastFrame()
 {
-    return detail::g_last;
+    return GetLastFrame(ProcessState());
 }
 
 /**
- * @brief Installs (or, with nullptr, removes) the GPU stage change callback.
+ * @brief Installs (or, with an empty callback, removes) a GPU stage change callback.
  *
- * Resets the current stage to GpuStage::Other, which is where a host's
- * per-frame timer starts. Stage changes are only reported while perf timers are
- * enabled.
+ * On the process state it is the callback of every engine without its own. Resets
+ * the state's current stage to GpuStage::Other, which is where a host's per-frame
+ * timer starts. Stage changes are only reported while perf timers are enabled.
  */
-inline void SetGpuStageCallback(GpuStageCallback callback, void* userData)
+inline void SetGpuStageCallback(State& state, GpuStageCallback callback)
 {
-    detail::g_gpuStageCallback = callback;
-    detail::g_gpuStageUserData = userData;
-    detail::g_gpuStage = GpuStage::Other;
+    state.gpuStageCallback = std::move(callback);
+    state.gpuStage = GpuStage::Other;
 }
 
 /// The stage GL commands issued now are attributed to.
 inline GpuStage CurrentGpuStage()
 {
-    return detail::g_gpuStage;
+    return CurrentState().gpuStage;
 }
 
 /**
@@ -233,13 +272,19 @@ inline GpuStage CurrentGpuStage()
  */
 inline GpuStage EnterGpuStage(GpuStage stage)
 {
-    const GpuStage previous = detail::g_gpuStage;
-    if (!detail::g_enabled || detail::g_gpuStageCallback == nullptr || stage == previous)
+    auto& state = CurrentState();
+    const GpuStage previous = state.gpuStage;
+    if (!IsEnabled() || stage == previous)
     {
         return previous;
     }
-    detail::g_gpuStage = stage;
-    detail::g_gpuStageCallback(stage, detail::g_gpuStageUserData);
+    const auto& callback = detail::StageCallback(state);
+    if (!callback)
+    {
+        return previous;
+    }
+    state.gpuStage = stage;
+    callback(stage);
     return previous;
 }
 
@@ -253,7 +298,7 @@ class GpuStageScope
 {
 public:
     explicit GpuStageScope(GpuStage stage)
-        : m_active(detail::g_enabled && detail::g_gpuStageCallback != nullptr)
+        : m_active(IsEnabled() && static_cast<bool>(detail::StageCallback(CurrentState())))
     {
         if (m_active)
         {
@@ -311,7 +356,7 @@ class ScopedTimer
 public:
     explicit ScopedTimer(Field field)
         : m_field(field)
-        , m_active(detail::g_enabled)
+        , m_active(IsEnabled())
     {
         if (m_active)
         {

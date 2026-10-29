@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PerfTimers.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -65,6 +67,15 @@ public:
     auto NextRandom() -> uint32_t;
 
     /**
+     * @brief This engine's perf timer state: frame timings, current GPU stage and its own
+     * GPU stage callback. See Perf::State.
+     */
+    auto PerfState() -> Perf::State&
+    {
+        return m_perfState;
+    }
+
+    /**
      * @brief The context code on this thread draws from: the innermost ScopedEngineContext's,
      *        or the process default.
      */
@@ -93,6 +104,8 @@ private:
     std::optional<uint32_t> m_ownSeed;
     std::mt19937 m_stream;
     uint64_t m_streamEpoch{0}; //!< The process seed epoch m_stream was last restarted for.
+
+    Perf::State m_perfState;
 };
 
 /**

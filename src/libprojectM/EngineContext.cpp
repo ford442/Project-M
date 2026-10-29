@@ -159,4 +159,18 @@ ScopedEngineContext::~ScopedEngineContext()
     t_currentContext = m_previous;
 }
 
+namespace Perf {
+
+auto CurrentState() -> State&
+{
+    return EngineContext::Current().PerfState();
+}
+
+auto ProcessState() -> State&
+{
+    return EngineContext::ProcessDefault().PerfState();
+}
+
+} // namespace Perf
+
 } // namespace libprojectM

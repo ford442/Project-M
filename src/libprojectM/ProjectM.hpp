@@ -224,6 +224,14 @@ public:
     void SetFrameTime(double secondsSinceStart);
 
     /**
+     * @brief This engine's context: its random streams and perf timer state.
+     */
+    auto GetEngineContext() -> EngineContext&
+    {
+        return *m_engineContext;
+    }
+
+    /**
      * @brief Gives this engine its own deterministic seed, or with nullopt makes it follow the
      *        process default (RandomSeed::SetDeterministicSeed()) again.
      *

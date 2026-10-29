@@ -150,6 +150,47 @@ TEST_F(EngineContextTest, ParallelThreadsDrawTheirOwnStreams)
     EXPECT_EQ(gotB, expectedB);
 }
 
+TEST_F(EngineContextTest, PerfStateIsPerEngine)
+{
+    namespace Perf = libprojectM::Perf;
+    Perf::SetEnabled(true);
+
+    std::vector<Perf::GpuStage> processStages;
+    std::vector<Perf::GpuStage> ownStages;
+    Perf::SetGpuStageCallback(Perf::ProcessState(), [&](Perf::GpuStage stage) { processStages.push_back(stage); });
+
+    EngineContext follower;
+    EngineContext own;
+    Perf::SetGpuStageCallback(own.PerfState(), [&](Perf::GpuStage stage) { ownStages.push_back(stage); });
+
+    {
+        const ScopedEngineContext scope(follower);
+        Perf::BeginFrame();
+        Perf::Add(Perf::Field::Blur, 3.0);
+        const Perf::GpuStageScope warp(Perf::GpuStage::Warp);
+        Perf::EndFrame();
+    }
+    {
+        const ScopedEngineContext scope(own);
+        Perf::BeginFrame();
+        Perf::Add(Perf::Field::Blur, 5.0);
+        // A stage the follower is in does not suppress this engine's change.
+        const Perf::GpuStageScope warp(Perf::GpuStage::Warp);
+        Perf::EndFrame();
+    }
+
+    EXPECT_EQ(Perf::GetLastFrame(follower.PerfState())[Perf::Field::Blur], 3.0);
+    EXPECT_EQ(Perf::GetLastFrame(own.PerfState())[Perf::Field::Blur], 5.0);
+    EXPECT_EQ(Perf::GetLastFrame()[Perf::Field::Blur], 5.0) << "the process keeps the last frame any engine finished";
+
+    const std::vector<Perf::GpuStage> warpAndBack{Perf::GpuStage::Warp, Perf::GpuStage::Other};
+    EXPECT_EQ(processStages, warpAndBack) << "an engine without a callback reports through the process one";
+    EXPECT_EQ(ownStages, warpAndBack);
+
+    Perf::SetGpuStageCallback(Perf::ProcessState(), {});
+    Perf::SetEnabled(false);
+}
+
 #ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
 TEST_F(EngineContextTest, EvalRandFollowsTheEngineSeed)
 {

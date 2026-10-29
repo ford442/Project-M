@@ -110,6 +110,18 @@ PROJECTM_EXPORT bool projectm_perf_is_enabled();
 PROJECTM_EXPORT void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings);
 
 /**
+ * @brief Retrieves the CPU timing breakdown for the frame @p instance rendered last.
+ *
+ * projectm_perf_get_frame_timings() returns the last frame any instance finished;
+ * with several instances, this one says which. Fork extension.
+ *
+ * @param instance The projectM instance handle.
+ * @param out_timings Pointer to a struct that will receive the timings. Must not be NULL.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_perf_get_instance_frame_timings(projectm_handle instance, projectm_perf_frame_timings* out_timings);
+
+/**
  * @brief GPU stage the GL commands issued from now on belong to.
  *
  * The CPU timings above measure how long each stage took to *submit*. GL is
@@ -154,7 +166,8 @@ typedef void (*projectm_perf_gpu_stage_callback)(projectm_perf_gpu_stage stage, 
 /**
  * @brief Installs the GPU stage callback, or removes it when @p callback is NULL.
  *
- * Process-global, like the rest of this header. Stage changes are only reported
+ * The default for every instance without its own callback
+ * (projectm_perf_set_instance_gpu_stage_callback()). Stage changes are only reported
  * while perf timers are enabled (projectm_perf_set_enabled()), so an installed
  * callback costs nothing otherwise.
  *
@@ -163,6 +176,20 @@ typedef void (*projectm_perf_gpu_stage_callback)(projectm_perf_gpu_stage stage, 
  * @since 4.2.0
  */
 PROJECTM_EXPORT void projectm_perf_set_gpu_stage_callback(projectm_perf_gpu_stage_callback callback, void* user_data);
+
+/**
+ * @brief Installs a GPU stage callback for one instance, or removes it (falling back to
+ *        the projectm_perf_set_gpu_stage_callback() one) when @p callback is NULL.
+ *
+ * Each instance tracks its own current stage, so two instances rendering on different
+ * threads report their stages independently. Fork extension.
+ *
+ * @param instance The projectM instance handle.
+ * @param callback Called on every stage change of this instance, or NULL to remove.
+ * @param user_data Passed back to @p callback unchanged.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_perf_set_instance_gpu_stage_callback(projectm_handle instance, projectm_perf_gpu_stage_callback callback, void* user_data);
 
 /**
  * @brief Attributes the GL commands that follow to @p stage, for GL work the host

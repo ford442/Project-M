@@ -1,5 +1,6 @@
 #include "ProjectMCWrapper.hpp"
 
+#include "EngineContext.hpp"
 #include "PerfTimers.hpp"
 #include "PresetPrepareJob.hpp"
 #include "Renderer/Platform/GladLoader.hpp"
@@ -469,23 +470,39 @@ bool projectm_perf_is_enabled()
     });
 }
 
+namespace {
+
+void FillFrameTimings(const libprojectM::Perf::FrameTimings& timings, projectm_perf_frame_timings* out_timings)
+{
+    out_timings->audio_analysis_ms = timings[libprojectM::Perf::Field::AudioAnalysis];
+    out_timings->per_frame_eval_ms = timings[libprojectM::Perf::Field::PerFrameEval];
+    out_timings->per_pixel_eval_ms = timings[libprojectM::Perf::Field::PerPixelEval];
+    out_timings->blur_ms = timings[libprojectM::Perf::Field::Blur];
+    out_timings->waveforms_shapes_ms = timings[libprojectM::Perf::Field::WaveformsShapes];
+    out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
+    out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
+    out_timings->fps = timings.fps;
+    out_timings->shader_link_pending = timings.shaderLinkPending ? 1 : 0;
+    out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
+    out_timings->rhythm_analysis_ms = timings[libprojectM::Perf::Field::RhythmAnalysis];
+}
+
+} // namespace
+
 void projectm_perf_get_frame_timings(projectm_perf_frame_timings* out_timings)
 {
     CApiGuard(__func__, [&] {
         Required(out_timings, "out_timings");
-        const auto timings = libprojectM::Perf::GetLastFrame();
+        FillFrameTimings(libprojectM::Perf::GetLastFrame(), out_timings);
+    });
+}
 
-        out_timings->audio_analysis_ms = timings[libprojectM::Perf::Field::AudioAnalysis];
-        out_timings->per_frame_eval_ms = timings[libprojectM::Perf::Field::PerFrameEval];
-        out_timings->per_pixel_eval_ms = timings[libprojectM::Perf::Field::PerPixelEval];
-        out_timings->blur_ms = timings[libprojectM::Perf::Field::Blur];
-        out_timings->waveforms_shapes_ms = timings[libprojectM::Perf::Field::WaveformsShapes];
-        out_timings->composite_ms = timings[libprojectM::Perf::Field::Composite];
-        out_timings->total_ms = timings[libprojectM::Perf::Field::Total];
-        out_timings->fps = timings.fps;
-        out_timings->shader_link_pending = timings.shaderLinkPending ? 1 : 0;
-        out_timings->per_pixel_eval_path = static_cast<int>(timings.perPixelPath);
-        out_timings->rhythm_analysis_ms = timings[libprojectM::Perf::Field::RhythmAnalysis];
+void projectm_perf_get_instance_frame_timings(projectm_handle instance, projectm_perf_frame_timings* out_timings)
+{
+    CApiGuard(__func__, [&] {
+        auto& engine = Instance(instance).GetEngineContext();
+        Required(out_timings, "out_timings");
+        FillFrameTimings(libprojectM::Perf::GetLastFrame(engine.PerfState()), out_timings);
     });
 }
 
@@ -497,20 +514,15 @@ static_assert(static_cast<int>(libprojectM::Perf::GpuStage::Present) == PROJECTM
 
 namespace {
 
-struct GpuStageCallbackBinding {
-    projectm_perf_gpu_stage_callback callback{nullptr};
-    void* userData{nullptr};
-};
-
-GpuStageCallbackBinding g_gpuStageBinding;
-
-void ForwardGpuStage(libprojectM::Perf::GpuStage stage, void* userData)
+auto WrapGpuStageCallback(projectm_perf_gpu_stage_callback callback, void* userData) -> libprojectM::Perf::GpuStageCallback
 {
-    const auto* binding = static_cast<const GpuStageCallbackBinding*>(userData);
-    if (binding->callback != nullptr)
+    if (callback == nullptr)
     {
-        binding->callback(static_cast<projectm_perf_gpu_stage>(stage), binding->userData);
+        return {};
     }
+    return [callback, userData](libprojectM::Perf::GpuStage stage) {
+        callback(static_cast<projectm_perf_gpu_stage>(stage), userData);
+    };
 }
 
 } // namespace
@@ -518,9 +530,15 @@ void ForwardGpuStage(libprojectM::Perf::GpuStage stage, void* userData)
 void projectm_perf_set_gpu_stage_callback(projectm_perf_gpu_stage_callback callback, void* user_data)
 {
     CApiGuard(__func__, [&] {
-        g_gpuStageBinding.callback = callback;
-        g_gpuStageBinding.userData = user_data;
-        libprojectM::Perf::SetGpuStageCallback(callback != nullptr ? &ForwardGpuStage : nullptr, &g_gpuStageBinding);
+        libprojectM::Perf::SetGpuStageCallback(libprojectM::Perf::ProcessState(), WrapGpuStageCallback(callback, user_data));
+    });
+}
+
+void projectm_perf_set_instance_gpu_stage_callback(projectm_handle instance, projectm_perf_gpu_stage_callback callback, void* user_data)
+{
+    CApiGuard(__func__, [&] {
+        auto& engine = Instance(instance).GetEngineContext();
+        libprojectM::Perf::SetGpuStageCallback(engine.PerfState(), WrapGpuStageCallback(callback, user_data));
     });
 }
 

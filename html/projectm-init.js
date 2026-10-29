@@ -608,52 +608,12 @@ export async function createProjectMModule({
 }
 
 /**
- * @param {object} [options]
- * @param {ProjectMModuleLike | undefined} [options.module]
- * @param {Element | null} [options.container]
- * @param {HTMLCanvasElement | null} [options.mainCanvas]
- * @param {HTMLCanvasElement | null} [options.secondaryCanvas]
- * @param {boolean} [options.aspectCorrection]
- * @returns {boolean}
- */
-export function syncModuleSize({
-    module = globalThis.Module,
-    container = document.querySelector('#contain1'),
-    mainCanvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector('#mcanvas')),
-    secondaryCanvas = /** @type {HTMLCanvasElement | null} */ (document.querySelector('#scanvas')),
-    aspectCorrection
-} = {}) {
-    if (!module || !container || !mainCanvas || !secondaryCanvas) return false;
-
-    const rect = container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(rect.width * dpr));
-    const height = Math.max(1, Math.round(rect.height * dpr));
-
-    mainCanvas.width = width;
-    mainCanvas.height = height;
-    secondaryCanvas.width = width;
-    secondaryCanvas.height = height;
-
-    mainCanvas.style.width = rect.width + 'px';
-    mainCanvas.style.height = rect.height + 'px';
-    secondaryCanvas.style.width = rect.width + 'px';
-    secondaryCanvas.style.height = rect.height + 'px';
-
-    if (module._set_window_size) module._set_window_size(width, height);
-    if (module._set_aspect_correction && aspectCorrection !== undefined) {
-        module._set_aspect_correction(aspectCorrection ? 1 : 0);
-    }
-    return true;
-}
-
-/**
- * @param {object} [options]
+ * @param {object} options
  * @param {Element | null} [options.container]
  * @param {(entries: ResizeObserverEntry[]) => void} [options.beforeSync]
- * @param {(arg?: any) => any} [options.sync]
+ * @param {(arg?: any) => any} options.sync Resizes the canvases and the engine.
  * @param {Record<string, any>} [options.syncOptions] Passed to `sync` on every
- *   resize (e.g. `{ aspectCorrection }` for the default {@link syncModuleSize}).
+ *   resize.
  *   Without it `sync` is called with no arguments. The observer entries are
  *   never `sync`'s argument: they went in as its options object before, which
  *   only worked because every default happened to apply, and lost
@@ -664,10 +624,10 @@ export function syncModuleSize({
 export function observeModuleSize({
     container = document.querySelector('#contain1'),
     beforeSync,
-    sync = syncModuleSize,
+    sync,
     syncOptions,
     onResize
-} = {}) {
+}) {
     if (!container || typeof ResizeObserver === 'undefined') return null;
 
     const observer = new ResizeObserver((entries) => {

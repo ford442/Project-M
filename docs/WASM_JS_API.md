@@ -234,8 +234,7 @@ different: it requires the **host** to shrink the `<canvas>` backing store
 (`canvas.width`/`canvas.height`) while leaving its CSS box size
 (`canvas.style.width`/`height`) unchanged, so the browser's own bitmap-to-CSS-box
 scaling does the "present upscale". `html/projectm-context.js`'s `syncCanvasSize()` /
-`ProjectMContext` and `html/projectm-core.html`'s `syncModuleSize()` (via `pmContext`)
-already do this; a host that bypasses both and drives `set_window_size` directly must
+`ProjectMContext` already do this; a host that bypasses both and drives `set_window_size` directly must
 implement `onRenderScaleChange` itself or the render-scale tier will silently no-op
 (mesh and blur still step down, so FPS still recovers, just less than governor v2
 expects on fill-bound devices).

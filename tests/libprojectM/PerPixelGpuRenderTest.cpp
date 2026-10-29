@@ -461,6 +461,44 @@ TEST_F(PerPixelGpuRenderTest, TrivialPerPixelFixtureRendersIdentically)
         << "the fixture preset should render identically on both paths";
 }
 
+#ifdef PRJM_ENABLE_OPENMP
+/**
+ * @brief Raising the OpenMP thread count after a preset loaded never shares an eval context.
+ *
+ * The preset sizes its per-thread context pool from omp_get_max_threads() at load, and the
+ * CPU side of RenderPreset() loads on one thread, so the pool is empty. Raising the count
+ * afterwards used to run several threads on the one non-re-entrant perPixelContext, a data
+ * race that scrambles x/y/rad/ang between vertices. The parallel-for is now capped at the
+ * pool size, so the render must match a plain single-threaded one exactly.
+ */
+TEST_F(PerPixelGpuRenderTest, ThreadCountRaisedAfterLoadStaysOnOwnContexts)
+{
+    const std::string path = std::string(PROJECTM_PRESET_TESTS_DIR) + kFixturePreset;
+    if (!std::filesystem::exists(path))
+    {
+        GTEST_SKIP() << "fixture preset not present: " << path;
+    }
+
+    const int threads = omp_get_max_threads();
+    const FrameHook raiseThreads = [threads](projectm_handle /*instance*/, int frame) {
+        if (frame == 0)
+        {
+            omp_set_num_threads(std::max(4, threads * 2));
+        }
+    };
+
+    std::string error;
+    const auto reference = RenderPreset(path, true, kShortFrames, error);
+    ASSERT_TRUE(error.empty()) << error;
+    const auto raised = RenderPreset(path, true, kShortFrames, error, raiseThreads);
+    ASSERT_TRUE(error.empty()) << error;
+
+    const auto difference = Compare(reference, raised);
+    EXPECT_EQ(difference.maxAbsolute, 0.0)
+        << "threads beyond the context pool evaluated on a shared context";
+}
+#endif
+
 /**
  * @brief The static warp grid is re-uploaded when the viewport or the mesh size changes.
  *

@@ -127,7 +127,7 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
     float repeatx = std::min(100.0f, std::max(0.01f, static_cast<float>(*m_codeContext.repeatx)));
     float repeaty = std::min(100.0f, std::max(0.01f, static_cast<float>(*m_codeContext.repeaty)));
 
-    int blendMode = std::min(4, std::max(0, (static_cast<int>(*m_codeContext.blendmode))));
+    int blendMode = Utils::SaturatingToInt(*m_codeContext.blendmode, 0, 4);
     float r = std::min(1.0f, std::max(0.0f, (static_cast<float>(*m_codeContext.r))));
     float g = std::min(1.0f, std::max(0.0f, (static_cast<float>(*m_codeContext.g))));
     float b = std::min(1.0f, std::max(0.0f, (static_cast<float>(*m_codeContext.b))));
@@ -317,6 +317,7 @@ MilkdropSprite::CodeContext::CodeContext()
 
 MilkdropSprite::CodeContext::~CodeContext()
 {
+    projectm_eval_code_destroy(perFrameCodeHandle);
     projectm_eval_context_destroy(spriteCodeContext);
 
     spriteCodeContext = nullptr;

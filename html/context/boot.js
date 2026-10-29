@@ -25,6 +25,7 @@ import {
 } from '../projectm-render-worker-host.js';
 import { checkInit } from '../projectm-init-errors.js';
 import { createConfiguredHost, resolveFlashLimit, resolveWasmContextConfig } from '../projectm-context-config.js';
+import { resolveDevicePixelRatio } from './render.js';
 
 /**
  * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
@@ -459,7 +460,7 @@ async function startRenderWorker(request, versionPaths) {
     // Ask for the layout size: the worker sizes its own backing store from it,
     // including the governor's render scale.
     const rect = request.container.getBoundingClientRect();
-    const dpr = options.devicePixelRatio || 1;
+    const dpr = resolveDevicePixelRatio(options);
 
     return selectRenderTopology({
         canvas: request.canvas,

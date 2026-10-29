@@ -66,7 +66,7 @@ void Logging::Log(const char* message, LogLevel severity)
         return;
     }
 
-    callback.callbackFunction(message, static_cast<int>(severity), callback.userData);
+    callback.callbackFunction(message, static_cast<projectm_log_level>(severity), callback.userData);
 }
 
 auto Logging::GetLoggingCallback() -> UserCallback

@@ -31,6 +31,7 @@ test_api_headers(TestMainAPIHeaders
         )
 
 add_executable(projectM-unittest
+        CApiNullArgumentTest.cpp
         ColorOutputTest.cpp
         ExperimentalDepthSamplerTest.cpp
         FinalCompositeMeshTest.cpp
@@ -57,7 +58,9 @@ add_executable(projectM-unittest
         RenderDeviceTest.cpp
         RhythmAnalyzerTest.cpp
         ShaderCacheTest.cpp
+        ShaderTranspileCacheTest.cpp
         UserSpriteApiTest.cpp
+        UtilsTest.cpp
         WaveformAlignerTest.cpp
 
         $<TARGET_OBJECTS:Audio>

@@ -563,6 +563,24 @@ test('the fallback resize listener is attached to the context\'s window and remo
     });
 });
 
+test('resize() follows the window\'s live devicePixelRatio unless the host pinned one', async () => {
+    await withEnv({}, async (env) => {
+        const context = env.newContext({ sharedModule: makeFakeModule() });
+        await context.start();
+        env.window.devicePixelRatio = 2; // browser zoom, or a move to a HiDPI display
+        context.resize();
+        assert.equal(context.canvas.width, 1280);
+        assert.equal(context.canvas.style.width, '640px');
+        context.destroy();
+
+        const pinned = env.newContext({ sharedModule: makeFakeModule(), devicePixelRatio: 1 });
+        await pinned.start();
+        pinned.resize();
+        assert.equal(pinned.canvas.width, 640, 'an explicit devicePixelRatio option still wins');
+        pinned.destroy();
+    });
+});
+
 test('the ResizeObserver is disconnected on destroy', async () => {
     await withEnv({ withResizeObserver: true }, async (env) => {
         const context = env.newContext({ sharedModule: makeFakeModule() });

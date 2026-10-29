@@ -1,5 +1,6 @@
 #pragma once
 
+#include <projectM-4/logging.h>
 #include <projectM-4/projectM_cxx_export.h>
 
 #include <cstdint>
@@ -34,7 +35,7 @@ public:
     /**
      * The application callback function.
      */
-    using CallbackFunction = void (*)(const char* message, int severity, void* userData);
+    using CallbackFunction = projectm_log_callback; //!< The C API type, so calls through it match the function type.
 
     /**
      * A struct holding the user callback function and data pointer.

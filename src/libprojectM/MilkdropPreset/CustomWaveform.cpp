@@ -5,6 +5,7 @@
 
 #include <Renderer/BlendMode.hpp>
 #include <OpenMpConfig.hpp>
+#include <Utils.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -88,7 +89,7 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
     // Copy Q and T vars to per-point context
     InitPerPointEvaluationVariables();
 
-    const int sampleCount = std::min(CustomWaveformMaxSamples, std::max(0, static_cast<int>(*m_perFrameContext.samples)));
+    const int sampleCount = Utils::SaturatingToInt(*m_perFrameContext.samples, 0, CustomWaveformMaxSamples);
     const int separation = std::min(sampleCount - 1, std::max(0, m_sep));
 
     // If there aren't enough samples to draw a single line or dot, skip drawing the waveform.

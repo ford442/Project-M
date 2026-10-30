@@ -30,6 +30,11 @@ public:
     auto MakeCurrent() -> bool;
 
     /**
+     * @brief Makes no context current on this thread, so another thread can make this one current.
+     */
+    void ReleaseCurrent();
+
+    /**
      * @brief Loads GL entry points via GLAD after the context is current.
      */
     auto InitializeGlad() -> bool;

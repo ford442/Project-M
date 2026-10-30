@@ -11,7 +11,11 @@ TimeKeeper::TimeKeeper(double presetDuration, double smoothDuration, double hard
     , m_softCutDuration(smoothDuration)
     , m_hardCutDuration(hardcutDuration)
 {
-    UpdateTimers();
+    // What UpdateTimers() would do at time 0, without reading the clock: a reading here is a few
+    // microseconds that differ per run, and a frame time set for the first frame would then get
+    // a time step (and bass/mid/treb averages) that differ per run too.
+    m_presetFrameA++;
+    m_presetFrameB++;
 }
 
 void TimeKeeper::SetFrameTime(double secondsSinceStart)

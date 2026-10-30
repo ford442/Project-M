@@ -1,0 +1,39 @@
+# Writable statics in libprojectM that are deliberately process-wide.
+# Read by scripts/check_engine_globals.sh: one extended regex per line, matched
+# against nm -C's demangled name; everything after '#' is the reason.
+# Engine state does not belong here: put it in EngineContext.
+
+# --- The logging default (the one piece of mutable state the issue keeps) ---
+^libprojectM::Logging::m_(global|thread)(Callback|LogLevel)$   # global/thread log callback and level; engines override via EngineContext
+
+# --- EngineContext's own process defaults and the thread's current engine ---
+^libprojectM::\(anonymous namespace\)::s_processSeed(Mutex|Epoch)?$  # process seed: the default for engines without their own
+^libprojectM::\(anonymous namespace\)::t_currentContext$              # thread-local: which engine this thread runs
+^libprojectM::EngineContext::ProcessDefault\(\)::context$             # the process default context itself
+^libprojectM::Renderer::Device::\(anonymous namespace\)::t_currentDevice$       # thread-local: the device ScopedDevice installed
+^libprojectM::Renderer::Device::\(anonymous namespace\)::DefaultDevice\(\)::device$  # device for code outside any engine
+
+# --- Constants with dynamic initialization (const std::string / glm / tables) ---
+(^|::)k[A-Z][A-Za-z0-9]*$                                   # const objects named k*; written once at static init
+::kComponents$                                              # local const lookup table
+^libprojectM::MilkdropPreset::defaultCompositeShader$       # const std::string
+^libprojectM::MilkdropPreset::PresetState::orthogonalProjection(Flipped)?$  # static const glm::mat4
+^libprojectM::MilkdropPreset::RhythmVariables::Names$       # constant name table
+^libprojectM::MilkdropPreset::floatRand$                    # stateless lambda object; draws from EngineContext
+^libprojectM::Audio::RhythmAnalyzer::PushEnvelopeSample\(float\)::(meanRate|autocorrelationRate)$  # static const, computed once
+::ReadOnlyBuiltins\(\)::builtins$                           # constant set, built on first use
+::RhythmUniformName.*::names$                               # constant name table, built on first use
+::PresetFileParser::ParseLine.*::marker$                    # constant string
+^M4::baseTypeDescriptions$                                  # vendored hlslparser header table (vendor/)
+
+# --- Process-wide by nature: GL loading and the platform, the same for every engine ---
+^libprojectM::Renderer::Platform::                          # GL resolver/loader singletons and their env switches
+^libprojectM::Renderer::\(anonymous namespace\)::BlitPathEnabled\(\)::enabled$  # env switch read once
+^libprojectM::MilkdropPreset::MilkdropStaticShaders::Get\(\)::instance$  # shader source text + GLSL version; no GL objects
+^\(anonymous namespace\)::g_evalMemoryMutex$                # guards projectm-eval's process-global gmegabuf memory
+
+# --- Diagnostics and test hooks: counted across all engines, never read by rendering ---
+^libprojectM::MilkdropPreset::\(anonymous namespace\)::g_(preparedGlslUsed|preparedGlslMismatched|renderThreadTranspiles)$  # atomic counters for tests
+^libprojectM::MilkdropPreset::FinalComposite::s_meshRebuildCount$  # atomic counter for tests
+^libprojectM::Renderer::Framebuffer::s_liveInstanceCount$          # atomic counter for leak tests
+^libprojectM::Renderer::\(anonymous namespace\)::g_compileCompleteOverride$  # Shader::OverrideCompileCompleteForTesting()

@@ -38,7 +38,8 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   │   ├── ProjectM.hpp    # Main C++ class
 │   │   └── ProjectMCWrapper.cpp  # C API implementation
 │   ├── playlist/           # Playlist management library (C API + C++ implementation)
-│   └── sdl-test-ui/        # SDL2-based developer test application
+│   ├── sdl-test-ui/        # SDL2-based developer test application
+│   └── tools/projectm-render/ # Headless EGL offline renderer (docs/OFFLINE_RENDER.md)
 ├── tests/
 │   ├── libprojectM/        # Unit tests for core library (Google Test)
 │   ├── playlist/           # Unit tests for playlist library (Google Test)
@@ -47,6 +48,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── glad/               # OpenGL function loader
 │   ├── glm/                # OpenGL Mathematics (optional system override)
 │   ├── hlslparser/         # HLSL parser for shaders
+│   ├── dr_libs/            # FLAC/WAV/MP3 decoders, used only by projectm-render
 │   ├── projectm-eval/      # Milkdrop expression evaluator (Git submodule)
 │   └── stb_image/          # Image loading
 ├── src/wasm/                # Emscripten host wrapper (all TUs, see docs/EMSCRIPTEN.md)
@@ -173,6 +175,7 @@ sudo cmake --build . --target install
 | `ENABLE_HDR_RENDERING` | `OFF` | Enable 16-bit float (GL_RGBA16F) framebuffer + Reinhard tone-mapping. |
 | `ENABLE_HDR_P3` | `OFF` | Enable Display-P3 wide-gamut output (requires HDR rendering). |
 | `ENABLE_SRGB_FRAMEBUFFER` | `OFF` | Enable hardware sRGB encode/decode (SDR only, incompatible with HDR). |
+| `ENABLE_RENDER_TOOL` | `OFF` | Build `projectm-render` (`src/tools/projectm-render`), the headless EGL offline renderer: preset + FLAC/WAV/MP3 in, raw RGBA frames and/or a pixel hash out. Linux/BSD only; CI's Linux matrix turns it on. See `docs/OFFLINE_RENDER.md`. |
 | `ENABLE_VERBOSE_LOGGING` | `OFF` | Compile `TRACE`/`DEBUG` log levels into release builds (hurts performance). |
 | `ENABLE_DEBUG_POSTFIX` | `ON` | Append `d` to debug binary names. |
 | `ENABLE_MACOS_FRAMEWORK` | `OFF` | Build macOS Framework bundles instead of plain dylibs. |
@@ -201,6 +204,9 @@ Defines the stable **C API** used by all language bindings and frontends. Header
   the WASM host's prepare thread
 - `rhythm.h` — fork extension: tempo/beat/bar/section info, tempo hint, preset switching on bars or
   sections, transitions in beats, beat-aligned hard cuts (see `docs/AUDIO_PIPELINE.md`)
+- `offline_render.h` — fork extension: `projectm_render_offline_frame()` adds one frame's audio and
+  renders it at a given time on a virtual clock, shaders compiled synchronously, so two runs with the
+  same seed, presets, audio and frame times give the same pixels (`src/tools/projectm-render` drives it)
 - `texture_reload.h` — fork extension: `projectm_reload_texture()` re-reads a loaded texture's file
   in place, so running presets sample a rewritten image without a reload (the experimental depth
   map; see `docs/EXPERIMENTAL_PRESET_HOOKS.md`)
@@ -301,6 +307,15 @@ Third-party code that is compiled as part of the project:
 - Device changes must stay bit-identical unless they mean to change output. Check
   with the WASM goldens and `PresetCompat`, plus a before/after render of the preset
   corpora if the change touches draw order.
+
+### Engine state
+- State that belongs to one engine (a `ProjectM` instance) lives in its `EngineContext`
+  (`src/libprojectM/EngineContext.hpp`): random streams and seed, perf timers and GPU stage,
+  transpile-cache hooks and key, render device, log callback and level. Entry points install
+  it with `ScopedEngineContext`; code reaches it through `EngineContext::Current()`.
+- `scripts/check_engine_globals.sh <build-dir>` (run by `build_linux.yml`) lists every writable
+  static in libprojectM's objects with `nm` and fails on any not in
+  `scripts/engine_globals_allowlist.txt`, where each entry says why it is process-wide.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:

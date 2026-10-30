@@ -38,6 +38,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install  --yes --no-install-recommends \
             libgl1-mesa-dev \
+            libegl-dev \
+            libegl-mesa0 \
             mesa-common-dev \
             libsdl2-dev \
             libglm-dev \
@@ -73,6 +75,7 @@ jobs:
             -DENABLE_BOOST_FILESYSTEM="${use_boost}" \
             -DENABLE_CXX_INTERFACE=YES \
             -DENABLE_WERROR_RATCHET=ON \
+            -DENABLE_RENDER_TOOL=ON \
             -DBUILD_TESTING=YES
 
       - name: Build Debug
@@ -80,6 +83,9 @@ jobs:
 
       - name: Run Unit Tests
         run: ctest --test-dir "${{ github.workspace }}/cmake-build" --verbose --build-config "Debug"
+
+      - name: No engine state at namespace scope
+        run: bash scripts/check_engine_globals.sh "${{ github.workspace }}/cmake-build"
 
       - name: Build Release
         run: cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --parallel

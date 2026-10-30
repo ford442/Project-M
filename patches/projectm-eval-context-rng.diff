@@ -1,0 +1,287 @@
+From 6f87e32fb84f6c89d1503ff278c0a564167854f9 Mon Sep 17 00:00:00 2001
+From: root <noahc42@gmail.com>
+Date: Thu, 29 Oct 2026 20:09:57 +0100
+Subject: [PATCH] Give each context its own rand() stream
+
+rand() drew from one static Mersenne Twister shared by every context, so
+contexts on different threads raced on it and one context's draws shifted
+another's. The stream now lives in the compile context; rand nodes point at
+it. Unseeded contexts start with Milkdrop's default seed (0x4141f00d), and
+nodes built without a context fall back to a process-wide stream.
+
+New API: projectm_eval_context_seed_rand(ctx, seed).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ projectm-eval/CompilerFunctions.c |  4 +++
+ projectm-eval/CompilerTypes.h     | 12 +++++++
+ projectm-eval/TreeFunctions.c     | 56 ++++++++++++++++++-------------
+ projectm-eval/TreeFunctions.h     |  7 ++++
+ projectm-eval/api/projectm-eval.c |  6 ++++
+ projectm-eval/api/projectm-eval.h | 12 +++++++
+ tests/InstructionListTest.cpp     | 33 ++++++++++++++++++
+ 7 files changed, 107 insertions(+), 23 deletions(-)
+
+diff --git a/projectm-eval/CompilerFunctions.c b/projectm-eval/CompilerFunctions.c
+index f29a83c..a64a15b 100644
+--- a/projectm-eval/CompilerFunctions.c
++++ b/projectm-eval/CompilerFunctions.c
+@@ -183,6 +183,10 @@ prjm_eval_compiler_node_t* prjm_eval_compiler_create_expression(prjm_eval_compil
+     {
+         expr->memory_buffer = cctx->global_memory;
+     }
++    else if (strcmp(func->name, "rand") == 0)
++    {
++        expr->rng = &cctx->rng;
++    }
+ 
+     bool args_are_const_evaluable = true;
+     bool args_are_state_changing = false;
+diff --git a/projectm-eval/CompilerTypes.h b/projectm-eval/CompilerTypes.h
+index 93e5fdf..cd8965e 100644
+--- a/projectm-eval/CompilerTypes.h
++++ b/projectm-eval/CompilerTypes.h
+@@ -69,6 +69,16 @@ typedef struct prjm_eval_exptreenode_list_item
+  * @brief A single function, variable or constant in the expression tree.
+  * The assigned function will determine how to access the other members.
+  */
++/**
++ * @brief State of one Mersenne Twister stream, as used by rand().
++ * mti == 0 means "not seeded yet": the first draw seeds it with Milkdrop's default seed.
++ */
++typedef struct prjm_eval_rng
++{
++    uint32_t mt[624]; /*!< The state vector. */
++    int32_t mti; /*!< Index of the next word in mt, 0 if not yet seeded. */
++} prjm_eval_rng_t;
++
+ typedef struct prjm_eval_exptreenode
+ {
+     prjm_eval_expr_func_t* func;
+@@ -77,6 +87,7 @@ typedef struct prjm_eval_exptreenode
+     {
+         PRJM_EVAL_F* var; /*!< Variable reference. */
+         projectm_eval_mem_buffer memory_buffer; /*!< megabuf/gmegabuf memory block. */
++        prjm_eval_rng_t* rng; /*!< rand() stream of the owning context. NULL uses the process-wide stream. */
+     };
+     struct prjm_eval_exptreenode** args; /*!< Function arguments. Last element must be a NULL pointer*/
+     prjm_eval_exptreenode_list_item_t* list;  /*!< Next argument in the instruction list. */
+@@ -130,6 +141,7 @@ typedef struct projectm_eval_context
+     projectm_eval_mem_buffer global_memory; /*!< The global memory buffer, referred to as gmegabuf. */
+     prjm_eval_compiler_error_t error; /*!< Holds information about the last compile error. */
+     prjm_eval_exptreenode_t* compile_result; /*!< The result of the last compilation. Used temporarily during compilation. */
++    prjm_eval_rng_t rng; /*!< This context's rand() stream. */
+ } prjm_eval_compiler_context_t;
+ 
+ typedef struct
+diff --git a/projectm-eval/TreeFunctions.c b/projectm-eval/TreeFunctions.c
+index ddd1d82..4c9aaf8 100644
+--- a/projectm-eval/TreeFunctions.c
++++ b/projectm-eval/TreeFunctions.c
+@@ -153,35 +153,45 @@ void prjm_eval_intrinsic_functions(prjm_eval_intrinsic_function_list_ptr list, u
+ }
+ 
+ /* This is Milkdrop's original rand() implementation. */
+-static uint32_t prjm_eval_genrand_int32(void)
++void prjm_eval_rng_seed(prjm_eval_rng_t* rng, uint32_t seed)
+ {
++    rng->mt[0] = seed & 0xffffffffUL;
++    for (rng->mti = 1; rng->mti < N; rng->mti++)
++    {
++        rng->mt[rng->mti] =
++            (1812433253UL * (rng->mt[rng->mti - 1] ^ (rng->mt[rng->mti - 1] >> 30)) + rng->mti);
++
++        /* See Knuth TAOCP Vol2. 3rd Ed. P.106 for multiplier. */
++        /* In the previous versions, MSBs of the seed affect   */
++        /* only MSBs of the array mt[].                        */
++        /* 2002/01/09 modified by Makoto Matsumoto             */
++        rng->mt[rng->mti] &= 0xffffffffUL;
++        /* for >32 bit machines */
++    }
++}
++
++static uint32_t prjm_eval_genrand_int32(prjm_eval_rng_t* rng)
++{
++    /* Process-wide stream for nodes compiled without a context (and the pre-context behavior). */
++    static prjm_eval_rng_t process_rng;
++
+     uint32_t y;
+-    static uint32_t mag01[2] = { 0x0UL, MATRIX_A };
++    static const uint32_t mag01[2] = { 0x0UL, MATRIX_A };
+     /* mag01[x] = x * MATRIX_A  for x=0,1 */
+ 
+-    static uint32_t mt[N]; /* the array for the state vector  */
+-    static int32_t mti; /* mti==N+1 means mt[N] is not initialized */
++    if (!rng)
++    {
++        rng = &process_rng;
++    }
+ 
++    uint32_t* mt = rng->mt;
+ 
+-    if (!mti)
++    if (!rng->mti)
+     {
+-        uint32_t s = 0x4141f00d; // Initial Mersenne Twister seed
+-        mt[0] = s & 0xffffffffUL;
+-        for (mti = 1; mti < N; mti++)
+-        {
+-            mt[mti] =
+-                (1812433253UL * (mt[mti - 1] ^ (mt[mti - 1] >> 30)) + mti);
+-
+-            /* See Knuth TAOCP Vol2. 3rd Ed. P.106 for multiplier. */
+-            /* In the previous versions, MSBs of the seed affect   */
+-            /* only MSBs of the array mt[].                        */
+-            /* 2002/01/09 modified by Makoto Matsumoto             */
+-            mt[mti] &= 0xffffffffUL;
+-            /* for >32 bit machines */
+-        }
++        prjm_eval_rng_seed(rng, 0x4141f00d); // Initial Mersenne Twister seed
+     }
+ 
+-    if (mti >= N)
++    if (rng->mti >= N)
+     { /* generate N words at one time */
+         int32_t kk;
+ 
+@@ -198,10 +208,10 @@ static uint32_t prjm_eval_genrand_int32(void)
+         y = (mt[N - 1] & UPPER_MASK) | (mt[0] & LOWER_MASK);
+         mt[N - 1] = mt[M - 1] ^ (y >> 1) ^ mag01[y & 0x1UL];
+ 
+-        mti = 0;
++        rng->mti = 0;
+     }
+ 
+-    y = mt[mti++];
++    y = mt[rng->mti++];
+ 
+     /* Tempering */
+     y ^= (y >> 11);
+@@ -1167,7 +1177,7 @@ prjm_eval_function_decl(rand)
+         rand_max = 1.;
+     }
+ 
+-    assign_ret_val((PRJM_EVAL_F) (prjm_eval_genrand_int32() * (1.0 / (double) 0xFFFFFFFF) * rand_max));
++    assign_ret_val((PRJM_EVAL_F) (prjm_eval_genrand_int32(ctx->rng) * (1.0 / (double) 0xFFFFFFFF) * rand_max));
+ }
+ 
+ prjm_eval_function_decl(invsqrt)
+diff --git a/projectm-eval/TreeFunctions.h b/projectm-eval/TreeFunctions.h
+index aa55a69..6aa8edf 100644
+--- a/projectm-eval/TreeFunctions.h
++++ b/projectm-eval/TreeFunctions.h
+@@ -97,4 +97,11 @@ prjm_eval_function_decl(min);
+ prjm_eval_function_decl(max);
+ prjm_eval_function_decl(sign);
+ prjm_eval_function_decl(rand);
++
++/**
++ * @brief Seeds a rand() stream with Milkdrop's Mersenne Twister initialization.
++ * @param rng The stream to seed.
++ * @param seed The seed.
++ */
++void prjm_eval_rng_seed(prjm_eval_rng_t* rng, uint32_t seed);
+ prjm_eval_function_decl(invsqrt);
+diff --git a/projectm-eval/api/projectm-eval.c b/projectm-eval/api/projectm-eval.c
+index ee6abab..f184fd7 100644
+--- a/projectm-eval/api/projectm-eval.c
++++ b/projectm-eval/api/projectm-eval.c
+@@ -3,6 +3,7 @@
+ #include "projectm-eval/CompilerTypes.h"
+ #include "projectm-eval/MemoryBuffer.h"
+ #include "projectm-eval/CompileContext.h"
++#include "projectm-eval/TreeFunctions.h"
+ #include "projectm-eval/TreeVariables.h"
+ 
+ projectm_eval_mem_buffer projectm_eval_memory_buffer_create()
+@@ -41,6 +42,11 @@ void projectm_eval_context_reset_variables(struct projectm_eval_context* ctx)
+     prjm_eval_reset_context_vars(ctx);
+ }
+ 
++void projectm_eval_context_seed_rand(struct projectm_eval_context* ctx, uint32_t seed)
++{
++    prjm_eval_rng_seed(&ctx->rng, seed);
++}
++
+ PRJM_EVAL_F* projectm_eval_context_register_variable(struct projectm_eval_context* ctx, const char* var_name)
+ {
+     return prjm_eval_register_variable(ctx, var_name);
+diff --git a/projectm-eval/api/projectm-eval.h b/projectm-eval/api/projectm-eval.h
+index ab90e51..261d8d8 100644
+--- a/projectm-eval/api/projectm-eval.h
++++ b/projectm-eval/api/projectm-eval.h
+@@ -6,6 +6,8 @@
+  */
+ #pragma once
+ 
++#include <stdint.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -113,6 +115,16 @@ void projectm_eval_context_free_memory(struct projectm_eval_context* ctx);
+  */
+ void projectm_eval_context_reset_variables(struct projectm_eval_context* ctx);
+ 
++/**
++ * @brief Seeds the context's rand() stream.
++ * Each context draws rand() from its own stream, so contexts used on different threads
++ * neither race nor shift each other's values. A context that is never seeded starts with
++ * Milkdrop's default seed (0x4141f00d).
++ * @param ctx The context whose stream to seed.
++ * @param seed The seed.
++ */
++void projectm_eval_context_seed_rand(struct projectm_eval_context* ctx, uint32_t seed);
++
+ /**
+  * @brief Registers a variable and returns the value pointer.
+  * Variables can be registered at any time. If the variable doesn't exist yet, it is created, otherwise
+diff --git a/tests/InstructionListTest.cpp b/tests/InstructionListTest.cpp
+index fbce00a..44787f9 100644
+--- a/tests/InstructionListTest.cpp
++++ b/tests/InstructionListTest.cpp
+@@ -1,4 +1,5 @@
+ #include "InstructionListTest.hpp"
++#include <vector>
+ 
+ 
+ void InstructionListTest::SetUp()
+@@ -54,3 +55,35 @@ TEST_F(InstructionListTest, ParenthesedList)
+     ASSERT_FLOAT_EQ(*varY, 4.0);
+     ASSERT_FLOAT_EQ(*varZ, 6.0);
+ }
++
++TEST_F(InstructionListTest, RandStreamIsPerContext)
++{
++    auto draw = [](projectm_eval_context* context, int count) {
++        auto* code = projectm_eval_code_compile(context, "rand(1000000)");
++        std::vector<PRJM_EVAL_F> values;
++        for (int i = 0; i < count; i++)
++        {
++            values.push_back(projectm_eval_code_execute(code));
++        }
++        projectm_eval_code_destroy(code);
++        return values;
++    };
++
++    auto* first = projectm_eval_context_create(nullptr, nullptr);
++    auto* second = projectm_eval_context_create(nullptr, nullptr);
++
++    // Unseeded contexts each start Milkdrop's default stream; drawing from one doesn't move the other.
++    auto firstValues = draw(first, 700);
++    EXPECT_EQ(draw(second, 700), firstValues);
++
++    projectm_eval_context_seed_rand(first, 1234);
++    projectm_eval_context_seed_rand(second, 1234);
++    firstValues = draw(first, 10);
++    EXPECT_EQ(draw(second, 10), firstValues);
++
++    projectm_eval_context_seed_rand(second, 5678);
++    EXPECT_NE(draw(second, 10), draw(first, 10));
++
++    projectm_eval_context_destroy(first);
++    projectm_eval_context_destroy(second);
++}
+-- 
+2.43.0
+

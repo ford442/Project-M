@@ -224,6 +224,21 @@ public:
     void SetFrameTime(double secondsSinceStart);
 
     /**
+     * @brief Adds one frame's stereo audio and renders it at @a frameTime, shaders compiled synchronously.
+     * @return false, changing nothing, if @a frameTime is not finite, is below the previous
+     *         offline frame's, or @a samples is null with a non-zero @a sampleCount.
+     */
+    auto RenderOfflineFrame(const float* samples, unsigned int sampleCount, double frameTime, uint32_t targetFramebufferObject) -> bool;
+
+    /**
+     * @brief This engine's context: its random streams and perf timer state.
+     */
+    auto GetEngineContext() -> EngineContext&
+    {
+        return *m_engineContext;
+    }
+
+    /**
      * @brief Gives this engine its own deterministic seed, or with nullopt makes it follow the
      *        process default (RandomSeed::SetDeterministicSeed()) again.
      *
@@ -636,6 +651,7 @@ private:
     std::unique_ptr<Preset> m_transitioningPreset;                                //!< Destination preset when smooth preset switching.
     std::unique_ptr<PendingPreset> m_pendingPreset;                               //!< Next preset, while its shader programs link.
     bool m_parallelShaderCompileSupported{false};                                 //!< The GL context supports KHR_parallel_shader_compile.
+    double m_lastOfflineFrameTime{0.0};                                           //!< RenderOfflineFrame() refuses earlier times.
     bool m_parallelShaderCompileEnabled{true};                                    //!< SetParallelShaderCompile().
     std::unique_ptr<Renderer::PresetTransition> m_transition;                     //!< Transition effect used for blending.
     std::unique_ptr<TimeKeeper> m_timeKeeper;                                     //!< Keeps the different timers used to render and switch presets.

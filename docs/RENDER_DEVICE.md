@@ -58,9 +58,16 @@ Resource wrappers (`Texture`, `Sampler`, `Shader`, `Framebuffer`, `VertexBuffer`
 when they are constructed and use that device for their lifetime. Free functions
 and static helpers use `Device::Commands()`.
 
-`GlDevice` keeps no per-context state, so one instance serves every GL context in
-the process (the WASM build's per-host WebGL contexts included). Calls need the
-right context current, as before.
+Each engine (`ProjectM` instance) owns a `GlDevice` in its `EngineContext`, and
+`ScopedEngineContext` installs it as a `ScopedDevice` on every entry point and in
+the preset prepare job, so an engine's resources and its validation tracker are its
+own. The `EngineContext` outlives everything the engine creates (it is the first
+`ProjectM` member, and prepared presets hold a reference), so captured device
+pointers never dangle. Code outside any engine (the WASM host's compositor, tests)
+uses the process-wide device.
+
+`GlDevice` keeps no per-context state, so a device is not tied to one GL context.
+Calls need the right context current, as before.
 
 ## What moved behind it
 
@@ -102,8 +109,8 @@ Sampling a texture in the pass that renders to it is undefined on GL. On WebGPU 
 is a validation error. `ResourceStateTracker` finds these on the GL backend now, so
 the WebGPU port does not discover them one preset at a time.
 
-- Off by default. `PROJECTM_DEVICE_VALIDATION=1` starts the process-wide device with
-  it on; `IRenderDevice::Validation().SetEnabled(true)` turns it on at runtime.
+- Off by default. `PROJECTM_DEVICE_VALIDATION=1` starts every device (the process-wide
+  one and each engine's) with it on; `IRenderDevice::Validation().SetEnabled(true)` turns it on at runtime.
 - It follows draw-target attachments, 2D/3D texture bindings per unit and each
   program's sampler-uniform-to-unit assignment. On every draw it checks whether a
   unit the current program samples holds a texture attached to the draw target.

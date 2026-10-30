@@ -4,6 +4,7 @@
 
 #include "SpriteShaders.hpp"
 
+#include <MilkdropPreset/EvalRandom.hpp>
 #include <MilkdropPreset/PresetFileParser.hpp>
 
 #include <Preset.hpp>
@@ -306,6 +307,7 @@ void MilkdropSprite::SetVariableValue(const std::string& variableName, double va
 MilkdropSprite::CodeContext::CodeContext()
     : spriteCodeContext(projectm_eval_context_create(nullptr, nullptr))
 {
+    MilkdropPreset::SeedEvalRandom(spriteCodeContext);
 }
 
 MilkdropSprite::CodeContext::~CodeContext()

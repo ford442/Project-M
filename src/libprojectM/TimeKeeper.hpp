@@ -101,6 +101,14 @@ public:
         m_easterEgg = value;
     }
 
+    /**
+     * @brief Restarts the preset-duration random stream from the current engine's seed.
+     */
+    void Reseed()
+    {
+        m_randomGenerator.seed(RandomSeed::Get("TimeKeeper"));
+    }
+
     inline auto SecondsSinceLastFrame() const -> double
     {
         return m_secondsSinceLastFrame;

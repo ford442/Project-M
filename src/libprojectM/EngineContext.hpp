@@ -1,5 +1,10 @@
 #pragma once
 
+#include "Logging.hpp"
+#include "PerfTimers.hpp"
+#include "Renderer/Device/RenderDevice.hpp"
+#include "Renderer/ShaderTranspileCache.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -65,6 +70,53 @@ public:
     auto NextRandom() -> uint32_t;
 
     /**
+     * @brief This engine's perf timer state: frame timings, current GPU stage and its own
+     * GPU stage callback. See Perf::State.
+     */
+    auto PerfState() -> Perf::State&
+    {
+        return m_perfState;
+    }
+
+    /**
+     * @brief This engine's transpiled-GLSL cache hooks and key. See
+     * Renderer::TranspileCacheState.
+     */
+    auto TranspileCache() -> Renderer::TranspileCacheState&
+    {
+        return m_transpileCache;
+    }
+
+    /**
+     * @brief This engine's render device, made Renderer::Device::Current() by
+     * ScopedEngineContext. Null for the process default context, whose code draws
+     * through the process default device.
+     */
+    auto RenderDevice() -> Renderer::Device::IRenderDevice*
+    {
+        return m_device.get();
+    }
+
+    /**
+     * @brief Sets (or, with a null function, removes) this engine's log callback. Messages
+     * logged inside the engine go to it unless the thread has its own (projectm_set_log_callback()
+     * with current_thread_only); without one they go to the global callback.
+     */
+    void SetLogCallback(Logging::UserCallback callback);
+
+    /// This engine's log callback; a null function if it has none.
+    auto LogCallback() const -> Logging::UserCallback;
+
+    /**
+     * @brief Sets this engine's minimum log level, or with LogLevel::NotSet makes it follow
+     * the global level. A thread level still takes precedence.
+     */
+    void SetLogLevel(Logging::LogLevel level);
+
+    /// This engine's log level; LogLevel::NotSet if it follows the global level.
+    auto LogLevel() const -> Logging::LogLevel;
+
+    /**
      * @brief The context code on this thread draws from: the innermost ScopedEngineContext's,
      *        or the process default.
      */
@@ -86,6 +138,10 @@ public:
     static auto ProcessSeed() -> std::optional<uint32_t>;
 
 private:
+    struct ProcessDefaultTag {
+    };
+    explicit EngineContext(ProcessDefaultTag);
+
     /** @brief The seed in effect: OwnSeed(), else the process seed. */
     auto EffectiveSeed() const -> std::optional<uint32_t>;
 
@@ -93,6 +149,14 @@ private:
     std::optional<uint32_t> m_ownSeed;
     std::mt19937 m_stream;
     uint64_t m_streamEpoch{0}; //!< The process seed epoch m_stream was last restarted for.
+
+    Perf::State m_perfState;
+    Renderer::TranspileCacheState m_transpileCache;
+    std::unique_ptr<Renderer::Device::IRenderDevice> m_device;
+
+    mutable std::mutex m_logMutex;
+    Logging::UserCallback m_logCallback;
+    Logging::LogLevel m_logLevel{Logging::LogLevel::NotSet};
 };
 
 /**
@@ -109,6 +173,7 @@ public:
 
 private:
     EngineContext* m_previous;
+    std::optional<Renderer::Device::ScopedDevice> m_device;
 };
 
 } // namespace libprojectM

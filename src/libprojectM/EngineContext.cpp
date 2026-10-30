@@ -1,5 +1,7 @@
 #include "EngineContext.hpp"
 
+#include "Renderer/Device/Gl/GlDevice.hpp"
+
 #include <atomic>
 
 namespace libprojectM {
@@ -50,6 +52,12 @@ constexpr const char* kStreamDomain = "EngineContext::NextRandom";
 } // namespace
 
 EngineContext::EngineContext()
+    : EngineContext(ProcessDefaultTag{})
+{
+    m_device = std::make_unique<Renderer::Device::Gl::GlDevice>();
+}
+
+EngineContext::EngineContext(ProcessDefaultTag)
 {
     std::random_device randomDevice;
     m_stream.seed(randomDevice());
@@ -129,7 +137,7 @@ auto EngineContext::Current() -> EngineContext&
 auto EngineContext::ProcessDefault() -> EngineContext&
 {
     // Never destroyed: static objects may still draw during static destruction.
-    static auto* const context = new EngineContext();
+    static auto* const context = new EngineContext(ProcessDefaultTag{});
     return *context;
 }
 
@@ -148,15 +156,58 @@ auto EngineContext::ProcessSeed() -> std::optional<uint32_t>
     return s_processSeed;
 }
 
+void EngineContext::SetLogCallback(Logging::UserCallback callback)
+{
+    std::lock_guard<std::mutex> lock(m_logMutex);
+    m_logCallback = callback;
+}
+
+auto EngineContext::LogCallback() const -> Logging::UserCallback
+{
+    std::lock_guard<std::mutex> lock(m_logMutex);
+    return m_logCallback;
+}
+
+void EngineContext::SetLogLevel(Logging::LogLevel level)
+{
+    std::lock_guard<std::mutex> lock(m_logMutex);
+    m_logLevel = level;
+}
+
+auto EngineContext::LogLevel() const -> Logging::LogLevel
+{
+    std::lock_guard<std::mutex> lock(m_logMutex);
+    return m_logLevel;
+}
+
 ScopedEngineContext::ScopedEngineContext(EngineContext& context)
     : m_previous(t_currentContext)
 {
     t_currentContext = &context;
+    if (auto* device = context.RenderDevice())
+    {
+        m_device.emplace(*device);
+    }
 }
 
 ScopedEngineContext::~ScopedEngineContext()
 {
+    m_device.reset();
     t_currentContext = m_previous;
 }
+
+namespace Perf {
+
+auto CurrentState() -> State&
+{
+    return EngineContext::Current().PerfState();
+}
+
+auto ProcessState() -> State&
+{
+    return EngineContext::ProcessDefault().PerfState();
+}
+
+} // namespace Perf
 
 } // namespace libprojectM

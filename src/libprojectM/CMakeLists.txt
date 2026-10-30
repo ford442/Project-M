@@ -34,6 +34,8 @@ add_library(projectM_main OBJECT
         ProjectM.hpp
         ProjectMCWrapper.cpp
         ProjectMCWrapper.hpp
+        EngineContext.cpp
+        EngineContext.hpp
         RandomSeed.cpp
         RandomSeed.hpp
         TimeKeeper.cpp

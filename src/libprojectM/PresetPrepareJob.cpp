@@ -1,7 +1,9 @@
 #include "PresetPrepareJob.hpp"
 
+#include "EngineContext.hpp"
 #include "PresetFactoryManager.hpp"
 
+#include <optional>
 #include <sstream>
 #include <utility>
 
@@ -40,6 +42,13 @@ void PresetPrepareJob::Run()
     if (m_hasRun)
     {
         return;
+    }
+
+    // Random draws during preparation (preset state, shader values) belong to the engine.
+    std::optional<ScopedEngineContext> engineScope;
+    if (m_context.engineContext)
+    {
+        engineScope.emplace(*m_context.engineContext);
     }
 
     try

@@ -21,6 +21,7 @@
 
 #include "ProjectM.hpp"
 
+#include "EngineContext.hpp"
 #include "Logging.hpp"
 #include "PerfTimers.hpp"
 #include "Preset.hpp"
@@ -51,8 +52,10 @@ namespace libprojectM {
 
 ProjectM::ProjectM()
     : m_switchScheduler(std::make_unique<PresetSwitchScheduler>())
+    , m_engineContext(std::make_shared<EngineContext>())
     , m_presetFactoryManager(std::make_shared<PresetFactoryManager>())
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     Initialize();
 }
 
@@ -71,6 +74,7 @@ void ProjectM::PresetSwitchFailedEvent(const std::string&, const std::string&) c
 
 void ProjectM::LoadPresetFile(const std::string& presetFilename, bool smoothTransition)
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     // Prepared and initialized on this thread, so the default (non-transpiling) context: the
     // shaders are transpiled in Preset::Initialize() exactly as before the load was split.
     auto job = PresetPrepareJob::FromFile(m_presetFactoryManager, {}, presetFilename);
@@ -79,6 +83,7 @@ void ProjectM::LoadPresetFile(const std::string& presetFilename, bool smoothTran
 
 void ProjectM::LoadPresetData(std::istream& presetData, bool smoothTransition)
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     std::string data{std::istreambuf_iterator<char>(presetData), std::istreambuf_iterator<char>()};
     auto job = PresetPrepareJob::FromData(m_presetFactoryManager, {}, std::move(data));
     FinishPresetLoad(*job, smoothTransition, false);
@@ -86,11 +91,13 @@ void ProjectM::LoadPresetData(std::istream& presetData, bool smoothTransition)
 
 auto ProjectM::BeginPreparePresetFile(const std::string& presetFilename) -> std::unique_ptr<PresetPrepareJob>
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     return PresetPrepareJob::FromFile(m_presetFactoryManager, CapturePresetPrepareContext(), presetFilename);
 }
 
 auto ProjectM::BeginPreparePresetFile(const std::string& presetFilename, std::string fileContents) -> std::unique_ptr<PresetPrepareJob>
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     auto context = CapturePresetPrepareContext();
     context.fileContents = std::move(fileContents);
     return PresetPrepareJob::FromFile(m_presetFactoryManager, std::move(context), presetFilename);
@@ -98,11 +105,13 @@ auto ProjectM::BeginPreparePresetFile(const std::string& presetFilename, std::st
 
 auto ProjectM::BeginPreparePresetData(std::string presetData) -> std::unique_ptr<PresetPrepareJob>
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     return PresetPrepareJob::FromData(m_presetFactoryManager, CapturePresetPrepareContext(), std::move(presetData));
 }
 
 void ProjectM::LoadPreparedPreset(std::unique_ptr<PresetPrepareJob> job, bool smoothTransition)
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     if (!job)
     {
         return;
@@ -113,6 +122,7 @@ void ProjectM::LoadPreparedPreset(std::unique_ptr<PresetPrepareJob> job, bool sm
 
 auto ProjectM::PollPendingPreset() -> bool
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     if (!m_pendingPreset)
     {
         return false;
@@ -150,6 +160,7 @@ auto ProjectM::CapturePresetPrepareContext() -> PresetPrepareContext
 {
     PresetPrepareContext context;
     context.transpileShaders = true;
+    context.engineContext = m_engineContext;
     context.textureFiles = m_textureManager->ScannedTextureFileNames();
     context.volumeTextureNames = m_textureManager->VolumeTextureNames();
 
@@ -196,6 +207,7 @@ void ProjectM::FinishPresetLoad(PresetPrepareJob& job, bool smoothTransition, bo
 
 void ProjectM::SetTexturePaths(std::vector<std::string> texturePaths)
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     m_textureSearchPaths = std::move(texturePaths);
     m_textureManager = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
     if (m_textureLoadCallback)
@@ -206,6 +218,7 @@ void ProjectM::SetTexturePaths(std::vector<std::string> texturePaths)
 
 void ProjectM::ResetTextures()
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     m_textureManager = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
     if (m_textureLoadCallback)
     {
@@ -224,11 +237,13 @@ void ProjectM::SetTextureLoadCallback(Renderer::TextureLoadCallback callback)
 
 auto ProjectM::ReloadTexture(const std::string& name) -> bool
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     return m_textureManager && m_textureManager->ReloadTexture(name);
 }
 
 void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     Perf::FrameGuard perfFrameGuard;
 
     // Switch to a preset whose shader programs have finished linking since the last frame.
@@ -475,6 +490,7 @@ void ProjectM::LoadIdlePreset()
 
 void ProjectM::SetWindowSize(uint32_t width, uint32_t height)
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     /** Stash the new dimensions */
     m_windowWidth = width;
     m_windowHeight = height;
@@ -561,6 +577,7 @@ auto ProjectM::WindowHeight() -> int
 
 auto ProjectM::AddUserSprite(const std::string& type, const std::string& spriteData) -> uint32_t
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     return m_spriteManager->Spawn(type, spriteData, GetRenderContext());
 }
 
@@ -606,6 +623,7 @@ void ProjectM::UserSpriteSetVariableValue(uint32_t spriteId, const std::string& 
 
 void ProjectM::BurnInTexture(uint32_t openGlTextureId, int left, int top, int width, int height)
 {
+    const ScopedEngineContext engineScope(*m_engineContext);
     if (m_activePreset)
     {
         m_activePreset->BindFramebuffer();
@@ -692,6 +710,16 @@ auto ProjectM::FlashLimitClampedFrames() -> uint32_t
 void ProjectM::SetFrameTime(double secondsSinceStart)
 {
     m_timeKeeper->SetFrameTime(secondsSinceStart);
+}
+
+void ProjectM::SetSeed(std::optional<uint32_t> seed)
+{
+    m_engineContext->SetSeed(seed);
+}
+
+auto ProjectM::Seed() const -> std::optional<uint32_t>
+{
+    return m_engineContext->OwnSeed();
 }
 
 double ProjectM::GetFrameTime()

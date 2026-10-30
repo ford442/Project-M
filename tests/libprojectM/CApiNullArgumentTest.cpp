@@ -48,6 +48,8 @@ TEST(CApiNullArgument, NullHandleReturnsFallbacks)
 
     projectm_set_texture_search_paths(nullptr, nullptr, 0);
     projectm_set_texture_search_paths(nullptr, nullptr, 3);
+    projectm_set_seed(nullptr, 0);
+    projectm_clear_seed(nullptr);
     projectm_set_frame_time(nullptr, 0);
     EXPECT_EQ(projectm_get_last_frame_time(nullptr), 0.0);
     projectm_set_beat_sensitivity(nullptr, 0);

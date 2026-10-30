@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <istream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,6 +50,7 @@ namespace UserSprites {
 class SpriteManager;
 } // namespace UserSprites
 
+class EngineContext;
 class Preset;
 class PresetFactoryManager;
 class PresetPrepareJob;
@@ -220,6 +222,20 @@ public:
      * @param secondsSinceStart Fractional seconds since rendering the first frame.
      */
     void SetFrameTime(double secondsSinceStart);
+
+    /**
+     * @brief Gives this engine its own deterministic seed, or with nullopt makes it follow the
+     *        process default (RandomSeed::SetDeterministicSeed()) again.
+     *
+     * Covers every random draw the engine makes: noise textures, preset state, transitions,
+     * shader rand_preset/rand_frame values and random texture picks.
+     */
+    void SetSeed(std::optional<uint32_t> seed);
+
+    /**
+     * @brief The seed set with SetSeed(), if any.
+     */
+    auto Seed() const -> std::optional<uint32_t>;
 
     /**
      * @brief Gets the time of the last frame rendered.
@@ -601,6 +617,12 @@ private:
     bool m_presetStartClean{false};       //!< If true, new presets start with a black canvas instead of the previous frame.
     bool m_transparencyMode{false};       //!< If true, near-black final-output pixels are written as (0, 0, 0, 0), the rest opaque.
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
+
+    /**
+     * This engine's EngineContext: its random numbers. Installed as EngineContext::Current() on
+     * every entry point that can draw, and shared with in-flight PresetPrepareJobs.
+     */
+    std::shared_ptr<EngineContext> m_engineContext;
 
     std::shared_ptr<PresetFactoryManager> m_presetFactoryManager; //!< Provides access to all available preset factories. Shared with in-flight PresetPrepareJobs.
 

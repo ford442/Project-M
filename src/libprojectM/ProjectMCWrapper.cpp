@@ -591,6 +591,20 @@ bool projectm_is_deterministic_seed_set()
     });
 }
 
+void projectm_set_seed(projectm_handle instance, uint32_t seed)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).SetSeed(seed);
+    });
+}
+
+void projectm_clear_seed(projectm_handle instance)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).SetSeed(std::nullopt);
+    });
+}
+
 void projectm_set_frame_time(projectm_handle instance, double seconds_since_first_frame)
 {
     CApiGuard(__func__, [&] {

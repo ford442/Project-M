@@ -1,0 +1,17 @@
+[preset00]
+per_frame_1000=// composite shader that outputs rand_preset: the frame's color is the engine's random draw
+
+fDecay=1
+zoom=1
+rot=0
+warp=0
+wave_a=0
+
+// rand_preset is drawn once per shader from the engine's random stream
+// (EngineContext::NextRandom()), so with a seed the solid color this
+// outputs is a function of that seed alone. EngineContextTest renders it
+// in two engines with different seeds.
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = rand_preset.xyz;
+comp_4=`}

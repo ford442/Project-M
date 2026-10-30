@@ -1299,6 +1299,20 @@ void projectm_set_log_callback(projectm_log_callback callback, bool current_thre
     });
 }
 
+void projectm_set_instance_log_callback(projectm_handle instance, projectm_log_callback callback, void* user_data)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).GetEngineContext().SetLogCallback({callback, user_data});
+    });
+}
+
+void projectm_set_instance_log_level(projectm_handle instance, projectm_log_level log_level)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).GetEngineContext().SetLogLevel(static_cast<libprojectM::Logging::LogLevel>(log_level));
+    });
+}
+
 void projectm_set_log_level(projectm_log_level log_level, bool current_thread_only)
 {
     CApiGuard(__func__, [&] {

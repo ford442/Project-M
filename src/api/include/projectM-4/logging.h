@@ -89,6 +89,34 @@ PROJECTM_EXPORT void projectm_set_log_callback(projectm_log_callback callback,
 PROJECTM_EXPORT void projectm_set_log_level(projectm_log_level log_level,
                                             bool current_thread_only);
 
+/**
+ * @brief Sets a log callback for one projectM instance, or removes it when @p callback is NULL.
+ *
+ * Messages logged while @p instance is working (rendering, loading or preparing a preset, ...)
+ * go to this callback instead of the global one. A thread callback
+ * (projectm_set_log_callback() with current_thread_only) still takes precedence. Fork extension.
+ *
+ * @param instance The projectM instance handle.
+ * @param callback A pointer to the callback function, or NULL to remove it.
+ * @param user_data A pointer passed back to the callback unchanged.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_instance_log_callback(projectm_handle instance,
+                                                        projectm_log_callback callback,
+                                                        void* user_data);
+
+/**
+ * @brief Sets the minimum log level for one projectM instance.
+ *
+ * PROJECTM_LOG_LEVEL_NOTSET makes the instance follow the global (or default) level. A thread
+ * level (projectm_set_log_level() with current_thread_only) still takes precedence. Fork extension.
+ *
+ * @param instance The projectM instance handle.
+ * @param log_level The new log level.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_instance_log_level(projectm_handle instance, projectm_log_level log_level);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

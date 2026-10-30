@@ -1,5 +1,7 @@
 #include "Logging.hpp"
 
+#include "EngineContext.hpp"
+
 #include <string>
 
 namespace libprojectM {
@@ -39,6 +41,12 @@ auto Logging::GetLogLevel() -> LogLevel
         return m_threadLogLevel;
     }
 
+    const auto engineLevel = EngineContext::Current().LogLevel();
+    if (engineLevel != LogLevel::NotSet)
+    {
+        return engineLevel;
+    }
+
     if (m_globalLogLevel != LogLevel::NotSet)
     {
         return m_globalLogLevel;
@@ -74,6 +82,12 @@ auto Logging::GetLoggingCallback() -> UserCallback
     if (m_threadCallback.callbackFunction != nullptr)
     {
         return m_threadCallback;
+    }
+
+    const auto engineCallback = EngineContext::Current().LogCallback();
+    if (engineCallback.callbackFunction != nullptr)
+    {
+        return engineCallback;
     }
 
     return m_globalCallback;

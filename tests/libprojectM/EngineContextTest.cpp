@@ -191,6 +191,65 @@ TEST_F(EngineContextTest, PerfStateIsPerEngine)
     Perf::SetEnabled(false);
 }
 
+TEST_F(EngineContextTest, EachEngineDrawsThroughItsOwnDevice)
+{
+    namespace Device = libprojectM::Renderer::Device;
+    auto* const processDevice = &Device::Current();
+    EXPECT_EQ(EngineContext::ProcessDefault().RenderDevice(), nullptr);
+
+    EngineContext first;
+    EngineContext second;
+    ASSERT_NE(first.RenderDevice(), nullptr);
+    EXPECT_NE(first.RenderDevice(), second.RenderDevice());
+    {
+        const ScopedEngineContext outer(first);
+        EXPECT_EQ(&Device::Current(), first.RenderDevice());
+        {
+            const ScopedEngineContext inner(second);
+            EXPECT_EQ(&Device::Current(), second.RenderDevice());
+        }
+        EXPECT_EQ(&Device::Current(), first.RenderDevice());
+    }
+    EXPECT_EQ(&Device::Current(), processDevice);
+}
+
+namespace {
+
+void CollectLog(const char* message, projectm_log_level /*level*/, void* userData)
+{
+    static_cast<std::vector<std::string>*>(userData)->emplace_back(message);
+}
+
+} // namespace
+
+TEST_F(EngineContextTest, EngineLogCallbackAndLevel)
+{
+    using libprojectM::Logging;
+    std::vector<std::string> global;
+    std::vector<std::string> own;
+    Logging::SetGlobalCallback({&CollectLog, &global});
+
+    EngineContext follower;
+    EngineContext engine;
+    engine.SetLogCallback({&CollectLog, &own});
+    engine.SetLogLevel(Logging::LogLevel::Debug);
+    {
+        const ScopedEngineContext scope(follower);
+        Logging::Log("follower", Logging::LogLevel::Information);
+        EXPECT_NE(Logging::GetLogLevel(), Logging::LogLevel::Debug);
+    }
+    {
+        const ScopedEngineContext scope(engine);
+        Logging::Log("engine", Logging::LogLevel::Information);
+        EXPECT_EQ(Logging::GetLogLevel(), Logging::LogLevel::Debug);
+    }
+    Logging::Log("outside", Logging::LogLevel::Information);
+
+    EXPECT_EQ(global, (std::vector<std::string>{"follower", "outside"}));
+    EXPECT_EQ(own, (std::vector<std::string>{"engine"}));
+    Logging::SetGlobalCallback({});
+}
+
 #ifdef PROJECTM_EVAL_INTERNAL_TREE_AVAILABLE
 TEST_F(EngineContextTest, EvalRandFollowsTheEngineSeed)
 {

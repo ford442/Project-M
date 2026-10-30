@@ -38,7 +38,8 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   │   ├── ProjectM.hpp    # Main C++ class
 │   │   └── ProjectMCWrapper.cpp  # C API implementation
 │   ├── playlist/           # Playlist management library (C API + C++ implementation)
-│   └── sdl-test-ui/        # SDL2-based developer test application
+│   ├── sdl-test-ui/        # SDL2-based developer test application
+│   └── tools/projectm-render/ # Headless EGL offline renderer (docs/OFFLINE_RENDER.md)
 ├── tests/
 │   ├── libprojectM/        # Unit tests for core library (Google Test)
 │   ├── playlist/           # Unit tests for playlist library (Google Test)
@@ -47,6 +48,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── glad/               # OpenGL function loader
 │   ├── glm/                # OpenGL Mathematics (optional system override)
 │   ├── hlslparser/         # HLSL parser for shaders
+│   ├── dr_libs/            # FLAC/WAV/MP3 decoders, used only by projectm-render
 │   ├── projectm-eval/      # Milkdrop expression evaluator (Git submodule)
 │   └── stb_image/          # Image loading
 ├── src/wasm/                # Emscripten host wrapper (all TUs, see docs/EMSCRIPTEN.md)
@@ -173,6 +175,7 @@ sudo cmake --build . --target install
 | `ENABLE_HDR_RENDERING` | `OFF` | Enable 16-bit float (GL_RGBA16F) framebuffer + Reinhard tone-mapping. |
 | `ENABLE_HDR_P3` | `OFF` | Enable Display-P3 wide-gamut output (requires HDR rendering). |
 | `ENABLE_SRGB_FRAMEBUFFER` | `OFF` | Enable hardware sRGB encode/decode (SDR only, incompatible with HDR). |
+| `ENABLE_RENDER_TOOL` | `OFF` | Build `projectm-render` (`src/tools/projectm-render`), the headless EGL offline renderer: preset + FLAC/WAV/MP3 in, raw RGBA frames and/or a pixel hash out. Linux/BSD only; CI's Linux matrix turns it on. See `docs/OFFLINE_RENDER.md`. |
 | `ENABLE_VERBOSE_LOGGING` | `OFF` | Compile `TRACE`/`DEBUG` log levels into release builds (hurts performance). |
 | `ENABLE_DEBUG_POSTFIX` | `ON` | Append `d` to debug binary names. |
 | `ENABLE_MACOS_FRAMEWORK` | `OFF` | Build macOS Framework bundles instead of plain dylibs. |

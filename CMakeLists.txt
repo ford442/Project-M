@@ -27,6 +27,7 @@ option(ENABLE_DEBUG_POSTFIX "Add \"d\" (by default) after library names for debu
 option(ENABLE_PLAYLIST "Enable building the playlist management library" ON)
 option(ENABLE_BOOST_FILESYSTEM "Force the use of boost::filesystem, even if the compiler supports C++17." OFF)
 option(ENABLE_SDL_UI "Build the SDL2-based developer test UI. Ignored when building with Emscripten or for Android." OFF)
+option(ENABLE_RENDER_TOOL "Build projectm-render, the headless EGL offline renderer (Linux/BSD only)." OFF)
 option(ENABLE_VERBOSE_LOGGING "Enables TRACE and DEBUG logging even in release builds, negatively affecting the performance." OFF)
 # Warnings-as-errors for the directories that are warning-clean, widened one
 # directory at a time (the same ratchet as scripts/check_cpp_format.sh). Off by
@@ -307,6 +308,7 @@ message(STATUS "")
 message(STATUS "    libprojectM:                 (always built)")
 message(STATUS "    Playlist library:            ${ENABLE_PLAYLIST}")
 message(STATUS "    SDL2 Test UI:                ${ENABLE_SDL_UI}")
+message(STATUS "    projectm-render (EGL):       ${ENABLE_RENDER_TOOL}")
 message(STATUS "    Tests:                       ${BUILD_TESTING}")
 message(STATUS "    Documentation:               ${BUILD_DOCS}")
 message(STATUS "")

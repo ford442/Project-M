@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PerfTimers.hpp"
+#include "Renderer/ShaderTranspileCache.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -76,6 +77,15 @@ public:
     }
 
     /**
+     * @brief This engine's transpiled-GLSL cache hooks and key. See
+     * Renderer::TranspileCacheState.
+     */
+    auto TranspileCache() -> Renderer::TranspileCacheState&
+    {
+        return m_transpileCache;
+    }
+
+    /**
      * @brief The context code on this thread draws from: the innermost ScopedEngineContext's,
      *        or the process default.
      */
@@ -106,6 +116,7 @@ private:
     uint64_t m_streamEpoch{0}; //!< The process seed epoch m_stream was last restarted for.
 
     Perf::State m_perfState;
+    Renderer::TranspileCacheState m_transpileCache;
 };
 
 /**

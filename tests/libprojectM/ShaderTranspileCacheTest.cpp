@@ -8,6 +8,7 @@
  * exits with a message, since the deadlocked thread holds the mutex every later test needs.
  */
 
+#include <EngineContext.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
 
 #include <gtest/gtest.h>
@@ -89,4 +90,38 @@ TEST_F(ShaderTranspileCacheTest, NoHooksAreNoOps)
 {
     EXPECT_FALSE(LookupTranspiledGlsl("warp", 0).has_value());
     StoreTranspiledGlsl("warp", 0, "void main() {}");
+}
+
+// Each engine may have its own hooks and key; one that has neither uses the process ones.
+TEST_F(ShaderTranspileCacheTest, EnginesHaveTheirOwnHooksAndKey)
+{
+    using libprojectM::EngineContext;
+    using libprojectM::ScopedEngineContext;
+
+    SetTranspiledGlslCacheKey("process-key");
+    SetTranspiledGlslCacheCallbacks(
+        [](const std::string&, int) -> std::optional<std::string> { return std::string("process"); }, nullptr);
+
+    EngineContext follower;
+    EngineContext own;
+    SetTranspiledGlslCacheKey(own.TranspileCache(), std::string("own-key"));
+    SetTranspiledGlslCacheCallbacks(
+        own.TranspileCache(), [](const std::string&, int) -> std::optional<std::string> { return std::string("own"); }, nullptr);
+
+    {
+        const ScopedEngineContext scope(follower);
+        EXPECT_EQ(GetTranspiledGlslCacheKey(), "process-key");
+        EXPECT_EQ(LookupTranspiledGlsl("k", 0).value_or(""), "process");
+    }
+    {
+        const ScopedEngineContext scope(own);
+        EXPECT_EQ(GetTranspiledGlslCacheKey(), "own-key");
+        EXPECT_EQ(LookupTranspiledGlsl("k", 0).value_or(""), "own");
+
+        // Clearing inside an engine drops its own key, which falls back to the process one.
+        ClearTranspiledGlslCacheKey();
+        EXPECT_EQ(GetTranspiledGlslCacheKey(), "process-key");
+    }
+    EXPECT_EQ(GetTranspiledGlslCacheKey(), "process-key");
+    EXPECT_EQ(LookupTranspiledGlsl("k", 0).value_or(""), "process");
 }

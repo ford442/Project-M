@@ -34,6 +34,7 @@ add_executable(projectM-unittest
         CApiNullArgumentTest.cpp
         ColorOutputTest.cpp
         EngineContextTest.cpp
+        OfflineRenderTest.cpp
         ExperimentalDepthSamplerTest.cpp
         FinalCompositeMeshTest.cpp
         FlashLimiterTest.cpp

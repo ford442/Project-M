@@ -31,6 +31,7 @@
 #include "projectM-4/debug.h"
 #include "projectM-4/logging.h"
 #include "projectM-4/memory.h"
+#include "projectM-4/offline_render.h"
 #include "projectM-4/parameters.h"
 #include "projectM-4/preset_prepare.h"
 #include "projectM-4/render_opengl.h"

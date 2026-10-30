@@ -55,6 +55,8 @@ TEST(CApiNullArgument, NullHandleReturnsFallbacks)
     projectm_perf_get_instance_frame_timings(nullptr, nullptr);
     projectm_perf_set_instance_gpu_stage_callback(nullptr, nullptr, nullptr);
     projectm_set_frame_time(nullptr, 0);
+    EXPECT_FALSE(projectm_render_offline_frame(nullptr, nullptr, 0, 0.0, 0));
+    EXPECT_FALSE(projectm_render_offline_frame(nullptr, nullptr, 16, 0.0, 0));
     EXPECT_EQ(projectm_get_last_frame_time(nullptr), 0.0);
     projectm_set_beat_sensitivity(nullptr, 0);
     EXPECT_EQ(projectm_get_beat_sensitivity(nullptr), 0.0f);

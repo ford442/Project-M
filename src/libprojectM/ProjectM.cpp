@@ -715,6 +715,26 @@ void ProjectM::SetFrameTime(double secondsSinceStart)
 void ProjectM::SetSeed(std::optional<uint32_t> seed)
 {
     m_engineContext->SetSeed(seed);
+    const ScopedEngineContext engineScope(*m_engineContext);
+    m_timeKeeper->Reseed();
+}
+
+auto ProjectM::RenderOfflineFrame(const float* samples, unsigned int sampleCount, double frameTime, uint32_t targetFramebufferObject) -> bool
+{
+    if (!std::isfinite(frameTime) || frameTime < m_lastOfflineFrameTime || (sampleCount > 0 && samples == nullptr))
+    {
+        return false;
+    }
+    m_lastOfflineFrameTime = frameTime;
+
+    SetParallelShaderCompile(false);
+    if (sampleCount > 0)
+    {
+        m_audioStorage.Add(samples, 2, sampleCount);
+    }
+    SetFrameTime(frameTime);
+    RenderFrame(targetFramebufferObject);
+    return true;
 }
 
 auto ProjectM::Seed() const -> std::optional<uint32_t>

@@ -201,6 +201,9 @@ Defines the stable **C API** used by all language bindings and frontends. Header
   the WASM host's prepare thread
 - `rhythm.h` — fork extension: tempo/beat/bar/section info, tempo hint, preset switching on bars or
   sections, transitions in beats, beat-aligned hard cuts (see `docs/AUDIO_PIPELINE.md`)
+- `offline_render.h` — fork extension: `projectm_render_offline_frame()` adds one frame's audio and
+  renders it at a given time on a virtual clock, shaders compiled synchronously, so two runs with the
+  same seed, presets, audio and frame times give the same pixels (`src/tools/projectm-render` drives it)
 - `texture_reload.h` — fork extension: `projectm_reload_texture()` re-reads a loaded texture's file
   in place, so running presets sample a rewritten image without a reload (the experimental depth
   map; see `docs/EXPERIMENTAL_PRESET_HOOKS.md`)

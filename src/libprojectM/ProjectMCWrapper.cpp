@@ -15,6 +15,7 @@
 #include <RandomSeed.hpp>
 
 #include <projectM-4/debug.h>
+#include <projectM-4/offline_render.h>
 #include <projectM-4/parameters.h>
 #include <projectM-4/projectm_perf.h>
 #include <projectM-4/render_opengl.h>
@@ -1171,6 +1172,13 @@ auto projectm_pcm_add_uint8(projectm_handle instance, const uint8_t* samples, un
 {
     CApiGuard(__func__, [&] {
         PcmAdd(instance, samples, count, channels);
+    });
+}
+
+bool projectm_render_offline_frame(projectm_handle instance, const float* samples, unsigned int sample_count, double frame_time, uint32_t framebuffer_object)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        return Instance(instance).RenderOfflineFrame(samples, sample_count, frame_time, framebuffer_object);
     });
 }
 

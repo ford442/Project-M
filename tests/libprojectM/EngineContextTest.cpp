@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <projectM-4/debug.h>
+#include <projectM-4/preset_prepare.h>
 #include <projectM-4/projectM.h>
 
 #include <cstdint>
@@ -404,4 +405,103 @@ TEST_F(EngineSeedRenderTest, InterleavedEnginesRenderWhatTheyRenderAlone)
     projectm_destroy(b2);
     projectm_destroy(a);
     projectm_destroy(b);
+}
+
+namespace {
+
+/// Renders @a frames frames of the rand fixture in a new engine seeded with @a seed, on the
+/// GL context current on this thread, and returns each frame's pixels.
+auto RenderSeeded(uint32_t seed, int frames) -> std::vector<std::vector<unsigned char>>
+{
+    std::vector<std::vector<unsigned char>> result;
+    GLuint texture{0};
+    GLuint framebuffer{0};
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    auto* instance = projectm_create();
+    if (instance != nullptr)
+    {
+        projectm_set_seed(instance, seed);
+        projectm_set_window_size(instance, kSize, kSize);
+        projectm_set_preset_duration(instance, 3600.0);
+        projectm_set_soft_cut_duration(instance, 0.0);
+        projectm_set_parallel_shader_compile(instance, false);
+        projectm_load_preset_file(instance, (std::string(PROJECTM_PRESET_TESTS_DIR) + "/271-compshader-rand-preset.milk").c_str(), false);
+        for (int frame = 0; frame < frames; frame++)
+        {
+            projectm_set_frame_time(instance, frame / 60.0);
+            projectm_opengl_render_frame_fbo(instance, framebuffer);
+            std::vector<unsigned char> pixels(kSize * kSize * 4);
+            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            glReadPixels(0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            result.push_back(std::move(pixels));
+        }
+        projectm_destroy(instance);
+    }
+    glDeleteFramebuffers(1, &framebuffer);
+    glDeleteTextures(1, &texture);
+    return result;
+}
+
+} // namespace
+
+// Two engines with different seeds, each on its own GL context and thread, rendering at the
+// same time: each must produce exactly what it produces alone. Any state still shared between
+// engines (a random stream, perf or device state, the eval rand()) shows up as a mismatch.
+TEST(EngineParallelRenderTest, TwoSeededEnginesInParallelThreadsAreDeterministic)
+{
+    constexpr int kFrames = 30;
+    if (!libprojectM::Test::HeadlessGlContext::IsAvailable())
+    {
+        GTEST_SKIP() << "no headless OpenGL context";
+    }
+    // SDL wants windows created on the main thread; each worker then makes its own current.
+    libprojectM::Test::HeadlessGlContext contextA;
+    libprojectM::Test::HeadlessGlContext contextB;
+    if (!contextA.Valid() || !contextB.Valid() || !contextA.InitializeGlad())
+    {
+        GTEST_SKIP() << "could not create two headless OpenGL contexts";
+    }
+
+    ASSERT_TRUE(contextA.MakeCurrent());
+    const auto aloneA = RenderSeeded(1, kFrames);
+    ASSERT_TRUE(contextB.MakeCurrent());
+    const auto aloneB = RenderSeeded(2, kFrames);
+    contextB.ReleaseCurrent();
+    if (aloneA.size() != static_cast<size_t>(kFrames))
+    {
+        GTEST_SKIP() << "projectm_create() is unavailable with this context";
+    }
+    ASSERT_EQ(aloneB.size(), static_cast<size_t>(kFrames));
+    EXPECT_NE(aloneA, aloneB) << "different seeds should render differently";
+    EXPECT_NE(aloneA.front(), aloneA.back()) << "the per-frame rand() should change the frame";
+
+    std::vector<std::vector<unsigned char>> parallelA;
+    std::vector<std::vector<unsigned char>> parallelB;
+    const auto run = [](libprojectM::Test::HeadlessGlContext& context, uint32_t seed, std::vector<std::vector<unsigned char>>& out) {
+        if (context.MakeCurrent())
+        {
+            out = RenderSeeded(seed, kFrames);
+            context.ReleaseCurrent();
+        }
+    };
+    std::thread threadA(run, std::ref(contextA), 1U, std::ref(parallelA));
+    std::thread threadB(run, std::ref(contextB), 2U, std::ref(parallelB));
+    threadA.join();
+    threadB.join();
+
+    ASSERT_EQ(parallelA.size(), static_cast<size_t>(kFrames));
+    ASSERT_EQ(parallelB.size(), static_cast<size_t>(kFrames));
+    for (int frame = 0; frame < kFrames; frame++)
+    {
+        EXPECT_EQ(parallelA[frame], aloneA[frame]) << "engine A, frame " << frame;
+        EXPECT_EQ(parallelB[frame], aloneB[frame]) << "engine B, frame " << frame;
+    }
 }

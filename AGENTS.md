@@ -302,6 +302,15 @@ Third-party code that is compiled as part of the project:
   with the WASM goldens and `PresetCompat`, plus a before/after render of the preset
   corpora if the change touches draw order.
 
+### Engine state
+- State that belongs to one engine (a `ProjectM` instance) lives in its `EngineContext`
+  (`src/libprojectM/EngineContext.hpp`): random streams and seed, perf timers and GPU stage,
+  transpile-cache hooks and key, render device, log callback and level. Entry points install
+  it with `ScopedEngineContext`; code reaches it through `EngineContext::Current()`.
+- `scripts/check_engine_globals.sh <build-dir>` (run by `build_linux.yml`) lists every writable
+  static in libprojectM's objects with `nm` and fails on any not in
+  `scripts/engine_globals_allowlist.txt`, where each entry says why it is process-wide.
+
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:
   - `readability-*`

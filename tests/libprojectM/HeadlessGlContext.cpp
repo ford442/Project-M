@@ -112,6 +112,14 @@ auto HeadlessGlContext::MakeCurrent() -> bool
     return m_valid && SDL_GL_MakeCurrent(m_window, m_context) == 0;
 }
 
+void HeadlessGlContext::ReleaseCurrent()
+{
+    if (m_valid)
+    {
+        SDL_GL_MakeCurrent(m_window, nullptr);
+    }
+}
+
 auto HeadlessGlContext::InitializeGlad() -> bool
 {
     if (!m_valid)
@@ -147,6 +155,10 @@ auto HeadlessGlContext::Valid() const -> bool
 auto HeadlessGlContext::MakeCurrent() -> bool
 {
     return false;
+}
+
+void HeadlessGlContext::ReleaseCurrent()
+{
 }
 
 auto HeadlessGlContext::InitializeGlad() -> bool

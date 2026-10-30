@@ -81,6 +81,9 @@ jobs:
       - name: Run Unit Tests
         run: ctest --test-dir "${{ github.workspace }}/cmake-build" --verbose --build-config "Debug"
 
+      - name: No engine state at namespace scope
+        run: bash scripts/check_engine_globals.sh "${{ github.workspace }}/cmake-build"
+
       - name: Build Release
         run: cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --parallel
 

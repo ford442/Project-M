@@ -402,6 +402,9 @@ The CI builds both `Debug` and `Release` configurations and runs `ctest` for eac
 
 ### Browser host-layer tests (`tests/web/`)
 
+Ownership rules (canvas size, audio players, globals), the z-index scale and the
+TypeScript strategy for `html/` are in [`docs/HOST_LAYER.md`](docs/HOST_LAYER.md).
+
 `html/` (the browser host modules) and `packages/web/` (the publishable embed
 SDK) are an npm workspace rooted at the repo's own `package.json`. From the
 repo root:

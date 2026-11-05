@@ -18,6 +18,7 @@
     "allowJs": true,
     "checkJs": true,
     "strict": true,
+    "noUnusedLocals": true,
     "noEmit": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "WebWorker"]

@@ -1,0 +1,61 @@
+name: Render-device hazard inventory
+
+# #315 Phase B0: render every preset corpus with PROJECTM_DEVICE_VALIDATION=1 and
+# publish the feedback hazards the ResourceStateTracker finds (the WebGPU risk list).
+# Report-only: it fails on setup errors, not on hazards. Set HAZARD_FAIL_ON_HAZARD=1
+# once the list is empty to turn it into a gate.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "*"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: 'recursive'
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgl1-mesa-dev libegl-dev libegl-mesa0 mesa-common-dev ninja-build
+
+      - name: Build projectm-render
+        run: |
+          cmake -G Ninja -S . -B cmake-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_RENDER_TOOL=ON \
+            -DENABLE_SYSTEM_PROJECTM_EVAL=OFF
+          cmake --build cmake-build --target projectm-render --parallel
+
+      - name: Run inventory
+        env:
+          HAZARD_DURATION: '1'
+        run: scripts/hazard_inventory.sh cmake-build/src/tools/projectm-render/projectm-render hazard-inventory
+
+      - name: Summary
+        if: always()
+        run: |
+          [ -f hazard-inventory/hazards.md ] && head -c 60000 hazard-inventory/hazards.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: hazard-inventory
+          path: |
+            hazard-inventory/hazards.json
+            hazard-inventory/hazards.md
+            hazard-inventory/logs/

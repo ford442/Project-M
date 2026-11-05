@@ -69,6 +69,18 @@ test('the render worker ships and is still a standalone classic worker', () => {
     // not. This is the check that the build never folds the worker into an ES
     // module, and it beats grepping for keywords that also occur in strings.
     new vm.Script(source, { filename: 'projectm-render-worker.js' });
+
+    // The parts it importScripts() resolve against the worker's own URL, so
+    // they must sit next to it in dist/ under the same relative paths.
+    const parts = [...source.matchAll(/['"]\.\/(worker\/[\w-]+\.js)['"]/g)].map((match) => match[1]);
+    assert.deepEqual(parts.sort(), ['worker/capture.js', 'worker/engine-hooks.js', 'worker/pcm-ring.js']);
+    for (const part of parts) {
+        const path = join(distRoot, part);
+        assert.ok(existsSync(path), `dist/${part} is missing`);
+        const partSource = readFileSync(path, 'utf8');
+        assert.equal(partSource, readFileSync(join(repoRoot, 'html', part), 'utf8'));
+        new vm.Script(partSource, { filename: part });
+    }
 });
 
 test('the AudioWorklet processor ships next to the bundle that loads it', () => {

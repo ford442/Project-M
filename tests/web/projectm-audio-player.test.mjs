@@ -5,8 +5,7 @@ import {
     FLAC_PLAYER_BASE_URL,
     FLAC_PLAYER_SHELL_REV,
     MOD_PLAYER_BASE_URL,
-    createPopupAudioPlayerController,
-    createSectionAudioPlayerController,
+    createAudioPlayerController,
     isSameOriginUrl,
     openPlayerForPcmFeed,
     resolveFlacPlayerUrl,
@@ -14,6 +13,7 @@ import {
     resolvePlayerUrl,
     withProjectMAudioFlag,
 } from '../../html/projectm-audio-player.js';
+import { createFakeDocument, FakeElement } from './helpers/fake-dom.mjs';
 
 test('resolvePlayerUrl prefers localStorage then DOM then default', () => {
     const storage = new Map();
@@ -177,7 +177,7 @@ test('section controller iframes same-origin FLAC and popups cross-origin MOD', 
     };
 
     try {
-        const controller = createSectionAudioPlayerController({
+        const controller = createAudioPlayerController({
             updateUi() {},
             openPopup(url, target) {
                 popups.push({ url, target });
@@ -210,8 +210,8 @@ test('neither controller publishes anything on window (the legacy shim owns thos
     ];
     globalThis.window = {};
     try {
-        const section = createSectionAudioPlayerController({ updateUi() {} });
-        const popup = createPopupAudioPlayerController({ updateUi() {} });
+        const section = createAudioPlayerController({ updateUi() {} });
+        const popup = createAudioPlayerController({ updateUi() {} });
 
         assert.deepEqual(Object.keys(globalThis.window), []);
         for (const name of names) {
@@ -276,7 +276,7 @@ test('audio cycle opens tab/system capture as a popup and closes it on the next 
     };
 
     try {
-        const section = createSectionAudioPlayerController({ updateUi() {} });
+        const section = createAudioPlayerController({ updateUi() {} });
         section.cycleAudioPlayer();
         section.cycleAudioPlayer();
         section.cycleAudioPlayer();
@@ -295,24 +295,159 @@ test('audio cycle opens tab/system capture as a popup and closes it on the next 
             'an open capture window is focused, not replaced'
         );
         assert.deepEqual(focused, ['projectm-audio-capture']);
-        assert.equal(closed.length, 0);
+        // The MOD tab the cycle opened is owned too, and closed when capture opened.
+        assert.deepEqual(closed, ['mod-player']);
 
         section.showAudioPlayer('flac');
-        assert.deepEqual(closed, ['projectm-audio-capture']);
+        assert.deepEqual(closed, ['mod-player', 'projectm-audio-capture']);
 
-        const popup = createPopupAudioPlayerController({ updateUi() {} });
+        const popup = createAudioPlayerController({ updateUi() {} });
         popup.showAudioPlayer('capture');
         assert.equal(opened.filter((entry) => entry.name === 'projectm-audio-capture').length, 2);
         const popupOpen = opened.at(-1);
         assert.match(popupOpen.url, /\/audio-capture\.html/);
         assert.equal(popupOpen.name, 'projectm-audio-capture');
         popup.showAudioPlayer('none');
-        assert.deepEqual(closed, ['projectm-audio-capture', 'projectm-audio-capture']);
+        assert.deepEqual(closed, ['mod-player', 'projectm-audio-capture', 'projectm-audio-capture']);
     } finally {
         globalThis.open = previousOpen;
         globalThis.document = previousDocument;
         globalThis.window = previousWindow;
         globalThis.location = previousLocation;
         globalThis.localStorage = previousLocalStorage;
+    }
+});
+
+// ---- #310: one controller owns every player it opens -----------------------
+
+/**
+ * @param {{ sections: boolean }} options
+ */
+function installPlayerPage({ sections }) {
+    const { document } = createFakeDocument();
+    document.querySelector = (selector) => (selector.startsWith('#') ? document.getElementById(selector.slice(1)) : null);
+    document.querySelectorAll = (selector) =>
+        selector === '.ext-player-section'
+            ? [document.getElementById('flacPlayerSection'), document.getElementById('modPlayerSection')].filter(Boolean)
+            : [];
+    const add = (tag, id) => {
+        const element = new FakeElement(tag);
+        element.id = id;
+        document.body.appendChild(element);
+        return element;
+    };
+    add('button', 'audioPlayerBtn');
+    if (sections) {
+        for (const [sectionId, frameId] of [['flacPlayerSection', 'flacFrame'], ['modPlayerSection', 'modFrame']]) {
+            add('section', sectionId).style.display = 'none';
+            const frame = add('iframe', frameId);
+            Object.defineProperty(frame, 'src', {
+                get: () => frame.getAttribute('src') ?? '',
+                set: (value) => {
+                    frame.setAttribute('src', value);
+                },
+            });
+        }
+    }
+    const opened = [];
+    const saved = ['document', 'window', 'location', 'localStorage', 'open'].map((name) => [
+        name,
+        Object.getOwnPropertyDescriptor(globalThis, name),
+    ]);
+    const define = (name, value) => Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+    const location = { href: 'https://projectm.1ink.us/1ink.1ink', origin: 'https://projectm.1ink.us' };
+    define('document', document);
+    define('location', location);
+    define('window', { location });
+    define('localStorage', { getItem: () => null, setItem() {} });
+    define('open', (url, name) => {
+        const handle = { name, url, closed: false, close() { this.closed = true; }, focus() {} };
+        opened.push(handle);
+        return handle;
+    });
+    return {
+        document,
+        opened,
+        restore() {
+            for (const [name, descriptor] of saved) {
+                if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+                else delete globalThis[name];
+            }
+        },
+    };
+}
+
+test('#310: after FLAC opens, the audio button still moves on to MOD and back (section page)', () => {
+    const page = installPlayerPage({ sections: true });
+    try {
+        const controller = createAudioPlayerController({ updateUi() {}, documentRef: page.document });
+        const flac = page.document.getElementById('flacPlayerSection');
+        controller.cycleAudioPlayer(); // FLAC
+        assert.equal(controller.activeSourceId(), 'flac');
+        assert.equal(flac.style.display, 'block');
+
+        controller.cycleAudioPlayer(); // the button again: MOD (cross-origin → tab)
+        assert.equal(controller.activeSourceId(), 'mod');
+        assert.equal(flac.style.display, 'none', 'the FLAC section must not stay over the panel');
+        assert.equal(page.opened.length, 1);
+        assert.match(page.opened[0].url, /test\.1ink\.us\/xm-player/);
+
+        controller.showAudioPlayer('flac');
+        assert.equal(page.opened[0].closed, true, 'the MOD tab is owned and closed on the switch');
+        assert.equal(flac.style.display, 'block');
+
+        controller.closeAudioPlayer();
+        assert.equal(flac.style.display, 'none');
+    } finally {
+        page.restore();
+    }
+});
+
+test('#310: a docked frame (page without sections) is owned: hidden on the next source', () => {
+    const page = installPlayerPage({ sections: false });
+    try {
+        const controller = createAudioPlayerController({ updateUi() {}, documentRef: page.document });
+        controller.showAudioPlayer('flac');
+        const dock = page.document.getElementById('pm-player-frame-flac-player');
+        assert.ok(dock, 'same-origin FLAC docks in a frame on a page without its section');
+        assert.equal(dock.style.display, 'block');
+        assert.match(dock.getAttribute('style'), /z-index:var\(--pm-z-player/);
+
+        controller.cycleAudioPlayer(); // MOD
+        assert.equal(dock.style.display, 'none');
+        controller.dispose();
+        assert.equal(page.opened[0].closed, true, 'dispose() closes the windows it opened');
+        assert.equal(dock.listenerCount('load'), 0, 'dispose() drops the frame hooks');
+    } finally {
+        page.restore();
+    }
+});
+
+test('#310: Escape inside a loaded same-origin player closes it and focus returns to the host', () => {
+    const page = installPlayerPage({ sections: true });
+    let hostFocused = 0;
+    const previousFocus = globalThis.focus;
+    globalThis.focus = () => hostFocused++;
+    try {
+        const controller = createAudioPlayerController({ updateUi() {}, documentRef: page.document });
+        controller.showAudioPlayer('flac');
+        const frame = page.document.getElementById('flacFrame');
+        const playerDoc = new FakeElement('document');
+        frame.contentDocument = playerDoc;
+        frame.dispatch('load');
+        assert.equal(hostFocused, 1);
+        assert.equal(playerDoc.listenerCount('keydown'), 1);
+
+        playerDoc.dispatch('keydown', { key: 'a' });
+        assert.equal(controller.activeSourceId(), 'flac');
+        playerDoc.dispatch('keydown', { key: 'Escape' });
+        assert.equal(controller.activeSourceId(), 'none');
+        assert.equal(page.document.getElementById('flacPlayerSection').style.display, 'none');
+
+        controller.dispose();
+        assert.equal(playerDoc.listenerCount('keydown'), 0);
+    } finally {
+        globalThis.focus = previousFocus;
+        page.restore();
     }
 });

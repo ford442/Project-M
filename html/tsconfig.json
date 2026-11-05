@@ -33,8 +33,10 @@
     "projectm-*.ts",
     "projectm-*.js",
     "context/*.js",
+    "app-shell/*.js",
     "flac-player/boot.js",
     "flac-player/decode-guard.js",
+    "flac-player/flac-headers.js",
     "flac-player/preboot.js"
   ],
   "exclude": [

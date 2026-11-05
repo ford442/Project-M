@@ -149,7 +149,7 @@ function ensureHud() {
 
     // eslint-disable-next-line no-restricted-syntax -- built only from the constant ROWS table
     hudEl.innerHTML = `
-        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms<span data-key="topology"></span><span data-key="linkPending"></span><span data-key="flashClamped"></span></h3>
+        <h3 class="pm-perf-hud-title">Perf: <span data-key="fps">0</span> fps / <span data-key="totalMs">0.0</span>ms<span data-key="topology"></span><span data-key="linkPending"></span><span data-key="flashClamped"></span><span data-key="governor"></span></h3>
         <div class="pm-perf-hud-row pm-perf-hud-head">
             <span class="pm-perf-hud-label">stage</span>
             <span class="pm-perf-hud-bar-track" style="background:none">CPU bar / GPU bar</span>
@@ -198,10 +198,29 @@ function cell(key, stats) {
 }
 
 /**
+ * The adaptive quality governor's state (docs/PERFORMANCE.md): tier 0 is full
+ * quality; higher tiers render at `renderScale` of the canvas size.
+ *
+ * @typedef {{ tier: number, renderScale: number }} GovernorState
+ */
+
+/**
+ * @param {number} tier
+ * @param {number} renderScale
+ * @returns {string}
+ */
+export function formatGovernorTier(tier, renderScale) {
+    if (!(tier >= 0)) return '';
+    const scale = renderScale > 0 && renderScale < 1 ? ` @${Math.round(renderScale * 100)}%` : '';
+    return ` · tier ${tier}${scale}`;
+}
+
+/**
  * @param {PerfFrameStats} stats
  * @param {string} topology
+ * @param {() => GovernorState | null} [governor] Read only on a repaint.
  */
-export function updateHud(stats, topology) {
+export function updateHud(stats, topology, governor) {
     if (!hudVisible) {
         return;
     }
@@ -228,6 +247,13 @@ export function updateHud(stats, topology) {
     if (flashEl) {
         const clamped = stats.flashClampedFrames;
         flashEl.textContent = typeof clamped === 'number' && clamped >= 0 ? ` · flash-limited ${clamped}` : '';
+    }
+
+    // The governor's tier: a lower frame time at tier 2 is half the pixels.
+    const governorEl = el.querySelector('[data-key="governor"]');
+    if (governorEl) {
+        const state = governor?.() ?? null;
+        governorEl.textContent = state ? formatGovernorTier(state.tier, state.renderScale) : '';
     }
 
     // perPixelEvalMs means different work on the two paths, so the row says which one

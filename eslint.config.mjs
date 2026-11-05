@@ -18,9 +18,9 @@ import tseslint from 'typescript-eslint';
 
 /** Writes to `window.*` outside projectm-globals.js (claimGlobal) are a bug. */
 const WINDOW_WRITE = {
-    selector: "AssignmentExpression > MemberExpression.left[object.name='window']",
+    selector: 'AssignmentExpression > MemberExpression.left[object.name=/^(window|globalThis|self|windowRef)$/]',
     message:
-        'Do not assign window.* directly: publish through claimGlobal() (projectm-globals.js) so a second context cannot clobber it.',
+        'Do not assign window.* / globalThis.* / self.* directly: publish through claimGlobal() (projectm-globals.js) so a second context cannot clobber it. A slot the engine glue shares by name needs an OWNED_GLOBALS entry in scripts/check_host_globals.sh and a disable comment saying so.',
 };
 
 /** innerHTML from anything but a constant string is an injection point. */
@@ -75,7 +75,7 @@ export default tseslint.config(
     // ---- html/: the deployed host modules (DOM program) -------------------
     {
         files: ['html/**/*.js'],
-        ignores: ['html/projectm-render-worker.js', 'html/worklets/**'],
+        ignores: ['html/projectm-render-worker.js', 'html/worker/**', 'html/worklets/**'],
         languageOptions: {
             ecmaVersion: 2022,
             sourceType: 'module',
@@ -94,10 +94,18 @@ export default tseslint.config(
         files: ['html/projectm-globals.js'],
         rules: { 'no-restricted-syntax': ['error', INNERHTML_WRITE] },
     },
+    {
+        // The FLAC player is its own page (loaded in an iframe or tab), not
+        // the projectM host: its globals are that page's, with one owner.
+        files: ['html/flac-player/**/*.js'],
+        rules: { 'no-restricted-syntax': ['error', INNERHTML_WRITE] },
+    },
 
     // ---- the render worker (WebWorker program) -----------------------------
     {
-        files: ['html/projectm-render-worker.js'],
+        // The entry and the parts it importScripts() (html/worker/): classic
+        // scripts sharing one worker global scope.
+        files: ['html/projectm-render-worker.js', 'html/worker/**/*.js'],
         languageOptions: {
             ecmaVersion: 2022,
             sourceType: 'script',

@@ -309,3 +309,37 @@ test('FLAC fallback opens the bridged player, not ./flac/', async () => {
         delete globalThis.openWeeksFlacDecoder;
     }
 });
+
+test('install -> dispose -> install leaves exactly one #musicBtn listener, none after the last dispose', async () => {
+    const { createFakeDocument, FakeElement } = await import('./helpers/fake-dom.mjs');
+    const { document } = createFakeDocument();
+    const button = new FakeElement('button');
+    button.id = 'musicBtn';
+    document.body.appendChild(button);
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+    const previousFetch = globalThis.fetch;
+    Object.defineProperty(globalThis, 'document', { configurable: true, writable: true, value: document });
+    // The catalog scan is not under test: fail it quietly.
+    globalThis.fetch = async () => ({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
+    delete globalThis.__projectMSongLoaderInstalled;
+    try {
+        const disposeFirst = installSongLoaderInterceptor();
+        assert.equal(button.listenerCount('click'), 1);
+        assert.equal(installSongLoaderInterceptor()(), undefined, 'a second install is a no-op');
+        assert.equal(button.listenerCount('click'), 1);
+
+        disposeFirst();
+        assert.equal(button.listenerCount('click'), 0);
+        assert.equal(globalThis.__projectMSongLoaderInstalled, false, 'dispose clears the page-once guard');
+
+        const disposeSecond = installSongLoaderInterceptor();
+        assert.equal(button.listenerCount('click'), 1, 're-boot after dispose installs again');
+        disposeSecond();
+        assert.equal(button.listenerCount('click'), 0);
+    } finally {
+        globalThis.fetch = previousFetch;
+        if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
+        else delete globalThis.document;
+        delete globalThis.__projectMSongLoaderInstalled;
+    }
+});

@@ -1019,16 +1019,20 @@ time-domain data rather than the exact rendered samples.
 ### Which HTML variant to use for external-player testing
 
 `html/projectm-core.html` is the **canonical** page for FLAC/MOD external-player
-testing — it wires `createPopupAudioPlayerController` (popup windows, with
-`flacPlayerUrl`/`modPlayerUrl` `localStorage` overrides) together with
-`setupExternalAudioReceiver` from `html/projectm-external-pcm.js`, plus the
-`?debugSender` tone harness used for the manual reactivity check below.
+testing — it wires `createAudioPlayerController` (with `flacPlayerUrl`/`modPlayerUrl`
+`localStorage` overrides) together with `setupExternalAudioReceiver` from
+`html/projectm-external-pcm.js`, plus the `?debugSender` tone harness used for the
+manual reactivity check below.
 
-All other shipped demo variants share the same `projectm-external-pcm.js` /
-`projectm-audio-player.js` modules (no copy-paste PCM receivers) via
-`createSectionAudioPlayerController`, which toggles an in-page
-`flacPlayerSection`/`modPlayerSection` iframe (`?projectm=1`) instead of a
-popup:
+Every page uses that one controller (`html/projectm-audio-player.js`). It picks how
+to show each source from its URL and the page: the page's own
+`flacPlayerSection`/`modPlayerSection` when it has one and the URL is same-origin, a
+small docked iframe it creates when the page has no section, a tab for a
+cross-origin URL (COEP blocks the iframe), and a sized popup for tab/system capture.
+It owns all of them (switching source closes the window or hides the frame), keeps
+them below the control panel (`--pm-z-player` < `--pm-z-panel`, so the audio button
+stays clickable, #310), and in a same-origin player Escape closes it and focus goes
+back to the host page once it loads.
 
 - `projectm_panel.1ink`, `projectm_panel2.1ink`, `projectm_new.1ink` — FLAC +
   MOD sections wired out of the box.

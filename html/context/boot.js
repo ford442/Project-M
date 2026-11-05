@@ -25,6 +25,7 @@ import {
 } from '../projectm-render-worker-host.js';
 import { checkInit } from '../projectm-init-errors.js';
 import { createConfiguredHost, resolveFlashLimit, resolveWasmContextConfig } from '../projectm-context-config.js';
+import { destroyHost } from '../generated/projectm-wasm-api.js';
 import { resolveDevicePixelRatio } from './render.js';
 
 /**
@@ -33,8 +34,21 @@ import { resolveDevicePixelRatio } from './render.js';
  * @typedef {import('../projectm-context-types.ts').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
  * @typedef {import('../projectm-render-worker-types.ts').WasmContextConfig} WasmContextConfig
  * @typedef {import('../projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
+ * @typedef {import('../projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
  * @typedef {{ pmScript: string, rootScript: string, api?: string[] | null }} BundlePaths
+ * @typedef {{
+ *   wasmVersion?: string,
+ *   wasmBaseUrl?: string,
+ *   wasmScriptUrl?: string,
+ *   documentRef?: Document,
+ *   windowRef?: (Window & typeof globalThis),
+ *   primaryCanvasSelector?: string,
+ *   secondaryCanvasSelector?: string,
+ *   signal?: AbortSignal,
+ * }} SharedModuleOptions
  */
+
+const DEFAULT_TARGET_FPS = 60;
 
 let canvasIdSerial = 0;
 
@@ -494,4 +508,97 @@ async function startRenderWorker(request, versionPaths) {
             request.onStats(/** @type {Record<string, unknown> & { fps?: number }} */ (/** @type {unknown} */ (stats)));
         },
     });
+}
+
+/**
+ * A context's options with the defaults filled in.
+ *
+ * @param {ProjectMContextOptions} options
+ * @returns {ProjectMResolvedContextOptions}
+ */
+export function resolveContextOptions(options) {
+    return {
+        requireCrossOriginIsolation: true,
+        meshQuality: 'auto',
+        targetFps: DEFAULT_TARGET_FPS,
+        qualityGovernor: true,
+        transparent: false,
+        transparencyThreshold: 0.01,
+        aspectCorrection: true,
+        alpha: false,
+        audioSource: 'none',
+        presetLocked: false,
+        renderTopology: 'auto',
+        documentRef: typeof document !== 'undefined' ? document : undefined,
+        windowRef: typeof window !== 'undefined' ? window : undefined,
+        ...options,
+    };
+}
+
+/**
+ * Boots a Module with no engine in it, for several contexts to share
+ * (bootProjectMSharedModule() in projectm-context.js).
+ *
+ * @param {SharedModuleOptions} options
+ * @param {string} defaultBaseUrl
+ * @returns {Promise<ProjectMModule>}
+ */
+export async function bootSharedModule(options, defaultBaseUrl) {
+    const {
+        wasmVersion,
+        wasmBaseUrl,
+        wasmScriptUrl,
+        documentRef = typeof document !== 'undefined' ? document : undefined,
+        windowRef = typeof window !== 'undefined' ? window : undefined,
+        primaryCanvasSelector,
+        secondaryCanvasSelector,
+        signal,
+    } = options;
+
+    const baseUrl = wasmBaseUrl ?? defaultBaseUrl;
+    const versionPaths = await resolveBundlePaths({ baseUrl, wasmScriptUrl, wasmVersion, signal });
+    await loadGlueScript({ documentRef, baseUrl, wasmScriptUrl, wasmVersion, versionPaths, signal });
+    // window.Module is published by the context that adopts this module
+    // (#claimWindowModule), as a claim, so a destroy hands it back.
+    return createModule({
+        documentRef,
+        windowRef,
+        baseUrl,
+        wasmScriptUrl,
+        wasmVersion,
+        primaryCanvasSelector,
+        secondaryCanvasSelector,
+        signal,
+    });
+}
+
+/**
+ * Frees an engine: a host inside a shared Module, a worker, or an owned Module.
+ *
+ * @param {{
+ *   module: ProjectMModule | null,
+ *   transport: RenderTransport | null,
+ *   hostHandle: number,
+ *   ownsModule: boolean,
+ * }} engine
+ */
+export function releaseEngine({ module, transport, hostHandle, ownsModule }) {
+    try {
+        if (hostHandle && module) {
+            // Multi-instance: free just this engine; the shared Module and any
+            // sibling contexts keep running. The Module itself is torn down by
+            // whoever booted it (bootProjectMSharedModule caller).
+            destroyHost(module, hostHandle);
+        } else if (transport) {
+            // Tears down the module on the main thread, terminates the worker in
+            // the other topology.
+            transport.destroy();
+        } else if (ownsModule && module?._destruct) {
+            // A Module that was created but never got a transport (init failed
+            // part-way, or the boot was cancelled right after the factory ran).
+            module._destruct();
+        }
+    } catch (error) {
+        console.warn('[ProjectMContext] engine teardown failed:', error);
+    }
 }

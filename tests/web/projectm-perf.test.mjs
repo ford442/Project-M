@@ -640,3 +640,30 @@ test('a main-thread transport gets the module-based tools', () => {
         dom.restore();
     }
 });
+
+test('the HUD shows the quality governor tier and its render scale', async () => {
+    const { formatGovernorTier } = await import('../../html/projectm-perf-hud.js');
+    assert.equal(formatGovernorTier(0, 1), ' · tier 0');
+    assert.equal(formatGovernorTier(2, 0.5), ' · tier 2 @50%');
+    assert.equal(formatGovernorTier(-1, 1), '');
+
+    const dom = installFakeDom({ search: '?perfhud=1', now: 5_000_000 });
+    let tier = 1;
+    let scale = 0.75;
+    const module = fakeModule({ _get_quality_tier: () => tier, _get_governor_render_scale: () => scale });
+    try {
+        startPerfTools(module);
+        globalThis.pmSetPerfHudEnabled(true);
+        const hud = dom.document.getElementById('pm-perf-hud');
+        globalThis.pmOnPerfFrame(frame());
+        assert.equal(hud.querySelector('[data-key="governor"]').textContent, ' · tier 1 @75%');
+        tier = 0;
+        scale = 1;
+        dom.advanceClock(500);
+        globalThis.pmOnPerfFrame(frame());
+        assert.equal(hud.querySelector('[data-key="governor"]').textContent, ' · tier 0');
+    } finally {
+        setHudVisible(false);
+        dom.restore();
+    }
+});

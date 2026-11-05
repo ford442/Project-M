@@ -10,6 +10,8 @@
 // applyWeeksOnFireDomConfig points at weeks_textures/), songs from
 // projectm-song-loader.js (`#songDir`).
 
+import { claimGlobal } from './projectm-globals.js';
+
 export const WEEKS_ON_FIRE_MODE = 'weeks_on_fire';
 
 export const DEFAULT_WEEKS_PATHS = {
@@ -90,15 +92,31 @@ export function openWeeksFlacDecoder(documentRef = document, { preferIframe = tr
     return null;
 }
 
-/** Expose the FLAC decoder helpers on globalThis, where projectm-song-loader.js looks for them. */
+/** @type {(() => void) | null} */
+let releaseFlacBridge = null;
+
+/**
+ * Expose the FLAC decoder helpers on globalThis, where projectm-song-loader.js
+ * looks for them. Claimed (projectm-globals.js): wiring again replaces this
+ * module's own claim, and the returned function takes the names back off.
+ *
+ * @param {Document} [documentRef]
+ * @returns {() => void}
+ */
 export function wireWeeksOnFireFlacBridge(documentRef = document) {
-    if (typeof globalThis === 'undefined') {
-        return;
-    }
-    globalThis.resolveFlacDecoderUrl = () => resolveFlacDecoderUrl(documentRef);
-    globalThis.ensureWeeksFlacDecoderFrame = () => ensureWeeksFlacDecoderFrame(documentRef);
-    globalThis.openWeeksFlacDecoder = (/** @type {{ preferIframe?: boolean } | undefined} */ options) =>
-        openWeeksFlacDecoder(documentRef, options);
+    releaseFlacBridge?.();
+    const releases = [
+        claimGlobal(globalThis, 'resolveFlacDecoderUrl', () => resolveFlacDecoderUrl(documentRef)),
+        claimGlobal(globalThis, 'ensureWeeksFlacDecoderFrame', () => ensureWeeksFlacDecoderFrame(documentRef)),
+        claimGlobal(globalThis, 'openWeeksFlacDecoder', (/** @type {{ preferIframe?: boolean } | undefined} */ options) =>
+            openWeeksFlacDecoder(documentRef, options)),
+    ];
+    const release = () => {
+        for (const undo of releases) undo();
+        if (releaseFlacBridge === release) releaseFlacBridge = null;
+    };
+    releaseFlacBridge = release;
+    return release;
 }
 
 /**
@@ -169,7 +187,9 @@ export function applyWeeksOnFireDomConfig(documentRef = document, paths = DEFAUL
     wireWeeksOnFireFlacBridge(doc);
 
     if (typeof globalThis !== 'undefined') {
+        // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by the engine glue at start
         globalThis.__projectMWeeksOnFire = true;
+        // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by the engine glue at start
         globalThis.__projectMWeeksPaths = merged;
     }
 }

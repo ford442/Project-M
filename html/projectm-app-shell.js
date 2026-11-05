@@ -348,7 +348,7 @@ export function boot(documentRef, options = {}) {
     import('./projectm-song-loader.js')
         .then((mod) => {
             if (owned.disposed) return;
-            mod.installSongLoaderInterceptor();
+            owned.add(mod.installSongLoaderInterceptor());
             // The WASM glue posts its song URL on `new BroadcastChannel('sng')`
             // itself, so intercepting it means wrapping the global constructor:
             // an explicit, reversible opt-in (projectm-legacy-globals.js).

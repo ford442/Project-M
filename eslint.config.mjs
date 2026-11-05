@@ -18,9 +18,9 @@ import tseslint from 'typescript-eslint';
 
 /** Writes to `window.*` outside projectm-globals.js (claimGlobal) are a bug. */
 const WINDOW_WRITE = {
-    selector: "AssignmentExpression > MemberExpression.left[object.name='window']",
+    selector: 'AssignmentExpression > MemberExpression.left[object.name=/^(window|globalThis|self|windowRef)$/]',
     message:
-        'Do not assign window.* directly: publish through claimGlobal() (projectm-globals.js) so a second context cannot clobber it.',
+        'Do not assign window.* / globalThis.* / self.* directly: publish through claimGlobal() (projectm-globals.js) so a second context cannot clobber it. A slot the engine glue shares by name needs an OWNED_GLOBALS entry in scripts/check_host_globals.sh and a disable comment saying so.',
 };
 
 /** innerHTML from anything but a constant string is an injection point. */
@@ -92,6 +92,12 @@ export default tseslint.config(
     {
         // claimGlobal() itself, and the classic (non-module) scripts.
         files: ['html/projectm-globals.js'],
+        rules: { 'no-restricted-syntax': ['error', INNERHTML_WRITE] },
+    },
+    {
+        // The FLAC player is its own page (loaded in an iframe or tab), not
+        // the projectM host: its globals are that page's, with one owner.
+        files: ['html/flac-player/**/*.js'],
         rules: { 'no-restricted-syntax': ['error', INNERHTML_WRITE] },
     },
 

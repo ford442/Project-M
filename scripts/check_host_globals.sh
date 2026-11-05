@@ -33,8 +33,10 @@
 #      constructor affects every script on the page);
 #   4. call claimGlobal() with a literal `pm*` name (that is rule 1 by another
 #      route);
-#   5. assign a `projectM*` / `__projectM*` / `__pm*` name on one of them,
+#   5. assign *any* name on one of them (window, globalThis, windowRef, self),
 #      unless OWNED_GLOBALS below names that file as the name's one writer.
+#      Anything else goes through claimGlobal(), whose literal names this
+#      check does not see (and whose claims are released on teardown).
 #      These are the page-scoped slots the baked engine glue reads or writes
 #      by name (the AudioContext, the worklet node, the song-load state, the
 #      weeks-on-fire flag) plus a few page-once guards. Each has exactly one
@@ -119,6 +121,10 @@ OWNED_GLOBALS=(
     # Page-once guard: the interceptor wraps the page's 'sng' channel, and the
     # module can be loaded twice under different ?v= URLs.
     "__projectMSongLoaderInstalled html/projectm-song-loader.js"
+    # The current preset, read by projectm-experimental-bridge.js and the
+    # console. One value per page, rewritten on every switch.
+    "currentPresetName html/projectm-presets.js"
+    "currentPresetPath html/projectm-presets.js"
 )
 
 owner_of() {
@@ -132,7 +138,11 @@ owner_of() {
     return 1
 }
 
-OWNED_PATTERN="${GLOBAL_OBJ}(\\??\\.|\\[['\"])((__)?projectM[A-Za-z0-9_]*|__pm[A-Za-z0-9_]*)(['\"]\\])?[[:space:]]*=([^=>]|$)"
+OWNED_NAME='[A-Za-z_$][A-Za-z0-9_$]*'
+# The engine-glue slot names (projectM*, __projectM*, __pm*), which even the
+# shim and the bus must leave to their owners.
+SHARED_SLOT_PATTERN="${GLOBAL_OBJ}(\\??\\.|\\[['\"])((__)?projectM[A-Za-z0-9_]*|__pm[A-Za-z0-9_]*)"
+OWNED_PATTERN="${GLOBAL_OBJ}(\\??\\.|\\[['\"])(${OWNED_NAME})(['\"]\\])?[[:space:]]*=([^=>]|$)"
 
 # Drops same-line /* ... */ blocks (JSDoc casts such as
 # `/** @type {any} */ (globalThis).x = ...`) so the line is judged by its code,
@@ -181,7 +191,12 @@ for file in "${FILES[@]}"; do
     [[ "$file" == "html/projectm-render-worker.js" ]] && continue
     while IFS= read -r hit; do
         [[ -z "$hit" ]] && continue
-        name="$(grep -oE "((__)?projectM[A-Za-z0-9_]*|__pm[A-Za-z0-9_]*)" <<<"${hit#*:}" | head -n1)"
+        # The shim and the bus may publish any other name (that is their job);
+        # they still may not take an engine-glue slot that has another owner.
+        if is_allowed "$file" && ! grep -qE "$SHARED_SLOT_PATTERN" <<<"${hit#*:}"; then
+            continue
+        fi
+        name="$(grep -oE "${GLOBAL_OBJ}(\\??\\.|\\[['\"])${OWNED_NAME}" <<<"${hit#*:}" | head -n1 | grep -oE "${OWNED_NAME}\$")"
         owner="$(owner_of "$name" || true)"
         if [[ "$owner" != "$file" ]]; then
             echo "FAIL: $file assigns page global $name (owner: ${owner:-none -- add one to OWNED_GLOBALS or keep it in module/context state}):" >&2

@@ -135,9 +135,8 @@ export async function bootProjectMSharedModule(options = {}) {
         secondaryCanvasSelector,
         signal,
     });
-    if (windowRef) {
-        windowRef.Module = module;
-    }
+    // window.Module is published by the context that adopts this module
+    // (#claimWindowModule), as a claim, so a destroy hands it back.
     return module;
 }
 

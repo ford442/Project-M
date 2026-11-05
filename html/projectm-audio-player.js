@@ -18,9 +18,9 @@ export const MOD_PLAYER_BASE_URL = 'https://test.1ink.us/xm-player/';
  * @typedef {object} AudioPlayerSource
  * @property {string} id
  * @property {string} label
- * @property {string} [sectionId] Element id of the inline section (section controller).
- * @property {string} [storageKey] localStorage key holding a custom URL (popup controller).
- * @property {string} [elementId] Element whose text holds a custom URL (popup controller).
+ * @property {string} [sectionId] Element id of the page's inline section, where it has one.
+ * @property {string} [storageKey] localStorage key holding a custom URL.
+ * @property {string} [elementId] Element whose text holds a custom URL.
  * @property {string} [defaultUrl]
  * @property {string} [target] window.open target name.
  * @property {string} [frameSelector] iframe selector inside an inline section.
@@ -37,8 +37,11 @@ export const MOD_PLAYER_BASE_URL = 'https://test.1ink.us/xm-player/';
  * @property {(sourceId: string, options?: { trackUrl?: string }) => void} showAudioPlayer
  * @property {() => void} cycleAudioPlayer
  * @property {() => void} closeAudioPlayer
- * @property {(trackUrl?: string) => void} [openFlacPlayer]
- * @property {(trackUrl?: string) => void} [openModPlayer]
+ * @property {(trackUrl?: string) => void} openFlacPlayer
+ * @property {(trackUrl?: string) => void} openModPlayer
+ * @property {() => string} activeSourceId
+ * @property {() => void} dispose Closes every window and drops every frame
+ *   listener this controller made.
  */
 
 /** @type {AudioPlayerSource[]} */
@@ -167,7 +170,7 @@ export function ensureSameOriginPlayerFrame(frameId, url, documentRef) {
         frame.title = 'projectM audio player';
         frame.setAttribute(
             'style',
-            'position:fixed;right:8px;bottom:8px;width:360px;height:220px;border:1px solid #334;border-radius:8px;z-index:99990;background:#0b0f14;box-shadow:0 8px 24px rgba(0,0,0,0.45)'
+            'position:fixed;right:8px;bottom:8px;width:360px;height:220px;border:1px solid #334;border-radius:8px;z-index:var(--pm-z-player, 3250);background:#0b0f14;box-shadow:0 8px 24px rgba(0,0,0,0.45)'
         );
         frame.setAttribute('allow', 'autoplay');
         doc.body.appendChild(frame);
@@ -266,193 +269,52 @@ function defaultUpdateUi(source, {
 }
 
 /**
- * Controller for hosts that embed the players as inline `.ext-player-section`
- * elements (panel2).
+ * How one source is shown:
+ * - `section`: the page's own inline section (same-origin URL, page has it);
+ * - `dock`: a small fixed iframe this controller creates (same-origin URL, no
+ *   section on the page);
+ * - `tab`: a new tab (cross-origin URL: COEP require-corp blocks the iframe);
+ * - `popup`: a sized window (tab/system capture, which must stay open while
+ *   the user switches to the shared tab);
+ * - `none`: nothing (the "Audio Player" off state).
+ *
+ * @typedef {'section' | 'dock' | 'tab' | 'popup' | 'none'} AudioPlayerPresentation
+ */
+
+/**
+ * The one audio-player controller. Every page uses it: the panel page has
+ * inline sections, the core page does not and gets docked frames, and the
+ * choice is made per source and URL rather than per page.
+ *
+ * It owns everything it opens: windows are closed and frames hidden when
+ * another source is chosen. Same-origin frames hand Escape back to the host
+ * (it closes the player) and give focus back to the host page once they have
+ * loaded, so the page's keyboard shortcuts keep working.
  *
  * @param {object} [options]
  * @param {AudioPlayerSource[]} [options.sources]
- * @param {string} [options.menuId] Menu element toggled alongside the sections.
+ * @param {string} [options.menuId] Menu element shown alongside a section.
  * @param {(source: AudioPlayerSource) => void} [options.updateUi]
  * @param {(url: string, target: string) => Window | HTMLIFrameElement | null} [options.openPopup]
+ *   Opens a non-section, non-capture player (default: {@link openPlayerForPcmFeed},
+ *   a docked frame for same-origin URLs and a tab otherwise).
+ * @param {Document} [options.documentRef]
  * @returns {AudioPlayerController}
  */
-export function createSectionAudioPlayerController({
+export function createAudioPlayerController({
     sources = DEFAULT_AUDIO_SOURCES,
     menuId,
     updateUi = defaultUpdateUi,
-    openPopup = (url, target) => openPlayerForPcmFeed(url, target),
+    openPopup,
+    documentRef,
 } = {}) {
-    let activeAudioSourceIndex = 0;
+    const doc = () => documentRef ?? /** @type {Document} */ (globalThis.document);
+    const open = openPopup ?? ((url, target) => openPlayerForPcmFeed(url, target, documentRef));
+    let activeIndex = 0;
     /** @type {Map<string, Window | HTMLIFrameElement>} */
-    const ownedPopups = new Map();
-
-    function hideAllAudioPlayers() {
-        const sections = /** @type {NodeListOf<HTMLElement>} */ (
-            document.querySelectorAll('.ext-player-section')
-        );
-        sections.forEach((section) => {
-            section.style.display = 'none';
-        });
-    }
-
-    /**
-     * @param {AudioPlayerSource} source
-     * @returns {string}
-     */
-    function sourceUrl(source) {
-        if (typeof source.resolveUrl === 'function') {
-            return source.resolveUrl() || '';
-        }
-        return source.defaultUrl || '';
-    }
-
-    /**
-     * Close script-opened capture popups. Passing `exceptId` leaves that one
-     * up so a second click focuses it instead of tearing the share down.
-     * @param {string} [exceptId]
-     */
-    function closeOwnedPopups(exceptId) {
-        for (const [id, handle] of ownedPopups) {
-            if (id === exceptId) continue;
-            if (handle && 'close' in handle && typeof handle.close === 'function' && 'closed' in handle && !handle.closed) {
-                handle.close();
-            }
-            ownedPopups.delete(id);
-        }
-    }
-
-    /**
-     * @param {AudioPlayerSource} source
-     * @param {string} url
-     * @returns {Window | null}
-     */
-    function openOwnedPopup(source, url) {
-        const target = source.target || `${source.id}-player`;
-        const existing = ownedPopups.get(source.id);
-        if (existing && 'closed' in existing && !existing.closed) {
-            if ('focus' in existing && typeof existing.focus === 'function') {
-                existing.focus();
-            }
-            return /** @type {Window} */ (existing);
-        }
-        if (typeof globalThis.open !== 'function') {
-            return null;
-        }
-        const handle = globalThis.open(url, target, source.windowFeatures || AUDIO_CAPTURE_WINDOW_FEATURES);
-        if (handle) {
-            ownedPopups.set(source.id, handle);
-        } else {
-            console.warn(`${source.label} popup was blocked. Please allow popups for this site.`);
-        }
-        return handle;
-    }
-
-    /**
-     * @param {string} sourceId
-     * @param {{ trackUrl?: string }} [options]
-     */
-    function showAudioPlayer(sourceId, options = {}) {
-        const source = sources.find((entry) => entry.id === sourceId) || sources[0];
-        activeAudioSourceIndex = sources.findIndex((entry) => entry.id === source.id);
-        hideAllAudioPlayers();
-
-        if (source.presentation === 'popup') {
-            closeOwnedPopups(source.id);
-            const url = withProjectMAudioFlag(sourceUrl(source), options);
-            if (url) openOwnedPopup(source, url);
-            updateUi(source);
-            return;
-        }
-
-        closeOwnedPopups();
-
-        if (source.sectionId) {
-            if (menuId) {
-                const menu = document.getElementById(menuId);
-                if (menu) menu.style.display = 'block';
-            }
-            const url = withProjectMAudioFlag(sourceUrl(source), options);
-            const frame = /** @type {HTMLIFrameElement | null} */ (source.frameSelector
-                ? document.querySelector(source.frameSelector)
-                : document.getElementById(source.sectionId)?.querySelector('iframe'));
-            // COEP: require-corp blocks cross-origin iframes (go.1ink.us / test.1ink.us).
-            // Same-origin ./flac-player/ can stay in the in-page section.
-            if (url && frame && isSameOriginUrl(url)) {
-                if (frame.getAttribute('src') !== url) {
-                    frame.src = url;
-                }
-                const section = document.getElementById(source.sectionId);
-                if (section) section.style.display = 'block';
-            } else if (url) {
-                const popup = openPopup(url, source.target || `${source.id}-player`);
-                if (!popup) {
-                    console.warn(`${source.label} popup was blocked. Please allow popups for this site.`);
-                }
-            }
-            console.info('[projectM external PCM] Child iframe/popup should postMessage({ type: "pcm", buffer: Float32Array, channels: 1|2, sampleRate? }, "*") to this page');
-        }
-
-        updateUi(source);
-    }
-
-    function cycleAudioPlayer() {
-        activeAudioSourceIndex = (activeAudioSourceIndex + 1) % sources.length;
-        showAudioPlayer(sources[activeAudioSourceIndex].id);
-    }
-
-    function closeAudioPlayer() {
-        activeAudioSourceIndex = 0;
-        showAudioPlayer('none');
-    }
-
-    const controller = {
-        showAudioPlayer,
-        cycleAudioPlayer,
-        closeAudioPlayer
-    };
-
-    return controller;
-}
-
-/**
- * Controller for hosts that open the players in popup windows which feed PCM
- * back through `postMessage`.
- *
- * @param {object} [options]
- * @param {AudioPlayerSource[]} [options.sources]
- * @param {(source: AudioPlayerSource) => void} [options.updateUi]
- * @returns {AudioPlayerController}
- */
-export function createPopupAudioPlayerController({
-    sources,
-    updateUi = defaultUpdateUi,
-} = {}) {
-    /** @type {Map<string, Window | HTMLIFrameElement>} */
-    const popups = new Map();
-    /** @type {AudioPlayerSource[]} */
-    const popupSources = sources || [
-        { id: 'none', label: 'Audio Player' },
-        {
-            id: 'flac',
-            label: 'FLAC Player',
-            storageKey: 'flacPlayerUrl',
-            elementId: 'flacPlayerUrl',
-            defaultUrl: FLAC_PLAYER_BASE_URL,
-            target: 'flac-player',
-            resolveUrl: resolveFlacPlayerUrl,
-        },
-        {
-            id: 'mod',
-            label: 'MOD Player',
-            storageKey: 'modPlayerUrl',
-            elementId: 'modPlayerUrl',
-            defaultUrl: MOD_PLAYER_BASE_URL,
-            target: 'mod-player',
-            resolveUrl: resolveModPlayerUrl,
-        },
-        captureAudioSource(),
-    ];
-    let activeAudioSourceIndex = 0;
+    const owned = new Map();
+    /** @type {Map<HTMLIFrameElement, () => void>} */
+    const frameHooks = new Map();
 
     /**
      * @param {AudioPlayerSource} source
@@ -462,55 +324,102 @@ export function createPopupAudioPlayerController({
         if (typeof source.resolveUrl === 'function') {
             return source.resolveUrl();
         }
-        return (source.storageKey ? localStorage.getItem(source.storageKey) : null) ||
-            (source.elementId ? document.getElementById(source.elementId)?.textContent?.trim() : null) ||
+        return (source.storageKey ? globalThis.localStorage?.getItem(source.storageKey) : null) ||
+            (source.elementId ? doc()?.getElementById(source.elementId)?.textContent?.trim() : null) ||
             source.defaultUrl;
     }
 
     /**
      * @param {AudioPlayerSource} source
-     * @param {{ trackUrl?: string }} [options]
-     * @returns {Window | HTMLIFrameElement | null}
+     * @returns {HTMLIFrameElement | null}
      */
-    function openPlayer(source, { trackUrl } = {}) {
-        const url = withProjectMAudioFlag(sourceUrl(source), { trackUrl });
-        const target = source.target || `${source.id}-player`;
-        let handle = null;
-        if (url && source.presentation === 'popup' && typeof globalThis.open === 'function') {
-            // Same-origin capture must not fall through to the iframe feeder.
-            handle = globalThis.open(url, target, source.windowFeatures || AUDIO_CAPTURE_WINDOW_FEATURES);
-        } else {
-            handle = url ? openPlayerForPcmFeed(url, target) : null;
-        }
-        if (handle) {
-            popups.set(source.id, handle);
-        } else {
-            console.warn(
-                `${source.label} could not open. Allow popups for cross-origin players. `
-                + 'The player must postMessage PCM: '
-                + 'window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")'
-            );
-        }
-        return handle;
+    function sectionFrame(source) {
+        if (!source.sectionId) return null;
+        const d = doc();
+        const section = d?.getElementById(source.sectionId);
+        if (!section) return null;
+        return /** @type {HTMLIFrameElement | null} */ (source.frameSelector
+            ? d.querySelector(source.frameSelector)
+            : section.querySelector?.('iframe') ?? null);
     }
 
     /**
-     * @param {Window | HTMLIFrameElement} [exceptHandle] Leave this window open.
+     * @param {AudioPlayerSource} source
+     * @param {string | null | undefined} url
+     * @returns {AudioPlayerPresentation}
      */
-    function closeAllAudioPlayers(exceptHandle) {
-        for (const handle of popups.values()) {
-            if (!handle || handle === exceptHandle) continue;
-            // Window popup/tab
-            if ('close' in handle && typeof handle.close === 'function' && 'closed' in handle) {
-                if (!handle.closed) handle.close();
-                continue;
+    function presentationFor(source, url) {
+        if (source.id === 'none' || !url) return 'none';
+        if (source.presentation === 'popup') return 'popup';
+        if (!isSameOriginUrl(url)) return 'tab';
+        return sectionFrame(source) ? 'section' : 'dock';
+    }
+
+    /**
+     * Same-origin frames: Escape inside the player closes it, and focus goes
+     * back to the host page once the player has loaded (a click into the
+     * iframe would otherwise keep every page shortcut in the frame).
+     *
+     * @param {HTMLIFrameElement} frame
+     */
+    function hookFrame(frame) {
+        if (frameHooks.has(frame) || typeof frame.addEventListener !== 'function') return;
+        /** @type {Document | null} */
+        let hookedDoc = null;
+        /** @param {KeyboardEvent} event */
+        const onKey = (event) => {
+            if (event.key === 'Escape') {
+                closeAudioPlayer();
+                doc()?.getElementById('audioPlayerBtn')?.focus?.();
             }
-            // Same-origin iframe feeder — hide, keep loaded for quick re-open
-            if ('style' in handle && handle.style) {
+        };
+        const onLoad = () => {
+            try {
+                hookedDoc?.removeEventListener('keydown', onKey);
+                hookedDoc = frame.contentDocument;
+                hookedDoc?.addEventListener('keydown', onKey);
+            } catch {
+                hookedDoc = null; // navigated cross-origin; nothing to hook
+            }
+            globalThis.focus?.();
+        };
+        frame.addEventListener('load', onLoad);
+        frameHooks.set(frame, () => {
+            frame.removeEventListener('load', onLoad);
+            try {
+                hookedDoc?.removeEventListener('keydown', onKey);
+            } catch {
+                /* frame gone */
+            }
+        });
+    }
+
+    function hideSections() {
+        const d = doc();
+        const sections = /** @type {HTMLElement[]} */ ([
+            ...Array.from(d?.querySelectorAll?.('.ext-player-section') ?? []),
+            ...sources.map((entry) => (entry.sectionId ? d?.getElementById(entry.sectionId) : null)),
+        ]);
+        for (const section of sections) {
+            if (section?.style) section.style.display = 'none';
+        }
+    }
+
+    /**
+     * Close windows, hide docked frames. `keep` stays as it is.
+     * @param {Window | HTMLIFrameElement} [keep]
+     */
+    function releaseOwned(keep) {
+        for (const [id, handle] of owned) {
+            if (!handle || handle === keep) continue;
+            if ('closed' in handle && typeof handle.close === 'function') {
+                if (!handle.closed) handle.close();
+            } else if ('style' in handle && handle.style) {
+                // A docked same-origin frame: hide it, keep it loaded.
                 handle.style.display = 'none';
             }
+            owned.delete(id);
         }
-        popups.clear();
     }
 
     /**
@@ -518,33 +427,66 @@ export function createPopupAudioPlayerController({
      * @param {{ trackUrl?: string }} [options]
      */
     function showAudioPlayer(sourceId, options = {}) {
-        const source = popupSources.find((entry) => entry.id === sourceId) || popupSources[0];
-        activeAudioSourceIndex = popupSources.findIndex((entry) => entry.id === source.id);
-        const existing = popups.get(source.id);
-        const reuse = source.presentation === 'popup' && existing && 'closed' in existing && !existing.closed;
-        closeAllAudioPlayers(reuse ? existing : undefined);
+        const source = sources.find((entry) => entry.id === sourceId) || sources[0];
+        activeIndex = sources.findIndex((entry) => entry.id === source.id);
+        const url = withProjectMAudioFlag(sourceUrl(source), options);
+        const presentation = presentationFor(source, url);
+        const existing = owned.get(source.id);
+        // A capture window that is still open is focused, not replaced: the
+        // share picker lives in it.
+        const reuse = presentation === 'popup' && existing && 'closed' in existing && !existing.closed
+            ? existing
+            : undefined;
+
+        hideSections();
+        releaseOwned(reuse);
+
         if (reuse) {
-            popups.set(source.id, existing);
-            if ('focus' in existing && typeof existing.focus === 'function') {
-                existing.focus();
+            if (typeof reuse.focus === 'function') reuse.focus();
+        } else if (url && presentation === 'section') {
+            const frame = /** @type {HTMLIFrameElement} */ (sectionFrame(source));
+            if (frame.getAttribute('src') !== url) frame.src = url;
+            hookFrame(frame);
+            if (menuId) {
+                const menu = doc()?.getElementById(menuId);
+                if (menu) menu.style.display = 'block';
             }
-        } else if (source.id !== 'none') {
-            openPlayer(source, options);
+            const section = source.sectionId ? doc()?.getElementById(source.sectionId) : null;
+            if (section) section.style.display = 'block';
+        } else if (url && presentation === 'popup') {
+            const handle = typeof globalThis.open === 'function'
+                ? globalThis.open(url, source.target || `${source.id}-player`, source.windowFeatures || AUDIO_CAPTURE_WINDOW_FEATURES)
+                : null;
+            if (handle) owned.set(source.id, handle);
+            else console.warn(`${source.label} popup was blocked. Please allow popups for this site.`);
+        } else if (url && (presentation === 'dock' || presentation === 'tab')) {
+            const handle = open(url, source.target || `${source.id}-player`);
+            if (handle) {
+                owned.set(source.id, handle);
+                if (presentation === 'dock' && !('closed' in handle)) hookFrame(/** @type {HTMLIFrameElement} */ (handle));
+            } else {
+                console.warn(
+                    `${source.label} could not open. Allow popups for cross-origin players. `
+                    + 'The player must postMessage PCM: '
+                    + 'window.opener.postMessage({type:"pcm", buffer: float32array, channels:2}, "*")'
+                );
+            }
         }
+
         updateUi(source);
     }
 
     function cycleAudioPlayer() {
-        activeAudioSourceIndex = (activeAudioSourceIndex + 1) % popupSources.length;
-        showAudioPlayer(popupSources[activeAudioSourceIndex].id);
+        activeIndex = (activeIndex + 1) % sources.length;
+        showAudioPlayer(sources[activeIndex].id);
     }
 
     function closeAudioPlayer() {
-        activeAudioSourceIndex = 0;
+        activeIndex = 0;
         showAudioPlayer('none');
     }
 
-    const controller = {
+    return {
         showAudioPlayer,
         cycleAudioPlayer,
         closeAudioPlayer,
@@ -552,7 +494,11 @@ export function createPopupAudioPlayerController({
         openFlacPlayer: (trackUrl) => showAudioPlayer('flac', { trackUrl }),
         /** @param {string} [trackUrl] */
         openModPlayer: (trackUrl) => showAudioPlayer('mod', { trackUrl }),
+        activeSourceId: () => sources[activeIndex]?.id ?? 'none',
+        dispose() {
+            releaseOwned();
+            for (const unhook of frameHooks.values()) unhook();
+            frameHooks.clear();
+        },
     };
-
-    return controller;
 }

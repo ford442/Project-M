@@ -22,7 +22,7 @@
 // the engine exists hangs off the shell; everything that needs the engine is
 // handed to ProjectMContext#own(), so it goes when the context does.
 
-import { createPopupAudioPlayerController, createSectionAudioPlayerController } from './projectm-audio-player.js';
+import { createAudioPlayerController } from './projectm-audio-player.js';
 import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
 import { createAudioSourceRouter } from './projectm-audio-source-router.js';
 import { setupShellUi } from './projectm-app-shell-ui.js';
@@ -91,7 +91,6 @@ import { addPresetFile, loadPresetFile } from './generated/projectm-wasm-api.js'
  * @property {string} name
  * @property {string} log Console prefix.
  * @property {string} weeksTitle document.title in weeks-on-fire mode.
- * @property {'popup' | 'section'} audioPlayer Popup windows (core) or in-page iframes (panel2).
  * @property {boolean} requirePresetDir Whether the preset API's `dir` must be present.
  * @property {boolean} persistLock Remember the lock in localStorage.
  * @property {boolean} transparency The glass-layer toggle.
@@ -139,7 +138,6 @@ export const SHELL_PROFILES = Object.freeze({
         name: 'core',
         log: '[ProjectM]',
         weeksTitle: 'Project M — Weeks on Fire',
-        audioPlayer: 'popup',
         requirePresetDir: true,
         persistLock: true,
         transparency: true,
@@ -158,7 +156,6 @@ export const SHELL_PROFILES = Object.freeze({
         name: 'panel2',
         log: '[B3HD]',
         weeksTitle: 'B3HD • Project M — Weeks on Fire',
-        audioPlayer: 'section',
         requirePresetDir: false,
         persistLock: false,
         transparency: false,
@@ -394,8 +391,10 @@ export function boot(documentRef, options = {}) {
         )
     );
 
-    const audioPlayer =
-        profile.audioPlayer === 'popup' ? createPopupAudioPlayerController() : createSectionAudioPlayerController();
+    // One controller for every page: it picks section / docked frame / tab /
+    // popup per source, from the URL and whether the page has the section.
+    const audioPlayer = createAudioPlayerController({ documentRef });
+    owned.add(() => audioPlayer.dispose());
     // song-loader's openModPlayer lookup (and console users) read these off window.
     owned.add(exposeAudioPlayerGlobals(audioPlayer));
     owned.add(claimGlobal(windowRef, 'updatePresetDisplay', updatePresetDisplay));

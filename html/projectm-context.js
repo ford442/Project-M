@@ -216,6 +216,8 @@ export class ProjectMContext {
     #contextSnapshot = /** @type {ProjectMContextSnapshot | null} */ (null);
     /** setTransparent(true) on an opaque canvas has been reported. */
     #warnedOpaqueTransparency = false;
+    /** The container's last observed device-pixel content box (see resize()). */
+    #devicePixelSize = /** @type {import('./context/render.js').DevicePixelSize | null} */ (null);
 
     /** @param {ProjectMContextOptions} options */
     constructor(options) {
@@ -1133,7 +1135,16 @@ export class ProjectMContext {
         return status;
     }
 
+    /**
+     * Sizes the canvases to the container. The context calls this itself
+     * whenever the container, the devicePixelRatio or the governor's render
+     * scale changes; hosts only need it after changing `options` that affect
+     * the size (aspect correction, an explicit devicePixelRatio).
+     */
     resize() {
+        // The observed device-pixel box only holds while the ratio is the
+        // window's: a host-pinned devicePixelRatio means "size by this ratio".
+        const devicePixelSize = this.options.devicePixelRatio ? null : this.#devicePixelSize;
         syncCanvasSize({
             transport: this.transport,
             container: this.container,
@@ -1142,6 +1153,7 @@ export class ProjectMContext {
             aspectCorrection: this.options.aspectCorrection,
             devicePixelRatio: resolveDevicePixelRatio(this.options),
             renderScale: this.renderScale,
+            devicePixelSize,
         });
     }
 
@@ -1231,7 +1243,10 @@ export class ProjectMContext {
         const follow = followContainerSize({
             container: this.container,
             windowRef: this.options.windowRef,
-            onResize: () => this.resize(),
+            onResize: (devicePixelSize) => {
+                this.#devicePixelSize = devicePixelSize;
+                this.resize();
+            },
         });
         if (!follow) {
             return;

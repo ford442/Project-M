@@ -555,13 +555,15 @@ export function boot(documentRef, options = {}) {
         writeStorage(storage, TRANSPARENCY_STORAGE_KEY, enabled ? '1' : '0');
     }
 
+    // Positions the container for the current mode. The canvas size follows
+    // from that: ProjectMContext observes #contain1 and is the only thing that
+    // sizes the canvases. Only an aspect-correction change needs a resize call
+    // from here, since it does not change the container's size.
     function relayout() {
         ui.updateLayout();
-        if (pmContext) {
+        if (pmContext && pmContext.options.aspectCorrection !== state.bezel) {
             pmContext.options.aspectCorrection = state.bezel;
             pmContext.resize();
-        } else {
-            ui.sizeCanvases();
         }
     }
 
@@ -760,15 +762,9 @@ export function boot(documentRef, options = {}) {
             context.own(installHostPcmRingWriter(module));
             const meshQuality = context.own(setupMeshQuality(module));
             context.own(exposeMeshQualityGlobals(meshQuality));
-            const governor = context.own(
-                setupFpsGovernor(module, {
-                    // Governor v2: shrink the backing store while the CSS size stays.
-                    onRenderScaleChange: (scale) => {
-                        context.renderScale = scale;
-                        context.resize();
-                    },
-                })
-            );
+            // ProjectMContext follows the governor's render scale itself; a
+            // second resize from here ran every tier change twice.
+            const governor = context.own(setupFpsGovernor(module));
             context.own(exposeGovernorGlobals(governor));
             const fbo = context.own(setupFboFormatIndicator(module));
             context.own(exposeFboFormatGlobals(() => fbo.format()));
@@ -936,17 +932,11 @@ export function boot(documentRef, options = {}) {
         pmContext = null;
     });
 
+    // The bezel layout is sized from the window height, so window resizes
+    // re-run it. Container resizes are ProjectMContext's (see relayout()).
     relayout();
     owned.add(() => windowRef.removeEventListener('resize', relayout));
     windowRef.addEventListener('resize', relayout);
-    if (typeof windowRef.ResizeObserver === 'function') {
-        const contain = documentRef.getElementById('contain1');
-        if (contain) {
-            const observer = new windowRef.ResizeObserver(() => relayout());
-            observer.observe(contain);
-            owned.add(() => observer.disconnect());
-        }
-    }
 
     /** @type {() => void} */
     let settleReady = () => {};

@@ -91,6 +91,10 @@ DEPLOY_HTML_GLOBS: list = [
     "html/projectm-*.js",
     # ProjectMContext's parts (projectm-context.js imports ./context/*.js).
     "html/context/*.js",
+    # The render worker's parts (projectm-render-worker.js importScripts ./worker/*.js).
+    "html/worker/*.js",
+    # The page shell's parts (projectm-app-shell.js imports ./app-shell/*.js).
+    "html/app-shell/*.js",
     "html/generated/*.js",
     # AudioWorklet processors -> worklets/ (WasmAudioBridge.cpp's addModule and
     # html/projectm-worklet-playback.js both load worklets/projectm-audio-processor.js).

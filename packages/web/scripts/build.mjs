@@ -46,6 +46,14 @@ const TYPES_IMPORT_RE = /import\(['"](\.{1,2}\/[^'"]+\.ts)['"]\)/g;
 // import.meta.url)` expressions in the modules esbuild loads.
 const URL_ASSET_RE = /new\s+URL\(\s*['"](\.{0,2}\/?[^'":]+\.js)['"]\s*,\s*import\.meta\.url\s*\)/g;
 
+// A classic worker among those assets pulls in its own parts with
+// `importScripts('./worker/x.js', ...)` or `importScripts(new URL('./x.js',
+// self.location.href).href)`. Relative literals there resolve against the
+// asset's own URL, so they are followed (recursively) and shipped next to it.
+// A non-literal argument (the Emscripten glue's run-time URL) is not ours.
+const IMPORT_SCRIPTS_RE = /importScripts\(([^)]*(?:\([^)]*\)[^)]*)*)\)/g;
+const RELATIVE_JS_LITERAL_RE = /['"](\.{1,2}\/[^'":]+\.js)['"]/g;
+
 async function exists(path) {
   try {
     await access(path);
@@ -103,6 +111,19 @@ async function computeClosure() {
   for (const asset of urlAssets) {
     if (!(await exists(join(htmlRoot, asset)))) {
       throw new Error(`new URL('${asset}', import.meta.url) points at a file html/ does not have`);
+    }
+  }
+  // Set iteration visits entries added during the loop: that is the recursion.
+  for (const asset of urlAssets) {
+    const contents = await readFile(join(htmlRoot, asset), 'utf8');
+    for (const call of contents.matchAll(IMPORT_SCRIPTS_RE)) {
+      for (const literal of call[1].matchAll(RELATIVE_JS_LITERAL_RE)) {
+        const part = posix(relative(htmlRoot, resolve(dirname(join(htmlRoot, asset)), literal[1])));
+        if (!(await exists(join(htmlRoot, part)))) {
+          throw new Error(`${asset} importScripts('${literal[1]}'), a file html/ does not have`);
+        }
+        urlAssets.add(part);
+      }
     }
   }
   return { modules: [...new Set([...modules, ...urlAssets])].sort(), urlAssets: [...urlAssets].sort() };

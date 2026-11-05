@@ -25,6 +25,7 @@
   },
   "include": [
     "projectm-render-worker-types.ts",
-    "projectm-render-worker.js"
+    "projectm-render-worker.js",
+    "worker/**/*.js"
   ]
 }

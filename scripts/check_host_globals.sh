@@ -53,6 +53,7 @@
 #                                     the ES module bus, and its `self` is the
 #                                     worker's own scope, which holds exactly
 #                                     one engine.
+#   html/worker/*.js                  Its importScripts() parts: the same scope.
 #
 # Usage:
 #   scripts/check_host_globals.sh
@@ -72,6 +73,9 @@ ALLOWED_FILES=(
     "html/projectm-wasm-callbacks.js"
     "html/projectm-globals.js"
     "html/projectm-render-worker.js"
+    "html/worker/engine-hooks.js"
+    "html/worker/pcm-ring.js"
+    "html/worker/capture.js"
 )
 
 # Modules under html/, plus the first-party host pages (their inline scripts
@@ -81,7 +85,7 @@ mapfile -t FILES < <(
         find html -maxdepth 1 -type f -name 'projectm-*.js'
         # Only the subdirectories that exist: a failing find would end the list
         # here under `set -e` and leave the host pages below unscanned.
-        for subdir in html/context html/worklets; do
+        for subdir in html/context html/app-shell html/worker html/worklets; do
             if [[ -d "$subdir" ]]; then
                 find "$subdir" -maxdepth 1 -type f -name '*.js'
             fi
@@ -188,7 +192,7 @@ done
 # Rule 5 runs over every file, the shim and the bus included: owning a slot is
 # per name, not per file.
 for file in "${FILES[@]}"; do
-    [[ "$file" == "html/projectm-render-worker.js" ]] && continue
+    [[ "$file" == "html/projectm-render-worker.js" || "$file" == html/worker/* ]] && continue
     while IFS= read -r hit; do
         [[ -z "$hit" ]] && continue
         # The shim and the bus may publish any other name (that is their job);

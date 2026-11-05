@@ -75,19 +75,6 @@
  * }} WorkerModule
  */
 
-/**
- * The engine-to-host hooks the C++ side looks up on `globalThis` — in a worker,
- * this scope (see WasmPerfGovernor.cpp / WasmRhythm.cpp).
- *
- * @typedef {object} EngineHooks
- * @property {(...args: unknown[]) => void} [pmOnGovernorRenderScaleChange]
- * @property {(stats: PerfFrameStats) => void} [pmOnPerfFrame]
- * @property {(...args: unknown[]) => void} [pmSetPerfHudEnabled]
- * @property {(event: RhythmEvent) => void} [pmOnRhythmEvent]
- */
-
-/** `self`, with the engine hooks this worker publishes on it. */
-const hookScope = /** @type {typeof self & EngineHooks} */ (self);
 
 /**
  * The Emscripten factory that `importScripts(scriptSrc)` defines on the worker
@@ -198,193 +185,23 @@ function selectEngine(host) {
 }
 
 /**
- * Reads an engine callback in either bundle shape — 040+ passes the engine's
- * handle first, older ones only the payload (`fieldCount` values) — and says
- * whether it is about this worker's engine. Mirrors decodeWasmCallback() in
- * html/projectm-wasm-callbacks.js; duplicated because this classic worker
- * cannot import it.
- *
- * @param {unknown[]} args
- * @param {number} fieldCount
- * @returns {{ ours: boolean, values: unknown[] }}
+ * The rest of the worker, as classic scripts next to this one (relative URLs
+ * resolve against this script). Each publishes one factory on `self`; the
+ * state they read stays here and is handed over as accessors.
  */
-function engineCallback(args, fieldCount) {
-    const scoped = args.length > fieldCount;
-    const host = scoped ? Number(args[0]) : null;
-    // Before create_host_with_config() returns, engineHost is still 0 and the
-    // engine being created is the only one there is.
-    const ours = host === null || !engineHost || host === engineHost;
-    return { ours, values: scoped ? args.slice(1) : args };
-}
+importScripts('./worker/engine-hooks.js', './worker/pcm-ring.js', './worker/capture.js');
 
-// WasmPerfGovernor.cpp pushes tier changes through globalThis — which in a
-// worker is this scope, not a window. That is the whole point of the
-// globalThis migration in src/wasm/: the same C++ hook reaches the host in
-// either topology, and governor v2 is no longer main-thread-only.
-/** @param {unknown[]} args `(host, scale)`, or `(scale)` before bundle 040. */
-const onGovernorRenderScaleChange = (...args) => {
-    const { ours, values } = engineCallback(args, 1);
-    if (!ours) return;
-    renderScale = Number(values[0]) || 1;
-    applySurfaceSize();
-};
-hookScope.pmOnGovernorRenderScaleChange = onGovernorRenderScaleChange;
+const { flushPerfFrames } = self.installWorkerEngineHooks({
+    getEngineHost: () => engineHost,
+    postToHost,
+    setRenderScale: (scale) => {
+        renderScale = scale;
+        applySurfaceSize();
+    },
+});
+const { publishPcmRing, writePcmToRing, readPcmRingCounters } = self.createWorkerPcmRing({ getModule: () => Module, postToHost });
+const { applyFlashLimit, captureFrame } = self.createWorkerCapture({ getModule: () => Module, selectEngine, postToHost });
 
-// The perf HUD (html/projectm-perf.js) lives on the page, but the engine reports
-// to `globalThis.pmOnPerfFrame` / `pmSetPerfHudEnabled` — this scope. Relay both,
-// so `?perfhud=1` works in the default topology rather than only with
-// `?renderWorker=0`.
-//
-// Frames are batched: the HUD repaints at most every 200 ms, and a postMessage
-// per frame would be 60+ structured clones a second for nothing. A benchmark
-// still sees every frame, because the host replays the batch in order.
-const PERF_FLUSH_INTERVAL_MS = 100;
-/** @type {PerfFrameStats[]} */
-let perfFrames = [];
-let perfLastFlush = 0;
-
-function flushPerfFrames() {
-    if (perfFrames.length === 0) return;
-    const frames = perfFrames;
-    perfFrames = [];
-    perfLastFlush = performance.now();
-    postToHost({ type: 'perf-frames', frames });
-}
-
-/** @param {PerfFrameStats} stats */
-const onPerfFrame = (stats) => {
-    if (typeof stats?.host === 'number' && engineHost && stats.host !== engineHost) return;
-    perfFrames.push(stats);
-    if (performance.now() - perfLastFlush >= PERF_FLUSH_INTERVAL_MS) {
-        flushPerfFrames();
-    }
-};
-hookScope.pmOnPerfFrame = onPerfFrame;
-
-/** @param {unknown[]} args `(host, enabled)`, or `(enabled)` before bundle 040. */
-const onPerfHudEnabled = (...args) => {
-    const { ours, values } = engineCallback(args, 1);
-    if (!ours) return;
-    const enabled = !!values[0];
-    if (!enabled) {
-        // Whatever is buffered was measured; hand it over before the HUD goes.
-        flushPerfFrames();
-    }
-    postToHost({ type: 'perf-hud', enabled });
-};
-hookScope.pmSetPerfHudEnabled = onPerfHudEnabled;
-
-// Beat/bar/section events (src/wasm/WasmRhythm.cpp) land in this scope too.
-// Relayed one by one: the engine only reports frames that carry an event, a few
-// a second, and batching them would make every beat arrive late.
-/** @param {RhythmEvent} event */
-const onRhythmEvent = (event) => {
-    if (engineHost && event.host !== engineHost) return;
-    postToHost({ type: 'rhythm-event', event: { ...event } });
-};
-hookScope.pmOnRhythmEvent = onRhythmEvent;
-
-/**
- * Reads the module's PCM ring descriptor. Mirrors readPcmRingDescriptor() in
- * html/projectm-pcm-ring.js — this is a classic worker (importScripts, no ES
- * module imports), so the few lines are duplicated rather than imported.
- *
- * @returns {PcmRingDescriptor | null}
- */
-function readPcmRingDescriptor() {
-    const m = Module;
-    if (!m || typeof m._get_pcm_ring_data_ptr !== 'function') return null;
-
-    let dataPtr = m._get_pcm_ring_data_ptr();
-    if (!dataPtr && typeof m._pcm_ring_init === 'function') {
-        m._pcm_ring_init(0);
-        dataPtr = m._get_pcm_ring_data_ptr();
-    }
-    const headerPtr = m._get_pcm_ring_header_ptr();
-    const capacityFrames = m._get_pcm_ring_capacity_frames();
-    const indexModulus = m._get_pcm_ring_index_modulus();
-    const memory = m.HEAPF32?.buffer;
-    if (!dataPtr || !headerPtr || capacityFrames <= 0 || indexModulus <= 0 || !memory) {
-        return null;
-    }
-    return { memory, headerPtr, dataPtr, capacityFrames, indexModulus };
-}
-
-/**
- * Hands the host the ring descriptor, if the module's memory can cross the
- * postMessage boundary. Without cross-origin isolation it is a plain
- * ArrayBuffer, which cannot be shared, and the host keeps posting PCM instead.
- */
-function publishPcmRing() {
-    const descriptor = readPcmRingDescriptor();
-    if (!descriptor) return;
-    if (typeof SharedArrayBuffer === 'undefined'
-        || !(descriptor.memory instanceof SharedArrayBuffer)) {
-        return;
-    }
-    postToHost({ type: 'pcm-ring', descriptor });
-}
-
-/**
- * Writes posted PCM into the module's ring. Mirrors createPcmRingWriter().write()
- * in html/projectm-pcm-ring.js, for the same no-imports reason.
- *
- * @param {Float32Array} buffer Interleaved stereo, or mono when channels is 1.
- * @param {number} channels
- */
-function writePcmToRing(buffer, channels) {
-    const descriptor = readPcmRingDescriptor();
-    if (!descriptor || !buffer || buffer.length === 0) return;
-
-    const { memory, headerPtr, dataPtr, capacityFrames, indexModulus } = descriptor;
-    const header = new Int32Array(memory, headerPtr, 4);
-    const data = new Float32Array(memory, dataPtr, capacityFrames * 2);
-
-    const stereo = channels === 2;
-    let frames = stereo ? (buffer.length >> 1) : buffer.length;
-    if (frames <= 0) return;
-
-    let offset = 0;
-    if (frames > capacityFrames) {
-        offset = frames - capacityFrames;
-        frames = capacityFrames;
-    }
-
-    const writeIndex = Atomics.load(header, 0);
-    for (let i = 0; i < frames; i += 1) {
-        const slot = ((writeIndex + i) % capacityFrames) * 2;
-        const src = offset + i;
-        if (stereo) {
-            data[slot] = buffer[src * 2];
-            data[slot + 1] = buffer[src * 2 + 1];
-        } else {
-            const sample = buffer[src];
-            data[slot] = sample;
-            data[slot + 1] = sample;
-        }
-    }
-    Atomics.store(header, 0, (writeIndex + frames) % indexModulus);
-}
-
-/**
- * The ring header counters for the stats message. Mirrors readPcmRingCounters()
- * in html/projectm-pcm-ring.js.
- *
- * @returns {import('./projectm-render-worker-types.ts').PcmRingCounters | undefined}
- */
-function readPcmRingCounters() {
-    const descriptor = readPcmRingDescriptor();
-    if (!descriptor) return undefined;
-    const header = new Int32Array(descriptor.memory, descriptor.headerPtr, 4);
-    return {
-        writeIndex: Atomics.load(header, 0),
-        readIndex: Atomics.load(header, 2),
-        overruns: Atomics.load(header, 3),
-        capacityFrames: descriptor.capacityFrames,
-        indexModulus: descriptor.indexModulus,
-        sampledAt: performance.now(),
-    };
-}
 
 /**
  * `webglcontextlost` / `webglcontextrestored` fire on the OffscreenCanvas, which
@@ -551,92 +368,6 @@ function handleCcall(module, msg) {
     }
 }
 
-/**
- * Turns the selected engine's flash limiter on or off, threshold first, so a
- * limiter switched on never runs a frame on the previous threshold. Mirrors the
- * main-thread transport's setFlashLimit(). A bundle without the limiter ignores it.
- *
- * @param {FlashLimitSettings} settings
- */
-function applyFlashLimit(settings) {
-    const m = Module;
-    if (!m || typeof m._set_flash_limit_enabled !== 'function') return;
-    if (typeof settings.threshold === 'number' && Number.isFinite(settings.threshold)) {
-        m._set_flash_limit_threshold(settings.threshold);
-    }
-    m._set_flash_limit_enabled(settings.enabled ? 1 : 0);
-}
-
-/** capture_frame_status() values (FrameCaptureStatus in src/wasm/WasmHost.hpp). */
-const CAPTURE_IDLE = 0;
-const CAPTURE_READY = 3;
-const CAPTURE_FAILED = 4;
-const DEFAULT_CAPTURE_TIMEOUT_MS = 5000;
-
-/**
- * Reads back the next frame the engine presents and posts its pixels to the
- * host. Mirrors captureFrameFromModule() in html/projectm-frame-capture.js,
- * duplicated for the same no-imports reason as the PCM ring helpers. Only this
- * side can read the frame: the drawing buffer is this worker's, and only holds
- * the image inside the render_frame() that drew it, which is where the engine
- * takes it (src/wasm/WasmPresent.cpp).
- *
- * @param {RenderWorkerCaptureFrameMessage} msg
- */
-async function captureFrame(msg) {
-    const m = Module;
-    /** @param {string} error */
-    const fail = (error) => postToHost({ type: 'frame-captured', requestId: msg.requestId, error });
-    if (!m || typeof m._capture_frame_request !== 'function') {
-        fail('this projectM bundle predates frame capture (capture_frame_request)');
-        return;
-    }
-    selectEngine(msg.host);
-    if (!m._capture_frame_request()) {
-        fail('captureFrame(): the engine has no WebGL context');
-        return;
-    }
-    if (msg.renderFrame) {
-        m._render_frame();
-    }
-    const timeoutMs = typeof msg.timeoutMs === 'number' ? msg.timeoutMs : DEFAULT_CAPTURE_TIMEOUT_MS;
-    const deadline = performance.now() + timeoutMs;
-    for (;;) {
-        // The render loop (or a sibling message) may have selected another
-        // engine while this waited; the capture is this engine's.
-        selectEngine(msg.host);
-        const status = m._capture_frame_resolve(msg.renderFrame ? 1 : 0);
-        if (status === CAPTURE_READY) break;
-        if (status === CAPTURE_FAILED || status === CAPTURE_IDLE) {
-            fail(`captureFrame(): the frame could not be read (status ${status})`);
-            return;
-        }
-        if (performance.now() >= deadline) {
-            m._capture_frame_release();
-            fail(`captureFrame(): no frame was rendered within ${timeoutMs} ms`);
-            return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 4));
-    }
-    const width = m._capture_frame_width();
-    const height = m._capture_frame_height();
-    const ptr = m._capture_frame_data_ptr();
-    const frameIndex = m._capture_frame_index();
-    const length = width * height * 4;
-    // Copied out of the (shared) heap into a buffer of its own, which is then
-    // transferred rather than cloned.
-    // Read the view now, not before the wait: a heap that grew meanwhile has a new one.
-    const heap = m.HEAPU8;
-    if (!heap) {
-        m._capture_frame_release();
-        fail('captureFrame(): this projectM bundle does not export HEAPU8');
-        return;
-    }
-    const pixels = new ArrayBuffer(length);
-    new Uint8Array(pixels).set(heap.subarray(ptr, ptr + length));
-    m._capture_frame_release();
-    postToHost({ type: 'frame-captured', requestId: msg.requestId, width, height, pixels, frameIndex }, [pixels]);
-}
 
 /**
  * Where this worker is in its one boot. A worker hosts one engine on one

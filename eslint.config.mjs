@@ -75,7 +75,7 @@ export default tseslint.config(
     // ---- html/: the deployed host modules (DOM program) -------------------
     {
         files: ['html/**/*.js'],
-        ignores: ['html/projectm-render-worker.js', 'html/worklets/**'],
+        ignores: ['html/projectm-render-worker.js', 'html/worker/**', 'html/worklets/**'],
         languageOptions: {
             ecmaVersion: 2022,
             sourceType: 'module',
@@ -103,7 +103,9 @@ export default tseslint.config(
 
     // ---- the render worker (WebWorker program) -----------------------------
     {
-        files: ['html/projectm-render-worker.js'],
+        // The entry and the parts it importScripts() (html/worker/): classic
+        // scripts sharing one worker global scope.
+        files: ['html/projectm-render-worker.js', 'html/worker/**/*.js'],
         languageOptions: {
             ecmaVersion: 2022,
             sourceType: 'script',

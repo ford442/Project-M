@@ -59,6 +59,7 @@ build/src/tools/projectm-render/projectm-render \
 | `--texture-path DIR` | none | Where presets find their textures. |
 | `--output FILE` | none | Raw RGBA frames, bottom row first (hence `vflip`); `-` for stdout. |
 | `--hash` | off | Prints `frames N fnv1a64 H` over every pixel (to stderr when frames go to stdout). |
+| `--log` | off | Prints the engine's warnings and errors to stderr as `projectm: [warn] ...`. |
 
 It creates a surfaceless EGL context (`EGL_PLATFORM_SURFACELESS_MESA`), falling back to the
 default display and a 1x1 pbuffer. No X server or window is needed, and Mesa's llvmpipe works.

@@ -564,6 +564,7 @@ GitHub Actions workflows are in `.github/workflows/`:
 - `push_release.yml` — Release artifact publishing
 - `upstream_sync_reminder.yml` — monthly upstream drift report + tracking issue (see [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md))
 - `web_lint_gate.yml` — ESLint + Prettier + typecheck over the browser host layer; no `paths:` filter, meant to be required
+- `hazard_inventory.yml` — renders every preset corpus with `PROJECTM_DEVICE_VALIDATION=1` (`scripts/hazard_inventory.sh`) and uploads the feedback-hazard list (the WebGPU risk list, #315 B0); report-only
 
 Conventions shared by the push/PR workflows:
 - Each has a `concurrency` group per workflow + ref: a newer push to a branch or PR cancels the

@@ -160,15 +160,17 @@ fork-specific surrounding code.
 | 2026-10-08 | `60376df` playlist wrapper arg, `397f15e` build metadata, `c3ae07d`, `359bf78`, `d896766`, `1e7ef78`, `fea4963` | **Backported** | Small CMake/vcpkg/CI/README fixes. `397f15e` also drops the fork's undefined `ENABLE_SHARED_LINKING` summary line |
 | 2026-10-08 | `6dc41fa` / `bc78b7f` build-doc consolidation | **Skipped** | Fork removed `BUILDING*.md`/`EMSCRIPTEN.md` and keeps its own `AGENTS.md` + `docs/` |
 | 2026-10-08 | `2fc0d00` PNG oxipng | **Skipped** | Fork deleted those `docs/web/` images |
+| 2026-11-06 | `7b6b04d` VCS version only from projectM's own `.git` | **Backported** | Clean cherry-pick; `EXISTS` also matches the `.git` file of a worktree |
+| 2026-11-06 | `349b7cc` README Android TV / Google TV section | **Skipped** | End-user README; fork keeps its own docs |
 
 *Update this table after each sync review.*
 
-### Latest sync snapshot (2026-10-08)
+### Latest sync snapshot (2026-11-06)
 
 ```
 Merge-base: 2f2441413 (2026-07-15, libprojectM 4.2.0)
-Upstream master: e98fca8 (24 commits since merge-base)
-Backported: 22 (1 hand-ported, 4 with merged test/CMake conflicts); skipped: 3 (docs, PNGs)
+Upstream master: 349b7cc (26 commits since merge-base)
+Backported: 22 (21 on 2026-10-08, 1 hand-ported, 4 with merged test/CMake conflicts; 7b6b04d on 2026-11-06); skipped: 4 (docs, PNGs, README)
 ```
 
 Verification on this review: Linux Debug build (gcc, `ENABLE_WERROR_RATCHET=ON`,

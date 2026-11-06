@@ -127,7 +127,7 @@ auto ProjectM::PollPendingPreset() -> bool
     {
         return false;
     }
-    if (!m_pendingPreset->preset->ShaderCompileComplete())
+    if (m_pendingPreset->holdForDownbeat || !m_pendingPreset->preset->ShaderCompileComplete())
     {
         return true;
     }
@@ -247,7 +247,11 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     Perf::FrameGuard perfFrameGuard;
 
     // Switch to a preset whose shader programs have finished linking since the last frame.
-    Perf::SetShaderLinkPending(PollPendingPreset());
+    {
+        // A preset held only for the downbeat is not waiting on the driver.
+        const bool pending = PollPendingPreset();
+        Perf::SetShaderLinkPending(pending && !(PresetHeldForDownbeat() && m_pendingPreset->preset->ShaderCompileComplete()));
+    }
 
     // Don't render if window area is zero.
     if (m_windowWidth == 0 || m_windowHeight == 0)
@@ -293,8 +297,13 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     const double presetSeconds = m_timeKeeper->GetRunningTime() - m_timeKeeper->PresetTimeA();
     m_switchScheduler->Observe(m_rhythmInfo, presetSeconds);
 
+    // A preset requested ahead of this downbeat switches now, before this frame renders and
+    // before the scheduler is asked again (it would see the bars of the old preset).
+    ReleaseHeldPreset();
+    const bool switchHeld = PresetHeldForDownbeat();
+
     // Check if the preset isn't locked, and we've not already notified the user
-    if (!m_presetChangeNotified)
+    if (!m_presetChangeNotified && !switchHeld)
     {
         // If preset is done (on the timer, or on the bar/section the policy waits for)
         // and we're not already switching
@@ -303,7 +312,12 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
                                         m_timeKeeper->PresetProgressA() >= 1.0))
         {
             m_presetChangeNotified = true;
+            m_switchHoldArmed = false;
             PresetSwitchRequestedEvent(false);
+        }
+        else if (!m_timeKeeper->IsSmoothing() && RequestSwitchAhead(presetSeconds))
+        {
+            // Requested for the coming downbeat.
         }
         else if (m_switchScheduler->HardCutDue(m_hardCutEnabled &&
                                                   m_frameCount > 50 &&
@@ -312,6 +326,7 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
                                               m_rhythmInfo))
         {
             m_presetChangeNotified = true;
+            m_switchHoldArmed = false;
             PresetSwitchRequestedEvent(true);
         }
     }
@@ -509,11 +524,19 @@ void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hard
     // A newer preset supersedes one still waiting for its shaders.
     m_pendingPreset.reset();
 
+    // A load answering a request made ahead of a downbeat waits for it. Only while the tempo
+    // is known, and only for the request's own bar or the next (a late load falls back to the
+    // following downbeat; one long after the request is a different load and is not held).
+    constexpr std::uint64_t maxHoldBeats = 3 * Audio::RhythmAnalyzer::BeatsPerBar;
+    const bool holdForDownbeat = m_switchHoldArmed && m_rhythmInfo.bpm > 0.0f &&
+                                 m_rhythmInfo.beatIndex <= m_switchHoldBeat + maxHoldBeats;
+    m_switchHoldArmed = false;
+
     auto renderContext = GetRenderContext();
     renderContext.deferShaderLink = deferShaderLink && ParallelShaderCompile();
     preset->Initialize(renderContext);
 
-    if (preset->ShaderCompilePending())
+    if (preset->ShaderCompilePending() || holdForDownbeat)
     {
         // Keep rendering the current preset; PollPendingPreset() switches once the
         // driver has linked the new one's programs.
@@ -521,6 +544,7 @@ void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hard
         m_pendingPreset->preset = std::move(preset);
         m_pendingPreset->hardCut = hardCut;
         m_pendingPreset->filename = filename;
+        m_pendingPreset->holdForDownbeat = holdForDownbeat;
         return;
     }
 
@@ -800,6 +824,85 @@ void ProjectM::SetSoftCutDurationBeats(double beats)
 auto ProjectM::SoftCutDurationBeats() const -> double
 {
     return m_softCutDurationBeats;
+}
+
+auto ProjectM::RequestSwitchAhead(double presetSeconds) -> bool
+{
+    bool hardCut = false;
+    if (m_switchScheduler->SwitchDueNextBar(m_rhythmInfo, presetSeconds, m_timeKeeper->PresetDuration(),
+                                            m_timeKeeper->PresetProgressA() >= 1.0))
+    {
+        hardCut = false;
+    }
+    else if (m_switchScheduler->DropCutDue(m_rhythmInfo) && m_timeKeeper->CanHardCut())
+    {
+        hardCut = true;
+    }
+    else
+    {
+        return false;
+    }
+
+    m_presetChangeNotified = true;
+    m_switchHoldArmed = true;
+    m_switchHoldBeat = m_rhythmInfo.beatIndex;
+    PresetSwitchRequestedEvent(hardCut);
+    return true;
+}
+
+void ProjectM::ReleaseHeldPreset()
+{
+    if (!m_pendingPreset || !m_pendingPreset->holdForDownbeat)
+    {
+        return;
+    }
+    const bool tempoLost = m_rhythmInfo.bpm <= 0.0f;
+    if (!tempoLost && !m_rhythmInfo.bar)
+    {
+        return;
+    }
+    if (!tempoLost && !m_pendingPreset->preset->ShaderCompileComplete())
+    {
+        // Not linked in time for this downbeat: keep the old preset for one more bar.
+        return;
+    }
+    m_pendingPreset->holdForDownbeat = false;
+    PollPendingPreset();
+}
+
+auto ProjectM::PresetHeldForDownbeat() const -> bool
+{
+    return m_pendingPreset && m_pendingPreset->holdForDownbeat;
+}
+
+void ProjectM::SetRhythmLatency(double seconds)
+{
+    m_audioStorage.SetRhythmLatency(seconds);
+}
+
+auto ProjectM::RhythmLatency() const -> double
+{
+    return m_audioStorage.RhythmLatency();
+}
+
+void ProjectM::SetPresetSwitchPhrase(uint32_t bars)
+{
+    m_switchScheduler->SetPhraseBars(bars);
+}
+
+auto ProjectM::PresetSwitchPhrase() const -> uint32_t
+{
+    return m_switchScheduler->PhraseBars();
+}
+
+void ProjectM::SetSectionHardCut(bool enabled)
+{
+    m_switchScheduler->SetSectionHardCut(enabled);
+}
+
+auto ProjectM::SectionHardCut() const -> bool
+{
+    return m_switchScheduler->SectionHardCut();
 }
 
 void ProjectM::SetHardCutOnBeat(bool enabled)

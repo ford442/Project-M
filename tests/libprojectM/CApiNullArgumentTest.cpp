@@ -130,6 +130,13 @@ TEST(CApiNullArgument, NullHandleReturnsFallbacks)
     EXPECT_EQ(projectm_get_soft_cut_duration_beats(nullptr), 0.0);
     projectm_set_hard_cut_on_beat(nullptr, false);
     EXPECT_FALSE(projectm_get_hard_cut_on_beat(nullptr));
+    projectm_set_rhythm_latency(nullptr, 50.0);
+    EXPECT_EQ(projectm_get_rhythm_latency(nullptr), 0.0);
+    projectm_set_preset_switch_phrase(nullptr, 8);
+    EXPECT_EQ(projectm_get_preset_switch_phrase(nullptr), 0U);
+    projectm_set_section_hard_cut(nullptr, true);
+    EXPECT_FALSE(projectm_get_section_hard_cut(nullptr));
+    EXPECT_FALSE(projectm_preset_is_held_for_downbeat(nullptr));
 
     EXPECT_FALSE(projectm_reload_texture(nullptr, nullptr));
     EXPECT_FALSE(projectm_reload_texture(nullptr, "noise_lq"));

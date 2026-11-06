@@ -11,6 +11,10 @@
 //   * transition_set_duration_beats(): crossfades a musical length long, both the
 //     dual-FBO compositor's and the engine's own soft cuts.
 //   * set_hard_cut_on_beat(): beat-detection hard cuts wait for the beat.
+//   * set_rhythm_latency_ms(): the beat clock runs behind the analysis by the audio
+//     output latency, so beats (and switches) land when they are heard.
+//   * set_preset_switch_phrase() / set_section_hard_cut(): switches quantised to
+//     phrases, and a hard cut on each section change.
 //   * set_rhythm_events(): beats, bars and section changes reported to
 //     globalThis.pmOnRhythmEvent(event) - only those frames, never every frame -
 //     which html/projectm-context.js turns into context.on('beat' | 'bar' | 'section').
@@ -241,6 +245,71 @@ void set_hard_cut_on_beat(bool enabled)
     if (pm)
     {
         projectm_set_hard_cut_on_beat(pm, enabled);
+    }
+}
+
+/**
+ * @brief Delays the beat clock by the audio output latency (ms, 0..1000).
+ *
+ * The page measures it (AudioContext.outputLatency + baseLatency + the worklet's
+ * buffering; ProjectMContext.setRhythmLatency('auto')) or the user nudges it.
+ */
+EMSCRIPTEN_KEEPALIVE
+void set_rhythm_latency_ms(double ms)
+{
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    const double clamped = std::isfinite(ms) ? std::clamp(ms, 0.0, 1000.0) : 0.0;
+    H.engineSettings.rhythmLatencyMs = clamped;
+    if (pm)
+    {
+        projectm_set_rhythm_latency(pm, clamped);
+    }
+}
+
+/**
+ * @brief The latency set with set_rhythm_latency_ms(), in ms.
+ */
+EMSCRIPTEN_KEEPALIVE
+double get_rhythm_latency_ms()
+{
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    if (!pm)
+    {
+        return H.engineSettings.rhythmLatencyMs.value_or(0.0);
+    }
+    return projectm_get_rhythm_latency(pm);
+}
+
+/**
+ * @brief Quantises bar and section switches to phrases of @p bars bars (0 = off).
+ */
+EMSCRIPTEN_KEEPALIVE
+void set_preset_switch_phrase(int bars)
+{
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    const auto clamped = static_cast<uint32_t>(std::clamp(bars, 0, 64));
+    H.engineSettings.presetSwitchPhrase = clamped;
+    if (pm)
+    {
+        projectm_set_preset_switch_phrase(pm, clamped);
+    }
+}
+
+/**
+ * @brief Hard cut on the first downbeat after each detected section change.
+ */
+EMSCRIPTEN_KEEPALIVE
+void set_section_hard_cut(bool enabled)
+{
+    WasmHost& H = Host();
+    auto& pm = H.appData.projectm_engine;
+    H.engineSettings.sectionHardCut = enabled;
+    if (pm)
+    {
+        projectm_set_section_hard_cut(pm, enabled);
     }
 }
 

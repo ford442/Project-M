@@ -305,7 +305,9 @@ static void PollPendingSwitch(WasmHost& host)
     auto& pm = host.appData.projectm_engine;
     if (pm != nullptr && !host.presetSwitchFailed && projectm_poll_pending_preset(pm))
     {
-        if (!host.linkPollScheduled)
+        // Held for the downbeat: only render_frame() can release it (on the downbeat
+        // frame itself), and it polls every frame, so no timer is needed.
+        if (!host.linkPollScheduled && !projectm_preset_is_held_for_downbeat(pm))
         {
             host.linkPollScheduled = true;
             emscripten_set_timeout(&PollPendingSwitchFromEventLoop, 1.0, reinterpret_cast<void*>(HostHandle(host)));

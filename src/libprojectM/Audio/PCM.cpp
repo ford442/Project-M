@@ -114,6 +114,16 @@ auto PCM::RhythmHint() const -> float
     return m_rhythm.TempoHint();
 }
 
+void PCM::SetRhythmLatency(double seconds)
+{
+    m_rhythm.SetOutputLatency(seconds);
+}
+
+auto PCM::RhythmLatency() const -> double
+{
+    return m_rhythm.OutputLatency();
+}
+
 auto PCM::GetFrameAudioData() const -> FrameAudioData
 {
     FrameAudioData data{};

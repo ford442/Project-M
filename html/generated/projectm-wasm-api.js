@@ -134,6 +134,10 @@ export const WASM_API_SYMBOLS = {
     transitionSetDurationBeats: 'transition_set_duration_beats',
     transitionGetDurationBeats: 'transition_get_duration_beats',
     setHardCutOnBeat: 'set_hard_cut_on_beat',
+    setRhythmLatencyMs: 'set_rhythm_latency_ms',
+    getRhythmLatencyMs: 'get_rhythm_latency_ms',
+    setPresetSwitchPhrase: 'set_preset_switch_phrase',
+    setSectionHardCut: 'set_section_hard_cut',
     setRhythmEvents: 'set_rhythm_events',
     setFlashLimitEnabled: 'set_flash_limit_enabled',
     getFlashLimitEnabled: 'get_flash_limit_enabled',
@@ -294,6 +298,10 @@ export const WASM_API_SIGNATURES = {
     transitionSetDurationBeats: { symbol: 'transition_set_duration_beats', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
     transitionGetDurationBeats: { symbol: 'transition_get_duration_beats', returnType: 'number', argTypes: [], paramTypes: [] },
     setHardCutOnBeat: { symbol: 'set_hard_cut_on_beat', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
+    setRhythmLatencyMs: { symbol: 'set_rhythm_latency_ms', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    getRhythmLatencyMs: { symbol: 'get_rhythm_latency_ms', returnType: 'number', argTypes: [], paramTypes: [] },
+    setPresetSwitchPhrase: { symbol: 'set_preset_switch_phrase', returnType: null, argTypes: ['number'], paramTypes: ['number'] },
+    setSectionHardCut: { symbol: 'set_section_hard_cut', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setRhythmEvents: { symbol: 'set_rhythm_events', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setFlashLimitEnabled: { symbol: 'set_flash_limit_enabled', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     getFlashLimitEnabled: { symbol: 'get_flash_limit_enabled', returnType: 'boolean', argTypes: [], paramTypes: [] },
@@ -1039,6 +1047,26 @@ export function setHardCutOnBeat(module, enabled) {
     module._set_hard_cut_on_beat(enabled ? 1 : 0);
 }
 
+/** Delay the beat clock (and switches on it) by the audio output latency, 0..1000 ms, so the visual beat matches the audible one */
+export function setRhythmLatencyMs(module, ms) {
+    module._set_rhythm_latency_ms(ms);
+}
+
+/** Output latency compensated by the beat clock, ms */
+export function getRhythmLatencyMs(module) {
+    return module._get_rhythm_latency_ms();
+}
+
+/** Quantise bar/section switches to phrases of N bars counted from the last section change (0 = off) */
+export function setPresetSwitchPhrase(module, bars) {
+    module._set_preset_switch_phrase(bars);
+}
+
+/** Hard cut on the first downbeat after each detected section change (a drop cut) */
+export function setSectionHardCut(module, enabled) {
+    module._set_section_hard_cut(enabled ? 1 : 0);
+}
+
 /** Report beats, bars and section changes to globalThis.pmOnRhythmEvent (off by default) */
 export function setRhythmEvents(module, enabled) {
     module._set_rhythm_events(enabled ? 1 : 0);
@@ -1204,6 +1232,10 @@ export const PUBLIC_WASM_API = [
     transitionSetDurationBeats,
     transitionGetDurationBeats,
     setHardCutOnBeat,
+    setRhythmLatencyMs,
+    getRhythmLatencyMs,
+    setPresetSwitchPhrase,
+    setSectionHardCut,
     setRhythmEvents,
     setFlashLimitEnabled,
     getFlashLimitEnabled,

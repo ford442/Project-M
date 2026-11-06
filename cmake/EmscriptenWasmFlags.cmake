@@ -221,6 +221,10 @@ set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
         _transition_set_duration_beats
         _transition_get_duration_beats
         _set_hard_cut_on_beat
+        _set_rhythm_latency_ms
+        _get_rhythm_latency_ms
+        _set_preset_switch_phrase
+        _set_section_hard_cut
         _set_rhythm_events
         _set_flash_limit_enabled
         _get_flash_limit_enabled

@@ -201,6 +201,8 @@ void RhythmAnalyzer::Reset()
     m_phase = 0.0;
     m_nextPhaseUpdate = 0.0;
     m_beatIndex = 0;
+    m_clockBeatConfident = false;
+    m_reportedBeat = -1;
 
     m_accent.fill(0.0f);
     m_accentWindow = 0.0f;
@@ -234,6 +236,16 @@ auto RhythmAnalyzer::TempoHint() const -> float
     return m_tempoHint.load(std::memory_order_relaxed);
 }
 
+void RhythmAnalyzer::SetOutputLatency(double seconds)
+{
+    m_outputLatency.store(std::isfinite(seconds) ? std::clamp(seconds, 0.0, 1.0) : 0.0, std::memory_order_relaxed);
+}
+
+auto RhythmAnalyzer::OutputLatency() const -> double
+{
+    return m_outputLatency.load(std::memory_order_relaxed);
+}
+
 auto RhythmAnalyzer::Info() const -> const RhythmInfo&
 {
     return m_info;
@@ -246,6 +258,7 @@ void RhythmAnalyzer::Update(const float* samples, std::size_t sampleCount, doubl
     m_info.beat = false;
     m_info.bar = false;
     m_info.sectionChanged = false;
+    m_clockBeatConfident = false;
 
     const float hint = m_tempoHint.load(std::memory_order_relaxed);
     if (hint != m_activeHint)
@@ -312,13 +325,50 @@ void RhythmAnalyzer::Update(const float* samples, std::size_t sampleCount, doubl
     m_info.confidence = m_confidence;
     m_info.bpm = confident ? static_cast<float>(60.0 / m_tempoPeriod) : 0.0f;
 
+    ReportClock(dt);
+}
+
+void RhythmAnalyzer::ReportClock(double dt)
+{
+    // The reported clock is the analysis clock, delayed by the output latency. Beats are
+    // reported when the delayed clock crosses an integer, and never twice or backwards.
+    const double latency = m_outputLatency.load(std::memory_order_relaxed);
+    const double clock = static_cast<double>(m_beatIndex) + m_phase - latency / m_tempoPeriod;
+    auto beat = static_cast<std::int64_t>(std::floor(clock));
+    double phase = clock - std::floor(clock);
+    if (beat < m_reportedBeat)
+    {
+        // A correction or a longer latency moved the delayed clock back: hold on the beat.
+        beat = m_reportedBeat;
+        phase = 0.0;
+    }
+
+    const bool confident = m_confidence >= ConfidenceThreshold;
+    const bool wrapped = beat > m_reportedBeat;
+    // At latency 0 the delayed clock is the analysis clock: report exactly its wraps.
+    m_info.beat = latency > 0.0 ? wrapped && confident && m_reportedBeat >= 0 : m_clockBeatConfident;
+    m_reportedBeat = beat;
+    if (m_info.beat)
+    {
+        m_info.beatPulse = 1.0f;
+    }
+    else
+    {
+        m_info.beatPulse = confident ? m_info.beatPulse * static_cast<float>(std::exp(-dt / kPulseSeconds)) : 0.0f;
+    }
+
     // Single precision would round a phase a hair below 1 up to exactly 1.
     constexpr float belowOne = 1.0f - std::numeric_limits<float>::epsilon();
-    m_info.beatPhase = std::min(static_cast<float>(m_phase), belowOne);
-    m_info.beatIndex = m_beatIndex;
+    const auto reportedIndex = static_cast<std::uint64_t>(std::max<std::int64_t>(beat, 0));
+    if (beat < 0)
+    {
+        phase = 0.0;
+    }
+    m_info.beatPhase = std::min(static_cast<float>(phase), belowOne);
+    m_info.beatIndex = reportedIndex;
 
-    const auto barPosition = static_cast<int>((m_beatIndex + BeatsPerBar - m_downbeatOffset) % BeatsPerBar);
-    m_info.barPhase = std::min(static_cast<float>((static_cast<double>(barPosition) + m_phase) / BeatsPerBar), belowOne);
+    const auto barPosition = static_cast<int>((reportedIndex + BeatsPerBar - m_downbeatOffset) % BeatsPerBar);
+    m_info.barPhase = std::min(static_cast<float>((static_cast<double>(barPosition) + phase) / BeatsPerBar), belowOne);
     if (m_info.beat)
     {
         m_info.bar = barPosition == 0;
@@ -784,21 +834,12 @@ void RhythmAnalyzer::AdvanceClock(double dt, float lowOnset)
         const double wraps = std::floor(phase);
         phase -= wraps;
         m_beatIndex += static_cast<std::uint64_t>(wraps);
-        if (m_confidence >= ConfidenceThreshold)
-        {
-            m_info.beat = true;
-            m_info.beatPulse = 1.0f;
-        }
+        m_clockBeatConfident = m_confidence >= ConfidenceThreshold;
     }
     else if (previousPhase < 0.5 && phase >= 0.5)
     {
         // Half a beat after the beat: its accent window has closed.
         UpdateDownbeat();
-    }
-
-    if (!m_info.beat)
-    {
-        m_info.beatPulse = m_confidence >= ConfidenceThreshold ? m_info.beatPulse * static_cast<float>(std::exp(-dt / kPulseSeconds)) : 0.0f;
     }
 
     m_phase = phase;

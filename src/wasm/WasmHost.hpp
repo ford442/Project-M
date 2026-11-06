@@ -79,6 +79,9 @@ struct EngineSettings {
     std::optional<std::pair<int, uint32_t>> presetSwitchPolicy; //!< set_preset_switch_policy().
     std::optional<float> transitionBeats;                       //!< transition_set_duration_beats().
     std::optional<bool> hardCutOnBeat;                          //!< set_hard_cut_on_beat().
+    std::optional<double> rhythmLatencyMs;                      //!< set_rhythm_latency_ms().
+    std::optional<uint32_t> presetSwitchPhrase;                 //!< set_preset_switch_phrase().
+    std::optional<bool> sectionHardCut;                         //!< set_section_hard_cut().
     std::optional<bool> flashLimitEnabled;                      //!< set_flash_limit_enabled().
     std::optional<float> flashLimitThreshold;                   //!< set_flash_limit_threshold().
 };

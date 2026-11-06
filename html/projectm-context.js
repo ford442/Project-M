@@ -12,7 +12,7 @@
 // Those modules keep no state of their own: whatever they acquire comes back
 // here and is registered on this context's teardown list.
 
-import { setupAudioUnlock } from './projectm-audio-bootstrap.js';
+import { getAudioContext, setupAudioUnlock } from './projectm-audio-bootstrap.js';
 import { installWorkletPlaybackSafetyNet } from './projectm-worklet-playback.js';
 import { claimGlobal } from './projectm-globals.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
@@ -50,6 +50,8 @@ import {
     RhythmEventRelay,
     applyRhythmOptions,
     callRhythm,
+    clampRhythmLatencyMs,
+    measureOutputLatencyMs,
     loadPresetFileInto,
     loadPresetUrlInto,
     presetSwitchPolicyArgs,
@@ -70,6 +72,9 @@ import { createSpriteOn, destroySpriteOn, getSpriteVarOn, setSpriteVarOn } from 
 
 // Re-exported for embedders (`@projectm/web/context`): the encoder behind the
 // context options, for hosts that create engines through the raw exports.
+/** How often `rhythmLatency: 'auto'` re-measures the output latency. */
+const RHYTHM_LATENCY_REMEASURE_MS = 3000;
+
 export { CONTEXT_CONFIG_FLAGS, resolveWasmContextConfig } from './projectm-context-config.js';
 
 /**
@@ -463,6 +468,19 @@ export class ProjectMContext {
             }
             transport.callVoid('setPresetLocked', presetLocked);
             applyRhythmOptions(this.options, this);
+            if (this.options.rhythmLatency === 'auto') {
+                // outputLatency is only known once the AudioContext runs, and it
+                // changes with the output device: re-measure every few seconds.
+                const nudge = this.options.rhythmLatencyNudge ?? 0;
+                let applied = -1;
+                const timer = setInterval(() => {
+                    const ms = clampRhythmLatencyMs(measureOutputLatencyMs(getAudioContext()) + nudge);
+                    if (Math.abs(ms - applied) >= 1) {
+                        applied = this.setRhythmLatency(ms);
+                    }
+                }, RHYTHM_LATENCY_REMEASURE_MS);
+                this.#own(() => clearInterval(timer));
+            }
             this.#rhythm.sync(transport);
 
             // Governor v2 (docs/PERFORMANCE.md): sync the starting render scale, then
@@ -933,6 +951,48 @@ export class ProjectMContext {
      */
     setHardCutOnBeat(enabled) {
         callRhythm(this.transport, 'setHardCutOnBeat', !!enabled);
+    }
+
+    /**
+     * Delays the beat clock by the audio output latency, so beats, bars and the
+     * preset switches scheduled on them land when the music is heard rather
+     * than when it is analyzed.
+     *
+     * `'auto'` measures it from the shared AudioContext (outputLatency +
+     * baseLatency) and adds `nudgeMs`, the user's "tap to align" correction.
+     * A number sets it directly. Returns the latency applied, in ms.
+     *
+     * @param {number | 'auto'} latency Milliseconds (0..1000), or `'auto'`.
+     * @param {number} [nudgeMs] Added to the measured latency in auto mode.
+     * @returns {number}
+     */
+    setRhythmLatency(latency, nudgeMs = 0) {
+        const ms =
+            latency === 'auto'
+                ? clampRhythmLatencyMs(measureOutputLatencyMs(getAudioContext()) + (Number(nudgeMs) || 0))
+                : clampRhythmLatencyMs(Number(latency));
+        callRhythm(this.transport, 'setRhythmLatencyMs', ms);
+        return ms;
+    }
+
+    /**
+     * Quantises bar and section switches to phrases: a switch only lands on a
+     * downbeat that starts a phrase of `bars` bars, counted from the latest
+     * detected section change.
+     *
+     * @param {number} bars Typically 4, 8 or 16; 0 turns it off.
+     */
+    setPresetSwitchPhrase(bars) {
+        callRhythm(this.transport, 'setPresetSwitchPhrase', Number.isFinite(bars) && bars > 1 ? Math.round(bars) : 0);
+    }
+
+    /**
+     * Hard cut ("drop" cut) on the first downbeat after each detected section change.
+     *
+     * @param {boolean} enabled
+     */
+    setSectionHardCut(enabled) {
+        callRhythm(this.transport, 'setSectionHardCut', !!enabled);
     }
 
     /**

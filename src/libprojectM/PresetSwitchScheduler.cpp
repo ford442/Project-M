@@ -40,6 +40,26 @@ auto PresetSwitchScheduler::HardCutOnBeat() const -> bool
     return m_hardCutOnBeat;
 }
 
+void PresetSwitchScheduler::SetPhraseBars(uint32_t bars)
+{
+    m_phraseBars = bars > 1 ? bars : 0;
+}
+
+auto PresetSwitchScheduler::PhraseBars() const -> uint32_t
+{
+    return m_phraseBars;
+}
+
+void PresetSwitchScheduler::SetSectionHardCut(bool enabled)
+{
+    m_sectionHardCut = enabled;
+}
+
+auto PresetSwitchScheduler::SectionHardCut() const -> bool
+{
+    return m_sectionHardCut;
+}
+
 void PresetSwitchScheduler::PresetStarted()
 {
     m_barsInPreset = 0;
@@ -52,6 +72,19 @@ void PresetSwitchScheduler::Observe(const Audio::RhythmInfo& rhythm, double pres
     if (rhythm.bar)
     {
         m_barsInPreset++;
+        if (m_phraseRestartPending)
+        {
+            m_phraseRestartPending = false;
+            m_phraseBar = 0;
+        }
+        else
+        {
+            m_phraseBar++;
+        }
+    }
+    if (rhythm.sectionChanged)
+    {
+        m_phraseRestartPending = true;
     }
 
     if (rhythm.sectionChanged && m_policy == Policy::Section)
@@ -81,21 +114,59 @@ auto PresetSwitchScheduler::SwitchDue(const Audio::RhythmInfo& rhythm, double pr
     }
 
     const bool tempoKnown = rhythm.bpm > 0.0f;
-    if (m_policy == Policy::Bars)
-    {
-        if (!tempoKnown)
-        {
-            return timerExpired;
-        }
-        return rhythm.bar && m_barsInPreset >= m_bars;
-    }
-
-    // Section: on the first downbeat after a section change, or the timer on a downbeat.
     if (!tempoKnown)
     {
-        return m_sectionSwitchPending || timerExpired;
+        // Bars falls back to the timer; Section also switches on a section change at once.
+        return timerExpired || (m_policy == Policy::Section && m_sectionSwitchPending);
     }
-    return rhythm.bar && (m_sectionSwitchPending || timerExpired);
+    return rhythm.bar && DueOnDownbeat(m_barsInPreset, m_phraseBar, timerExpired);
+}
+
+auto PresetSwitchScheduler::SwitchDueNextBar(const Audio::RhythmInfo& rhythm, double presetSeconds, double presetDuration,
+                                             bool timerExpired) const -> bool
+{
+    if (m_policy == Policy::Timer || rhythm.bpm <= 0.0f || !(rhythm.bar || rhythm.sectionChanged))
+    {
+        return false;
+    }
+    if (SwitchDue(rhythm, presetSeconds, presetDuration, timerExpired))
+    {
+        return false;
+    }
+
+    // The state the coming downbeat will see.
+    const double untilDownbeat = (1.0 - static_cast<double>(rhythm.barPhase)) * 240.0 / static_cast<double>(rhythm.bpm);
+    const double secondsThen = presetSeconds + untilDownbeat;
+    if (secondsThen >= 2.0 * presetDuration)
+    {
+        return true;
+    }
+    const uint32_t phraseBarThen = m_phraseRestartPending ? 0 : m_phraseBar + 1;
+    return DueOnDownbeat(m_barsInPreset + 1, phraseBarThen, timerExpired || secondsThen >= presetDuration);
+}
+
+auto PresetSwitchScheduler::DropCutDue(const Audio::RhythmInfo& rhythm) const -> bool
+{
+    return m_sectionHardCut && rhythm.sectionChanged && rhythm.bpm > 0.0f;
+}
+
+auto PresetSwitchScheduler::PhraseStart(uint32_t phraseBar) const -> bool
+{
+    return m_phraseBars == 0 || phraseBar % m_phraseBars == 0;
+}
+
+auto PresetSwitchScheduler::DueOnDownbeat(uint32_t barsInPreset, uint32_t phraseBar, bool timerExpired) const -> bool
+{
+    if (!PhraseStart(phraseBar))
+    {
+        return false;
+    }
+    if (m_policy == Policy::Bars)
+    {
+        return barsInPreset >= m_bars;
+    }
+    // Section: the first downbeat after a section change, or the timer on a downbeat.
+    return m_sectionSwitchPending || timerExpired;
 }
 
 auto PresetSwitchScheduler::HardCutDue(bool loudnessTrigger, const Audio::RhythmInfo& rhythm) -> bool

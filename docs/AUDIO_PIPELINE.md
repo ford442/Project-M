@@ -147,21 +147,47 @@ perf HUD shows it as the **Rhythm (tempo/beat)** row (`rhythmMs`).
 | Transition length in beats | `projectm_set_soft_cut_duration_beats()` | `transition_set_duration_beats()`, `setTransitionDurationBeats()`, `?transitionBeats=1` |
 | Hard cuts land on the beat | `projectm_set_hard_cut_on_beat()` | `set_hard_cut_on_beat()`, `setHardCutOnBeat()` |
 | Known tempo | `projectm_set_rhythm_hint()` | `set_rhythm_hint()`, `setRhythmHint()`, `?bpm=128` |
+| Switches only on phrase starts (4/8/16 bars from the last section change) | `projectm_set_preset_switch_phrase()` | `set_preset_switch_phrase()`, `setPresetSwitchPhrase()`, `?switchPhrase=8` |
+| Hard ("drop") cut on each section change, landing on the next downbeat | `projectm_set_section_hard_cut()` | `set_section_hard_cut()`, `setSectionHardCut()`, `?dropCut=1` |
+| Output latency compensation | `projectm_set_rhythm_latency()` | `set_rhythm_latency_ms()`, `setRhythmLatency(ms \| 'auto', nudgeMs)`, `?rhythmLatency=auto\|<ms>` (default `auto` on `projectm-core.html`), `?rhythmNudge=<ms>` / localStorage `rhythmLatencyNudge` |
 
 Every musical policy falls back to the timer while the tempo is not known, and never
 keeps a preset beyond twice its duration. Beat lengths fall back to seconds. The scheduling
 logic is `PresetSwitchScheduler` (`src/libprojectM/PresetSwitchScheduler.*`), unit-tested
 without a GL context.
 
+### Switches land on the downbeat
+
+With the `bars` or `section` policy and a known tempo, the switch request
+(`projectm_preset_switch_requested_event`) fires **one bar early**: on the downbeat before the
+one the switch is due on (`PresetSwitchScheduler::SwitchDueNextBar()`), or, for a section
+change or a drop cut, on the frame the change is detected. The host loads the next preset as
+usual; the WASM host prepares it on its per-host prepare thread (`WasmPresetPrepare.cpp`). The
+engine initializes it at once but **holds** it (`projectm_preset_is_held_for_downbeat()`), keeps
+the old preset rendering, and switches inside the downbeat frame's `RenderFrame()`, before that
+frame renders. A preset that is not ready by then (its shaders still linking) waits for the next
+downbeat; nothing stalls. The hold is dropped when the tempo is lost, and a load more than three
+bars after the request is not held. `BeatLockedSwitchTest` checks the switch frame is the
+downbeat frame at 120, 128 and 174 BPM, with and without latency compensation.
+
+### Output latency
+
+The beat clock locks to the audio as it reaches `PCM::Add()`, which in a browser is the
+worklet tap: about `AudioContext.outputLatency + baseLatency` before the listener hears it.
+`projectm_set_rhythm_latency()` runs the *reported* clock (beat and bar phase, beat index, beat
+and bar events, every switch scheduled on them) that much behind the analysis clock; onsets,
+levels and sections are not delayed. `RhythmLatencyTest` checks beat events land within one
+frame of the audible beat at 85 ms. The ring adds no delay of its own: `render_frame()` drains
+all of it every frame.
+
+**Auto mode** (`ProjectMContext` option `rhythmLatency: 'auto'`, the default on
+`projectm-core.html`): the context measures `outputLatency + baseLatency` of the shared
+AudioContext every 3 s (it is only known once audio runs, and changes with the output device)
+and adds `rhythmLatencyNudge`, the user's manual correction. Browsers that do not report
+`outputLatency` (Safari before 17) get only `baseLatency`; use the nudge there.
+
 ### Limitations
 
-- **Host latency is not compensated.** The beat clock is aligned to the audio as it enters
-  `PCM::Add()`. If the host feeds audio ahead of what the speakers play (output latency),
-  visuals lead the sound by that much.
-- **WASM preset switches land after the downbeat.** The switch is *requested* on the
-  downbeat, but the browser host prepares presets on a background thread and links their
-  shaders asynchronously, so the new preset appears once that is done (typically a few
-  hundred ms). Preparing ahead and holding activation for the downbeat is a follow-up.
 - **Downbeats** come from low-band accents; music without an accented "one" falls back to
   the beat count, which may start a bar on any beat.
 

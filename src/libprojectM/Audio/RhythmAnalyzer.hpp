@@ -100,6 +100,23 @@ public:
     auto TempoHint() const -> float;
 
     /**
+     * @brief Delays the reported beat clock by the host's output latency.
+     *
+     * The clock locks to the audio as it is analyzed. If the listener hears that audio
+     * @p seconds later (audio output latency, buffering between the analysis tap and the
+     * speakers), the reported beat phase, bar phase, beat index and the beat and bar events
+     * run @p seconds behind the analysis clock, so a beat is reported when it is heard.
+     * Onsets, levels and sections are not delayed. May be called from any thread.
+     * @param seconds Latency, clamped to 0..1 s. 0 (the default) reports the analysis clock.
+     */
+    void SetOutputLatency(double seconds);
+
+    /**
+     * @brief Returns the output latency set with SetOutputLatency(), in seconds.
+     */
+    auto OutputLatency() const -> double;
+
+    /**
      * @brief Returns the values computed by the last Update() call.
      */
     auto Info() const -> const RhythmInfo&;
@@ -126,6 +143,7 @@ private:
     void AccumulateSectionFeatures(double hopSeconds);
     void EvaluateSectionNovelty();
     void SetTempoPeriod(double period);
+    void ReportClock(double dt);
     auto WindowRms() const -> float;
 
     // Short-time spectrum of the incoming audio.
@@ -182,6 +200,11 @@ private:
     double m_phase{0.0}; //!< 0..1 beat phase.
     double m_nextPhaseUpdate{0.0};
     std::uint64_t m_beatIndex{0};
+    bool m_clockBeatConfident{false}; //!< The analysis clock wrapped this frame while confident.
+
+    // Reported (latency-delayed) beat clock.
+    std::atomic<double> m_outputLatency{0.0};
+    std::int64_t m_reportedBeat{-1}; //!< Beat index last reported, -1 before the first beat.
 
     // Bars.
     std::array<float, BeatsPerBar> m_accent{}; //!< Average low-band accent per beat position.

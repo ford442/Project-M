@@ -117,6 +117,37 @@ export function callRhythm(transport, name, ...args) {
     transport.callVoid(name, ...args);
 }
 
+/** Largest output latency the engine compensates, ms (projectm_set_rhythm_latency()). */
+export const MAX_RHYTHM_LATENCY_MS = 1000;
+
+/**
+ * How long after the analysis tap the listener hears the audio, in ms: the
+ * AudioContext's output latency plus its base (processing) latency. 0 when the
+ * browser reports neither (Safari before 17 has no outputLatency).
+ *
+ * The worklet copies each render quantum into the PCM ring as it is played, and
+ * render_frame() drains the whole ring every frame, so the ring adds no delay of
+ * its own beyond the frame the analysis already accounts for.
+ *
+ * @param {{ outputLatency?: number, baseLatency?: number } | null | undefined} audioContext
+ * @returns {number}
+ */
+export function measureOutputLatencyMs(audioContext) {
+    if (!audioContext) {
+        return 0;
+    }
+    const seconds = (Number(audioContext.outputLatency) || 0) + (Number(audioContext.baseLatency) || 0);
+    return clampRhythmLatencyMs(seconds * 1000);
+}
+
+/**
+ * @param {number} ms
+ * @returns {number} ms clamped to 0..MAX_RHYTHM_LATENCY_MS, 0 for a non-number.
+ */
+export function clampRhythmLatencyMs(ms) {
+    return Number.isFinite(ms) ? Math.min(Math.max(ms, 0), MAX_RHYTHM_LATENCY_MS) : 0;
+}
+
 /**
  * `setPresetSwitchPolicy`'s wire arguments.
  *
@@ -141,10 +172,14 @@ export function presetSwitchPolicyArgs(policy, bars) {
  *   setPresetSwitchPolicy: (policy: ProjectMPresetSwitchPolicy, bars?: number) => void,
  *   setTransitionDurationBeats: (beats: number) => void,
  *   setRhythmHint: (bpm: number) => void,
+ *   setRhythmLatency?: (latency: number | 'auto', nudgeMs?: number) => number,
+ *   setPresetSwitchPhrase?: (bars: number) => void,
+ *   setSectionHardCut?: (enabled: boolean) => void,
  * }} controls
  */
 export function applyRhythmOptions(options, controls) {
     const { presetSwitchPolicy, presetSwitchBars, transitionBeats, rhythmHint } = options;
+    const { rhythmLatency, rhythmLatencyNudge, presetSwitchPhrase, sectionHardCut } = options;
     if (presetSwitchPolicy && presetSwitchPolicy !== 'timer') {
         controls.setPresetSwitchPolicy(presetSwitchPolicy, presetSwitchBars);
     }
@@ -153,6 +188,15 @@ export function applyRhythmOptions(options, controls) {
     }
     if (typeof rhythmHint === 'number' && rhythmHint > 0) {
         controls.setRhythmHint(rhythmHint);
+    }
+    if (rhythmLatency === 'auto' || (typeof rhythmLatency === 'number' && rhythmLatency > 0)) {
+        controls.setRhythmLatency?.(rhythmLatency, rhythmLatencyNudge ?? 0);
+    }
+    if (typeof presetSwitchPhrase === 'number' && presetSwitchPhrase > 1) {
+        controls.setPresetSwitchPhrase?.(presetSwitchPhrase);
+    }
+    if (sectionHardCut) {
+        controls.setSectionHardCut?.(true);
     }
 }
 

@@ -185,6 +185,91 @@ PROJECTM_EXPORT void projectm_set_hard_cut_on_beat(projectm_handle instance, boo
  */
 PROJECTM_EXPORT bool projectm_get_hard_cut_on_beat(projectm_handle instance);
 
+/**
+ * @brief Compensates the host's audio output latency in the beat clock.
+ *
+ * The beat clock locks to the audio as it is fed to projectM. When the listener hears that
+ * audio later (output latency of the audio device, buffering between the analysis tap and the
+ * speakers), set that delay here: the beat and bar phases, the beat index, the beat and bar
+ * events, and every switch scheduled on them, then run that much behind the analysis, so the
+ * visual beat matches the audible one. Onsets, levels and sections are not delayed.
+ *
+ * In a browser, the delay is about AudioContext.outputLatency + AudioContext.baseLatency.
+ *
+ * @param instance The projectM instance handle.
+ * @param milliseconds Latency in milliseconds, clamped to 0..1000. 0 (the default) turns it off.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_rhythm_latency(projectm_handle instance, double milliseconds);
+
+/**
+ * @brief Returns the output latency set with projectm_set_rhythm_latency(), in milliseconds.
+ * @param instance The projectM instance handle.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT double projectm_get_rhythm_latency(projectm_handle instance);
+
+/**
+ * @brief Quantises musical preset switches to phrases.
+ *
+ * With a phrase length set, a switch of the BARS or SECTION policy only lands on a downbeat
+ * that starts a phrase: every @p bars bars, counted from the first downbeat after the most
+ * recent section change (or from the start, before any). A switch may land up to bars - 1
+ * bars later than the policy alone would place it. Ignored by the TIMER policy.
+ *
+ * @param instance The projectM instance handle.
+ * @param bars Phrase length in bars, typically 4, 8 or 16. 0 or 1 turns it off (the default).
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_preset_switch_phrase(projectm_handle instance, uint32_t bars);
+
+/**
+ * @brief Returns the phrase length set with projectm_set_preset_switch_phrase(), 0 if off.
+ * @param instance The projectM instance handle.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT uint32_t projectm_get_preset_switch_phrase(projectm_handle instance);
+
+/**
+ * @brief Requests a hard cut ("drop" cut) on each detected section change.
+ *
+ * When enabled and the tempo is known, a section change requests the next preset with a hard
+ * cut at once, and the cut lands on the following downbeat (see "Switches land on the
+ * downbeat" below). Applies with every switch policy; hard cut timing limits
+ * (projectm_set_hard_cut_duration()) still apply. A locked preset never switches.
+ *
+ * @param instance The projectM instance handle.
+ * @param enabled true to cut on section changes. Default false.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_section_hard_cut(projectm_handle instance, bool enabled);
+
+/**
+ * @brief Returns whether section changes request hard cuts.
+ * @param instance The projectM instance handle.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT bool projectm_get_section_hard_cut(projectm_handle instance);
+
+/*
+ * Switches land on the downbeat.
+ *
+ * With the BARS or SECTION policy and a known tempo, projectm_preset_switch_requested_event
+ * fires about one bar before the downbeat the switch is due on (for a section change, as soon
+ * as it is detected). The next preset the host loads is then held: it is initialized at once,
+ * keeps the current preset rendering, and is switched to on the downbeat frame itself. If it
+ * is not ready (its shaders still linking) by then, it waits for the next downbeat. The hold is
+ * dropped as soon as the tempo is lost, and does not apply to a load more than three bars
+ * after the request. projectm_preset_is_held_for_downbeat() reports it.
+ */
+
+/**
+ * @brief Returns true while a loaded preset is ready (or linking) but held for the next downbeat.
+ * @param instance The projectM instance handle.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT bool projectm_preset_is_held_for_downbeat(projectm_handle instance);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

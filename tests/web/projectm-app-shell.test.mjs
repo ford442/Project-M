@@ -194,6 +194,10 @@ test('render config: governor, mesh quality and musical scheduling', () => {
     assert.equal(defaults.meshQuality, 'low', 'auto picks low on a 2-core machine');
     assert.equal(defaults.presetSwitchPolicy, 'timer');
     assert.equal(defaults.presetSwitchBars, 16);
+    assert.equal(defaults.rhythmLatency, 'auto');
+    assert.equal(defaults.rhythmLatencyNudge, 0);
+    assert.equal(defaults.presetSwitchPhrase, 0);
+    assert.equal(defaults.sectionHardCut, false);
 
     const tuned = resolveRenderConfig(new URLSearchParams('targetFps=30&governor=0&switchOn=bars&switchBars=32&transitionBeats=1&bpm=128&rhythmDebug=1'), null, 8);
     assert.equal(tuned.targetFps, 30);
@@ -204,6 +208,14 @@ test('render config: governor, mesh quality and musical scheduling', () => {
     assert.equal(tuned.transitionBeats, 1);
     assert.equal(tuned.rhythmHint, 128);
     assert.equal(tuned.rhythmDebug, true);
+
+    const musical = resolveRenderConfig(new URLSearchParams('rhythmLatency=35&rhythmNudge=-10&switchPhrase=8&dropCut=1'), null, 4);
+    assert.equal(musical.rhythmLatency, 35);
+    assert.equal(musical.rhythmLatencyNudge, -10);
+    assert.equal(musical.presetSwitchPhrase, 8);
+    assert.equal(musical.sectionHardCut, true);
+    assert.equal(resolveRenderConfig(new URLSearchParams('rhythmLatency=0'), null, 4).rhythmLatency, 0);
+    assert.equal(resolveRenderConfig(new URLSearchParams(''), fakeStorage({ rhythmLatencyNudge: '12' }), 4).rhythmLatencyNudge, 12);
 
     assert.equal(resolveRenderConfig(new URLSearchParams(''), fakeStorage({ targetFps: '45', meshQuality: 'high' }), 1).targetFps, 45);
 });

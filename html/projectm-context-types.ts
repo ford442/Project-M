@@ -342,6 +342,18 @@ export interface ProjectMContextOptions {
     transitionBeats?: number;
     /** A known tempo (BPM) instead of the estimate, e.g. from track metadata. */
     rhythmHint?: number;
+    /**
+     * Audio output latency the beat clock compensates, in ms, or `'auto'` to
+     * measure it from the AudioContext (re-measured every few seconds, since
+     * the browser only knows it once audio runs). Default 0.
+     */
+    rhythmLatency?: number | 'auto';
+    /** Added to the measured latency in `'auto'` mode ("tap to align"), ms. */
+    rhythmLatencyNudge?: number;
+    /** Quantise bar/section switches to phrases of this many bars (4, 8, 16). Default 0: off. */
+    presetSwitchPhrase?: number;
+    /** Hard cut on the first downbeat after each detected section change. */
+    sectionHardCut?: boolean;
     audioSource?: ProjectMAudioSource;
     /** HTMLMediaElement or CSS selector when `audioSource` is `element`. */
     audioElement?: HTMLMediaElement | string;

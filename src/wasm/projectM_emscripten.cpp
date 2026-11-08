@@ -226,6 +226,18 @@ static void ReapplyEngineSettings(WasmHost& host)
     {
         projectm_set_hard_cut_on_beat(pm, *settings.hardCutOnBeat);
     }
+    if (settings.rhythmLatencyMs)
+    {
+        projectm_set_rhythm_latency(pm, *settings.rhythmLatencyMs);
+    }
+    if (settings.presetSwitchPhrase)
+    {
+        projectm_set_preset_switch_phrase(pm, *settings.presetSwitchPhrase);
+    }
+    if (settings.sectionHardCut)
+    {
+        projectm_set_section_hard_cut(pm, *settings.sectionHardCut);
+    }
     if (settings.flashLimitThreshold)
     {
         projectm_set_flash_limit_threshold(pm, *settings.flashLimitThreshold);

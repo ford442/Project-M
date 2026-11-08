@@ -164,3 +164,106 @@ TEST(PresetSwitchScheduler, SoftCutDurationInBeatsFallsBackToSeconds)
     EXPECT_DOUBLE_EQ(PresetSwitchScheduler::SoftCutDuration(3.0, 2.0, 120.0f), 1.0);
     EXPECT_DOUBLE_EQ(PresetSwitchScheduler::SoftCutDuration(3.0, 4.0, 0.0f), 3.0) << "tempo unknown";
 }
+
+TEST(PresetSwitchScheduler, BarsPolicyAsksOneBarAheadOfTheSwitch)
+{
+    PresetSwitchScheduler scheduler;
+    scheduler.SetPolicy(Policy::Bars, 4);
+    scheduler.PresetStarted();
+
+    int aheadOnBar = -1;
+    for (int bar = 1; bar <= 4; bar++)
+    {
+        const auto downbeat = Frame(true, true);
+        const double time = 2.0 * bar;
+        scheduler.Observe(downbeat, time);
+        if (scheduler.SwitchDueNextBar(downbeat, time, kDuration, false))
+        {
+            EXPECT_FALSE(scheduler.SwitchDue(downbeat, time, kDuration, false));
+            aheadOnBar = bar;
+            break;
+        }
+    }
+    // The switch is due on the fourth downbeat: ask on the third.
+    EXPECT_EQ(aheadOnBar, 3);
+    // Mid-bar frames never ask ahead.
+    EXPECT_FALSE(scheduler.SwitchDueNextBar(Frame(), 6.5, kDuration, false));
+}
+
+TEST(PresetSwitchScheduler, NeverAsksAheadWithoutATempoOrOnTheTimer)
+{
+    PresetSwitchScheduler scheduler;
+    scheduler.SetPolicy(Policy::Bars, 1);
+    auto unknown = Unknown();
+    unknown.bar = true;
+    EXPECT_FALSE(scheduler.SwitchDueNextBar(unknown, 1.0, kDuration, false));
+
+    scheduler.SetPolicy(Policy::Timer, 0);
+    EXPECT_FALSE(scheduler.SwitchDueNextBar(Frame(true, true), 1.0, kDuration, false));
+}
+
+TEST(PresetSwitchScheduler, SectionChangeAsksForTheComingDownbeatAtOnce)
+{
+    PresetSwitchScheduler scheduler;
+    scheduler.SetPolicy(Policy::Section, 2);
+    scheduler.PresetStarted();
+    for (int bar = 1; bar <= 2; bar++)
+    {
+        scheduler.Observe(Frame(true, true), 2.0 * bar);
+    }
+    auto section = Frame(false, false, true);
+    section.barPhase = 0.5f;
+    scheduler.Observe(section, 5.0);
+    EXPECT_FALSE(scheduler.SwitchDue(section, 5.0, kDuration, false));
+    EXPECT_TRUE(scheduler.SwitchDueNextBar(section, 5.0, kDuration, false));
+}
+
+TEST(PresetSwitchScheduler, PhraseQuantisationDelaysTheSwitchToThePhraseStart)
+{
+    PresetSwitchScheduler scheduler;
+    scheduler.SetPolicy(Policy::Bars, 3);
+    scheduler.SetPhraseBars(4);
+    EXPECT_EQ(scheduler.PhraseBars(), 4U);
+
+    // A section change before bar 1 puts the phrase origin on bar 1 (phrase bars 0, 4, 8...).
+    scheduler.Observe(Frame(false, false, true), 0.5);
+    scheduler.PresetStarted();
+
+    int switchedOnBar = -1;
+    int aheadOnBar = -1;
+    for (int bar = 1; bar <= 12 && switchedOnBar < 0; bar++)
+    {
+        const auto downbeat = Frame(true, true);
+        const double time = 2.0 * bar;
+        scheduler.Observe(downbeat, time);
+        if (aheadOnBar < 0 && scheduler.SwitchDueNextBar(downbeat, time, kDuration, false))
+        {
+            aheadOnBar = bar;
+        }
+        if (scheduler.SwitchDue(downbeat, time, kDuration, false))
+        {
+            switchedOnBar = bar;
+        }
+    }
+    // Three bars in would be bar 3, but the next phrase starts on bar 5 (phrase bar 4).
+    EXPECT_EQ(switchedOnBar, 5);
+    EXPECT_EQ(aheadOnBar, 4);
+}
+
+TEST(PresetSwitchScheduler, PhraseOfOneBarIsOff)
+{
+    PresetSwitchScheduler scheduler;
+    scheduler.SetPhraseBars(1);
+    EXPECT_EQ(scheduler.PhraseBars(), 0U);
+}
+
+TEST(PresetSwitchScheduler, DropCutOnSectionChangeWhileTheTempoIsKnown)
+{
+    PresetSwitchScheduler scheduler;
+    EXPECT_FALSE(scheduler.DropCutDue(Frame(false, false, true)));
+    scheduler.SetSectionHardCut(true);
+    EXPECT_TRUE(scheduler.SectionHardCut());
+    EXPECT_TRUE(scheduler.DropCutDue(Frame(false, false, true)));
+    EXPECT_FALSE(scheduler.DropCutDue(Frame(true, true)));
+    EXPECT_FALSE(scheduler.DropCutDue(Unknown(true)));
+}

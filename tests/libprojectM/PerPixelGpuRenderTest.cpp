@@ -827,7 +827,7 @@ TEST_F(PerPixelGpuRenderTest, RhythmVariablesReachEveryCodePath)
  * Rendered through the C API with audio fed every frame, the way a host drives it: an
  * accented kick every beat at 120 BPM. Lives in this suite for its shared GL context.
  */
-TEST_F(PerPixelGpuRenderTest, BarsPolicyRequestsTheSwitchOnADownbeat)
+TEST_F(PerPixelGpuRenderTest, BarsPolicyRequestsTheSwitchOneBarAheadOnADownbeat)
 {
     constexpr double kSampleRate = 44100.0;
     constexpr double kBpm = 120.0;
@@ -907,7 +907,9 @@ TEST_F(PerPixelGpuRenderTest, BarsPolicyRequestsTheSwitchOnADownbeat)
 
     ASSERT_GE(requestFrame, 0) << "no switch was requested in " << kFrames / 60 << " s";
     EXPECT_TRUE(requestOnDownbeat) << "requested at frame " << requestFrame << ", not on a downbeat";
-    EXPECT_EQ(barsBeforeRequest, static_cast<int>(kBars)) << "the request came on the downbeat completing the bars";
+    // The request comes one bar early, on the downbeat before the one completing the bars;
+    // the preset loaded in answer is held for that downbeat (BeatLockedSwitchTest).
+    EXPECT_EQ(barsBeforeRequest, static_cast<int>(kBars) - 1) << "the request came one bar ahead of the downbeat completing the bars";
     EXPECT_EQ(requests.count, 1);
 }
 

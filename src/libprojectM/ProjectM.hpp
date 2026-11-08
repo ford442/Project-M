@@ -327,6 +327,32 @@ public:
     auto HardCutOnBeat() const -> bool;
 
     /**
+     * @brief Delays the reported beat clock by the host's output latency. See projectm_set_rhythm_latency().
+     */
+    void SetRhythmLatency(double seconds);
+
+    auto RhythmLatency() const -> double;
+
+    /**
+     * @brief Quantises musical switches to phrases of @p bars bars. See projectm_set_preset_switch_phrase().
+     */
+    void SetPresetSwitchPhrase(uint32_t bars);
+
+    auto PresetSwitchPhrase() const -> uint32_t;
+
+    /**
+     * @brief Hard cut on the first downbeat after a section change. See projectm_set_section_hard_cut().
+     */
+    void SetSectionHardCut(bool enabled);
+
+    auto SectionHardCut() const -> bool;
+
+    /**
+     * @brief True while a loaded preset is ready but held for the next downbeat.
+     */
+    auto PresetHeldForDownbeat() const -> bool;
+
+    /**
      * @brief Returns the current frames per second value.
      * @return The current frames per second value.
      */
@@ -575,7 +601,20 @@ private:
         std::unique_ptr<Preset> preset; //!< The initialized preset.
         bool hardCut{false};            //!< Switch with a hard cut.
         std::string filename;           //!< For the preset switch failed event.
+        bool holdForDownbeat{false};    //!< Requested ahead of a musical switch: switch on the next downbeat.
     };
+
+    /**
+     * @brief Requests the next preset now if a musical switch is due on the coming downbeat,
+     *        or a drop cut on a section change, and arms the downbeat hold for the load.
+     * @return True if a switch was requested.
+     */
+    auto RequestSwitchAhead(double presetSeconds) -> bool;
+
+    /**
+     * @brief Switches to a preset held for the downbeat, if this frame is one and it is ready.
+     */
+    void ReleaseHeldPreset();
 
     void LoadIdlePreset();
 
@@ -649,6 +688,8 @@ private:
     std::unique_ptr<Renderer::FlashLimiter> m_flashLimiter;                       //!< Opt-in temporal flash limiter applied before present.
     std::unique_ptr<Preset> m_activePreset;                                       //!< Currently loaded preset.
     std::unique_ptr<Preset> m_transitioningPreset;                                //!< Destination preset when smooth preset switching.
+    bool m_switchHoldArmed{false};       //!< The next load was requested ahead of a downbeat.
+    std::uint64_t m_switchHoldBeat{0};   //!< Beat index when the hold was armed.
     std::unique_ptr<PendingPreset> m_pendingPreset;                               //!< Next preset, while its shader programs link.
     bool m_parallelShaderCompileSupported{false};                                 //!< The GL context supports KHR_parallel_shader_compile.
     double m_lastOfflineFrameTime{0.0};                                           //!< RenderOfflineFrame() refuses earlier times.

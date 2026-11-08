@@ -5,6 +5,7 @@
 #include "PresetPrepareJob.hpp"
 #include "Renderer/Platform/GladLoader.hpp"
 
+#include <cmath>
 #include <projectM-4/projectM.h>
 
 #include <Logging.hpp>
@@ -838,6 +839,55 @@ bool projectm_get_hard_cut_on_beat(projectm_handle instance)
     return CApiGuard(__func__, false, [&]() -> bool {
         auto* projectMInstance = &Instance(instance);
         return projectMInstance->HardCutOnBeat();
+    });
+}
+
+void projectm_set_rhythm_latency(projectm_handle instance, double milliseconds)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).SetRhythmLatency(std::isfinite(milliseconds) ? milliseconds / 1000.0 : 0.0);
+    });
+}
+
+double projectm_get_rhythm_latency(projectm_handle instance)
+{
+    return CApiGuard(__func__, 0.0, [&]() -> double {
+        return Instance(instance).RhythmLatency() * 1000.0;
+    });
+}
+
+void projectm_set_preset_switch_phrase(projectm_handle instance, uint32_t bars)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).SetPresetSwitchPhrase(bars);
+    });
+}
+
+uint32_t projectm_get_preset_switch_phrase(projectm_handle instance)
+{
+    return CApiGuard(__func__, 0U, [&]() -> uint32_t {
+        return Instance(instance).PresetSwitchPhrase();
+    });
+}
+
+void projectm_set_section_hard_cut(projectm_handle instance, bool enabled)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).SetSectionHardCut(enabled);
+    });
+}
+
+bool projectm_get_section_hard_cut(projectm_handle instance)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        return Instance(instance).SectionHardCut();
+    });
+}
+
+bool projectm_preset_is_held_for_downbeat(projectm_handle instance)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        return Instance(instance).PresetHeldForDownbeat();
     });
 }
 

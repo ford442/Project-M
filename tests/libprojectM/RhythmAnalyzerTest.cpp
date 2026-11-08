@@ -102,6 +102,7 @@ struct RunOptions {
     double fps{60.0};
     double frameJitter{0.0}; //!< Relative random variation of each frame duration.
     float tempoHint{0.0f};
+    double latency{0.0}; //!< Output latency compensated by the beat clock, seconds.
     unsigned seed{7};
 };
 
@@ -113,6 +114,7 @@ auto Analyze(const std::vector<float>& signal, const RunOptions& options = {}) -
     {
         pcm.SetRhythmHint(options.tempoHint);
     }
+    pcm.SetRhythmLatency(options.latency);
 
     std::mt19937 random(options.seed);
     std::uniform_real_distribution<double> frameJitter(-options.frameJitter, options.frameJitter);
@@ -283,6 +285,65 @@ INSTANTIATE_TEST_SUITE_P(ClickTracks, RhythmTempoTest,
                                            TempoCase{120.0, 0.62, 0.005},
                                            TempoCase{128.0, 0.5, 0.005},
                                            TempoCase{174.0, 0.6, 0.005}));
+
+/**
+ * Output latency: the listener hears the audio @c latency after it is analyzed, so the beat
+ * the clock reports (and every beat and bar event) must land that much after the beat in the
+ * signal, within one frame.
+ */
+class RhythmLatencyTest : public ::testing::TestWithParam<double>
+{
+};
+
+TEST_P(RhythmLatencyTest, BeatEventsLandOnTheAudibleBeat)
+{
+    const double bpm = GetParam();
+    constexpr double duration = 16.0;
+    constexpr double warmup = 5.0;
+    constexpr double firstBeat = 0.137;
+    constexpr double latency = 0.085;
+    constexpr double fps = 60.0;
+
+    std::mt19937 random(static_cast<unsigned>(bpm));
+    std::vector<float> signal(static_cast<size_t>(duration * kSampleRate), 0.0f);
+    RenderPattern(signal, {bpm, firstBeat, duration, 0.0, 0.0, true}, random);
+
+    RunOptions options;
+    options.latency = latency;
+    const auto frames = Analyze(signal, options);
+
+    const auto errors = PhaseErrors(PredictedBeats(frames, warmup), firstBeat + latency, bpm);
+    ASSERT_GE(errors.size(), static_cast<size_t>((duration - warmup) * bpm / 60.0) - 1);
+    EXPECT_LT(MeanAbsolute(errors), 0.010) << Trace(frames);
+
+    // Every beat event is on the frame nearest the audible beat, give or take one frame.
+    const double period = 60.0 / bpm;
+    int events = 0;
+    for (const auto& frame : frames)
+    {
+        if (frame.time < warmup || !frame.info.beat)
+        {
+            continue;
+        }
+        events++;
+        const double position = (frame.time - firstBeat - latency) / period;
+        const double error = (position - std::round(position)) * period;
+        EXPECT_LE(std::fabs(error), 1.5 / fps) << "beat event at " << frame.time;
+    }
+    EXPECT_GE(events, static_cast<int>((duration - warmup) * bpm / 60.0) - 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(ClickTracks, RhythmLatencyTest, ::testing::Values(120.0, 128.0, 174.0));
+
+TEST(RhythmAnalyzer, LatencyIsClampedAndDefaultsToZero)
+{
+    RhythmAnalyzer analyzer;
+    EXPECT_EQ(analyzer.OutputLatency(), 0.0);
+    analyzer.SetOutputLatency(5.0);
+    EXPECT_EQ(analyzer.OutputLatency(), 1.0);
+    analyzer.SetOutputLatency(-1.0);
+    EXPECT_EQ(analyzer.OutputLatency(), 0.0);
+}
 
 TEST(RhythmAnalyzer, ConvergesAfterTempoChange)
 {

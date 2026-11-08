@@ -93,6 +93,13 @@ public:
     auto RhythmHint() const -> float;
 
     /**
+     * @brief Delays the reported beat clock by the output latency. See RhythmAnalyzer::SetOutputLatency().
+     */
+    void SetRhythmLatency(double seconds);
+
+    auto RhythmLatency() const -> double;
+
+    /**
      * @brief Returns a class holding a copy of the current frame audio data.
      * @return A FrameAudioData class with waveform, spectrum and other derived values.
      */

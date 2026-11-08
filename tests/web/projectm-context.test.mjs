@@ -521,7 +521,19 @@ test('rhythm controls map to the engine ops and skip a bundle without them', asy
     context.setRhythmHint(174);
     context.setRhythmHint(Number.NaN);
     context.setHardCutOnBeat(true);
-    assert.deepEqual(transport.calls, [
+    assert.equal(context.setRhythmLatency(40), 40);
+    assert.equal(context.setRhythmLatency(5000), 1000);
+    context.setPresetSwitchPhrase(8);
+    context.setPresetSwitchPhrase(1);
+    context.setSectionHardCut(true);
+    globalThis.projectMAudioContext_Global_Cpp = { outputLatency: 0.03, baseLatency: 0.01 };
+    try {
+        assert.ok(Math.abs(context.setRhythmLatency('auto', 5) - 45) < 1e-9);
+    } finally {
+        delete globalThis.projectMAudioContext_Global_Cpp;
+    }
+    assert.equal(context.setRhythmLatency('auto'), 0);
+    assert.deepEqual(transport.calls.slice(0, 7), [
         ['setPresetSwitchPolicy', 1, 32],
         ['setPresetSwitchPolicy', 2, 16],
         ['transitionSetDurationBeats', 2],
@@ -530,6 +542,16 @@ test('rhythm controls map to the engine ops and skip a bundle without them', asy
         ['setRhythmHint', 0],
         ['setHardCutOnBeat', true],
     ]);
+    assert.deepEqual(transport.calls.slice(7, 12), [
+        ['setRhythmLatencyMs', 40],
+        ['setRhythmLatencyMs', 1000],
+        ['setPresetSwitchPhrase', 8],
+        ['setPresetSwitchPhrase', 0],
+        ['setSectionHardCut', true],
+    ]);
+    assert.equal(transport.calls[12][0], 'setRhythmLatencyMs');
+    assert.ok(Math.abs(Number(transport.calls[12][1]) - 45) < 1e-9);
+    assert.deepEqual(transport.calls[13], ['setRhythmLatencyMs', 0]);
     assert.throws(() => context.setPresetSwitchPolicy(/** @type {any} */ ('phrase')), RangeError);
 
     assert.deepEqual(await context.getRhythmInfo(), {

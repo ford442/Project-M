@@ -195,6 +195,9 @@ comp_5=`}
   Without the bridge (no `?experimental=1`) the texture is the engine's black placeholder.
 - `presets/experimental/depth_sampler_demo.milk` uses it in both shaders.
 
+Real-time sources (a camera, a video) do not go through this PNG/VFS path: they use live
+textures, which take a frame per call without any file — see [`LIVE_INPUT.md`](LIVE_INPUT.md).
+
 When the bridge writes a new map it calls `reload_texture('pm_depth_map')`
 (`projectm_reload_texture()` in `projectM-4/texture_reload.h`), which re-decodes the file into
 the texture already bound, at its new size, so the running preset needs no reload.

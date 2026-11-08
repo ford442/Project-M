@@ -116,6 +116,12 @@ the WebGPU port does not discover them one preset at a time.
   unit the current program samples holds a texture attached to the draw target.
   It also flags blits and `CopyToBoundTexture()` that read the texture they write.
   A texture bound on a unit nothing samples is not a hazard.
+- `scripts/hazard_inventory.sh <projectm-render> <out-dir> [preset-dir...]` renders every
+  preset in `presets/tests`, `presets/custom` and `presets/weeks` with validation on and
+  writes `hazards.json` / `hazards.md` (distinct hazards per preset, grouped by kind).
+  `hazard_inventory.yml` runs it on every PR and on `main` and uploads the result as the
+  `hazard-inventory` artifact. It reports and does not gate; `HAZARD_FAIL_ON_HAZARD=1`
+  makes it fail on any hazard.
 - Each hazard is counted (`HazardCount()`). Each distinct one is logged once at
   warning level as `[RenderDevice] Feedback hazard: ...` and kept in
   `HazardMessages()` (up to 32).

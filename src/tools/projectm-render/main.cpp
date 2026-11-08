@@ -48,6 +48,7 @@ struct Options
     double duration{-1.0};
     uint32_t seed{0};
     bool hash{false};
+    bool log{false};
 };
 
 void PrintUsage()
@@ -63,6 +64,7 @@ void PrintUsage()
                  "  --texture-path DIR where presets find their textures\n"
                  "  --output FILE      write raw RGBA frames, bottom row first ('-' for stdout)\n"
                  "  --hash             print a hash of all frames\n"
+                 "  --log              print the engine's warnings and errors to stderr\n"
                  "Example: projectm-render --preset a.milk --audio song.flac --output - |\n"
                  "  ffmpeg -f rawvideo -pix_fmt rgba -s 1280x720 -r 60 -i - -vf vflip out.mp4\n");
 }
@@ -75,6 +77,11 @@ auto ParseOptions(int argc, char** argv, Options& options) -> bool
         if (arg == "--hash")
         {
             options.hash = true;
+            continue;
+        }
+        if (arg == "--log")
+        {
+            options.log = true;
             continue;
         }
         if (i + 1 >= argc)
@@ -135,6 +142,11 @@ auto ParseOptions(int argc, char** argv, Options& options) -> bool
         return false;
     }
     return true;
+}
+
+void LogToStderr(const char* message, projectm_log_level level, void* /*userData*/)
+{
+    std::fprintf(stderr, "projectm: [%s] %s\n", level >= PROJECTM_LOG_LEVEL_ERROR ? "error" : "warn", message);
 }
 
 /// Decoded audio, interleaved stereo float.
@@ -386,6 +398,11 @@ int main(int argc, char** argv)
     {
         std::fprintf(stderr, "projectm-render: projectm_create() failed\n");
         return 1;
+    }
+    if (options.log)
+    {
+        projectm_set_instance_log_callback(instance, &LogToStderr, nullptr);
+        projectm_set_instance_log_level(instance, PROJECTM_LOG_LEVEL_WARN);
     }
     projectm_set_seed(instance, options.seed);
     projectm_set_window_size(instance, static_cast<size_t>(options.width), static_cast<size_t>(options.height));

@@ -28,6 +28,11 @@ import { createWorkerTransport, selectRenderTopology } from '../../html/projectm
 
 const WORKER_PATH = fileURLToPath(new URL('../../html/projectm-render-worker.js', import.meta.url));
 const WORKER_SOURCE = readFileSync(WORKER_PATH, 'utf8');
+// The parts the entry importScripts() from html/worker/, by the URL it asks for.
+const WORKER_PARTS = new Map(['engine-hooks.js', 'pcm-ring.js', 'capture.js'].map((name) => {
+    const path = fileURLToPath(new URL(`../../html/worker/${name}`, import.meta.url));
+    return [`./worker/${name}`, { path, source: readFileSync(path, 'utf8') }];
+}));
 
 const HEADER_PTR = 16;
 const DATA_PTR = 32;
@@ -121,7 +126,14 @@ function connectedWorker(module) {
         OffscreenCanvas: class {},
         // Onto `self`: in a worker that IS the global, and it is where the
         // worker reads the factory from (see getCreateModule() there).
-        importScripts: () => { workerSelf.createModule = async () => module; },
+        importScripts: (...urls) => {
+            const glue = urls.filter((url) => {
+                const part = WORKER_PARTS.get(url);
+                if (part) vm.runInContext(part.source, sandbox, { filename: part.path });
+                return !part;
+            });
+            if (glue.length) workerSelf.createModule = async () => module;
+        },
     };
     vm.createContext(sandbox);
     vm.runInContext(WORKER_SOURCE, sandbox, { filename: WORKER_PATH });

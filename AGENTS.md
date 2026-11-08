@@ -402,6 +402,9 @@ The CI builds both `Debug` and `Release` configurations and runs `ctest` for eac
 
 ### Browser host-layer tests (`tests/web/`)
 
+Ownership rules (canvas size, audio players, globals), the z-index scale and the
+TypeScript strategy for `html/` are in [`docs/HOST_LAYER.md`](docs/HOST_LAYER.md).
+
 `html/` (the browser host modules) and `packages/web/` (the publishable embed
 SDK) are an npm workspace rooted at the repo's own `package.json`. From the
 repo root:
@@ -425,8 +428,11 @@ ESLint is type-aware: each file group is parsed with the tsconfig program that
 type-checks it, so the set of linted files and the set of type-checked files is
 the same. The rules are the ones the host layer was bitten by:
 `no-floating-promises`, `no-misused-promises`, `require-await`,
-`no-unused-vars`, plus two `no-restricted-syntax` bans — assigning `window.*`
-anywhere but `projectm-globals.js` (publish through `claimGlobal()`), and
+`no-unused-vars`, plus two `no-restricted-syntax` bans — assigning
+`window.*`/`globalThis.*`/`self.*`/`windowRef.*` anywhere but
+`projectm-globals.js` and the FLAC player's own page (publish through
+`claimGlobal()`; a slot the engine glue reads by name gets an `OWNED_GLOBALS`
+entry in `scripts/check_host_globals.sh` and a disable comment), and
 `innerHTML`/`outerHTML` from anything but a constant string. A justified
 exception carries an `eslint-disable-next-line` with the reason; an unused
 disable is itself an error. `scripts/check_host_globals.sh` is the name-aware
@@ -564,6 +570,7 @@ GitHub Actions workflows are in `.github/workflows/`:
 - `push_release.yml` — Release artifact publishing
 - `upstream_sync_reminder.yml` — monthly upstream drift report + tracking issue (see [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md))
 - `web_lint_gate.yml` — ESLint + Prettier + typecheck over the browser host layer; no `paths:` filter, meant to be required
+- `hazard_inventory.yml` — renders every preset corpus with `PROJECTM_DEVICE_VALIDATION=1` (`scripts/hazard_inventory.sh`) and uploads the feedback-hazard list (the WebGPU risk list, #315 B0); report-only
 
 Conventions shared by the push/PR workflows:
 - Each has a `concurrency` group per workflow + ref: a newer push to a branch or PR cancels the

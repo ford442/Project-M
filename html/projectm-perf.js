@@ -11,7 +11,7 @@
 //   projectm-perf-crossfade.js     the crossfade benchmark's transition pump
 //   projectm-perf-preset-switch.js the preset-switch (shader cache) benchmark
 
-import { loadPresetFile, setPerfHud } from './generated/projectm-wasm-api.js';
+import { getGovernorRenderScale, getQualityTier, loadPresetFile, setPerfHud } from './generated/projectm-wasm-api.js';
 import { FORMAT_NAMES } from './projectm-fbo-format.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 import { setHudVisible, updateHud } from './projectm-perf-hud.js';
@@ -76,7 +76,11 @@ export { setHudVisible };
  * @property {(path: string) => void} loadPreset
  * @property {() => string | null} fboFormat
  * @property {() => OpenmpInfo} openmp
+ * @property {() => GovernorState | null} governor The quality governor's tier
+ *   and render scale, for the HUD; null when the bundle does not report them.
  */
+
+/** @typedef {import('./projectm-perf-hud.js').GovernorState} GovernorState */
 
 /**
  * One perf controller per engine: running setup again for the same module or
@@ -112,6 +116,14 @@ export function setupPerfTools(Module) {
         loadPreset: (path) => loadPresetFile(Module, path),
         fboFormat: () => readFboFormat(Module),
         openmp: () => collectOpenmpInfo(Module),
+        governor: () =>
+            typeof Module._get_quality_tier === 'function'
+                ? {
+                      tier: getQualityTier(Module),
+                      renderScale:
+                          typeof Module._get_governor_render_scale === 'function' ? getGovernorRenderScale(Module) : 1,
+                  }
+                : null,
     });
 }
 
@@ -166,6 +178,12 @@ export function setupTransportPerfTools(transport) {
             return typeof index === 'number' && index >= 0 ? (FORMAT_NAMES[index] || 'RGBA8') : null;
         },
         openmp: () => openmp,
+        governor: () => {
+            const stats = handle?.getLastStats();
+            return stats && typeof stats.qualityTier === 'number'
+                ? { tier: stats.qualityTier, renderScale: Number(stats.renderScale) || 1 }
+                : null;
+        },
     });
 }
 
@@ -205,7 +223,7 @@ function startPerfTools(source) {
 
     const unsubscribeHudToggle = source.onPerfHudEnabled(setHudVisible);
     const unsubscribeFrames = source.onPerfFrame((stats) => {
-        updateHud(stats, source.topology);
+        updateHud(stats, source.topology, source.governor);
 
         if (samples && !benchmarkDone && (!crossfadeBench || crossfadeActive(Module))) {
             // Bound locally so the narrowing survives into the closure below.

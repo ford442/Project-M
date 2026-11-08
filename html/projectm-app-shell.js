@@ -22,22 +22,14 @@
 // the engine exists hangs off the shell; everything that needs the engine is
 // handed to ProjectMContext#own(), so it goes when the context does.
 
-import { createPopupAudioPlayerController, createSectionAudioPlayerController } from './projectm-audio-player.js';
+import { createAudioPlayerController } from './projectm-audio-player.js';
 import { ensureAudioRunning } from './projectm-audio-bootstrap.js';
 import { createAudioSourceRouter } from './projectm-audio-source-router.js';
 import { setupShellUi } from './projectm-app-shell-ui.js';
 import { createBezel } from './projectm-bezel.js';
-import { PRESET_SWITCH_FAILED, ProjectMContext } from './projectm-context.js';
+import { ProjectMContext } from './projectm-context.js';
 import { createDisposables } from './projectm-disposables.js';
-import { setupExperimentalBridge } from './projectm-experimental-bridge.js';
-import {
-    defaultFeedPCMToModule,
-    feedPCMToModule,
-    flushQueuedExternalPCM,
-    setupExternalAudioReceiver,
-} from './projectm-external-pcm.js';
-import { setupFboFormatIndicator, setupWorkerFboFormatIndicator } from './projectm-fbo-format.js';
-import { setupFpsGovernor } from './projectm-fps-governor.js';
+import { defaultFeedPCMToModule, setupExternalAudioReceiver } from './projectm-external-pcm.js';
 import { claimGlobal } from './projectm-globals.js';
 import {
     buildWasmBundlePaths,
@@ -45,69 +37,41 @@ import {
     resolveSelectedWasmVersion,
 } from './projectm-init.js';
 import { checkCrossOriginIsolation, setupInitErrorHandling } from './projectm-init-errors.js';
-import {
-    exposeAudioPlayerGlobals,
-    exposeExperimentalGlobals,
-    exposeFboFormatGlobals,
-    exposeGovernorGlobals,
-    exposeMeshQualityGlobals,
-    exposePresetDevGlobals,
-    patchBroadcastChannel,
-} from './projectm-legacy-globals.js';
-import { setupMeshQuality } from './projectm-mesh-quality.js';
-import { createPcmTestSender } from './projectm-pcm-test-sender.js';
-import { installHostPcmRingWriter } from './projectm-pcm-ring.js';
-import { setupPerfTools, setupTransportPerfTools } from './projectm-perf.js';
-import { setupPresetDevTools } from './projectm-preset-dev.js';
+import { exposeAudioPlayerGlobals, patchBroadcastChannel } from './projectm-legacy-globals.js';
 import { setupPresetPicker } from './projectm-preset-picker.js';
-import {
-    getConfiguredPresetApiBase,
-    LOCAL_PRESET_LAST_NAME_KEY,
-    loadLocalPresetFile,
-    loadRandomApiPreset,
-    loadStartupApiPresets,
-    updatePresetDisplay,
-} from './projectm-presets.js';
-import { setupAudioTestPanel } from './projectm-synthetic-audio.js';
+import { updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 import { loadWasmBuildsManifest } from './projectm-wasm-manifest.js';
 import { getSelectableWasmVersions } from './projectm-wasm-version.js';
 import { ensureWorkletReady } from './projectm-worklet-playback.js';
+import { applyWeeksOnFireDomConfig, isWeeksOnFireMode, wireFlacDecoderBridge } from './projectm-weeks-on-fire.js';
 import {
-    applyWeeksOnFireDomConfig,
-    isWeeksOnFireMode,
-    startWeeksOnFire,
-    wireFlacDecoderBridge,
-} from './projectm-weeks-on-fire.js';
-import { bundleScansAssets, loadPageTextures } from './projectm-textures.js';
-import { addPresetFile, loadPresetFile } from './generated/projectm-wasm-api.js';
+    LOCK_STORAGE_KEY,
+    readStorage,
+    resolveShellProfile,
+    TRANSPARENCY_STORAGE_KEY,
+    TRANSPARENCY_THRESHOLD,
+    writeStorage,
+} from './app-shell/config.js';
+import { setupShellDevPanels } from './app-shell/dev-tools.js';
+import { buildContextOptions, wireStartedContext } from './app-shell/engine.js';
+import { createShellPresets } from './app-shell/presets.js';
+
+// The pure profile / URL-settings helpers live in app-shell/config.js.
+export {
+    resolveContextAttributes,
+    resolvePresetAutoSwitchMs,
+    resolveRenderConfig,
+    resolveShellProfile,
+    SHELL_PROFILES,
+} from './app-shell/config.js';
 
 /**
  * @typedef {import('./projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  * @typedef {import('./projectm-app-shell-ui.js').ShellUi} ShellUi
  *
- * @typedef {object} ShellProfile
- * @property {string} name
- * @property {string} log Console prefix.
- * @property {string} weeksTitle document.title in weeks-on-fire mode.
- * @property {'popup' | 'section'} audioPlayer Popup windows (core) or in-page iframes (panel2).
- * @property {boolean} requirePresetDir Whether the preset API's `dir` must be present.
- * @property {boolean} persistLock Remember the lock in localStorage.
- * @property {boolean} transparency The glass-layer toggle.
- * @property {boolean} presetPicker The named preset library (right-click Random Custom).
- * @property {boolean} autoSwitch Fetch a new preset on a timer (?presetDuration=).
- * @property {boolean} urlContextConfig ?aa / ?capture / ?fboPrecision / ?depth and the
- *   render-worker governor / mesh / rhythm settings.
- * @property {boolean} audioRouter One exclusive router for external PCM and the worklet.
- * @property {boolean} devTools Mesh quality, governor, FBO banner, perf HUD, preset dev,
- *   experimental bridge, audio test panel, local presets, test sender, launchers.
- * @property {boolean} bezel The B3HD frame + iris (projectm-bezel.js).
- * @property {boolean} wasmPicker The WASM build <select> and ?wasm= selection.
- * @property {boolean} keyboard Space / L / H / A / Escape.
- * @property {boolean} presetFailedToast Show a preset the engine could not switch to in the
- *   status toast (it keeps rendering the previous one, so it is a notice, not an error).
- * @property {string[]} chromeIds Faded with the panel.
+ * @typedef {import('./app-shell/config.js').ShellProfile} ShellProfile
  *
  * @typedef {object} BootOptions
  * @property {string} [profile] Overrides `<body data-pm-shell>`.
@@ -354,17 +318,12 @@ export function boot(documentRef, options = {}) {
     let initInFlight = null;
 
     const getModule = () => /** @type {ProjectMModule | undefined} */ (pmContext?.module ?? undefined);
-    // Weeks on fire's preset loader: set by startWeeksOnFire() once the engine is
-    // up. Null in a normal session, and in weeks mode against a bundle old
-    // enough to seed its own playlist.
-    /** @type {ReturnType<typeof startWeeksOnFire> | null} */
-    let weeksLoader = null;
 
     // ---- the song loader: optional (a soft-404 HTML page fails the MIME check)
     import('./projectm-song-loader.js')
         .then((mod) => {
             if (owned.disposed) return;
-            mod.installSongLoaderInterceptor();
+            owned.add(mod.installSongLoaderInterceptor());
             // The WASM glue posts its song URL on `new BroadcastChannel('sng')`
             // itself, so intercepting it means wrapping the global constructor:
             // an explicit, reversible opt-in (projectm-legacy-globals.js).
@@ -407,98 +366,25 @@ export function boot(documentRef, options = {}) {
         )
     );
 
-    const audioPlayer =
-        profile.audioPlayer === 'popup' ? createPopupAudioPlayerController() : createSectionAudioPlayerController();
+    // One controller for every page: it picks section / docked frame / tab /
+    // popup per source, from the URL and whether the page has the section.
+    const audioPlayer = createAudioPlayerController({ documentRef });
+    owned.add(() => audioPlayer.dispose());
     // song-loader's openModPlayer lookup (and console users) read these off window.
     owned.add(exposeAudioPlayerGlobals(audioPlayer));
     owned.add(claimGlobal(windowRef, 'updatePresetDisplay', updatePresetDisplay));
 
     // ---- presets
-    /**
-     * Where fetched preset bytes go: the main-thread module's VFS, or — in the
-     * render-worker topology, where the VFS is in the worker — the transport.
-     *
-     * @param {'load' | 'add'} mode
-     * @returns {((vfsPath: string, bytes: Uint8Array) => void) | undefined}
-     */
-    function presetWriterFor(mode) {
-        if (getModule()?.FS) return undefined;
-        const transport = pmContext?.transport;
-        if (transport?.writePreset) {
-            return (vfsPath, bytes) => transport.writePreset?.(vfsPath, bytes, mode);
-        }
-        return undefined;
-    }
-
-    async function loadRandomPresetFromRemote() {
-        const writeBytes = presetWriterFor('load');
-        const result = await loadRandomApiPreset({
-            module: getModule(),
-            apiBase: getConfiguredPresetApiBase({ windowRef, storage }),
-            requireDir: profile.requirePresetDir,
-            startTransitionWhenReady: writeBytes ? undefined : startTransitionWhenReady,
-            writeBytes,
-        });
-        if (!result && pmContext) {
-            // API down: cycle the bundled local presets instead.
-            try {
-                pmContext.nextPreset();
-            } catch (error) {
-                console.warn(`${log} local preset fallback failed:`, error);
-            }
-        }
-    }
-    const randomRemote = () => {
-        loadRandomPresetFromRemote().catch((error) => console.warn(`${log} random preset failed:`, error));
-    };
-
-    async function loadStartupPresets() {
-        if (state.startupPresetsLoaded) return;
-        state.startupPresetsLoaded = true;
-        if (weeksOnFire) {
-            const context = pmContext;
-            if (bundleScansAssets(windowRef)) {
-                console.log(`${log} Weeks on fire: preset playlist seeded by the WASM bundle`);
-            } else if (context) {
-                weeksLoader = startWeeksOnFire({
-                    writePreset: (vfsPath, bytes, mode) => context.transport?.writePreset?.(vfsPath, bytes, mode),
-                    onPresetLoaded: updatePresetDisplay,
-                    playSong: () => import('./projectm-song-loader.js').then((mod) => mod.playRandomCatalogSong()),
-                });
-            }
-            return;
-        }
-        const module = getModule();
-        // `count` is a named option: positional `loadStartupApiPresets(5)`
-        // destructured to count = 0 and quietly loaded nothing.
-        const startup = /** @type {{ vfsPath: string, filename: string, bytes?: Uint8Array }[]} */ (
-            await loadStartupApiPresets({
-                module,
-                count: 5,
-                apiBase: getConfiguredPresetApiBase({ windowRef, storage }),
-                requireDir: profile.requirePresetDir,
-                updateDisplayMode: 'first',
-                writeBytes: presetWriterFor('add'),
-            })
-        );
-        if (startup.length === 0 || !pmContext) return;
-        if (module?.FS) {
-            loadPresetFile(module, startup[0].vfsPath);
-            updatePresetDisplay(startup[0].filename);
-            for (const entry of startup.slice(1)) addPresetFile(module, entry.vfsPath);
-            return;
-        }
-        // Render-worker topology: the first preset is loaded, the rest queued, there.
-        startup.forEach(({ vfsPath, bytes }, index) => {
-            if (!bytes || !pmContext) return;
-            if (index === 0) {
-                pmContext.transport?.writePreset?.(vfsPath, bytes);
-                updatePresetDisplay(startup[0].filename);
-            } else {
-                pmContext.addPreset(vfsPath, bytes);
-            }
-        });
-    }
+    const { randomRemote, loadStartupPresets, weeksPreset } = createShellPresets({
+        profile,
+        log,
+        windowRef,
+        storage,
+        state,
+        weeksOnFire,
+        getContext: () => pmContext,
+        getModule,
+    });
 
     /**
      * An optional feature that fails to build is logged and left out: a broken
@@ -542,20 +428,6 @@ export function boot(documentRef, options = {}) {
         ui.showStatus('Preset locked — tap lock to unlock', 'warn', 2200);
         return true;
     }
-    /** Weeks-on-fire mode draws from its own scanned list. @returns {boolean} handled */
-    function weeksPreset() {
-        if (!weeksOnFire) return false;
-        if (weeksLoader) {
-            void weeksLoader.loader.loadRandom();
-            return true;
-        }
-        // Bundles built before the glue lost its XHR loaders install this themselves.
-        const pick = /** @type {{ loadRandomWeeksPreset?: () => void }} */ (/** @type {unknown} */ (windowRef))
-            .loadRandomWeeksPreset;
-        if (typeof pick === 'function') pick();
-        else console.warn(`${log} Weeks mode: preset scanner not ready yet`);
-        return true;
-    }
 
     /** @param {boolean} enabled */
     function applyTransparency(enabled) {
@@ -568,13 +440,15 @@ export function boot(documentRef, options = {}) {
         writeStorage(storage, TRANSPARENCY_STORAGE_KEY, enabled ? '1' : '0');
     }
 
+    // Positions the container for the current mode. The canvas size follows
+    // from that: ProjectMContext observes #contain1 and is the only thing that
+    // sizes the canvases. Only an aspect-correction change needs a resize call
+    // from here, since it does not change the container's size.
     function relayout() {
         ui.updateLayout();
-        if (pmContext) {
+        if (pmContext && pmContext.options.aspectCorrection !== state.bezel) {
             pmContext.options.aspectCorrection = state.bezel;
             pmContext.resize();
-        } else {
-            ui.sizeCanvases();
         }
     }
 
@@ -682,78 +556,19 @@ export function boot(documentRef, options = {}) {
     }
 
     if (profile.devTools) {
-        if (params.get('localPresets') === '1') {
-            ui.enableLocalPresetDrop({
-                lastLabel: () => {
-                    const last = readStorage(storage, LOCAL_PRESET_LAST_NAME_KEY);
-                    return last ? `Last local preset: ${last}` : 'Last local preset: none';
-                },
-                onFile: (file) => {
-                    const load = pmContext
-                        ? pmContext.loadPresetFile(file)
-                        : loadLocalPresetFile(file, { module: getModule(), startTransitionWhenReady, documentRef });
-                    Promise.resolve(load).catch((error) => {
-                        ui.showStatus(error instanceof Error ? error.message : String(error), 'error');
-                        console.error(`${log} Failed to load local preset:`, error);
-                    });
-                },
-            });
-        }
-
-        // Tab / system audio capture (html/audio-capture.html): a popup, not an
-        // iframe — the share picker needs its own user gesture and the page has
-        // to stay open while the user switches to the shared tab. It posts PCM
-        // to window.opener, or on BroadcastChannel('projectm-audio') when COOP
-        // severs the opener.
-        /** @type {Window | null} */
-        let captureWindow = null;
-        const openAudioCapture = () => {
-            if (captureWindow && !captureWindow.closed) {
-                captureWindow.focus();
-                return captureWindow;
-            }
-            const url = new URL('./audio-capture.html', windowRef.location.href).toString();
-            captureWindow = windowRef.open(url, 'projectm-audio-capture', 'popup,width=440,height=340');
-            if (!captureWindow) console.warn('[projectM] audio capture popup blocked; allow popups or open', url);
-            return captureWindow;
-        };
-        owned.add(claimGlobal(windowRef, 'openAudioCapture', openAudioCapture));
-        owned.add(claimGlobal(windowRef, 'feedPCMToModuleForDebug', feedPCMToModule));
-
-        // Launchers for the external players, in case the panel image has no
-        // hit zone for them. After first paint, so the rest of the UI is there.
-        owned.setTimeout(
-            () =>
-                ui.addLaunchers([
-                    {
-                        id: 'modPlayerLaunchBtn',
-                        label: 'MOD',
-                        title: 'Open MOD Player (tracker) — sends PCM via postMessage',
-                        open: () => audioPlayer.openModPlayer?.(),
-                    },
-                    {
-                        id: 'flacPlayerLaunchBtn',
-                        label: 'FLAC',
-                        title: 'Open FLAC Player — sends PCM via postMessage',
-                        open: () => audioPlayer.openFlacPlayer?.(),
-                    },
-                    {
-                        id: 'audioCaptureLaunchBtn',
-                        label: 'TAB',
-                        title: 'Capture tab / system audio (getDisplayMedia) — sends PCM via postMessage',
-                        open: () => void openAudioCapture(),
-                    },
-                ]),
-            extrasDelayMs
-        );
-
-        const sender = owned.add(createPcmTestSender({ windowRef }));
-        owned.add(claimGlobal(windowRef, 'startLocalProjectMTestSender', sender.start));
-        owned.add(claimGlobal(windowRef, 'stopLocalProjectMTestSender', sender.stop));
-        const host = windowRef.location?.hostname;
-        if (host === 'localhost' || host === '127.0.0.1' || params.has('debugSender')) {
-            owned.setTimeout(() => ui.addTestSenderPanel(sender), extrasDelayMs + 800);
-        }
+        setupShellDevPanels({
+            ui,
+            owned,
+            windowRef,
+            documentRef,
+            params,
+            storage,
+            log,
+            audioPlayer,
+            extrasDelayMs,
+            getContext: () => pmContext,
+            getModule,
+        });
     }
 
     // ---- the engine
@@ -905,6 +720,24 @@ export function boot(documentRef, options = {}) {
             console.info(`${log} auto preset switch every ${everyMs / 1000}s (lock pauses it)`);
         }
     }
+    /** @type {import('./app-shell/engine.js').ShellEngineDeps} */
+    const engineDeps = {
+        profile,
+        log,
+        documentRef,
+        windowRef,
+        params,
+        storage,
+        state,
+        getUi: () => ui,
+        audioRouter,
+        baseUrl,
+        getWasmVersion: () => selectedWasmVersion,
+        overrides: options.contextOptions,
+        weeksOnFire,
+        randomRemote,
+        getModule,
+    };
 
     async function attemptInit() {
         if (initErrors.simulate) {
@@ -920,7 +753,7 @@ export function boot(documentRef, options = {}) {
         await wasmManifestReady;
         if (owned.disposed) return;
 
-        const context = new ProjectMContext(contextOptions());
+        const context = new ProjectMContext(buildContextOptions(engineDeps));
         pmContext = context;
         try {
             await context.start();
@@ -931,7 +764,7 @@ export function boot(documentRef, options = {}) {
             throw error;
         }
         if (owned.disposed || pmContext !== context) return;
-        wireStartedContext(context);
+        wireStartedContext(context, engineDeps);
         ui.hideSplash();
         await loadStartupPresets();
     }
@@ -953,17 +786,11 @@ export function boot(documentRef, options = {}) {
         pmContext = null;
     });
 
+    // The bezel layout is sized from the window height, so window resizes
+    // re-run it. Container resizes are ProjectMContext's (see relayout()).
     relayout();
     owned.add(() => windowRef.removeEventListener('resize', relayout));
     windowRef.addEventListener('resize', relayout);
-    if (typeof windowRef.ResizeObserver === 'function') {
-        const contain = documentRef.getElementById('contain1');
-        if (contain) {
-            const observer = new windowRef.ResizeObserver(() => relayout());
-            observer.observe(contain);
-            owned.add(() => observer.disconnect());
-        }
-    }
 
     /** @type {() => void} */
     let settleReady = () => {};

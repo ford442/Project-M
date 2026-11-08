@@ -55,10 +55,12 @@ export function updatePresetDisplay(name, {
 } = {}) {
     if (!name) return;
     const basename = String(name).split('/').pop();
+    // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh): one value per page, rewritten per switch
     windowRef.currentPresetName = basename;
     // Track the full VFS path (when available) so a WebGL context-loss recovery
     // (see projectm-context-loss.js) can reload the same preset after re-init.
     if (String(name).includes('/')) {
+        // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh): one value per page, rewritten per switch
         windowRef.currentPresetPath = String(name);
     }
     const el = documentRef.querySelector(selector);

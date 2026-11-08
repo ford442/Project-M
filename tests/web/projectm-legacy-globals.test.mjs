@@ -392,6 +392,9 @@ test('the gate fails each kind of page-global write and names the file', () => {
         ['legacy popup-player global', 'window.cycleAudioPlayer = () => {};'],
         ['BroadcastChannel monkey-patch', 'globalThis.BroadcastChannel = class {};'],
         ['claimGlobal with a literal pm* name', "claimGlobal(window, 'pmLeaked', 1);"],
+        ['globalThis write of any name', 'globalThis.openSomething = () => {};'],
+        ['self write of any name', 'self.Module = module;'],
+        ['windowRef write of any name', 'windowRef.currentThing = 1;'],
     ];
     for (const [label, line] of violations) {
         const { status, out } = runGateOn({ 'html/projectm-leaky.js': `${line}\n` });

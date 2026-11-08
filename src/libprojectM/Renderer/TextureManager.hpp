@@ -3,7 +3,9 @@
 #include "Renderer/TextureSamplerDescriptor.hpp"
 #include "Renderer/TextureTypes.hpp"
 
+#include <cstddef>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -68,6 +70,61 @@ public:
      *         and a running preset keeps whatever it got), the file is gone or can't be decoded.
      */
     auto ReloadTexture(const std::string& name) -> bool;
+
+    /**
+     * @brief Creates a texture the host feeds with frames (a camera, a video), or resizes one.
+     *
+     * A live texture is found by name like a texture file (`sampler_webcam` for "webcam") and wins
+     * over a file or the load callback of that name. It is never purged and keeps its device
+     * texture for its whole life: resizing it here or rewriting it with UpdateLiveTexture() shows in
+     * every preset already sampling it on its next frame. A preset that sampled the name before it
+     * was registered keeps what it got then (the black placeholder) until it is reloaded.
+     *
+     * A new texture starts black. Registering a live texture again at the same size keeps its
+     * image; at another size the image is cleared to black, in place.
+     *
+     * @param name Base name, 1-64 ASCII letters, digits and underscores. Case-insensitive.
+     *             "main", "blur1".."blur3", "randNN" (two digits, any suffix) and the generated textures (noise_*,
+     *             noisevol_*, idlem, idleheadphones) are refused, as is a name a texture from the
+     *             load callback holds.
+     * @param width Width in pixels, 1..MaxLiveTextureSize.
+     * @param height Height in pixels, 1..MaxLiveTextureSize.
+     * @return true if the texture exists at that size now.
+     */
+    auto RegisterLiveTexture(const std::string& name, int width, int height) -> bool;
+
+    /**
+     * @brief Uploads a new frame into a live texture, without re-allocating it.
+     * @param name The name it was registered with (any case).
+     * @param rgba width * height RGBA8 pixels, top row first.
+     * @param bytes Size of @a rgba; must be exactly width * height * 4.
+     * @return true if the frame was uploaded; false for an unknown name or a size mismatch.
+     */
+    auto UpdateLiveTexture(const std::string& name, const void* rgba, size_t bytes) -> bool;
+
+    /**
+     * @brief Removes a live texture. Presets sampling it keep its last frame until reloaded.
+     * @return true if a live texture of that name existed.
+     */
+    auto UnregisterLiveTexture(const std::string& name) -> bool;
+
+    /**
+     * @brief The live textures by lower-case name, to carry them over to a new texture manager.
+     */
+    auto LiveTextures() const -> const std::map<std::string, std::shared_ptr<Texture>>&;
+
+    /**
+     * @brief Takes over live textures from the manager this one replaces (new texture paths).
+     * The same texture objects, so presets sampling them are unaffected.
+     */
+    void AdoptLiveTextures(const std::map<std::string, std::shared_ptr<Texture>>& liveTextures);
+
+    /**
+     * @brief Whether @a name may name a live texture, by its form alone (see RegisterLiveTexture()).
+     */
+    static auto IsValidLiveTextureName(const std::string& name) -> bool;
+
+    static constexpr int MaxLiveTextureSize{8192}; //!< Largest width or height of a live texture.
 
     /**
      * @brief Sets a callback function for loading textures from non-filesystem sources.
@@ -151,6 +208,7 @@ private:
     std::shared_ptr<Texture> m_placeholderTexture;                          //!< Texture used if a requested file couldn't be found. A black 1x1 texture.
     std::map<std::string, std::shared_ptr<Texture>> m_textures;             //!< All loaded textures, including generated ones.
     std::set<std::string> m_fileTextures;                                   //!< Names in m_textures that LoadTexture() read from a file.
+    std::map<std::string, std::shared_ptr<Texture>> m_liveTextures;         //!< Host-fed textures by lower-case name, also in m_textures.
     std::map<std::pair<Device::WrapMode, Device::FilterMode>, std::shared_ptr<Sampler>> m_samplers; //!< The four sampler objects for each combination of wrap and filter modes.
     std::map<std::string, UsageStats> m_textureStats;                       //!< Map with texture stats for user-loaded files.
     std::vector<std::string> m_randomTextures;

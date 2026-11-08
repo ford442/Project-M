@@ -293,6 +293,15 @@ public:
      */
     virtual void UpdateTexture(TextureHandle texture, const TextureDesc& desc, const void* data) = 0;
 
+    /**
+     * @brief Uploads @a data over a texture's whole image without re-specifying its storage.
+     *
+     * For textures rewritten every frame (live camera/video slots): unlike UpdateTexture() the
+     * driver keeps the allocation. @a desc must match the texture's current size and format, and
+     * @a data must hold a full image in that layout.
+     */
+    virtual void WriteTexture(TextureHandle texture, const TextureDesc& desc, const void* data) = 0;
+
     virtual void DestroyTexture(TextureHandle texture) = 0;
 
     [[nodiscard]] virtual auto CreateSampler(const TextureSampling& sampling) -> SamplerHandle = 0;

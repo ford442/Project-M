@@ -161,6 +161,15 @@ public:
     void Update(const void* data) const;
 
     /**
+     * @brief Uploads a new image of the same size and format without re-allocating the texture.
+     *
+     * The per-frame path for live textures: the driver keeps the storage, where Update() and
+     * Replace() re-specify it.
+     * @param data The new image data, a full image in the texture's size and format.
+     */
+    void Write(const void* data) const;
+
+    /**
      * @brief Replaces the image with one of a possibly different size, keeping the device texture.
      *
      * Everything holding this texture (preset sampler descriptors, sprites) samples the new

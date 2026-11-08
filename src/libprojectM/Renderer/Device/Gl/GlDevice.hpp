@@ -115,6 +115,7 @@ public:
 
     auto CreateTexture(const TextureDesc& desc, const void* data) -> TextureHandle override;
     void UpdateTexture(TextureHandle texture, const TextureDesc& desc, const void* data) override;
+    void WriteTexture(TextureHandle texture, const TextureDesc& desc, const void* data) override;
     void DestroyTexture(TextureHandle texture) override;
 
     auto CreateSampler(const TextureSampling& sampling) -> SamplerHandle override;

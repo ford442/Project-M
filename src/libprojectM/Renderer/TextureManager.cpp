@@ -211,6 +211,124 @@ auto TextureManager::ReloadTexture(const std::string& name) -> bool
     return false;
 }
 
+auto TextureManager::IsValidLiveTextureName(const std::string& name) -> bool
+{
+    constexpr size_t maxNameLength = 64;
+    if (name.empty() || name.length() > maxNameLength)
+    {
+        return false;
+    }
+    if (!std::all_of(name.begin(), name.end(), [](char character) {
+            return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '_';
+        }))
+    {
+        return false;
+    }
+
+    // Names the shader resolves itself (MilkdropShader::LoadTexturesAndCompile()) never reach
+    // GetTexture(), so a live texture of that name could not be sampled.
+    std::string const lowerCaseName = Utils::ToLower(name);
+    if (lowerCaseName == "main" || lowerCaseName == "blur1" || lowerCaseName == "blur2" || lowerCaseName == "blur3")
+    {
+        return false;
+    }
+    // "randNN[_prefix]" picks a random texture file (MilkdropShader's IsRandomTextureName()).
+    auto const isDigit = [](char character) { return character >= '0' && character <= '9'; };
+    return !(lowerCaseName.length() >= 6 && lowerCaseName.compare(0, 4, "rand") == 0 && isDigit(lowerCaseName.at(4)) && isDigit(lowerCaseName.at(5)));
+}
+
+auto TextureManager::RegisterLiveTexture(const std::string& name, int width, int height) -> bool
+{
+    if (!IsValidLiveTextureName(name) || width <= 0 || height <= 0 || width > MaxLiveTextureSize || height > MaxLiveTextureSize)
+    {
+        return false;
+    }
+
+    std::string const lowerCaseName = Utils::ToLower(name);
+    std::vector<uint8_t> const black(static_cast<size_t>(RgbaImageBytes(width, height)), 0);
+
+    auto const live = m_liveTextures.find(lowerCaseName);
+    if (live != m_liveTextures.end())
+    {
+        if (live->second->Width() != width || live->second->Height() != height)
+        {
+            // Same device texture, new storage: everything bound to it follows.
+            live->second->Replace(black.data(), width, height);
+        }
+        return true;
+    }
+
+    auto const existing = m_textures.find(lowerCaseName);
+    if (existing != m_textures.end() && m_fileTextures.count(lowerCaseName) == 0)
+    {
+        // Generated (noise, idle images) or the host's own through the load callback.
+        LOG_WARN("[TextureManager] Cannot register live texture \"" + name + "\": a built-in or callback texture has that name");
+        return false;
+    }
+
+    // Not purge-tracked (isUserTexture false): the host decides when it goes.
+    auto texture = std::make_shared<Texture>(lowerCaseName, black.data(), Device::TextureTarget::Texture2D, width, height, 0, Device::TextureFormat::RGBA, false);
+    if (texture->Empty())
+    {
+        return false;
+    }
+
+    // A file texture of the same name stays with the presets already sampling it.
+    m_fileTextures.erase(lowerCaseName);
+    m_textureStats.erase(lowerCaseName);
+    m_textures[lowerCaseName] = texture;
+    m_liveTextures[lowerCaseName] = std::move(texture);
+    LOG_DEBUG("[TextureManager] Registered live texture \"" + lowerCaseName + "\" (" + std::to_string(width) + "x" + std::to_string(height) + ")");
+    return true;
+}
+
+auto TextureManager::UpdateLiveTexture(const std::string& name, const void* rgba, size_t bytes) -> bool
+{
+    if (rgba == nullptr)
+    {
+        return false;
+    }
+    auto const live = m_liveTextures.find(Utils::ToLower(name));
+    if (live == m_liveTextures.end())
+    {
+        return false;
+    }
+    const auto& texture = live->second;
+    if (static_cast<uint64_t>(bytes) != RgbaImageBytes(texture->Width(), texture->Height()))
+    {
+        return false;
+    }
+    texture->Write(rgba);
+    return true;
+}
+
+auto TextureManager::UnregisterLiveTexture(const std::string& name) -> bool
+{
+    std::string const lowerCaseName = Utils::ToLower(name);
+    if (m_liveTextures.erase(lowerCaseName) == 0)
+    {
+        return false;
+    }
+    m_textures.erase(lowerCaseName);
+    return true;
+}
+
+auto TextureManager::LiveTextures() const -> const std::map<std::string, std::shared_ptr<Texture>>&
+{
+    return m_liveTextures;
+}
+
+void TextureManager::AdoptLiveTextures(const std::map<std::string, std::shared_ptr<Texture>>& liveTextures)
+{
+    for (const auto& [name, texture] : liveTextures)
+    {
+        m_fileTextures.erase(name);
+        m_textureStats.erase(name);
+        m_textures[name] = texture;
+        m_liveTextures[name] = texture;
+    }
+}
+
 auto TextureManager::RgbaImageBytes(int width, int height) -> uint64_t
 {
     if (width <= 0 || height <= 0)
@@ -230,6 +348,14 @@ auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSample
     ExtractTextureSettings(name, wrapMode, filterMode, unqualifiedName);
 
     std::string lowerCaseUnqualifiedName = Utils::ToLower(unqualifiedName);
+
+    // A live texture wins over the callback and files. GetTexture() only found it already if the
+    // preset spelled the name in lower case.
+    auto const live = m_liveTextures.find(lowerCaseUnqualifiedName);
+    if (live != m_liveTextures.end())
+    {
+        return {live->second, m_samplers.at({wrapMode, filterMode}), name, unqualifiedName};
+    }
 
     // Try callback first if registered
     if (m_textureLoadCallback)

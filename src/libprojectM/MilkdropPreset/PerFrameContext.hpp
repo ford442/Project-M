@@ -5,6 +5,9 @@
 
 #include <projectm-eval.h>
 
+#include <map>
+#include <string>
+
 namespace libprojectM {
 namespace MilkdropPreset {
 
@@ -44,6 +47,16 @@ public:
      * @param state The preset state container.
      */
     void LoadStateVariables(PresetState& state);
+
+    /**
+     * @brief Loads the host's per-frame variable overrides (projectm_eval_set()) over the state.
+     *
+     * Called after LoadStateVariables() and before ExecutePerFrameCode(), so the preset's code
+     * reads the host's values and may still assign its own. Names IsHostWritableVariable() does
+     * not accept are skipped.
+     * @param hostVariables Values by lower-case variable name.
+     */
+    void LoadHostVariables(const std::map<std::string, double>& hostVariables);
 
     /**
      * @brief Compiles and runs the preset init code.

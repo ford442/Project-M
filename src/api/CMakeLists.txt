@@ -26,6 +26,7 @@ set(PROJECTM_PUBLIC_HEADERS
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/callbacks.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/core.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/debug.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/live_input.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/logging.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/memory.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/projectM-4/offline_render.h"

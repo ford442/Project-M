@@ -17,12 +17,14 @@
 #include <gtest/gtest.h>
 
 #include <projectM-4/debug.h>
+#include <projectM-4/live_input.h>
 #include <projectM-4/preset_prepare.h>
 #include <projectM-4/projectM.h>
 #include <projectM-4/projectm_perf.h>
 #include <projectM-4/rhythm.h>
 #include <projectM-4/texture_reload.h>
 
+#include <cstdint>
 #include <memory>
 
 TEST(CApiNullArgument, NullHandleReturnsFallbacks)
@@ -140,6 +142,14 @@ TEST(CApiNullArgument, NullHandleReturnsFallbacks)
 
     EXPECT_FALSE(projectm_reload_texture(nullptr, nullptr));
     EXPECT_FALSE(projectm_reload_texture(nullptr, "noise_lq"));
+
+    const uint8_t pixel[4]{};
+    EXPECT_FALSE(projectm_texture_slot_register(nullptr, nullptr, 1, 1));
+    EXPECT_FALSE(projectm_texture_slot_register(nullptr, "webcam", 1, 1));
+    EXPECT_FALSE(projectm_texture_slot_update(nullptr, "webcam", pixel, sizeof(pixel)));
+    EXPECT_FALSE(projectm_texture_slot_unregister(nullptr, "webcam"));
+    EXPECT_FALSE(projectm_eval_set(nullptr, "q1", 1.0));
+    EXPECT_FALSE(projectm_eval_clear(nullptr, nullptr));
 
     projectm_touch(nullptr, 0, 0, 0, PROJECTM_TOUCH_TYPE_RANDOM);
     projectm_touch_drag(nullptr, 0, 0, 0);
@@ -266,6 +276,13 @@ TEST_F(CApiNullArgumentWithInstance, NullPointersIntoARealInstance)
     projectm_get_preset_switch_policy(m_instance, nullptr);
 
     EXPECT_FALSE(projectm_reload_texture(m_instance, nullptr));
+
+    EXPECT_FALSE(projectm_texture_slot_register(m_instance, nullptr, 1, 1));
+    EXPECT_FALSE(projectm_texture_slot_update(m_instance, nullptr, nullptr, 0));
+    EXPECT_FALSE(projectm_texture_slot_update(m_instance, "webcam", nullptr, 4));
+    EXPECT_FALSE(projectm_texture_slot_unregister(m_instance, nullptr));
+    EXPECT_FALSE(projectm_eval_set(m_instance, nullptr, 1.0));
+    EXPECT_FALSE(projectm_eval_clear(m_instance, nullptr)) << "nothing was set";
 
     EXPECT_EQ(projectm_sprite_create(m_instance, nullptr, nullptr), 0u);
     EXPECT_EQ(projectm_sprite_create(m_instance, "milkdrop", nullptr), 0u);

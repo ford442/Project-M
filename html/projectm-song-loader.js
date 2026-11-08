@@ -155,6 +155,7 @@ export async function scanSongCatalog(documentRef, fetchImpl = fetch) {
         }
     }
 
+    // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh)
     globalThis.__projectMSongCatalog = merged;
     return merged;
 }
@@ -203,28 +204,39 @@ export async function playRandomCatalogSong() {
 /**
  * Capture-phase handler so merged catalog works before WASM glue runs snd().
  * @param {Document} [documentRef]
+ * @returns {() => void} Takes the handler off again (a no-op when nothing was installed).
  */
 export function installMusicButtonHandler(documentRef) {
     const doc = documentRef ?? (typeof document !== 'undefined' ? document : null);
     if (!doc) {
-        return;
+        return () => {};
     }
     const btn = doc.getElementById('musicBtn');
     if (!btn || btn.dataset.projectmSongLoaderWired === '1') {
-        return;
+        return () => {};
     }
     btn.dataset.projectmSongLoaderWired = '1';
 
     // Capture + sync stop so WASM glue cannot also open ./flac/ or the MOD player.
-    btn.addEventListener('click', (event) => {
+    /** @param {Event} event */
+    const onClick = (event) => {
         event.stopImmediatePropagation();
         event.preventDefault();
         void playRandomCatalogSong().catch((error) => {
             console.error('[projectM song loader] random track failed:', error);
         });
-    }, true);
+    };
+    btn.addEventListener('click', onClick, true);
 
     void ensureSongCatalog(doc);
+
+    let removed = false;
+    return () => {
+        if (removed) return;
+        removed = true;
+        btn.removeEventListener('click', onClick, true);
+        delete btn.dataset.projectmSongLoaderWired;
+    };
 }
 
 /** @type {ReadonlySet<string>} */
@@ -535,16 +547,29 @@ export function createSongChannel(name, ChannelCtor = nativeBroadcastChannelCtor
  * host intercepting that post also calls
  * `patchBroadcastChannel(wrapSongChannel)` from projectm-legacy-globals.js — an
  * explicit, reversible opt-in.
+ *
+ * @returns {() => void} Undoes the install (a no-op when it was already installed).
  */
 export function installSongLoaderInterceptor() {
     if (globalThis.__projectMSongLoaderInstalled) {
-        return;
+        return () => {};
     }
+    // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh)
     globalThis.__projectMSongLoaderInstalled = true;
 
     if (!nativeBroadcastChannelCtor()) {
         console.warn('[projectM song loader] BroadcastChannel unavailable');
     }
 
-    installMusicButtonHandler();
+    const removeHandler = installMusicButtonHandler();
+    let disposed = false;
+    // Undoing the install clears the page-once guard too, so a shell that is
+    // disposed and booted again installs the handler again.
+    return () => {
+        if (disposed) return;
+        disposed = true;
+        removeHandler();
+        // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh)
+        globalThis.__projectMSongLoaderInstalled = false;
+    };
 }

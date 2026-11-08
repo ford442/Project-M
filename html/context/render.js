@@ -5,7 +5,7 @@
 // monitor, the bound engine view, and the read-only reports about rendering
 // (the WebGL context snapshot, the flash limiter's stats).
 
-import { observeModuleSize, watchDevicePixelRatio } from '../projectm-init.js';
+import { watchDevicePixelRatio } from '../projectm-init.js';
 import { decodeContextSnapshot } from '../projectm-context-config.js';
 import { bindModuleToHost } from '../generated/projectm-wasm-api.js';
 
@@ -31,7 +31,36 @@ export function resolveDevicePixelRatio(options) {
 }
 
 /**
- * @param {{ transport: RenderTransport | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number; renderScale?: number }} options
+ * A size in device pixels, as a ResizeObserver's `devicePixelContentBoxSize`
+ * reports it.
+ *
+ * @typedef {{ width: number, height: number }} DevicePixelSize
+ */
+
+/**
+ * Sets a canvas's backing store, but only when it differs: assigning
+ * `width`/`height` clears the drawing buffer even when the value is the same.
+ *
+ * @param {HTMLCanvasElement} canvas
+ * @param {number} width
+ * @param {number} height
+ * @returns {boolean} Whether anything was assigned.
+ */
+export function setBackingStore(canvas, width, height) {
+    if (canvas.width === width && canvas.height === height) {
+        return false;
+    }
+    canvas.width = width;
+    canvas.height = height;
+    return true;
+}
+
+/**
+ * @param {{ transport: RenderTransport | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number; renderScale?: number; devicePixelSize?: DevicePixelSize | null }} options
+ *   `devicePixelSize` is the container's exact content box in device pixels
+ *   (ResizeObserver `device-pixel-content-box`). When given it is the layout
+ *   size; otherwise that is the CSS rect times `devicePixelRatio`, which can be
+ *   a pixel off where the browser snaps the box differently.
  * @returns {boolean}
  */
 export function syncCanvasSize({
@@ -42,6 +71,7 @@ export function syncCanvasSize({
     aspectCorrection,
     devicePixelRatio = globalThis.devicePixelRatio || 1,
     renderScale = 1,
+    devicePixelSize = null,
 }) {
     if (!transport || !container || !mainCanvas) {
         return false;
@@ -54,42 +84,39 @@ export function syncCanvasSize({
     // both topologies.
     const ownsBackingStore = transport.topology === 'main';
 
-    const rect = container.getBoundingClientRect();
     // The canvas backing store (width/height attributes) is rendered at
-    // renderScale * devicePixelRatio, while its CSS box size (style.width/height)
-    // always stays at the full, unscaled container size. When renderScale < 1
-    // (governor v2 stepped down internal render scale, see
-    // html/projectm-fps-governor.js), the browser's own canvas-bitmap-to-CSS-box
-    // scaling stretches the smaller backing store to fill the unchanged layout box
-    // — this is the "present upscale" for internal FBO render scale; no separate
-    // offscreen blit is needed because everything (including the dual-FBO
-    // compositor) renders at the backing-store resolution already.
+    // renderScale * the layout size in device pixels, while its CSS box
+    // (style.width/height) stays at the full, unscaled size. When renderScale <
+    // 1 (governor v2 stepped down, see html/projectm-fps-governor.js) the
+    // browser stretches the smaller backing store over the unchanged box with
+    // its normal (filtered) canvas scaling: that is the "present upscale".
     const scale = renderScale > 0 ? renderScale : 1;
-    const layoutWidth = Math.max(1, Math.round(rect.width * devicePixelRatio));
-    const layoutHeight = Math.max(1, Math.round(rect.height * devicePixelRatio));
-    const width = Math.max(1, Math.round(rect.width * devicePixelRatio * scale));
-    const height = Math.max(1, Math.round(rect.height * devicePixelRatio * scale));
+    let layoutWidth;
+    let layoutHeight;
+    if (devicePixelSize && devicePixelSize.width > 0 && devicePixelSize.height > 0) {
+        layoutWidth = Math.round(devicePixelSize.width);
+        layoutHeight = Math.round(devicePixelSize.height);
+    } else {
+        const rect = container.getBoundingClientRect();
+        layoutWidth = Math.max(1, Math.round(rect.width * devicePixelRatio));
+        layoutHeight = Math.max(1, Math.round(rect.height * devicePixelRatio));
+    }
+    const width = Math.max(1, Math.round(layoutWidth * scale));
+    const height = Math.max(1, Math.round(layoutHeight * scale));
 
-    // The CSS box is the rounded layout size over the DPR rather than the raw
-    // (often fractional) container rect, so at full render scale the bitmap
-    // lands 1:1 on device pixels instead of being resampled by a fraction.
+    // The CSS box is the device-pixel layout size over the DPR rather than the
+    // raw (often fractional) container rect, so at full render scale the
+    // bitmap lands 1:1 on device pixels instead of being resampled by a fraction.
     const cssWidth = `${layoutWidth / devicePixelRatio}px`;
     const cssHeight = `${layoutHeight / devicePixelRatio}px`;
 
-    if (ownsBackingStore) {
-        mainCanvas.width = width;
-        mainCanvas.height = height;
-    }
-    mainCanvas.style.width = cssWidth;
-    mainCanvas.style.height = cssHeight;
-
-    if (secondaryCanvas) {
+    for (const canvas of [mainCanvas, secondaryCanvas]) {
+        if (!canvas) continue;
         if (ownsBackingStore) {
-            secondaryCanvas.width = width;
-            secondaryCanvas.height = height;
+            setBackingStore(canvas, width, height);
         }
-        secondaryCanvas.style.width = cssWidth;
-        secondaryCanvas.style.height = cssHeight;
+        if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth;
+        if (canvas.style.height !== cssHeight) canvas.style.height = cssHeight;
     }
 
     // The worker scales the layout size by its own copy of the render scale,
@@ -106,22 +133,53 @@ export function syncCanvasSize({
 }
 
 /**
- * Follows the container's size: a ResizeObserver where there is one, window
- * resizes on the given window otherwise. Either way it also follows the
- * window's devicePixelRatio, which can change without the container resizing.
+ * The device-pixel content box an observer entry reports, if it has one
+ * (Chrome 84+, Firefox 93+; Safari reports none and the caller falls back to
+ * rect × devicePixelRatio).
+ *
+ * @param {ResizeObserverEntry | undefined} entry
+ * @returns {DevicePixelSize | null}
+ */
+export function devicePixelSizeOf(entry) {
+    const box = entry?.devicePixelContentBoxSize?.[0];
+    if (!box || !(box.inlineSize > 0) || !(box.blockSize > 0)) {
+        return null;
+    }
+    return { width: box.inlineSize, height: box.blockSize };
+}
+
+/**
+ * Follows the container's size: a ResizeObserver on its
+ * `device-pixel-content-box` where there is one (falling back to the content
+ * box where that box is not supported), window resizes on the given window
+ * otherwise. Either way it also follows the window's devicePixelRatio, which
+ * can change without the container resizing.
+ *
+ * `onResize` gets the container's size in device pixels when the observer
+ * reported one, and null when the caller should measure (a DPR change, a
+ * window resize, a browser without the device-pixel box).
  *
  * @param {object} options
  * @param {Element} options.container
- * @param {EventTarget | undefined} options.windowRef
- * @param {() => void} options.onResize
+ * @param {any} [options.windowRef]
+ * @param {(devicePixelSize: DevicePixelSize | null) => void} options.onResize
  * @returns {{ observer: ResizeObserver | null, dispose: () => void } | null}
  *   Null when there is neither (nothing to undo).
  */
 export function followContainerSize({ container, windowRef, onResize }) {
     const target = /** @type {any} */ (windowRef ?? globalThis);
-    const stopDprWatch = watchDevicePixelRatio(target, onResize);
-    const observer = observeModuleSize({ container, sync: onResize });
-    if (observer) {
+    const stopDprWatch = watchDevicePixelRatio(target, () => onResize(null));
+    const Observer = target?.ResizeObserver ?? globalThis.ResizeObserver;
+    if (container && typeof Observer === 'function') {
+        /** @type {ResizeObserver} */
+        const observer = new Observer((/** @type {ResizeObserverEntry[]} */ entries) => {
+            onResize(devicePixelSizeOf(entries[entries.length - 1]));
+        });
+        try {
+            observer.observe(container, { box: 'device-pixel-content-box' });
+        } catch {
+            observer.observe(container);
+        }
         return {
             observer,
             dispose: () => {
@@ -136,7 +194,7 @@ export function followContainerSize({ container, windowRef, onResize }) {
         stopDprWatch();
         return null;
     }
-    const listener = () => onResize();
+    const listener = () => onResize(null);
     target.addEventListener('resize', listener);
     return {
         observer: null,

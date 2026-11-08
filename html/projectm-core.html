@@ -7,6 +7,14 @@
 <link rel='preconnect' href='https://glsl.1ink.us'>
 <title>Project M - Advanced Music Visualization</title>
 <style>
+:root {
+  /* One z-index scale for the page chrome (html/projectm-audio-player.js reads
+     --pm-z-player for the frames it creates). Players sit below the panel so
+     the audio button stays clickable while one is open (#310). */
+  --pm-z-visualizer: 3200;
+  --pm-z-player: 3250;
+  --pm-z-panel: 3300;
+}
 body {
   margin: 0;
   padding: 0;
@@ -25,7 +33,7 @@ body {
   --knob-hue: 220;
   filter: drop-shadow(0 0 18px hsla(220, 55%, 50%, 0.4));
   transition: filter 0.6s ease;
-  z-index: 3300;
+  z-index: var(--pm-z-panel);
 }
 
 .panel-container::before {

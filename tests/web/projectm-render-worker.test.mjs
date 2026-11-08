@@ -29,6 +29,32 @@ const TYPES_PATH = fileURLToPath(new URL('../../html/projectm-render-worker-type
 
 const WORKER_SOURCE = readFileSync(WORKER_PATH, 'utf8');
 
+// The parts the entry importScripts() from html/worker/ (classic scripts in the
+// same worker scope). The fake importScripts() evaluates them in the vm context
+// under their real paths, so they run - and are covered - like the entry.
+const WORKER_PARTS = ['engine-hooks.js', 'pcm-ring.js', 'capture.js'].map((name) => {
+    const path = fileURLToPath(new URL(`../../html/worker/${name}`, import.meta.url));
+    return { url: `./worker/${name}`, path, source: readFileSync(path, 'utf8') };
+});
+/** The entry and every part: what the wire-protocol test reads. */
+const ALL_WORKER_SOURCES = [WORKER_SOURCE, ...WORKER_PARTS.map((part) => part.source)].join('\n');
+
+/**
+ * Evaluates the worker parts named in an importScripts() call; returns the
+ * URLs that are not parts (the Emscripten glue).
+ *
+ * @param {vm.Context} context
+ * @param {string[]} urls
+ */
+function loadWorkerParts(context, urls) {
+    return urls.filter((url) => {
+        const part = WORKER_PARTS.find((candidate) => candidate.url === url);
+        if (!part) return true;
+        vm.runInContext(part.source, context, { filename: part.path });
+        return false;
+    });
+}
+
 // The bundler-scope variant evaluates a *wrapped* copy of the same source. It
 // has to be attributed to a different filename, or V8 coverage folds two texts
 // with different line offsets into one report entry for the real worker and its
@@ -155,7 +181,10 @@ function loadWorker({
         setTimeout,
         clearInterval: (id) => { if (id > 0 && id <= intervals.length) intervals[id - 1] = null; },
         OffscreenCanvas: offscreenCanvas ? class {} : undefined,
-        importScripts: (src) => {
+        importScripts: (...urls) => {
+            const glue = loadWorkerParts(sandbox, urls);
+            if (glue.length === 0) return;
+            const [src] = glue;
             importedScripts.push(src);
             if (importScriptsError) throw importScriptsError;
             // Onto `self`, because that is where importScripts() puts it: in a
@@ -948,7 +977,7 @@ test('both implementations cover every message type declared in the wire protoco
 
     for (const type of hostToWorker) {
         assert.ok(
-            WORKER_SOURCE.includes(`case '${type}':`),
+            ALL_WORKER_SOURCES.includes(`case '${type}':`),
             `projectm-render-worker.js has no case for the '${type}' message`,
         );
         assert.ok(
@@ -963,7 +992,7 @@ test('both implementations cover every message type declared in the wire protoco
             `projectm-render-worker-host.js has no case for the '${type}' message`,
         );
         assert.ok(
-            WORKER_SOURCE.includes(`type: '${type}'`),
+            ALL_WORKER_SOURCES.includes(`type: '${type}'`),
             `projectm-render-worker.js never posts a '${type}' message`,
         );
     }

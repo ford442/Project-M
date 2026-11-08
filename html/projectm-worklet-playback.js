@@ -55,6 +55,7 @@ function ensureHostAudioContext() {
     if (typeof Ctor !== 'function') return null;
     try {
         const ctx = new Ctor();
+        // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by name by the engine audio EM_JS
         globalThis.projectMAudioContext_Global_Cpp = ctx;
         if (ctx.state === 'suspended') {
             ctx.resume().catch((err) => {
@@ -243,11 +244,13 @@ async function repairWorkletSetup(deadline) {
     // `_attach_worklet_ingest()` reads it from this global and returns without
     // doing anything when it is still unset, which left a repaired node with no
     // PCM handler at all.
+    // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by name by the engine audio EM_JS
     globalThis.projectMWorkletNode_Global_Cpp = workletNode;
     try {
         attachPcmHandler(workletNode);
         workletNode.connect(ctx.destination);
     } catch (err) {
+        // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by name by the engine audio EM_JS
         globalThis.projectMWorkletNode_Global_Cpp = null;
         try {
             workletNode.disconnect();
@@ -328,6 +331,7 @@ export function getSongLoadState() {
 
 /** @param {'loading' | 'loaded' | 'error'} state */
 function setSongLoadState(state) {
+    // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by name by the engine audio EM_JS
     globalThis.projectMSongLoadState = state;
 }
 

@@ -7,8 +7,9 @@
 //               `html/` into a package-local `staging/` directory. The published
 //               package MUST be self-contained: `npm pack` only includes files
 //               under the package directory, so `../../html/...` references
-//               produce a broken tarball. The closure is computed from the real
-//               import graph, so it cannot drift from source.
+//               produce a broken tarball. The closure is esbuild's own module
+//               graph (its metafile) plus the files the modules load by
+//               `new URL(..., import.meta.url)`, so nothing is hand-listed.
 //   2. DECLARE  emit `dist/types/**/*.d.ts` from the staged copies with
 //               `tsc --emitDeclarationOnly` (tsconfig.build.json). The package's
 //               type surface is generated, never hand-written.
@@ -23,7 +24,7 @@
 import { mkdir, readFile, rm, copyFile, access, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,21 +36,23 @@ const distRoot = join(packageRoot, 'dist');
 // Entry module of the custom element; everything reachable from here ships.
 const ENTRY = 'projectm-element.js';
 
-// Modules that are reachable at RUN time but not through the static import
-// graph, so the closure scan below cannot see them.
-//
-// projectm-render-worker.js is loaded as `new Worker(new URL('./projectm-render-
-// worker.js', import.meta.url))` from projectm-render-worker-host.js. It is a
-// *classic* worker (importScripts, no ES imports), which is why it has no
-// imports of its own to follow and why it must stay a separate sibling file
-// rather than being bundled into anything. Until now it was simply absent from
-// the package, so the worker render topology 404'd for every npm consumer and
-// silently fell back to the main thread.
-const EXTRA_RUNTIME_MODULES = ['projectm-render-worker.js'];
-
-// `./x.js` and `../x.js` alike: html/context/*.js import modules one directory up.
-const IMPORT_RE = /from\s+['"](\.{1,2}\/[^'"]+)['"]/g;
+// `import('./x.ts')` in JSDoc: type-only companions, which no bundler follows.
 const TYPES_IMPORT_RE = /import\(['"](\.{1,2}\/[^'"]+\.ts)['"]\)/g;
+
+// Files fetched by URL at run time, which no import graph reaches: the render
+// worker (`new Worker(new URL('./projectm-render-worker.js', import.meta.url))`,
+// a classic script) and the AudioWorklet processor. They are found the way a
+// bundler with asset support would find them: from the `new URL('<relative>',
+// import.meta.url)` expressions in the modules esbuild loads.
+const URL_ASSET_RE = /new\s+URL\(\s*['"](\.{0,2}\/?[^'":]+\.js)['"]\s*,\s*import\.meta\.url\s*\)/g;
+
+// A classic worker among those assets pulls in its own parts with
+// `importScripts('./worker/x.js', ...)` or `importScripts(new URL('./x.js',
+// self.location.href).href)`. Relative literals there resolve against the
+// asset's own URL, so they are followed (recursively) and shipped next to it.
+// A non-literal argument (the Emscripten glue's run-time URL) is not ours.
+const IMPORT_SCRIPTS_RE = /importScripts\(([^)]*(?:\([^)]*\)[^)]*)*)\)/g;
+const RELATIVE_JS_LITERAL_RE = /['"](\.{1,2}\/[^'":]+\.js)['"]/g;
 
 async function exists(path) {
   try {
@@ -60,23 +63,70 @@ async function exists(path) {
   }
 }
 
-/** Compute the transitive closure of relative `.js` imports starting at ENTRY. */
+/** @param {string} path */
+const posix = (path) => path.split('\\').join('/');
+
+/**
+ * The module closure of ENTRY, from esbuild's own resolution (its metafile),
+ * so side-effect imports, dynamic import() and html/context/'s `../` imports
+ * are all seen exactly as the bundle step will see them. Also returns the
+ * URL-loaded assets those modules reference (see URL_ASSET_RE).
+ *
+ * @returns {Promise<{ modules: string[], urlAssets: string[] }>} Paths relative to html/.
+ */
 async function computeClosure() {
-  const seen = new Set();
-  const stack = [ENTRY, ...EXTRA_RUNTIME_MODULES];
-  while (stack.length) {
-    const rel = stack.pop();
-    if (seen.has(rel)) continue;
-    seen.add(rel);
-    const src = await readFile(join(htmlRoot, rel), 'utf8');
-    let m;
-    while ((m = IMPORT_RE.exec(src))) {
-      // Resolve relative to the importing module's directory.
-      const target = join(dirname(rel), m[1].replace(/^\.\//, ''));
-      stack.push(target.split('\\').join('/'));
+  const require = createRequire(import.meta.url);
+  /** @type {typeof import('esbuild')} */
+  const esbuild = require('esbuild');
+  const urlAssets = new Set();
+  const result = await esbuild.build({
+    entryPoints: [join(htmlRoot, ENTRY)],
+    absWorkingDir: htmlRoot,
+    bundle: true,
+    write: false,
+    metafile: true,
+    format: 'esm',
+    platform: 'browser',
+    target: ['es2022'],
+    logLevel: 'warning',
+    plugins: [
+      {
+        name: 'collect-url-assets',
+        setup(build) {
+          build.onLoad({ filter: /\.js$/ }, async (args) => {
+            const contents = await readFile(args.path, 'utf8');
+            for (const match of contents.matchAll(URL_ASSET_RE)) {
+              const asset = posix(relative(htmlRoot, resolve(dirname(args.path), match[1])));
+              urlAssets.add(asset);
+            }
+            return { contents, loader: 'js' };
+          });
+        },
+      },
+    ],
+  });
+  const modules = Object.keys(result.metafile.inputs)
+    .map(posix)
+    .filter((rel) => !rel.startsWith('..') && !rel.includes('node_modules/'));
+  for (const asset of urlAssets) {
+    if (!(await exists(join(htmlRoot, asset)))) {
+      throw new Error(`new URL('${asset}', import.meta.url) points at a file html/ does not have`);
     }
   }
-  return [...seen].sort();
+  // Set iteration visits entries added during the loop: that is the recursion.
+  for (const asset of urlAssets) {
+    const contents = await readFile(join(htmlRoot, asset), 'utf8');
+    for (const call of contents.matchAll(IMPORT_SCRIPTS_RE)) {
+      for (const literal of call[1].matchAll(RELATIVE_JS_LITERAL_RE)) {
+        const part = posix(relative(htmlRoot, resolve(dirname(join(htmlRoot, asset)), literal[1])));
+        if (!(await exists(join(htmlRoot, part)))) {
+          throw new Error(`${asset} importScripts('${literal[1]}'), a file html/ does not have`);
+        }
+        urlAssets.add(part);
+      }
+    }
+  }
+  return { modules: [...new Set([...modules, ...urlAssets])].sort(), urlAssets: [...urlAssets].sort() };
 }
 
 /** Collect `*-types.ts` companions referenced from JSDoc in the module closure. */
@@ -132,7 +182,7 @@ async function vendor() {
   await rm(stagingRoot, { recursive: true, force: true });
   await mkdir(stagingRoot, { recursive: true });
 
-  const modules = await computeClosure();
+  const { modules, urlAssets } = await computeClosure();
   const typeCompanions = await collectTypesCompanions(modules);
   const toCopy = [...new Set([...modules, ...typeCompanions])].sort();
   const copied = new Set();
@@ -150,7 +200,7 @@ async function vendor() {
     await copyFile(join(htmlRoot, tsRel), join(stagingRoot, tsRel));
     copied.add(tsRel);
   }
-  return { modules, copied: [...copied].sort() };
+  return { modules, urlAssets, copied: [...copied].sort() };
 }
 
 /**
@@ -227,17 +277,7 @@ async function bundle() {
     },
   });
 
-  // The render worker stays a standalone classic script: it is fetched by URL at
-  // run time, not imported, so it must not be folded into a bundle. bundle:false
-  // preserves its top-level scope; only whitespace and names change.
-  const worker = await esbuild.build({
-    ...shared,
-    bundle: false,
-    entryPoints: [join(stagingRoot, 'projectm-render-worker.js')],
-    outfile: join(distRoot, 'projectm-render-worker.js'),
-  });
-
-  return { esm, iife, worker };
+  return { esm, iife };
 }
 
 function byteSize(meta, file) {
@@ -246,7 +286,7 @@ function byteSize(meta, file) {
 }
 
 async function main() {
-  const { modules, copied } = await vendor();
+  const { modules, urlAssets, copied } = await vendor();
   console.log(`Vendored ${copied.length} file(s) into staging/ from ${modules.length} module(s).`);
 
   await rm(distRoot, { recursive: true, force: true });
@@ -257,15 +297,14 @@ async function main() {
 
   const { esm } = await bundle();
 
-  // The AudioWorklet processor is loaded by URL at run time, so no import graph
-  // reaches it. html/projectm-worklet-playback.js resolves it against its own
-  // module URL (import.meta.url), i.e. against dist/ — without this copy an npm
-  // consumer's worklet repair asked their site for a file that was never shipped.
-  await mkdir(join(distRoot, 'worklets'), { recursive: true });
-  await copyFile(
-    resolve(packageRoot, '..', '..', 'html', 'worklets', 'projectm-audio-processor.js'),
-    join(distRoot, 'worklets', 'projectm-audio-processor.js'),
-  );
+  // Files loaded by URL (the classic render worker, the AudioWorklet
+  // processor) resolve against the module URL that loads them, i.e. against
+  // dist/. They are copied as they are, at the same relative path, and never
+  // folded into a bundle: they run in their own global scope.
+  for (const asset of urlAssets) {
+    await mkdir(dirname(join(distRoot, asset)), { recursive: true });
+    await copyFile(join(stagingRoot, asset), join(distRoot, asset));
+  }
   const outputs = Object.keys(esm.metafile.outputs)
     .filter((f) => f.endsWith('.js'))
     .sort();
@@ -274,8 +313,9 @@ async function main() {
     console.log(`  ${file} (${(byteSize(esm.metafile, file) / 1024).toFixed(1)} kB min)`);
   }
   console.log('  dist/projectm-web.iife.js (global `projectM`)');
-  console.log('  dist/projectm-render-worker.js (classic worker, loaded by URL)');
-  console.log('  dist/worklets/projectm-audio-processor.js (AudioWorklet processor, loaded by URL)');
+  for (const asset of urlAssets) {
+    console.log(`  dist/${asset} (loaded by URL, copied as is)`);
+  }
 
   // Outside dist/ on purpose: it is 25 kB of bundle-analysis metadata that
   // every consumer would otherwise download with the package.

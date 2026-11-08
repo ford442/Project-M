@@ -43,7 +43,6 @@ import { createDisposables } from './projectm-disposables.js';
  * @property {() => void} hidePanel
  * @property {() => void} showPanel
  * @property {() => void} updateLayout Positions #contain1 / #circle for the current mode.
- * @property {() => void} sizeCanvases Backing-store size before an engine owns the canvases.
  * @property {() => void} hideSplash
  * @property {(message: string, tone?: 'error' | 'warn', ms?: number) => void} showStatus
  * @property {(locked: boolean) => void} setLocked
@@ -268,23 +267,6 @@ export function setupShellUi(documentRef, options) {
         }
     }
 
-    // Before the engine exists only the canvases' size can follow the layout;
-    // once it does, ProjectMContext.resize() owns this.
-    function sizeCanvases() {
-        const contain = byId('contain1');
-        if (!contain) return;
-        const rect = contain.getBoundingClientRect();
-        const dpr = windowRef.devicePixelRatio || 1;
-        for (const id of ['mcanvas', 'scanvas']) {
-            const canvas = /** @type {HTMLCanvasElement | null} */ (byId(id));
-            if (!canvas) continue;
-            canvas.width = Math.max(1, Math.round(rect.width * dpr));
-            canvas.height = Math.max(1, Math.round(rect.height * dpr));
-            canvas.style.width = `${rect.width}px`;
-            canvas.style.height = `${rect.height}px`;
-        }
-    }
-
     // ---- status toast (#stat)
     /** @type {ReturnType<typeof setTimeout> | null} */
     let statusTimer = null;
@@ -476,7 +458,6 @@ export function setupShellUi(documentRef, options) {
         hidePanel,
         showPanel,
         updateLayout,
-        sizeCanvases,
         hideSplash,
         showStatus,
         setLocked,

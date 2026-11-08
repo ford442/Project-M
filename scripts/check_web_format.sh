@@ -27,6 +27,7 @@ cd "$PROJECT_ROOT"
 
 PATHS=(
     eslint.config.mjs
+    html/app-shell/
     html/projectm-app-shell.js
     html/projectm-app-shell-ui.js
     html/projectm-audio-capture-page.js

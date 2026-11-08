@@ -21,6 +21,7 @@ import {
 } from './presets.js';
 import { createEngineBinder, meshGridFor, readFlashLimitStats } from './render.js';
 import { createSpriteOn, destroySpriteOn, getSpriteVarOn, setSpriteVarOn } from './sprites.js';
+import { clearEvalVarOn, liveInputTransport, setEvalVarOn } from './live-input.js';
 
 /**
  * @typedef {import('../projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
@@ -34,6 +35,9 @@ import { createSpriteOn, destroySpriteOn, getSpriteVarOn, setSpriteVarOn } from 
  * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
  * @typedef {import('../projectm-audio-source-router.js').AudioSourceRouter} AudioSourceRouter
  * @typedef {import('../projectm-context-types.ts').ProjectMContextSnapshot} ProjectMContextSnapshot
+ * @typedef {import('../projectm-context-types.ts').ProjectMLiveTextureSource} ProjectMLiveTextureSource
+ * @typedef {import('../projectm-context-types.ts').ProjectMRegisterTextureOptions} ProjectMRegisterTextureOptions
+ * @typedef {import('../projectm-context-types.ts').ProjectMUpdateTextureOptions} ProjectMUpdateTextureOptions
  */
 
 // Module-private access to the class's private state, for projectm-context.js
@@ -410,6 +414,106 @@ export class ProjectMContextControls {
             return Promise.reject(new Error('captureFrame(): the context has not started'));
         }
         return this.transport.captureFrame(options);
+    }
+
+    /**
+     * Creates a live texture presets sample by name (`sampler_<name>` in a warp
+     * or composite shader, `texsize_<name>` for its size), or resizes one. It
+     * starts black; feed it with {@link updateTexture}. Register it before
+     * loading the presets that sample it: a preset loaded while the name was
+     * unknown keeps the black placeholder it got until it is loaded again.
+     * Resizing keeps the texture, so running presets follow.
+     *
+     * @param {string} name 1-64 letters, digits or underscores (case-insensitive).
+     * @param {number} width 1..8192
+     * @param {number} height 1..8192
+     * @param {ProjectMRegisterTextureOptions} [options] `followSource: true` sizes
+     *   the texture from each frame instead (so a 1x1 placeholder can be
+     *   registered early).
+     * @returns {Promise<boolean>} false for a name or size the engine refuses.
+     */
+    registerTexture(name, width, height, options = {}) {
+        try {
+            return liveInputTransport(this.transport, 'registerTexture', 'textureSlotRegister').registerTexture(
+                name,
+                width,
+                height,
+                options
+            );
+        } catch (error) {
+            return Promise.reject(error);
+        }
+    }
+
+    /**
+     * Uploads a frame into a live texture: a `<video>` (a camera stream or a
+     * file), a canvas, an image, an `ImageBitmap`/`VideoFrame`, or RGBA8 pixels.
+     * The frame is scaled to the texture's size; a texture not registered yet is
+     * registered at the frame's size (capped at `maxSize`) and follows it. Call it
+     * once per new source frame (requestVideoFrameCallback for a video): a frame
+     * that arrives while the previous one is still on its way is dropped, never
+     * queued. Works the same in both render topologies — in the worker topology
+     * the frame crosses as a transferred ImageBitmap.
+     *
+     * @param {string} name
+     * @param {ProjectMLiveTextureSource} source
+     * @param {ProjectMUpdateTextureOptions} [options]
+     * @returns {Promise<boolean>} true if the frame was handed to the engine.
+     */
+    updateTexture(name, source, options = {}) {
+        try {
+            return liveInputTransport(this.transport, 'updateTexture', 'textureSlotRegister').updateTexture(
+                name,
+                source,
+                options
+            );
+        } catch (error) {
+            return Promise.reject(error);
+        }
+    }
+
+    /**
+     * Removes a live texture. Presets sampling it keep its last frame until they
+     * are loaded again.
+     *
+     * @param {string} name
+     * @returns {Promise<boolean>} true if it existed.
+     */
+    unregisterTexture(name) {
+        try {
+            return liveInputTransport(this.transport, 'unregisterTexture', 'textureSlotRegister').unregisterTexture(name);
+        } catch (error) {
+            return Promise.reject(error);
+        }
+    }
+
+    /**
+     * Sets a per-frame variable for every preset, from the next frame on and
+     * across preset switches, until {@link clearEvalVar}: what a MIDI knob or an
+     * OSC fader drives. The value is loaded over the preset's own starting value
+     * before its per-frame code runs, so code that reads the variable sees it and
+     * code that assigns it still wins; q1..q32 reach the shaders as the per-frame
+     * code leaves them.
+     *
+     * @param {string} name q1..q32, or a writable per-frame variable (zoom, rot,
+     *   warp, decay, wave_r, echo_zoom, gamma, ...). Read-only inputs (time, bass,
+     *   fps, pm_*) are refused.
+     * @param {number} value
+     * @returns {Promise<boolean>} false for a refused name or a non-finite value.
+     */
+    setEvalVar(name, value) {
+        return setEvalVarOn(this.transport, name, Number(value));
+    }
+
+    /**
+     * Removes a {@link setEvalVar} value, so the variable starts from the
+     * preset's own value again; no name clears them all.
+     *
+     * @param {string} [name]
+     * @returns {Promise<boolean>} true if a value was removed.
+     */
+    clearEvalVar(name = '') {
+        return clearEvalVarOn(this.transport, name);
     }
 
     /**

@@ -54,7 +54,7 @@ import {
     writeStorage,
 } from './app-shell/config.js';
 import { setupShellDevPanels } from './app-shell/dev-tools.js';
-import { buildContextOptions, wireStartedContext } from './app-shell/engine.js';
+import { buildContextOptions, wireLiveTexture, wireStartedContext } from './app-shell/engine.js';
 import { createShellPresets } from './app-shell/presets.js';
 
 // The pure profile / URL-settings helpers live in app-shell/config.js.
@@ -432,6 +432,10 @@ export function boot(documentRef, options = {}) {
         if (owned.disposed || pmContext !== context) return;
         wireStartedContext(context, engineDeps);
         ui.hideSplash();
+        await wireLiveTexture(context, engineDeps).catch((error) =>
+            console.warn(`${log} ?liveTex=1 could not start:`, error)
+        );
+        if (owned.disposed || pmContext !== context) return;
         await loadStartupPresets();
     }
 

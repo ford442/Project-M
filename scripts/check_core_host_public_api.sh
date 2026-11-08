@@ -46,6 +46,8 @@ HOSTS=(
     "$PROJECT_ROOT/html/projectm-app-shell.js"
     "$PROJECT_ROOT/html/projectm-app-shell-ui.js"
     "$PROJECT_ROOT/html/projectm-bezel.js"
+    # ?liveTex=1: drives ProjectMContext only, in either topology.
+    "$PROJECT_ROOT/html/projectm-live-texture-source.js"
 )
 
 # Allowlist of raw `Module._*` symbols that may remain temporarily. These are

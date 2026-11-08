@@ -183,6 +183,34 @@ export interface ProjectMCapturedFrame {
     frameIndex: number;
 }
 
+/**
+ * Anything `updateTexture()` can take a frame from: a `<video>` (a camera
+ * stream or a file), a canvas, an image, an `ImageBitmap` or `VideoFrame`, or
+ * RGBA8 pixels (`ImageData`, or `{ width, height, data }` with `data` top row
+ * first).
+ */
+export type ProjectMLiveTextureSource =
+    | CanvasImageSource
+    | ImageData
+    | { width: number; height: number; data: Uint8Array | Uint8ClampedArray };
+
+export interface ProjectMRegisterTextureOptions {
+    /**
+     * Resize the texture to each frame's size (capped by `maxSize`) instead of
+     * scaling frames to the size registered. Lets a page register a 1x1
+     * placeholder before its presets load and size it once the camera answers.
+     */
+    followSource?: boolean;
+}
+
+export interface ProjectMUpdateTextureOptions {
+    /**
+     * Cap on the long side of a texture that follows its source, in pixels.
+     * Default 1024; the engine's limit is 8192.
+     */
+    maxSize?: number;
+}
+
 export interface ProjectMErrorDetail {
     /**
      * The engine's init code (docs/EMSCRIPTEN.md), `-1` for any other failure,

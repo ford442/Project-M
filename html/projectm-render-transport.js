@@ -22,6 +22,7 @@ import {
 } from './generated/projectm-wasm-api.js';
 import * as wasmApi from './generated/projectm-wasm-api.js';
 import { captureFrameFromModule } from './projectm-frame-capture.js';
+import { createLiveTextureWriter, createLiveTextures, pixelsOf, sourceSize } from './projectm-live-texture.js';
 import { claimGlobal } from './projectm-globals.js';
 import { feedPcm } from './projectm-pcm-ring.js';
 import { isRenderWorkerSupported, renderWorkerUnsupportedReason, setupRenderWorker } from './projectm-render-worker-host.js';
@@ -102,6 +103,12 @@ export function createModuleTransport(module, { host = 0 } = {}) {
         return wrapper(engine, ...args);
     };
 
+    // Live textures: frames are drawn on this thread and copied into the slot's
+    // staging buffer on the heap. Created on first use: most pages never need it.
+    /** @type {ReturnType<typeof createLiveTextures> | null} */
+    let liveTextures = null;
+    const live = () => (liveTextures ??= createLiveTextures(createLiveTextureWriter(engine)));
+
     return {
         topology: /** @type {RenderTopology} */ ('main'),
         module,
@@ -176,6 +183,18 @@ export function createModuleTransport(module, { host = 0 } = {}) {
             return captureFrameFromModule(engine, options);
         },
 
+        registerTexture(name, width, height, options) {
+            return live().register(name, width, height, options);
+        },
+
+        updateTexture(name, source, options) {
+            return live().update(name, source, options);
+        },
+
+        unregisterTexture(name) {
+            return live().unregister(name);
+        },
+
         onContextEvent() {
             // The canvas is on this thread and dispatches the DOM events itself.
             return () => {};
@@ -225,6 +244,46 @@ export function createModuleTransport(module, { host = 0 } = {}) {
 }
 
 /**
+ * The page's createImageBitmap(), or null where there is none (Node).
+ *
+ * @returns {((source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>) | null}
+ */
+function defaultCreateImageBitmap() {
+    return typeof globalThis.createImageBitmap === 'function' ? globalThis.createImageBitmap.bind(globalThis) : null;
+}
+
+/**
+ * An ImageBitmap of `source` at `size`. Pixels of the right size never get
+ * here; anything else (a <video>, a canvas, an image) is resized by the
+ * browser. A browser that rejects the resize options gets the frame at its own
+ * size, and the worker scales it while drawing.
+ *
+ * @param {(source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>} create
+ * @param {import('./projectm-context-types.ts').ProjectMLiveTextureSource} source
+ * @param {{ width: number, height: number }} size
+ * @returns {Promise<ImageBitmap>}
+ */
+async function scaledBitmap(create, source, size) {
+    // Plain `{ width, height, data }` pixels of another size: an ImageData is
+    // something createImageBitmap() takes (a copy, since it takes no shared view).
+    const data = /** @type {{ data?: unknown }} */ (source).data;
+    const natural = sourceSize(source);
+    const isImageData = typeof ImageData === 'function' && source instanceof ImageData;
+    const bitmapSource =
+        !isImageData && (data instanceof Uint8Array || data instanceof Uint8ClampedArray) && natural
+            ? new ImageData(new Uint8ClampedArray(data), natural.width, natural.height)
+            : /** @type {ImageBitmapSource} */ (source);
+    try {
+        return await create(bitmapSource, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'low' });
+    } catch (error) {
+        if (!(error instanceof TypeError)) {
+            throw error;
+        }
+        return create(bitmapSource);
+    }
+}
+
+/**
  * Render-worker transport: the module is in the worker, so every call becomes
  * a ccall proxied over postMessage, marshaled from the generated signature
  * table rather than from types written out by hand on this side.
@@ -234,13 +293,47 @@ export function createModuleTransport(module, { host = 0 } = {}) {
  * @param {Iterable<string> | null} [options.exports] Symbols the worker's
  *   bundle exports (the build manifest's `api`, no leading underscore). When
  *   given, supports() answers from it; when not, every call is assumed to exist.
+ * @param {((source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>) | null} [options.createImageBitmap]
+ *   How live-texture frames become transferable bitmaps; the page's own by default.
  * @returns {RenderTransport}
  */
-export function createWorkerTransport(handle, { exports = null } = {}) {
+export function createWorkerTransport(handle, { exports = null, createImageBitmap = defaultCreateImageBitmap() } = {}) {
     if (!handle) {
         throw new Error('createWorkerTransport requires a render worker handle');
     }
     const exported = exports ? new Set(exports) : null;
+
+    /**
+     * @param {string} symbol
+     * @param {string[]} argTypes
+     * @param {unknown[]} args
+     */
+    const ccallNumber = async (symbol, argTypes, args) => Number(await handle.ccall(symbol, 'number', argTypes, args));
+
+    // Live textures: the frame is scaled to the slot's size here
+    // (createImageBitmap's resize runs off the main thread in browsers) and
+    // the bitmap is transferred; html/worker/live-texture.js writes it into
+    // the slot's staging buffer on the worker's heap.
+    const liveTextures = createLiveTextures({
+        registerSlot: async (name, width, height) =>
+            !!(await ccallNumber('texture_slot_register', ['string', 'number', 'number'], [name, width, height])),
+        unregisterSlot: async (name) => !!(await ccallNumber('texture_slot_unregister', ['string'], [name])),
+        async writeFrame(name, size, source) {
+            const pixels = pixelsOf(source, size);
+            if (pixels) {
+                // A copy: the caller keeps its buffer, and the copy is transferred.
+                const copy = new Uint8Array(pixels);
+                handle.postTextureFrame(name, size.width, size.height, { pixels: copy.buffer });
+                return true;
+            }
+            if (!createImageBitmap) {
+                throw new Error('updateTexture(): this browser has no createImageBitmap() to hand frames to the render worker');
+            }
+            const bitmap = await scaledBitmap(createImageBitmap, source, size);
+            handle.postTextureFrame(name, size.width, size.height, { bitmap });
+            return true;
+        },
+    });
 
     return {
         topology: /** @type {RenderTopology} */ ('worker'),
@@ -298,6 +391,18 @@ export function createWorkerTransport(handle, { exports = null } = {}) {
             // The drawing buffer is the worker's and only readable inside the
             // frame that drew it, so the worker reads it and posts the pixels.
             return handle.captureFrame(options);
+        },
+
+        registerTexture(name, width, height, options) {
+            return liveTextures.register(name, width, height, options);
+        },
+
+        updateTexture(name, source, options) {
+            return liveTextures.update(name, source, options);
+        },
+
+        unregisterTexture(name) {
+            return liveTextures.unregister(name);
         },
 
         onContextEvent(listener) {

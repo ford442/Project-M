@@ -73,7 +73,7 @@ test('the render worker ships and is still a standalone classic worker', () => {
     // The parts it importScripts() resolve against the worker's own URL, so
     // they must sit next to it in dist/ under the same relative paths.
     const parts = [...source.matchAll(/['"]\.\/(worker\/[\w-]+\.js)['"]/g)].map((match) => match[1]);
-    assert.deepEqual(parts.sort(), ['worker/capture.js', 'worker/engine-hooks.js', 'worker/pcm-ring.js']);
+    assert.deepEqual(parts.sort(), ['worker/capture.js', 'worker/engine-hooks.js', 'worker/live-texture.js', 'worker/pcm-ring.js']);
     for (const part of parts) {
         const path = join(distRoot, part);
         assert.ok(existsSync(path), `dist/${part} is missing`);

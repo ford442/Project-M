@@ -121,6 +121,33 @@ export function buildContextOptions({
 }
 
 /**
+ * `?liveTex=1` (docs/LIVE_INPUT.md): a camera or a video file into a live
+ * texture presets sample by name. The module is only fetched when asked for.
+ * Resolves once the texture is registered, which must happen before the
+ * startup presets load, or they bind the placeholder instead.
+ *
+ * @param {ProjectMContext} context
+ * @param {ShellEngineDeps} deps
+ * @returns {Promise<void>}
+ */
+export async function wireLiveTexture(context, deps) {
+    const { profile, log, documentRef, windowRef, params } = deps;
+    if (!profile.urlContextConfig || !/^(1|true)$/.test(params.get('liveTex') ?? '')) {
+        return;
+    }
+    const { resolveLiveTextureConfig, setupLiveTextureSource } = await import('../projectm-live-texture-source.js');
+    const config = resolveLiveTextureConfig(params);
+    if (!config || context.destroyed) {
+        return;
+    }
+    const source = context.own(
+        setupLiveTextureSource(context, config, { documentRef, windowRef, navigatorRef: windowRef.navigator, log })
+    );
+    // Synchronous on the main thread, one round trip in the worker topology.
+    await source.registered;
+}
+
+/**
  * @param {ProjectMContext} context
  * @param {ShellEngineDeps} deps
  */

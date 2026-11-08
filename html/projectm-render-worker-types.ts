@@ -198,6 +198,25 @@ export interface RenderWorkerCaptureFrameMessage extends RenderWorkerEngineScope
 }
 
 /**
+ * Host → worker: one frame for a live texture (projectM-4/live_input.h), which
+ * the worker writes into the slot's staging buffer on its module's heap and
+ * commits. Either an `ImageBitmap` the host already scaled to `width`x`height`
+ * (createImageBitmap's resize: a camera or video frame never crosses as pixels)
+ * or the RGBA8 pixels themselves. Both are transferred. A frame for a slot that
+ * no longer has that size (resized or unregistered since) is dropped.
+ */
+export interface RenderWorkerTextureFrameMessage extends RenderWorkerEngineScoped {
+    type: 'texture-frame';
+    /** The live texture's name, as registered with `texture_slot_register()`. */
+    name: string;
+    width: number;
+    height: number;
+    bitmap?: ImageBitmap;
+    /** `width * height * 4` bytes, top row first. */
+    pixels?: ArrayBuffer;
+}
+
+/**
  * Host → worker: the host is done with this worker. The worker stops its stats
  * tick, flushes buffered perf frames, destructs its engine and answers
  * {@link RenderWorkerShutdownCompleteMessage}; the host terminates it on that
@@ -216,7 +235,8 @@ export type RenderWorkerHostMessage =
     | RenderWorkerCcallMessage
     | RenderWorkerRecoverContextMessage
     | RenderWorkerSetFlashLimitMessage
-    | RenderWorkerCaptureFrameMessage;
+    | RenderWorkerCaptureFrameMessage
+    | RenderWorkerTextureFrameMessage;
 
 /**
  * One frame of perf-HUD stats, as `js_perf_report_frame()`
@@ -608,6 +628,11 @@ export interface RenderWorkerHandle {
     postPreset(vfsPath: string, bytes: Uint8Array, mode?: 'load' | 'load-hard' | 'add'): void;
     /** Turns the worker engine's flash limiter on or off (`set-flash-limit`). */
     postFlashLimit(enabled: boolean, threshold?: number): void;
+    /**
+     * Hands the worker one live-texture frame (`texture-frame`), already at the
+     * slot's size. The bitmap or pixel buffer is transferred.
+     */
+    postTextureFrame(name: string, width: number, height: number, frame: { bitmap?: ImageBitmap; pixels?: ArrayBuffer }): void;
     /**
      * Asks the worker for the next presented frame (`capture-frame`) and resolves
      * with its pixels, or rejects with the worker's error.

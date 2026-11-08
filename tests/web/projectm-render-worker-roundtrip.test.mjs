@@ -29,7 +29,7 @@ import { createWorkerTransport, selectRenderTopology } from '../../html/projectm
 const WORKER_PATH = fileURLToPath(new URL('../../html/projectm-render-worker.js', import.meta.url));
 const WORKER_SOURCE = readFileSync(WORKER_PATH, 'utf8');
 // The parts the entry importScripts() from html/worker/, by the URL it asks for.
-const WORKER_PARTS = new Map(['engine-hooks.js', 'pcm-ring.js', 'capture.js'].map((name) => {
+const WORKER_PARTS = new Map(['engine-hooks.js', 'pcm-ring.js', 'capture.js', 'live-texture.js'].map((name) => {
     const path = fileURLToPath(new URL(`../../html/worker/${name}`, import.meta.url));
     return [`./worker/${name}`, { path, source: readFileSync(path, 'utf8') }];
 }));
@@ -322,6 +322,41 @@ test('a preset write that the filesystem rejects surfaces as an error, not a sil
     assert.equal(events.errors.length, 1);
     assert.match(events.errors[0], /preset write failed for \/presets\/a\.milk.*no space/);
     assert.deepEqual(module.ccalls, [], 'and the load was not attempted against a path with no file');
+});
+
+test('a live-texture frame crosses as pixels and is written into the worker heap, then committed', async () => {
+    const { module, worker, transport } = await connect();
+    const slotPtr = 4;
+    const heap = new Uint8Array(32);
+    let slotBytes = 0;
+    const commits = [];
+    const ccall = module.ccall.bind(module);
+    Object.assign(module, {
+        HEAPU8: heap,
+        _texture_slot_buffer: () => 0,
+        ccall(name, returnType, argTypes, args) {
+            if (name === 'texture_slot_register') {
+                slotBytes = Number(args[1]) * Number(args[2]) * 4;
+                return 1;
+            }
+            if (name === 'texture_slot_buffer') return args[1] === slotBytes ? slotPtr : 0;
+            if (name === 'texture_slot_commit') {
+                commits.push(args[0]);
+                return 1;
+            }
+            return ccall(name, returnType, argTypes, args);
+        },
+    });
+
+    assert.equal(await transport.registerTexture('webcam', 2, 1), true, 'the register ccall made the trip');
+    const pixels = Uint8Array.from([10, 20, 30, 40, 50, 60, 70, 80]);
+    assert.equal(await transport.updateTexture('webcam', { width: 2, height: 1, data: pixels }), true);
+    await worker.settle();
+    assert.deepEqual([...heap.slice(slotPtr, slotPtr + 8)], [10, 20, 30, 40, 50, 60, 70, 80]);
+    assert.deepEqual(commits, ['webcam']);
+
+    pixels.fill(0);
+    assert.deepEqual([...heap.slice(slotPtr, slotPtr + 8)], [10, 20, 30, 40, 50, 60, 70, 80], 'a copy crossed, not the caller\'s buffer');
 });
 
 test('a resize crosses as the layout size and the worker applies it to its own surface', async () => {

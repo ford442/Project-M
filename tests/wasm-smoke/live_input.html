@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM live input</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    #pm-live-container { width: 64px; height: 48px; position: relative; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <!--
+    Live textures and host variables (docs/LIVE_INPUT.md) through
+    ProjectMContext against a real bundle, driven by tests/wasm-smoke/live_input.mjs.
+    ?module=<url of projectm-v.NNN-thread.js>&topology=worker|main
+
+    A preset whose composite shader is `lerp(tex2D(sampler_webcam, uv), green, q1)`
+    shows: black once the texture is registered, a red canvas, blue ImageData
+    pixels, green while the host sets q1 = 1, blue again once it is cleared, and
+    then the camera (Chromium's fake device) fed by setupLiveTextureSource() —
+    the ?liveTex=1 path — growing the texture from a 1x1 placeholder in place.
+    Every check reads the canvas back with captureFrame().
+  -->
+  <div id="pm-live-container">
+    <canvas id="pm-live-main" width="64" height="48"></canvas>
+    <canvas id="pm-live-secondary" width="64" height="48"></canvas>
+  </div>
+  <script type="module">
+    import { ProjectMContext } from '../../html/projectm-context.js';
+    import { setupLiveTextureSource } from '../../html/projectm-live-texture-source.js';
+
+    const params = new URLSearchParams(location.search);
+    const PRESET = [
+      'MILKDROP_PRESET_VERSION=201', 'PSVERSION=3', 'PSVERSION_WARP=3', 'PSVERSION_COMP=3', '[preset00]',
+      'fDecay=1', 'zoom=1', 'rot=0', 'warp=0', 'wave_a=0', 'ob_size=0', 'ib_size=0',
+      'comp_1=`sampler sampler_webcam;',
+      'comp_2=`shader_body',
+      'comp_3=`{',
+      'comp_4=`    ret = lerp(tex2D(sampler_webcam, uv).xyz, float3(0, 1, 0), saturate(q1));',
+      'comp_5=`}',
+      '',
+    ].join('\n');
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function solidCanvas(r, g, b) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 8;
+      canvas.height = 8;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(0, 0, 8, 8);
+      return canvas;
+    }
+
+    async function run() {
+      const errors = [];
+      const context = new ProjectMContext({
+        canvas: document.getElementById('pm-live-main'),
+        secondaryCanvas: document.getElementById('pm-live-secondary'),
+        wasmScriptUrl: params.get('module'),
+        renderTopology: params.get('topology') || 'worker',
+        devicePixelRatio: 1,
+        onError: (detail) => errors.push(detail.message),
+      });
+      await context.start();
+      const steps = {};
+
+      const center = async () => {
+        const frame = await context.captureFrame();
+        const i = (Math.floor(frame.height / 2) * frame.width + Math.floor(frame.width / 2)) * 4;
+        return [frame.data[i], frame.data[i + 1], frame.data[i + 2]];
+      };
+      // Polls the canvas until `accept` holds: the preset compiles, and a frame
+      // takes a render or two to arrive, so the first capture may predate it.
+      const waitFor = async (name, accept, timeoutMs = 30000) => {
+        const deadline = performance.now() + timeoutMs;
+        let last = null;
+        while (performance.now() < deadline) {
+          last = await center();
+          if (accept(last)) {
+            steps[name] = { ok: true, rgb: last };
+            return last;
+          }
+          await sleep(50);
+        }
+        steps[name] = { ok: false, rgb: last };
+        throw new Error(`${name}: the canvas center stayed ${JSON.stringify(last)}`);
+      };
+      const near = (expected) => (rgb) => rgb.every((value, i) => Math.abs(value - expected[i]) <= 12);
+
+      steps.registered = await context.registerTexture('webcam', 4, 4);
+      steps.refusedName = await context.registerTexture('noise_lq', 4, 4);
+      await context.loadPresetFile(new File([PRESET], 'live_input.milk'));
+      await waitFor('black', near([0, 0, 0]));
+
+      steps.canvasUpload = await context.updateTexture('webcam', solidCanvas(255, 0, 0));
+      await waitFor('red', near([255, 0, 0]));
+
+      const pixels = new Uint8ClampedArray(4 * 4 * 4);
+      for (let i = 0; i < pixels.length; i += 4) pixels.set([0, 0, 255, 255], i);
+      steps.pixelUpload = await context.updateTexture('webcam', new ImageData(pixels, 4, 4));
+      await waitFor('blue', near([0, 0, 255]));
+
+      steps.evalSet = await context.setEvalVar('q1', 1);
+      await waitFor('q1', near([0, 255, 0]));
+      steps.readOnlyRefused = !(await context.setEvalVar('time', 1));
+      steps.evalClear = await context.clearEvalVar('q1');
+      await waitFor('cleared', near([0, 0, 255]));
+
+      // The ?liveTex=1 path: a camera (Chromium's fake device) through the page source.
+      const source = setupLiveTextureSource(context, { name: 'webcam', src: 'camera', maxSize: 64 }, { log: '[smoke]' });
+      steps.cameraRegistered = await source.registered;
+      steps.cameraStreaming = await source.ready;
+      await waitFor('camera', (rgb) => !near([0, 0, 255])(rgb) && !near([0, 0, 0])(rgb));
+      const first = await center();
+      let changed = false;
+      for (let attempt = 0; attempt < 40 && !changed; attempt += 1) {
+        await sleep(100);
+        const now = await center();
+        changed = now.some((value, i) => value !== first[i]);
+      }
+      steps.cameraMoves = changed;
+      source.dispose();
+      steps.unregisteredAgain = !(await context.unregisterTexture('webcam'));
+
+      const topology = context.getRenderTopology();
+      context.destroy();
+      return { ok: errors.length === 0, topology, steps, errors };
+    }
+
+    run().then(
+      (result) => { window.__projectMLiveInputResult = result; },
+      (error) => { window.__projectMLiveInputResult = { ok: false, error: String(error && error.stack || error) }; },
+    );
+  </script>
+</body>
+</html>

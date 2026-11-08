@@ -195,6 +195,13 @@ jobs:
       - name: Present pass (flash limiter, frame capture)
         run: node tests/wasm-smoke/present_pass.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
 
+      # Live input (docs/LIVE_INPUT.md) through ProjectMContext on both render
+      # topologies: a canvas, ImageData pixels and Chromium's fake camera (the
+      # ?liveTex=1 source) reach a preset's sampler_webcam with no VFS write, and
+      # projectm_eval_set('q1') reaches its composite shader.
+      - name: Live textures and host variables
+        run: node tests/wasm-smoke/live_input.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
+
       # Manual present only exists in the explicit-swap link flavor
       # (OFFSCREEN_FRAMEBUFFER; never deployed): N deterministic ticks must be N
       # commits, and its capture must go through the asynchronous pack buffer.

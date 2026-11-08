@@ -9,7 +9,16 @@
 import { setPresetLocked, setTransparencyMode, switchPreset } from '../generated/projectm-wasm-api.js';
 import { setMeshQuality } from '../projectm-mesh-quality.js';
 import { setTargetFps } from '../projectm-fps-governor.js';
-import { RHYTHM_EVENT_TYPES, RhythmEventRelay, callRhythm, presetSwitchPolicyArgs, readRhythmInfo } from './presets.js';
+import { getAudioContext } from '../projectm-audio-bootstrap.js';
+import {
+    RHYTHM_EVENT_TYPES,
+    RhythmEventRelay,
+    callRhythm,
+    clampRhythmLatencyMs,
+    measureOutputLatencyMs,
+    presetSwitchPolicyArgs,
+    readRhythmInfo,
+} from './presets.js';
 import { createEngineBinder, meshGridFor, readFlashLimitStats } from './render.js';
 import { createSpriteOn, destroySpriteOn, getSpriteVarOn, setSpriteVarOn } from './sprites.js';
 
@@ -237,6 +246,48 @@ export class ProjectMContextControls {
      */
     setHardCutOnBeat(enabled) {
         callRhythm(this.transport, 'setHardCutOnBeat', !!enabled);
+    }
+
+    /**
+     * Delays the beat clock by the audio output latency, so beats, bars and the
+     * preset switches scheduled on them land when the music is heard rather
+     * than when it is analyzed.
+     *
+     * `'auto'` measures it from the shared AudioContext (outputLatency +
+     * baseLatency) and adds `nudgeMs`, the user's "tap to align" correction.
+     * A number sets it directly. Returns the latency applied, in ms.
+     *
+     * @param {number | 'auto'} latency Milliseconds (0..1000), or `'auto'`.
+     * @param {number} [nudgeMs] Added to the measured latency in auto mode.
+     * @returns {number}
+     */
+    setRhythmLatency(latency, nudgeMs = 0) {
+        const ms =
+            latency === 'auto'
+                ? clampRhythmLatencyMs(measureOutputLatencyMs(getAudioContext()) + (Number(nudgeMs) || 0))
+                : clampRhythmLatencyMs(Number(latency));
+        callRhythm(this.transport, 'setRhythmLatencyMs', ms);
+        return ms;
+    }
+
+    /**
+     * Quantises bar and section switches to phrases: a switch only lands on a
+     * downbeat that starts a phrase of `bars` bars, counted from the latest
+     * detected section change.
+     *
+     * @param {number} bars Typically 4, 8 or 16; 0 turns it off.
+     */
+    setPresetSwitchPhrase(bars) {
+        callRhythm(this.transport, 'setPresetSwitchPhrase', Number.isFinite(bars) && bars > 1 ? Math.round(bars) : 0);
+    }
+
+    /**
+     * Hard cut ("drop" cut) on the first downbeat after each detected section change.
+     *
+     * @param {boolean} enabled
+     */
+    setSectionHardCut(enabled) {
+        callRhythm(this.transport, 'setSectionHardCut', !!enabled);
     }
 
     /**

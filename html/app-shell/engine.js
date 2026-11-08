@@ -108,6 +108,10 @@ export function buildContextOptions({
             presetSwitchBars: render.presetSwitchBars,
             transitionBeats: render.transitionBeats,
             rhythmHint: render.rhythmHint,
+            rhythmLatency: render.rhythmLatency,
+            rhythmLatencyNudge: render.rhythmLatencyNudge,
+            presetSwitchPhrase: render.presetSwitchPhrase,
+            sectionHardCut: render.sectionHardCut,
             onRenderWorkerFallback: (/** @type {string} */ reason) => {
                 console.warn(`${log} Render worker unavailable, rendering on the main thread:`, reason);
             },

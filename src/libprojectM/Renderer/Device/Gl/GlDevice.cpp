@@ -94,6 +94,20 @@ void TexImage(GLenum target, const TextureDesc& desc, const void* data)
     }
 }
 
+void TexSubImage(GLenum target, const TextureDesc& desc, const void* data)
+{
+    const auto format = ToGl(desc.format, desc.dataOrder);
+    switch (desc.target)
+    {
+        case TextureTarget::Texture2D:
+            glTexSubImage2D(target, 0, 0, 0, desc.width, desc.height, format.format, format.type, data);
+            break;
+        case TextureTarget::Texture3D:
+            glTexSubImage3D(target, 0, 0, 0, 0, desc.width, desc.height, desc.depth, format.format, format.type, data);
+            break;
+    }
+}
+
 } // anonymous namespace
 
 // ==== GlCommandList ===================================================================
@@ -632,6 +646,18 @@ void GlDevice::UpdateTexture(TextureHandle texture, const TextureDesc& desc, con
         glTexParameteri(target, GL_TEXTURE_WRAP_S, ToGl(desc.sampling->wrap));
         glTexParameteri(target, GL_TEXTURE_WRAP_T, ToGl(desc.sampling->wrap));
     }
+    glBindTexture(target, 0);
+}
+
+void GlDevice::WriteTexture(TextureHandle texture, const TextureDesc& desc, const void* data)
+{
+    if (!texture.Valid() || data == nullptr)
+    {
+        return;
+    }
+    const GLenum target = ToGl(desc.target);
+    glBindTexture(target, texture.id);
+    TexSubImage(target, desc, data);
     glBindTexture(target, 0);
 }
 

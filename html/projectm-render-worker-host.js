@@ -482,6 +482,31 @@ export function setupRenderWorker({
         },
 
         /**
+         * @param {string} name
+         * @param {number} width
+         * @param {number} height
+         * @param {{ bitmap?: ImageBitmap, pixels?: ArrayBuffer }} frame
+         */
+        postTextureFrame(name, width, height, { bitmap, pixels }) {
+            /** @type {Transferable[]} */
+            const transfer = [];
+            if (bitmap) transfer.push(bitmap);
+            if (pixels) transfer.push(pixels);
+            worker.postMessage(
+                {
+                    type: 'texture-frame',
+                    name,
+                    width,
+                    height,
+                    ...(bitmap ? { bitmap } : {}),
+                    ...(pixels ? { pixels } : {}),
+                    host: engineHost,
+                },
+                transfer
+            );
+        },
+
+        /**
          * @param {{ renderFrame?: boolean, timeoutMs?: number }} [options]
          * @returns {Promise<{ width: number, height: number, data: Uint8ClampedArray, frameIndex: number }>}
          */

@@ -6,6 +6,9 @@
 
 #include <projectM-4/projectM_cxx_export.h>
 
+#include <map>
+#include <string>
+
 namespace libprojectM {
 namespace Renderer {
 
@@ -53,6 +56,12 @@ public:
 
     TextureManager* textureManager{nullptr}; //!< Holds all loaded textures for shader access.
     ShaderCache* shaderCache{nullptr}; //!< The shader chace of this projectM instance.
+
+    /**
+     * Per-frame variables the host set (projectm_eval_set()), by lower-case name. Each preset loads
+     * them over its own starting values before its per-frame code runs. Null outside rendering.
+     */
+    const std::map<std::string, double>* hostVariables{nullptr};
 };
 
 } // namespace Renderer

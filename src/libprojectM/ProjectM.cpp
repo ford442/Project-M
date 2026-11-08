@@ -29,6 +29,9 @@
 #include "PresetPrepareJob.hpp"
 #include "PresetSwitchScheduler.hpp"
 #include "TimeKeeper.hpp"
+#include "Utils.hpp"
+
+#include <MilkdropPreset/HostVariables.hpp>
 
 #include <Audio/PCM.hpp>
 
@@ -209,21 +212,28 @@ void ProjectM::SetTexturePaths(std::vector<std::string> texturePaths)
 {
     const ScopedEngineContext engineScope(*m_engineContext);
     m_textureSearchPaths = std::move(texturePaths);
-    m_textureManager = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
-    if (m_textureLoadCallback)
-    {
-        m_textureManager->SetTextureLoadCallback(m_textureLoadCallback);
-    }
+    ReplaceTextureManager();
 }
 
 void ProjectM::ResetTextures()
 {
     const ScopedEngineContext engineScope(*m_engineContext);
-    m_textureManager = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
+    ReplaceTextureManager();
+}
+
+void ProjectM::ReplaceTextureManager()
+{
+    auto replacement = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
+    if (m_textureManager)
+    {
+        // The host registered these and feeds them; new search paths don't end them.
+        replacement->AdoptLiveTextures(m_textureManager->LiveTextures());
+    }
     if (m_textureLoadCallback)
     {
-        m_textureManager->SetTextureLoadCallback(m_textureLoadCallback);
+        replacement->SetTextureLoadCallback(m_textureLoadCallback);
     }
+    m_textureManager = std::move(replacement);
 }
 
 void ProjectM::SetTextureLoadCallback(Renderer::TextureLoadCallback callback)
@@ -239,6 +249,46 @@ auto ProjectM::ReloadTexture(const std::string& name) -> bool
 {
     const ScopedEngineContext engineScope(*m_engineContext);
     return m_textureManager && m_textureManager->ReloadTexture(name);
+}
+
+auto ProjectM::RegisterLiveTexture(const std::string& name, int width, int height) -> bool
+{
+    const ScopedEngineContext engineScope(*m_engineContext);
+    return m_textureManager && m_textureManager->RegisterLiveTexture(name, width, height);
+}
+
+auto ProjectM::UpdateLiveTexture(const std::string& name, const void* rgba, size_t bytes) -> bool
+{
+    const ScopedEngineContext engineScope(*m_engineContext);
+    return m_textureManager && m_textureManager->UpdateLiveTexture(name, rgba, bytes);
+}
+
+auto ProjectM::UnregisterLiveTexture(const std::string& name) -> bool
+{
+    const ScopedEngineContext engineScope(*m_engineContext);
+    return m_textureManager && m_textureManager->UnregisterLiveTexture(name);
+}
+
+auto ProjectM::SetHostVariable(const std::string& name, double value) -> bool
+{
+    std::string const lowerCaseName = Utils::ToLower(name);
+    if (!std::isfinite(value) || !MilkdropPreset::IsHostWritableVariable(lowerCaseName))
+    {
+        return false;
+    }
+    m_hostVariables[lowerCaseName] = value;
+    return true;
+}
+
+auto ProjectM::ClearHostVariable(const std::string& name) -> bool
+{
+    if (name.empty())
+    {
+        bool const hadAny = !m_hostVariables.empty();
+        m_hostVariables.clear();
+        return hadAny;
+    }
+    return m_hostVariables.erase(Utils::ToLower(name)) > 0;
 }
 
 void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
@@ -1106,6 +1156,7 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
 
     ctx.textureManager = m_textureManager.get();
     ctx.shaderCache = m_shaderCache.get();
+    ctx.hostVariables = &m_hostVariables;
 
     if (m_transition)
     {

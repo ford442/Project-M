@@ -15,7 +15,13 @@
 // same-basename `.ts` would shadow the real `.js` module for every JS importer
 // during typecheck.
 
-import type { ProjectMCapturedFrame, ProjectMCaptureFrameOptions } from './projectm-context-types.ts';
+import type {
+    ProjectMCapturedFrame,
+    ProjectMCaptureFrameOptions,
+    ProjectMLiveTextureSource,
+    ProjectMRegisterTextureOptions,
+    ProjectMUpdateTextureOptions,
+} from './projectm-context-types.ts';
 import type { PerfFrameStats, RenderWorkerHandle, RhythmEvent } from './projectm-render-worker-types.ts';
 
 /** Which topology a transport is driving. */
@@ -99,6 +105,24 @@ export interface RenderTransport {
      * caller owns.
      */
     captureFrame(options?: ProjectMCaptureFrameOptions): Promise<ProjectMCapturedFrame>;
+
+    /**
+     * Creates or resizes a live texture (projectM-4/live_input.h) on this
+     * engine. Resolves false for a name or size the engine refuses.
+     */
+    registerTexture(name: string, width: number, height: number, options?: ProjectMRegisterTextureOptions): Promise<boolean>;
+
+    /**
+     * Uploads one frame into a live texture, scaled to its size (a texture that
+     * follows its source, or one not registered yet, is sized from the frame
+     * first). Resolves false when the frame was dropped: the source has no size
+     * yet, the previous frame for that name is still on its way, or the engine
+     * refused it. Only the newest frame matters, so dropping is the point.
+     */
+    updateTexture(name: string, source: ProjectMLiveTextureSource, options?: ProjectMUpdateTextureOptions): Promise<boolean>;
+
+    /** Removes a live texture. Resolves true if it existed. */
+    unregisterTexture(name: string): Promise<boolean>;
 
     /**
      * Subscribes to WebGL context loss/restore notifications that the transport

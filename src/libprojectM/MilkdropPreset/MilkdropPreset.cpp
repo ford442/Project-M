@@ -295,6 +295,10 @@ void MilkdropPreset::BindOutputForRead()
 void MilkdropPreset::PerFrameUpdate()
 {
     m_perFrameContext.LoadStateVariables(m_state);
+    if (m_state.renderContext.hostVariables != nullptr)
+    {
+        m_perFrameContext.LoadHostVariables(*m_state.renderContext.hostVariables);
+    }
     m_perPixelContext.LoadStateReadOnlyVariables(m_state, m_perFrameContext);
 
     m_perFrameContext.ExecutePerFrameCode();

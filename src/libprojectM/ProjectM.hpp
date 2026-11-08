@@ -29,6 +29,7 @@
 
 #include <cstdint>
 #include <istream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -213,6 +214,44 @@ public:
      * @return true if a loaded texture was updated.
      */
     auto ReloadTexture(const std::string& name) -> bool;
+
+    /**
+     * @brief Creates or resizes a host-fed texture presets sample by name.
+     * @see Renderer::TextureManager::RegisterLiveTexture()
+     */
+    auto RegisterLiveTexture(const std::string& name, int width, int height) -> bool;
+
+    /**
+     * @brief Uploads a new RGBA8 frame into a live texture.
+     * @see Renderer::TextureManager::UpdateLiveTexture()
+     */
+    auto UpdateLiveTexture(const std::string& name, const void* rgba, size_t bytes) -> bool;
+
+    /**
+     * @brief Removes a live texture.
+     * @see Renderer::TextureManager::UnregisterLiveTexture()
+     */
+    auto UnregisterLiveTexture(const std::string& name) -> bool;
+
+    /**
+     * @brief Sets a per-frame variable's starting value for every preset, every frame.
+     *
+     * Applied after the preset's own starting values are loaded and before its per-frame code
+     * runs, from the next frame on and across preset switches, until cleared. Per-frame code that
+     * reads the variable sees the host's value; code that assigns it wins for that frame.
+     *
+     * @param name q1..q32 or a writable per-frame variable (zoom, rot, decay, wave_r, ...), any
+     *             case. Read-only inputs (time, bass, fps, pm_*, ...) are refused.
+     * @param value The value; NaN and infinities are refused.
+     * @return true if the override is set.
+     */
+    auto SetHostVariable(const std::string& name, double value) -> bool;
+
+    /**
+     * @brief Removes a SetHostVariable() override, or all of them for an empty name.
+     * @return true if an override was removed.
+     */
+    auto ClearHostVariable(const std::string& name) -> bool;
 
     void RenderFrame(uint32_t targetFramebufferObject = 0);
 
@@ -574,6 +613,11 @@ public:
 private:
     void Initialize();
 
+    /**
+     * @brief Builds a texture manager for the current search paths, keeping the live textures.
+     */
+    void ReplaceTextureManager();
+
     void CheckGLSLVersion();
 
     void StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hardCut,
@@ -682,6 +726,7 @@ private:
 
     Audio::PCM m_audioStorage;                                                    //!< Audio data buffer and analyzer instance.
     std::unique_ptr<Renderer::TextureManager> m_textureManager;                   //!< The texture manager.
+    std::map<std::string, double> m_hostVariables;                                //!< SetHostVariable() overrides by lower-case name.
     std::unique_ptr<Renderer::ShaderCache> m_shaderCache;                         //!< The global shader cache.
     std::unique_ptr<Renderer::TransitionShaderManager> m_transitionShaderManager; //!< The transition shader manager.
     std::unique_ptr<Renderer::CopyTexture> m_textureCopier;                       //!< Class that copies textures 1:1 to another texture or framebuffer.

@@ -66,6 +66,12 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _projectm_sprite_get_var_wrapper
     _projectm_sprite_set_var_wrapper
     _reload_texture
+    _texture_slot_register
+    _texture_slot_buffer
+    _texture_slot_commit
+    _texture_slot_unregister
+    _eval_set
+    _eval_clear
     _stop_worklet_playback
     _set_audio_source_to_stream
     _set_preset_locked

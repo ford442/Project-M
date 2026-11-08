@@ -17,6 +17,7 @@
 //   { type: 'recover-context', host }                 // rebuild the engine after a context loss
 //   { type: 'set-flash-limit', enabled, threshold, host }   // the engine's flash limiter
 //   { type: 'capture-frame', requestId, renderFrame, timeoutMs, host }  // read back the next frame
+//   { type: 'texture-frame', name, width, height, bitmap | pixels, host }  // a live-texture frame
 //   { type: 'shutdown' }                              // stop the stats tick, destruct the engine
 //
 //   `host` is the engine the message is for (what 'ready' reported); the worker
@@ -57,6 +58,7 @@
  * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
  * @typedef {import('./projectm-render-worker-types.ts').RhythmEvent} RhythmEvent
  * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerCaptureFrameMessage} RenderWorkerCaptureFrameMessage
+ * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerTextureFrameMessage} RenderWorkerTextureFrameMessage
  * @typedef {import('./projectm-render-worker-types.ts').FlashLimitSettings} FlashLimitSettings
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
  */
@@ -71,6 +73,7 @@
  *   HEAPU8?: Uint8Array,
  *   specialHTMLTargets?: Record<string, unknown>,
  *   _create_host_with_config?: (...args: number[]) => number,
+ *   _texture_slot_buffer?: (...args: number[]) => number,
  *   FS?: { writeFile: (path: string, data: Uint8Array | string) => void, mkdirTree?: (path: string) => void },
  * }} WorkerModule
  */
@@ -189,7 +192,7 @@ function selectEngine(host) {
  * resolve against this script). Each publishes one factory on `self`; the
  * state they read stays here and is handed over as accessors.
  */
-importScripts('./worker/engine-hooks.js', './worker/pcm-ring.js', './worker/capture.js');
+importScripts('./worker/engine-hooks.js', './worker/pcm-ring.js', './worker/capture.js', './worker/live-texture.js');
 
 const { flushPerfFrames } = self.installWorkerEngineHooks({
     getEngineHost: () => engineHost,
@@ -201,6 +204,7 @@ const { flushPerfFrames } = self.installWorkerEngineHooks({
 });
 const { publishPcmRing, writePcmToRing, readPcmRingCounters } = self.createWorkerPcmRing({ getModule: () => Module, postToHost });
 const { applyFlashLimit, captureFrame } = self.createWorkerCapture({ getModule: () => Module, selectEngine, postToHost });
+const { writeTextureFrame } = self.createWorkerLiveTexture({ getModule: () => Module, selectEngine, postToHost });
 
 
 /**
@@ -671,6 +675,9 @@ self.onmessage = (event) => {
                 selectEngine(msg.host);
                 applyFlashLimit(msg);
             }
+            break;
+        case 'texture-frame':
+            writeTextureFrame(msg);
             break;
         case 'capture-frame':
             captureFrame(msg).catch((error) => {

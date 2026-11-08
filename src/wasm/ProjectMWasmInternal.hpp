@@ -116,6 +116,15 @@ void FlushRhythmEvents(WasmHost& host);
 // resolved against the current tempo, or the duration in seconds.
 float ResolveTransitionDuration(WasmHost& host);
 
+// ---- Live input (defined in WasmLiveInput.cpp) -----------------------------
+// UploadLiveTextures() runs in render_frame() before the engine renders: every
+// live texture the page wrote and committed since the last frame is uploaded
+// once, however many frames it committed. ReapplyLiveInput() puts the host's
+// live textures (with their last frame) and host variables back on a new engine
+// (init() after a context loss or a rebind).
+void UploadLiveTextures(WasmHost& host);
+void ReapplyLiveInput(WasmHost& host);
+
 // ---- Present pass (defined in WasmPresent.cpp) -----------------------------
 // TakeRequestedFrameCapture() runs at the end of render_frame(), after the
 // compositor and before the manual-present commit: if the page asked for this

@@ -67,6 +67,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── WasmPlaylistBridge.cpp  # Preset callbacks + playlist path helpers
 │   ├── WasmPresetPrepare.cpp   # Per-host preset prepare thread (no ASYNCIFY)
 │   ├── WasmPresent.cpp         # Flash-limiter switches, per-host frame capture, commit counter
+│   ├── WasmLiveInput.cpp       # Live textures (per-host staging buffers) + eval_set host variables
 │   └── WasmJsBindings.cpp      # EM_JS glue: VFS/song bootstrap + host-page notifications (no DOM, no network)
 ├── CMakeLists.txt          # Root build configuration
 ├── vcpkg.json              # vcpkg dependency manifest
@@ -207,6 +208,10 @@ Defines the stable **C API** used by all language bindings and frontends. Header
 - `offline_render.h` — fork extension: `projectm_render_offline_frame()` adds one frame's audio and
   renders it at a given time on a virtual clock, shaders compiled synchronously, so two runs with the
   same seed, presets, audio and frame times give the same pixels (`src/tools/projectm-render` drives it)
+- `live_input.h` — fork extension: live textures a host feeds by name
+  (`projectm_texture_slot_register/update/unregister()`, sampled as `sampler_<name>`, updated in
+  place every frame) and host values for per-frame variables (`projectm_eval_set/clear()`: q1..q32,
+  zoom, decay, ...). See `docs/LIVE_INPUT.md`
 - `texture_reload.h` — fork extension: `projectm_reload_texture()` re-reads a loaded texture's file
   in place, so running presets sample a rewritten image without a reload (the experimental depth
   map; see `docs/EXPERIMENTAL_PRESET_HOOKS.md`)

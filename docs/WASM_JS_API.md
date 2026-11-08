@@ -132,6 +132,10 @@ symbol's doc text is not an API change and needs nothing.
 | `captureFrameWidth` / `captureFrameHeight` | `capture_frame_width` / `capture_frame_height` | |
 | `captureFrameIndex` | `capture_frame_index` | `get_rendered_frame_count()` right after the captured frame |
 | `captureFrameRelease` | `capture_frame_release` | |
+| `textureSlotRegister` | `texture_slot_register` | Create or resize a live texture presets sample as `sampler_<name>`; prefer `ProjectMContext.registerTexture()`. See [LIVE_INPUT.md](LIVE_INPUT.md) |
+| `textureSlotBuffer` / `textureSlotCommit` | `texture_slot_buffer` / `texture_slot_commit` | Where to write the next RGBA8 frame in `HEAPU8` (0 unless `bytes` is the slot's size), then mark it complete for the next `render_frame()`; prefer `ProjectMContext.updateTexture()` |
+| `textureSlotUnregister` | `texture_slot_unregister` | |
+| `evalSet` / `evalClear` | `eval_set` / `eval_clear` | Host value for a per-frame variable (q1..q32, zoom, decay, ...) on every preset until cleared (`''` clears all); prefer `ProjectMContext.setEvalVar()` / `clearEvalVar()` |
 | `createSprite` | `create_sprite` | User sprite on the active host from `(type, code)`; returns its id, 0 if refused. See "User sprites" below |
 | `getProjectmHandle` | `get_projectm_handle` | The active host's engine handle (its host handle; 0 without an engine): the `pmHandle` the `projectm_sprite_*_wrapper` and PCM exports take |
 | `projectmSpriteCreateWrapper` | `projectm_sprite_create_wrapper` | `projectM-4/user_sprites.h` behind a validated `pmHandle`: a stale or unknown handle is a no-op returning 0. (Before 0.3.0 the raw `projectm_sprite_*` exports took the engine's address, so a handle kept past `destroy_host()` could drive whichever engine reused that memory.) |

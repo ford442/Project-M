@@ -9,6 +9,7 @@ set.
 | `depth_overlay_demo.milk` | `shapecode` textured with `pm_depth_map.png` from the experimental bridge |
 | `depth_sampler_demo.milk` | Warp and composite shaders sample the depth map as `pm_depth` (the engine declares it because of the `// pm:experimental depth...` header) |
 | `gltf_export_flag_demo.milk` | Sets `// pm:experimental gltf-export=true` (host coordinator only) |
+| `live_texture_webcam.milk` | Samples the live texture `webcam` with stock syntax (`sampler sampler_webcam;`): camera trails, with `q1` as a host wet/dry knob. Needs no `?experimental=1`: load it on `projectm-core.html?liveTex=1` (see [`docs/LIVE_INPUT.md`](../../docs/LIVE_INPUT.md)) |
 
 Load via:
 

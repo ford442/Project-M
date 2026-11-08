@@ -24,6 +24,7 @@
 #include "WasmPresetPrepare.hpp"
 #include "WasmWebGLContext.hpp"
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -84,6 +85,21 @@ struct EngineSettings {
     std::optional<bool> sectionHardCut;                         //!< set_section_hard_cut().
     std::optional<bool> flashLimitEnabled;                      //!< set_flash_limit_enabled().
     std::optional<float> flashLimitThreshold;                   //!< set_flash_limit_threshold().
+};
+
+// =============================================================================
+// LiveTextureSlot – one live texture the page feeds (WasmLiveInput.cpp).
+//
+// The page writes a frame straight into `staging` on the WASM heap
+// (texture_slot_buffer()) and commits it; render_frame() uploads it. The staging
+// copy belongs to the host, not the engine, so a context-loss restore re-uploads
+// the last frame instead of starting black.
+// =============================================================================
+struct LiveTextureSlot {
+    int width = 0;
+    int height = 0;
+    std::vector<uint8_t> staging; //!< width * height RGBA8, top row first.
+    bool dirty = false;           //!< Committed since the last upload.
 };
 
 // =============================================================================
@@ -221,6 +237,12 @@ struct WasmHost {
 
     // ---- Audio ingest (#246) ----
     PcmRingState pcmRing;
+
+    // ---- Live input (WasmLiveInput.cpp) ----
+    // Live textures by lower-case name, and the host variables (eval_set()) the
+    // engine applies every frame. Both outlive the engine, like EngineSettings.
+    std::map<std::string, LiveTextureSlot> liveTextures;
+    std::map<std::string, double> hostVariables;
 
     // ---- Transpiled-GLSL cache load (#246) ----
     ShaderCacheLoadState shaderCache;

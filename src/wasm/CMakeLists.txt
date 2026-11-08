@@ -44,6 +44,7 @@ set(PROJECTM_WASM_WRAPPER_SOURCES
         WasmDeterminism.cpp
         WasmPresent.cpp
         WasmLog.cpp
+        WasmLiveInput.cpp
         )
 
 # Not in ALL: scripts/build_wasm_install.sh builds and installs the libraries,

@@ -247,6 +247,7 @@ static void ReapplyEngineSettings(WasmHost& host)
     {
         projectm_set_flash_limit_enabled(pm, *settings.flashLimitEnabled);
     }
+    ReapplyLiveInput(host);
     ReapplyQualityTierLimits();
 }
 

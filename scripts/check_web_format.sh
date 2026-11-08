@@ -32,12 +32,16 @@ PATHS=(
     html/projectm-app-shell-ui.js
     html/projectm-audio-capture-page.js
     html/projectm-bezel.js
+    html/context/live-input.js
     html/projectm-disposables.js
     html/projectm-embed-demo.js
+    html/projectm-live-texture.js
+    html/projectm-live-texture-source.js
     html/projectm-pcm-test-sender.js
     html/projectm-redirect-stub.js
     html/flac-player/boot.js
     html/flac-player/preboot.js
+    html/worker/live-texture.js
     html/tsconfig.worklet.json
     tests/web/tsconfig.json
 )

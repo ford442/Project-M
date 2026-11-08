@@ -158,6 +158,26 @@ const SETUPS = {
         // showInitError() draw into the same element, with or without a handler.
         leavesDom: ['pm-init-error', 'pm-init-error-style'],
     },
+    setupLiveTextureSource: {
+        module: 'projectm-live-texture-source.js',
+        call: async (env) => {
+            const { setupLiveTextureSource } = await import('../../html/projectm-live-texture-source.js');
+            const context = {
+                registerTexture: async () => true,
+                updateTexture: async () => true,
+                unregisterTexture: async () => true,
+            };
+            const source = setupLiveTextureSource(context, { name: 'webcam', src: 'camera', maxSize: 1024 }, {
+                documentRef: env.document,
+                windowRef: env.window,
+                // No camera here: the source fails to start and must still clean up.
+                navigatorRef: /** @type {any} */ ({}),
+                log: '[test]',
+            });
+            await source.ready;
+            return source;
+        },
+    },
     setupMeshQuality: {
         module: 'projectm-mesh-quality.js',
         call: async () => {

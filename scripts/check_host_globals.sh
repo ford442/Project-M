@@ -76,6 +76,7 @@ ALLOWED_FILES=(
     "html/worker/engine-hooks.js"
     "html/worker/pcm-ring.js"
     "html/worker/capture.js"
+    "html/worker/live-texture.js"
 )
 
 # Modules under html/, plus the first-party host pages (their inline scripts

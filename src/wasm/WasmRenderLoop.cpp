@@ -309,6 +309,10 @@ void render_frame()
     // directly get identical audio, with no window/AnalyserNode involved.
     pcm_ring_drain();
 
+    // Same for live textures: the frames the page committed since the last frame,
+    // uploaded once each, before anything samples them.
+    UploadLiveTextures(H);
+
     // Phase 5: Integrated dual-FBO render pipeline (transitions only).
     //
     // When a crossfade is active, the render loop orchestrates:

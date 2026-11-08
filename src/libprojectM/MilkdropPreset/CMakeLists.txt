@@ -57,6 +57,7 @@ add_library(MilkdropPreset OBJECT
         Filters.hpp
         FinalComposite.cpp
         FinalComposite.hpp
+        HostVariables.hpp
         IdlePreset.cpp
         IdlePreset.hpp
         MilkdropPreparedPreset.cpp

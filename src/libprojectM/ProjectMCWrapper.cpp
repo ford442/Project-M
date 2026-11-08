@@ -1343,6 +1343,67 @@ bool projectm_reload_texture(projectm_handle instance, const char* texture_name)
     });
 }
 
+bool projectm_texture_slot_register(projectm_handle instance, const char* name, int width, int height)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto& projectMInstance = Instance(instance);
+        if (name == nullptr)
+        {
+            return false;
+        }
+        return projectMInstance.RegisterLiveTexture(name, width, height);
+    });
+}
+
+bool projectm_texture_slot_update(projectm_handle instance, const char* name, const void* rgba, size_t bytes)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto& projectMInstance = Instance(instance);
+        if (name == nullptr || rgba == nullptr)
+        {
+            return false;
+        }
+        return projectMInstance.UpdateLiveTexture(name, rgba, bytes);
+    });
+}
+
+bool projectm_texture_slot_unregister(projectm_handle instance, const char* name)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto& projectMInstance = Instance(instance);
+        if (name == nullptr)
+        {
+            return false;
+        }
+        return projectMInstance.UnregisterLiveTexture(name);
+    });
+}
+
+bool projectm_eval_set(projectm_handle instance, const char* name, double value)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto& projectMInstance = Instance(instance);
+        if (name == nullptr)
+        {
+            return false;
+        }
+        return projectMInstance.SetHostVariable(name, value);
+    });
+}
+
+bool projectm_eval_clear(projectm_handle instance, const char* name)
+{
+    return CApiGuard(__func__, false, [&]() -> bool {
+        auto& projectMInstance = Instance(instance);
+        if (name != nullptr && name[0] == '\0')
+        {
+            return false;
+        }
+        // NULL clears every value: ClearHostVariable() takes an empty name for that.
+        return projectMInstance.ClearHostVariable(name != nullptr ? name : "");
+    });
+}
+
 void projectm_set_log_callback(projectm_log_callback callback, bool current_thread_only, void* user_data)
 {
     CApiGuard(__func__, [&] {

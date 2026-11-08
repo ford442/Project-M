@@ -32,7 +32,7 @@ const WORKER_SOURCE = readFileSync(WORKER_PATH, 'utf8');
 // The parts the entry importScripts() from html/worker/ (classic scripts in the
 // same worker scope). The fake importScripts() evaluates them in the vm context
 // under their real paths, so they run - and are covered - like the entry.
-const WORKER_PARTS = ['engine-hooks.js', 'pcm-ring.js', 'capture.js'].map((name) => {
+const WORKER_PARTS = ['engine-hooks.js', 'pcm-ring.js', 'capture.js', 'live-texture.js'].map((name) => {
     const path = fileURLToPath(new URL(`../../html/worker/${name}`, import.meta.url));
     return { url: `./worker/${name}`, path, source: readFileSync(path, 'utf8') };
 });
@@ -140,6 +140,8 @@ function fakeRingModule({ capacityFrames = 4, shared = true } = {}) {
  * @param {Error | null} [options.importScriptsError]
  * @param {boolean} [options.offscreenCanvas] Whether the scope has OffscreenCanvas.
  * @param {boolean} [options.sharedArrayBuffer]
+ * @param {Function | null} [options.offscreenCanvasClass] The OffscreenCanvas
+ *   the scope has (an empty class by default), for parts that draw on one.
  * @param {boolean} [options.bundlerScope] Evaluate the source wrapped in a
  *   strict-mode function scope, the way a bundler that treats the file as a
  *   module or an IIFE does. Top-level declarations stop being globals there.
@@ -150,6 +152,7 @@ function loadWorker({
     offscreenCanvas = true,
     sharedArrayBuffer = true,
     bundlerScope = false,
+    offscreenCanvasClass = null,
 } = {}) {
     /** @type {any[]} */
     const posted = [];
@@ -180,7 +183,8 @@ function loadWorker({
         // Real timers: captureFrame() polls with them while the frame renders.
         setTimeout,
         clearInterval: (id) => { if (id > 0 && id <= intervals.length) intervals[id - 1] = null; },
-        OffscreenCanvas: offscreenCanvas ? class {} : undefined,
+        OffscreenCanvas: offscreenCanvas ? (offscreenCanvasClass ?? class {}) : undefined,
+        Uint8Array,
         importScripts: (...urls) => {
             const glue = loadWorkerParts(sandbox, urls);
             if (glue.length === 0) return;
@@ -938,6 +942,130 @@ test('capture-frame answers with an error instead of hanging', async () => {
     assert.match(timedOut.error, /no frame was rendered within 20 ms/);
 });
 
+// ---- live textures (html/worker/live-texture.js) --------------------------------
+
+const SLOT_PTR = 8;
+
+/**
+ * fakeRingModule() plus a live-texture slot of `width` x `height` at SLOT_PTR on
+ * a byte heap. texture_slot_buffer() answers 0 for any other size, as the C++
+ * export does for a slot resized since the frame left the host.
+ */
+function withLiveTextureSlot(module, { width = 2, height = 1 } = {}) {
+    const heap = new Uint8Array(SLOT_PTR + width * height * 4 + 8);
+    const commits = [];
+    const ccall = module.ccall;
+    Object.assign(module, {
+        HEAPU8: heap,
+        _texture_slot_buffer: () => 0, // presence only; the worker calls it through ccall
+        commits,
+        ccall(name, returnType, argTypes, args) {
+            if (name === 'texture_slot_buffer') {
+                return args[0] === 'webcam' && args[1] === width * height * 4 ? SLOT_PTR : 0;
+            }
+            if (name === 'texture_slot_commit') {
+                commits.push(args[0]);
+                return 1;
+            }
+            return ccall(name, returnType, argTypes, args);
+        },
+    });
+    return module;
+}
+
+/** An OffscreenCanvas whose 2D context returns `fill` for every pixel it reads. */
+function fakeDrawingCanvas(fill, drawn) {
+    return class {
+        constructor(width, height) {
+            this.width = width;
+            this.height = height;
+        }
+        getContext() {
+            const canvas = this;
+            return {
+                drawImage: (...args) => drawn.push(args.slice(1)),
+                getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).fill(fill), width: canvas.width }),
+            };
+        }
+    };
+}
+
+test('texture-frame pixels land in the slot staging buffer and are committed', async () => {
+    const module = withLiveTextureSlot(fakeRingModule());
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+
+    const pixels = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
+    await worker.send({ type: 'texture-frame', name: 'webcam', width: 2, height: 1, pixels, host: 1 });
+    assert.deepEqual([...module.HEAPU8.slice(SLOT_PTR, SLOT_PTR + 8)], [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(module.commits, ['webcam']);
+    assert.deepEqual(worker.posted, []);
+});
+
+test('a texture-frame bitmap is drawn at the slot size, copied in, and closed', async () => {
+    const drawn = [];
+    const module = withLiveTextureSlot(fakeRingModule(), { width: 2, height: 2 });
+    const worker = loadWorker({ createModule: async () => module, offscreenCanvasClass: fakeDrawingCanvas(9, drawn) });
+    await worker.send(initMessage());
+
+    let closed = 0;
+    const bitmap = { close: () => { closed += 1; } };
+    await worker.send({ type: 'texture-frame', name: 'webcam', width: 2, height: 2, bitmap });
+    assert.deepEqual(drawn, [[0, 0, 2, 2]]);
+    assert.deepEqual([...module.HEAPU8.slice(SLOT_PTR, SLOT_PTR + 16)], new Array(16).fill(9));
+    assert.deepEqual(module.commits, ['webcam']);
+    assert.equal(closed, 1);
+});
+
+test('a texture-frame for a slot of another size is dropped, and its bitmap still closed', async () => {
+    const module = withLiveTextureSlot(fakeRingModule());
+    const worker = loadWorker({ createModule: async () => module, offscreenCanvasClass: fakeDrawingCanvas(9, []) });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+
+    let closed = 0;
+    await worker.send({ type: 'texture-frame', name: 'webcam', width: 4, height: 4, bitmap: { close: () => { closed += 1; } } });
+    await worker.send({ type: 'texture-frame', name: 'unknown', width: 2, height: 1, pixels: new ArrayBuffer(8) });
+    assert.deepEqual(module.commits, []);
+    assert.equal(closed, 1);
+    assert.deepEqual([...module.HEAPU8.slice(SLOT_PTR, SLOT_PTR + 8)], new Array(8).fill(0));
+    assert.deepEqual(worker.posted, [], 'a resize race is not an error');
+});
+
+test('texture-frame on a bundle without live textures reports it once', async () => {
+    const worker = loadWorker({ createModule: async () => fakeRingModule() });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+
+    for (let i = 0; i < 3; i++) {
+        await worker.send({ type: 'texture-frame', name: 'webcam', width: 2, height: 1, pixels: new ArrayBuffer(8) });
+    }
+    const errors = worker.posted.filter((msg) => msg.type === 'error');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /predates texture_slot_buffer/);
+});
+
+test('a texture-frame that cannot be drawn is reported as an error', async () => {
+    const module = withLiveTextureSlot(fakeRingModule());
+    // The default OffscreenCanvas stand-in has no getContext().
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    worker.posted.length = 0;
+
+    await worker.send({ type: 'texture-frame', name: 'webcam', width: 2, height: 1, bitmap: { close() {} } });
+    const [error] = worker.posted;
+    assert.equal(error.type, 'error');
+    assert.match(error.message, /live texture "webcam"/);
+    assert.deepEqual(module.commits, []);
+});
+
+test('texture-frame before the engine exists is ignored', async () => {
+    const worker = loadWorker({ createModule: async () => fakeRingModule() });
+    await worker.send({ type: 'texture-frame', name: 'webcam', width: 1, height: 1, pixels: new ArrayBuffer(4) });
+    assert.deepEqual(worker.posted, []);
+});
+
 test('both implementations cover every message type declared in the wire protocol', () => {
     const typesSource = readFileSync(TYPES_PATH, 'utf8');
     const hostSource = readFileSync(HOST_PATH, 'utf8');
@@ -964,7 +1092,7 @@ test('both implementations cover every message type declared in the wire protoco
     // would otherwise make this test vacuously pass.
     assert.deepEqual(
         hostToWorker.slice().sort(),
-        ['capture-frame', 'ccall', 'init', 'pcm', 'preset', 'recover-context', 'resize', 'set-flash-limit', 'shutdown'],
+        ['capture-frame', 'ccall', 'init', 'pcm', 'preset', 'recover-context', 'resize', 'set-flash-limit', 'shutdown', 'texture-frame'],
     );
     assert.deepEqual(
         workerToHost.slice().sort(),

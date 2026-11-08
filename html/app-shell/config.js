@@ -154,7 +154,10 @@ export function resolveContextAttributes(params, storage, windowRef) {
  * The ?targetFps= / ?governor= / ?meshQuality= (and localStorage) overrides
  * projectm-fps-governor.js and projectm-mesh-quality.js read, plus the musical
  * scheduling ones (projectM-4/rhythm.h): ?switchOn=bars|section, ?switchBars=,
- * ?transitionBeats=, ?bpm=. The render worker has no `location`/localStorage of
+ * ?transitionBeats=, ?bpm=, ?switchPhrase=4|8|16, ?dropCut=1, and the beat
+ * clock's latency compensation ?rhythmLatency=auto|<ms> (default auto) with
+ * the "tap to align" nudge ?rhythmNudge=<ms> (or localStorage
+ * rhythmLatencyNudge). The render worker has no `location`/localStorage of
  * its own, so they are resolved here and handed to ProjectMContext.
  *
  * @param {URLSearchParams} params
@@ -172,6 +175,10 @@ export function resolveRenderConfig(params, storage, hardwareConcurrency = 1) {
     const bars = parseInt(params.get('switchBars') || '', 10);
     const beats = parseFloat(params.get('transitionBeats') || '');
     const bpm = parseFloat(params.get('bpm') || '');
+    const phrase = parseInt(params.get('switchPhrase') || '', 10);
+    const latencyRaw = params.get('rhythmLatency') ?? 'auto';
+    const latencyMs = parseFloat(latencyRaw);
+    const nudge = parseFloat(params.get('rhythmNudge') ?? readStorage(storage, 'rhythmLatencyNudge') ?? '');
     return {
         targetFps: Number.isFinite(fps) && fps > 0 ? fps : 60,
         qualityGovernor: !(governorRaw === '0' || governorRaw === 'false'),
@@ -182,6 +189,12 @@ export function resolveRenderConfig(params, storage, hardwareConcurrency = 1) {
         presetSwitchBars: Number.isFinite(bars) && bars > 0 ? bars : 16,
         transitionBeats: Number.isFinite(beats) && beats > 0 ? beats : 0,
         rhythmHint: Number.isFinite(bpm) && bpm > 0 ? bpm : 0,
+        presetSwitchPhrase: Number.isFinite(phrase) && phrase > 1 ? phrase : 0,
+        sectionHardCut: params.get('dropCut') === '1',
+        rhythmLatency: /** @type {number | 'auto'} */ (
+            latencyRaw === 'auto' ? 'auto' : Number.isFinite(latencyMs) && latencyMs > 0 ? latencyMs : 0
+        ),
+        rhythmLatencyNudge: Number.isFinite(nudge) ? nudge : 0,
         rhythmDebug: params.get('rhythmDebug') === '1',
     };
 }

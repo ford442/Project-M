@@ -8,6 +8,7 @@ set(INCLUDE_FILES
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/callbacks.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/core.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/debug.h
+        ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/live_input.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/memory.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/parameters.h
         ${CMAKE_SOURCE_DIR}/src/api/include/projectM-4/preset_prepare.h
@@ -42,6 +43,7 @@ add_executable(projectM-unittest
         HeadlessGlContext.cpp
         HLSLParserTest.cpp
         HLSLModuloTest.cpp
+        LiveInputTest.cpp
         LoggingTest.cpp
         MilkdropShaderCommentParsingTest.cpp
         OpenMPBenchTest.cpp

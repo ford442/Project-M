@@ -202,6 +202,12 @@ export const WASM_API_SYMBOLS = {
     projectmSpriteGetVarWrapper: 'projectm_sprite_get_var_wrapper',
     projectmSpriteSetVarWrapper: 'projectm_sprite_set_var_wrapper',
     reloadTexture: 'reload_texture',
+    textureSlotRegister: 'texture_slot_register',
+    textureSlotBuffer: 'texture_slot_buffer',
+    textureSlotCommit: 'texture_slot_commit',
+    textureSlotUnregister: 'texture_slot_unregister',
+    evalSet: 'eval_set',
+    evalClear: 'eval_clear',
     stopWorkletPlayback: 'stop_worklet_playback',
     setAudioSourceToStream: 'set_audio_source_to_stream',
     setPresetLocked: 'set_preset_locked',
@@ -370,6 +376,12 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     projectmSpriteGetVarWrapper: { symbol: 'projectm_sprite_get_var_wrapper', returnType: 'number', argTypes: ['number', 'number', 'string'], paramTypes: ['number', 'number', 'string'] },
     projectmSpriteSetVarWrapper: { symbol: 'projectm_sprite_set_var_wrapper', returnType: null, argTypes: ['number', 'number', 'string', 'number'], paramTypes: ['number', 'number', 'string', 'number'] },
     reloadTexture: { symbol: 'reload_texture', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
+    textureSlotRegister: { symbol: 'texture_slot_register', returnType: 'number', argTypes: ['string', 'number', 'number'], paramTypes: ['string', 'number', 'number'] },
+    textureSlotBuffer: { symbol: 'texture_slot_buffer', returnType: 'number', argTypes: ['string', 'number'], paramTypes: ['string', 'number'] },
+    textureSlotCommit: { symbol: 'texture_slot_commit', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
+    textureSlotUnregister: { symbol: 'texture_slot_unregister', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
+    evalSet: { symbol: 'eval_set', returnType: 'number', argTypes: ['string', 'number'], paramTypes: ['string', 'number'] },
+    evalClear: { symbol: 'eval_clear', returnType: 'number', argTypes: ['string'], paramTypes: ['string'] },
     stopWorkletPlayback: { symbol: 'stop_worklet_playback', returnType: null, argTypes: [], paramTypes: [] },
     setAudioSourceToStream: { symbol: 'set_audio_source_to_stream', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
     setPresetLocked: { symbol: 'set_preset_locked', returnType: null, argTypes: ['number'], paramTypes: ['boolean'] },
@@ -817,6 +829,36 @@ export function projectmSpriteSetVarWrapper(module: ProjectMModule, pmHandle: nu
 /** Re-read a texture file rewritten in the VFS into the active host's loaded texture so running presets sample the new image (1 if a loaded texture was updated, 0 if it was not loaded from a file) */
 export function reloadTexture(module: ProjectMModule, name: string): number {
     return module.ccall('reload_texture', 'number', ['string'], [name]) as number;
+}
+
+/** Create or resize a live texture on the active host (RGBA8, starts black, 1..8192 px a side) that presets sample by name (sampler_<name>), with its staging buffer on the WASM heap (1 on success). Register before loading presets that sample it */
+export function textureSlotRegister(module: ProjectMModule, name: string, width: number, height: number): number {
+    return module.ccall('texture_slot_register', 'number', ['string', 'number', 'number'], [name, width, height]) as number;
+}
+
+/** Heap address to write a live texture's next frame to (RGBA8, top row first), or 0 for an unknown slot or when bytes is not its width*height*4 */
+export function textureSlotBuffer(module: ProjectMModule, name: string, bytes: number): number {
+    return module.ccall('texture_slot_buffer', 'number', ['string', 'number'], [name, bytes]) as number;
+}
+
+/** Mark the frame written to texture_slot_buffer() complete, for the next render_frame() to upload once (1 if the slot exists) */
+export function textureSlotCommit(module: ProjectMModule, name: string): number {
+    return module.ccall('texture_slot_commit', 'number', ['string'], [name]) as number;
+}
+
+/** Remove a live texture (1 if it existed). Presets sampling it keep its last frame until reloaded */
+export function textureSlotUnregister(module: ProjectMModule, name: string): number {
+    return module.ccall('texture_slot_unregister', 'number', ['string'], [name]) as number;
+}
+
+/** Set a per-frame variable (q1..q32, zoom, decay, wave_r, ...) for every preset from the next frame on, loaded before the preset's per-frame code runs, until eval_clear() (1 if accepted, read-only inputs such as time or bass are refused) */
+export function evalSet(module: ProjectMModule, name: string, value: number): number {
+    return module.ccall('eval_set', 'number', ['string', 'number'], [name, value]) as number;
+}
+
+/** Remove an eval_set() value, or every value for an empty name (1 if one was removed) */
+export function evalClear(module: ProjectMModule, name: string): number {
+    return module.ccall('eval_clear', 'number', ['string'], [name]) as number;
 }
 
 /** Stop audio worklet playback */
@@ -1329,6 +1371,12 @@ export const PUBLIC_WASM_API = [
     projectmSpriteGetMaxSpritesWrapper,
     projectmSpriteGetVarWrapper,
     projectmSpriteSetVarWrapper,
+    textureSlotRegister,
+    textureSlotBuffer,
+    textureSlotCommit,
+    textureSlotUnregister,
+    evalSet,
+    evalClear,
     setPresetLocked,
     setTransparencyMode,
     getTransparencyMode,

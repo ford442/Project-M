@@ -129,6 +129,11 @@ void Texture::Update(const void* data) const
     m_device->UpdateTexture(m_texture, m_desc, data);
 }
 
+void Texture::Write(const void* data) const
+{
+    m_device->WriteTexture(m_texture, m_desc, data);
+}
+
 void Texture::Replace(const void* data, int width, int height)
 {
     m_desc.width = width;

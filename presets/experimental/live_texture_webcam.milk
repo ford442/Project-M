@@ -1,0 +1,64 @@
+// Signature Series | live texture webcam trails
+// tags: experimental, live-texture, webcam, vj
+// tier: light
+// reactivity: medium
+// author: projectM live input (docs/LIVE_INPUT.md)
+MILKDROP_PRESET_VERSION=201
+PSVERSION=3
+PSVERSION_WARP=3
+PSVERSION_COMP=3
+[preset00]
+fRating=3.0
+fGammaAdj=1.0
+fDecay=0.96
+fVideoEchoAlpha=0.0
+nWaveMode=6
+bAdditiveWaves=1
+bTexWrap=1
+bDarkenCenter=0
+fWaveAlpha=0.35
+fWaveScale=0.8
+zoom=1.0
+rot=0.0
+warp=0.0
+wave_r=1.0
+wave_g=0.55
+wave_b=0.25
+ob_size=0.0
+ib_size=0.0
+
+// webcam is a live texture: the host registers it (ProjectMContext.registerTexture,
+// projectm_texture_slot_register) and uploads camera frames into it; this file only
+// declares the sampler, like any user texture. On projectm-core.html?liveTex=1 it is
+// the camera. Without a host feeding it, it is black and only the trails show.
+//
+// q1 is the host's wet/dry knob (projectm_eval_set / ProjectMContext.setEvalVar('q1', x),
+// e.g. a MIDI CC): 0 is the plain camera, 1 all trails. The init code's 0.6 is the
+// default until a host sets it; per-frame code only reads it, so a host value wins.
+per_frame_init_1=q1=0.6;
+per_frame_1=q2=min(bass_att, 2.0);
+per_frame_2=zoom=1.0+0.012*q2;
+
+// Feedback: the previous frame pulled inward and faded, with the camera's edges
+// (brightness steps between neighbouring texels, texsize_webcam.zw apart) burnt in
+// on the bass.
+warp_1=`sampler sampler_webcam;
+warp_2=`shader_body
+warp_3=`{
+warp_4=`    float2 pulled = (uv - 0.5) * (0.985 - 0.006 * q2) + 0.5;
+warp_5=`    float3 trail = tex2D(sampler_main, pulled).xyz * 0.965;
+warp_6=`    float3 cam = tex2D(sampler_webcam, uv).xyz;
+warp_7=`    float3 right = tex2D(sampler_webcam, uv + float2(texsize_webcam.z, 0)).xyz;
+warp_8=`    float3 below = tex2D(sampler_webcam, uv + float2(0, texsize_webcam.w)).xyz;
+warp_9=`    float edge = saturate(4.0 * (length(cam - right) + length(cam - below)));
+warp_10=`    ret = max(trail, cam * edge * (0.6 + 0.4 * q2));
+warp_11=`}
+
+comp_1=`sampler sampler_webcam;
+comp_2=`shader_body
+comp_3=`{
+comp_4=`    float3 cam = tex2D(sampler_webcam, uv).xyz;
+comp_5=`    float3 trails = tex2D(sampler_main, uv).xyz;
+comp_6=`    float wet = saturate(q1);
+comp_7=`    ret = lerp(cam, cam * 0.3 + trails * 1.5, wet);
+comp_8=`}

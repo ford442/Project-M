@@ -19,6 +19,7 @@ on:
       - 'scripts/check_wasm_host_globals.sh'
       - 'scripts/check_test_gl_includes.sh'
       - 'scripts/check_gl_seam.sh'
+      - 'scripts/check_wasm_no_printf.sh'
       - '.github/workflows/cpp_format_gate.yml'
   pull_request:
     paths:
@@ -31,6 +32,7 @@ on:
       - 'scripts/check_wasm_host_globals.sh'
       - 'scripts/check_test_gl_includes.sh'
       - 'scripts/check_gl_seam.sh'
+      - 'scripts/check_wasm_no_printf.sh'
       - '.github/workflows/cpp_format_gate.yml'
   workflow_dispatch: {}
 
@@ -62,3 +64,7 @@ jobs:
       # WebGPU tracker, Phase A: only Renderer/Device/Gl and Renderer/Platform talk to GL.
       - name: Render-device seam gate
         run: scripts/check_gl_seam.sh
+
+      # src/wasm/ logs through Logging (WasmLog.hpp), never printf/fprintf.
+      - name: WASM no-printf gate
+        run: scripts/check_wasm_no_printf.sh

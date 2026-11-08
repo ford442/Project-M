@@ -55,7 +55,28 @@ export const CONTEXT_SNAPSHOT_BITS = Object.freeze({
     loseContext: 1 << 3,
     /** The attribute fields are set (bundles before they existed leave this 0). */
     attributesKnown: 1 << 4,
+    halfFloatColorBuffer: 1 << 5,
+    floatLinear: 1 << 6,
+    textureFilterAnisotropic: 1 << 7,
+    parallelShaderCompile: 1 << 10,
+    /** The extension bits are the context's whole enabled set (bundles before the allow-list leave this 0). */
+    extensionsKnown: 1 << 11,
 });
+
+/**
+ * The WebGL extensions the engine enables (its allow-list, in this order), and the
+ * snapshot bit that says each one is on.
+ * @type {ReadonlyArray<readonly [string, keyof typeof CONTEXT_SNAPSHOT_BITS]>}
+ */
+const SNAPSHOT_EXTENSIONS = Object.freeze([
+    ['EXT_color_buffer_float', 'floatColorBuffer'],
+    ['EXT_color_buffer_half_float', 'halfFloatColorBuffer'],
+    ['OES_texture_float_linear', 'floatLinear'],
+    ['EXT_float_blend', 'floatBlend'],
+    ['EXT_texture_filter_anisotropic', 'textureFilterAnisotropic'],
+    ['KHR_parallel_shader_compile', 'parallelShaderCompile'],
+    ['WEBGL_lose_context', 'loseContext'],
+]);
 /** Where the active dual-FBO format (FboFloatFormat) sits in the result, and how wide it is. */
 export const CONTEXT_SNAPSHOT_FORMAT_SHIFT = 8;
 export const CONTEXT_SNAPSHOT_FORMAT_MASK = 0x3;
@@ -132,6 +153,8 @@ export function contextAttributeMismatches(requested, effective) {
  * null when it says the host has no context (before init, or after teardown).
  * The result is frozen, so a host cannot edit what the engine reported.
  *
+ * `extensions` lists the WebGL extensions the engine enabled, null on a bundle
+ * from before the allow-list (which enabled every extension the browser offered).
  * `attributes` is what the context really has (getContextAttributes()), null on
  * a bundle that predates reporting it. Given the config the engine was created
  * with, `mismatches` lists where the two differ; without it, it is empty.
@@ -160,6 +183,9 @@ export function decodeContextSnapshot(packed, requested) {
         loseContext: (bits & b.loseContext) !== 0,
         fboFormat,
         fboFormatName: FORMAT_NAMES[fboFormat],
+        extensions: (bits & b.extensionsKnown) !== 0
+            ? Object.freeze(SNAPSHOT_EXTENSIONS.filter(([, bit]) => (bits & b[bit]) !== 0).map(([name]) => name))
+            : null,
         attributes,
         mismatches: attributes && requested ? contextAttributeMismatches(requested, attributes) : Object.freeze([]),
     });

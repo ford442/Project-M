@@ -330,13 +330,14 @@ Third-party code that is compiled as part of the project:
   (`bugprone-*` minus `easily-swappable-parameters`, `performance-*` minus
   `no-int-to-ptr`/`enum-size`, `modernize-use-nullptr`,
   `readability-braces-around-statements`) over `src/wasm/` only. It is a
-  **hard gate** in `build_emscripten.yml`. It does not read
-  `compile_commands.json` — CMake never compiles `src/wasm/` (the smoke
-  wrapper script does), so the script spells out the wasm32 target, emsdk
-  sysroot and wrapper include list itself. It needs clang-tidy >= 22
+  **hard gate** in `build_emscripten.yml`. It reads the `src/wasm/` command
+  lines from the Emscripten build dir's `compile_commands.json` (the
+  `projectM_wasm` target) and adds only what `em++` would: the wasm32 target
+  and the emsdk sysroot. It needs clang-tidy >= 22
   (Ubuntu's clang-tidy-18 cannot parse emsdk's libc++; CI pins
   `clang-tidy==22.1.8` from PyPI via `pipx`), `em++` on PATH, a built
-  Emscripten CMake dir and `INSTALL_DIR`. Locally it skips when a
+  Emscripten CMake dir configured with `CMAKE_EXPORT_COMPILE_COMMANDS=ON`
+  (`scripts/build_wasm_install.sh` does). Locally it skips when a
   prerequisite is missing; `CPP_TIDY_REQUIRED=1` makes that fatal. Widen the
   check list and the directory coverage together, gradually, same reasoning
   as `check_cpp_format.sh`'s PATHS list.
@@ -371,6 +372,9 @@ Third-party code that is compiled as part of the project:
 - The project uses an internal logging framework (see `Logging.hpp`).
 - `TRACE` and `DEBUG` levels are stripped in release builds unless `ENABLE_VERBOSE_LOGGING=ON`.
 - Prefer the project's logging macros over `printf` or `std::cout`.
+- `src/wasm/` logs with `WASM_LOG_INFO/WARN/ERROR` (`WasmLog.hpp`), which go through `Logging` to
+  the browser console and `globalThis.pmOnLog(level, message)`. `scripts/check_wasm_no_printf.sh`
+  (in `cpp_format_gate.yml`) fails any `printf`/`fprintf` there.
 
 ---
 
@@ -608,8 +612,10 @@ see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for usage and token rotation).
 **One build command.** `scripts/build_wasm.sh` (libraries, wrapper link, bundle checks; `--stage`
 also stages for `deploy.py`) is what CI, `scripts/colab_build.sh` and local deploys run, so the
 deployed binary is the one CI tested. Nothing may rewrite the bundle after the link (no wasm-opt
-pass, no minifier): see `docs/EMSCRIPTEN.md` "Building the bundle". The `src/wasm/` TUs compile
-with the libraries' `config.h` and definitions from `<build>/projectm-wasm-wrapper-flags.txt`.
+pass, no minifier): see `docs/EMSCRIPTEN.md` "Building the bundle". The bundle is the
+`projectM_wasm` CMake target (`src/wasm/CMakeLists.txt`, Emscripten only, not in `ALL`); its TUs
+compile with the libraries' `config.h` and compile definitions, and the shell script only picks
+the link flavor and copies the output.
 
 **It refuses a stale bundle.** Staging writes `<bundle>.build-id`: a source fingerprint plus the
 sha256 of the linked `.wasm` and `.js`. `deploy.py` fails if the fingerprint does not match the tree

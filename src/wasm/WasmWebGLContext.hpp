@@ -66,11 +66,13 @@ int WasmContextConfigFlags(const WasmContextConfig& cfg);
 // of the dual-FBO format that was picked: a host that asked for fboPrecision
 // "byte" still reports float color buffers as present.
 struct WasmContextCaps {
-    bool floatColorBuffer = false;     //!< EXT_color_buffer_float: float (RGBA16F / RGBA32F) render targets.
-    bool halfFloatColorBuffer = false; //!< EXT_color_buffer_half_float: RGBA16F render targets.
-    bool floatLinear = false;          //!< OES_texture_float_linear: RGBA32F can be sampled with GL_LINEAR.
-    bool floatBlend = false;           //!< EXT_float_blend: blending into RGBA32F targets.
-    bool loseContext = false;          //!< WEBGL_lose_context: the context can be lost and restored on demand.
+    bool floatColorBuffer = false;         //!< EXT_color_buffer_float: float (RGBA16F / RGBA32F) render targets.
+    bool halfFloatColorBuffer = false;     //!< EXT_color_buffer_half_float: RGBA16F render targets.
+    bool floatLinear = false;              //!< OES_texture_float_linear: RGBA32F can be sampled with GL_LINEAR.
+    bool floatBlend = false;               //!< EXT_float_blend: blending into RGBA32F targets.
+    bool loseContext = false;              //!< WEBGL_lose_context: the context can be lost and restored on demand.
+    bool textureFilterAnisotropic = false; //!< EXT_texture_filter_anisotropic: transition textures filter anisotropically.
+    bool parallelShaderCompile = false;    //!< KHR_parallel_shader_compile: shader links complete off the render thread.
     //! The attributes the context really has, read back from getContextAttributes()
     //! (WasmContextConfigFlag numbering). Can differ from the config: a browser may
     //! not offer antialias or desynchronized. explicitSwapControl is Emscripten's, not
@@ -85,11 +87,19 @@ struct WasmContextCaps {
 // to keep the two layouts identical.
 enum WasmContextSnapshotBit : int
 {
-    kSnapshotValid = 1 << 0,            //!< The host has a context; everything else is 0 without it.
-    kSnapshotFloatColorBuffer = 1 << 1, //!< WasmContextCaps::floatColorBuffer
-    kSnapshotFloatBlend = 1 << 2,       //!< WasmContextCaps::floatBlend
-    kSnapshotLoseContext = 1 << 3,      //!< WasmContextCaps::loseContext
-    kSnapshotAttributesKnown = 1 << 4,  //!< WasmContextCaps::attributesKnown: the attribute fields below are set.
+    kSnapshotValid = 1 << 0,                    //!< The host has a context; everything else is 0 without it.
+    kSnapshotFloatColorBuffer = 1 << 1,         //!< WasmContextCaps::floatColorBuffer
+    kSnapshotFloatBlend = 1 << 2,               //!< WasmContextCaps::floatBlend
+    kSnapshotLoseContext = 1 << 3,              //!< WasmContextCaps::loseContext
+    kSnapshotAttributesKnown = 1 << 4,          //!< WasmContextCaps::attributesKnown: the attribute fields below are set.
+    kSnapshotHalfFloatColorBuffer = 1 << 5,     //!< WasmContextCaps::halfFloatColorBuffer
+    kSnapshotFloatLinear = 1 << 6,              //!< WasmContextCaps::floatLinear
+    kSnapshotTextureFilterAnisotropic = 1 << 7, //!< WasmContextCaps::textureFilterAnisotropic
+    kSnapshotParallelShaderCompile = 1 << 10,   //!< WasmContextCaps::parallelShaderCompile
+    //! The extension bits are the whole enabled set (ProjectMEnableRequiredWebGLExtensions() in
+    //! WasmWebGLContext.cpp). Bundles from before the allow-list enabled every
+    //! extension the browser offered and leave this 0.
+    kSnapshotExtensionsKnown = 1 << 11,
 };
 constexpr int kSnapshotFormatShift = 8;        //!< The active dual-FBO format (FboFloatFormat) sits at this bit...
 constexpr int kSnapshotFormatMask = 0x3;       //!< ...in two bits.

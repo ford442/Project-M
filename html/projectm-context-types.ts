@@ -114,6 +114,12 @@ export interface ProjectMContextSnapshot {
     readonly fboFormat: 0 | 1 | 2;
     readonly fboFormatName: 'RGBA16F' | 'RGBA32F' | 'RGBA8';
     /**
+     * Every WebGL extension the engine enabled on this context, from its fixed
+     * allow-list (nothing else is on). Null on bundles from before the
+     * allow-list, which enabled everything the browser offered.
+     */
+    readonly extensions: readonly string[] | null;
+    /**
      * The attributes the WebGL context really has, read back with
      * `getContextAttributes()` when it was created. Null on bundles that predate
      * reporting them.

@@ -14,6 +14,7 @@
 // are genuinely the host contract go through `globalThis`; DOM lookups resolve
 // `globalThis.document` once and bail when it is absent.
 #include "WasmHost.hpp"
+#include "WasmLog.hpp"
 
 // Per-instance host state (#168 Phase B / #246). The audio-source flag and the
 // PCM ring are WasmHost members; C++ bodies reach them through
@@ -392,7 +393,7 @@ int connect_media_element_source(const char* selector)
 
 void pl(const char* song_path_in_vfs)
 {
-    printf("C++: pl() called for unique path: %s\n", song_path_in_vfs);
+    WASM_LOG_INFO("C++: pl() called for unique path: %s", song_path_in_vfs);
     js_load_song_into_worklet(song_path_in_vfs, true, true);
     return;
 }
@@ -403,7 +404,7 @@ void pl(const char* song_path_in_vfs)
 EMSCRIPTEN_KEEPALIVE
 void set_audio_source_to_stream(bool is_streaming)
 {
-    printf("C++: Audio source set to stream: %s\n", is_streaming ? "true" : "false");
+    WASM_LOG_INFO("C++: Audio source set to stream: %s", is_streaming ? "true" : "false");
 }
 
 // clang-format off
@@ -447,8 +448,8 @@ void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data
     projectm_handle current_pm_handle = ResolvePcmTargetEngine(pm_handle_value);
     if (!current_pm_handle)
     {
-        fprintf(stderr, "Error: no live projectM engine for handle %lu in pcm_add_float_wrapper.\n",
-                static_cast<unsigned long>(pm_handle_value));
+        WASM_LOG_ERROR("Error: no live projectM engine for handle %lu in pcm_add_float_wrapper.",
+                       static_cast<unsigned long>(pm_handle_value));
         return;
     }
     projectm_pcm_add_float(current_pm_handle, audio_data, num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));

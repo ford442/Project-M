@@ -26,9 +26,8 @@ GTEST_DIR="${GTEST_DIR:-}"
 # build used to pass no build type at all, which left every assert live).
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 # Whole-program LTO: the static libs become LLVM bitcode (scripts/build_wasm.sh
-# --lto). The wrapper link takes the setting from the configured build dir
-# (projectm-wasm-wrapper-flags.txt) and checks the archives agree, so this is the
-# only place it is chosen. See cmake/EmscriptenWasmFlags.cmake.
+# --lto). The projectM_wasm target takes the setting from this configure, so
+# this is the only place it is chosen. See cmake/EmscriptenWasmFlags.cmake.
 PROJECTM_WASM_LTO="${PROJECTM_WASM_LTO:-0}"
 
 if ! command -v emcc >/dev/null 2>&1; then
@@ -80,6 +79,8 @@ cmake_args=(
     -DBUILD_TESTING="$BUILD_TESTING"
     -DENABLE_OPENMP="$ENABLE_OPENMP"
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
+    # scripts/check_cpp_tidy.sh reads the src/wasm/ entries.
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 )
 if [[ "$PROJECTM_WASM_LTO" == "1" ]]; then
     cmake_args+=(-DPROJECTM_WASM_LTO=ON)

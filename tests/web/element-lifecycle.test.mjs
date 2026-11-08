@@ -11,7 +11,7 @@ import test from 'node:test';
 import { hideInitError } from '../../html/projectm-init-errors.js';
 import { getHostAudioSourceRouter, setHostAudioSourceRouter } from '../../html/projectm-audio-source-router.js';
 import { getExternalPcmReceiverCount, resetExternalPcmStateForTests } from '../../html/projectm-external-pcm.js';
-import { installLifecycleEnv, makeFakeModule } from './helpers/lifecycle-env.mjs';
+import { installLifecycleEnv, isCreateHostCall, makeFakeModule } from './helpers/lifecycle-env.mjs';
 
 // `class ProjectMVisualizerElement extends HTMLElement` is evaluated on import,
 // so the fake registry has to exist first. Each test then installs its own.
@@ -155,6 +155,21 @@ test('a boot that succeeds reports pm-ready once and exposes the context', async
         assert.equal(element.count('pm-error'), 0);
         assert.deepEqual(env.unhandled, []);
     });
+});
+
+test('an embed asks for the default GPU unless power-preference says otherwise', async () => {
+    for (const [attributes, expected] of [[{}, 0], [{ 'power-preference': 'high-performance' }, 2], [{ 'power-preference': 'low-power' }, 1]]) {
+        await withEnv({}, async (env) => {
+            const module = makeFakeModule({ hostHandle: 0 });
+            const element = env.mount(attributes, { sharedModule: module });
+            await assert.rejects(element.ready());
+            await settle();
+            const create = module.calls.find((call) => isCreateHostCall(call.name));
+            assert.ok(create, 'the engine was created');
+            assert.equal(create.args[3], expected, JSON.stringify(attributes));
+            element.remove();
+        });
+    }
 });
 
 // ---- removal ---------------------------------------------------------------------

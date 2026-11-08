@@ -1112,8 +1112,7 @@ emsdk 6.0.6; the libraries now also carry the wrapper's compile definitions and 
 stack settings): `.wasm` 1,659,381 → 1,758,457 B (**+99 KB, +6.0%**), gzip 587,862 → 607,627 B
 (+3.4%), brotli 451,676 → 463,540 B (+2.6%); glue +633 B; link 104 s instead of ~30 s. No runtime
 measurement on this pair yet (software GL is too noisy, see below), so the default stays off. The
-switch is now one setting: the CMake cache entry, recorded in `projectm-wasm-wrapper-flags.txt` and
-checked against the archives' format and the bundle's `.build-id` (`lto-libs` / `lto-link`).
+switch is now one setting: the CMake cache entry, which the `projectM_wasm` target follows, recorded in the bundle's `.build-id` (`lto-libs` / `lto-link`).
 `scripts/benchmark_presets_wasm.mjs --software-gl` gives per-stage medians within noise: two runs of
 the *same* non-LTO bundle differ by up to ~30% per stage (for example `perPixelEvalMs` 3.18 vs
 5.36 ms on `110-per_pixel.milk`). It stays opt-in until a GPU run shows a gain worth the size.

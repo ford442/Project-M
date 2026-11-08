@@ -1282,6 +1282,7 @@ test('contextSnapshot is null until start(), then what the engine negotiated, fr
             loseContext: true,
             fboFormat: 1,
             fboFormatName: 'RGBA32F',
+            extensions: null,
             attributes: null,
             mismatches: [],
         });
@@ -1306,6 +1307,7 @@ test('a degraded context shows up as RGBA8 with the float capabilities off', asy
             loseContext: true,
             fboFormat: 2,
             fboFormatName: 'RGBA8',
+            extensions: null,
             attributes: null,
             mismatches: [],
         });

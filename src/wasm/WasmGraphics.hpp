@@ -15,6 +15,7 @@
 
 #include "ProjectMWasmInternal.hpp"
 #include "WasmCompositorShader.hpp"
+#include "WasmLog.hpp"
 #include "WasmWebGLContext.hpp"
 
 #include <Renderer/Device/RenderDevice.hpp>
@@ -120,7 +121,7 @@ public:
         if (precisionMode == static_cast<int>(FboFloatFormat::RGBA8))
         {
             m_format = FboFloatFormat::RGBA8;
-            printf("DualFBO: Forced GL_RGBA8 (fboPrecision=byte); output is dithered/clamped.\n");
+            WASM_LOG_WARN("DualFBO: Forced GL_RGBA8 (fboPrecision=byte); output is dithered/clamped.");
             return;
         }
         // In WebGL 2, EXT_color_buffer_float makes both RGBA16F and RGBA32F
@@ -137,24 +138,24 @@ public:
             if (!caps.floatLinear)
             {
                 m_filter = RenderDevice::FilterMode::Nearest;
-                printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in), GL_NEAREST: OES_texture_float_linear unavailable.\n");
+                WASM_LOG_INFO("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in), GL_NEAREST: OES_texture_float_linear unavailable.");
             }
             else
             {
-                printf("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in).\n");
+                WASM_LOG_INFO("DualFBO: Using GL_RGBA32F float textures (high-precision opt-in).");
             }
         }
         else if (halfRenderable)
         {
             m_format = FboFloatFormat::RGBA16F;
-            printf("DualFBO: Using GL_RGBA16F half-float textures (default).\n");
+            WASM_LOG_INFO("DualFBO: Using GL_RGBA16F half-float textures (default).");
         }
         else
         {
             m_format = FboFloatFormat::RGBA8;
-            printf("DualFBO: Float textures unavailable, falling back to GL_RGBA8 (degraded mode).\n");
-            printf("DualFBO: transitions crossfade at 8 bits (dithered/clamped in CompositingBlendShader).\n");
-            printf("DualFBO: Host page can query this via Module._dual_fbo_get_format() (2 == RGBA8).\n");
+            WASM_LOG_WARN("DualFBO: Float textures unavailable, falling back to GL_RGBA8 (degraded mode).");
+            WASM_LOG_WARN("DualFBO: transitions crossfade at 8 bits (dithered/clamped in CompositingBlendShader).");
+            WASM_LOG_WARN("DualFBO: Host page can query this via Module._dual_fbo_get_format() (2 == RGBA8).");
         }
     }
 
@@ -186,12 +187,12 @@ public:
         {
             ReleaseFBO(kARead);
             ReleaseFBO(kAWrite);
-            fprintf(stderr, "DualFBO: Failed to allocate Preset A FBOs.\n");
+            WASM_LOG_ERROR("DualFBO: Failed to allocate Preset A FBOs.");
             return false;
         }
 
         m_presetAAllocated = true;
-        printf("DualFBO: Preset A FBOs allocated (%dx%d).\n", width, height);
+        WASM_LOG_INFO("DualFBO: Preset A FBOs allocated (%dx%d).", width, height);
         return true;
     }
 
@@ -216,12 +217,12 @@ public:
         {
             ReleaseFBO(kBRead);
             ReleaseFBO(kBWrite);
-            fprintf(stderr, "DualFBO: Failed to allocate Preset B FBOs.\n");
+            WASM_LOG_ERROR("DualFBO: Failed to allocate Preset B FBOs.");
             return false;
         }
 
         m_presetBAllocated = true;
-        printf("DualFBO: Preset B FBOs allocated (%dx%d).\n", width, height);
+        WASM_LOG_INFO("DualFBO: Preset B FBOs allocated (%dx%d).", width, height);
         return true;
     }
 
@@ -240,7 +241,7 @@ public:
         ReleaseFBO(kBRead);
         ReleaseFBO(kBWrite);
         m_presetBAllocated = false;
-        printf("DualFBO: Preset B FBOs released.\n");
+        WASM_LOG_INFO("DualFBO: Preset B FBOs released.");
     }
 
     /**
@@ -261,7 +262,7 @@ public:
         ReleaseFBO(kARead);
         ReleaseFBO(kAWrite);
         m_presetAAllocated = false;
-        printf("DualFBO: Preset A FBOs released.\n");
+        WASM_LOG_INFO("DualFBO: Preset A FBOs released.");
     }
 
     /**
@@ -308,7 +309,7 @@ public:
 
         m_presetAAllocated = true;
         m_presetBAllocated = false;
-        printf("DualFBO: Preset B promoted to Preset A.\n");
+        WASM_LOG_INFO("DualFBO: Preset B promoted to Preset A.");
     }
 
     /**
@@ -364,7 +365,7 @@ public:
             ResizeFBOTexture(kBWrite, width, height);
         }
 
-        printf("DualFBO: Resized to %dx%d.\n", width, height);
+        WASM_LOG_INFO("DualFBO: Resized to %dx%d.", width, height);
     }
 
     // -------------------------------------------------------------------------
@@ -453,7 +454,7 @@ private:
                 desc.format = RenderDevice::TextureFormat::RGBA8;
                 break;
             default:
-                fprintf(stderr, "DualFBO: Unknown FboFloatFormat; falling back to GL_RGBA8.\n");
+                WASM_LOG_ERROR("DualFBO: Unknown FboFloatFormat; falling back to GL_RGBA8.");
                 desc.format = RenderDevice::TextureFormat::RGBA8;
                 break;
         }
@@ -487,8 +488,8 @@ private:
 
         if (!status.complete)
         {
-            fprintf(stderr, "DualFBO: Framebuffer slot %d incomplete (status=0x%x).\n",
-                    index, status.code);
+            WASM_LOG_ERROR("DualFBO: Framebuffer slot %d incomplete (status=0x%x).",
+                           index, status.code);
             device.DestroyTexture(m_textures[index]);
             device.DestroyRenderTarget(m_fbos[index]);
             m_textures[index] = {};
@@ -520,8 +521,8 @@ private:
         {
             return false;
         }
-        fprintf(stderr, "DualFBO: %s framebuffer incomplete; falling back to GL_RGBA8 (dithered).\n",
-                m_format == FboFloatFormat::RGBA32F ? "GL_RGBA32F" : "GL_RGBA16F");
+        WASM_LOG_WARN("DualFBO: %s framebuffer incomplete; falling back to GL_RGBA8 (dithered).",
+                      m_format == FboFloatFormat::RGBA32F ? "GL_RGBA32F" : "GL_RGBA16F");
         m_format = FboFloatFormat::RGBA8;
         m_filter = RenderDevice::FilterMode::Linear;
         for (int slot = 0; slot < 4; ++slot)
@@ -733,7 +734,7 @@ public:
         }
         catch (const libprojectM::Renderer::ShaderException& ex)
         {
-            fprintf(stderr, "CompositingBlendShader: %s\n", ex.message().c_str());
+            WASM_LOG_ERROR("CompositingBlendShader: %s", ex.message().c_str());
             return false;
         }
         m_program = std::move(program);
@@ -757,7 +758,7 @@ public:
         libprojectM::Renderer::VertexBuffer<libprojectM::Renderer::Point>::Unbind();
 
         m_initialized = true;
-        fprintf(stderr, "CompositingBlendShader: initialized successfully.\n");
+        WASM_LOG_INFO("CompositingBlendShader: initialized successfully.");
         return true;
     }
 

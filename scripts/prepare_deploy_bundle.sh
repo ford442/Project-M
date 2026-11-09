@@ -48,7 +48,7 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 INSTALL_DIR="${INSTALL_DIR:-"$PROJECT_ROOT/install"}"
 CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-"$PROJECT_ROOT/cmake-build-wasm"}"
 OUT_DIR="${OUT_DIR:-"$PROJECT_ROOT/cmake-build/wasm-smoke"}"
-PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-039}"
+PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-040}"
 # Must match scripts/build_wasm_smoke_wrapper.sh output and PROJECTM_WASM_SMOKE_BUNDLE.
 SMOKE_BUNDLE="projectm-v.030-thread"
 

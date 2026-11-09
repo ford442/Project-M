@@ -23,7 +23,7 @@ test('PROJECTM_WASM_BUNDLE matches version constant', () => {
 });
 
 test('host default is a selectable version (may lag the latest bundle)', () => {
-    assert.equal(PROJECTM_WASM_DEFAULT_VERSION, '039');
+    assert.equal(PROJECTM_WASM_DEFAULT_VERSION, '040');
     assert.equal(PROJECTM_WASM_SELECTABLE_VERSIONS.includes(PROJECTM_WASM_DEFAULT_VERSION), true);
 });
 
@@ -178,7 +178,7 @@ test('a registered manifest drives paths, selectable versions and the default', 
     } finally {
         setWasmBuildsManifest(null);
     }
-    assert.equal(normalizeWasmVersion('040'), null);
+    assert.equal(normalizeWasmVersion('041'), null);
     assert.equal(getSelectableWasmVersions(), PROJECTM_WASM_SELECTABLE_VERSIONS);
     assert.equal(getDefaultWasmVersion(), PROJECTM_WASM_DEFAULT_VERSION);
 });

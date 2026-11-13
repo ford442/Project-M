@@ -114,6 +114,10 @@ if(ENABLE_CXX_INTERFACE)
             PUBLIC
             "$<INSTALL_INTERFACE:${PROJECTM_INCLUDE_DIR}/projectM-4>"
             )
+
+    # The installed C++ headers use std::optional, std::span and friends: consumers must compile
+    # as C++20 whether or not they set a standard themselves (MSVC's default is C++14).
+    target_compile_features(projectM INTERFACE cxx_std_20)
 endif()
 
 # PROJECTM_OPENGL_LIBRARIES is present for WIN32/Desktop GL only

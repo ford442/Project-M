@@ -127,3 +127,7 @@ benchmark-results/gpu-stages.md
 
 # Preset capture images (screenshots/README.md); only capture_report.json is tracked.
 screenshots/**/*.png
+
+# A symlink named node_modules is not matched by "node_modules/" (this is how an absolute symlink to a
+# developer's checkout got committed under tests/wasm-smoke/).
+node_modules

@@ -198,11 +198,15 @@ PROJECTM_EXPORT void projectm_perf_set_instance_gpu_stage_callback(projectm_hand
  * Reports the change to the installed callback like any internal one, and
  * returns the previous stage so the host can restore it afterwards.
  *
- * @param stage The stage to enter.
+ * @param stage The stage to enter: a projectm_perf_gpu_stage value below
+ *              PROJECTM_PERF_GPU_STAGE_COUNT. Taken as a plain int, not the enum, so a value
+ *              outside the range (a host bug, a number from script) is refused rather than
+ *              being an invalid enum value at the call boundary. A refused value changes
+ *              nothing and returns the current stage.
  * @return The stage that was current before the call.
  * @since 4.2.0
  */
-PROJECTM_EXPORT projectm_perf_gpu_stage projectm_perf_enter_gpu_stage(projectm_perf_gpu_stage stage);
+PROJECTM_EXPORT projectm_perf_gpu_stage projectm_perf_enter_gpu_stage(int stage);
 
 /**
  * @brief OpenMP build/runtime information for profiling and benchmark reports.

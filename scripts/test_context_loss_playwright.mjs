@@ -104,6 +104,19 @@ async function checkTopology(browser, baseUrl, topology) {
         if (message.type() === 'error') console.log(`  [browser:error] ${message.text()}`);
     });
     page.on('pageerror', (error) => console.log(`  [browser:pageerror] ${error.message}`));
+    // A file the page or its worker could not fetch is the usual reason a start fails; name it.
+    page.on('response', (response) => {
+        if (response.status() >= 400) console.log(`  [browser:http ${response.status()}] ${response.url()}`);
+    });
+    page.on('requestfailed', (request) => {
+        // ERR_ABORTED is a request the page cancelled itself (a replaced script, a closed worker): not a missing file.
+        if (request.failure()?.errorText !== 'net::ERR_ABORTED') console.log(`  [browser:requestfailed] ${request.url()} (${request.failure()?.errorText})`);
+    });
+    page.on('worker', (worker) => {
+        worker.on('console', (message) => {
+            if (message.type() === 'error') console.log(`  [worker:error] ${message.text()}`);
+        });
+    });
 
     const params = new URLSearchParams({
         module: `${baseUrl}/__bundle/${modulePath.split(sep).pop()}`,
@@ -114,7 +127,11 @@ async function checkTopology(browser, baseUrl, topology) {
 
     if (!await waitFor(page, () => window.__pmContextLossReady !== undefined, 90000)
         || !await page.evaluate(() => window.__pmContextLossReady)) {
-        check(false, `context started (${JSON.stringify(await page.evaluate(() => window.__pmContextLoss?.errors))})`);
+        const why = await page.evaluate(() => ({
+            errors: window.__pmContextLoss?.errors,
+            renderWorkerFallbacks: window.__pmContextLoss?.fallbackReasons,
+        }));
+        check(false, `context started (${JSON.stringify(why)})`);
         await page.close();
         return { failures, refused: false };
     }

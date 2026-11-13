@@ -491,6 +491,8 @@ TEST(EngineParallelRenderTest, TwoSeededEnginesInParallelThreadsAreDeterministic
             out = RenderSeeded(seed, kFrames);
             context.ReleaseCurrent();
         }
+        // A std::thread, not an SDL one: SDL never frees the per-thread storage MakeCurrent() created.
+        libprojectM::Test::HeadlessGlContext::ReleaseThreadResources();
     };
     std::thread threadA(run, std::ref(contextA), 1U, std::ref(parallelA));
     std::thread threadB(run, std::ref(contextB), 2U, std::ref(parallelB));

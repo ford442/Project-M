@@ -22,6 +22,9 @@
     const params = new URLSearchParams(location.search);
     const topology = params.get('topology') || 'worker';
     const errors = [];
+    // Why the render worker did not boot: without this a failed worker start reports only
+    // "could not start" and the cause is lost.
+    const fallbackReasons = [];
 
     const context = new ProjectMContext({
       canvas: document.getElementById('pm-loss-main'),
@@ -30,6 +33,7 @@
       presetUrl: params.get('preset') || undefined,
       renderTopology: topology,
       onError: (detail) => errors.push(detail.message),
+      onRenderWorkerFallback: (reason) => fallbackReasons.push(reason),
     });
 
     const overlay = () => document.getElementById('pm-context-lost');
@@ -48,12 +52,22 @@
     // preamble that loads the real worker and adds one message of its own. The
     // real worker's top-level `let Module` is a global lexical binding, visible
     // to the scripts that share its scope — including this preamble.
+    //
+    // The wrapper worker's own base URL is a blob: URL, which a relative reference cannot
+    // resolve against, while the real worker loads its parts with importScripts('./worker/...')
+    // (projectm-render-worker.js). So the preamble resolves every importScripts() against the
+    // real script's URL, the way a worker started from that script would. Without it the
+    // worker never boots here and the test reports "the render worker could not start".
     const realWorker = globalThis.Worker;
     let workerHook = null;
     globalThis.Worker = class extends realWorker {
       constructor(url, options) {
+        const scriptUrl = new URL(String(url), document.baseURI).href;
         const preamble = `
-          importScripts(${JSON.stringify(String(url))});
+          const realScriptUrl = ${JSON.stringify(scriptUrl)};
+          const nativeImportScripts = self.importScripts.bind(self);
+          self.importScripts = (...urls) => nativeImportScripts(...urls.map((u) => new URL(u, realScriptUrl).href));
+          importScripts(realScriptUrl);
           const realOnMessage = self.onmessage;
           self.onmessage = (event) => {
             const msg = event.data;
@@ -78,6 +92,7 @@
 
     window.__pmContextLoss = {
       errors,
+      fallbackReasons,
       rememberSnapshot: () => (rememberedSnapshot = context.contextSnapshot),
       contextSnapshot: () => context.contextSnapshot,
       snapshotWasReread: () => context.contextSnapshot !== null && context.contextSnapshot !== rememberedSnapshot,

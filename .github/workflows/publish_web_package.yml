@@ -3,8 +3,9 @@ name: Publish @projectm/web
 # Publishes the embed SDK to npm from a tag, with build provenance.
 #
 # Tag format: `web-v<version>`, e.g. `web-v0.2.0`. Kept distinct from the
-# `*-release` tags push_release.yml watches, so cutting an npm release does not
-# trigger a binary release and vice versa.
+# `*-release` tag pattern of the upstream binary-release workflow (push_release.yml,
+# deleted from this fork: it waited on job names that do not exist here), so a
+# future release workflow on `*-release` tags cannot be triggered by an npm release.
 #
 # The tag is the trigger, but packages/web/package.json is the source of truth
 # for the version: the job refuses to publish if they disagree, which is the
@@ -22,10 +23,14 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     name: Build, verify, publish
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     permissions:
       contents: read
@@ -34,9 +39,9 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'

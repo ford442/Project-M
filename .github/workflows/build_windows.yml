@@ -17,10 +17,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
+permissions:
+  contents: read
+
 jobs:
   build-shared:
     name: "Libs: ${{ matrix.libs }}, FS Lib: ${{ matrix.fslib }}, Arch: ${{ matrix.arch }}, Build OS: ${{ matrix.runs-on }}"
     runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 90
     env:
       # vcpkg builds from the runner image's VCPKG_INSTALLATION_ROOT (the
       # toolchain file below), not from a checkout of its own. Its binary cache is
@@ -40,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout libprojectM
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: 'recursive'
 
@@ -59,7 +63,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: vcpkg-bincache
           key: vcpkg-bincache-${{ matrix.runs-on }}-${{ matrix.arch }}-${{ matrix.libs }}-${{ matrix.fslib }}-${{ steps.image.outputs.version }}-${{ hashFiles('vcpkg.json', 'tests/cxx-interface/vcpkg.json') }}
@@ -176,13 +180,13 @@ jobs:
       # even when a later step failed, since the packages themselves built.
       - name: Save vcpkg binary cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.vcpkg-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: vcpkg-bincache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
             name: projectm-windows-${{ matrix.libs }}-${{ matrix.fslib }}-${{ matrix.arch }}-${{ matrix.runs-on }}
             path: install/*

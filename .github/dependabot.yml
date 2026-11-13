@@ -1,0 +1,32 @@
+# Dependency update PRs. Every third-party GitHub Action in .github/workflows/ is pinned to a commit SHA
+# (the tag stays in a trailing comment); Dependabot moves the SHA and the comment together.
+# Updates are grouped so a week's worth arrives as one PR per ecosystem, not one per package.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ['*']
+
+  # The npm workspace at the repo root (html/ + packages/web/) and the smoke-test harness.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-root:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /tests/wasm-smoke
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      npm-wasm-smoke:
+        patterns: ['*']

@@ -8,17 +8,21 @@ on:
     - cron: "0 7 * * *"
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   capture:
     name: "Full presets/custom capture (transitions ON)"
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: 'recursive'
 
       - name: Setup emsdk
-        uses: emscripten-core/setup-emsdk@v16
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
           # Same pin as build_emscripten.yml (see the note on its matrix).
           version: 6.0.6
@@ -64,8 +68,9 @@ jobs:
           npx playwright install --with-deps chromium
 
       # No --presets filter: captures every preset in presets/custom/
-      # plus the 000-empty baseline. continue-on-error so a single dark/failed
-      # preset doesn't prevent uploading the rest of the report for review.
+      # plus the 000-empty baseline. continue-on-error only so that the report is
+      # uploaded and judged below; it does not decide the job's result. (It used to:
+      # 17 of 35 presets failed and the job stayed green.)
       - name: Capture All presets/custom Presets
         continue-on-error: true
         env:
@@ -77,8 +82,15 @@ jobs:
 
       - name: Upload Nightly Screenshot Report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
             name: preset-screenshots-nightly
             if-no-files-found: warn
             path: screenshots/nightly/**
+
+      # The job's verdict: fails on a capture failure that
+      # tests/wasm-smoke/known_capture_failures.txt does not list, or on a listed
+      # preset that now captures fine, and writes the table to the run summary.
+      - name: Judge the capture
+        if: always()
+        run: node scripts/check_capture_report.mjs screenshots/nightly/capture_report.json tests/wasm-smoke/known_capture_failures.txt

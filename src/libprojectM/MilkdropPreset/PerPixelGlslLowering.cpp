@@ -4,6 +4,8 @@
 #include "MilkdropStaticShaders.hpp"
 #include "RhythmVariables.hpp"
 
+#include <EngineContext.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -152,8 +154,7 @@ auto PerPixelGlslLowering::RhythmUniformName(int index) -> const std::string&
 
 auto PerPixelGlslLowering::ForcedToCpu() -> bool
 {
-    const char* const setting = std::getenv("PROJECTM_PER_PIXEL_EVAL");
-    return setting != nullptr && std::string(setting) == "cpu";
+    return EngineContext::Current().HasRenderPath(EngineContext::PerPixelForceCpu);
 }
 
 auto PerPixelGlslLowering::CpuSlice::ValueCount() const -> int

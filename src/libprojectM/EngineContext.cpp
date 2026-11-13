@@ -3,6 +3,8 @@
 #include "Renderer/Device/Gl/GlDevice.hpp"
 
 #include <atomic>
+#include <cstdlib>
+#include <cstring>
 
 namespace libprojectM {
 
@@ -58,6 +60,7 @@ EngineContext::EngineContext()
 }
 
 EngineContext::EngineContext(ProcessDefaultTag)
+    : m_renderPathFlags(RenderPathFlagsFromEnvironment())
 {
     std::random_device randomDevice;
     m_stream.seed(randomDevice());
@@ -66,6 +69,17 @@ EngineContext::EngineContext(ProcessDefaultTag)
     {
         m_stream.seed(SeedForDomain(*seed, kStreamDomain));
     }
+}
+
+auto EngineContext::RenderPathFlagsFromEnvironment() -> uint32_t
+{
+    const auto is = [](const char* name, const char* value) {
+        const char* const current = std::getenv(name);
+        return current != nullptr && std::strcmp(current, value) == 0;
+    };
+    return (is("PROJECTM_BLUR_COPY_PATH", "1") ? BlurCopyPath : 0u) |
+           (is("PROJECTM_COPY_SHADER_PATH", "1") ? CopyShaderPath : 0u) |
+           (is("PROJECTM_PER_PIXEL_EVAL", "cpu") ? PerPixelForceCpu : 0u);
 }
 
 void EngineContext::SetSeed(std::optional<uint32_t> seed)

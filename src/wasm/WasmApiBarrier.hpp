@@ -17,6 +17,10 @@
 // has no barrier of its own: it forwards to its pm_ export, with
 // ActiveHostHandle() (WasmHost.hpp) or with the handle it was given.
 //
+// Every barrier is also an engine-call scope (WasmEvents.hpp): page events the
+// implementation raises are delivered when the outermost barrier returns, after
+// the implementation is done with its host, never from inside it.
+//
 // Every barrier catches what the implementation throws, so a C++ exception
 // (std::bad_alloc on the fixed heap included: the link sets ABORTING_MALLOC=0)
 // never unwinds into JavaScript and never aborts the Module and every other
@@ -25,6 +29,7 @@
 // value. See docs/WASM_JS_API.md ("ABI v2").
 #pragma once
 
+#include "WasmEvents.hpp"
 #include "WasmHost.hpp"
 
 #include <cstdint>
@@ -56,10 +61,12 @@ void ReportUnknownHost(const char* exportName, uintptr_t handle);
 namespace WasmApiDetail {
 
 // Runs `body`, turning anything it throws into a recorded error. Returns
-// whether it completed. `handle` 0 records a module error.
+// whether it completed. `handle` 0 records a module error. Page events `body`
+// raises are delivered once it has returned (and the outermost scope ends).
 template<typename Body>
 bool RunGuarded(uintptr_t handle, const char* exportName, Body&& body) noexcept
 {
+    const WasmEvents::EngineCallScope engineCall;
     const auto record = [&](WasmApiError code, const char* message) {
         if (handle != 0)
         {

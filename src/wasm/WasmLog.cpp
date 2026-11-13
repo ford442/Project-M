@@ -5,6 +5,8 @@
 
 #include "WasmLog.hpp"
 
+#include "WasmEvents.hpp"
+
 #include <Logging.hpp>
 
 #include <emscripten.h>
@@ -16,7 +18,9 @@
 #include <string>
 
 // level: projectm_log_level. Runs on whichever thread logged; on a pthread,
-// console is that worker's and pmOnLog is not defined there.
+// console is that worker's and pmOnLog is not defined there. The console line
+// is written now; pmOnLog is a page event like the others (WasmEvents.hpp),
+// about no host.
 // clang-format off
 EM_JS(void, js_log_message, (int level, const char* message), {
     const text = UTF8ToString(message);
@@ -27,12 +31,13 @@ EM_JS(void, js_log_message, (int level, const char* message), {
     } else {
         console.log(text);
     }
-    if (typeof globalThis.pmOnLog === 'function') {
-        try {
+    const deliver = () => {
+        if (typeof globalThis.pmOnLog === 'function') {
             globalThis.pmOnLog(level, text);
-        } catch (e) {
         }
-    }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(null, deliver); } else { try { deliver(); } catch (e) {} }
 });
 // clang-format on
 
@@ -40,7 +45,7 @@ namespace {
 
 void ConsoleLogSink(const char* message, projectm_log_level logLevel, void* /*userData*/)
 {
-    js_log_message(static_cast<int>(logLevel), message);
+    PostEvent([&] { js_log_message(static_cast<int>(logLevel), message); });
 }
 
 } // namespace

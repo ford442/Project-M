@@ -1,7 +1,7 @@
 // projectm-audio-bootstrap.js
 //
-// Unified Web Audio bootstrap: resumes the shared AudioContext created by
-// `js_initialize_worklet_system_once` (see projectM_emscripten.cpp) on the first user
+// Unified Web Audio bootstrap: resumes the shared AudioContext the page created
+// (`ensureWorkletReady()` in projectm-worklet-playback.js) on the first user
 // gesture, and shows a "Tap to enable audio" overlay while the context is `suspended`
 // (the default on Safari/iOS and other strict autoplay-policy browsers).
 //
@@ -100,8 +100,8 @@ function hideOverlay() {
 }
 
 /**
- * Returns the shared AudioContext created by `js_initialize_worklet_system_once`
- * (projectM_emscripten.cpp), or null if it has not been created (e.g. external-PCM-only
+ * Returns the shared AudioContext the page created (`ensureWorkletReady()`,
+ * projectm-worklet-playback.js), or null if it has not been created (e.g. external-PCM-only
  * mode, which never creates an AudioContext).
  * @returns {AudioContext|null}
  */

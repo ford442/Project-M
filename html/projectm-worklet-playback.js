@@ -1,21 +1,18 @@
 // projectm-worklet-playback.js
 //
-// Ensures the shared AudioWorklet used by C++ `pl()` is actually ready before a
-// decoded FLAC/WAV is loaded. `js_initialize_worklet_system_once` creates the
-// AudioContext synchronously but loads the worklet module asynchronously; if
-// addModule fails or is still pending, `js_load_song_into_worklet` silently
-// returns and the song never plays (C++ still logs `pl() called`).
+// Owns the page's AudioContext and the shared AudioWorklet used by C++ `pl()`,
+// and makes sure the worklet is ready before a decoded FLAC/WAV is loaded: if
+// the node does not exist, `js_load_song_into_worklet` silently returns and the
+// song never plays (C++ still logs `pl() called`).
 //
 // Hosts should call `ensureWorkletReady()` from the music-button gesture (and
-// after init). This module can also repair a failed worklet setup without a
-// WASM rebuild.
-//
-// Render-worker builds (projectm-v.*-thread.js) never create
-// `projectMAudioContext_Global_Cpp` / `projectMWorkletNode_Global_Cpp` on this
-// thread — the engine logs that audio is captured here and fed into the PCM
-// ring. `ensureWorkletReady()` therefore creates the context and the node
-// itself, and the processor's `pcmData` posts land in `projectMWritePcmRing`
-// (installTransportPcmWriter), which is `transport.feedPcm`.
+// after init). It creates `projectMAudioContext_Global_Cpp` and
+// `projectMWorkletNode_Global_Cpp` and attaches the engine's ingest
+// (`_attach_worklet_ingest()`). The engine creates neither, in either topology
+// (it used to create the context inside init() on the in-page one). In the
+// render-worker topology the processor's `pcmData` posts land in
+// `projectMWritePcmRing` (installTransportPcmWriter), which is
+// `transport.feedPcm`.
 
 import { ensureAudioRunning, getAudioContext } from './projectm-audio-bootstrap.js';
 import { claimGlobal } from './projectm-globals.js';
@@ -40,9 +37,9 @@ const PROCESSOR_URL = new URL('worklets/projectm-audio-processor.js', import.met
 const PROCESSOR_NAME = 'projectm-audio-processor';
 
 /**
- * AudioContext for this page. Worker topology does not create the C++ global,
- * so the first user gesture (Start/Change Song) creates one here and publishes
- * it under the same name the rest of the host already reads.
+ * AudioContext for this page. The engine does not create one, so the first
+ * user gesture (Start/Change Song) creates it here and publishes it under the
+ * name the rest of the host and the engine's song EM_JS read.
  *
  * Must run synchronously inside the gesture: an AudioContext constructed after
  * the first await is born suspended and `resume()` is no longer a gesture.
@@ -62,7 +59,7 @@ function ensureHostAudioContext() {
                 console.warn('[projectM] host AudioContext.resume() failed:', err);
             });
         }
-        console.info('[projectM] host AudioContext created (render-worker topology has no C++ context on this thread)');
+        console.info('[projectM] host AudioContext created');
         return ctx;
     } catch (err) {
         console.warn('[projectM] host AudioContext construction failed:', err);
@@ -156,8 +153,8 @@ function notifyWorkletSourceActive() {
 /**
  * Let the engine's own worklet setup finish before this module starts one.
  *
- * `js_initialize_worklet_system_once` (WasmAudioBridge.cpp) begins loading the
- * processor as soon as it creates the AudioContext and publishes the outcome as
+ * Bundles before ABI v2 (#352) begin loading the processor inside init(), as
+ * soon as they create the AudioContext, and publish the outcome as
  * `globalThis.projectMWorkletReady`. If this module also called `addModule()`
  * and built a node while that was in flight, the two would only be ordered by
  * luck: the engine's failure path clears `projectMWorkletNode_Global_Cpp`

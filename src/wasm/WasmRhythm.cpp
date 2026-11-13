@@ -22,6 +22,7 @@
 // Every setter also records itself in the host's EngineSettings, so a context-loss
 // restore or a rebind does not drop it.
 
+#include "WasmEvents.hpp"
 #include "WasmHost.hpp"
 
 namespace {
@@ -45,19 +46,23 @@ auto CurrentRhythm(const WasmHost& host) -> projectm_rhythm_info
 
 // clang-format off
 EM_JS(void, js_report_rhythm_event, (double hostHandle, int events, double bpm, double beatIndex, double barPhase, int section, double confidence), {
-    if (typeof globalThis.pmOnRhythmEvent === 'function') {
-        globalThis.pmOnRhythmEvent({
-            host: hostHandle,
-            beat: (events & 1) !== 0,
-            bar: (events & 2) !== 0,
-            section: (events & 4) !== 0,
-            bpm: bpm,
-            beatIndex: beatIndex,
-            barPhase: barPhase,
-            sectionIndex: section,
-            confidence: confidence,
-        });
-    }
+    const deliver = () => {
+        if (typeof globalThis.pmOnRhythmEvent === 'function') {
+            globalThis.pmOnRhythmEvent({
+                host: hostHandle,
+                beat: (events & 1) !== 0,
+                bar: (events & 2) !== 0,
+                section: (events & 4) !== 0,
+                bpm: bpm,
+                beatIndex: beatIndex,
+                barPhase: barPhase,
+                sectionIndex: section,
+                confidence: confidence,
+            });
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(hostHandle, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -82,9 +87,11 @@ void FlushRhythmEvents(WasmHost& host)
         return;
     }
     const auto info = CurrentRhythm(host);
-    js_report_rhythm_event(EventHostHandle(host), events, static_cast<double>(info.bpm),
-                           static_cast<double>(info.beat_index), static_cast<double>(info.bar_phase), info.section,
-                           static_cast<double>(info.confidence));
+    PostEvent([&] {
+        js_report_rhythm_event(EventHostHandle(host), events, static_cast<double>(info.bpm),
+                               static_cast<double>(info.beat_index), static_cast<double>(info.bar_phase), info.section,
+                               static_cast<double>(info.confidence));
+    });
 }
 
 float ResolveTransitionDuration(WasmHost& host)

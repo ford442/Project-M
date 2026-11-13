@@ -127,6 +127,14 @@ jobs:
       - name: Verify WASM link flags are in sync
         run: scripts/verify_wasm_link_common.sh
 
+      # Rule 5 reads the wrapper's compiled objects: every writable static in
+      # src/wasm/ must be in scripts/wasm_globals_allowlist.txt (#352 B). The
+      # format gate runs the same script without a build, which skips rule 5.
+      - name: WASM host globals (writable statics allowlisted)
+        env:
+          WASM_GLOBALS_REQUIRED: '1'
+        run: scripts/check_wasm_host_globals.sh "${{ github.workspace }}/cmake-build"
+
       - name: Verify WASM bundle version sync
         run: bash scripts/verify_wasm_version_sync.sh
 

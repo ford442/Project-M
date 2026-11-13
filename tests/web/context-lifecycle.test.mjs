@@ -925,25 +925,38 @@ test('two engines in one Module: a preset that failed to switch reaches only the
     });
 });
 
-test('a context that booted its own Module hears its engine\'s preset failures although it never learned the handle', async () => {
+test('a context that booted its own Module drives the engine create_host_with_config() made, and destructs the Module', async () => {
     await withEnv({ withResizeObserver: false }, async (env) => {
-        // checkInit() creates the engine through create_host_with_config() but
-        // returns only the init code, so on this path context.hostHandle stays 0
-        // while the engine's events name the real handle (7 here). A filter on
-        // `engineHost: 0` would mean "the legacy default host only" and drop
-        // every one of them: seen in a real browser, not just on paper.
+        // checkInit() creates the engine through create_host_with_config(),
+        // which on an ABI v2 bundle adopts the implicit default host and gives
+        // it a real handle (7 here). Host 0 then names no engine: a context
+        // that kept driving host 0 failed with "projectM engine host 0 no
+        // longer exists" on its first resize, in a real browser.
         const errors = [];
+        let module = null;
         const context = env.newContext({
-            ...mainTopology(env, async () => makeFakeModule({ hostHandle: 7 })),
+            ...mainTopology(env, async () => {
+                module = makeFakeModule({ hostHandle: 7 });
+                return module;
+            }),
             onError: (detail) => errors.push(detail),
         });
         await context.start();
-        assert.equal(context.hostHandle, 0, 'the premise: this path does not know its handle');
+        assert.equal(context.hostHandle, 7, 'the context learned its engine\'s handle');
+        const afterCreate = module.engineCalls.slice(
+            module.engineCalls.findIndex((call) => call.name === 'create_host_with_config') + 1);
+        assert.ok(afterCreate.length > 0, 'the context drove its engine after creating it');
+        assert.deepEqual([...new Set(afterCreate.map((call) => call.host))], [7], 'every call named host 7');
 
         env.window.pmOnPresetSwitchFailed(7, '/presets/bad.milk', 'warp shader: syntax error');
-        assert.equal(errors.length, 1, 'the failure from the engine\'s real handle must arrive');
+        assert.equal(errors.length, 1, 'the failure from the engine\'s handle must arrive');
         assert.equal(errors[0].code, PRESET_SWITCH_FAILED);
         assert.equal(errors[0].error.preset, '/presets/bad.milk');
+
+        context.destroy();
+        assert.equal(module.destructed, true, 'the context owns the Module: teardown destructs it');
+        assert.equal(module.calls.some((call) => call.name === 'destroy_host'), false,
+            'not just the one host, leaving the Module behind');
     });
 });
 

@@ -360,8 +360,14 @@ export function checkCrossOriginIsolation() {
  *   secondaryCanvasSelector?: string;
  *   contextConfig?: import('./projectm-render-worker-types.ts').WasmContextConfig;
  *   onCode?: (code: number) => void;
+ *   onHost?: (host: number) => void;
  * }} [options] `onCode` receives the init code (0 on success, see
  *   docs/EMSCRIPTEN.md#init-error-codes; -1 when the bundle cannot say).
+ *   `onHost` receives, on success, the handle of the engine that was made:
+ *   create_host_with_config()'s with `contextConfig`, else 0 (the implicit
+ *   default host a legacy init() brings up). Bind engine calls to it
+ *   (bindModuleToHost()): on an ABI v2 bundle host 0 names only the implicit
+ *   default host, which create_host_with_config() adopts and renames.
  * @returns {boolean} true if initialization succeeded (code 0) and rendering can proceed.
  */
 export function checkInit(Module, {
@@ -369,10 +375,12 @@ export function checkInit(Module, {
     secondaryCanvasSelector,
     contextConfig,
     onCode,
+    onHost,
 } = {}) {
     let code;
+    let host = 0;
     if (contextConfig) {
-        ({ code } = createConfiguredHost(Module, {
+        ({ code, handle: host } = createConfiguredHost(Module, {
             primary: primaryCanvasSelector || '#mcanvas',
             secondary: secondaryCanvasSelector || '#scanvas',
             config: contextConfig,
@@ -384,6 +392,9 @@ export function checkInit(Module, {
             : wasmInit(Module);
     }
     onCode?.(code);
+    if (code === 0) {
+        onHost?.(host);
+    }
     if (code !== 0) {
         if (code !== INIT_CONTEXT_LOST && (!overlayEl || !overlayEl.classList.contains('visible'))) {
             showInitError(code);

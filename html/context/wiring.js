@@ -184,11 +184,10 @@ export function watchEngineInitErrors({ windowRef, engineHost, isDestroyed, repo
  * @returns {Disposable}
  */
 export function watchPresetSwitchFailures({ windowRef, engineHost, isDestroyed, report }) {
-    // A context that booted its own Module never learns its handle
-    // (checkInit() returns only the init code), so `engineHost` is 0 there
-    // while the engine's events carry the real one -- and `engineHost: 0`
-    // means "the legacy default host", which would drop them. That engine is
-    // the Module's only one, so it hears everything.
+    // `engineHost` is 0 for an engine a legacy init() made (no context
+    // config), whose events still carry its real handle -- and
+    // `engineHost: 0` means "the legacy default host", which would drop them.
+    // That engine is the Module's only one, so it hears everything.
     const filter = engineHost ? { engineHost } : {};
     return subscribeWasmCallback('pmOnPresetSwitchFailed', ({ preset, message }) => {
         if (isDestroyed()) {

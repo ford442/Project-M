@@ -60,48 +60,11 @@ int WasmContextConfigFlags(const WasmContextConfig& cfg)
            (cfg.desynchronized != 0 ? kContextFlagDesynchronized : 0);
 }
 
-const WasmContextConfig& WasmWebGLGetContextConfig()
+const WasmContextConfig& WasmWebGLGetContextConfig(const WasmHost& H)
 {
-    return Host().contextConfig;
+    return H.contextConfig;
 }
 
-extern "C" {
-// Legacy shim, kept for host JS written against bundles that predate
-// create_host_with_config(). New callers pass the config to
-// create_host_with_config() instead. Only the original seven attributes;
-// everything added since keeps its default.
-//
-// No process-global slot: the request lands on the active host. If that host
-// has no context yet (before the first init(), or between teardown and
-// re-init) it is its config. Otherwise it is held on that host for the next
-// context creation — the old "set_context_config(); create_host();" order, in
-// which the previous host is still active — which is exactly as racy as it
-// always was and why in-tree callers no longer use it.
-EMSCRIPTEN_KEEPALIVE
-void set_context_config(int antialias, int preserveDrawingBuffer, int depth,
-                        int stencil, int alpha, int powerPreference,
-                        int fboPrecision)
-{
-    const int flags = (antialias != 0 ? kContextFlagAntialias : 0) |
-                      (preserveDrawingBuffer != 0 ? kContextFlagPreserveDrawingBuffer : 0) |
-                      (depth != 0 ? kContextFlagDepth : 0) |
-                      (stencil != 0 ? kContextFlagStencil : 0) |
-                      (alpha != 0 ? kContextFlagAlpha : 0) |
-                      kContextFlagPremultipliedAlpha;
-    const WasmContextConfig cfg = WasmContextConfigFromArgs(flags, powerPreference, fboPrecision);
-    // Host() lazily allocates the compat default host when none exists; the
-    // next create_host*() adopts that host, so this does not spend a slot.
-    WasmHost& H = Host();
-    if (H.glCtx == 0)
-    {
-        H.contextConfig = cfg;
-        H.hasLegacyPendingContextConfig = false;
-        return;
-    }
-    H.legacyPendingContextConfig = cfg;
-    H.hasLegacyPendingContextConfig = true;
-}
-} // extern "C"
 
 static void CopyCanvasSelector(char* dest, size_t destSize, const char* src, const char* fallback)
 {
@@ -109,9 +72,8 @@ static void CopyCanvasSelector(char* dest, size_t destSize, const char* src, con
     std::snprintf(dest, destSize, "%s", value);
 }
 
-void WasmWebGLSetCanvasSelectors(const char* primary, const char* secondary)
+void WasmWebGLSetCanvasSelectors(WasmHost& H, const char* primary, const char* secondary)
 {
-    WasmHost& H = Host();
     auto& g_mainCanvasSelector = H.primarySelector;
     auto& g_secondaryCanvasSelector = H.secondarySelector;
     auto& g_canvasSelectorsExplicit = H.canvasSelectorsExplicit;
@@ -127,9 +89,8 @@ void WasmWebGLSetCanvasSelectors(const char* primary, const char* secondary)
     }
 }
 
-void WasmWebGLApplyModuleCanvasSelectorsIfPresent()
+void WasmWebGLApplyModuleCanvasSelectorsIfPresent(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_mainCanvasSelector = H.primarySelector;
     auto& g_secondaryCanvasSelector = H.secondarySelector;
     auto& g_canvasSelectorsExplicit = H.canvasSelectorsExplicit;
@@ -159,16 +120,14 @@ void WasmWebGLApplyModuleCanvasSelectorsIfPresent()
     // clang-format on
 }
 
-const char* WasmWebGLGetMainCanvasSelector()
+const char* WasmWebGLGetMainCanvasSelector(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_mainCanvasSelector = H.primarySelector;
     return g_mainCanvasSelector;
 }
 
-const char* WasmWebGLGetSecondaryCanvasSelector()
+const char* WasmWebGLGetSecondaryCanvasSelector(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_secondaryCanvasSelector = H.secondarySelector;
     return g_secondaryCanvasSelector;
 }
@@ -362,9 +321,8 @@ static void ProjectMApplyCanvasColorSpace()
     // clang-format on
 }
 
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext()
+EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_glCtx = H.glCtx;
     return g_glCtx;
 }
@@ -506,12 +464,12 @@ static int CreateAndActivate(WasmHost& H, const WasmContextConfig& cfg)
         if (cfg.failIfMajorPerformanceCaveat != 0 && WebGL2AvailableWithoutPerformanceCaveat())
         {
             WASM_LOG_WARN("WebGL context on %s refused: failIfMajorPerformanceCaveat (software renderer)", selector);
-            js_report_init_error(kInitPerformanceCaveat,
-                                 "Only a software WebGL 2 renderer is available and failIfMajorPerformanceCaveat refused it");
+            ReportInitError(H, kInitPerformanceCaveat,
+                            "Only a software WebGL 2 renderer is available and failIfMajorPerformanceCaveat refused it");
             return kInitPerformanceCaveat;
         }
         WASM_LOG_ERROR("Failed to create WebGL context on %s", selector);
-        js_report_init_error(kInitContextCreateFailed, "Failed to create WebGL 2 context");
+        ReportInitError(H, kInitContextCreateFailed, "Failed to create WebGL 2 context");
         return kInitContextCreateFailed;
     }
 
@@ -519,19 +477,18 @@ static int CreateAndActivate(WasmHost& H, const WasmContextConfig& cfg)
     if (em_res != EMSCRIPTEN_RESULT_SUCCESS)
     {
         WASM_LOG_ERROR("Failed to activate the WebGL context for rendering");
-        js_report_init_error(kInitMakeCurrentFailed, "Failed to activate the WebGL context for rendering");
-        WasmWebGLDestroyContext();
+        ReportInitError(H, kInitMakeCurrentFailed, "Failed to activate the WebGL context for rendering");
+        WasmWebGLDestroyContext(H);
         return kInitMakeCurrentFailed;
     }
     return 0;
 }
 
-int WasmWebGLCreateAndActivateContext()
+int WasmWebGLCreateAndActivateContext(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_glCtx = H.glCtx;
     auto& g_mainCanvasSelector = H.primarySelector;
-    WasmWebGLDestroyContext();
+    WasmWebGLDestroyContext(H);
 
     // A legacy set_context_config() issued while this host still had its old
     // context (see WasmHost::legacyPendingContextConfig) applies to this one.
@@ -545,7 +502,7 @@ int WasmWebGLCreateAndActivateContext()
     if (!WasmWebGLCanvasElementExists(g_mainCanvasSelector))
     {
         WASM_LOG_ERROR("Failed to find primary canvas selector: %s", g_mainCanvasSelector);
-        js_report_init_error(kInitCanvasMissing, "Primary canvas selector not found in document");
+        ReportInitError(H, kInitCanvasMissing, "Primary canvas selector not found in document");
         return kInitCanvasMissing;
     }
 
@@ -557,8 +514,8 @@ int WasmWebGLCreateAndActivateContext()
     if (cfg.explicitSwapControl != 0)
     {
         WASM_LOG_ERROR("explicitSwapControl requested, but this bundle was linked without OFFSCREEN_FRAMEBUFFER");
-        js_report_init_error(kInitExplicitSwapUnavailable,
-                             "explicitSwapControl needs a bundle linked with PROJECTM_WASM_EXPLICIT_SWAP=1");
+        ReportInitError(H, kInitExplicitSwapUnavailable,
+                        "explicitSwapControl needs a bundle linked with PROJECTM_WASM_EXPLICIT_SWAP=1");
         return kInitExplicitSwapUnavailable;
     }
 #endif
@@ -575,7 +532,7 @@ int WasmWebGLCreateAndActivateContext()
     const int requestedFlags = WasmContextConfigFlags(cfg);
     if (CurrentCanvasHeldAnotherContext(requestedFlags, cfg.powerPreference))
     {
-        WasmWebGLDestroyContext();
+        WasmWebGLDestroyContext(H);
         if (ReplaceCanvasElement(g_mainCanvasSelector))
         {
             WASM_LOG_WARN("WebGL context on %s had other attributes; created it on a fresh canvas element", g_mainCanvasSelector);
@@ -610,16 +567,14 @@ int WasmWebGLCreateAndActivateContext()
     return 0;
 }
 
-bool WasmWebGLCanvasHasAlpha()
+bool WasmWebGLCanvasHasAlpha(const WasmHost& H)
 {
-    const WasmHost& H = Host();
     return H.contextCaps.attributesKnown ? (H.contextCaps.attributeFlags & kContextFlagAlpha) != 0
                                          : H.contextConfig.alpha != 0;
 }
 
-void WasmWebGLCommitFrameIfExplicit()
+void WasmWebGLCommitFrameIfExplicit(WasmHost& H)
 {
-    WasmHost& H = Host();
     if (H.glCtx == 0 || H.contextConfig.explicitSwapControl == 0)
     {
         return;
@@ -631,9 +586,8 @@ void WasmWebGLCommitFrameIfExplicit()
     H.committedFrameCount++;
 }
 
-void WasmWebGLDestroyContext()
+void WasmWebGLDestroyContext(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_glCtx = H.glCtx;
     if (g_glCtx)
     {
@@ -652,7 +606,7 @@ void WasmWebGLDestroyContext()
     H.contextCaps = WasmContextCaps{};
 }
 
-extern "C" {
+namespace WasmApi {
 // The WebGL contract this host negotiated, in one int (see WasmContextSnapshotBit):
 // float color buffer / float blend / WEBGL_lose_context as observed on the
 // context, the dual-FBO format in the FboFloatFormat numbering at
@@ -662,10 +616,8 @@ extern "C" {
 // drop to RGBA8 if a float framebuffer turns out incomplete at the first
 // transition (CreateFBOWithFallback()). 0 while the host has no context, which
 // is also what JS gets before init().
-EMSCRIPTEN_KEEPALIVE
-int get_context_snapshot()
+int get_context_snapshot(WasmHost& H)
 {
-    WasmHost& H = Host();
     if (H.glCtx == 0)
     {
         return 0;
@@ -689,11 +641,10 @@ int get_context_snapshot()
     }
     return snapshot;
 }
-} // extern "C"
+} // namespace WasmApi
 
-void WasmWebGLResizeCanvases(int width, int height)
+void WasmWebGLResizeCanvases(WasmHost& H, int width, int height)
 {
-    WasmHost& H = Host();
     auto& g_mainCanvasSelector = H.primarySelector;
     auto& g_secondaryCanvasSelector = H.secondarySelector;
     emscripten_set_canvas_element_size(g_mainCanvasSelector, width, height);

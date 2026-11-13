@@ -71,9 +71,11 @@ fi
 # player shell loads): ~150 functions nobody here writes or tests. scripts/**
 # is build and audit tooling that a few tests import; it is not the host layer
 # the floor is about (re-measured without it on 2026-10-29: 91.31 / 83.97 / 79.46).
-COVERAGE_LINES_MIN=91.0
-COVERAGE_BRANCHES_MIN=83.7
-COVERAGE_FUNCTIONS_MIN=79.2
+# Raised 2026-11-13 (ABI v2, #352: tests/web/wasm-api-host-v2.test.mjs drives
+# every generated HostApi method), measured on node 24 at 92.65 / 85.54 / 85.86.
+COVERAGE_LINES_MIN=92.0
+COVERAGE_BRANCHES_MIN=85.0
+COVERAGE_FUNCTIONS_MIN=85.0
 
 # Modules the run is expected NOT to load; see the file's header.
 UNTESTED_LEDGER="tests/web/untested-modules.txt"

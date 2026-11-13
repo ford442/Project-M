@@ -799,16 +799,17 @@ async function startPair(env, extra = {}) {
 
 // ---- two engines in ONE Module: events and calls stay with their engine ----------
 //
-// kMaxHosts is 2: embed-multi-same-module.html runs two engines in one Module.
+// embed-multi-same-module.html runs two engines in one Module (kMaxHosts is 4).
 // Every engine callback is one global name for both, so the handle the engine
-// passes (bundle 040+) is the only thing that says whose it is; and almost every
-// export acts on the *active* engine, so a call that resumes after an await has
-// to select its own again.
+// passes (bundle 040+) is the only thing that says whose it is. Every engine
+// call names its host (ABI v2, #352: the pm_ exports); against a bundle from
+// before it the compat exports act on the *active* engine, so a call that
+// resumes after an await has to select its own again.
 
 /** Two contexts sharing one Module, as embed-multi-same-module.html runs them. */
-async function startSharedPair(env, { extraA = {}, extraB = {} } = {}) {
+async function startSharedPair(env, { extraA = {}, extraB = {}, abi = 2 } = {}) {
     let nextHandle = 30;
-    const module = makeFakeModule({ onCall: (name) => (isCreateHostCall(name) ? nextHandle++ : undefined) });
+    const module = makeFakeModule({ abi, onCall: (name) => (isCreateHostCall(name) ? nextHandle++ : undefined) });
     const a = env.newContext({ sharedModule: module, canvasId: 'pm-a', ...extraA });
     const b = env.newContext({ sharedModule: module, canvasId: 'pm-b', ...extraB });
     await a.start();
@@ -968,6 +969,51 @@ test('a preset load that awaits its fetch still lands on its own engine after a 
         // Each start() locks its own engine, then B's setLocked() above.
         const locks = module.engineCalls.filter((call) => call.name === '_set_preset_locked');
         assert.deepEqual(locks.map((call) => call.host), [a.hostHandle, b.hostHandle, b.hostHandle]);
+    });
+});
+
+test('ABI v2: two engines in one Module are driven without ever calling set_active_host', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env);
+        a.setLocked(false);
+        b.setLocked(true);
+        a.resize();
+
+        assert.ok(module.pmCalls > 0, 'engine calls went to the pm_ exports');
+        assert.deepEqual(module.calls.filter((call) => call.name === 'set_active_host'), [],
+            'nothing selects a host: every engine call names its own');
+        const locks = module.engineCalls.filter((call) => call.name === '_set_preset_locked');
+        assert.deepEqual(locks.map((call) => call.host), [a.hostHandle, b.hostHandle, a.hostHandle, b.hostHandle]);
+    });
+});
+
+test('context.call drives this context\'s engine through the generated host API', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env);
+        assert.ok(a.call, 'a started main-thread context has one');
+        assert.equal(a.call.host, a.hostHandle);
+        assert.equal(a.call, a.call, 'cached');
+
+        a.call.setMesh(48, 32);
+        b.call?.setMesh(64, 48);
+        const meshes = module.engineCalls.filter((call) => call.name === '_set_mesh');
+        assert.deepEqual(meshes.slice(-2).map((call) => call.host), [a.hostHandle, b.hostHandle]);
+
+        a.destroy();
+        assert.equal(a.call, null, 'gone with the engine');
+    });
+});
+
+test('a bundle from before ABI v2 still lands each call on its own engine by activating it', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env, { abi: 1 });
+        b.setLocked(true);
+        a.setLocked(false);
+
+        assert.equal(module.pmCalls, 0);
+        assert.ok(module.calls.some((call) => call.name === 'set_active_host'), 'the legacy path activates');
+        const locks = module.engineCalls.filter((call) => call.name === '_set_preset_locked');
+        assert.deepEqual(locks.slice(-2).map((call) => call.host), [b.hostHandle, a.hostHandle]);
     });
 });
 

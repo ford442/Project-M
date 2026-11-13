@@ -27,7 +27,8 @@ import {
 } from '../../html/projectm-experimental-bridge.js';
 
 const MANIFEST = readFileSync(fileURLToPath(new URL('../../cmake/WasmApiManifest.cmake', import.meta.url)), 'utf8');
-const EXPORTS = readFileSync(fileURLToPath(new URL('../../cmake/EmscriptenWasmFlags.cmake', import.meta.url)), 'utf8');
+// The link's export list, generated from the manifest (scripts/sync_wasm_link_common.sh).
+const EXPORTS = readFileSync(fileURLToPath(new URL('../../scripts/wasm_link_common.inc.sh', import.meta.url)), 'utf8');
 
 /** The sprite API of projectM-4/user_sprites.h, by generated wrapper name. */
 const SPRITE_CALLS = {
@@ -47,8 +48,8 @@ const SPRITE_CALLS = {
 function manifestEntry(symbol) {
     const line = MANIFEST.split('\n').find((l) => l.trim().startsWith(`"${symbol}|`));
     assert.ok(line, `${symbol} is in cmake/WasmApiManifest.cmake`);
-    const [name, visibility, binding, returns, args] = line.trim().slice(1).split('|');
-    return { name, visibility, binding, returns, args };
+    const [name, visibility, scope, binding, returns, args] = line.trim().slice(1).split('|');
+    return { name, visibility, scope, binding, returns, args };
 }
 
 /** An engine with sprites, reachable both as a module and through a fake worker handle. */
@@ -113,6 +114,12 @@ test('every sprite export is in the manifest, the link export list and the gener
         const entry = manifestEntry(symbol);
         assert.equal(entry.visibility, 'public', `${symbol} is part of the embed API`);
         assert.match(EXPORTS, new RegExp(`^\\s+_${symbol}$`, 'm'), `_${symbol} is exported by the link`);
+        // ABI v2 (#352): each compat name has a pm_ export taking the host.
+        const pmSymbol = entry.scope.split(':')[1];
+        assert.match(entry.scope, /^(alias|handle):/, `${symbol} has a pm_ form`);
+        if (entry.scope.startsWith('handle:')) {
+            assert.match(EXPORTS, new RegExp(`^\\s+_${pmSymbol}$`, 'm'), `_${pmSymbol} is exported by the link`);
+        }
         assert.equal(WASM_API_SYMBOLS[jsName], symbol);
         assert.equal(WASM_API_SIGNATURES[jsName].symbol, symbol);
         assert.equal(typeof wasmApi[jsName], 'function', `generated wrapper ${jsName}()`);
@@ -127,13 +134,15 @@ test('every sprite export is in the manifest, the link export list and the gener
 
 test('the zero-argument demo create_sprite() is gone from the shipped surface', () => {
     const entry = manifestEntry('create_sprite');
-    assert.equal(entry.args, 'type:string,code:string');
-    assert.equal(entry.returns, 'number');
+    assert.equal(entry.args, 'type:cstr,code:cstr');
+    assert.equal(entry.returns, 'u32');
     assert.deepEqual(WASM_API_SIGNATURES.createSprite.argTypes, ['string', 'string']);
     assert.equal(WASM_API_SIGNATURES.createSprite.returnType, 'number');
 
     const wrapper = readFileSync(fileURLToPath(new URL('../../src/wasm/projectM_emscripten.cpp', import.meta.url)), 'utf8');
-    assert.match(wrapper, /uint32_t create_sprite\(const char\* type, const char\* code\)/);
+    const exports = readFileSync(fileURLToPath(new URL('../../src/wasm/generated/WasmApiExports.cpp', import.meta.url)), 'utf8');
+    assert.match(exports, /uint32_t create_sprite\(const char\* type, const char\* code\)/);
+    assert.match(wrapper, /uint32_t sprite_create\(WasmHost& H, const char\* type, const char\* code\)/);
     assert.doesNotMatch(wrapper, /rv_IP_20250421_060250/, 'the hard-coded magenta sprite lives in a test fixture now');
 });
 

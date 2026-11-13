@@ -84,8 +84,9 @@ EM_JS(int, js_render_path_overrides_from_location, (), {
 });
 // clang-format on
 
-// Called once from init(), before the first preset renders.
-void ApplyRenderPathOverrides()
+// Called once from init(), before the first preset renders. The switches are
+// still process-wide environment variables, so `host` is not consulted yet.
+void ApplyRenderPathOverrides(WasmHost& /*host*/)
 {
     if (g_renderPathOverridesExplicit)
     {
@@ -94,7 +95,7 @@ void ApplyRenderPathOverrides()
     ApplyRenderPathOverrideMask(js_render_path_overrides_from_location(), false);
 }
 
-extern "C" {
+namespace WasmApi {
 
 // Sets the render-path ablation switches from the host page (call before
 // init() / create_host(); the paths are decided once). Each argument is 0/1:
@@ -102,20 +103,18 @@ extern "C" {
 //   copyShaderPath    ?copyPath=shader  — pre-#179 fullscreen-quad texture copy
 //   perPixelForceCpu  ?perPixelEval=cpu — keep per-pixel equations on the CPU evaluator
 // Once called, init() no longer reads the switches from the URL.
-EMSCRIPTEN_KEEPALIVE
-void set_render_path_overrides(int blurCopyPath, int copyShaderPath, int perPixelForceCpu)
+void set_render_path_overrides(bool blurCopyPath, bool copyShaderPath, bool perPixelForceCpu)
 {
     g_renderPathOverridesExplicit = true;
-    ApplyRenderPathOverrideMask((blurCopyPath != 0 ? kBlurCopyPath : 0) |
-                                    (copyShaderPath != 0 ? kCopyShaderPath : 0) |
-                                    (perPixelForceCpu != 0 ? kPerPixelForceCpu : 0),
+    ApplyRenderPathOverrideMask((blurCopyPath ? kBlurCopyPath : 0) |
+                                    (copyShaderPath ? kCopyShaderPath : 0) |
+                                    (perPixelForceCpu ? kPerPixelForceCpu : 0),
                                 true);
 }
 
 // The switches in effect, read back from the environment the engine consults:
 // bit 0 blurPath=copy, bit 1 copyPath=shader, bit 2 perPixelEval=cpu. Lets a
 // host (or a test) confirm a switch actually reached this module.
-EMSCRIPTEN_KEEPALIVE
 int get_render_path_overrides()
 {
     const auto isSet = [](const char* name, const char* value) {
@@ -127,4 +126,4 @@ int get_render_path_overrides()
            (isSet("PROJECTM_PER_PIXEL_EVAL", "cpu") ? kPerPixelForceCpu : 0);
 }
 
-} // extern "C"
+} // namespace WasmApi

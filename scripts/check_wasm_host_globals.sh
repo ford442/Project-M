@@ -17,7 +17,15 @@
 # Checked:
 #   1. no `#define <name> (Host()...` alias macros at all;
 #   2. no `#define pm` / `#define app_data` / `#define playlist`;
-#   3. no `#define g_*` except the allowlist below.
+#   3. no `#define g_*` except the allowlist below;
+#   4. ABI v2 (#352): no call to Host() (the host set_active_host() selected)
+#      or SetActiveHost() outside the compat layer. Every export reaches its
+#      host through a barrier (src/wasm/WasmApiBarrier.hpp) that resolves the
+#      handle it was given, so nothing else may depend on which host is
+#      active. The compat layer is the files in HOST_CALL_ALLOWED below: the
+#      registry itself (whose ActiveHostHandle() is what every generated compat
+#      shim forwards with) and the compat-only exports (set_canvas_selectors(),
+#      init_with_canvases(), ...).
 #
 # Allowlist (documented process-globals that are NOT per-host state):
 #   g_mainLoopRegistered — one Emscripten main loop services every started
@@ -40,6 +48,12 @@ cd "$PROJECT_ROOT"
 
 ALLOWED_G_DEFINES=(g_mainLoopRegistered)
 
+HOST_CALL_ALLOWED=(
+    src/wasm/WasmHost.hpp
+    src/wasm/WasmHost.cpp
+    src/wasm/WasmLegacyExports.cpp
+)
+
 status=0
 
 report() {
@@ -61,7 +75,17 @@ if hits=$(grep -rnE '^[[:space:]]*#[[:space:]]*define[[:space:]]+g_[A-Za-z0-9_]*
     report "#define g_* macros in src/wasm/ (only ${ALLOWED_G_DEFINES[*]} is allowed):" "$hits"
 fi
 
+# Rule 4. Comment lines are skipped; `Host()` as a whole token, so
+# ResolveHost(), BindHost(), ImplicitDefaultHost() and `.Host()` members are not
+# hits.
+host_allow_re="$(IFS='|'; echo "${HOST_CALL_ALLOWED[*]}")"
+if hits=$(grep -rnE '(^|[^A-Za-z0-9_.>:])(Host|SetActiveHost)[[:space:]]*\(' src/wasm/ \
+        | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*)' \
+        | grep -vE "^(${host_allow_re}):"); then
+    report "Host()/SetActiveHost() outside the compat layer (take a WasmHost& from the export's barrier, see WasmApiBarrier.hpp):" "$hits"
+fi
+
 if [[ $status -eq 0 ]]; then
-    echo "OK: src/wasm/ has no per-host alias macros (#246)."
+    echo "OK: src/wasm/ has no per-host alias macros (#246), and only the compat layer reads the active host (#352)."
 fi
 exit $status

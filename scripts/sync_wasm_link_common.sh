@@ -2,7 +2,8 @@
 # Regenerate WASM artifacts from cmake/EmscriptenWasmFlags.cmake and WasmApiManifest.cmake:
 #   - scripts/wasm_link_common.inc.sh
 #   - cmake/generated/ProjectMWasmBuildConfig.hpp
-#   - html/generated/projectm-wasm-api.ts
+#   - html/generated/projectm-wasm-api.ts / .js
+#   - src/wasm/generated/WasmApiImpl.hpp, WasmApiExports.cpp (the export barriers and compat shims)
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

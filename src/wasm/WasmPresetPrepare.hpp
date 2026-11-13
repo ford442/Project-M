@@ -100,7 +100,7 @@ private:
     std::jthread m_thread; //!< Declared last: joined (by the destructor) before m_shared goes.
 };
 
-// Main runtime thread: begins a preparation of `path` for the active host and
+// Main runtime thread: begins a preparation of `path` for `host` and
 // posts it. The current preset keeps rendering until ActivatePreparedPreset()
 // switches to the new one.
 void RequestPresetPrepare(WasmHost& host, const char* path, bool hardCut, std::optional<uint32_t> playlistIndex);

@@ -108,11 +108,13 @@ constexpr int kSnapshotPowerMask = 0x3;        //!< ...in two bits.
 constexpr int kSnapshotAttributesShift = 16;   //!< WasmContextCaps::attributeFlags sits at this bit...
 constexpr int kSnapshotAttributesMask = 0x1FF; //!< ...in nine bits (every WasmContextConfigFlag).
 
-// The active host's config (what its context was / will be created with).
-const WasmContextConfig& WasmWebGLGetContextConfig();
+struct WasmHost;
+
+// The host's config (what its context was / will be created with).
+const WasmContextConfig& WasmWebGLGetContextConfig(const WasmHost& host);
 
 // init() / create_host() failure codes for the context stage. Reported through
-// js_report_init_error() and readable afterwards with get_last_init_error().
+// ReportInitError() and readable afterwards with get_last_init_error().
 // See docs/EMSCRIPTEN.md "Init Error Codes".
 constexpr int kInitContextCreateFailed = 2;     //!< emscripten_webgl_create_context returned 0 (no WebGL 2).
 constexpr int kInitCanvasMissing = 6;           //!< Primary canvas selector resolves to nothing.
@@ -121,22 +123,22 @@ constexpr int kInitPerformanceCaveat = 8;       //!< failIfMajorPerformanceCavea
 constexpr int kInitExplicitSwapUnavailable = 9; //!< explicitSwapControl asked of a build linked without OFFSCREEN_FRAMEBUFFER.
 
 // Canvas selector configuration (Phase A of #168).
-void WasmWebGLSetCanvasSelectors(const char* primary, const char* secondary);
-void WasmWebGLApplyModuleCanvasSelectorsIfPresent();
-const char* WasmWebGLGetMainCanvasSelector();
-const char* WasmWebGLGetSecondaryCanvasSelector();
+void WasmWebGLSetCanvasSelectors(WasmHost& host, const char* primary, const char* secondary);
+void WasmWebGLApplyModuleCanvasSelectorsIfPresent(WasmHost& host);
+const char* WasmWebGLGetMainCanvasSelector(WasmHost& host);
+const char* WasmWebGLGetSecondaryCanvasSelector(WasmHost& host);
 bool WasmWebGLCanvasElementExists(const char* selector);
 
 // WebGL context lifecycle.
-EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext();
+EMSCRIPTEN_WEBGL_CONTEXT_HANDLE WasmWebGLGetContext(WasmHost& host);
 // Returns 0 on success, otherwise one of the kInit* codes above (already
-// reported through js_report_init_error()).
-int WasmWebGLCreateAndActivateContext();
-// Whether the active host's canvas has an alpha channel: the attribute read
+// reported through ReportInitError()).
+int WasmWebGLCreateAndActivateContext(WasmHost& host);
+// Whether the host's canvas has an alpha channel: the attribute read
 // back from the context, or the requested one before that.
-bool WasmWebGLCanvasHasAlpha();
+bool WasmWebGLCanvasHasAlpha(const WasmHost& host);
 // Presents the frame on a host created with explicitSwapControl (no-op
 // otherwise): the only point at which such a canvas shows anything new.
-void WasmWebGLCommitFrameIfExplicit();
-void WasmWebGLDestroyContext();
-void WasmWebGLResizeCanvases(int width, int height);
+void WasmWebGLCommitFrameIfExplicit(WasmHost& host);
+void WasmWebGLDestroyContext(WasmHost& host);
+void WasmWebGLResizeCanvases(WasmHost& host, int width, int height);

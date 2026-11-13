@@ -6,8 +6,7 @@
 
 /**
  * @typedef {object} CaptureDeps
- * @property {() => WorkerModule | null} getModule
- * @property {(host: number | undefined) => void} selectEngine
+ * @property {(host: number | undefined) => WorkerModule | null} selectEngine The module as seen by one engine (see selectEngine() in projectm-render-worker.js).
  * @property {(message: RenderWorkerMessage, transfer?: Transferable[]) => void} postToHost
  */
 
@@ -23,9 +22,10 @@ function createWorkerCapture(deps) {
      * main-thread transport's setFlashLimit(). A bundle without the limiter ignores it.
      *
      * @param {FlashLimitSettings} settings
+     * @param {number} [host] The engine; this worker's own when absent.
      */
-    function applyFlashLimit(settings) {
-        const m = deps.getModule();
+    function applyFlashLimit(settings, host) {
+        const m = deps.selectEngine(host);
         if (!m || typeof m._set_flash_limit_enabled !== 'function') return;
         if (typeof settings.threshold === 'number' && Number.isFinite(settings.threshold)) {
             m._set_flash_limit_threshold(settings.threshold);
@@ -50,14 +50,16 @@ function createWorkerCapture(deps) {
      * @param {RenderWorkerCaptureFrameMessage} msg
      */
     async function captureFrame(msg) {
-        const m = deps.getModule();
+        // Every call through the view lands on msg.host's engine (a bundle
+        // before ABI v2: the view is the module with that host activated, so
+        // the wait below selects it again).
+        let m = deps.selectEngine(msg.host);
         /** @param {string} error */
         const fail = (error) => postToHost({ type: 'frame-captured', requestId: msg.requestId, error });
         if (!m || typeof m._capture_frame_request !== 'function') {
             fail('this projectM bundle predates frame capture (capture_frame_request)');
             return;
         }
-        deps.selectEngine(msg.host);
         if (!m._capture_frame_request()) {
             fail('captureFrame(): the engine has no WebGL context');
             return;
@@ -70,7 +72,7 @@ function createWorkerCapture(deps) {
         for (;;) {
             // The render loop (or a sibling message) may have selected another
             // engine while this waited; the capture is this engine's.
-            deps.selectEngine(msg.host);
+            m = deps.selectEngine(msg.host) ?? m;
             const status = m._capture_frame_resolve(msg.renderFrame ? 1 : 0);
             if (status === CAPTURE_READY) break;
             if (status === CAPTURE_FAILED || status === CAPTURE_IDLE) {

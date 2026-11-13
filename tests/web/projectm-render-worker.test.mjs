@@ -577,6 +577,58 @@ test('resize forwards the new size to the module', async () => {
     assert.deepEqual(sizes, [[800, 600]]);
 });
 
+/**
+ * Gives a fake module the ABI v2 (#352) shape: pm_host_is_live() and a
+ * pm_<name>(host, ...) twin of each named engine export, recording
+ * [name, host, ...args] in `pmCalls`. The compat exports stay, as in a real
+ * bundle, so the worker sees the same presence checks either way.
+ *
+ * @param {ReturnType<typeof fakeRingModule>} module
+ * @param {string[]} names
+ */
+function withAbiV2(module, names) {
+    /** @type {unknown[][]} */
+    const pmCalls = [];
+    const target = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (module));
+    target._pm_host_is_live = () => 1;
+    for (const name of names) {
+        target[`_pm_${name}`] = (/** @type {number} */ host, /** @type {unknown[]} */ ...args) => {
+            pmCalls.push([name, host, ...args]);
+            return 0;
+        };
+    }
+    return Object.assign(module, { pmCalls });
+}
+
+test('ABI v2: engine calls reach the pm_ export with the engine they name, and nothing is activated', async () => {
+    const module = withAbiV2(fakeRingModule(), [
+        'set_window_size', 'load_preset_file', 'set_flash_limit_threshold', 'set_flash_limit_enabled',
+    ]);
+    const target = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (module));
+    for (const name of ['set_window_size', 'set_flash_limit_threshold', 'set_flash_limit_enabled']) {
+        target[`_${name}`] = () => assert.fail(`compat _${name}() acts on whichever host is active`);
+    }
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    await worker.send({ type: 'resize', width: 800, height: 600 });
+    await worker.send({ type: 'set-flash-limit', enabled: true, threshold: 0.1, host: 2 });
+    await worker.send({ type: 'ccall', name: 'load_preset_file', returnType: null, argTypes: ['string'], args: ['/p.milk'], host: 2 });
+    // Already takes its engine's handle: no pm_ twin, passed through as is.
+    await worker.send({ type: 'ccall', name: 'projectm_sprite_destroy_wrapper', returnType: null, argTypes: ['number', 'number'], args: [2, 5] });
+
+    assert.deepEqual(module.pmCalls.map((call) => [...call]), [
+        ['set_window_size', 1, 800, 600],
+        ['set_flash_limit_threshold', 2, 0.1],
+        ['set_flash_limit_enabled', 2, 1],
+    ]);
+    assert.deepEqual(module.ccalls.map((call) => [call.name, ...call.args]), [
+        ['pm_load_preset_file', 2, '/p.milk'],
+        ['projectm_sprite_destroy_wrapper', 2, 5],
+    ]);
+    assert.ok(!module.ccalls.some((call) => call.name === 'set_active_host'), 'no host is activated');
+});
+
 test('resize before the module exists is ignored rather than throwing', async () => {
     const worker = loadWorker({ createModule: null });
     await worker.send({ type: 'resize', width: 800, height: 600 });
@@ -1001,6 +1053,31 @@ test('texture-frame pixels land in the slot staging buffer and are committed', a
     assert.deepEqual([...module.HEAPU8.slice(SLOT_PTR, SLOT_PTR + 8)], [1, 2, 3, 4, 5, 6, 7, 8]);
     assert.deepEqual(module.commits, ['webcam']);
     assert.deepEqual(worker.posted, []);
+});
+
+test('texture-frame commits by buffer generation on a bundle that has them', async () => {
+    const module = withLiveTextureSlot(fakeRingModule());
+    /** @type {unknown[][]} */
+    const generationCommits = [];
+    const ccall = module.ccall;
+    Object.assign(module, {
+        _texture_slot_generation: () => 0, // presence only, as with _texture_slot_buffer
+        ccall(/** @type {string} */ name, /** @type {unknown} */ returnType, /** @type {unknown[]} */ argTypes, /** @type {unknown[]} */ args) {
+            if (name === 'texture_slot_generation') return 42;
+            if (name === 'texture_slot_commit_generation') {
+                generationCommits.push([...args]);
+                return 1;
+            }
+            return ccall(name, returnType, argTypes, args);
+        },
+    });
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    const pixels = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
+    await worker.send({ type: 'texture-frame', name: 'webcam', width: 2, height: 1, pixels, host: 1 });
+    assert.deepEqual(generationCommits, [['webcam', 42]], 'the generation read with the buffer is the one committed');
+    assert.deepEqual(module.commits, [], 'never the unchecked commit');
 });
 
 test('a texture-frame bitmap is drawn at the slot size, copied in, and closed', async () => {

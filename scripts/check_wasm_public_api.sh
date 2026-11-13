@@ -38,14 +38,36 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 # --- current surface --------------------------------------------------------
-# Manifest entries are `"name|visibility|binding|returns|args|doc"`; the doc
-# field is deliberately dropped, so a prose edit is not an API change.
+# Manifest entries are `"name|visibility|scope|binding|returns|args|doc"`; the
+# doc field is deliberately dropped, so a prose edit is not an API change, and
+# so is the scope (which only says how the export finds its host). Types are
+# the manifest's C types reduced to what a JS caller passes (number, string,
+# boolean, void, and pointer for a T* heap offset), and a return's `=failure` value is dropped: what the surface
+# records is how an embedder calls the export.
 current="$(awk -F'|' '
+    function jstype(t) {
+        sub(/=.*/, "", t)
+        if (t == "void") return "void"
+        if (t == "bool") return "boolean"
+        if (t == "cstr") return "string"
+        if (t ~ /\*$/) return "pointer"
+        return "number"
+    }
+    function jsargs(list,    n, parts, i, kv, out) {
+        if (list == "") return ""
+        n = split(list, parts, ",")
+        out = ""
+        for (i = 1; i <= n; i++) {
+            split(parts[i], kv, ":")
+            out = out (i > 1 ? "," : "") kv[1] ":" jstype(kv[2])
+        }
+        return out
+    }
     /^[[:space:]]*"[a-zA-Z_][a-zA-Z0-9_]*\|/ {
         name = $1
         sub(/^[[:space:]]*"/, "", name)
         if ($2 != "public") next
-        printf "%s(%s) -> %s [%s]\n", name, $5, $4, $3
+        printf "%s(%s) -> %s [%s]\n", name, jsargs($6), jstype($5), $4
     }
 ' "$MANIFEST" | LC_ALL=C sort)"
 

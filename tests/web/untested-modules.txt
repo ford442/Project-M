@@ -25,7 +25,3 @@ html/projectm-wasm-default-redirect.js
 html/flac-player/preboot.js
 html/projectm-redirect-stub.js
 
-# AudioWorklet processor: runs in an AudioWorkletGlobalScope (registerProcessor,
-# AudioWorkletProcessor), which Node cannot import. Type-checked by
-# html/tsconfig.worklet.json; exercised in a browser by tests/wasm-smoke/.
-html/worklets/projectm-audio-processor.js

@@ -29,13 +29,32 @@
     canvas loads a preset every stayEvery rounds, so a prepare thread that never
     starts again shows up as a load that never completes. Reverting the join in
     ~PresetPrepareQueue() to a detach makes the 100-round run warn 37 times.
+
+    Then three ABI v2 (#352) cases, on the long-lived host and a second one:
+
+      * interleaved async calls: two tasks drive their own host through the
+        pm_ exports, awaiting between a write and its read-back while the other
+        task selects its host with set_active_host() (what a sibling context's
+        compat call does). Every read must see its own host's write, and both
+        hosts load a preset concurrently;
+      * the exception barrier: pm_debug_throw() throws and runs out of heap
+        inside an export; each is that host's last error (and only that host's),
+        the Module and both engines carry on, and a destroyed handle is a
+        failure value, not a throw;
+      * PCM ring re-init x10 with a stand-in worklet node: every released ring
+        stays parked (never reused) until its pcmRingDetached answer, each new
+        ring drains exactly what was written to it, and an acknowledged ring is
+        reused. On the --debug link SAFE_HEAP checks every access.
   -->
   <canvas id="pm-churn-stay"></canvas>
   <canvas id="pm-churn-a"></canvas>
   <div id="preset-name" hidden></div>
   <div id="stat" hidden></div>
   <script>
-    const result = { ok: false, error: null, rounds: 0, createRefused: 0, stayLoads: 0 };
+    const result = {
+      ok: false, error: null, rounds: 0, createRefused: 0, stayLoads: 0,
+      interleavedCalls: 0, interleavedLoads: 0, barrierCases: 0, ringReinits: 0, ringDetaches: 0,
+    };
 
     function finish(ok, error) {
       result.ok = ok;
@@ -125,9 +144,121 @@
       }
       Module.ccall('destroy_host', null, ['number'], [churned]);
       await loadOnStay('after churn');
+
+      const other = create('#pm-churn-a');
+      if (!other) throw new Error('create_host for the second host failed');
+      Module._pm_start_render(other, 160, 90);
+      await interleavedCalls(Module, stay, other);
+      exceptionBarrier(Module, stay, other);
+      ringReinit(Module, other);
+      Module.ccall('destroy_host', null, ['number'], [other]);
+      if (Module._pm_host_is_live(other)) throw new Error('a destroyed host is still live');
+      if (Module._pm_transition_get_duration(other) !== 0) throw new Error('a stale handle must return the failure value');
+
       result.hostCount = Module._host_count();
       Module.ccall('destroy_host', null, ['number'], [stay]);
       finish(true, null);
+    }
+
+    // Two tasks, one per host, each writing its host's transition duration and
+    // reading it back after an await, while the other task activates its own
+    // host in between. Then a concurrent preset load on both.
+    async function interleavedCalls(Module, stay, other) {
+      const drive = async (host, sibling, base) => {
+        for (let i = 0; i < 20; i += 1) {
+          const value = base + i * 0.25; // exact in float32
+          Module._pm_transition_set_duration(host, value);
+          Module.ccall('set_active_host', null, ['number'], [sibling]);
+          await sleep(Math.random() * 3);
+          const read = Module._pm_transition_get_duration(host);
+          if (read !== value) {
+            throw new Error('interleaved: host ' + host + ' read ' + read + ' after writing ' + value);
+          }
+          result.interleavedCalls += 1;
+        }
+      };
+      await Promise.all([drive(stay, other, 1), drive(other, stay, 10)]);
+
+      const loadOn = async (host, sibling) => {
+        Module.ccall('pm_load_preset_file_hard', null, ['number', 'string'], [host, '/presets/churn-light.milk']);
+        const deadline = performance.now() + 60000;
+        while (Module._pm_is_preset_ready(host, 0) !== 1) {
+          if (Module._pm_preset_switch_failed(host)) throw new Error('interleaved load on ' + host + ' failed');
+          if (performance.now() > deadline) throw new Error('interleaved load on ' + host + ' never completed');
+          Module.ccall('set_active_host', null, ['number'], [sibling]);
+          await sleep(5);
+        }
+        result.interleavedLoads += 1;
+      };
+      await Promise.all([loadOn(stay, other), loadOn(other, stay)]);
+    }
+
+    function exceptionBarrier(Module, stay, other) {
+      const lastError = (host) => Module._pm_get_last_error(host);
+      const message = (host) => Module.ccall('pm_get_last_error_message', 'string', ['number'], [host]);
+      if (lastError(other) !== 0) throw new Error('barrier: a fresh host has a last error');
+
+      if (Module._pm_debug_throw(other, 1) !== 0) throw new Error('barrier: a throwing export must return its failure value');
+      if (lastError(other) !== 1 || !/requested exception/.test(message(other))) {
+        throw new Error('barrier: the exception was not recorded (' + lastError(other) + ', "' + message(other) + '")');
+      }
+      if (lastError(stay) !== 0) throw new Error('barrier: the error leaked onto the sibling host');
+      Module._pm_clear_last_error(other);
+      if (lastError(other) !== 0) throw new Error('barrier: clear_last_error did not clear');
+      result.barrierCases += 1;
+
+      if (Module._pm_debug_throw(other, 2) !== 0) throw new Error('barrier: an out-of-heap export must return its failure value');
+      if (lastError(other) !== 2) throw new Error('barrier: bad_alloc was not recorded as out of memory (' + lastError(other) + ')');
+      result.barrierCases += 1;
+
+      // Both engines are still usable, and the Module did not abort.
+      Module._pm_transition_set_duration(other, 2.5);
+      if (Module._pm_transition_get_duration(other) !== 2.5) throw new Error('barrier: the host is unusable after a caught exception');
+      Module._pm_render_frame(stay);
+    }
+
+    function ringReinit(Module, host) {
+      // A worklet node only needs a port here: releases post pcmRingDetach to
+      // it, and the test plays the processor's pcmRingDetached answer.
+      const detaches = [];
+      globalThis.projectMWorkletNode_Global_Cpp = {
+        port: { onmessage: null, postMessage: (message) => { if (message.type === 'pcmRingDetach') detaches.push(message); } },
+      };
+      try {
+        const headers = new Set();
+        const parkedBefore = Module._pcm_ring_parked_count();
+        for (let i = 0; i < 10; i += 1) {
+          const capacity = i % 2 ? 2048 : 4096;
+          if (Module._pm_pcm_ring_init(host, capacity) !== 1) throw new Error('ring: init ' + i + ' failed');
+          const headerPtr = Module._pm_get_pcm_ring_header_ptr(host);
+          const dataPtr = Module._pm_get_pcm_ring_data_ptr(host);
+          if (headers.has(headerPtr)) throw new Error('ring: init ' + i + ' reused a ring the worklet had not released');
+          headers.add(headerPtr);
+          // One quantum, as the processor writes it, then the engine's drain.
+          const memory = Module.HEAPF32.buffer;
+          new Float32Array(memory, dataPtr, 256).fill(0.5);
+          Atomics.store(new Int32Array(memory, headerPtr, 4), 0, 128);
+          const fed = Module._pm_pcm_ring_drain(host);
+          if (fed !== 128) throw new Error('ring: init ' + i + ' drained ' + fed + ' frames, not 128');
+          result.ringReinits += 1;
+        }
+        const parked = Module._pcm_ring_parked_count() - parkedBefore;
+        if (parked !== detaches.length || parked < 9) {
+          throw new Error('ring: ' + parked + ' rings parked for ' + detaches.length + ' detaches');
+        }
+        for (const detach of detaches) {
+          if (!Module._pcm_ring_release_retired(detach.headerPtr)) throw new Error('ring: a detach named no parked ring');
+        }
+        if (Module._pcm_ring_parked_count() !== parkedBefore) throw new Error('ring: acknowledged rings are still parked');
+        // The last ring was 2048 frames; an acknowledged 4096-frame one is reused.
+        Module._pm_pcm_ring_init(host, 4096);
+        if (!headers.has(Module._pm_get_pcm_ring_header_ptr(host))) throw new Error('ring: an acknowledged ring was not reused');
+        // ...which released the 2048-frame one: answer that detach too.
+        Module._pcm_ring_release_retired(detaches[detaches.length - 1].headerPtr);
+        result.ringDetaches = detaches.length;
+      } finally {
+        delete globalThis.projectMWorkletNode_Global_Cpp;
+      }
     }
 
     run().catch((error) => finish(false, error));

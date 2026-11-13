@@ -21,15 +21,15 @@
 #include "WasmLog.hpp"
 #include "WasmWebGLContext.hpp"
 
-// Renders one frame for the currently-active host. renderLoop() makes each
-// started host active in turn and calls this.
+// Renders one frame for `H` with the perf-HUD instrumentation and the quality
+// governor around it. renderLoop() binds each started host in turn and calls
+// this.
 //
 // A preset load no longer pauses this: the preset is prepared on the host's
 // prepare thread while the current one keeps rendering, and render_frame()
 // switches to it once it is ready (see WasmPresetPrepare.cpp).
-static void RenderActiveHostFrame()
+static void RenderHostFrame(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_perfHudEnabled = H.perfHudEnabled;
     // Real clock, deliberately: this measures how long the frame actually took,
     // which is what the governor steps quality on. WasmNow() may be virtual.
@@ -40,7 +40,7 @@ static void RenderActiveHostFrame()
     {
         js_perf_gpu_begin_frame();
     }
-    render_frame();
+    WasmApi::render_frame(H);
     if (g_perfHudEnabled)
     {
         js_perf_gpu_end_frame();
@@ -58,23 +58,17 @@ static void RenderActiveHostFrame()
             timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps, timings.shader_link_pending,
             timings.per_pixel_eval_path, timings.rhythm_analysis_ms, FlashClampedFramesForHud(H));
     }
-    UpdateQualityGovernor(emscripten_get_now() - frameStartMs);
-    return;
+    UpdateQualityGovernor(H, emscripten_get_now() - frameStartMs);
 }
 
 // The single Emscripten main loop services every started host. With one host
 // (the compat/default path) this is exactly the old single-instance loop; with
-// two (#168 Phase B) each is made active — which makes its own WebGL context
+// several (#168 Phase B) each is bound — which makes its own WebGL context
 // current — and rendered in turn within the same requestAnimationFrame tick.
-//
-// The host that was active before the tick is restored afterwards. JS selects a
-// host with set_active_host() and may then yield (e.g. awaiting IndexedDB
-// between shader_cache_begin_load() and shader_cache_import_glsl()); without the
-// restore, a rAF tick in between would leave the last-rendered host active and
-// the follow-up call would land on the wrong engine.
+// Binding does not change which host is active, so a compat-shim caller that
+// yielded between two calls still reaches the host it selected.
 static void renderLoop()
 {
-    WasmHost* const previous = ActiveHostOrNull();
     const int slots = HostSlotCount();
     for (int i = 0; i < slots; ++i)
     {
@@ -83,20 +77,15 @@ static void renderLoop()
         {
             continue;
         }
-        SetActiveHost(h);
-        RenderActiveHostFrame();
-    }
-    if (previous != nullptr && ActiveHostOrNull() != previous)
-    {
-        SetActiveHost(previous);
+        BindHost(*h);
+        RenderHostFrame(*h);
     }
 }
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void start_render(int width, int height)
+namespace WasmApi {
+
+void start_render(WasmHost& H, int width, int height)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_dualFbo = H.dualFbo;
     auto& g_compositorShader = H.compositorShader;
@@ -164,7 +153,6 @@ void start_render(int width, int height)
 // before any start_render() registered the loop. Test hook: under a software
 // rasteriser a frame costs more than a display refresh, so the frame rate
 // alone cannot tell rAF pacing from EM_TIMING_SETIMMEDIATE.
-EMSCRIPTEN_KEEPALIVE
 int get_main_loop_timing_mode()
 {
     if (!g_mainLoopRegistered)
@@ -176,15 +164,15 @@ int get_main_loop_timing_mode()
     emscripten_get_main_loop_timing(&mode, &value);
     return mode;
 }
-} // extern "C"
+
+} // namespace WasmApi
 
 // Returns true when the dual-FBO compositor path is required this frame.
 // Steady-state playback renders directly to the canvas (one pass); the
 // offscreen ping-pong FBO + fullscreen compositor blit is only used while a
 // preset crossfade is active.
-static bool ShouldUseDualFboCompositor()
+static bool ShouldUseDualFboCompositor(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     auto& g_compositorShader = H.compositorShader;
     auto& g_transitionActive = H.transitionActive;
@@ -212,9 +200,9 @@ static bool ShouldUseDualFboCompositor()
 //
 // Run inside render_frame()'s RenderStateGuard, which restores the framebuffer
 // binding and scissor this changes.
-static void FillAlphaOfOpaqueFrame(projectm_handle pm)
+static void FillAlphaOfOpaqueFrame(const WasmHost& H, projectm_handle pm)
 {
-    if (!WasmWebGLCanvasHasAlpha() || projectm_get_transparency_mode(pm))
+    if (!WasmWebGLCanvasHasAlpha(H) || projectm_get_transparency_mode(pm))
     {
         return;
     }
@@ -226,9 +214,8 @@ static void FillAlphaOfOpaqueFrame(projectm_handle pm)
     commands.SetColorMask(true, true, true, true);
 }
 
-static void ReleaseDualFboIfIdle()
+static void ReleaseDualFboIfIdle(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     auto& g_transitionActive = H.transitionActive;
     auto& g_transitionEndTime = H.transitionEndTime;
@@ -250,7 +237,7 @@ static void ReleaseDualFboIfIdle()
     {
         return;
     }
-    const double idleMs = WasmNow() - g_transitionEndTime;
+    const double idleMs = WasmNow(H) - g_transitionEndTime;
     if (idleMs < static_cast<double>(g_dualFboIdleReleaseSec) * 1000.0)
     {
         return;
@@ -258,11 +245,10 @@ static void ReleaseDualFboIfIdle()
     g_dualFbo.ReleasePresetA();
 }
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void render_frame()
+namespace WasmApi {
+
+void render_frame(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_dualFbo = H.dualFbo;
     auto& g_compositorShader = H.compositorShader;
@@ -300,14 +286,14 @@ void render_frame()
 
     // Deterministic-clock tick (no-op unless the harness enabled it): pins this
     // frame to N/fps before anything reads the time.
-    DeterministicFrameTick();
+    DeterministicFrameTick(H);
 
     // Single audio ingest: drain everything JS producers wrote into the PCM ring
     // since the last frame and hand it to the engine as one stereo block. Done
     // here rather than in renderLoop() so the render-worker path (which drives
     // render_frame() from its own loop) and any host calling render_frame()
     // directly get identical audio, with no window/AnalyserNode involved.
-    pcm_ring_drain();
+    pcm_ring_drain(H);
 
     // Same for live textures: the frames the page committed since the last frame,
     // uploaded once each, before anything samples them.
@@ -327,17 +313,17 @@ void render_frame()
     // the dual-FBO work landed — avoiding an extra FBO resolve + fullscreen blit
     // every frame.
 
-    if (!ShouldUseDualFboCompositor())
+    if (!ShouldUseDualFboCompositor(H))
     {
         // Direct-to-canvas path (steady state, startup, or compositor unavailable).
-        ReleaseDualFboIfIdle();
+        ReleaseDualFboIfIdle(H);
         RenderStateGuard guard(H.glBaseline ? &*H.glBaseline : nullptr);
         projectm_opengl_render_frame(pm);
-        FillAlphaOfOpaqueFrame(pm);
+        FillAlphaOfOpaqueFrame(H, pm);
         CollectRhythmEvents(H);
         FlushRhythmEvents(H);
         TakeRequestedFrameCapture(H);
-        WasmWebGLCommitFrameIfExplicit();
+        WasmWebGLCommitFrameIfExplicit(H);
         g_renderedFrameCount++;
         return;
     }
@@ -388,7 +374,7 @@ void render_frame()
     else
     {
         // Time-based blend (WasmNow() returns milliseconds).
-        const double now = WasmNow();
+        const double now = WasmNow(H);
         newBlend = static_cast<float>((now - g_transitionStartTime) / (static_cast<double>(g_transitionDuration) * 1000.0));
     }
     g_transitionBlend = newBlend < 1.0f ? newBlend : 1.0f;
@@ -402,29 +388,26 @@ void render_frame()
         g_presetBReady = false;
         // Start the Preset A idle clock: from here nothing samples the pair
         // until the next transition, so ReleaseDualFboIfIdle() can reclaim it.
-        g_transitionEndTime = WasmNow();
+        g_transitionEndTime = WasmNow(H);
         WASM_LOG_INFO("Phase5: Transition complete – Preset B promoted to A.");
     }
     FlushRhythmEvents(H);
     // A requested capture reads what the compositor just drew, before the commit.
     TakeRequestedFrameCapture(H);
     // explicitSwapControl hosts present here, once, after the compositor.
-    WasmWebGLCommitFrameIfExplicit();
+    WasmWebGLCommitFrameIfExplicit(H);
     g_renderedFrameCount++;
-    return;
 }
 
-EMSCRIPTEN_KEEPALIVE
-void set_window_size(int width, int height)
+void set_window_size(WasmHost& H, int width, int height)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_dualFbo = H.dualFbo;
     if (!pm)
     {
         return;
     }
-    WasmWebGLResizeCanvases(width, height);
+    WasmWebGLResizeCanvases(H, width, height);
     auto& commands = RenderDevice::Commands();
     commands.SetViewport({0, 0, width, height});
     commands.SetScissor({0, 0, width, height});
@@ -435,6 +418,6 @@ void set_window_size(int width, int height)
     projectm_set_window_size(pm, width, height);
     // Phase 2: Resize all allocated dual ping-pong FBOs to match the new viewport.
     g_dualFbo.Resize(width, height);
-    return;
 }
-} // extern "C"
+
+} // namespace WasmApi

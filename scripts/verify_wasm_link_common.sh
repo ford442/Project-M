@@ -1,52 +1,44 @@
 #!/usr/bin/env bash
-# Verify WASM artifacts generated from cmake/EmscriptenWasmFlags.cmake are committed.
+# Verify the WASM artifacts generated from cmake/EmscriptenWasmFlags.cmake and
+# cmake/WasmApiManifest.cmake are committed and up to date.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INC="$PROJECT_ROOT/scripts/wasm_link_common.inc.sh"
-HEADER="$PROJECT_ROOT/cmake/generated/ProjectMWasmBuildConfig.hpp"
-TS_API="$PROJECT_ROOT/html/generated/projectm-wasm-api.ts"
-JS_API="$PROJECT_ROOT/html/generated/projectm-wasm-api.js"
-TMP_INC="$(mktemp)"
-TMP_HEADER="$(mktemp)"
-TMP_TS="$(mktemp)"
-TMP_JS="$(mktemp)"
 
-cp "$INC" "$TMP_INC"
-if [[ -f "$HEADER" ]]; then
-    cp "$HEADER" "$TMP_HEADER"
-fi
-if [[ -f "$TS_API" ]]; then
-    cp "$TS_API" "$TMP_TS"
-fi
-if [[ -f "$JS_API" ]]; then
-    cp "$JS_API" "$TMP_JS"
-fi
+# Every file scripts/sync_wasm_link_common.sh writes, and what it is generated from.
+GENERATED=(
+    "scripts/wasm_link_common.inc.sh|cmake/EmscriptenWasmFlags.cmake"
+    "cmake/generated/ProjectMWasmBuildConfig.hpp|cmake/EmscriptenWasmFlags.cmake"
+    "html/generated/projectm-wasm-api.ts|cmake/WasmApiManifest.cmake"
+    "html/generated/projectm-wasm-api.js|cmake/WasmApiManifest.cmake"
+    "src/wasm/generated/WasmApiImpl.hpp|cmake/WasmApiManifest.cmake"
+    "src/wasm/generated/WasmApiExports.cpp|cmake/WasmApiManifest.cmake"
+)
+
+SNAPSHOT="$(mktemp -d)"
+trap 'rm -rf "$SNAPSHOT"' EXIT
+for entry in "${GENERATED[@]}"; do
+    file="${entry%%|*}"
+    mkdir -p "$SNAPSHOT/$(dirname "$file")"
+    if [[ -f "$PROJECT_ROOT/$file" ]]; then
+        cp "$PROJECT_ROOT/$file" "$SNAPSHOT/$file"
+    else
+        : > "$SNAPSHOT/$file"
+    fi
+done
 
 "$PROJECT_ROOT/scripts/sync_wasm_link_common.sh"
 
 failed=0
-if ! diff -q "$TMP_INC" "$INC" >/dev/null; then
-    echo "ERROR: $INC is out of sync with cmake/EmscriptenWasmFlags.cmake" >&2
-    failed=1
-fi
-
-if ! diff -q "$TMP_HEADER" "$HEADER" >/dev/null; then
-    echo "ERROR: $HEADER is out of sync with cmake/EmscriptenWasmFlags.cmake" >&2
-    failed=1
-fi
-
-if ! diff -q "$TMP_TS" "$TS_API" >/dev/null; then
-    echo "ERROR: $TS_API is out of sync with cmake/WasmApiManifest.cmake" >&2
-    failed=1
-fi
-
-if ! diff -q "$TMP_JS" "$JS_API" >/dev/null; then
-    echo "ERROR: $JS_API is out of sync with cmake/WasmApiManifest.cmake" >&2
-    failed=1
-fi
-
-rm -f "$TMP_INC" "$TMP_HEADER" "$TMP_TS" "$TMP_JS"
+for entry in "${GENERATED[@]}"; do
+    file="${entry%%|*}"
+    source="${entry#*|}"
+    if ! diff -q "$SNAPSHOT/$file" "$PROJECT_ROOT/$file" >/dev/null; then
+        echo "ERROR: $file is out of sync with $source" >&2
+        failed=1
+    fi
+done
 
 # ASYNCIFY is gone from every link (preset loading runs on a prepare thread);
 # the settings must not be reintroduced in the canonical flags or the generated
@@ -61,4 +53,4 @@ if [[ "$failed" -ne 0 ]]; then
     exit 1
 fi
 
-echo "WASM link artifacts are in sync with cmake/EmscriptenWasmFlags.cmake"
+echo "WASM generated artifacts are in sync with cmake/EmscriptenWasmFlags.cmake and cmake/WasmApiManifest.cmake"

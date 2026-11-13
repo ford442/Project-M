@@ -6,7 +6,7 @@
 // the audio source. ProjectMContext extends this class; lifecycle and every
 // piece of private state stay in projectm-context.js.
 
-import { setPresetLocked, setTransparencyMode, switchPreset } from '../generated/projectm-wasm-api.js';
+import { createHostApi, setPresetLocked, setTransparencyMode, switchPreset } from '../generated/projectm-wasm-api.js';
 import { setMeshQuality } from '../projectm-mesh-quality.js';
 import { setTargetFps } from '../projectm-fps-governor.js';
 import { getAudioContext } from '../projectm-audio-bootstrap.js';
@@ -32,6 +32,7 @@ import { clearEvalVarOn, liveInputTransport, setEvalVarOn } from './live-input.j
  * @typedef {import('../projectm-context-types.ts').ProjectMCaptureFrameOptions} ProjectMCaptureFrameOptions
  * @typedef {import('../projectm-context-types.ts').ProjectMFlashLimitStats} ProjectMFlashLimitStats
  * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('../generated/projectm-wasm-api.ts').HostApi} HostApi
  * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
  * @typedef {import('../projectm-audio-source-router.js').AudioSourceRouter} AudioSourceRouter
  * @typedef {import('../projectm-context-types.ts').ProjectMContextSnapshot} ProjectMContextSnapshot
@@ -129,6 +130,37 @@ export class ProjectMContextControls {
     /** See {@link engineOf}. */
     get #engine() {
         return this.#bindEngine(this.module, this.hostHandle);
+    }
+
+    /** @type {{ module: ProjectMModule, host: number, api: HostApi } | null} */
+    #hostApi = null;
+
+    /**
+     * Every engine call of this context's host, as methods named after the
+     * export: `context.call.setMesh(48, 32)`, `context.call.getLastError()`
+     * (generated from cmake/WasmApiManifest.cmake, see `HostApi`). Each call
+     * names this context's host (ABI v2, #352), so it lands on this engine
+     * whatever other contexts sharing the Module do in between.
+     *
+     * Null in the worker topology, where the engine is not on this thread (the
+     * context's own methods reach it there), and before start(). A low-level
+     * escape hatch: prefer the context's methods, which also keep its own
+     * state (locks, sizes, listeners) in step.
+     *
+     * @returns {HostApi | null}
+     */
+    get call() {
+        const module = this.#engine ? this.module : null;
+        if (!module) {
+            return null;
+        }
+        const cached = this.#hostApi;
+        if (cached && cached.module === module && cached.host === this.hostHandle) {
+            return cached.api;
+        }
+        const api = createHostApi(module, this.hostHandle);
+        this.#hostApi = { module, host: this.hostHandle, api };
+        return api;
     }
 
     static {

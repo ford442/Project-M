@@ -84,7 +84,7 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
             if (data.type === 'pcmRing') {
                 this.attachRing(data);
             } else if (data.type === 'pcmRingDetach') {
-                this.rings.delete(data.hostHandle ?? 0);
+                this.detachRing(data);
             } else if (data.type === 'loadWavData') {
                 // Sender posts raw channel data as an Array of Float32Arrays (not an AudioBuffer
                 // object, since AudioBuffer cannot be reliably transferred across the worklet boundary).
@@ -136,6 +136,27 @@ class ProjectMAudioWorkletProcessor extends AudioWorkletProcessor {
         } catch (err) {
             console.error('[Worklet] Failed to map PCM ring:', err);
             this.rings.delete(hostHandle);
+        }
+    }
+
+    /**
+     * Drops an engine's ring and says so. The engine parks the storage until
+     * this answer arrives (src/wasm/WasmPcmRing.cpp), so no quantum this
+     * processor writes can land in memory that was freed and handed out again.
+     * A detach naming another ring than the attached one (the engine
+     * re-initialised its ring since) leaves the attached ring alone; the
+     * answer goes out either way, as this side holds no view of the ring it
+     * names. Older bundles send no headerPtr and expect no answer.
+     *
+     * @param {{ hostHandle?: number, headerPtr?: number }} message
+     */
+    detachRing({ hostHandle = 0, headerPtr }) {
+        const ring = this.rings.get(hostHandle);
+        if (ring && (headerPtr === undefined || ring.header.byteOffset === headerPtr)) {
+            this.rings.delete(hostHandle);
+        }
+        if (headerPtr !== undefined) {
+            this.port.postMessage({ type: 'pcmRingDetached', hostHandle, headerPtr });
         }
     }
 

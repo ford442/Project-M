@@ -339,9 +339,8 @@ EM_JS(void, js_governor_report_blur_cap, (double host, int cap), {
 });
 // clang-format on
 
-static void ApplyQualityTier(int tier)
+static void ApplyQualityTier(WasmHost& H, int tier)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_qualityTier = H.qualityTier;
     tier = std::max(0, std::min(kMaxQualityTier, tier));
@@ -358,9 +357,8 @@ static void ApplyQualityTier(int tier)
     js_governor_report_blur_cap(host, settings.maxBlurLevel);
 }
 
-void ReapplyQualityTierLimits()
+void ReapplyQualityTierLimits(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm || !H.qualityTierInitialized)
     {
@@ -374,9 +372,8 @@ void ReapplyQualityTierLimits()
 // Resets the consecutive over/under-budget frame counters. Called whenever
 // the governor's configuration changes or a tier transition happens, so a
 // single step doesn't immediately trigger another one based on stale counts.
-void ResetGovernorCounters()
+void ResetGovernorCounters(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_overBudgetFrames = H.overBudgetFrames;
     auto& g_underBudgetFrames = H.underBudgetFrames;
     g_overBudgetFrames = 0;
@@ -386,9 +383,8 @@ void ResetGovernorCounters()
 // Evaluates one frame's wall-clock time against the budget and steps the
 // quality tier up or down if warranted. No-op if the governor is disabled or
 // the frame falls within the post-load grace period.
-void UpdateQualityGovernor(double frameMs)
+void UpdateQualityGovernor(WasmHost& H, double frameMs)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_postLoadGraceFrames = H.postLoadGraceFrames;
     auto& g_governorEnabled = H.governorEnabled;
@@ -454,24 +450,22 @@ void UpdateQualityGovernor(double frameMs)
 
     if (g_overBudgetFrames >= kOverBudgetFrameThreshold && g_qualityTier < kMaxQualityTier)
     {
-        ApplyQualityTier(g_qualityTier + 1);
-        ResetGovernorCounters();
+        ApplyQualityTier(H, g_qualityTier + 1);
+        ResetGovernorCounters(H);
     }
     else if (g_underBudgetFrames >= kUnderBudgetFrameThreshold && g_qualityTier > 0)
     {
-        ApplyQualityTier(g_qualityTier - 1);
-        ResetGovernorCounters();
+        ApplyQualityTier(H, g_qualityTier - 1);
+        ResetGovernorCounters(H);
     }
 }
 
-extern "C" {
+namespace WasmApi {
 // Sets the target FPS used both as the preset "fps" hint (projectm_set_fps)
 // and as the adaptive quality governor's frame budget reference
 // (1000 / target_fps). See html/projectm-fps-governor.js.
-EMSCRIPTEN_KEEPALIVE
-void set_target_fps(int fps)
+void set_target_fps(WasmHost& H, int fps)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_targetFps = H.targetFps;
     if (fps <= 0)
@@ -483,29 +477,25 @@ void set_target_fps(int fps)
     {
         projectm_set_fps(pm, fps);
     }
-    ResetGovernorCounters();
+    ResetGovernorCounters(H);
     return;
 }
 
 // Enables/disables the adaptive quality governor (see UpdateQualityGovernor
 // above). Disabling does not change the current quality tier, it just stops
 // further automatic adjustments.
-EMSCRIPTEN_KEEPALIVE
-void set_quality_governor(int enabled)
+void set_quality_governor(WasmHost& H, bool enabled)
 {
-    WasmHost& H = Host();
     auto& g_governorEnabled = H.governorEnabled;
     g_governorEnabled = enabled != 0;
-    ResetGovernorCounters();
+    ResetGovernorCounters(H);
     return;
 }
 
 // Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48,
 // 2 = low/48x36). See kQualityTiers.
-EMSCRIPTEN_KEEPALIVE
-int get_quality_tier()
+int get_quality_tier(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_qualityTier = H.qualityTier;
     return g_qualityTier;
 }
@@ -514,20 +504,16 @@ int get_quality_tier()
 // counterpart to the js_governor_report_render_scale() push notification, for
 // hosts that bind pmOnGovernorRenderScaleChange after the governor already
 // initialized its starting tier.
-EMSCRIPTEN_KEEPALIVE
-double get_governor_render_scale()
+double get_governor_render_scale(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_qualityTier = H.qualityTier;
     return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].renderScale;
 }
 
 // Returns the current tier's blur-level cap (-1 = uncapped, else 0-3). See
 // ProjectM::MaxBlurLevel().
-EMSCRIPTEN_KEEPALIVE
-int get_governor_blur_cap()
+int get_governor_blur_cap(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_qualityTier = H.qualityTier;
     return kQualityTiers[std::max(0, std::min(kMaxQualityTier, g_qualityTier))].maxBlurLevel;
 }
@@ -537,10 +523,8 @@ int get_governor_blur_cap()
 // WebGL GPU timer queries (whole frame and per stage) are collected each frame and reported to the host
 // page via js_perf_report_frame()/globalThis.pmOnPerfFrame. See
 // docs/PERFORMANCE.md and html/projectm-perf.js.
-EMSCRIPTEN_KEEPALIVE
-void set_perf_hud(int enabled)
+void set_perf_hud(WasmHost& H, int enabled)
 {
-    WasmHost& H = Host();
     auto& g_perfHudEnabled = H.perfHudEnabled;
     g_perfHudEnabled = enabled != 0;
     projectm_perf_set_enabled(g_perfHudEnabled);
@@ -553,7 +537,6 @@ void set_perf_hud(int enabled)
 
 // OpenMP introspection for benchmark reports and runtime verification.
 // See docs/PERFORMANCE.md and projectm_perf_get_openmp_info().
-EMSCRIPTEN_KEEPALIVE
 int get_omp_enabled()
 {
     projectm_perf_openmp_info info{};
@@ -561,7 +544,6 @@ int get_omp_enabled()
     return info.compiled_enabled ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE
 int get_omp_max_threads()
 {
     projectm_perf_openmp_info info{};
@@ -580,7 +562,6 @@ int get_omp_max_threads()
 //
 // Returns -1 when built without OpenMP, or with a runtime that has no
 // kmp_get_blocktime() — both mean "no libomp spin-wait to worry about".
-EMSCRIPTEN_KEEPALIVE
 int get_omp_blocktime()
 {
 // KMP_VERSION_MAJOR, not __KAI_KMPC_CONVENTION: libomp's omp.h #undefs the
@@ -596,7 +577,6 @@ int get_omp_blocktime()
 
 // Returns omp_get_num_threads() from inside a short parallel region so
 // benchmarks can confirm worker threads are actually spawned (not just compiled).
-EMSCRIPTEN_KEEPALIVE
 int get_omp_thread_count_in_parallel()
 {
     int observed = 1;
@@ -607,4 +587,4 @@ int get_omp_thread_count_in_parallel()
     }
     return observed;
 }
-} // extern "C"
+} // namespace WasmApi

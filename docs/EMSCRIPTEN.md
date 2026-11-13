@@ -378,16 +378,18 @@ the multi-instance C exports:
 | `destroy_host(handle)` | Tear down and free a host created with `create_host()` |
 | `host_count()` / `max_host_count()` | Live instance count / compile-time cap |
 
-Every other export operates on the **active** host. `ProjectMContext` selects it with
-`set_active_host()` before each control op (the "close over it" model); the shared Emscripten
-main loop renders each started host in turn, making each one current for its frame. Legacy
-no-handle callers keep working against a lazily-created compat **default** host (slot 0), so a
-single-instance page needs no changes.
+Every engine export has a `pm_<name>(host, ...)` form that names its host (ABI v2, #352; see
+[WASM_JS_API.md "ABI v2"](WASM_JS_API.md#abi-v2-every-export-names-its-host)), and that is what
+`ProjectMContext`, the render worker and the PCM ring helpers call: nothing in the host layer
+selects a host any more. The handle-less names are compat shims that forward to the `pm_` form
+with the **active** host, for one bundle version; legacy no-handle callers keep working against
+a lazily-created compat **default** host (slot 0), so a single-instance page needs no changes.
+The shared Emscripten main loop renders each started host in turn, making each one current for
+its frame, and does not change which host is active.
 
-The shared main loop restores the host that was active before each tick, so a JS sequence that
-selects a host and then yields (e.g. `shader_cache_begin_load` → await IndexedDB →
-`shader_cache_import_glsl`) still lands on that host. `set_active_host(0)` selects the first
-live host (the default host on single-instance pages).
+`set_active_host(0)` selects the first live host (the default host on single-instance pages).
+`pm_<name>(0, ...)` is the implicit default host a legacy `init()` brought up, never "whichever
+is active".
 
 **Per-instance vs. still process-global.** Rendering, transitions, the idle-FBO release
 (#199), the quality governor (#178), and — since #246 (Phase C) — the context config, the PCM
@@ -397,12 +399,16 @@ ring and the shader-cache key are per-host:
   before its context is created; nothing process-wide. A host's config is never rewritten once its
   context exists. The legacy `create_host()` inherits the previous host's config, or one a legacy
   `set_context_config()` parked on the previous host (see [WebGL context attributes](#webgl-context-attributes)).
-- **PCM ring.** Each host owns its ring; `pcm_ring_*` / `get_pcm_ring_*` and the per-frame
-  drain operate on the active host, so draining host A never consumes host B's writes. JS picks
-  a ring with `feedPcmThroughRing(module, buf, { hostHandle })` / `getPcmRingWriter(module,
-  hostHandle)` (`html/projectm-pcm-ring.js`). Released rings are retired and reused rather than
-  freed immediately, so a producer that has not yet processed the detach cannot write into
-  reallocated heap.
+- **PCM ring.** Each host owns its ring; `pm_pcm_ring_*` / `pm_get_pcm_ring_*` and the
+  per-frame drain operate on the host they name, so draining host A never consumes host B's
+  writes. JS picks a ring with `feedPcmThroughRing(module, buf, { hostHandle })` /
+  `getPcmRingWriter(module, hostHandle)` (`html/projectm-pcm-ring.js`). A released ring the
+  AudioWorklet may have mapped is **parked** (never reused or freed) until the processor answers
+  its `pcmRingDetach` with `pcmRingDetached` (`pcm_ring_release_retired()`); other released
+  rings, and acknowledged ones, go to a small reuse pool, so a main-thread producer that writes
+  once more from a cached view bleeds into a ring of the same size instead of reallocated heap.
+  `pcm_ring_parked_count()` reports the park; `tests/wasm-smoke/host_churn.html` re-inits a ring
+  ten times through the handshake under SAFE_HEAP.
 - **Transpiled-GLSL shader cache.** Load state is per host, and the key handed to libprojectM is
   namespaced with the host handle (`host<handle>|<key>`). `set_active_host()` re-arms
   libprojectM's single process-wide key for the newly active host, so concurrent loads cannot
@@ -420,9 +426,12 @@ Still shared, by design:
   until the in-page audio engine (#228) lands.
 - **Emscripten main loop** (`g_mainLoopRegistered`): one loop services every started host.
 
-`kMaxHosts` stays **2** until #228 settles the audio story. `scripts/check_wasm_host_globals.sh`
-(run by the C++ format gate) rejects object-like `#define` aliases of `WasmHost` state in
-`src/wasm/`.
+`kMaxHosts` is `PROJECTM_WASM_MAX_HOSTS` (4) in `cmake/EmscriptenWasmFlags.cmake`, and the
+pthread pool is derived from it (one preset prepare thread per host), so raising it costs one
+pre-spawned Worker per host and nothing else. `scripts/check_wasm_host_globals.sh` (run by the C++
+format gate) rejects object-like `#define` aliases of `WasmHost` state in `src/wasm/`, and any call
+to `Host()` or `SetActiveHost()` outside the compat layer (`WasmHost.cpp`,
+`WasmLegacyExports.cpp`).
 
 ## Building the bundle
 
@@ -659,23 +668,22 @@ files to that list.
 
 To add a new `EMSCRIPTEN_KEEPALIVE` C export:
 
-1. **Implement it** in the TU that owns the concern (e.g. a new audio export
-   goes in `WasmAudioBridge.cpp`, WebGL/canvas work in `WasmWebGLContext.cpp`).
-   Wrap it in `extern "C" { ... }` and mark it
-   `EMSCRIPTEN_KEEPALIVE`. If it needs **per-instance** state, add a field to
-   `struct WasmHost` (`WasmHost.hpp`) and reach it through `Host()` — never a new
-   process-global, which would silently be shared across instances. Open the
-   function body with `WasmHost& H = Host();` plus local references where that
-   reads better (e.g. `auto& g_dualFbo = H.dualFbo;`), so export bodies stay
-   handle-free. Do **not** add object-like `#define` aliases for host state —
-   `scripts/check_wasm_host_globals.sh` rejects them (#246). Bind the references
-   *after* any host switch in the same body. Make your export run under the caller's host by
-   having the JS side call `set_active_host()` first (`ProjectMContext` already
-   does this before every control op).
-2. **Register the symbol** in `cmake/EmscriptenWasmFlags.cmake`
-   (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) so it is added to
-   `EXPORTED_FUNCTIONS`, and add a matching entry to
-   `PROJECTM_WASM_API_MANIFEST` in `cmake/WasmApiManifest.cmake`.
+1. **Add a manifest entry** to `PROJECTM_WASM_API_MANIFEST` in
+   `cmake/WasmApiManifest.cmake` (format and scopes in its header and in
+   [WASM_JS_API.md "ABI v2"](WASM_JS_API.md#abi-v2-every-export-names-its-host)). It is the only
+   list of exports: `EXPORTED_FUNCTIONS`, the `extern "C"` exports themselves
+   (`src/wasm/generated/WasmApiExports.cpp`: the `pm_<name>(host, ...)` barrier and the compat
+   shim), the implementation's declaration (`src/wasm/generated/WasmApiImpl.hpp`) and the JS/TS
+   wrappers are all generated from it.
+2. **Implement it** as `WasmApi::<name>` in the TU that owns the concern (e.g. a new audio export
+   goes in `WasmAudioBridge.cpp`, WebGL/canvas work in `WasmWebGLContext.cpp`), with the signature
+   `WasmApiImpl.hpp` declares: a host-scoped export takes `WasmHost& H` first, the host its caller
+   named, already bound (its WebGL context current). No `extern "C"`, no `EMSCRIPTEN_KEEPALIVE`,
+   no try/catch: the generated barrier catches anything it throws into the host's last error. If
+   it needs **per-instance** state, add a field to `struct WasmHost` (`WasmHost.hpp`) and reach it
+   through `H` — never a new process-global, which would silently be shared across instances, and
+   never `Host()`: `scripts/check_wasm_host_globals.sh` fails any call to it outside the compat
+   layer, and rejects object-like `#define` aliases for host state (#246).
 3. **Regenerate** derived artifacts with `scripts/sync_wasm_link_common.sh` and
    commit them (CI runs `scripts/verify_wasm_link_common.sh`).
 4. Keep export **names** stable — hosts and `cmake/WasmApiManifest.cmake` depend

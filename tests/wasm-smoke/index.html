@@ -261,12 +261,30 @@
           throw new Error('pmHideInitError never named host B: ' + JSON.stringify(hides));
         }
 
-        // A third create is refused at kMaxHosts before any engine exists.
-        const third = Module.ccall('create_host', 'number', ['string', 'string'], ['#pm-smoke-main-2', '']);
-        if (third) throw new Error('a third host was created past kMaxHosts');
-        const refused = events.of('pmReportInitError').at(-1);
-        if (!refused || refused[0] !== -1 || refused[1] !== 4) {
-          throw new Error('the cap refusal should be pmReportInitError(-1, 4, ...): ' + JSON.stringify(refused));
+        // Fill the remaining slots on scratch canvases; one more create is then
+        // refused at kMaxHosts before any engine exists.
+        const extras = [];
+        try {
+          for (let i = Module._host_count(); i < Module._max_host_count(); ++i) {
+            const canvas = document.createElement('canvas');
+            canvas.id = 'pm-smoke-extra-' + i;
+            canvas.width = canvas.height = 16;
+            document.body.appendChild(canvas);
+            const handle = Module.ccall('create_host', 'number', ['string', 'string'], ['#' + canvas.id, '']);
+            extras.push({ handle, canvas });
+            if (!handle) throw new Error('could not fill host slot ' + i + ' of ' + Module._max_host_count());
+          }
+          const third = Module.ccall('create_host', 'number', ['string', 'string'], ['#pm-smoke-main-2', '']);
+          if (third) throw new Error('a host was created past kMaxHosts (' + Module._max_host_count() + ')');
+          const refused = events.of('pmReportInitError').at(-1);
+          if (!refused || refused[0] !== -1 || refused[1] !== 4) {
+            throw new Error('the cap refusal should be pmReportInitError(-1, 4, ...): ' + JSON.stringify(refused));
+          }
+        } finally {
+          for (const { handle, canvas } of extras) {
+            if (handle) Module.ccall('destroy_host', null, ['number'], [handle]);
+            canvas.remove();
+          }
         }
 
         // Perf frames and the HUD toggle, per engine. A is the default host.

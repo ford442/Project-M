@@ -24,6 +24,8 @@
 import {
     textureSlotBuffer,
     textureSlotCommit,
+    textureSlotCommitGeneration,
+    textureSlotGeneration,
     textureSlotRegister,
     textureSlotUnregister,
 } from './generated/projectm-wasm-api.js';
@@ -346,13 +348,63 @@ export function createLiveTextureWriter(engine, options = {}) {
             }
             // Asked every frame: a slot resized since (or unregistered) answers 0
             // instead of a buffer the frame would overrun.
-            const ptr = Number(textureSlotBuffer(engine, name, bytes));
-            if (!ptr) {
+            const buffer = acquireTextureBuffer(engine, name, bytes);
+            if (!buffer) {
                 return false;
             }
             // Read the view now: a heap that grew since has a new one.
-            /** @type {Uint8Array} */ (engine.HEAPU8).set(pixels, ptr);
-            return !!textureSlotCommit(engine, name);
+            /** @type {Uint8Array} */ (engine.HEAPU8).set(pixels, buffer.ptr);
+            return commitTextureBuffer(engine, name, buffer);
         },
     };
+}
+
+/**
+ * A live texture's staging buffer: where to write, how much, and which
+ * allocation it is. The generation changes whenever the slot's buffer is
+ * reallocated (a resize, the slot removed and registered again), so a page
+ * that awaits between acquiring and writing compares it with
+ * `texture_slot_generation()` before writing, and a commit of a replaced
+ * generation is refused by the engine (ABI v2, #352).
+ *
+ * @typedef {{ ptr: number, byteLength: number, generation: number | null }} TextureBuffer
+ */
+
+/**
+ * The staging buffer of `name` for a frame of `bytes` bytes, or null when the
+ * slot is unknown or another size. `generation` is null on a bundle from
+ * before buffer generations.
+ *
+ * @param {any} engine The module bound to one host (bindModuleToHost()).
+ * @param {string} name
+ * @param {number} bytes
+ * @returns {TextureBuffer | null}
+ */
+export function acquireTextureBuffer(engine, name, bytes) {
+    const ptr = Number(textureSlotBuffer(engine, name, bytes));
+    if (!ptr) {
+        return null;
+    }
+    const generation =
+        typeof engine._texture_slot_generation === 'function'
+            ? Number(textureSlotGeneration(engine, name)) >>> 0
+            : null;
+    return { ptr, byteLength: bytes, generation };
+}
+
+/**
+ * Commits the frame written into `buffer`; false when the slot is gone or the
+ * buffer was replaced since it was acquired (the engine refuses that commit
+ * and records it as the host's last error, 3).
+ *
+ * @param {any} engine
+ * @param {string} name
+ * @param {TextureBuffer} buffer
+ * @returns {boolean}
+ */
+export function commitTextureBuffer(engine, name, buffer) {
+    if (buffer.generation === null) {
+        return !!textureSlotCommit(engine, name);
+    }
+    return Number(textureSlotCommitGeneration(engine, name, buffer.generation)) === 1;
 }

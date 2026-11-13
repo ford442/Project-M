@@ -24,11 +24,12 @@
 // that the transpiler reads when it compiles a preset shader, and two engines
 // in one Module share it. So each WasmHost keeps its own load state (key +
 // imported GLSL, ShaderCacheLoadState in WasmHost.hpp), the key handed to
-// libprojectM is namespaced with the host handle, and SetActiveHost() re-arms
-// libprojectM's key for whichever host becomes active. Preset shaders only
-// compile under their own host's GL context — i.e. while that host is active —
-// so a compile on host B can never see host A's key, and the lookup hook
-// additionally refuses to serve a host's imports for any other key.
+// libprojectM is namespaced with the host handle, and BindHost() re-arms
+// libprojectM's key for whichever host an export or the render loop drives.
+// Preset shaders only compile under their own host's GL context — i.e. while
+// that host is bound — so a compile on host B can never see host A's key, and
+// the lookup hook additionally refuses to serve a host's imports for any other
+// key.
 //
 // The namespace never reaches JS: the store hook strips it, so the IndexedDB
 // store keeps sharing compiled GLSL blobs across hosts (and visits) by preset
@@ -130,11 +131,9 @@ void ArmShaderCacheKeyForHost(const WasmHost& host)
     }
 }
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void shader_cache_begin_load(const char* key)
+namespace WasmApi {
+void shader_cache_begin_load(WasmHost& H, const char* key)
 {
-    WasmHost& H = Host();
     H.shaderCache.key = key ? key : "";
     H.shaderCache.namespacedKey = NamespaceShaderCacheKey(H, H.shaderCache.key);
     H.shaderCache.warpGlsl.reset();
@@ -142,14 +141,12 @@ void shader_cache_begin_load(const char* key)
     ArmShaderCacheKeyForHost(H);
 }
 
-EMSCRIPTEN_KEEPALIVE
-void shader_cache_import_glsl(int shaderType, const char* glsl)
+void shader_cache_import_glsl(WasmHost& H, int shaderType, const char* glsl)
 {
     if (!glsl)
     {
         return;
     }
-    WasmHost& H = Host();
     if (shaderType == 0)
     {
         H.shaderCache.warpGlsl = glsl;
@@ -160,18 +157,15 @@ void shader_cache_import_glsl(int shaderType, const char* glsl)
     }
 }
 
-EMSCRIPTEN_KEEPALIVE
-void shader_cache_end_load()
+void shader_cache_end_load(WasmHost& H)
 {
-    WasmHost& H = Host();
     H.shaderCache = ShaderCacheLoadState{};
     ArmShaderCacheKeyForHost(H);
 }
 
-EMSCRIPTEN_KEEPALIVE
 int get_glsl_generator_version()
 {
     return static_cast<int>(
         libprojectM::MilkdropPreset::MilkdropStaticShaders::Get()->GetGlslGeneratorVersion());
 }
-} // extern "C"
+} // namespace WasmApi

@@ -34,6 +34,7 @@
 // for the synchronous descriptor read and the previous selection restored.
 
 import { claimGlobal } from './projectm-globals.js';
+import { bindModuleToHost } from './generated/projectm-wasm-api.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
@@ -73,27 +74,36 @@ const RING_EXPORTS = [
 const writerCache = new WeakMap();
 
 /**
- * Runs `fn` with `hostHandle` as the module's active host, restoring the
- * previous selection. A handle of 0, or a module without the multi-instance
- * exports, runs `fn` against whatever host is active.
+ * Runs `fn` with the module as seen by `hostHandle`'s engine. On an ABI v2
+ * bundle (#352) that is the bound view (bindModuleToHost()), whose ring calls
+ * name the host and activate nothing. An older bundle has `hostHandle` made
+ * the active host for the call, and the previous one restored. A handle of 0,
+ * or a module without the multi-instance exports, runs `fn` on the module
+ * itself: whatever host is active.
  *
  * @template T
  * @param {any} m
  * @param {number} hostHandle
- * @param {() => T} fn
+ * @param {(engine: any) => T} fn
  * @returns {T}
  */
-function withActiveHost(m, hostHandle, fn) {
-    if (!hostHandle || typeof m._get_active_host !== 'function' || typeof m.ccall !== 'function') {
-        return fn();
+function withHost(m, hostHandle, fn) {
+    if (!hostHandle) {
+        return fn(m);
+    }
+    if (typeof m._pm_host_is_live === 'function') {
+        return fn(bindModuleToHost(m, hostHandle));
+    }
+    if (typeof m._get_active_host !== 'function' || typeof m.ccall !== 'function') {
+        return fn(m);
     }
     const previous = m._get_active_host();
     if (previous === hostHandle) {
-        return fn();
+        return fn(m);
     }
     m.ccall('set_active_host', null, ['number'], [hostHandle]);
     try {
-        return fn();
+        return fn(m);
     } finally {
         if (previous) {
             m.ccall('set_active_host', null, ['number'], [previous]);
@@ -128,17 +138,17 @@ export function readPcmRingDescriptor(module, hostHandle = 0) {
     if (!moduleHasPcmRing(module)) return null;
     const m = /** @type {any} */ (module);
 
-    const raw = withActiveHost(m, hostHandle, () => {
-        let dataPtr = m._get_pcm_ring_data_ptr();
-        if (!dataPtr && typeof m._pcm_ring_init === 'function') {
-            m._pcm_ring_init(0);
-            dataPtr = m._get_pcm_ring_data_ptr();
+    const raw = withHost(m, hostHandle, (engine) => {
+        let dataPtr = engine._get_pcm_ring_data_ptr();
+        if (!dataPtr && typeof engine._pcm_ring_init === 'function') {
+            engine._pcm_ring_init(0);
+            dataPtr = engine._get_pcm_ring_data_ptr();
         }
         return {
             dataPtr,
-            headerPtr: m._get_pcm_ring_header_ptr(),
-            capacityFrames: m._get_pcm_ring_capacity_frames(),
-            indexModulus: m._get_pcm_ring_index_modulus(),
+            headerPtr: engine._get_pcm_ring_header_ptr(),
+            capacityFrames: engine._get_pcm_ring_capacity_frames(),
+            indexModulus: engine._get_pcm_ring_index_modulus(),
         };
     });
     const { dataPtr, headerPtr, capacityFrames, indexModulus } = raw;

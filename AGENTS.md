@@ -71,6 +71,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── WasmPresetPrepare.cpp   # Per-host preset prepare thread (no ASYNCIFY)
 │   ├── WasmPresent.cpp         # Flash-limiter switches, per-host frame capture, commit counter
 │   ├── WasmLiveInput.cpp       # Live textures (per-host staging buffers) + eval_set host variables
+│   ├── WasmEvents.hpp/.cpp     # Page-event queue: callbacks delivered after the frame/export, never inside it
 │   └── WasmJsBindings.cpp      # EM_JS glue: VFS/song bootstrap + host-page notifications (no DOM, no network)
 ├── CMakeLists.txt          # Root build configuration
 ├── vcpkg.json              # vcpkg dependency manifest
@@ -324,6 +325,11 @@ Third-party code that is compiled as part of the project:
 - `scripts/check_engine_globals.sh <build-dir>` (run by `build_linux.yml`) lists every writable
   static in libprojectM's objects with `nm` and fails on any not in
   `scripts/engine_globals_allowlist.txt`, where each entry says why it is process-wide.
+- The WASM host wrapper has the same rule for its per-host state (`WasmHost`):
+  `scripts/check_wasm_host_globals.sh <emscripten-build-dir>` (rule 5, run by
+  `build_emscripten.yml`) fails on any writable static in `src/wasm/` not in
+  `scripts/wasm_globals_allowlist.txt`. Page callbacks go through `PostEvent()`
+  (`src/wasm/WasmEvents.hpp`), which delivers them after the frame or export, never inside it.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:

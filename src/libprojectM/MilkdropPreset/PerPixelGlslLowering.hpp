@@ -210,11 +210,13 @@ public:
     static auto ComposeWarpVertexShader(const std::string& generatedGlsl) -> std::string;
 
     /**
-     * @brief True when the environment forces every preset onto the CPU path.
+     * @brief True when the current engine forces every preset onto the CPU path.
      *
-     * Set by @c PROJECTM_PER_PIXEL_EVAL=cpu, which the WASM host maps from
-     * @c ?perPixelEval=cpu. Mirrors the @c ?blurPath / @c ?copyPath ablation switches
-     * so one build can be A/B'd against itself.
+     * The engine's PerPixelForceCpu render-path flag (EngineContext::RenderPathFlags()):
+     * @c PROJECTM_PER_PIXEL_EVAL=cpu when the engine was created, or
+     * projectm_set_render_path_flags(), which the WASM host maps from @c ?perPixelEval=cpu.
+     * Mirrors the @c ?blurPath / @c ?copyPath ablation switches so one build can be A/B'd
+     * against itself.
      */
     static auto ForcedToCpu() -> bool;
 

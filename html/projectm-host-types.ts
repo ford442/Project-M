@@ -160,7 +160,7 @@ declare global {
         pmHideInitError?: EngineCall<[]>;
         /** Preset-switch-failure hook (js_report_preset_switch_failed); ProjectMContext listens through the bus. */
         pmOnPresetSwitchFailed?: EngineCall<[preset: string, message: string]>;
-        /** Shared AudioContext created by `js_initialize_worklet_system_once` (projectM_emscripten.cpp). */
+        /** Shared AudioContext the page creates (`ensureWorkletReady()`, projectm-worklet-playback.js). */
         projectMAudioContext_Global_Cpp?: AudioContext;
         /**
          * FPS-governor convenience API. Published only by `exposeGovernorGlobals()`
@@ -252,7 +252,7 @@ declare global {
         | EngineCall<[cacheKey: string, kind: 0 | 1, glsl: string]>
         | undefined;
 
-    /** Shared AudioContext created by `js_initialize_worklet_system_once`. */
+    /** Shared AudioContext the page creates (`ensureWorkletReady()`). */
     // eslint-disable-next-line no-var
     var projectMAudioContext_Global_Cpp: AudioContext | undefined;
     /** Worklet node wired to the projectM PCM path (null while torn down). */

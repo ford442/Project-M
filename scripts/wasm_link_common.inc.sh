@@ -173,6 +173,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _pm_destruct
     _pm_get_projectm_handle
     _pm_init
+    _pm_get_render_path_overrides
     _pm_rebind_canvases
     _pm_load_preset_file
     _pm_load_preset_file_hard
@@ -260,6 +261,10 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _pm_transition_get_blend
     _pm_transition_set_duration
     _pm_transition_get_duration
+    _pm_set_host_deterministic_seed
+    _pm_is_deterministic_seed
+    _pm_set_host_deterministic_clock
+    _pm_is_deterministic_clock
     _pm_deterministic_now_ms
     _pm_deterministic_frame_index
     _pm_get_rhythm_bpm
@@ -293,7 +298,9 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _pm_capture_frame_height
     _pm_capture_frame_index
     _pm_capture_frame_release
+    _pm_debug_emit_events
     _pm_debug_throw
+    _pm_get_init_error
     _pm_get_last_error
     _pm_get_last_error_message
     _pm_clear_last_error

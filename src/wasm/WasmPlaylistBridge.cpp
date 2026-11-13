@@ -2,6 +2,7 @@
 //
 // Preset playlist bridge: projectM preset-switch callbacks, playlist path /
 // preset add helpers, load_preset_file(), and preset-readiness queries.
+#include "WasmEvents.hpp"
 #include "WasmHost.hpp"
 #include "WasmLog.hpp"
 
@@ -49,7 +50,7 @@ void load_preset_callback_done([[maybe_unused]] bool is_hard_cut, [[maybe_unused
     char* preset_path = projectm_playlist_item(app_data.playlist, pos);
     if (preset_path)
     {
-        js_update_preset_name(preset_path);
+        PostEvent([&] { js_update_preset_name(EventHostHandle(H), preset_path); });
         projectm_playlist_free_string(preset_path);
     }
     return;
@@ -63,7 +64,7 @@ void on_preset_switch_failed(const char* preset_filename, const char* message, v
     WASM_LOG_WARN("Preset switch failed (%s): %s", preset_filename, message);
     g_presetSwitchFailed = true;
     app_data.loading = EM_FALSE;
-    js_report_preset_switch_failed(EventHostHandle(H), preset_filename, message);
+    PostEvent([&] { js_report_preset_switch_failed(EventHostHandle(H), preset_filename, message); });
     return;
 }
 

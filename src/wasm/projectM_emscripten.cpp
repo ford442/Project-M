@@ -427,10 +427,7 @@ int InitHost(WasmHost& H)
     // layer maps ?fboPrecision= onto it); nothing here reads the URL.
     g_dualFbo.DetectFormat(H.contextCaps, H.contextConfig.fboPrecision);
 
-    // Must happen before the first preset renders, since these paths are decided once.
-    ApplyRenderPathOverrides(H);
-
-    pm = projectm_create();
+    pm = CreateHostEngine(H);
     if (!pm)
     {
         WASM_LOG_ERROR("Failed to create projectM handle");
@@ -438,6 +435,10 @@ int InitHost(WasmHost& H)
         return 3;
     }
     app_data.projectm_engine = pm;
+    // Before the first preset the page loads: an engine decides each path the
+    // first time it needs it.
+    ApplyRenderPathOverrides(H);
+    ApplyDeterministicClock(H);
     playlist = projectm_playlist_create(pm);
     ++g_livePlaylistCount;
     const char* loc = "/presets/";
@@ -469,12 +470,11 @@ int InitHost(WasmHost& H)
     InstallShaderTranspileCacheHooks();
     // projectm_playlist_connect(app_data.playlist,app_data.projectm_engine);
     WASM_LOG_INFO("  --==  projectM initialized!  ==--");
-    // Allocate this host's PCM ring before any producer can look for it: the
-    // worklet bootstrap below reads the ring registry as soon as its module
-    // resolves, and an already-running worklet (a second create_host()) is sent
-    // the new host's descriptor by pcm_ring_init() itself.
+    // Allocate this host's PCM ring before any producer can look for it: a
+    // worklet the page attaches later reads the ring registry
+    // (_attach_worklet_ingest()), and an already-running one (a second
+    // create_host()) is sent the new host's descriptor by pcm_ring_init() itself.
     WasmApi::pcm_ring_init(H, 0);
-    js_initialize_worklet_system_once();
     ReportInitSuccess(H);
     return 0;
 }

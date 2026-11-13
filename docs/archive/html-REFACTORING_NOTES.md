@@ -1,8 +1,9 @@
-> **Historical (last updated 2026-04-24).** Notes from the first split of the
-> host page into `projectm-core.html` and its modules. The host layer has been
-> restructured several times since (page shells in `projectm-app-shell.js`,
-> `ProjectMContext` split into `context/`); [`README.md`](README.md) describes it
-> as it is now. Kept for the record, not maintained.
+> **Historical (last updated 2026-04-24; archived 2026-11-13 from `html/REFACTORING_NOTES.md`).**
+> Notes from the first split of the host page into `projectm-core.html` and its modules. The
+> host layer has been restructured several times since (page shells in `projectm-app-shell.js`,
+> `ProjectMContext` split into `context/`); [`html/README.md`](../../html/README.md) describes
+> it as it is now. `projectm-core.css`, named below, no longer exists. Kept for the record,
+> not maintained.
 
 # Project M - HTML/CSS Refactoring Notes
 

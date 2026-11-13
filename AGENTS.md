@@ -49,7 +49,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── glm/                # OpenGL Mathematics (optional system override)
 │   ├── hlslparser/         # HLSL parser for shaders
 │   ├── dr_libs/            # FLAC/WAV/MP3 decoders, used only by projectm-render
-│   ├── projectm-eval/      # Milkdrop expression evaluator (Git submodule)
+│   ├── projectm-eval/      # Milkdrop expression evaluator (Git submodule: the fork ford442/projectm-eval, branch context-rng)
 │   └── stb_image/          # Image loading
 ├── src/wasm/                # Emscripten host wrapper (all TUs, see docs/EMSCRIPTEN.md)
 │   ├── projectM_emscripten.cpp # WASM host wrapper: engine lifecycle + main()
@@ -212,6 +212,10 @@ Defines the stable **C API** used by all language bindings and frontends. Header
   (`projectm_texture_slot_register/update/unregister()`, sampled as `sampler_<name>`, updated in
   place every frame) and host values for per-frame variables (`projectm_eval_set/clear()`: q1..q32,
   zoom, decay, ...). See `docs/LIVE_INPUT.md`
+- `projectm_perf.h` — fork extension: CPU/GPU frame timings, GPU stage markers, OpenMP info (see
+  `docs/PERFORMANCE.md`). `projectm_perf_enter_gpu_stage()` takes a plain `int` stage, not the
+  `projectm_perf_gpu_stage` enum: a value outside `0..PROJECTM_PERF_GPU_STAGE_COUNT-1` is refused
+  (nothing changes, the current stage is returned) instead of being an invalid enum value at the API boundary
 - `texture_reload.h` — fork extension: `projectm_reload_texture()` re-reads a loaded texture's file
   in place, so running presets sample a rewritten image without a reload (the experimental depth
   map; see `docs/EXPERIMENTAL_PRESET_HOOKS.md`)
@@ -240,7 +244,7 @@ Third-party code that is compiled as part of the project:
 - `glad` — OpenGL loader
 - `glm` — Header-only math library (skipped if `ENABLE_SYSTEM_GLM=ON`)
 - `hlslparser` — HLSL-to-GLSL transpiler helpers
-- `projectm-eval` — Expression evaluator for Milkdrop equations (skipped if system package found and `ENABLE_SYSTEM_PROJECTM_EVAL=ON`)
+- `projectm-eval` — Expression evaluator for Milkdrop equations. **This is the fork `ford442/projectm-eval`, branch `context-rng`** (upstream 1.0.7 plus a per-context `rand()` stream, `projectm_eval_context_seed_rand()`), not `projectM-visualizer/projectm-eval`; `.gitmodules` points at it and `vendor/CMakeLists.txt` stops at configure time, with the fix, when the checkout lacks that symbol (an old clone: `git submodule sync vendor/projectm-eval && git submodule update --init vendor/projectm-eval`). See `docs/UPSTREAM_SYNC.md` "projectm-eval fork" for the pin and how to re-sync. Skipped if a system package is found and `ENABLE_SYSTEM_PROJECTM_EVAL=ON` (an upstream install has no per-context `rand()` stream, so `rand()` stays process-wide)
 - `stb_image` — Image decoding
 
 ---
@@ -250,6 +254,13 @@ Third-party code that is compiled as part of the project:
 ### Build Discipline
 - **Always build out-of-tree.** Never run CMake directly in the source root. Use a subdirectory like `build/` or `cmake-build/`.
 - The source tree is treated as read-only; all generated files belong in `CMAKE_BINARY_DIR`.
+
+### Changelog
+- Record user-visible changes (features, fixes, API changes, deploy or hosting changes) in
+  [`CHANGELOG.md`](CHANGELOG.md) in the same change. The file is keyed by **WASM bundle version**
+  (`PROJECTM_WASM_BUNDLE`), not by the CMake project version or the `@projectm/web` version; its
+  "Versions" section says what each number versions and when it is bumped. Add an entry under
+  "Unreleased" until a bundle is cut.
 
 ### Code Formatting
 - A `.clang-format` file is provided at the repository root. **Run `clang-format` before committing.**
@@ -372,6 +383,7 @@ Third-party code that is compiled as part of the project:
 - Default visibility is **hidden** for both C and C++ (`CMAKE_C_VISIBILITY_PRESET hidden`, `CMAKE_CXX_VISIBILITY_PRESET hidden`).
 - Only symbols explicitly annotated with `PROJECTM_API` / `PROJECTM_CXX_EXPORT` are exported from shared libraries.
 - If `ENABLE_CXX_INTERFACE=OFF` (the default), C++ symbols are **not** exported and `ProjectMCWrapper.cpp` is the only exported compilation unit.
+- If `ENABLE_CXX_INTERFACE=ON`, the installed `libprojectM::projectM` target carries `cxx_std_20` as an `INTERFACE` compile feature (`src/libprojectM/CMakeLists.txt`): the installed C++ headers use `std::optional`/`std::span`, so a consumer must build as C++20 even when it sets no standard (MSVC defaults to C++14). The feature is only added when the option is ON.
 
 ### Logging
 - The project uses an internal logging framework (see `Logging.hpp`).
@@ -405,7 +417,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 |-----------|-----------|----------|
 | `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), the color output contract (`ColorOutputTest`, GPU: canvas alpha opaque or valid premultiplied, Display-P3 encode order; see `docs/EMSCRIPTEN.md` "Canvas alpha"), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), the render-device seam (`RenderDeviceTest`: the feedback-hazard tracker without GL, `GlDevice` clear/readback, state capture/restore and a real feedback draw on GPU), the user-sprite C API (`UserSpriteApiTest`, GPU) and the experimental `pm_depth` sampler plus `projectm_reload_texture()` (`ExperimentalDepthSamplerTest`: header parsing and rewrite without GL, in-place reload on GPU), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
-| `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project |
+| `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project. It sets C++20 itself and fails at configure time if the installed target does not export `cxx_std_20`, so the install must come from a build with `-DENABLE_CXX_INTERFACE=ON` (as in `build_linux.yml`) |
 
 The CI builds both `Debug` and `Release` configurations and runs `ctest` for each.
 
@@ -576,10 +588,13 @@ GitHub Actions workflows are in `.github/workflows/`:
 - `build_osx.yml` — macOS shared/static builds, with/without framework
 - `build_emscripten.yml` — Emscripten WASM build
 - `build_android.yml` — Android NDK build (arm64-v8a, armeabi-v7a, x86_64)
-- `push_release.yml` — Release artifact publishing
 - `upstream_sync_reminder.yml` — monthly upstream drift report + tracking issue (see [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md))
-- `web_lint_gate.yml` — ESLint + Prettier + typecheck over the browser host layer; no `paths:` filter, meant to be required
+- `cpp_format_gate.yml`, `host_layer_gate.yml`, `web_host_tests.yml`, `web_lint_gate.yml` — the format/seam/globals checks, the browser host-layer tests and ESLint + Prettier + typecheck; none has a `paths:` filter, so they can be required checks
+- `graphics_perf_bench.yml` — real-GPU frame-budget benchmark; **manual dispatch only**. It needs a self-hosted runner labelled `gpu` and none is registered (a job whose label matches no runner queues and is cancelled after 24 hours, so the nightly schedule was removed; restore it when a runner exists). The only record in `benchmark-results/` is software GL, so no hardware baseline exists (see `docs/GRAPHICS_BENCHMARK_HARNESS.md`)
+- `nightly_preset_screenshots.yml` — captures `presets/custom/` in headless Chromium; the job **fails on any capture failure not listed in `tests/wasm-smoke/known_capture_failures.txt`** (and on a listed preset that now captures fine), judged by `scripts/check_capture_report.mjs`. That ledger only shrinks: repair the preset and delete its line in the same change, never add a line to make the nightly green
 - `hazard_inventory.yml` — renders every preset corpus with `PROJECTM_DEVICE_VALIDATION=1` (`scripts/hazard_inventory.sh`) and uploads the feedback-hazard list (the WebGPU risk list, #315 B0); report-only
+
+`push_release.yml` was deleted: it waited on job names that do not exist in this fork. There is no library release workflow; the `@projectm/web` npm package is published from a `web-v<version>` tag by `publish_web_package.yml` (see `packages/web/`).
 
 Conventions shared by the push/PR workflows:
 - Each has a `concurrency` group per workflow + ref: a newer push to a branch or PR cancels the
@@ -588,8 +603,17 @@ Conventions shared by the push/PR workflows:
   provider, persisted with `actions/cache`; only `main` saves it, PRs restore). The fork has no
   token for the upstream NuGet feed, so do not put `nuget` back in `VCPKG_BINARY_SOURCES`.
 - A `paths:` filter makes a workflow unusable as a *required* check (a PR that skips it waits
-  forever), so the path-filtered gates (`cpp_format_gate`, `host_layer_gate`, `web_host_tests`)
-  must lose their filters before they are required in branch protection.
+  forever). `cpp_format_gate`, `host_layer_gate`, `web_host_tests` and `web_lint_gate` have no
+  filter and are meant to be required in branch protection (that setting itself lives on GitHub,
+  not in this repo). Do not add a `paths:` filter back to them. `graphics_harness_tests`,
+  `hosting_headers` and `preset_audit` still have filters, so they must not be made required as
+  they are.
+- Every workflow declares top-level `permissions: contents: read`; the two that need more say so
+  (`upstream_sync_reminder.yml` adds `issues: write`, `publish_web_package.yml` adds `id-token: write`
+  on its job for npm provenance). Every job sets `timeout-minutes`.
+- Third-party actions are pinned to a commit SHA with the tag in a trailing comment
+  (`uses: actions/checkout@<sha> # v7`); `.github/dependabot.yml` moves the SHA and the comment
+  together (weekly, grouped). Pin new actions the same way.
 
 ### Upstream maintenance (fork)
 
@@ -597,8 +621,8 @@ This tree tracks [projectM-visualizer/projectm](https://github.com/projectM-visu
 `main` is the fork (develop here). `master` is a read-only mirror of upstream `master`;
 refresh it with `./scripts/sync_upstream_master.sh` and do not commit on it or merge it
 into `main`. Run `./scripts/upstream_sync_check.sh` before large refactors or when
-upstream ships a release. Deliberate divergences (WASM glue, OpenMP, AI presets) are
-documented in `docs/UPSTREAM_SYNC.md`.
+upstream ships a release. Deliberate divergences (WASM glue, OpenMP, AI presets, the
+`vendor/projectm-eval` fork) are documented in `docs/UPSTREAM_SYNC.md`.
 
 ### Packaging Outputs
 - CMake config files: `projectM4Config.cmake`, `projectM4Targets.cmake`
@@ -705,6 +729,10 @@ list documented above (see "Code Formatting"); everywhere else, formatting is
 still manual via `clang-format` (see above).
 
 ### C++ interface smoke test (optional, matches Linux CI)
+
+The `install/` tree it consumes must come from a build configured with `-DENABLE_CXX_INTERFACE=ON`,
+which the configure command above does not pass (CI does). The test sets C++20 itself and fails at
+configure time if the installed `libprojectM::projectM` target does not export `cxx_std_20`.
 
 ```bash
 cmake -G "Ninja Multi-Config" \

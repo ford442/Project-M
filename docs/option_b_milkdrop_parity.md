@@ -299,7 +299,7 @@ a fallback for when no mask is bound.
 
 **Key Files:**
 - `src/libprojectM/Renderer/PresetTransition.hpp/.cpp`
-- `src/libprojectM/Renderer/Renderer.cpp`
+- `src/libprojectM/ProjectM.cpp` (`StartPresetTransition()`; there is no `Renderer/Renderer.cpp` any more)
 - Possibly new `TransitionTiming.hpp
 `
 
@@ -364,7 +364,7 @@ a fallback for when no mask is bound.
 7. Document recommended settings per platform
 
 **Key Files:**
-- `src/libprojectM/Renderer/MilkdropPreset.cpp`
+- `src/libprojectM/MilkdropPreset/MilkdropPreset.cpp`
 - `src/libprojectM/Renderer/PresetTransition.cpp`
 - `src/libprojectM/Renderer/Framebuffer.cpp`
 

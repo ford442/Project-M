@@ -33,6 +33,13 @@ sudo apt install libsdl2-dev # To build the development test UI
 For production use, it is highly recommended to use the latest stable version of projectM. Download the latest release
 from the [Releases page on GitHub](https://github.com/projectM-visualizer/projectm/releases) and unpack it.
 
+> **This fork (`ford442/Project-M`).** Clone `https://github.com/ford442/Project-M.git` instead of the upstream URL
+> below, and fetch the submodules with `git submodule update --init --recursive`. `vendor/projectm-eval` is the fork
+> `ford442/projectm-eval` (branch `context-rng`), not upstream's repository; an older clone whose submodule still points
+> at upstream needs `git submodule sync vendor/projectm-eval && git submodule update --init vendor/projectm-eval`, and
+> the CMake configure step stops with that instruction if it is missing (see [UPSTREAM_SYNC.md](UPSTREAM_SYNC.md#projectm-eval-fork)).
+> The browser/WASM build is described in [EMSCRIPTEN.md](EMSCRIPTEN.md), not here.
+
 #### Using a development version
 
 If you prefer a bleeding-edge version or want to modify the code, clone the Git repository and initialize any

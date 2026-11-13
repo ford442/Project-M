@@ -1339,6 +1339,33 @@ Why 6.0.6 (2026-09):
 An older note here said a newer SDK (5.0.4) rendered an all-black canvas for
 every preset. That does not reproduce on 6.0.6 with the current source.
 
+##### Local toolchain (checked 2026-11-13)
+
+**6.0.6 is the only SDK version the goldens are verified against** (all 26 at ssim 1.00000, above).
+Any other version, a newer 6.0.x included, is unverified for goldens: a golden mismatch or a changed
+bundle size on another version may be the toolchain or may be a real regression, and nothing here
+says which. Reproduce on 6.0.6 before treating it as either. `scripts/build_wasm.sh` does not check
+the SDK version; it only needs `em++` on `PATH`, so a wrong SDK builds without complaint.
+
+Run `em++ --version` after sourcing an `emsdk_env.sh` and compare it with 6.0.6 before you trust a
+build. On the primary dev machine there are several emsdk checkouts, and **none is 6.0.6**. The
+version below is what each one's `upstream/emscripten/emscripten-version.txt` reports; the
+directory name is not the version.
+
+| Checkout | Reports |
+|---|---|
+| `/root/emsdk` (the default `$EMSDK`) | 3.1.61 |
+| `/root/emsdk-3.1.51` | 3.1.51 |
+| `/root/emsdk-3.1.64` | 3.1.64 |
+| `/root/emsdk-603` | **6.0.12** (not 6.0.3) |
+| `/root/emsdk-609` | 6.0.9 |
+
+So a bare `source /root/emsdk/emsdk_env.sh` does **not** reproduce CI: it activates 3.1.61. To get
+6.0.6 on such a machine, install it next to the others (`./emsdk install 6.0.6 && ./emsdk activate
+6.0.6`, as above). The other 6.0.x checkouts may do for ordinary development builds, but this
+document records no golden result for them. This table describes one machine
+and goes stale; the `em++ --version` check is the durable part.
+
 Emscripten 6.0.6 does not emit a separate `projectm-v.030-thread.worker.js`;
 pthread workers load the main glue script.
 

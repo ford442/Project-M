@@ -476,8 +476,8 @@ before this is called done for issue #178's acceptance criteria.
 
 ### Exported controls
 
-New WASM exports (`projectM_emscripten.cpp`, wired up in `CMakeLists.txt` and
-`scripts/build_wasm_smoke_wrapper.sh`):
+New WASM exports (`src/wasm/projectM_emscripten.cpp`, registered in the export list in
+`cmake/EmscriptenWasmFlags.cmake`, which generates `scripts/wasm_link_common.inc.sh`):
 
 - `Module._set_target_fps(fps)` — sets `m_targetFps` (`projectm_set_fps`) and the governor's
   budget reference. Resets the governor's consecutive-frame counters.
@@ -603,13 +603,23 @@ Warm savings are dominated by skipping HLSL parse/transpile; `glCompileShader` +
 
 ## Emscripten link/compile flag audit (issue #80 follow-up)
 
+> **Historical, as of 2026-11-13.** This section records measurements taken when the final
+> `emcc` link was a hand-written command duplicated across three shell scripts, one of them
+> `scripts/build_projectm.sh`, which has since been deleted. Today `scripts/build_wasm.sh` is the
+> only entry point, the link is the `projectM_wasm` CMake target (`src/wasm/CMakeLists.txt`), and
+> the flags and export list live in `cmake/EmscriptenWasmFlags.cmake` (see `docs/EMSCRIPTEN.md`,
+> "Building the bundle" and "Emscripten flag single source of truth"). The figures below stay
+> valid for the toolchain named next to each one (Emscripten 5.0.4, then 6.0.6); they were not
+> re-measured when the build moved. Script names in the tables are the ones in use at the time.
+
 This section evaluates the Emscripten compile/link flags in `CMakeLists.txt` (`ENABLE_EMSCRIPTEN`
 block, roughly lines 143–222) and the equivalent flags duplicated in
-`scripts/build_wasm_smoke_wrapper.sh`, `scripts/build_projectm.sh`, and `scripts/colab_build.sh` —
-the three scripts that (at the time; `scripts/build_wasm.sh` is now the only entry point and
-`build_projectm.sh` is gone) performed the final `emcc projectM_emscripten.cpp ... -o
-projectm-v.030-thread.js` link against the prebuilt `libprojectM-4.a` /
-`libprojectM-4-playlist.a` static libraries.
+`scripts/build_wasm_smoke_wrapper.sh`, `scripts/build_projectm.sh` (deleted), and
+`scripts/colab_build.sh` — the three scripts that (at the time) performed the final
+`emcc projectM_emscripten.cpp ... -o projectm-v.030-thread.js` link against the prebuilt
+`libprojectM-4.a` / `libprojectM-4-playlist.a` static libraries. Of those, only
+`scripts/build_wasm_smoke_wrapper.sh` (now a thin wrapper around the `projectM_wasm` target) and
+`scripts/colab_build.sh` (now a front end for `scripts/build_wasm.sh --stage`) still exist.
 
 **Methodology**: this environment has no browser/display, so frame-time (p50/p95) and startup
 time cannot be measured directly (same limitation as the rest of this document). What *can* be
@@ -634,14 +644,14 @@ libs):
 |---|---|---|---|---|
 | `-flto` added to final `emcc` link | 2,024,548 B (**-58,617 B / -2.8%**) | 233,291 B (+571 B) | 30.6 s (+5.2 s) | Link-time-only LTO (the prebuilt `.a` libs are not themselves built with `-flto`); free `.wasm` size reduction with no source/behavior change. Build succeeds, including with `ENABLE_WASM_TRANSITIONS`'s `ASYNCIFY_STACK_SIZE=65536`. |
 | `PTHREAD_POOL_SIZE='navigator.hardwareConcurrency'` (was `=4`) | 2,024,548 B (unchanged) | +28 B | unchanged | **Reverted (2026-07):** matched `omp_get_max_threads()` to core count while only 4 pthread Workers were pre-spawned, deadlocking OpenMP barriers on 033/034 (main-thread freeze). Keep `PTHREAD_POOL_SIZE=4` (see `PROJECTM_WASM_PTHREAD_POOL_SIZE` in `cmake/EmscriptenWasmFlags.cmake`) and call `omp_set_num_threads(kWasmPthreadPoolSize)` in `projectM_emscripten.cpp::init()` so OpenMP and the Worker pool stay aligned. Lazy extra Worker spawns on >4-core devices are acceptable vs. a silent hang. |
-| **Combined** (both above) | 2,024,548 B (**-58,617 B / -2.8%**) | 233,319 B (+599 B) | 32.7 s (+7.3 s) | Applied to `build_wasm_smoke_wrapper.sh`, `build_projectm.sh`, `colab_build.sh`. |
+| **Combined** (both above) | 2,024,548 B (**-58,617 B / -2.8%**) | 233,319 B (+599 B) | 32.7 s (+7.3 s) | Applied at the time to `build_wasm_smoke_wrapper.sh`, `build_projectm.sh` (since deleted), `colab_build.sh`. |
 
 Both changes were applied via the shared `scripts/wasm_link_common.inc.sh` include (generated from
 `cmake/EmscriptenWasmFlags.cmake`) so smoke, Colab, and helper wrapper links stay aligned with
-CMake's `ENABLE_EMSCRIPTEN` flags. `CMakeLists.txt` still does not produce `projectm-v.030-thread.js`
-directly (no `add_executable` target — only static libraries are built via CMake, then linked by
-`scripts/build_wasm_smoke_wrapper.sh` et al.), so wrapper-critical flags must live in the generated
-shell include.
+CMake's `ENABLE_EMSCRIPTEN` flags. (At the time `CMakeLists.txt` produced only static libraries and
+the bundle was linked by shell scripts, so wrapper-critical flags had to live in the generated shell
+include. That is no longer true: `src/wasm/CMakeLists.txt` defines the `projectM_wasm`
+`add_executable` target, excluded from `ALL`, and builds the bundle itself.)
 
 ### Measured, but deferred pending in-browser verification
 
@@ -701,8 +711,8 @@ the setting shown.
 "Smoke" means `tests/wasm-smoke/run.mjs`: init, OpenMP (4 threads, blocktime 0), a cold
 load (then under Asyncify), dual-FBO soft cut, two engine instances, and (new) a known-bad preset.
 
-**`FULL_ES3=0`: landed.** Emscripten's `tools/link.py` turns on `FULL_ES2` whenever `FULL_ES3` is
-set. The two layers add client-side vertex-array emulation (`clientBuffers`, `getTempVertexBuffer`)
+**`FULL_ES3=0`: landed.** Emscripten's own `tools/link.py` (`upstream/emscripten/tools/link.py`
+inside the emsdk, not a file in this repo) turns on `FULL_ES2` whenever `FULL_ES3` is set. The two layers add client-side vertex-array emulation (`clientBuffers`, `getTempVertexBuffer`)
 and `glMapBufferRange`/`glGetBufferSubData` shims. libprojectM has no use for either: every
 `glVertexAttribPointer`/`glDrawElements` passes a `nullptr` offset into a bound VBO/EBO, and it
 calls neither mapping function. `GLResolver`/GLAD do not require the ES 3.0 entry points that
@@ -1459,8 +1469,9 @@ the worker boots, renders, and drains the ring with no overruns under software
 GL. Measuring the isolation benefit needs a real GPU and a synthetic
 main-thread hog on the host page.
 
-**Drive-by fix**: `scripts/build_projectm.sh` and `scripts/colab_build.sh`'s
-`EXPORTED_FUNCTIONS` lists were missing `_set_target_fps`,
+**Drive-by fix** (historical: `scripts/build_projectm.sh` was deleted later, and the export list is
+now generated from `cmake/EmscriptenWasmFlags.cmake`): `scripts/build_projectm.sh` and
+`scripts/colab_build.sh`'s `EXPORTED_FUNCTIONS` lists were missing `_set_target_fps`,
 `_set_quality_governor`, `_get_quality_tier`, `_dual_fbo_get_format`, and the
 other functions added in the 60 FPS/quality-governor and FBO-format work —
 `scripts/build_wasm_smoke_wrapper.sh` and `CMakeLists.txt`'s
@@ -1521,8 +1532,9 @@ under an `#pragma omp parallel for reduction(+:m_current)`. Two reasons this was
 not also given a `wasm_simd128.h` path:
 
 1. The wasm build already enables `-fopenmp` alongside `-pthread`
-   (`build_projectm.sh`/`colab_build.sh`/`build_wasm_smoke_wrapper.sh` all pass
-   `-fopenmp`), so `PRJM_ENABLE_OPENMP` is defined and `SumBand` already takes
+   (at the time `build_projectm.sh` (since deleted), `colab_build.sh` and
+   `build_wasm_smoke_wrapper.sh` all passed `-fopenmp`; the `projectM_wasm` link still does), so
+   `PRJM_ENABLE_OPENMP` is defined and `SumBand` already takes
    the OpenMP-reduction path on wasm — a `wasm_simd128.h` path would only be
    reachable in a non-OpenMP wasm build, which none of the build scripts produce.
 2. At ~85 elements, a 4-wide SIMD horizontal-sum loop saves at most ~21

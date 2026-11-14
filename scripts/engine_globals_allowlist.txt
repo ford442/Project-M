@@ -29,7 +29,6 @@
 # --- Process-wide by nature: GL loading and the platform, the same for every engine ---
 ^libprojectM::Renderer::Platform::                          # GL resolver/loader singletons and their env switches
 ^libprojectM::MilkdropPreset::MilkdropStaticShaders::Get\(\)::instance$  # shader source text + GLSL version; no GL objects
-^\(anonymous namespace\)::g_evalMemoryMutex$                # guards projectm-eval's process-global gmegabuf memory
 
 # --- Diagnostics and test hooks: counted across all engines, never read by rendering ---
 ^libprojectM::MilkdropPreset::\(anonymous namespace\)::g_(preparedGlslUsed|preparedGlslMismatched|renderThreadTranspiles)$  # atomic counters for tests

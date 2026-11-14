@@ -223,9 +223,43 @@ public:
     /** @brief True if this build can inspect the evaluator's expression tree at all. */
     static auto Available() -> bool;
 
+    /** @brief Whether the CPU may spread a per-pixel program's vertices over threads. */
+    struct EvaluationOrder
+    {
+        bool parallel{false}; //!< Every vertex is independent: any split over threads gives the same values.
+        std::string reason;   //!< Why the vertices must run in order on one thread. Empty when parallel.
+    };
+
+    /**
+     * @brief Classifies a compiled per-pixel program for the CPU evaluation loop.
+     *
+     * The OpenMP loop gives each thread its own evaluation context, so a vertex sees what
+     * earlier vertices *on its thread* left behind. That equals single-threaded evaluation
+     * only when no vertex can observe another. The program must run in vertex order on one
+     * thread when it:
+     *  - reads a variable it also writes before assigning it on the vertex (the value carries
+     *    over from the previous vertex; the per-vertex inputs x, y, rad, ang and the ten
+     *    transform channels are re-seeded first, so they never carry),
+     *  - touches @c megabuf / @c gmegabuf (megabuf is per context, gmegabuf is shared and
+     *    written in vertex order) or @c reg00..reg99,
+     *  - calls @c rand() (each context draws from its own stream, in the order it runs), or
+     *  - calls anything whose effects this analysis does not know.
+     *
+     * Conservative: a read inside the same top-level statement as the assignment that
+     * precedes it counts as a read before assignment. Without the evaluator's tree (an
+     * installed projectM-Eval) every program is classified serial.
+     *
+     * @param code The handle returned by @c projectm_eval_code_compile(). Null means no
+     *             per-pixel code, which is parallel.
+     */
+    static auto ClassifyEvaluationOrder(projectm_eval_code* code) -> EvaluationOrder;
+
 private:
     /** @brief Lower() without its safety net for internal errors. */
     static auto LowerProgram(projectm_eval_code* code) -> Result;
+
+    /** @brief ClassifyEvaluationOrder() without its safety net for internal errors. */
+    static auto ClassifyProgramOrder(projectm_eval_code* code) -> EvaluationOrder;
 };
 
 } // namespace MilkdropPreset

@@ -1146,7 +1146,10 @@ Do this on the default (`renderTopology: 'auto'`, i.e. worker) page as well as w
 
 Automated, against a built bundle (loses the real context with `WEBGL_lose_context` — on the canvas
 for `main`, inside the render worker for `worker` — and checks the overlay, the engine teardown and
-the rebuild):
+the rebuild). A second loss holds the `webglcontextlost` handler back 400 ms and starts a preset load
+inside that window, so a preset finishes preparing while the context is lost but the engine is still
+up: the gap a slow machine opens by itself, where activating the preset used to abort the runtime.
+Uncaught page errors fail the check too, since an abort on the main topology reaches no `onError`:
 
 ```bash
 node scripts/test_context_loss_playwright.mjs cmake-build/wasm-smoke/projectm-v.030-thread.js [worker|main ...]

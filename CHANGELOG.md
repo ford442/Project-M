@@ -53,7 +53,9 @@ Engine and C API
 - Beat-locked preset switching with latency compensation (#345).
 - This branch (`p0-main-green`): `projectm_perf_enter_gpu_stage()` takes an `int` (out-of-range values are
   refused instead of being an invalid enum value); the installed C++ interface target exports `cxx_std_20`
-  when `ENABLE_CXX_INTERFACE=ON`.
+  when `ENABLE_CXX_INTERFACE=ON`. A preset whose preparation finishes after the WebGL context is lost but
+  before the page has handled the loss is no longer activated on the lost context (that aborted the runtime
+  with `std::terminate`); it stays queued until the context is back.
 
 Browser host and hosting
 - **Builds load from a manifest** (#290): `pm/builds.json`, UTF-8 `.js` glue only (`.1ijs`/`.3ijs` redirect), per-folder

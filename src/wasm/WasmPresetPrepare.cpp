@@ -5,6 +5,7 @@
 // render_frame(). See WasmPresetPrepare.hpp for the flow.
 #include "WasmPresetPrepare.hpp"
 
+#include "WasmApiBarrier.hpp"
 #include "WasmHost.hpp"
 
 #include <emscripten/eventloop.h>
@@ -47,9 +48,12 @@ void FreeRequest(std::optional<PresetPrepareRequest>& request)
 // only takes a result the host's own queue holds, so either way this is safe.
 void ActivateFromEventLoop(void* hostHandle)
 {
-    if (WasmHost* host = HostFromHandle(reinterpret_cast<uintptr_t>(hostHandle)))
+    const auto handle = reinterpret_cast<uintptr_t>(hostHandle);
+    if (WasmHost* host = HostFromHandle(handle))
     {
-        ActivatePreparedPreset(*host);
+        // An engine entry point like any export: page events wait until the
+        // activation is done, and an exception is recorded on the host.
+        WasmApiDetail::RunGuarded(handle, "ActivatePreparedPreset", [host] { ActivatePreparedPreset(*host); });
     }
 }
 
@@ -284,10 +288,11 @@ static void CompletePresetSwitch(WasmHost& host, const PendingPresetSwitch& pres
 
 static void PollPendingSwitchFromEventLoop(void* hostHandle)
 {
-    if (WasmHost* host = HostFromHandle(reinterpret_cast<uintptr_t>(hostHandle)))
+    const auto handle = reinterpret_cast<uintptr_t>(hostHandle);
+    if (WasmHost* host = HostFromHandle(handle))
     {
         host->linkPollScheduled = false;
-        ActivatePreparedPreset(*host);
+        WasmApiDetail::RunGuarded(handle, "ActivatePreparedPreset", [host] { ActivatePreparedPreset(*host); });
     }
 }
 

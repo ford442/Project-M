@@ -46,6 +46,7 @@ set(PROJECTM_WASM_WRAPPER_SOURCES
         WasmLog.cpp
         WasmLiveInput.cpp
         WasmLegacyExports.cpp
+        WasmEvents.cpp
         generated/WasmApiExports.cpp
         )
 

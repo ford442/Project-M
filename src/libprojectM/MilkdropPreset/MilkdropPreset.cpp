@@ -439,7 +439,7 @@ void MilkdropPreset::LowerPerPixelCodeToGlsl()
 
     if (PerPixelGlslLowering::ForcedToCpu())
     {
-        m_state.perPixelGpuReason = "forced to the CPU path by PROJECTM_PER_PIXEL_EVAL=cpu";
+        m_state.perPixelGpuReason = "forced to the CPU path (PROJECTM_PER_PIXEL_EVAL=cpu / perPixelEval=cpu)";
         return;
     }
 

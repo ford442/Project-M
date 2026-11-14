@@ -1,0 +1,29 @@
+# Writable statics in the WASM host wrapper (src/wasm/) that are deliberately
+# Module-wide. Read by rule 5 of scripts/check_wasm_host_globals.sh: one
+# extended regex per line, matched against llvm-nm -C's demangled name;
+# everything after '#' is the reason.
+# Per-engine state does not belong here: put it on WasmHost (src/wasm/WasmHost.hpp)
+# or in libprojectM's EngineContext.
+
+# --- The host registry (WasmHost.cpp): what holds the hosts themselves ---
+^g_hosts$                          # the kMaxHosts slots
+^g_slotGeneration$                 # per-slot generation, so a destroyed host's handle never names its successor
+^g_activeHost$                     # set_active_host(): the compat layer's selection (ABI v2 exports never read it)
+^g_mainLoopRegistered$             # one Emscripten main loop services every started host
+^g_lastCreateHostError$            # why the last create_host*() returned 0: a failed create leaves no host to hold it
+^ReportUnknownHost\(.*\)::lastReported$  # log de-duplication for unknown-handle warnings
+^\(anonymous namespace\)::kThrowingNewHandler$  # installs the throwing new_handler once at startup
+
+# --- Shared heap, shared worklet (WasmPcmRing.cpp) ---
+^\(anonymous namespace\)::g_(awaitingAck|reusePool|nextReuseSlot)$  # rings the worklet may still map, parked or pooled across hosts
+
+# --- The page-event queue (WasmEvents.cpp): per thread, not per engine ---
+^WasmEvents::\(anonymous namespace\)::t_(engineDepth|eventsPending|queueInstalled)$  # engine code on this thread's stack, and its queued events
+
+# --- Page configuration handed over before any host exists ---
+^\(anonymous namespace\)::g_pageRenderPathOverrides( \(\.[0-9]+\))?$  # set_render_path_overrides(): the switches every engine created afterwards starts from
+^\(anonymous namespace\)::g_pageDeterminism( \(\.[0-9]+\))?$  # set_deterministic_seed/clock(), the compat names: the seed and clock every host created afterwards starts from
+
+# --- Process-wide by nature ---
+^WasmInstallLogSink\(\)::installed$  # std::once_flag: projectM's log callback is process-global
+^g_livePlaylistCount$              # test counter (live_playlist_count()): playlists across every host

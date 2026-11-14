@@ -124,7 +124,8 @@ try {
     }
     if (!failed) {
         console.log(`OK: ${result.rounds} hosts created and destroyed mid-preparation in `
-            + `${result.seconds.toFixed(1)} s; the long-lived host loaded ${result.stayLoads} presets.`);
+            + `${result.seconds.toFixed(1)} s; the long-lived host loaded ${result.stayLoads} presets; `
+            + `${result.determinismChecks} determinism-scope checks.`);
     }
 } finally {
     if (browser) await browser.close();

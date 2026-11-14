@@ -185,11 +185,20 @@ struct WasmHost {
     // the previous engine rather than silently reverting to the defaults.
     EngineSettings engineSettings;
 
-    // ---- Deterministic clock (WasmDeterminism.cpp) ----
+    // ---- Determinism (WasmDeterminism.cpp) ----
     // Per host: the shared main loop ticks every started host once per frame,
-    // so a process-wide index advanced once per host per tick.
+    // so a process-wide index advanced once per host per tick; and a harness
+    // that pins one engine's clock or seed must not pin its sibling's.
+    bool deterministicClock = false;
+    double msPerFrame = 1000.0 / 60.0;
+    std::optional<uint32_t> deterministicSeed; //!< pm_set_host_deterministic_seed() (or the Module-wide set_deterministic_seed()); the engine is created with it.
     uint32_t deterministicFrameIndex = 0;
     double virtualNowMs = 0.0;
+
+    // ---- Init outcome (WasmJsBindings.cpp) ----
+    // Code of this host's last init() failure, 0 after a success
+    // (pm_get_init_error(), docs/EMSCRIPTEN.md Init Error Codes).
+    int lastInitError = 0;
 
     // ---- Present pass (WasmPresent.cpp) ----
     FrameCaptureState capture;
@@ -318,10 +327,18 @@ void BindHost(WasmHost& host);
 // Does NOT init the engine or make it active; callers (create_host export) do.
 WasmHost* AllocateHost();
 
+// Starts a newly allocated host from the Module-wide determinism defaults
+// (set_deterministic_seed/clock(); WasmDeterminism.cpp). AllocateHost() calls it.
+void InitHostDeterminism(WasmHost& host);
+
 // Tears down and frees a host: destroys its engine/playlist/GL context under
 // its own context, removes it from the registry, and re-points the active host
 // at a surviving host (or the default).
 void ReleaseHost(WasmHost* host);
+
+// get_last_init_error()'s module-wide part: why the last create_host*()
+// returned 0. A host's own init outcome resets it (ReportInitError/Success).
+void SetLastCreateHostError(int code);
 
 // Registry iteration for the shared render loop.
 int HostSlotCount();           //!< kMaxHosts (fixed-size slot array).

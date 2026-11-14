@@ -16,14 +16,19 @@
 // is no `window` and no `document`. Host hooks are read off `globalThis`, which
 // is the actual contract with the page.
 #include "ProjectMWasmInternal.hpp"
+#include "WasmEvents.hpp"
 #include "WasmHost.hpp"
 
 // clang-format off
-EM_JS(void, js_update_preset_name, (const char* name), {
+EM_JS(void, js_update_preset_name, (double host, const char* name), {
     const presetName = UTF8ToString(name);
-    if (globalThis.updatePresetDisplay) {
-        globalThis.updatePresetDisplay(presetName);
-    }
+    const deliver = () => {
+        if (globalThis.updatePresetDisplay) {
+            globalThis.updatePresetDisplay(presetName);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -36,12 +41,16 @@ EM_JS(void, js_update_preset_name, (const char* name), {
 EM_JS(void, js_report_preset_switch_failed, (double host, const char* preset_filename, const char* message), {
     const name = preset_filename ? UTF8ToString(preset_filename) : '(unknown preset)';
     const msg = message ? UTF8ToString(message) : '';
-    globalThis.projectMPresetSwitchFailed = true;
-    globalThis.projectMPresetSwitchFailure = { preset: name, message: msg };
     console.warn('[projectM] preset switch failed (' + name + '): ' + msg);
-    if (typeof globalThis.pmOnPresetSwitchFailed === 'function') {
-        globalThis.pmOnPresetSwitchFailed(host, name, msg);
-    }
+    const deliver = () => {
+        globalThis.projectMPresetSwitchFailed = true;
+        globalThis.projectMPresetSwitchFailure = { preset: name, message: msg };
+        if (typeof globalThis.pmOnPresetSwitchFailed === 'function') {
+            globalThis.pmOnPresetSwitchFailed(host, name, msg);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -119,11 +128,15 @@ fll.addEventListener('message', ea => {
 // clang-format off
 EM_JS(void, js_notify_init_error, (double host, int code, const char* detail), {
     const detailStr = detail ? UTF8ToString(detail) : '';
-    if (typeof globalThis.pmReportInitError === 'function') {
-        globalThis.pmReportInitError(host, code, detailStr);
-    } else {
-        console.error('[projectM] init() failed with code ' + code + (detailStr ? ': ' + detailStr : ''));
-    }
+    const deliver = () => {
+        if (typeof globalThis.pmReportInitError === 'function') {
+            globalThis.pmReportInitError(host, code, detailStr);
+        } else {
+            console.error('[projectM] init() failed with code ' + code + (detailStr ? ': ' + detailStr : ''));
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -131,41 +144,45 @@ EM_JS(void, js_notify_init_error, (double host, int code, const char* detail), {
 // shown init-error overlay can be hidden. See html/projectm-init-errors.js.
 // clang-format off
 EM_JS(void, js_notify_init_success, (double host), {
-    if (typeof globalThis.pmHideInitError === 'function') {
-        globalThis.pmHideInitError(host);
-    }
+    const deliver = () => {
+        if (typeof globalThis.pmHideInitError === 'function') {
+            globalThis.pmHideInitError(host);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
-// The code of the most recent init() / create_host*() failure, 0 after a
-// success. create_host*() can only return a 0 handle, so this is how a caller
-// tells "no WebGL 2" from "software renderer refused" from "selector typo"
-// without listening for pmReportInitError. Init runs on one thread at a time
-// (the main thread, or the render worker's own module), so one value suffices.
-static int g_lastInitError = 0;
-
+// Each host keeps the code of its own last init() failure (WasmHost::
+// lastInitError, pm_get_init_error()), so one engine's successful init no
+// longer clears the error a sibling's failed one left. A create_host*() that
+// fails returns a 0 handle and leaves no host to hold why: that code is the
+// one module-wide value (WasmHost.cpp, get_last_init_error()).
 void ReportInitErrorForEventHost(double host, int code, const char* detail)
 {
-    g_lastInitError = code;
-    js_notify_init_error(host, code, detail);
+    PostEvent([&] { js_notify_init_error(host, code, detail); });
 }
 
-void ReportInitError(const WasmHost& host, int code, const char* detail)
+void ReportInitError(WasmHost& host, int code, const char* detail)
 {
+    host.lastInitError = code;
+    SetLastCreateHostError(0);
     ReportInitErrorForEventHost(EventHostHandle(host), code, detail);
 }
 
-void ReportInitSuccess(const WasmHost& host)
+void ReportInitSuccess(WasmHost& host)
 {
-    g_lastInitError = 0;
-    js_notify_init_success(EventHostHandle(host));
+    host.lastInitError = 0;
+    SetLastCreateHostError(0);
+    PostEvent([&] { js_notify_init_success(EventHostHandle(host)); });
 }
 
 namespace WasmApi {
 
-int get_last_init_error()
+int get_init_error(WasmHost& H)
 {
-    return g_lastInitError;
+    return H.lastInitError;
 }
 
 } // namespace WasmApi

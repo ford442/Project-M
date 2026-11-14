@@ -88,6 +88,13 @@ double WasmNow(const WasmHost& host);
 // engine. Called once per frame from render_frame(); a no-op unless enabled.
 void DeterministicFrameTick(WasmHost& host);
 
+// Creates the host's engine: with its own seed when one is pinned
+// (set_deterministic_seed() / pm_set_host_deterministic_seed()), so what the engine draws while it is constructed is covered too.
+projectm_handle CreateHostEngine(const WasmHost& host);
+
+// Puts a freshly created engine on the host's virtual clock, if enabled.
+void ApplyDeterministicClock(WasmHost& host);
+
 // ---- Engine lifecycle (defined in projectM_emscripten.cpp) ------------------
 // InitHost() brings up a host's WebGL context, engine and playlist (init(),
 // create_host*(), rebind_canvases()); 0 or an already-reported init error code.
@@ -139,9 +146,9 @@ double FlashClampedFramesForHud(WasmHost& host);
 void InstallShaderTranspileCacheHooks();
 
 // ---- Render-path ablation switches (defined in WasmRenderPathOverrides.cpp) -
-// Applied once from init(), before the first preset renders: whatever the host
-// set with set_render_path_overrides(), or else the page's own query string.
-// See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+// Applied to a new engine from init(), before its first preset renders:
+// whatever the page set with set_render_path_overrides(), or else the page's
+// own query string. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
 void ApplyRenderPathOverrides(WasmHost& host);
 
 // ---- Quality governor entry points (defined in WasmPerfGovernor.cpp) -------
@@ -165,8 +172,16 @@ void on_preset_switch_failed(const char* preset_filename, const char* message, v
 // Each is implemented via EM_JS (C linkage) in the TU noted; declared here so
 // the render loop / init path / callbacks can invoke them.
 extern "C" {
-// Audio bridge (WasmAudioBridge.cpp)
-void js_initialize_worklet_system_once();
+// Page events (each queued through PostEvent(), WasmEvents.hpp). Also raised
+// together by pm_debug_emit_events() (WasmHost.cpp).
+void js_governor_report_tier(double host, int tier);
+void js_governor_report_render_scale(double host, double scale);
+void js_governor_report_blur_cap(double host, int cap);
+void js_report_rhythm_event(double hostHandle, int events, double bpm, double beatIndex, double barPhase, int section,
+                            double confidence);
+void js_on_transpiled_shader_stored(double host, const char* key, int kind, const char* glsl);
+void js_notify_init_error(double host, int code, const char* detail);
+void js_notify_init_success(double host);
 
 // Perf HUD (WasmPerfGovernor.cpp)
 void js_perf_gpu_begin_frame();
@@ -179,7 +194,7 @@ void js_perf_report_frame(double host, double totalMs, double audioMs, double pe
                           int perPixelEvalPath, double rhythmMs, double flashClampedFrames);
 
 // JS glue + host-page notifications (WasmJsBindings.cpp); no DOM, no network
-void js_update_preset_name(const char* name);
+void js_update_preset_name(double host, const char* name);
 // `host` is EventHostHandle() of the engine whose preset failed.
 void js_report_preset_switch_failed(double host, const char* preset_filename, const char* message);
 void js_init_projectm_glue();
@@ -187,7 +202,8 @@ void js_init_projectm_glue();
 
 // Init outcome reports to the page (WasmJsBindings.cpp), for `host`; the
 // ForEventHost form takes an EventHostHandle() (kNoEventHost for a create
-// refused before any host existed). Each also sets get_last_init_error().
-void ReportInitError(const WasmHost& host, int code, const char* detail);
+// refused before any host existed). The host forms also set the host's
+// lastInitError (pm_get_init_error()).
+void ReportInitError(WasmHost& host, int code, const char* detail);
 void ReportInitErrorForEventHost(double host, int code, const char* detail);
-void ReportInitSuccess(const WasmHost& host);
+void ReportInitSuccess(WasmHost& host);

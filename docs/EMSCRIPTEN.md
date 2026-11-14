@@ -580,6 +580,35 @@ CI runs `scripts/verify_wasm_link_common.sh` to ensure generated files are commi
 
 Typed JavaScript wrappers are generated into `html/generated/projectm-wasm-api.{ts,js}` from `cmake/WasmApiManifest.cmake`. See [WASM_JS_API.md](WASM_JS_API.md).
 
+## Module shape: classic glue, not `EXPORT_ES6`
+
+The glue is a classic script (`MODULARIZE=1`, `EXPORT_NAME=createModule`): pages load it with a
+`<script>` tag, and the render worker loads it with `importScripts()`. Everything else in `html/` is
+an ES module. `-sEXPORT_ES6=1` was evaluated (#352 D) and **not adopted**.
+
+Measured 2026-11-14 on the same tree with emsdk 6.0.6, the bundle linked once as is and once with
+`-sEXPORT_ES6=1` added. Startup is the time from loading the glue to `createModule()` resolving
+(pthread pool started), in headless Chromium 131 (Playwright 1.49.1), median of 10 alternating
+runs:
+
+| | classic | `EXPORT_ES6` |
+|---|---|---|
+| glue | 201,231 B (46,768 B gzipped) | 201,071 B (46,693 B gzipped) |
+| `.wasm` | 1,854,841 B | byte-identical |
+| startup | 267 ms (198 to 358) | 261 ms (195 to 421) |
+
+Nothing measurable is gained, and there is a cost. The ES6 glue starts its pthreads as module
+workers (`new Worker(…, {type: "module"})`). Firefox has module workers only from 114, so on
+Firefox 89 to 113, inside the [feature floor](#wasm-feature-floor), the pthread pool would not
+start and neither would the engine. Adopting it would also mean:
+- the render worker becomes a module worker that imports the glue, so its tests import it too,
+  instead of evaluating it in `node:vm`;
+- `prepare_deploy_bundle.sh`'s rewrite of the bundle name in the glue and the `--pre-js` that
+  restores `mainScriptUrlOrBlob` get re-checked;
+- every `tests/wasm-smoke/` page switches from a `<script>` tag to `import()`.
+
+Revisit when the floor moves to Firefox 114 or later.
+
 ## Wasm feature floor
 
 An engine that lacks a feature used by any one instruction rejects the **whole** module at

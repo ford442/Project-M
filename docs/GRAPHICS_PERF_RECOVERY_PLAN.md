@@ -8,6 +8,29 @@ Canonical discussion: GitHub epic
 [#174 — Graphics FPS Recovery](https://github.com/ford442/Project-M/issues/174).
 This file is the in-repo companion so the plan travels with the code.
 
+> **Status banner (checked 2026-11-13 against the tree and the GitHub issues).** The long
+> "Status (2026-09-13)" paragraph below is the history of this log, not the current state.
+>
+> - **Done.** Epic #174 and sub-issues #175 to #179 are closed as completed (2026-07-31 to
+>   2026-08-14), and their code is in the tree. The deterministic capture path, the golden-image
+>   gate and the frame-budget record/compare plumbing are in
+>   ([`GRAPHICS_BENCHMARK_HARNESS.md`](GRAPHICS_BENCHMARK_HARNESS.md)). #227 is closed
+>   (2026-09-18) with GPU per-pixel Phase 1 landed, and Phase 1.5 (#261, closed 2026-09-25) is
+>   implemented ([`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md)).
+> - **Open.** There is still **no hardware frame-time baseline**: the only record committed under
+>   `benchmark-results/` is `"softwareGl": true` (SwiftShader), so "60 FPS recovered" is
+>   unproven and the Y-flip stop rule in [Hardware capture
+>   contract](#hardware-capture-contract) has no recorded outcome. #247 ("first hardware FPS
+>   baseline") is closed on GitHub, but no hardware record is in the tree.
+>   `graphics_perf_bench.yml` is manual-dispatch only because no self-hosted `gpu` runner is
+>   registered. A WGSL emitter (Phase 2) and a WebGPU renderer (Phase 3) do not exist: design
+>   only. #170 (heavy `weeks` presets to the GPU path) is open.
+> - **About this file.** It is a long log (over 900 lines). Other files point into it by name
+>   (`scripts/compare_benchmark_results.mjs`, `tests/wasm-smoke/lib/frame-budget.mjs`,
+>   `GRAPHICS_BENCHMARK_HARNESS.md` link to the "Hardware capture contract" anchor), so it is not
+>   moved. The contract section could later be split into its own document, with those
+>   references updated in the same change.
+
 **Status (2026-09-13):** Plan + five sub-issues filed. #175 (format policy + lazy
 allocation + helper fixups), #176 (pre-warp flip removed, `glBlitFramebuffer` for final
 output) and #177 (blur renders straight into its destination textures) have landed
@@ -792,7 +815,7 @@ start, and then only for that shape.
 | [#177](https://github.com/ford442/Project-M/issues/177) | Blur chain render-to-texture (kill `glCopyTexSubImage2D`) | `P1` | ✅ Code landed; benchmark JSON outstanding |
 | [#178](https://github.com/ford442/Project-M/issues/178) | Governor v2 — FBO scale, blur tier, MSAA policy | `P1` | ✅ Code landed; benchmark JSON outstanding |
 | [#179](https://github.com/ford442/Project-M/issues/179) | Advance WebGL2 + WebGPU feasibility spike | `P2` | ✅ Blit resolves landed + WebGPU deferred; A4/A5 need browser verify |
-| [#227](https://github.com/ford442/Project-M/issues/227) | GPU per-pixel mesh + HLSL→WGSL path | `P2` | ⏸ Docs + spike landed; **no code** until #224 `FULL_ES3=0` is measured. Design: [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) |
+| [#227](https://github.com/ford442/Project-M/issues/227) | GPU per-pixel mesh + HLSL→WGSL path | `P2` | ✅ Phase 1 and 1.5 landed (the #224 `FULL_ES3=0` gate opened 2026-09-17); WGSL/WebGPU phases not started. Design: [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) |
 
 Suggested order: **#175 → #176 → #177 → #178**, with **#179** spiked in parallel once
 baselines exist (do not block FPS recovery on WebGPU). **#227 Phase 1** only after

@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-31T05:16:40.554Z",
+  "generatedAt": "2026-11-13T00:45:03.967Z",
   "root": ".",
   "totals": {
-    "presets": 459,
-    "ok": 459,
+    "presets": 461,
+    "ok": 461,
     "error": 0,
     "warn": 3,
     "info": 0
@@ -12,17 +12,17 @@
     {
       "dir": "presets/custom",
       "summary": {
-        "total": 33,
-        "ok": 33,
+        "total": 35,
+        "ok": 35,
         "error": 0,
         "warn": 0,
         "info": 0,
         "tiers": {
-          "light": 28,
+          "light": 30,
           "medium": 5,
           "heavy": 0
         },
-        "reactive": 32
+        "reactive": 34
       },
       "results": [
         {
@@ -515,7 +515,7 @@
           "version": "200",
           "psWarp": "3",
           "psComp": "3",
-          "description": "CHANGELOG 2026-06-12 (initial) - Minimal worked example for docs/agents/kimi_preset_authoring_plan.md Phase A (create) - Simple bass-reactive warp pulse + treble-tinted composite Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Pattern: docs/milk011_cr",
+          "description": "CHANGELOG 2026-06-12 (initial) - Minimal worked example for docs/agents/kimi_preset_authoring_plan.md Phase A (create) - Simple bass-reactive warp pulse + treble-tinted composite Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Pattern: docs/age",
           "author": null,
           "reactive": true,
           "tier": "light",
@@ -538,7 +538,7 @@
           "version": "200",
           "psWarp": "3",
           "psComp": "3",
-          "description": "CHANGELOG 2026-06-19 (initial) - Aurora Borealis: flowing sine-field warp + spectrum wave curtain + additive aurora comp Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Pattern: docs/agents/briefs/milk011_creative_brief.md Audio: q2=bass_att curtain width, q",
+          "description": "CHANGELOG 2026-06-19 (initial) - Aurora Borealis: flowing sine-field warp + spectrum wave curtain + additive aurora comp Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Pattern: docs/agents/briefs/milk011_creative_brief.md Audio: q2=bass_att cu",
           "author": null,
           "reactive": true,
           "tier": "light",
@@ -561,7 +561,7 @@
           "version": "200",
           "psWarp": "3",
           "psComp": "3",
-          "description": "CHANGELOG 2026-06-19 (initial) - Crystal Lattice: hexagonal warp feedback + prismatic comp + rotating hex emblem Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/agents/briefs/milk014_creative_brief.md (variant) Audio: q2=bass_att lattice pulse, q",
+          "description": "CHANGELOG 2026-06-19 (initial) - Crystal Lattice: hexagonal warp feedback + prismatic comp + rotating hex emblem Target: PSVERSION_WARP=3 PSVERSION_COMP=3 | Brief: docs/agents/briefs/milk014_creative_brief.md (variant) Audio: q2=bass_att la",
           "author": null,
           "reactive": true,
           "tier": "light",
@@ -595,6 +595,29 @@
             "shaderLines": 25,
             "tex2d": 2,
             "cost": 14.2
+          },
+          "findings": [],
+          "waived": [],
+          "counts": {}
+        },
+        {
+          "path": "presets/custom/orbital_rave_beatlock.milk",
+          "name": "orbital_rave_beatlock.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | orbital_rave | Zephyr Orbital tags: beat-locked, orbital, tunnel, pm-rhythm, medium author: projectM-signature-rhythm-2026-10 project: zephyr-orbital",
+          "author": null,
+          "reactive": true,
+          "tier": "light",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 10,
+            "perPixel": 0,
+            "shaderLines": 26,
+            "tex2d": 2,
+            "cost": 11.4
           },
           "findings": [],
           "waived": [],
@@ -756,6 +779,29 @@
             "shaderLines": 24,
             "tex2d": 5,
             "cost": 23
+          },
+          "findings": [],
+          "waived": [],
+          "counts": {}
+        },
+        {
+          "path": "presets/custom/shader_swarm_onsets.milk",
+          "name": "shader_swarm_onsets.milk",
+          "ok": true,
+          "version": "201",
+          "psWarp": "3",
+          "psComp": "3",
+          "description": "Signature Series | shader_swarm | Candy World tags: candy, swarm, onsets, sections, pm-rhythm, medium author: projectM-signature-rhythm-2026-10 project: candy-world",
+          "author": null,
+          "reactive": true,
+          "tier": "light",
+          "metrics": {
+            "perFrameInit": 0,
+            "perFrame": 7,
+            "perPixel": 0,
+            "shaderLines": 22,
+            "tex2d": 2,
+            "cost": 10.5
           },
           "findings": [],
           "waived": [],

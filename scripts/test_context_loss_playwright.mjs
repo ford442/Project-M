@@ -103,7 +103,28 @@ async function checkTopology(browser, baseUrl, topology) {
     page.on('console', (message) => {
         if (message.type() === 'error') console.log(`  [browser:error] ${message.text()}`);
     });
-    page.on('pageerror', (error) => console.log(`  [browser:pageerror] ${error.message}`));
+    // An abort on the main topology (the runtime runs in the page) surfaces only here, not
+    // through the context's onError, so the checks below count these as well. Except one: this
+    // page has no audio, and the AudioWorklet module's rejected load is a known, unrelated
+    // unhandled rejection on this harness (it was in every run before this check existed).
+    const pageErrors = [];
+    page.on('pageerror', (error) => {
+        console.log(`  [browser:pageerror] ${error.message}`);
+        if (error.message !== "Unable to load a worklet's module.") pageErrors.push(error.message);
+    });
+    // A file the page or its worker could not fetch is the usual reason a start fails; name it.
+    page.on('response', (response) => {
+        if (response.status() >= 400) console.log(`  [browser:http ${response.status()}] ${response.url()}`);
+    });
+    page.on('requestfailed', (request) => {
+        // ERR_ABORTED is a request the page cancelled itself (a replaced script, a closed worker): not a missing file.
+        if (request.failure()?.errorText !== 'net::ERR_ABORTED') console.log(`  [browser:requestfailed] ${request.url()} (${request.failure()?.errorText})`);
+    });
+    page.on('worker', (worker) => {
+        worker.on('console', (message) => {
+            if (message.type() === 'error') console.log(`  [worker:error] ${message.text()}`);
+        });
+    });
 
     const params = new URLSearchParams({
         module: `${baseUrl}/__bundle/${modulePath.split(sep).pop()}`,
@@ -114,7 +135,11 @@ async function checkTopology(browser, baseUrl, topology) {
 
     if (!await waitFor(page, () => window.__pmContextLossReady !== undefined, 90000)
         || !await page.evaluate(() => window.__pmContextLossReady)) {
-        check(false, `context started (${JSON.stringify(await page.evaluate(() => window.__pmContextLoss?.errors))})`);
+        const why = await page.evaluate(() => ({
+            errors: window.__pmContextLoss?.errors,
+            renderWorkerFallbacks: window.__pmContextLoss?.fallbackReasons,
+        }));
+        check(false, `context started (${JSON.stringify(why)})`);
         await page.close();
         return { failures, refused: false };
     }
@@ -152,6 +177,26 @@ async function checkTopology(browser, baseUrl, topology) {
         `contextSnapshot was read again from the rebuilt context (${JSON.stringify(await page.evaluate(() => window.__pmContextLoss.contextSnapshot()))})`);
     const errors = await page.evaluate(() => window.__pmContextLoss.errors);
     check(errors.length === 0, `no errors reported (${JSON.stringify(errors)})`);
+
+    // A second loss, with the page's (or worker's) "webglcontextlost" handler held back 400 ms and
+    // a preset load started right after the loss: its preparation completes while the context is
+    // lost but the engine is still up. On a slow CI runner that gap happened by itself, and
+    // activating the preset there aborted the worker (std::terminate in
+    // projectm_load_prepared_preset); the delay makes it happen on every run.
+    console.log('  -- a preset prepared while the loss is not yet handled');
+    await page.evaluate((preset) => {
+        window.__pmContextLoss.loseContext({ restoreDelay: 1500, lostEventDelay: 400 });
+        window.__pmContextLoss.startPresetLoad(preset);
+    }, `${baseUrl}/presets/tests/100-square.milk`);
+    check(await waitFor(page, () => window.__pmContextLoss.overlayVisible(), 15000), 'the overlay appears once the delayed loss is handled');
+    if (await waitFor(page, () => !window.__pmContextLoss.overlayVisible(), 20000)) {
+        check(await engineHandle(page) > 0, 'the engine was rebuilt after the second loss');
+    } else {
+        console.log('  the browser did not restore the context a second time; the rebuild was not checked');
+    }
+    const errorsAfter = await page.evaluate(() => window.__pmContextLoss.errors);
+    check(errorsAfter.length === 0, `no errors reported after the second loss (${JSON.stringify(errorsAfter)})`);
+    check(pageErrors.length === 0, `no uncaught errors in the page (${JSON.stringify(pageErrors)})`);
 
     await page.close();
     return { failures, refused: false };

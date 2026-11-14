@@ -326,6 +326,19 @@ void ActivatePreparedPreset(WasmHost& host)
     {
         return;
     }
+    // A lost context stays usable as a JS object until the page's
+    // "webglcontextlost" handler tears the engine down, a later task. The
+    // activation timers (ActivateFromEventLoop, PollPendingSwitchFromEventLoop)
+    // can run in between, and so can render_frame(), which has the same check:
+    // WebGL's createShader()/createProgram() return null on a lost context, the
+    // GL glue then throws a JavaScript TypeError, and a foreign exception
+    // unwinding through the C API's catch (...) ends in std::terminate(). The
+    // completed result stays queued; once the context is restored, the rebuilt
+    // engine's frames pick it up like any other.
+    if (host.glCtx != 0 && emscripten_is_webgl_context_lost(host.glCtx))
+    {
+        return;
+    }
     std::optional<PresetPrepareRequest> prepared = host.presetPrepare->TakeCompleted();
     if (!prepared && !host.pendingSwitch)
     {

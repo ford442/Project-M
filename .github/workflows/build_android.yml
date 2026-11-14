@@ -17,10 +17,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
+permissions:
+  contents: read
+
 jobs:
   build-shared:
     name: "Libs: ${{ matrix.libs }}, ABI: ${{ matrix.abi }}, Platform: ${{ matrix.platform-version }}, Build OS: ${{ matrix.runs-on }}"
     runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +34,7 @@ jobs:
         runs-on: ['ubuntu-24.04']
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: 'recursive'
 
@@ -70,7 +74,7 @@ jobs:
           cmake --build "${{ github.workspace }}/cmake-build" --config "Release" --target install
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
             name: projectm-android-${{ matrix.libs }}-${{ matrix.abi }}-api${{ matrix.platform-version }}
             path: install/*

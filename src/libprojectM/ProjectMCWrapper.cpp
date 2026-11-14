@@ -544,10 +544,12 @@ void projectm_perf_set_instance_gpu_stage_callback(projectm_handle instance, pro
     });
 }
 
-projectm_perf_gpu_stage projectm_perf_enter_gpu_stage(projectm_perf_gpu_stage stage)
+projectm_perf_gpu_stage projectm_perf_enter_gpu_stage(int stage)
 {
     return CApiGuard(__func__, PROJECTM_PERF_GPU_STAGE_OTHER, [&]() -> projectm_perf_gpu_stage {
-        const int index = static_cast<int>(stage);
+        // The parameter is an int on purpose: a projectm_perf_gpu_stage holding a value outside the
+        // enum's range is already undefined behavior to load, so it cannot be checked after the fact.
+        const int index = stage;
         if (index < 0 || index >= PROJECTM_PERF_GPU_STAGE_COUNT)
         {
             return static_cast<projectm_perf_gpu_stage>(libprojectM::Perf::CurrentGpuStage());

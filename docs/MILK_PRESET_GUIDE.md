@@ -889,7 +889,7 @@ warp_4=`ret = tex2D(sampler_main, uv).xyz;
 
 ## Reference Resources
 
-- **Test presets:** `/home/user/Project-M/presets/tests/` — Real-world examples
+- **Test presets:** `presets/tests/` (repo root) — Real-world examples
   - `001-line.milk` — Minimal structure
   - `101-per_frame.milk` — Per-frame equations
   - `110-per_pixel.milk` — Per-pixel warp
@@ -898,9 +898,9 @@ warp_4=`ret = tex2D(sampler_main, uv).xyz;
   - `300-beatdetect-bassmidtreb.milk` — Audio reactivity
 
 - **Source code:**
-  - Parser: `/home/user/Project-M/src/libprojectM/MilkdropPreset/PresetFileParser.cpp`
-  - Execution: `/home/user/Project-M/src/libprojectM/MilkdropPreset/` (per-frame, per-pixel, wave, shape contexts)
-  - Shaders: `/home/user/Project-M/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp` (warp/composite assembly)
+  - Parser: `src/libprojectM/MilkdropPreset/PresetFileParser.cpp`
+  - Execution: `src/libprojectM/MilkdropPreset/` (per-frame, per-pixel, wave, shape contexts)
+  - Shaders: `src/libprojectM/MilkdropPreset/MilkdropShader.cpp` (preset warp/composite shader preprocessing and HLSL-to-GLSL transpile via `ShaderTranspiler.cpp`) and `src/libprojectM/MilkdropPreset/Shaders/` (the built-in GLSL warp/composite/blur shaders)
 
 ---
 

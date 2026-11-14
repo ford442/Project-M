@@ -22,6 +22,9 @@
     const params = new URLSearchParams(location.search);
     const topology = params.get('topology') || 'worker';
     const errors = [];
+    // Why the render worker did not boot: without this a failed worker start reports only
+    // "could not start" and the cause is lost.
+    const fallbackReasons = [];
 
     const context = new ProjectMContext({
       canvas: document.getElementById('pm-loss-main'),
@@ -30,6 +33,7 @@
       presetUrl: params.get('preset') || undefined,
       renderTopology: topology,
       onError: (detail) => errors.push(detail.message),
+      onRenderWorkerFallback: (reason) => fallbackReasons.push(reason),
     });
 
     const overlay = () => document.getElementById('pm-context-lost');
@@ -48,18 +52,66 @@
     // preamble that loads the real worker and adds one message of its own. The
     // real worker's top-level `let Module` is a global lexical binding, visible
     // to the scripts that share its scope — including this preamble.
+    //
+    // The wrapper worker's own base URL is a blob: URL, which a relative reference cannot
+    // resolve against, while the real worker loads its parts with importScripts('./worker/...')
+    // (projectm-render-worker.js). So the preamble resolves every importScripts() against the
+    // real script's URL, the way a worker started from that script would. Without it the
+    // worker never boots here and the test reports "the render worker could not start".
+    //
+    // A slow machine delivers "webglcontextlost" late: the context is already lost while the
+    // engine is still up, and a preset whose preparation completes in that gap used to be
+    // activated on the lost context (CI's worker aborted in projectm_load_prepared_preset).
+    // delayLostEvents() makes that gap long on purpose: each "webglcontextlost" listener
+    // registered on `proto`'s canvases runs getDelay() ms late (preventDefault() stays
+    // synchronous, or the browser would not restore the context). It is installed on the page's
+    // canvases and, through the preamble, on the worker's OffscreenCanvas; the delay is 0 until
+    // loseContext() asks for one.
+    function delayLostEvents(proto, getDelay) {
+      const nativeAdd = proto.addEventListener;
+      const nativeRemove = proto.removeEventListener;
+      const wrappers = new WeakMap();
+      proto.addEventListener = function (type, listener, options) {
+        if (type !== 'webglcontextlost' || typeof listener !== 'function') {
+          return nativeAdd.call(this, type, listener, options);
+        }
+        const wrapper = function (event) {
+          const delay = getDelay();
+          if (delay <= 0) return listener.call(this, event);
+          event.preventDefault();
+          setTimeout(() => listener.call(this, event), delay);
+        };
+        wrappers.set(listener, wrapper);
+        return nativeAdd.call(this, type, wrapper, options);
+      };
+      proto.removeEventListener = function (type, listener, options) {
+        return nativeRemove.call(this, type, wrappers.get(listener) ?? listener, options);
+      };
+    }
+    let pageLostEventDelay = 0;
+    delayLostEvents(HTMLCanvasElement.prototype, () => pageLostEventDelay);
+
     const realWorker = globalThis.Worker;
     let workerHook = null;
     globalThis.Worker = class extends realWorker {
       constructor(url, options) {
+        const scriptUrl = new URL(String(url), document.baseURI).href;
         const preamble = `
-          importScripts(${JSON.stringify(String(url))});
+          const realScriptUrl = ${JSON.stringify(scriptUrl)};
+          const nativeImportScripts = self.importScripts.bind(self);
+          self.importScripts = (...urls) => nativeImportScripts(...urls.map((u) => new URL(u, realScriptUrl).href));
+          let lostEventDelay = 0;
+          if (typeof OffscreenCanvas === 'function') {
+            (${delayLostEvents.toString()})(OffscreenCanvas.prototype, () => lostEventDelay);
+          }
+          importScripts(realScriptUrl);
           const realOnMessage = self.onmessage;
           self.onmessage = (event) => {
             const msg = event.data;
             if (msg && msg.type === '__lose-context') {
               const gl = Module.specialHTMLTargets['#mcanvas'].getContext('webgl2');
               const ext = gl.getExtension('WEBGL_lose_context');
+              lostEventDelay = msg.lostEventDelay;
               ext.loseContext();
               setTimeout(() => ext.restoreContext(), msg.restoreDelay);
               return;
@@ -78,6 +130,7 @@
 
     window.__pmContextLoss = {
       errors,
+      fallbackReasons,
       rememberSnapshot: () => (rememberedSnapshot = context.contextSnapshot),
       contextSnapshot: () => context.contextSnapshot,
       snapshotWasReread: () => context.contextSnapshot !== null && context.contextSnapshot !== rememberedSnapshot,
@@ -85,15 +138,22 @@
       overlayVisible: () => !!overlay()?.classList.contains('visible'),
       engineHandle,
       presetPath: () => window.currentPresetPath ?? null,
-      async loseContext({ restoreDelay }) {
+      async loseContext({ restoreDelay, lostEventDelay = 0 }) {
         if (topology === 'worker') {
-          workerHook.postMessage({ type: '__lose-context', restoreDelay });
+          workerHook.postMessage({ type: '__lose-context', restoreDelay, lostEventDelay });
           return;
         }
         const gl = document.getElementById('pm-loss-main').getContext('webgl2');
         const ext = gl.getExtension('WEBGL_lose_context');
+        pageLostEventDelay = lostEventDelay;
         ext.loseContext();
         setTimeout(() => ext.restoreContext(), restoreDelay);
+      },
+      // Starts a preset load and does not wait for it: the load that matters is the one whose
+      // preparation completes while the context is lost, and its outcome is the check's
+      // `errors`, not this promise (a load the context loss interrupts may reject).
+      startPresetLoad(url) {
+        context.loadPresetUrl(url).catch(() => {});
       },
       tapOverlay: () => overlay()?.click(),
       sleep,

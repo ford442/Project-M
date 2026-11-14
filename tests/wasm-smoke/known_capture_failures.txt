@@ -1,0 +1,34 @@
+# Presets in presets/custom/ that the nightly screenshot capture
+# (.github/workflows/nightly_preset_screenshots.yml) is known to fail on, one per line:
+#     <preset file name>   # why
+#
+# scripts/check_capture_report.mjs fails the nightly job for any capture failure NOT listed here, and
+# also for a listed preset that now captures fine: this ledger only shrinks. Repairing a preset
+# means deleting its line in the same change (see docs/agents/kimi_preset_authoring_plan.md).
+# Do not add a line to make a red nightly green: fix the preset, or move it to presets/quarantine/.
+#
+# Seeded 2026-11-13 from the 2026-11-12 nightly (run 43172653538), which had been green only
+# because the capture step ran with continue-on-error.
+
+# per_frame code without ';' between statements: passes PresetCompat, fails in the engine
+cinematic_pedal_steel_horizon.milk   # [PerFrameContext] Could not compile per-frame code: unexpected VAR(L2 C1)
+cinematic_pedal_steel_rain.milk      # same
+cinematic_pedal_steel_watershed.milk # same
+milk013.milk                         # same
+milk014.milk                         # same
+orbital_rave_aurora.milk             # same
+orbital_rave_neon.milk               # same
+orbital_rave_zephyr.milk             # same
+redwood_dreams_canopy.milk           # same
+redwood_dreams_firefly.milk          # same
+redwood_dreams_fog.milk              # same
+shader_swarm_candy.milk              # same
+shader_swarm_galaxy.milk             # same
+shader_swarm_reactive.milk           # same
+
+# custom shape per_frame code the evaluator cannot parse
+milk005.milk                         # [ShapePerFrameContext] custom shape 0 per-frame code: unexpected '('(L2 C9)
+
+# renders, but the canvas is below the dark threshold (mean RGB < 5)
+milk009.milk                         # mean RGB 0.63
+milk010.milk                         # mean RGB 0.74

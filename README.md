@@ -4,251 +4,119 @@
 [![Emscripten Build & Test Status](https://github.com/ford442/Project-M/actions/workflows/build_emscripten.yml/badge.svg?branch=main)](https://github.com/ford442/Project-M/actions/workflows/build_emscripten.yml)
 [![Android Build Status](https://github.com/ford442/Project-M/actions/workflows/build_android.yml/badge.svg?branch=main)](https://github.com/ford442/Project-M/actions/workflows/build_android.yml)
 
-![Discord Shield](https://discordapp.com/api/guilds/737206408482914387/widget.png?style=shield) [Chat with us on Discord](https://discord.gg/N9DyQfCH4j)
+![Logo](docs/web/logo.png)
+
+# Project-M: projectM in the browser, and a few things besides
+
+**This is a fork.** `ford442/Project-M` tracks the official
+[projectM](https://github.com/projectM-visualizer/projectm) (`projectM-visualizer/projectm`), the open-source C++
+reimplementation of the Winamp [Milkdrop](https://en.wikipedia.org/wiki/MilkDrop) music visualizer by Geiss. It reads audio
+PCM, analyzes it (FFT, beat detection) and renders Milkdrop presets (equations plus pixel shaders) with OpenGL. Upstream's
+library, C API and playlist library are all still here; this fork adds a WebAssembly build with a browser host and a handful
+of library features. For end-user applications, preset packs and the project's history, see the
+[upstream README](https://github.com/projectM-visualizer/projectm#readme).
+
+`main` is where the fork is developed; `master` is a read-only mirror of upstream. How the two are kept in step, and which
+differences are deliberate, is in [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md).
+
+## What this fork adds
+
+- **Browser / WASM host.** [`src/wasm/`](src/wasm) is the Emscripten wrapper (multiple engines per module, per-host WebGL
+  contexts, preset preparation on a pthread, SharedArrayBuffer audio ingest); [`html/`](html) is the host layer, the ES modules
+  that boot it, size the canvas, feed audio and build the demo pages ([`docs/HOST_LAYER.md`](docs/HOST_LAYER.md),
+  [`docs/WASM_JS_API.md`](docs/WASM_JS_API.md)).
+- **`@projectm/web`**, an embeddable SDK in [`packages/web/`](packages/web): a `<project-m-visualizer>` custom element and a
+  typed context API over the same modules ([README](packages/web/README.md)).
+- **C API extensions** in `src/api/include/projectM-4/`: `rhythm.h` (tempo, beat, bar and section info, `pm_*` preset
+  variables, beat-aligned preset switching), `live_input.h` (live textures, host values for per-frame variables),
+  `preset_prepare.h` (staged preset loading), `offline_render.h`, `texture_reload.h`, `projectm_perf.h`.
+- **Offline renderer.** `projectm-render` (`-DENABLE_RENDER_TOOL=ON`, Linux/BSD) renders a preset plus audio on a virtual
+  clock into raw frames or a pixel hash, deterministically ([`docs/OFFLINE_RENDER.md`](docs/OFFLINE_RENDER.md)).
+- **Render-device seam and `EngineContext`.** All GL sits behind `Renderer/Device` (`IRenderDevice`), groundwork for another
+  backend ([`docs/RENDER_DEVICE.md`](docs/RENDER_DEVICE.md)); per-engine state (seed, perf timers, log callback) lives in an
+  `EngineContext`, so engines run side by side without sharing it.
+- **Performance work:** GPU evaluation of per-pixel equations ([`docs/GPU_PERPIXEL_EVAL.md`](docs/GPU_PERPIXEL_EVAL.md)),
+  OpenMP and SIMD, a flash limiter, transition shaders, a frame-time HUD and benchmarks ([`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)).
+- **Preset corpora** in [`presets/`](presets): `tests/` (parser fixtures), `custom/` (curated), `weeks/` (community), plus
+  `quarantine/` and `experimental/`, with a GPU-free static audit (`scripts/audit_presets.mjs`, [`docs/PRESET_AUDIT.md`](docs/PRESET_AUDIT.md)).
+- **`vendor/projectm-eval` is a fork too:** [`ford442/projectm-eval`](https://github.com/ford442/projectm-eval), branch
+  `context-rng` (upstream 1.0.7 plus a per-context `rand()` stream).
+
+## Live site
+
+The deployed browser build is served from **https://projectm.1ink.us/** (the `prod` target of `deploy.py`); `deploy.py` also
+publishes to staging hosts at `test.1ink.us/projectm.1ink.us/` and `go.1ink.us/projectm.1ink.us/`
+([`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)). The bundle is threaded, so the page must be served with
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Browser floor: Safari 16.4,
+Chrome 91, Firefox 89. Which bundle is current and what changed in each is in [`CHANGELOG.md`](CHANGELOG.md).
+
+## Building
+
+```bash
+git clone https://github.com/ford442/Project-M.git && cd Project-M
+git submodule update --init --recursive      # vendor/projectm-eval is the fork, see above
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --parallel
+```
+
+On Linux `BUILD_TESTING=ON` also needs `libsdl2-dev`. If a system projectM-eval is installed, add
+`-DENABLE_SYSTEM_PROJECTM_EVAL=OFF`: an installed upstream copy lacks the per-context `rand()` stream and compiles the GPU
+per-pixel path out. An older clone whose `vendor/projectm-eval` still points at upstream needs
+`git submodule sync vendor/projectm-eval && git submodule update --init vendor/projectm-eval`; the configure step stops and
+says so. Dependencies, options and other platforms: [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/BUILDING-cmake.md`](docs/BUILDING-cmake.md).
+The WebAssembly bundle is built with `scripts/build_wasm.sh` under Emscripten SDK **6.0.6**, the version CI pins and the only
+one the golden images are verified against ([`docs/EMSCRIPTEN.md`](docs/EMSCRIPTEN.md), "Building the bundle").
+
+## Testing
+
+```bash
+ctest --test-dir build --build-config Release     # C++ unit tests (GPU tests need a display or xvfb-run)
+scripts/test_presets.sh                            # parse and transpile the preset corpora
+npm install && npm test                            # browser host layer and @projectm/web (also: npm run lint, npm run typecheck)
+node tests/wasm-smoke/run.mjs <glue.js> <preset>   # headless-browser smoke test of a built bundle
+```
+
+[`AGENTS.md`](AGENTS.md) is the full reference for build options, test suites, CI gates and conventions.
+
+## Using the library
+
+At its core this is **libprojectM**, a C library with a stable C API (`projectM-4/*.h`) that parses presets, analyzes PCM audio
+and renders with OpenGL Core 3.3 or OpenGL ES 3, into a dedicated context or a texture. Upstream's
+[developer wiki](https://github.com/projectM-visualizer/projectm/wiki#integrating-projectm-into-applications) covers
+integration; the fork's additions are documented in [`docs/`](docs). Upstream's README also lists a
+[Rust crate](https://crates.io/crates/projectm), a [GStreamer plugin](https://github.com/projectM-visualizer/gst-projectm/)
+and the [Milkdrop expression library](https://github.com/projectM-visualizer/projectm-eval) that the evaluator fork is based on.
+libprojectM does not bundle presets: this repo's `presets/` serve tests, the demo site and authoring, and upstream's packs
+live in [separate repositories](https://github.com/projectM-visualizer/projectm#presets).
+
+## Documentation
+
+| Topic | Start at |
+|---|---|
+| Build and test | [`AGENTS.md`](AGENTS.md), [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/EMSCRIPTEN.md`](docs/EMSCRIPTEN.md) |
+| Releases and versions | [`CHANGELOG.md`](CHANGELOG.md), [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), [`docs/adr/0001-wasm-and-media-hosting.md`](docs/adr/0001-wasm-and-media-hosting.md) |
+| Browser host and SDK | [`docs/HOST_LAYER.md`](docs/HOST_LAYER.md), [`docs/WASM_JS_API.md`](docs/WASM_JS_API.md), [`html/README.md`](html/README.md), [`packages/web/README.md`](packages/web/README.md) |
+| Engine | [`docs/AUDIO_PIPELINE.md`](docs/AUDIO_PIPELINE.md), [`docs/RENDER_DEVICE.md`](docs/RENDER_DEVICE.md), [`docs/LIVE_INPUT.md`](docs/LIVE_INPUT.md), [`docs/OFFLINE_RENDER.md`](docs/OFFLINE_RENDER.md), [`docs/transition_shaders.md`](docs/transition_shaders.md) |
+| Performance | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md), [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md), [`docs/GRAPHICS_BENCHMARK_HARNESS.md`](docs/GRAPHICS_BENCHMARK_HARNESS.md), [`docs/GPU_PERPIXEL_EVAL.md`](docs/GPU_PERPIXEL_EVAL.md), [`docs/openmp.md`](docs/openmp.md) |
+| Presets | [`docs/MILK_PRESET_GUIDE.md`](docs/MILK_PRESET_GUIDE.md), [`docs/WRITING_NEW_MILK_PRESETS_GUIDE.md`](docs/WRITING_NEW_MILK_PRESETS_GUIDE.md), [`docs/PRESET_AUDIT.md`](docs/PRESET_AUDIT.md), [`docs/PRESET_ROADMAP.md`](docs/PRESET_ROADMAP.md) |
+| Upstream and the eval fork | [`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md) |
+| Coding agents | [`claude.md`](claude.md), [`docs/agents/`](docs/agents) |
+| Historical | [`docs/archive/`](docs/archive) |
+
+## Help and contributing
 
-![Logo](https://github.com/projectM-visualizer/projectm/raw/master/docs/web/logo.png)
+Issues and pull requests for this fork go to [ford442/Project-M](https://github.com/ford442/Project-M/issues). If a problem
+also reproduces on upstream's `master`, or concerns the core library or C API as upstream ships them, report it to the
+[projectM issue tracker](https://github.com/projectM-visualizer/projectm/issues) too. The upstream community is on
+[Discord](https://discord.gg/N9DyQfCH4j). Read [`AGENTS.md`](AGENTS.md) before sending code, and add user-visible changes to
+[`CHANGELOG.md`](CHANGELOG.md).
 
-## projectM - The most advanced open-source music visualizer
+## Credits and license
 
-**Experience psychedelic and mesmerizing visuals by transforming music into equations that render into a limitless array
-of user-contributed visualizations.**
+projectM is the work of the [projectM team and contributors](AUTHORS.txt); Milkdrop is by Ryan Geiss. The upstream project and
+its authors are the origin of everything under `src/libprojectM`, and this fork's additions build on it.
 
-projectM is an open-source project that reimplements the
-esteemed [Winamp Milkdrop](https://en.wikipedia.org/wiki/MilkDrop) by Geiss in a more modern, cross-platform reusable
-library.
-
-Its purpose in life is to read an audio input and to produce mesmerizing visuals, detecting tempo, and rendering
-advanced equations into a limitless array of user-contributed visualizations.
-
-### Important: This repository only contains libprojectM for use in application development!
-
-This repository now only contains the projectM shared/static library. All frontends, plug-ins and other tools were
-outsourced into separate repositories. If you're not a developer and just look for a download to run projectM visuals on
-your machine or device, please use one of the links listed below. The releases section in this repository only contains
-source-code and binary releases of the projectM development libraries and headers, which aren't useful for end users.
-
-### End-User Applications
-
-**Important**: projectM is currently undergoing heavy development, so the available end-user frontends are either
-outdated or unavailable. We've released a few development previews, which are not feature-complete and may have bugs. As
-soon as we've finished the current modernization of libprojectM, we'll release new and tested versions of most of the
-frontends listed below, while we may remove or replace some of those which are no longer maintained by their original
-developers.
-
-#### Windows
-
-- Standalone (currently only available as
-  a [development preview](https://github.com/kblaschke/frontend-sdl2/releases/tag/2.0-windows-pre3))
-- [Steam](https://store.steampowered.com/app/1358800/projectM_Music_Visualizer/) (Same as standalone development
-  preview)
-
-#### macOS
-
-- Standalone
-  - [C++ app development preview](https://github.com/kblaschke/frontend-sdl2/releases/tag/2.0-macos-pre1)
-  - [Rust app development preview (signed)](https://github.com/projectM-visualizer/frontend-sdl-rust/releases/tag/v0.1.0)
-- [Steam](https://store.steampowered.com/app/1358800/projectM_Music_Visualizer/) (Old 3.1.12 release)
-- Music.app Plugin  (currently only available as an
-  _unsigned_ [development preview](https://github.com/kblaschke/frontend-music-plug-in/releases/tag/v3.0-pre1))
-- [Brew](https://formulae.brew.sh/formula/projectm) (Old 3.1.12 release)
-
-#### Linux
-
-- Standalone (currently only available as
-  a [development preview](https://github.com/kblaschke/frontend-sdl2/releases/tag/2.0-linux-pre2) for Ubuntu 22.04 and
-  compatible distributions)
-- [Steam](https://store.steampowered.com/app/1358800/projectM_Music_Visualizer/) (Same as standalone development
-  preview)
-
-Or check your distribution's package manager for a binary release. If it is outdated, please contact the package
-maintainer, as the projectM development team does not maintain any of the distribution-specific packages.
-
-#### Android
-
-- [Google Play](https://play.google.com/store/apps/details?id=com.psperl.prjM)
-
-**Note**: Both the free and paid apps plus the Android TV app are _not_ created or supported by the projectM developers!
-If you have technical troubles or other inquiries, please contact the app author via the means provided in the Play
-Store. Any bug reports in the projectM issue tracker regarding the apps will be closed immediately.
-
-#### Xbox / Windows Phone
-
-- [Windows Store](https://www.microsoft.com/store/apps/9NDCVH0VCWJN) (Old 3.1.12 release)
-
-#### Other
-
-Source code and other resources, mostly aimed at developers.
-
-- [Library source code](https://github.com/projectM-visualizer/projectm/) (this repository)
-- [GStreamer plugin](https://github.com/projectM-visualizer/gst-projectm/)
-- [Qt5](https://www.qt.io/) based [PulseAudio](https://www.freedesktop.org/wiki/Software/PulseAudio/) and JACK desktop
-  apps [as source code for Linux](https://github.com/projectM-visualizer/frontend-qt), currently broken and needs some
-  updating (help wanted!).
-- [ALSA, XMMS, Winamp, JACK](https://sourceforge.net/projects/projectm/files/) (legacy 2.x sources for historic
-  purposes, unmaintained since 2012)
-
-### Discord chat
-
-[Chat with us on Discord!](https://discord.gg/N9DyQfCH4j)
-
-### Click For Demo Videos
-
-<a href="https://www.youtube.com/watch?v=jJmLQGhYWys&list=PLFLkbObX4o6TK1jGL6pm1wMwvq2FXnpYJ">
-  <img src="https://i3.ytimg.com/vi/QlfqpVvo4zM/maxresdefault.jpg" width="800" alt="4k ProjectM render demo playlist" />
-</a>
-
-### Presets
-
-The preset files define the visualizations via pixel shaders and Milkdrop-style equations and parameters.
-
-The projectM library does not ship with any presets. The frontends come with varying preset packs which can be found in
-separate repositories in the projectM repository list:
-
-- [Base Milkdrop texture pack](https://github.com/projectM-visualizer/presets-milkdrop-texture-pack) - Recommended for
-  use with _any_ preset pack!
-- [Cream of the Crop Pack](https://github.com/projectM-visualizer/presets-cream-of-the-crop) - A collection of about 10K
-  presets compiled by Jason Fletcher. Currently, projectM's default preset pack.
-- [Classic projectM Presets](https://github.com/projectM-visualizer/presets-projectm-classic) - A bit over 4K presets
-  shipped with previous versions of projectM.
-- [Milkdrop 2 Presets](https://github.com/projectM-visualizer/presets-milkdrop-original) - The original preset
-  collection shipped with Milkdrop and Winamp.
-- [En D Presets](https://github.com/projectM-visualizer/presets-en-d) - About 50 presets created by "En D".
-
-Included with projectM are the bltc201, Milkdrop 1 and 2, projectM, tryptonaut and yin collections. You can grab these
-presets [here](http://spiegelmc.com/pub/projectm_presets.zip).
-
-You can also download an enormous 130k+ presets from the MegaPack [here](https://drive.google.com/file/d/1DlszoqMG-pc5v1Bo9x4NhemGPiwT-0pv/view) (4.08GB zipped, incl. textures).
-
-### Also Featured In
-
-[![Kodi](docs/web/kodi.png) Kodi (formerly XBMC)](https://kodi.tv/)
-
-[![Helix](docs/web/helix.jpg) Helix](https://web.archive.org/web/20180628174410/http://ghostfiregames.com/helixhome.html)
-
-[![Silverjuke](docs/web/silverjuke.png) Silverjuke (FOSS Jukebox)](https://www.silverjuke.net)
-
-[![VLC Media Player](docs/web/vlc.png) VLC Media Player (AKA VideoLAN Client)](https://www.videolan.org/vlc/)
-
-Reminder: These are all third-party integrations of libprojectM and not developed or supported by the projectM
-development team. Please report bugs in those applications to their respective developers.
-
----
-
-## Screenshots
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-08-25%20at%2012.31.20%20AM.png)
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-08-25%20at%2012.33.50%20AM.png)
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-07-18%20at%202.14.41%20PM.png)
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-07-18%20at%202.13.53%20PM.png)
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-07-18%20at%202.15.36%20PM.png)
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-08-16%20at%204.49.32%20PM.png)
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-08-16%20at%204.50.37%20PM.png)
-
-![Screenshot](docs/web/projectM_screenshots/Screen%20Shot%202014-08-25%20at%2012.31.07%20AM.png)
-
----
-
-## Architecture
-
-- [Article](https://lwn.net/Articles/750152/)
-
-# Building from source
-
-See [BUILDING.md](BUILDING.md) and
-the [developer documentation in the wiki](https://github.com/projectM-visualizer/projectm/wiki/Building-libprojectM).
-
-# Using the library
-
-At its core projectM is a library, [libprojectM](src/libprojectM). This library is responsible for parsing presets,
-analyzing audio PCM data with beat detection and FFT, applying the preset to the audio feature data and rendering the
-resulting output with OpenGL. It can render to a dedicated OpenGL context or a texture.
-
-To get started using projectM in your own projects, please go to the wiki and read
-the [developer documentation](https://github.com/projectM-visualizer/projectm/wiki#integrating-projectm-into-applications)
-available there.
-
-There are some open-source applications that make use of libprojectM which can be found in
-the [projectM organization's repositories](https://github.com/projectM-visualizer) and elsewhere.
-
----
-
-# See Also
-
-- [GStreamer plugin for offline rendering](https://github.com/projectM-visualizer/gst-projectm/)
-- [ProjectM Rust Crate](https://crates.io/crates/projectm)
-- [Milkdrop evaluation library](https://github.com/projectM-visualizer/projectm-eval)
-
----
-
-## Help
-
-Report issues on GitHub in the respective repositories:
-
-- [Rendering issues, crashes or the libprojectM core/API](https://github.com/projectM-visualizer/projectm/issues)
-- [Standalone SDL app](https://github.com/projectM-visualizer/frontend-sdl2/issues) (including the Steam release)
-- [Windows Store App](https://github.com/projectM-visualizer/frontend-uwp/issues)
-- [Apple Music plug-in](https://github.com/projectM-visualizer/frontend-music-plug-in/issues)
-- Issues regarding the **projectM Android apps in the Play Store**, please contact the app author via the Play Store. We
-  cannot help with any problems or requests.
-
-If unsure, post your issue in the
-main [libprojectM issue tracker](https://github.com/projectM-visualizer/projectm/issues).
-Please always check any existing issues if your problem has already been posted by another user. If so, add your logs
-and findings to the existing issue instead of opening a new ticket.
-
-## Get in contact with us
-
-[Chat with us on Discord.](https://discord.gg/N9DyQfCH4j)
-
-## Contribute to projectM
-
-If you would like to help improve this project, either with documentation, code, porting, hardware or anything else
-please let us know! We gladly accept pull requests and issues.
-
-Before starting to write code, please take your time to read
-the [contribution guidelines](https://github.com/projectM-visualizer/projectm/wiki#contributing-to-projectm) in our
-wiki.
-
-Come talk to the dev team on Discord.
-
-## Package Maintainers
-
-If you maintain packages of libprojectM, we are happy to work with you! Please note well:
-
-- The main focus of this project is libprojectM. It's a library that only really depends on OpenGL. The other
-  applications are more like examples and demos.
-- Many of the frontend applications are likely outdated and of less utility than the core library. If you desire to use
-  them or depend on them, please file an issue in the respective repository so we can help update them.
-- The "canonical" application for actually viewing the visualizations is
-  now [projectM-SDL](https://github.com/projectM-visualizer/frontend-sdl2), based on libSDL2 because it supports audio
-  input and is completely cross-platform.
-- If you like Rust, there is a [SDL3 rust frontend](https://github.com/projectM-visualizer/frontend-sdl-rust) in the works looking for contributors.
-- This is an open source project! If you don't like something, feel free to contribute improvements!
-- Yes, you are looking at the official version. This is not a fork.
-
-## Authors
-
-[Authors](https://github.com/projectM-visualizer/projectm/raw/master/AUTHORS.txt)
-
-## License
-
-The core projectM library is released under
-the [GNU Lesser General Public License 2.1](https://github.com/projectM-visualizer/projectm/raw/master/LICENSE.txt) to
-keep any changes open-sourced, but also enable the use of libprojectM in closed-source applications (as a shared
-library) as long as the license terms are adhered to. The up- and downstream projects may use different licenses -
-please check all parts of the software to be compatible with your specific project if you plan an integration.
-
-## Wiki
-
-More information for developers is available from
-the [projectM Wiki](https://github.com/projectM-visualizer/projectm/wiki).
-
-## Star History
-
-[![Star History Chart](https://star-history.dera.page/svg?repos=projectM-visualizer/projectm&type=Date)](https://star-history.dera.page/#projectM-visualizer/projectm&Date)
+Released under the [GNU Lesser General Public License 2.1](LICENSE.txt) (`LGPL-2.1-only`), which keeps changes open while
+allowing libprojectM to be used from closed-source applications as a shared library, provided the license terms are met.
+Third-party code under `vendor/` carries its own licenses; check them before redistributing.

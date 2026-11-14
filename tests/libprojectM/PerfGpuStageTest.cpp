@@ -113,8 +113,11 @@ TEST(PerfGpuStageTest, HostEnteredStagesReturnThePreviousOne)
     EXPECT_EQ(previous, PROJECTM_PERF_GPU_STAGE_OTHER);
     EXPECT_EQ(projectm_perf_enter_gpu_stage(previous), PROJECTM_PERF_GPU_STAGE_PRESENT);
 
-    // Out of range is refused rather than cast into the C++ enum.
-    EXPECT_EQ(projectm_perf_enter_gpu_stage(static_cast<projectm_perf_gpu_stage>(42)), PROJECTM_PERF_GPU_STAGE_OTHER);
+    // Out of range is refused at the C boundary: the argument is an int, so no invalid enum value
+    // is ever formed (UBSan's -fsanitize=enum flags that), and the current stage is returned.
+    EXPECT_EQ(projectm_perf_enter_gpu_stage(42), PROJECTM_PERF_GPU_STAGE_OTHER);
+    EXPECT_EQ(projectm_perf_enter_gpu_stage(-1), PROJECTM_PERF_GPU_STAGE_OTHER);
+    EXPECT_EQ(projectm_perf_enter_gpu_stage(PROJECTM_PERF_GPU_STAGE_COUNT), PROJECTM_PERF_GPU_STAGE_OTHER);
 
     const std::vector<int> expected{PROJECTM_PERF_GPU_STAGE_PRESENT, PROJECTM_PERF_GPU_STAGE_OTHER};
     EXPECT_EQ(g_stageLog, expected);

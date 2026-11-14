@@ -120,6 +120,13 @@ void HeadlessGlContext::ReleaseCurrent()
     }
 }
 
+void HeadlessGlContext::ReleaseThreadResources()
+{
+#if SDL_VERSION_ATLEAST(2, 0, 16)
+    SDL_TLSCleanup();
+#endif
+}
+
 auto HeadlessGlContext::InitializeGlad() -> bool
 {
     if (!m_valid)
@@ -158,6 +165,10 @@ auto HeadlessGlContext::MakeCurrent() -> bool
 }
 
 void HeadlessGlContext::ReleaseCurrent()
+{
+}
+
+void HeadlessGlContext::ReleaseThreadResources()
 {
 }
 

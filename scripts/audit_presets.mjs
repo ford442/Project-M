@@ -757,8 +757,11 @@ function renderWorklist(report) {
   L.push('  frame. Moving the zoom/warp math into a `warp_*` shader body hands it to the GPU and');
   L.push('  is usually the single biggest win (**#170**, by rewriting the preset). Compiling');
   L.push('  `per_pixel_*` to a generated warp vertex snippet so the next 400 presets do not need');
-  L.push('  a human is **#227** Phase 1 — design only, see');
-  L.push('  [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md); not in the engine yet.');
+  L.push('  a human is **#227**, which has landed (Phase 1, extended in Phase 1.5): see');
+  L.push('  [`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md), "What the GPU path covers", for the');
+  L.push('  current counts. It still keeps some presets on the CPU, each with a recorded reason, for');
+  L.push('  instance equations that carry state between vertices (a local read before it is');
+  L.push('  assigned). Those still need #170.');
   L.push('- **tex2D fetches dominant** — bandwidth bound. Look for repeated fetches of the same');
   L.push('  coordinate that can be hoisted into a local, or blur taps that can drop an octave.');
   L.push('- **shader body length dominant** — long per-fragment programs. Check for math that is');

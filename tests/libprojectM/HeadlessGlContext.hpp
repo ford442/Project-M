@@ -35,6 +35,16 @@ public:
     void ReleaseCurrent();
 
     /**
+     * @brief Frees what SDL keeps per thread for a thread that made a context current.
+     *
+     * SDL_GL_MakeCurrent() stores the current window and context in SDL's thread-local storage, and
+     * SDL only frees that for threads it started itself (SDL_CreateThread). A std::thread that makes
+     * a context current must call this as its last act, after ReleaseCurrent(), or LeakSanitizer
+     * reports the storage as leaked from inside libSDL2. Do not call it on the main thread.
+     */
+    static void ReleaseThreadResources();
+
+    /**
      * @brief Loads GL entry points via GLAD after the context is current.
      */
     auto InitializeGlad() -> bool;

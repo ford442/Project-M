@@ -7,9 +7,11 @@ name: Graphics Perf Benchmark
 # are not a performance measurement. This job is the other half: real GL, real
 # numbers, and therefore a runner that a hosted PR job cannot assume exists.
 #
-# It needs a runner labelled `gpu` (self-hosted, with a working GL driver). With
-# no such runner registered the job is skipped by GitHub and nothing here goes
-# red — the whole point of splitting it out of the PR gate.
+# It needs a runner labelled `gpu` (self-hosted, with a working GL driver), and
+# none is registered. A job whose label matches no runner does not get skipped: it
+# queues and is cancelled after 24 hours, so on a nightly schedule this workflow
+# reported a cancelled run every day (2026-10-29 onward). It therefore runs only
+# when dispatched by hand. Restore the `schedule:` trigger below when a runner exists.
 #
 # Results are recorded per commit under benchmark-results/ and compared against
 # the base record when one exists. The gate is relative (p95 up more than
@@ -27,9 +29,9 @@ name: Graphics Perf Benchmark
 # to main (docs/GRAPHICS_BENCHMARK_HARNESS.md "Hardware baseline").
 
 on:
-  schedule:
-    # 04:20 UTC nightly.
-    - cron: '20 4 * * *'
+  # schedule:
+  #   # 04:20 UTC nightly. Off until a `[self-hosted, gpu]` runner is registered.
+  #   - cron: '20 4 * * *'
   workflow_dispatch:
     inputs:
       base_commit:
@@ -52,16 +54,16 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: 'recursive'
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
 
       - name: Setup emsdk
-        uses: emscripten-core/setup-emsdk@v16
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
           # Same pin as build_emscripten.yml (see the note on its matrix).
           version: 6.0.6
@@ -168,7 +170,7 @@ jobs:
 
       - name: Upload benchmark records
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: frame-budget-${{ github.sha }}
           if-no-files-found: warn

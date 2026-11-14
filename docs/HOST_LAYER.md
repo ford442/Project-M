@@ -47,6 +47,23 @@ follows. To split a module, move cohesive parts into a subdirectory, as
 `html/context/` does for `projectm-context.js`. Keep the original file as the
 entry point, so import paths stay stable.
 
+## `html/flac-player/` holds a webpack build of an external app
+
+`html/flac-player/` is the output of the separate `flac_player` app (webpack), not source
+maintained here. It ships **two** content-hashed bundles, and both are live:
+
+- `bundle.<hash>.js` (today `1be0…`): the main bundle, the only script `boot.js` loads.
+- `bundle.<hash>.js` (today `4f00…`): the **FLAC decoder Web Worker chunk**. Nothing in `html/`
+  loads it by name (only comments mention the hash); the main bundle starts it with `new Worker(new URL(…))`, and webpack's
+  chunk-name table (`__webpack_require__.u`) inside the main bundle holds its file name.
+  `decode-guard.js` and `tests/web/flac-decode-claws.test.mjs` describe its message protocol.
+
+So a file with no inbound reference is not an orphan here: grep the main bundle for the hash before
+deleting one. Deleting the worker chunk makes every FLAC decode fail. When the external app is
+rebuilt, replace **both** files together (the main bundle's table names the worker chunk it needs);
+`deploy.py` uploads the whole directory (`html/flac-player/**/*`), so a stale chunk left behind is
+the only way an old hash stays deployed.
+
 ## TypeScript strategy (decision record, 2026-11)
 
 **Decision: do not convert `html/` to `.ts` wholesale.**

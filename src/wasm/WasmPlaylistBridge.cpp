@@ -6,6 +6,11 @@
 #include "WasmHost.hpp"
 #include "WasmLog.hpp"
 
+#include <cstdio>
+#include <filesystem>
+#include <string>
+#include <system_error>
+
 // Per-instance host state (#168 Phase B). The engine/playlist/loading triple
 // and the preset-readiness gate are members of the WasmHost that owns them.
 //
@@ -262,6 +267,65 @@ void load_preset_file(WasmHost& H, const char* filename)
 void load_preset_file_hard(WasmHost& H, const char* filename)
 {
     LoadPresetFile(H, filename, true);
+}
+
+// Presets by buffer. The bytes still get a name in MEMFS: the playlist, a
+// context-loss reload (html/projectm-context-loss.js reloads the current path)
+// and the transpiled-shader cache all know a preset by its path. What changes
+// for the host is that it no longer drives the filesystem itself (mkdir, then
+// FS.writeFile, then a second call to load). See docs/EMSCRIPTEN.md
+// "Presets by buffer".
+int load_preset_data(WasmHost& H, uint8_t* data, uintptr_t len, const char* name, int mode)
+{
+    // The `mode` values (html/projectm-preset-store.js, PRESET_STORE_MODES).
+    constexpr int kLoad = 0;
+    constexpr int kLoadHardCut = 1;
+    constexpr int kAddToPlaylist = 2;
+    constexpr int kStoreOnly = 3;
+    if (name == nullptr || name[0] == '\0' || (data == nullptr && len > 0) || mode < kLoad || mode > kStoreOnly)
+    {
+        return 0;
+    }
+    // Storing needs no engine; the other modes hand the preset to one.
+    if (mode != kStoreOnly && !H.appData.projectm_engine)
+    {
+        return 0;
+    }
+    std::string path = name;
+    if (path.front() != '/')
+    {
+        path = "/presets/" + path;
+    }
+    if (path.back() == '/')
+    {
+        return 0;
+    }
+
+    std::error_code error;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), error);
+    FILE* file = fopen(path.c_str(), "wb");
+    if (file == nullptr)
+    {
+        WASM_LOG_WARN("load_preset_data: cannot store %s", path.c_str());
+        return 0;
+    }
+    const bool written = len == 0 || fwrite(data, 1, len, file) == len;
+    const bool closed = fclose(file) == 0;
+    if (!written || !closed)
+    {
+        WASM_LOG_WARN("load_preset_data: writing %s failed", path.c_str());
+        return 0;
+    }
+
+    if (mode == kAddToPlaylist)
+    {
+        add_preset_file(H, path.c_str());
+    }
+    else if (mode != kStoreOnly)
+    {
+        LoadPresetFile(H, path.c_str(), mode == kLoadHardCut);
+    }
+    return 1;
 }
 } // namespace WasmApi
 

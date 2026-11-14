@@ -79,6 +79,7 @@ symbol's doc text is not an API change and needs nothing.
 | `setWindowSize` | `set_window_size` | Resize viewport |
 | `setAspectCorrection` | `set_aspect_correction` | Bezel / aspect correction |
 | `loadPresetFile` | `load_preset_file` | VFS path (`ccall` binding) |
+| `loadPresetData` | `load_preset_data` | Preset bytes already on the heap, stored under a name, then load / hard cut / add / store only. Hosts call `storePreset()` (`html/projectm-preset-store.js`), which does the copy. See [EMSCRIPTEN.md](EMSCRIPTEN.md#presets-by-buffer) |
 | `addPresetFile` | `add_preset_file` | Add to playlist |
 | `switchPreset` | `switch_preset` | Next playlist item |
 | `setPresetLocked` | `set_preset_locked` | `boolean` coerced to 0/1 |

@@ -76,6 +76,41 @@ preset-load hook (`on_playlist_preset_load()`) turns each of these into a reques
   `begin` asks the cache on the main thread, so a shader type the cache already holds is not
   transpiled ahead. The render thread then compiles the cached GLSL, as before.
 
+### Presets by buffer
+
+`load_preset_data(data, len, name, mode)` (ABI v2: `pm_load_preset_data(host, data, len, name, mode)`)
+takes a preset as bytes. The caller copies them onto the heap (`_malloc`, `HEAPU8.set`), calls, and
+frees them afterwards. Returns 1, or 0 for an empty name or one ending in `/`, an unknown mode, a
+failed write, or no engine (modes 0 to 2).
+
+| `mode` | `storePreset()` mode | Then |
+|---|---|---|
+| 0 | `load` | as `load_preset_file()` |
+| 1 | `load-hard` | as `load_preset_file_hard()` |
+| 2 | `add` | as `add_preset_file()` |
+| 3 | `store` | nothing; the caller loads it by name later |
+
+The bytes still land in MEMFS, under `name` (a relative name goes under `/presets/`, missing
+directories are created). The playlist, the context-loss reload
+(`html/projectm-context-loss.js` reloads the current path), the preset-name events and the
+shader cache all know a preset by its path, and `RequestPresetPrepare()` reads it back in
+microseconds. What changes is that the host no longer drives the filesystem for presets
+(`mkdirTree`, `FS.writeFile`, then a second call to load). `storePreset()` in
+`html/projectm-preset-store.js` is the one place that does it on the main thread
+(`projectm-presets.js`, `projectm-preset-library.js`, `projectm-preset-dev.js` and the module
+transport's `writePreset`), and `handlePreset()` in the render worker is its copy there. For a
+bundle without the export (any older bundle the page can still select with `?wasm=`) both fall
+back to the FS sequence.
+
+**`FORCE_FILESYSTEM` stays.** Measured 2026-11-14 (emsdk 6.0.6, this tree): linking without
+`FORCE_FILESYSTEM` and without `FS` in `EXPORTED_RUNTIME_METHODS` saves 564 B of glue (124 B
+gzipped), and the `.wasm` is byte-identical. The FS runtime (MEMFS) stays linked either way:
+libprojectM opens presets and textures with stdio, and the song bootstrap in `WasmJsBindings.cpp`
+writes the FS from `EM_JS`. The JS FS API is still what loads textures (`projectm-textures.js`,
+the depth map in `projectm-experimental-bridge.js`) and songs (`projectm-worklet-playback.js`
+reads `FS.readFile`), and what the `tests/wasm-smoke/` pages use to stage presets. 124 B is not
+worth breaking those; revisit once textures and songs go by buffer too.
+
 ## WebGL context attributes
 
 `WasmWebGLContext.cpp` creates the rendering context with Emscripten's html5 WebGL API only — there is
@@ -665,7 +700,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
 | `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
 | `WasmRhythm.cpp` | Musical time: `get_rhythm_*` readouts, `set_rhythm_hint`, `set_preset_switch_policy`, `transition_set_duration_beats`, `set_hard_cut_on_beat`, and the `set_rhythm_events` → `pmOnRhythmEvent` beat/bar/section events (see [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis)) |
-| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
+| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, `load_preset_data()` (see [Presets by buffer](#presets-by-buffer)), preset-readiness queries |
 | `WasmPresetPrepare.hpp` / `WasmPresetPrepare.cpp` | Per-host preset prepare thread and its single-slot queue; activation of prepared presets from `render_frame()` (see [Preset loading](#preset-loading)) |
 | `WasmJsBindings.cpp` | EM_JS glue only: the main-thread VFS/song bootstrap (`js_init_projectm_glue`) and the preset-name / init-error / preset-switch-failure notifications to the host page. No DOM and no network: fetching presets, textures and songs is the host page's job (see [Page-side asset loading](#page-side-asset-loading)); `tests/web/wasm-glue-dom.test.mjs` keeps it that way |
 

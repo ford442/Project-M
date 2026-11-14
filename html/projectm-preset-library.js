@@ -4,7 +4,7 @@ import { getFavorites, isFavorite, toggleFavorite, presetId } from './projectm-p
 import { getCachedPreset, cachePreset } from './projectm-preset-cache.js';
 import { defaultBasesForBase } from './projectm-preset-sources.js';
 import { updatePresetDisplay } from './projectm-presets.js';
-import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { canStorePresets, storePreset } from './projectm-preset-store.js';
 import { setTransitionDuration, startTransitionWhenReady as startTransition } from './projectm-transitions.js';
 import {
     prepareShaderCacheForLoad,
@@ -124,19 +124,19 @@ function safePresetName(filename) {
 }
 
 /**
- * Readiness probe for the VFS + preset-load path.
+ * Readiness probe for the preset-load path: a module on this thread that takes
+ * presets (load_preset_data, or the FS on older bundles, see storePreset()).
  *
- * `load_preset_file` is a `ccall` entry in cmake/WasmApiManifest.cmake, so the
+ * The preset exports are `ccall` entries in cmake/WasmApiManifest.cmake, so the
  * generated `ProjectMModule` type has no `_load_preset_file` member to test even
  * though the symbol is in EXPORTED_FUNCTIONS; `ccall` is what the wrapper
  * actually uses.
  *
  * @param {ProjectMModuleLike | null | undefined} moduleInstance
- * @returns {moduleInstance is import('./generated/projectm-wasm-api.ts').ProjectMModule
- *   & { FS: NonNullable<import('./generated/projectm-wasm-api.ts').ProjectMModule['FS']> }}
+ * @returns {moduleInstance is import('./generated/projectm-wasm-api.ts').ProjectMModule}
  */
 function canLoadPresets(moduleInstance) {
-    return !!(moduleInstance?.FS && moduleInstance.ccall);
+    return !!moduleInstance?.ccall && canStorePresets(moduleInstance);
 }
 
 /**
@@ -183,7 +183,7 @@ export async function loadPresetEntry(entry, {
                 const res = await fetchImpl(`${base}${sep}${encodeURIComponent(filename)}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 // Uint8Array, not Uint8ClampedArray: the cached path, cachePreset(),
-                // FS.writeFile() and prepareShaderCacheForLoad() all take Uint8Array.
+                // storePreset() and prepareShaderCacheForLoad() all take Uint8Array.
                 bytes = new Uint8Array(await res.arrayBuffer());
                 break;
             } catch (error) {
@@ -201,10 +201,9 @@ export async function loadPresetEntry(entry, {
     setupShaderTranspileCacheHooks();
     setTransitionDuration(module, transitionDurationSec);
     const vfsPath = `/presets/${entry.base || 'custom'}_${safePresetName(filename)}`;
-    module.FS.writeFile(vfsPath, bytes);
     await prepareShaderCacheForLoad(module, bytes);
     try {
-        loadPresetFile(module, vfsPath);
+        storePreset(module, vfsPath, bytes, 'load');
         if (startTransitionWhenReady) {
             await startTransitionWhenReady({ module, durationSec: transitionDurationSec });
         }

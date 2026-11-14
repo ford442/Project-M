@@ -8,9 +8,9 @@
 
 # shellcheck disable=SC2034  # consumed by sourcing scripts
 PROJECTM_WASM_EXPORTED_FUNCTIONS=(
+    _main
     _malloc
     _free
-    _main
     _add_audio_data
     _pl
     _destruct
@@ -54,6 +54,8 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _get_pcm_ring_read_index
     _get_pcm_ring_overruns
     _attach_worklet_ingest
+    _pcm_ring_release_retired
+    _pcm_ring_parked_count
     _connect_media_element_source
     _create_sprite
     _projectm_sprite_create_wrapper
@@ -69,6 +71,8 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _texture_slot_register
     _texture_slot_buffer
     _texture_slot_commit
+    _texture_slot_generation
+    _texture_slot_commit_generation
     _texture_slot_unregister
     _eval_set
     _eval_clear
@@ -165,6 +169,135 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _capture_frame_height
     _capture_frame_index
     _capture_frame_release
+    _pm_host_is_live
+    _pm_destruct
+    _pm_get_projectm_handle
+    _pm_init
+    _pm_rebind_canvases
+    _pm_load_preset_file
+    _pm_load_preset_file_hard
+    _pm_switch_preset
+    _pm_set_aspect_correction
+    _pm_render_frame
+    _pm_start_render
+    _pm_set_window_size
+    _pm_set_mesh
+    _pm_add_preset_path
+    _pm_add_existing_vfs_presets
+    _pm_add_preset_file
+    _pm_add_custom_milk_paths
+    _pm_pcm_add_float
+    _pm_pcm_ring_init
+    _pm_pcm_ring_shutdown
+    _pm_pcm_ring_drain
+    _pm_get_pcm_ring_header_ptr
+    _pm_get_pcm_ring_data_ptr
+    _pm_get_pcm_ring_capacity_frames
+    _pm_get_pcm_ring_index_modulus
+    _pm_get_pcm_ring_write_index
+    _pm_get_pcm_ring_read_index
+    _pm_get_pcm_ring_overruns
+    _pm_sprite_create
+    _pm_sprite_destroy
+    _pm_sprite_destroy_all
+    _pm_sprite_get_sprite_count
+    _pm_sprite_get_sprite_ids
+    _pm_sprite_set_max_sprites
+    _pm_sprite_get_max_sprites
+    _pm_sprite_get_var
+    _pm_sprite_set_var
+    _pm_reload_texture
+    _pm_texture_slot_register
+    _pm_texture_slot_buffer
+    _pm_texture_slot_commit
+    _pm_texture_slot_generation
+    _pm_texture_slot_commit_generation
+    _pm_texture_slot_unregister
+    _pm_eval_set
+    _pm_eval_clear
+    _pm_set_preset_locked
+    _pm_set_transparency_mode
+    _pm_get_transparency_mode
+    _pm_set_transparency_threshold
+    _pm_get_transparency_threshold
+    _pm_set_perf_hud
+    _pm_set_target_fps
+    _pm_set_quality_governor
+    _pm_get_quality_tier
+    _pm_get_governor_render_scale
+    _pm_get_governor_blur_cap
+    _pm_is_preset_ready
+    _pm_get_rendered_frame_count
+    _pm_preset_switch_failed
+    _pm_shader_cache_begin_load
+    _pm_shader_cache_import_glsl
+    _pm_shader_cache_end_load
+    _pm_dual_fbo_begin_transition
+    _pm_dual_fbo_end_transition
+    _pm_dual_fbo_cancel_transition
+    _pm_dual_fbo_swap_preset_a
+    _pm_dual_fbo_swap_preset_b
+    _pm_dual_fbo_get_a_read_fbo
+    _pm_dual_fbo_get_a_write_fbo
+    _pm_dual_fbo_get_a_read_tex
+    _pm_dual_fbo_get_a_write_tex
+    _pm_dual_fbo_get_b_read_fbo
+    _pm_dual_fbo_get_b_write_fbo
+    _pm_dual_fbo_get_b_read_tex
+    _pm_dual_fbo_get_b_write_tex
+    _pm_dual_fbo_is_preset_a_allocated
+    _pm_dual_fbo_is_preset_b_allocated
+    _pm_dual_fbo_set_idle_release_seconds
+    _pm_dual_fbo_get_idle_release_seconds
+    _pm_dual_fbo_is_preset_b_ready
+    _pm_dual_fbo_get_format
+    _pm_get_context_snapshot
+    _pm_dual_fbo_render_preset_a
+    _pm_dual_fbo_render_preset_b
+    _pm_transition_start
+    _pm_transition_cancel
+    _pm_transition_is_active
+    _pm_transition_get_blend
+    _pm_transition_set_duration
+    _pm_transition_get_duration
+    _pm_deterministic_now_ms
+    _pm_deterministic_frame_index
+    _pm_get_rhythm_bpm
+    _pm_get_rhythm_beat_phase
+    _pm_get_rhythm_bar_phase
+    _pm_get_rhythm_confidence
+    _pm_get_rhythm_beat_index
+    _pm_get_rhythm_section
+    _pm_set_rhythm_hint
+    _pm_set_preset_switch_policy
+    _pm_get_preset_switch_policy
+    _pm_transition_set_duration_beats
+    _pm_transition_get_duration_beats
+    _pm_set_hard_cut_on_beat
+    _pm_set_rhythm_latency_ms
+    _pm_get_rhythm_latency_ms
+    _pm_set_preset_switch_phrase
+    _pm_set_section_hard_cut
+    _pm_set_rhythm_events
+    _pm_set_flash_limit_enabled
+    _pm_get_flash_limit_enabled
+    _pm_set_flash_limit_threshold
+    _pm_get_flash_limit_threshold
+    _pm_get_flash_limit_clamped_frames
+    _pm_get_committed_frame_count
+    _pm_capture_frame_request
+    _pm_capture_frame_status
+    _pm_capture_frame_resolve
+    _pm_capture_frame_data_ptr
+    _pm_capture_frame_width
+    _pm_capture_frame_height
+    _pm_capture_frame_index
+    _pm_capture_frame_release
+    _pm_debug_throw
+    _pm_get_last_error
+    _pm_get_last_error_message
+    _pm_clear_last_error
+    _pm_context_lost
 )
 
 projectm_wasm_join_exported_functions() {
@@ -208,15 +341,15 @@ projectm_wasm_codegen_compile_args() {
 # CMake target follows the libraries' own cache entry, so it always matches how
 # they were compiled.
 #
-# PTHREAD_POOL_SIZE is a constant (5): the wrapper's compiled-in
+# PTHREAD_POOL_SIZE is a constant (7): the wrapper's compiled-in
 # kWasmPthreadPoolSize and its static_assert must describe the pool the bundle
 # really has. An environment override that disagrees is an error, not a knob.
 projectm_wasm_pthread_pool_size() {
-    if [[ -n "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-}" && "${PROJECTM_WASM_PTHREAD_POOL_SIZE}" != "5" ]]; then
-        echo "PROJECTM_WASM_PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE} is not configurable (this tree's pool is 5); edit cmake/EmscriptenWasmFlags.cmake" >&2
+    if [[ -n "${PROJECTM_WASM_PTHREAD_POOL_SIZE:-}" && "${PROJECTM_WASM_PTHREAD_POOL_SIZE}" != "7" ]]; then
+        echo "PROJECTM_WASM_PTHREAD_POOL_SIZE=${PROJECTM_WASM_PTHREAD_POOL_SIZE} is not configurable (this tree's pool is 7); edit cmake/EmscriptenWasmFlags.cmake" >&2
         return 1
     fi
-    echo "5"
+    echo "7"
 }
 
 
@@ -267,6 +400,7 @@ projectm_wasm_common_link_args() {
         -s ALLOW_MEMORY_GROWTH=0
         -s INITIAL_MEMORY=256mb
         -s MALLOC=mimalloc
+        -s ABORTING_MALLOC=0
         -s FORCE_FILESYSTEM=1
         -s "PTHREAD_POOL_SIZE=${pthread_pool_size}"
         -s ENVIRONMENT=web,worker

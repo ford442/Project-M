@@ -11,8 +11,7 @@
 
 /**
  * @typedef {object} LiveTextureDeps
- * @property {() => WorkerModule | null} getModule
- * @property {(host: number | undefined) => void} selectEngine
+ * @property {(host: number | undefined) => WorkerModule | null} selectEngine The module as seen by one engine (see selectEngine() in projectm-render-worker.js).
  * @property {(message: RenderWorkerMessage, transfer?: Transferable[]) => void} postToHost
  * @property {(width: number, height: number) => OffscreenCanvas} [createCanvas]
  */
@@ -56,7 +55,7 @@ function createWorkerLiveTexture(deps) {
      */
     function writeTextureFrame(msg) {
         try {
-            const m = deps.getModule();
+            const m = deps.selectEngine(msg.host);
             if (!m) return;
             if (typeof m._texture_slot_buffer !== 'function') {
                 if (!reportedMissingExports) {
@@ -68,11 +67,16 @@ function createWorkerLiveTexture(deps) {
                 }
                 return;
             }
-            deps.selectEngine(msg.host);
             const bytes = msg.width * msg.height * 4;
             // 0 when the slot is gone or has another size by now: drop the frame.
             const ptr = Number(m.ccall('texture_slot_buffer', 'number', ['string', 'number'], [msg.name, bytes]));
             if (!ptr) return;
+            // Which allocation that is (ABI v2, #352): the commit below is refused
+            // if the slot's buffer was replaced in between. Null on older bundles.
+            const generation =
+                typeof m._texture_slot_generation === 'function'
+                    ? Number(m.ccall('texture_slot_generation', 'number', ['string'], [msg.name])) >>> 0
+                    : null;
             const pixels = msg.pixels
                 ? new Uint8Array(msg.pixels)
                 : msg.bitmap
@@ -83,7 +87,11 @@ function createWorkerLiveTexture(deps) {
             const heap = m.HEAPU8;
             if (!heap) return;
             heap.set(pixels, ptr);
-            m.ccall('texture_slot_commit', 'number', ['string'], [msg.name]);
+            if (generation === null) {
+                m.ccall('texture_slot_commit', 'number', ['string'], [msg.name]);
+            } else {
+                m.ccall('texture_slot_commit_generation', 'number', ['string', 'number'], [msg.name, generation]);
+            }
         } catch (error) {
             deps.postToHost({ type: 'error', message: `live texture "${msg.name}": ${String(error)}` });
         } finally {

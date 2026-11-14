@@ -11,14 +11,13 @@
 // The engine and playlist callbacks below are registered by init() with that
 // host as their user_data, and act on it rather than on whichever host happens
 // to be active when they fire: a callback raised for one engine must not flip
-// the readiness flags of its sibling. The exports further down run after
-// set_active_host() and use Host() as usual.
+// the readiness flags of its sibling. The exports further down get their host
+// from the barrier.
 
-// The host a callback was registered for. init() always passes one; the
-// fallback only covers a caller that registers a callback without it.
+// The host a callback was registered for: init() always registers one.
 static WasmHost& CallbackHost(void* user_data)
 {
-    return user_data != nullptr ? *static_cast<WasmHost*>(user_data) : Host();
+    return *static_cast<WasmHost*>(user_data);
 }
 
 void load_preset_callback_done([[maybe_unused]] bool is_hard_cut, [[maybe_unused]] unsigned int index, void* user_data)
@@ -108,11 +107,9 @@ bool on_playlist_preset_load(unsigned int index, const char* filename, bool hard
     return true;
 }
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void add_preset_path()
+namespace WasmApi {
+void add_preset_path(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& app_data = H.appData;
     if (!app_data.playlist)
     {
@@ -127,10 +124,8 @@ void add_preset_path()
     return;
 }
 
-EMSCRIPTEN_KEEPALIVE
-void add_existing_vfs_presets()
+void add_existing_vfs_presets(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& app_data = H.appData;
     if (!app_data.playlist)
     {
@@ -151,10 +146,8 @@ void add_existing_vfs_presets()
     return;
 }
 
-EMSCRIPTEN_KEEPALIVE
-void add_preset_file(const char* path)
+void add_preset_file(WasmHost& H, const char* path)
 {
-    WasmHost& H = Host();
     auto& app_data = H.appData;
     if (!app_data.playlist)
     {
@@ -164,10 +157,8 @@ void add_preset_file(const char* path)
     return;
 }
 
-EMSCRIPTEN_KEEPALIVE
-void add_custom_milk_paths(int count)
+void add_custom_milk_paths(WasmHost& H, int count)
 {
-    WasmHost& H = Host();
     auto& app_data = H.appData;
     if (!app_data.playlist)
     {
@@ -188,10 +179,8 @@ void add_custom_milk_paths(int count)
     return;
 }
 
-EMSCRIPTEN_KEEPALIVE
-void switch_preset()
+void switch_preset(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& app_data = H.appData;
     if (!app_data.playlist)
     {
@@ -200,11 +189,10 @@ void switch_preset()
     projectm_playlist_play_next(app_data.playlist, false);
     return;
 }
-} // extern "C"
+} // namespace WasmApi
 
-static void load_preset_file_impl(const char* filename, bool hard_cut)
+static void LoadPresetFile(WasmHost& H, const char* filename, bool hard_cut)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& app_data = H.appData;
     if (!pm || filename == nullptr)
@@ -264,41 +252,33 @@ static void load_preset_file_impl(const char* filename, bool hard_cut)
     RequestPresetPrepare(H, filename, hard_cut, std::nullopt);
 }
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void load_preset_file(const char* filename)
+namespace WasmApi {
+void load_preset_file(WasmHost& H, const char* filename)
 {
-    load_preset_file_impl(filename, false);
+    LoadPresetFile(H, filename, false);
 }
 
-EMSCRIPTEN_KEEPALIVE
-void load_preset_file_hard(const char* filename)
+void load_preset_file_hard(WasmHost& H, const char* filename)
 {
-    load_preset_file_impl(filename, true);
+    LoadPresetFile(H, filename, true);
 }
-} // extern "C"
+} // namespace WasmApi
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-int get_rendered_frame_count()
+namespace WasmApi {
+int get_rendered_frame_count(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_renderedFrameCount = H.renderedFrameCount;
     return static_cast<int>(g_renderedFrameCount);
 }
 
-EMSCRIPTEN_KEEPALIVE
-int preset_switch_failed()
+int preset_switch_failed(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_presetSwitchFailed = H.presetSwitchFailed;
     return g_presetSwitchFailed ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE
-int is_preset_ready(int min_frames_since_ready)
+int is_preset_ready(WasmHost& H, int min_frames_since_ready)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& app_data = H.appData;
     auto& g_presetBReady = H.presetBReady;
@@ -326,4 +306,4 @@ int is_preset_ready(int min_frames_since_ready)
                                         : 0u;
     return (g_renderedFrameCount - g_presetReadyFrame) >= requiredFrames ? 1 : 0;
 }
-} // extern "C"
+} // namespace WasmApi

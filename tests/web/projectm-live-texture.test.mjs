@@ -15,6 +15,8 @@ import test from 'node:test';
 import {
     DEFAULT_LIVE_TEXTURE_MAX_SIZE,
     LIVE_TEXTURE_MAX_SIZE,
+    acquireTextureBuffer,
+    commitTextureBuffer,
     createFrameRasterizer,
     createLiveTextureWriter,
     createLiveTextures,
@@ -327,6 +329,77 @@ test('the main-thread writer never writes when the engine has no buffer of that 
         () => writer.writeFrame('webcam', { width: 2, height: 1 }, /** @type {any} */ ({ width: 1, height: 1, data: new Uint8Array(4) })),
         /OffscreenCanvas/
     );
+});
+
+/**
+ * fakeEngine() with buffer generations (ABI v2, #352): every register that
+ * reallocates the buffer starts a new generation, and a commit naming another
+ * one is refused with -1.
+ */
+function fakeGenerationEngine() {
+    const fake = fakeEngine();
+    const { engine } = fake;
+    let generation = 0;
+    const base = engine.ccall;
+    Object.assign(engine, {
+        _texture_slot_generation: () => 0,
+        refusedCommits: 0,
+        ccall(name, returnType, argTypes, args) {
+            switch (name) {
+                case 'texture_slot_register':
+                    generation += 1;
+                    return base(name, returnType, argTypes, args);
+                case 'texture_slot_generation':
+                    engine.calls.push([name, args]);
+                    return generation;
+                case 'texture_slot_commit_generation':
+                    engine.calls.push([name, args]);
+                    if (args[1] !== generation) {
+                        engine.refusedCommits += 1;
+                        return -1;
+                    }
+                    engine.commits.push(String(args[0]));
+                    return 1;
+                default:
+                    return base(name, returnType, argTypes, args);
+            }
+        },
+    });
+    return fake;
+}
+
+test('a texture buffer carries its pointer, size and generation, and commits by generation', async () => {
+    const { engine, SLOT_PTR } = fakeGenerationEngine();
+    const live = createLiveTextures(createLiveTextureWriter(engine));
+    assert.equal(await live.register('webcam', 2, 1), true);
+    assert.deepEqual(acquireTextureBuffer(engine, 'webcam', 8), { ptr: SLOT_PTR, byteLength: 8, generation: 1 });
+    assert.equal(acquireTextureBuffer(engine, 'webcam', 4), null, 'another size has no buffer');
+
+    assert.equal(await live.update('webcam', { width: 2, height: 1, data: new Uint8Array(8).fill(3) }), true);
+    assert.deepEqual(engine.commits, ['webcam']);
+    assert.ok(engine.calls.some(([name]) => name === 'texture_slot_commit_generation'));
+    assert.ok(!engine.calls.some(([name]) => name === 'texture_slot_commit'), 'never the unchecked commit');
+});
+
+test('a commit of a buffer the slot replaced since it was acquired is refused', async () => {
+    const { engine } = fakeGenerationEngine();
+    const writer = createLiveTextureWriter(engine);
+    await writer.registerSlot('webcam', 2, 1);
+    const buffer = /** @type {NonNullable<ReturnType<typeof acquireTextureBuffer>>} */ (acquireTextureBuffer(engine, 'webcam', 8));
+    // The page awaited something; meanwhile the slot was registered again.
+    await writer.registerSlot('webcam', 2, 1);
+    assert.equal(commitTextureBuffer(engine, 'webcam', buffer), false);
+    assert.equal(engine.refusedCommits, 1);
+    assert.deepEqual(engine.commits, []);
+});
+
+test('a bundle without buffer generations commits the old way', () => {
+    const { engine, SLOT_PTR } = fakeEngine();
+    engine.ccall('texture_slot_register', null, [], ['webcam', 2, 1]);
+    const buffer = acquireTextureBuffer(engine, 'webcam', 8);
+    assert.deepEqual(buffer, { ptr: SLOT_PTR, byteLength: 8, generation: null });
+    assert.equal(commitTextureBuffer(engine, 'webcam', /** @type {any} */ (buffer)), true);
+    assert.deepEqual(engine.commits, ['webcam']);
 });
 
 // ---- the transports --------------------------------------------------------------------------

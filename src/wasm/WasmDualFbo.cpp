@@ -12,12 +12,9 @@
 //
 // The dual-FBO manager, compositing shader, and the transition/idle-release
 // timeline were process-global (one blend in flight per Module). They are now
-// members of the active WasmHost (see WasmHost.hpp), so each engine crossfades
-// independently. Rather than thread a host handle through all 29 dual-FBO /
-// transition exports, the former global names are mapped to the active host's
-// members below; every export body stays byte-for-byte unchanged. The active
-// host is selected by set_active_host() (ProjectMContext) or the render loop
-// before any of these run, and Host() is a cheap pointer deref.
+// members of each WasmHost (see WasmHost.hpp), so each engine crossfades
+// independently. Every export below is handed its host by the barrier; the
+// former global names are bound to that host's members as local references.
 //
 // Defaults that used to live on the global initialisers (transitionDuration =
 // 3 s, dualFboIdleReleaseSec = 5 s, etc.) now live on the WasmHost member
@@ -57,7 +54,7 @@
 //   dual_fbo_render_preset_a()   – render Preset A into A_Write FBO w/ state guard
 //   dual_fbo_render_preset_b()   – force-reset GL, render Preset B into B_Write FBO
 // =============================================================================
-extern "C" {
+namespace WasmApi {
 
 /**
  * @brief Lazily allocates both ping-pong FBO pairs to start a transition.
@@ -75,10 +72,8 @@ extern "C" {
  *
  * @return true when both Preset A and Preset B pairs are allocated.
  */
-EMSCRIPTEN_KEEPALIVE
-bool dual_fbo_begin_transition()
+bool dual_fbo_begin_transition(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     int w = g_dualFbo.Width();
     int h = g_dualFbo.Height();
@@ -115,16 +110,14 @@ bool dual_fbo_begin_transition()
  * Old Preset A resources are freed; Preset B's resources become the new
  * Preset A. After this call Preset B is no longer allocated.
  */
-EMSCRIPTEN_KEEPALIVE
-void dual_fbo_end_transition()
+void dual_fbo_end_transition(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     auto& g_transitionEndTime = H.transitionEndTime;
     g_dualFbo.PromoteBtoA();
     // Preset A is idle again from here; render_frame() reclaims it once the
     // grace period set by dual_fbo_set_idle_release_seconds() elapses.
-    g_transitionEndTime = WasmNow();
+    g_transitionEndTime = WasmNow(H);
 }
 
 /**
@@ -135,14 +128,12 @@ void dual_fbo_end_transition()
  * idle clock so the pair this transition brought up does not stay resident for
  * the rest of the session.
  */
-EMSCRIPTEN_KEEPALIVE
-void dual_fbo_cancel_transition()
+void dual_fbo_cancel_transition(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     auto& g_transitionEndTime = H.transitionEndTime;
     g_dualFbo.ReleasePresetB();
-    g_transitionEndTime = WasmNow();
+    g_transitionEndTime = WasmNow(H);
 }
 
 /**
@@ -151,10 +142,8 @@ void dual_fbo_cancel_transition()
  * After the swap the former Write texture becomes the Read (history) texture
  * for the next frame, implementing the ping-pong feedback loop.
  */
-EMSCRIPTEN_KEEPALIVE
-void dual_fbo_swap_preset_a()
+void dual_fbo_swap_preset_a(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     g_dualFbo.SwapPresetA();
 }
@@ -162,10 +151,8 @@ void dual_fbo_swap_preset_a()
 /**
  * @brief Swaps Preset B's Read/Write FBOs (call once per rendered frame during a transition).
  */
-EMSCRIPTEN_KEEPALIVE
-void dual_fbo_swap_preset_b()
+void dual_fbo_swap_preset_b(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     g_dualFbo.SwapPresetB();
 }
@@ -173,73 +160,57 @@ void dual_fbo_swap_preset_b()
 // ---- Accessor functions (return raw OpenGL / WebGL handles) ----------------
 
 /** @brief Returns the Preset A Read FBO ID (bind as render target). */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_a_read_fbo()
+uint32_t dual_fbo_get_a_read_fbo(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAReadFBO().id;
 }
 
 /** @brief Returns the Preset A Write FBO ID. */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_a_write_fbo()
+uint32_t dual_fbo_get_a_write_fbo(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAWriteFBO().id;
 }
 
 /** @brief Returns the Preset A Read texture ID (sample as history/feedback). */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_a_read_tex()
+uint32_t dual_fbo_get_a_read_tex(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAReadTex().id;
 }
 
 /** @brief Returns the Preset A Write texture ID. */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_a_write_tex()
+uint32_t dual_fbo_get_a_write_tex(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetAWriteTex().id;
 }
 
 /** @brief Returns the Preset B Read FBO ID (bind as render target). */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_b_read_fbo()
+uint32_t dual_fbo_get_b_read_fbo(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBReadFBO().id;
 }
 
 /** @brief Returns the Preset B Write FBO ID. */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_b_write_fbo()
+uint32_t dual_fbo_get_b_write_fbo(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBWriteFBO().id;
 }
 
 /** @brief Returns the Preset B Read texture ID (sample as history/feedback). */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_b_read_tex()
+uint32_t dual_fbo_get_b_read_tex(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBReadTex().id;
 }
 
 /** @brief Returns the Preset B Write texture ID. */
-EMSCRIPTEN_KEEPALIVE
-uint32_t dual_fbo_get_b_write_tex()
+uint32_t dual_fbo_get_b_write_tex(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.GetBWriteTex().id;
 }
@@ -248,10 +219,8 @@ uint32_t dual_fbo_get_b_write_tex()
  * @brief Returns true if the Preset B FBOs are currently allocated
  *        (i.e., a transition is in progress).
  */
-EMSCRIPTEN_KEEPALIVE
-bool dual_fbo_is_preset_b_allocated()
+bool dual_fbo_is_preset_b_allocated(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.IsPresetBAllocated();
 }
@@ -264,10 +233,8 @@ bool dual_fbo_is_preset_b_allocated()
  * The host must confirm this (alongside dual_fbo_is_preset_b_allocated()) before
  * calling transition_start(), or the blend silently degrades to a hard cut.
  */
-EMSCRIPTEN_KEEPALIVE
-bool dual_fbo_is_preset_a_allocated()
+bool dual_fbo_is_preset_a_allocated(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return g_dualFbo.IsPresetAAllocated();
 }
@@ -278,10 +245,8 @@ bool dual_fbo_is_preset_a_allocated()
  * @param seconds  > 0 release after that many idle seconds; 0 release on the
  *                 first idle frame; < 0 keep the pair resident once allocated.
  */
-EMSCRIPTEN_KEEPALIVE
-void dual_fbo_set_idle_release_seconds(float seconds)
+void dual_fbo_set_idle_release_seconds(WasmHost& H, float seconds)
 {
-    WasmHost& H = Host();
     auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
     g_dualFboIdleReleaseSec = seconds;
     WASM_LOG_INFO("DualFBO: Preset A idle release set to %.2f s.",
@@ -291,10 +256,8 @@ void dual_fbo_set_idle_release_seconds(float seconds)
 /**
  * @brief Returns the configured Preset A idle-release threshold in seconds.
  */
-EMSCRIPTEN_KEEPALIVE
-float dual_fbo_get_idle_release_seconds()
+float dual_fbo_get_idle_release_seconds(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFboIdleReleaseSec = H.dualFboIdleReleaseSec;
     return g_dualFboIdleReleaseSec;
 }
@@ -316,10 +279,8 @@ float dual_fbo_get_idle_release_seconds()
  * @return @c true  – the new preset is fully compiled; safe to begin blending.
  * @return @c false – preset loading is still in progress; do NOT start blend.
  */
-EMSCRIPTEN_KEEPALIVE
-bool dual_fbo_is_preset_b_ready()
+bool dual_fbo_is_preset_b_ready(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_presetBReady = H.presetBReady;
     return g_presetBReady;
 }
@@ -333,10 +294,8 @@ bool dual_fbo_is_preset_b_ready()
  *   1 = RGBA32F (GL_RGBA32F, 32-bit float)
  *   2 = RGBA8   (GL_RGBA8, 8-bit normalized – shaders should clamp output)
  */
-EMSCRIPTEN_KEEPALIVE
-int dual_fbo_get_format()
+int dual_fbo_get_format(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     return static_cast<int>(g_dualFbo.GetFormat());
 }
@@ -354,10 +313,8 @@ int dual_fbo_get_format()
  *
  * After this call, swap Preset A's ping-pong FBOs with dual_fbo_swap_preset_a().
  */
-EMSCRIPTEN_KEEPALIVE
-void dual_fbo_render_preset_a()
+void dual_fbo_render_preset_a(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_dualFbo = H.dualFbo;
     if (!pm || !g_dualFbo.IsPresetAAllocated())
@@ -381,10 +338,8 @@ void dual_fbo_render_preset_a()
  *
  * After this call, swap Preset B's ping-pong FBOs with dual_fbo_swap_preset_b().
  */
-EMSCRIPTEN_KEEPALIVE
-void dual_fbo_render_preset_b()
+void dual_fbo_render_preset_b(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     auto& g_dualFbo = H.dualFbo;
     if (!pm || !g_dualFbo.IsPresetBAllocated())
@@ -399,7 +354,7 @@ void dual_fbo_render_preset_b()
     projectm_opengl_render_frame_fbo(pm, g_dualFbo.GetBWriteFBO().id);
 }
 
-} // extern "C"
+} // namespace WasmApi
 
 // =============================================================================
 // Phase 5: Transition Controller C API
@@ -415,7 +370,7 @@ void dual_fbo_render_preset_b()
 //   transition_set_duration()    – set crossfade duration in seconds (0 = hard cut)
 //   transition_get_duration()    – return the current crossfade duration
 // =============================================================================
-extern "C" {
+namespace WasmApi {
 
 /**
  * @brief Starts the visual crossfade blend from Preset A to Preset B.
@@ -427,10 +382,8 @@ extern "C" {
  *
  * If transition duration is 0, an immediate hard cut is performed.
  */
-EMSCRIPTEN_KEEPALIVE
-void transition_start()
+void transition_start(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     auto& g_compositorShader = H.compositorShader;
     auto& g_transitionDuration = H.transitionDuration;
@@ -458,11 +411,11 @@ void transition_start()
         g_transitionBlend = 0.0f;
         g_transitionActive = false;
         g_presetBReady = false;
-        g_transitionEndTime = WasmNow();
+        g_transitionEndTime = WasmNow(H);
         return;
     }
     g_transitionBlend = 0.0f;
-    g_transitionStartTime = WasmNow(); // milliseconds
+    g_transitionStartTime = WasmNow(H); // milliseconds
     g_transitionActive = true;
     // transition_set_duration_beats() is resolved against the tempo now, once: a
     // tempo change mid-crossfade must not make the blend jump.
@@ -477,10 +430,8 @@ void transition_start()
  * After this call Preset A continues rendering as normal and the blend
  * value is reset to 0.0.
  */
-EMSCRIPTEN_KEEPALIVE
-void transition_cancel()
+void transition_cancel(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_dualFbo = H.dualFbo;
     auto& g_transitionActive = H.transitionActive;
     auto& g_transitionBlend = H.transitionBlend;
@@ -496,17 +447,15 @@ void transition_cancel()
     g_dualFbo.ReleasePresetB();
     // Start the Preset A idle clock here too – a cancelled transition leaves the
     // A pair allocated with nothing left to sample it.
-    g_transitionEndTime = WasmNow();
+    g_transitionEndTime = WasmNow(H);
     WASM_LOG_INFO("Phase5: Transition cancelled.");
 }
 
 /**
  * @brief Returns true while a crossfade blend is in progress.
  */
-EMSCRIPTEN_KEEPALIVE
-bool transition_is_active()
+bool transition_is_active(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_transitionActive = H.transitionActive;
     return g_transitionActive;
 }
@@ -516,10 +465,8 @@ bool transition_is_active()
  *
  * 0.0 = 100 % Preset A, 1.0 = 100 % Preset B.
  */
-EMSCRIPTEN_KEEPALIVE
-float transition_get_blend()
+float transition_get_blend(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_transitionBlend = H.transitionBlend;
     return g_transitionBlend;
 }
@@ -531,10 +478,8 @@ float transition_get_blend()
  *
  * @param seconds Duration of the blend in seconds (≥ 0).
  */
-EMSCRIPTEN_KEEPALIVE
-void transition_set_duration(float seconds)
+void transition_set_duration(WasmHost& H, float seconds)
 {
-    WasmHost& H = Host();
     auto& g_transitionDuration = H.transitionDuration;
     g_transitionDuration = seconds >= 0.0f ? seconds : 0.0f;
     WASM_LOG_INFO("Phase5: Transition duration set to %.2f s.",
@@ -544,12 +489,10 @@ void transition_set_duration(float seconds)
 /**
  * @brief Returns the current crossfade duration in seconds.
  */
-EMSCRIPTEN_KEEPALIVE
-float transition_get_duration()
+float transition_get_duration(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& g_transitionDuration = H.transitionDuration;
     return g_transitionDuration;
 }
 
-} // extern "C" (Phase 5)
+} // namespace WasmApi

@@ -6,8 +6,10 @@ Typed helpers for calling the projectM Emscripten wrapper (`projectM_emscripten.
 
 | Artifact | Role |
 |----------|------|
-| [`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake) | `EXPORTED_FUNCTIONS` list for the WASM link |
-| [`cmake/WasmApiManifest.cmake`](../cmake/WasmApiManifest.cmake) | Per-symbol signatures, bindings, visibility |
+| [`cmake/WasmApiManifest.cmake`](../cmake/WasmApiManifest.cmake) | The only list of exports: per-symbol scope, signature, binding, visibility |
+| [`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake) | Link flags; derives `EXPORTED_FUNCTIONS` from the manifest |
+| [`src/wasm/generated/WasmApiExports.cpp`](../src/wasm/generated/WasmApiExports.cpp) | Every `extern "C"` export: the `pm_` barriers and the compat shims (committed) |
+| [`src/wasm/generated/WasmApiImpl.hpp`](../src/wasm/generated/WasmApiImpl.hpp) | The `WasmApi::` implementations' declarations (committed) |
 | [`html/generated/projectm-wasm-api.ts`](../html/generated/projectm-wasm-api.ts) | TypeScript types + wrappers (committed) |
 | [`html/generated/projectm-wasm-api.js`](../html/generated/projectm-wasm-api.js) | Browser runtime ES module (committed) |
 
@@ -220,11 +222,11 @@ the `pmOnPerfFrame` stats and `pmOnRhythmEvent` event objects. Listen through
 (`html/projectm-wasm-callbacks.js`), which accepts both bundle shapes and hands each listener
 an event object with `host` on it; see "Page globals" in `html/README.md`.
 
-With two engines in one Module, almost every export acts on the engine `set_active_host()`
-selected last. `bindModuleToHost(module, host)` in the generated wrappers returns a view on
-which every export selects `host` first (and throws if that host has been destroyed), so a
-caller that awaits between calls stays on its own engine; `createModuleTransport(module,
-{ host })` is built on it.
+With two engines in one Module, every engine call names its engine: see
+[ABI v2](#abi-v2-every-export-names-its-host). `bindModuleToHost(module, host)` in the
+generated wrappers returns a view on which every export reaches `host`'s engine (and throws if
+that host has been destroyed), so a caller that awaits between calls stays on its own engine;
+`createModuleTransport(module, { host })` is built on it.
 
 `html/projectm-fps-governor.js`'s `setupFpsGovernor(Module, { onRenderScaleChange })`
 listens to all three (through `html/projectm-wasm-callbacks.js`, which owns the global name
@@ -269,6 +271,80 @@ argument types cannot drift from the main-thread wrappers. What is still
 main-thread-only is the set of dev panels that read engine state through a
 module object on the page (perf HUD, preset dev tools, experimental bridge,
 FBO-format banner).
+
+## ABI v2: every export names its host
+
+Bundles since #352 export every engine call twice:
+
+- **`pm_<name>(host, ...)`**: the export proper. `host` is the handle `create_host*()` returned,
+  or 0 for the implicit default host a legacy `init()` brought up (never "whichever host is
+  active"). It resolves the handle, binds that host (its WebGL context current, its shader-cache
+  key armed) and runs the implementation. An unknown or destroyed handle returns the export's
+  failure value (0, or what the manifest says, e.g. `pm_init` returns -1) and logs once per
+  handle; it never reaches another engine.
+- **`<name>(...)`**: the compat name, unchanged from earlier bundles, which forwards to
+  `pm_<name>` with the host `set_active_host()` selected. The compat names stay for one bundle
+  version. `projectm_sprite_*_wrapper(pmHandle, ...)` already took the engine's handle; they
+  forward it (0 is a no-op there, as before), and `projectm_pcm_add_float_wrapper(0, ...)` is
+  still the active host.
+
+Nothing in the host layer selects a host any more: `bindModuleToHost()` routes a bound view's
+`_name(...)` and `ccall('name', ...)` to `pm_name` with the view's host (the `HOST_SYMBOLS`
+table), the render worker does the same by convention (a `_pm_<name>` twin), and the PCM ring
+helpers read a host's ring through the view. Against a bundle without `pm_host_is_live` all of
+them fall back to activating the host first, as before.
+
+**`createHostApi(module, host)`** returns every engine call of one host as methods named after
+the implementation (`api.setMesh(48, 32)`, `api.spriteCreate(type, code)`,
+`api.getLastError()`), and `ProjectMContext#call` is that object for the context's own host
+(null in the worker topology and before `start()`).
+
+**Exceptions never unwind into JavaScript.** Every export is one barrier
+(`src/wasm/WasmApiBarrier.hpp`) that catches what the implementation throws, including
+`std::bad_alloc` on the fixed heap (the link sets `ABORTING_MALLOC=0`, and a throwing
+`new_handler` stops mimalloc from aborting), so one engine's failure never aborts the Module and
+the other engines in it. A host-scoped failure is that host's last error:
+
+| `pm_get_last_error(host)` | Meaning |
+|---|---|
+| 0 | none (`pm_clear_last_error(host)` resets it) |
+| 1 | an export threw; `pm_get_last_error_message(host)` has `what()` |
+| 2 | out of memory |
+| 3 | a buffer commit named a generation that was replaced (below) |
+
+`pm_debug_throw(host, kind)` (internal) throws (1) or exhausts the heap (2) inside an export, for
+`tests/wasm-smoke/host_churn.html`.
+
+**Buffers carry a generation.** A live texture's staging buffer is `{ ptr, byteLength,
+generation }` (`acquireTextureBuffer()` in `html/projectm-live-texture.js`). The generation
+changes whenever the slot reallocates it, `texture_slot_generation()` reads it, and
+`texture_slot_commit_generation(name, generation)` refuses a replaced one (-1, last error 3).
+A page that awaits between acquiring a buffer and writing it checks the generation before the
+write. Frame capture's buffer is identified by `capture_frame_index()`.
+
+**The PCM ring handshake.** A ring the AudioWorklet may have mapped stays parked after its host
+releases it, until the processor answers `pcmRingDetach` with `pcmRingDetached`
+(`pcm_ring_release_retired()`), so no quantum lands in reallocated heap (see
+[EMSCRIPTEN.md, per-instance state](EMSCRIPTEN.md)).
+
+**The manifest** (`cmake/WasmApiManifest.cmake`) is the only place an export is declared. Each
+entry is `name|visibility|scope|binding|returns|args|doc`; the scope says how the export finds
+its engine:
+
+| Scope | Exports | Implementation |
+|---|---|---|
+| `host` | `pm_<name>(host, ...)` + compat `<name>(...)` on the active host | `WasmApi::<name>(WasmHost&, ...)` |
+| `host-v2` | `pm_<name>(host, ...)` only | same |
+| `handle:pm_<impl>` | compat `<name>(handle, ...)` + `pm_<impl>(host, ...)` | `WasmApi::<impl>(WasmHost&, ...)` |
+| `handle-or-active:pm_<impl>` | as `handle`, but compat handle 0 is the active host | same |
+| `alias:<impl>` | compat `<name>(...)` forwarding to `pm_<impl>` on the active host | (the other entry's) |
+| `module` | `<name>(...)`: no engine (registry, render-path switches, audio) | `WasmApi::<name>(...)` |
+| `legacy[:impl]` | compat-only, on the active host (`init_with_canvases`, `set_active_host`, ...) | `WasmApi::<impl>(...)` in the compat layer (`WasmLegacyExports.cpp`, `WasmHost.cpp`) |
+| `runtime` | Emscripten runtime symbols (`_malloc`, ...) | none |
+
+Types are C types (`void bool i32 u32 f32 f64 usize cstr` and pointers such as `f32*`); a return
+may carry its failure value (`i32=-1`). Doc strings may not contain `;` (CMake splits list
+entries on it).
 
 ## Raw `Module._foo` / `ccall`
 

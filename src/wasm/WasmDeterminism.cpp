@@ -50,19 +50,17 @@ void ResetVirtualClock(WasmHost& host)
 
 } // namespace
 
-double WasmNow()
+double WasmNow(const WasmHost& host)
 {
     if (!g_deterministicClock)
     {
         return emscripten_get_now();
     }
-    const WasmHost* active = ActiveHostOrNull();
-    return active != nullptr ? active->virtualNowMs : 0.0;
+    return host.virtualNowMs;
 }
 
-void DeterministicFrameTick()
+void DeterministicFrameTick(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!g_deterministicClock)
     {
@@ -79,16 +77,15 @@ void DeterministicFrameTick()
     H.deterministicFrameIndex++;
 }
 
-extern "C" {
+namespace WasmApi {
 
 /**
  * Pins libprojectM's RNG. Safe to call before or after init(); the seed policy
  * is process-global and survives engine re-creation.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_deterministic_seed(int enabled, unsigned int seed)
+void set_deterministic_seed(bool enabled, uint32_t seed)
 {
-    g_deterministicSeed = (enabled != 0);
+    g_deterministicSeed = enabled;
     if (g_deterministicSeed)
     {
         projectm_set_deterministic_seed(static_cast<uint32_t>(seed));
@@ -99,10 +96,9 @@ void set_deterministic_seed(int enabled, unsigned int seed)
     }
 }
 
-EMSCRIPTEN_KEEPALIVE
-int is_deterministic_seed()
+bool is_deterministic_seed()
 {
-    return g_deterministicSeed ? 1 : 0;
+    return g_deterministicSeed;
 }
 
 /**
@@ -110,10 +106,9 @@ int is_deterministic_seed()
  * frame that host renders, restarting each host's frame count at 0. Disabling
  * hands the engines back to their own system clock (projectm_set_frame_time() < 0).
  */
-EMSCRIPTEN_KEEPALIVE
-void set_deterministic_clock(int enabled, double fps)
+void set_deterministic_clock(bool enabled, double fps)
 {
-    g_deterministicClock = (enabled != 0);
+    g_deterministicClock = enabled;
     if (g_deterministicClock)
     {
         g_msPerFrame = (fps > 0.0) ? (1000.0 / fps) : (1000.0 / 60.0);
@@ -125,6 +120,7 @@ void set_deterministic_clock(int enabled, double fps)
             projectm_set_frame_time(host.appData.projectm_engine, g_deterministicClock ? 0.0 : -1.0);
         }
     };
+    // A host created later starts its own clock at frame 0.
     const int slots = HostSlotCount();
     for (int i = 0; i < slots; ++i)
     {
@@ -133,22 +129,17 @@ void set_deterministic_clock(int enabled, double fps)
             reset(*host);
         }
     }
-    // The harness may call this before any host exists; Host() then brings up
-    // the compat default, which the loop above could not see.
-    reset(Host());
 }
 
-EMSCRIPTEN_KEEPALIVE
-int is_deterministic_clock()
+bool is_deterministic_clock()
 {
-    return g_deterministicClock ? 1 : 0;
+    return g_deterministicClock;
 }
 
-/** The virtual clock reading, in milliseconds. Real time when not enabled. */
-EMSCRIPTEN_KEEPALIVE
-double deterministic_now_ms()
+/** The host's virtual clock reading, in milliseconds. Real time when not enabled. */
+double deterministic_now_ms(WasmHost& H)
 {
-    return WasmNow();
+    return WasmNow(H);
 }
 
 /**
@@ -163,10 +154,9 @@ double deterministic_now_ms()
  * Perf runs do the opposite and keep the loop: they are measuring what the real
  * RAF-driven pipeline costs.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_render_loop_paused(int paused)
+void set_render_loop_paused(bool paused)
 {
-    if (paused != 0)
+    if (paused)
     {
         emscripten_pause_main_loop();
     }
@@ -176,11 +166,10 @@ void set_render_loop_paused(int paused)
     }
 }
 
-/** Frames the active host has ticked since the virtual clock was last (re)enabled. */
-EMSCRIPTEN_KEEPALIVE
-unsigned int deterministic_frame_index()
+/** Frames the host has ticked since the virtual clock was last (re)enabled. */
+uint32_t deterministic_frame_index(WasmHost& H)
 {
-    return Host().deterministicFrameIndex;
+    return H.deterministicFrameIndex;
 }
 
-} // extern "C"
+} // namespace WasmApi

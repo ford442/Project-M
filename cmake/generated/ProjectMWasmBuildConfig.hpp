@@ -10,12 +10,15 @@
 // pooled Workers.
 constexpr int kWasmOpenMpThreads = 4;
 
+// Engines one Module can run at once (kMaxHosts in src/wasm/WasmHost.hpp).
+constexpr int kWasmMaxHosts = 4;
+
 // Preset prepare threads, one per WasmHost (WasmPresetPrepare.cpp).
-constexpr int kWasmPresetPrepareThreads = 2;
+constexpr int kWasmPresetPrepareThreads = 4;
 
 // Pre-spawned pthread Workers (PTHREAD_POOL_SIZE), enough for both of the above.
 // The link uses exactly this value; it cannot be overridden.
-constexpr int kWasmPthreadPoolSize = 5;
+constexpr int kWasmPthreadPoolSize = 7;
 
 // STACK_SIZE (main runtime thread) and DEFAULT_PTHREAD_STACK_SIZE (every
 // pthread: OpenMP helpers, preset prepare threads), in bytes.

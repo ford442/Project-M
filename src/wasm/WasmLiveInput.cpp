@@ -11,6 +11,12 @@
 //     page that lost track of a resize cannot write past the buffer.
 //   * texture_slot_commit(name): the frame in the buffer is complete. The next
 //     render_frame() uploads it, once, however many frames were committed since.
+//   * texture_slot_generation(name) / texture_slot_commit_generation(name, g):
+//     the buffer as {ptr, byteLength, generation} (ABI v2, #352). The
+//     generation changes whenever the buffer is reallocated, and a commit naming
+//     a replaced one is refused (WasmApiError::StaleGeneration), so a page that
+//     awaited between taking the buffer and committing it cannot upload a frame
+//     the slot no longer has the size for.
 //   * texture_slot_unregister(name).
 //   * eval_set(name, value) / eval_clear(name): projectm_eval_set() and
 //     projectm_eval_clear() on the active host ("" clears every value).
@@ -20,9 +26,11 @@
 // discipline as the PCM ring. Everything is per host and kept across engine
 // re-creation (context loss, rebind), like EngineSettings.
 
+#include "WasmApiBarrier.hpp"
 #include "WasmHost.hpp"
 
 #include <cctype>
+#include <string>
 
 namespace {
 
@@ -76,12 +84,10 @@ void ReapplyLiveInput(WasmHost& host)
     }
 }
 
-extern "C" {
+namespace WasmApi {
 
-EMSCRIPTEN_KEEPALIVE
-int texture_slot_register(const char* name, int width, int height)
+int texture_slot_register(WasmHost& H, const char* name, int width, int height)
 {
-    WasmHost& H = Host();
     if (H.appData.projectm_engine == nullptr || name == nullptr)
     {
         return 0;
@@ -98,14 +104,45 @@ int texture_slot_register(const char* name, int width, int height)
         slot.height = height;
         slot.staging.assign(static_cast<size_t>(width) * static_cast<size_t>(height) * 4, 0);
         slot.dirty = false;
+        slot.generation = H.nextBufferGeneration++;
     }
     return 1;
 }
 
-EMSCRIPTEN_KEEPALIVE
-uintptr_t texture_slot_buffer(const char* name, int bytes)
+uint32_t texture_slot_generation(WasmHost& H, const char* name)
 {
-    WasmHost& H = Host();
+    if (name == nullptr)
+    {
+        return 0;
+    }
+    auto const slot = H.liveTextures.find(SlotName(name));
+    return slot == H.liveTextures.end() ? 0 : slot->second.generation;
+}
+
+int texture_slot_commit_generation(WasmHost& H, const char* name, uint32_t generation)
+{
+    if (name == nullptr)
+    {
+        return 0;
+    }
+    auto const slot = H.liveTextures.find(SlotName(name));
+    if (slot == H.liveTextures.end())
+    {
+        return 0;
+    }
+    if (slot->second.generation != generation)
+    {
+        const std::string message = "buffer generation " + std::to_string(generation) + " of live texture \"" + slot->first +
+                                    "\" was replaced by " + std::to_string(slot->second.generation);
+        RecordHostError(HostHandle(H), WasmApiError::StaleGeneration, "texture_slot_commit_generation", message.c_str());
+        return -1;
+    }
+    slot->second.dirty = true;
+    return 1;
+}
+
+uintptr_t texture_slot_buffer(WasmHost& H, const char* name, int bytes)
+{
     if (name == nullptr)
     {
         return 0;
@@ -118,10 +155,8 @@ uintptr_t texture_slot_buffer(const char* name, int bytes)
     return reinterpret_cast<uintptr_t>(slot->second.staging.data());
 }
 
-EMSCRIPTEN_KEEPALIVE
-int texture_slot_commit(const char* name)
+int texture_slot_commit(WasmHost& H, const char* name)
 {
-    WasmHost& H = Host();
     if (name == nullptr)
     {
         return 0;
@@ -135,10 +170,8 @@ int texture_slot_commit(const char* name)
     return 1;
 }
 
-EMSCRIPTEN_KEEPALIVE
-int texture_slot_unregister(const char* name)
+int texture_slot_unregister(WasmHost& H, const char* name)
 {
-    WasmHost& H = Host();
     if (name == nullptr || H.liveTextures.erase(SlotName(name)) == 0)
     {
         return 0;
@@ -150,10 +183,8 @@ int texture_slot_unregister(const char* name)
     return 1;
 }
 
-EMSCRIPTEN_KEEPALIVE
-int eval_set(const char* name, double value)
+int eval_set(WasmHost& H, const char* name, double value)
 {
-    WasmHost& H = Host();
     if (H.appData.projectm_engine == nullptr || name == nullptr)
     {
         return 0;
@@ -166,10 +197,8 @@ int eval_set(const char* name, double value)
     return 1;
 }
 
-EMSCRIPTEN_KEEPALIVE
-int eval_clear(const char* name)
+int eval_clear(WasmHost& H, const char* name)
 {
-    WasmHost& H = Host();
     bool const all = name == nullptr || name[0] == '\0';
     bool removed = false;
     if (all)
@@ -188,4 +217,4 @@ int eval_clear(const char* name)
     return removed ? 1 : 0;
 }
 
-} // extern "C"
+} // namespace WasmApi

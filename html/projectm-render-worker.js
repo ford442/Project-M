@@ -74,6 +74,7 @@
  *   specialHTMLTargets?: Record<string, unknown>,
  *   _create_host_with_config?: (...args: number[]) => number,
  *   _texture_slot_buffer?: (...args: number[]) => number,
+ *   _texture_slot_generation?: (...args: number[]) => number,
  *   FS?: { writeFile: (path: string, data: Uint8Array | string) => void, mkdirTree?: (path: string) => void },
  * }} WorkerModule
  */
@@ -152,6 +153,7 @@ let renderScale = 1;
  */
 function applySurfaceSize() {
     if (!surface || surfaceWidth <= 0 || surfaceHeight <= 0) return;
+    const engine = selectEngine(engineHost);
 
     const scale = renderScale > 0 ? renderScale : 1;
     const width = Math.max(1, Math.round(surfaceWidth * scale));
@@ -161,30 +163,85 @@ function applySurfaceSize() {
         surface.width = width;
         surface.height = height;
     }
-    if (Module && Module._set_window_size) {
-        Module._set_window_size(width, height);
+    if (engine && engine._set_window_size) {
+        engine._set_window_size(width, height);
     }
 }
 
+/** @type {WeakMap<object, Map<number, WorkerModule>>} */
+const engineViews = new WeakMap();
+
 /**
- * Makes `host` (or this worker's engine, for 0/absent) the active one before a
- * control message acts on it. Mirrors bindModuleToHost() on the main thread:
- * with two engines in this module, which one a call reaches must come from the
- * message, not from whichever was activated last.
+ * The module as seen by `host` (this worker's engine for 0/absent): every
+ * engine call made through it acts on that engine. Mirrors bindModuleToHost()
+ * on the main thread, which this classic script cannot import: with two
+ * engines in this module, which one a call reaches must come from the message,
+ * not from whichever was activated last.
+ *
+ * An ABI v2 bundle (#352, it exports pm_host_is_live) has a pm_<name>(host, ...)
+ * form of every engine call, so the view rewrites `_name(...)` and
+ * `ccall('name', ...)` to it and nothing is activated. The calls that already
+ * take a handle (projectm_*_wrapper) have no pm_<name> twin and pass through.
+ * An older bundle has no pm_ exports: the view is the module itself, with
+ * `host` made active first.
  *
  * @param {number | undefined} host
+ * @returns {WorkerModule | null}
  */
 function selectEngine(host) {
-    const target = host || engineHost;
-    if (!target || !Module) return;
-    // The common case — one engine, already active — costs no make-current.
     const module = Module;
-    if (typeof module._get_active_host === 'function' && module._get_active_host() === target) return;
+    if (!module) return null;
+    const target = host || engineHost;
+    if (typeof module._pm_host_is_live === 'function') {
+        let views = engineViews.get(module);
+        if (!views) {
+            views = new Map();
+            engineViews.set(module, views);
+        }
+        let view = views.get(target);
+        if (!view) {
+            view = hostView(module, target);
+            views.set(target, view);
+        }
+        return view;
+    }
+    if (!target) return module;
+    // The common case — one engine, already active — costs no make-current.
+    if (typeof module._get_active_host === 'function' && module._get_active_host() === target) return module;
     try {
-        Module.ccall('set_active_host', null, ['number'], [target]);
+        module.ccall('set_active_host', null, ['number'], [target]);
     } catch (_) {
         // A bundle without the export has one engine; nothing to select.
     }
+    return module;
+}
+
+/**
+ * @param {WorkerModule} module An ABI v2 bundle.
+ * @param {number} host
+ * @returns {WorkerModule}
+ */
+function hostView(module, host) {
+    /** @param {string} name */
+    const pmExport = (name) => /** @type {unknown} */ (Reflect.get(module, `_pm_${name}`));
+    return new Proxy(module, {
+        get(obj, property) {
+            const value = Reflect.get(obj, property);
+            if (typeof property !== 'string' || typeof value !== 'function') return value;
+            if (property === 'ccall') {
+                /** @type {(name: string, returnType: unknown, argTypes: unknown[], args: unknown[], ...rest: unknown[]) => unknown} */
+                const routed = (name, returnType, argTypes, args, ...rest) =>
+                    typeof pmExport(name) === 'function'
+                        ? value.call(obj, `pm_${name}`, returnType, ['number', ...(argTypes || [])], [host, ...(args || [])], ...rest)
+                        : value.call(obj, name, returnType, argTypes, args, ...rest);
+                return routed;
+            }
+            if (!property.startsWith('_') || property.startsWith('_pm_')) return value;
+            const pm = pmExport(property.slice(1));
+            if (typeof pm !== 'function') return value;
+            return (/** @type {unknown[]} */ ...args) => pm.call(obj, host, ...args);
+        },
+    });
 }
 
 /**
@@ -202,9 +259,12 @@ const { flushPerfFrames } = self.installWorkerEngineHooks({
         applySurfaceSize();
     },
 });
-const { publishPcmRing, writePcmToRing, readPcmRingCounters } = self.createWorkerPcmRing({ getModule: () => Module, postToHost });
-const { applyFlashLimit, captureFrame } = self.createWorkerCapture({ getModule: () => Module, selectEngine, postToHost });
-const { writeTextureFrame } = self.createWorkerLiveTexture({ getModule: () => Module, selectEngine, postToHost });
+const { publishPcmRing, writePcmToRing, readPcmRingCounters } = self.createWorkerPcmRing({
+    getModule: () => selectEngine(engineHost),
+    postToHost,
+});
+const { applyFlashLimit, captureFrame } = self.createWorkerCapture({ selectEngine, postToHost });
+const { writeTextureFrame } = self.createWorkerLiveTexture({ selectEngine, postToHost });
 
 
 /**
@@ -250,10 +310,10 @@ function recoverContext(host) {
 
     let status;
     try {
-        selectEngine(host);
-        status = Module._init();
+        const engine = /** @type {WorkerModule} */ (selectEngine(host));
+        status = engine._init();
         if (status === 0) {
-            Module._start_render(surface.width, surface.height);
+            engine._start_render(surface.width, surface.height);
         }
     } catch (error) {
         postToHost({ type: 'error', message: `context recovery failed: ${error}` });
@@ -274,7 +334,7 @@ function recoverContext(host) {
  * @returns {{ contextSnapshot?: number }}
  */
 function contextSnapshotField() {
-    const m = Module;
+    const m = selectEngine(engineHost);
     return m && typeof m._get_context_snapshot === 'function'
         ? { contextSnapshot: m._get_context_snapshot() }
         : {};
@@ -284,7 +344,8 @@ function postStats() {
     // A render loop that stopped (hidden tab, lost context) would otherwise
     // strand the last partial batch until it resumed.
     flushPerfFrames();
-    if (!Module) return;
+    const engine = selectEngine(engineHost);
+    if (!engine) return;
 
     const now = performance.now();
     if (lastFrameTime) {
@@ -299,10 +360,10 @@ function postStats() {
     postToHost({
         type: 'stats',
         fps: lastFps,
-        fboFormat: Module._dual_fbo_get_format ? Module._dual_fbo_get_format() : -1,
-        qualityTier: Module._get_quality_tier ? Module._get_quality_tier() : -1,
+        fboFormat: engine._dual_fbo_get_format ? engine._dual_fbo_get_format() : -1,
+        qualityTier: engine._get_quality_tier ? engine._get_quality_tier() : -1,
         renderScale,
-        renderPathOverrides: Module._get_render_path_overrides ? Module._get_render_path_overrides() : -1,
+        renderPathOverrides: engine._get_render_path_overrides ? engine._get_render_path_overrides() : -1,
         ...(pcmRing ? { pcmRing } : {}),
     });
 }
@@ -443,7 +504,7 @@ function shutdown() {
     bootState = 'shut-down';
     stopStats();
     flushPerfFrames();
-    const m = /** @type {{ _destruct?: () => void } | null} */ (Module);
+    const m = /** @type {{ _destruct?: () => void } | null} */ (selectEngine(engineHost));
     // A boot still in flight has no engine yet; init() sees the state and stops.
     if (!wasBooting && m && typeof m._destruct === 'function') {
         try {
@@ -603,21 +664,22 @@ async function init(msg) {
         applyFlashLimit(msg.flashLimit);
     }
 
-    Module._start_render(msg.width, msg.height);
+    const engine = /** @type {WorkerModule} */ (selectEngine(engineHost));
+    engine._start_render(msg.width, msg.height);
 
-    if (Module._set_target_fps && msg.targetFps) {
-        Module._set_target_fps(msg.targetFps);
+    if (engine._set_target_fps && msg.targetFps) {
+        engine._set_target_fps(msg.targetFps);
     }
-    if (Module._set_quality_governor && msg.governor !== undefined) {
-        Module._set_quality_governor(msg.governor ? 1 : 0);
+    if (engine._set_quality_governor && msg.governor !== undefined) {
+        engine._set_quality_governor(msg.governor ? 1 : 0);
     }
-    if (Module._get_governor_render_scale) {
-        renderScale = Module._get_governor_render_scale() || 1;
+    if (engine._get_governor_render_scale) {
+        renderScale = engine._get_governor_render_scale() || 1;
         applySurfaceSize();
     }
-    if (Module._set_mesh && msg.meshQuality) {
+    if (engine._set_mesh && msg.meshQuality) {
         const grid = msg.meshQuality === 'low' ? [64, 48] : [80, 60];
-        Module._set_mesh(grid[0], grid[1]);
+        engine._set_mesh(grid[0], grid[1]);
     }
 
     publishPcmRing();
@@ -643,7 +705,6 @@ self.onmessage = (event) => {
             // the governor's render scale, and only this side can set it.
             surfaceWidth = msg.width;
             surfaceHeight = msg.height;
-            selectEngine(msg.host);
             applySurfaceSize();
             break;
         case 'pcm':
@@ -653,14 +714,12 @@ self.onmessage = (event) => {
             break;
         case 'preset':
             if (Module) {
-                selectEngine(msg.host);
-                handlePreset(Module, msg);
+                handlePreset(/** @type {WorkerModule} */ (selectEngine(msg.host)), msg);
             }
             break;
         case 'ccall':
             if (Module) {
-                selectEngine(msg.host);
-                handleCcall(Module, msg);
+                handleCcall(/** @type {WorkerModule} */ (selectEngine(msg.host)), msg);
             } else if (msg.requestId !== undefined) {
                 // Before boot or after shutdown: say so rather than leave the
                 // caller's promise pending forever.
@@ -672,8 +731,7 @@ self.onmessage = (event) => {
             break;
         case 'set-flash-limit':
             if (Module) {
-                selectEngine(msg.host);
-                applyFlashLimit(msg);
+                applyFlashLimit(msg, msg.host);
             }
             break;
         case 'texture-frame':

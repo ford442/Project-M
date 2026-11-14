@@ -11,7 +11,11 @@
 // The fake Module answers any `_symbol` property with a no-op function and
 // `ccall()` with a recorded call, so the generated wrappers run unchanged.
 
+import { HOST_SYMBOLS } from '../../../html/generated/projectm-wasm-api.js';
 import { trackListeners } from './listener-ledger.mjs';
+
+/** pm_ export -> [compat name, how the host is passed] (see HOST_SYMBOLS). */
+const PM_ROUTES = new Map([...HOST_SYMBOLS].map(([legacy, [pm, mode]]) => [pm, [legacy, mode]]));
 
 /** Minimal EventTarget with `dispatch()` for tests. */
 class FakeEventTarget {
@@ -261,15 +265,23 @@ FakeBroadcastChannel.instances = [];
  * layer can observe it: a successful create makes the new host live and
  * active, `set_active_host` switches to a live host and ignores a stale one,
  * `destroy_host` frees one, and `_get_active_host` reads it back.
- * `engineCalls` records which host was active when each call ran, which is
- * what a test of "this landed on the right engine" asserts on.
+ * `engineCalls` records which host each call ran on, which is what a test of
+ * "this landed on the right engine" asserts on.
+ *
+ * By default it is an ABI v2 bundle (#352): it has `_pm_host_is_live` and
+ * every engine export's pm_ form, which takes the host as an argument. A call
+ * to a pm_ export is recorded under its compat name with the compat
+ * arguments, on the host it named (`pmCalls` counts them), so assertions read
+ * the same for either ABI. `abi: 1` models a bundle from before it: no pm_
+ * exports, and the host layer selects hosts with set_active_host().
  *
  * @param {object} [options]
  * @param {number} [options.hostHandle] What `create_host_with_config` / `create_host` returns; 0 fails it.
  * @param {number} [options.initError] What `get_last_init_error` reports after a failed create.
  * @param {(name: string, args: unknown[]) => unknown} [options.onCall] Overrides a call's result.
+ * @param {1 | 2} [options.abi] Which export ABI the bundle has.
  */
-export function makeFakeModule({ hostHandle = 7, initError = 4, onCall } = {}) {
+export function makeFakeModule({ hostHandle = 7, initError = 4, onCall, abi = 2 } = {}) {
     /** @type {{ name: string, args: unknown[] }[]} */
     const calls = [];
     /** @type {{ name: string, host: number }[]} */
@@ -287,9 +299,18 @@ export function makeFakeModule({ hostHandle = 7, initError = 4, onCall } = {}) {
         get activeHost() {
             return activeHost;
         },
-        ccall(name, _returnType, _argTypes, args = []) {
+        pmCalls: 0,
+        ccall(name, returnType, argTypes, args = []) {
+            const pm = abi >= 2 ? PM_ROUTES.get(name) : undefined;
+            if (pm) {
+                target.pmCalls += 1;
+                const [legacy, mode] = pm;
+                const host = Number(args[0]);
+                const compatArgs = mode === 'first' ? args : args.slice(1);
+                return runEngineCall(host, () => target.ccall(legacy, returnType, argTypes, compatArgs));
+            }
             calls.push({ name, args });
-            engineCalls.push({ name, host: activeHost });
+            engineCalls.push({ name, host: currentHost ?? activeHost });
             const override = onCall?.(name, args);
             let result = override !== undefined ? override : 0;
             if (override === undefined && isCreateHostCall(name)) result = hostHandle;
@@ -320,17 +341,45 @@ export function makeFakeModule({ hostHandle = 7, initError = 4, onCall } = {}) {
             calls.push({ name: '_destruct', args: [] });
         },
     };
+    /** @type {number | undefined} The host a pm_ call named, while it runs. */
+    let currentHost;
+    // A pm_ call runs as its compat form would, on the host it named.
+    const runEngineCall = (host, run) => {
+        const saved = currentHost;
+        currentHost = host;
+        try {
+            return run();
+        } finally {
+            currentHost = saved;
+        }
+    };
+    const legacyCall = (property) => (...args) => {
+        calls.push({ name: property, args });
+        engineCalls.push({ name: property, host: currentHost ?? activeHost });
+        return 0;
+    };
+    if (abi >= 2) {
+        // Handle 0 is the implicit default host (the one init() makes), which
+        // an own-Module context runs on until the Module is destructed.
+        target._pm_host_is_live = (handle) => (handle === 0 ? !target.destructed : liveHosts.has(Number(handle)));
+    }
     return new Proxy(target, {
         get(obj, property) {
             if (property in obj) return obj[property];
-            if (typeof property === 'string' && property.startsWith('_')) {
+            if (typeof property !== 'string' || !property.startsWith('_')) return undefined;
+            const pm = abi >= 2 ? PM_ROUTES.get(property.slice(1)) : undefined;
+            if (pm) {
+                const [legacy, mode] = pm;
+                const compat = `_${legacy}`;
                 return (...args) => {
-                    calls.push({ name: property, args });
-                    engineCalls.push({ name: property, host: activeHost });
-                    return 0;
+                    target.pmCalls += 1;
+                    const compatArgs = mode === 'first' ? args : args.slice(1);
+                    const run = compat in obj ? obj[compat] : legacyCall(compat);
+                    return runEngineCall(Number(args[0]), () => run(...compatArgs));
                 };
             }
-            return undefined;
+            if (property.startsWith('_pm_')) return undefined;
+            return legacyCall(property);
         },
     });
 }

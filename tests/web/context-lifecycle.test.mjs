@@ -799,16 +799,17 @@ async function startPair(env, extra = {}) {
 
 // ---- two engines in ONE Module: events and calls stay with their engine ----------
 //
-// kMaxHosts is 2: embed-multi-same-module.html runs two engines in one Module.
+// embed-multi-same-module.html runs two engines in one Module (kMaxHosts is 4).
 // Every engine callback is one global name for both, so the handle the engine
-// passes (bundle 040+) is the only thing that says whose it is; and almost every
-// export acts on the *active* engine, so a call that resumes after an await has
-// to select its own again.
+// passes (bundle 040+) is the only thing that says whose it is. Every engine
+// call names its host (ABI v2, #352: the pm_ exports); against a bundle from
+// before it the compat exports act on the *active* engine, so a call that
+// resumes after an await has to select its own again.
 
 /** Two contexts sharing one Module, as embed-multi-same-module.html runs them. */
-async function startSharedPair(env, { extraA = {}, extraB = {} } = {}) {
+async function startSharedPair(env, { extraA = {}, extraB = {}, abi = 2 } = {}) {
     let nextHandle = 30;
-    const module = makeFakeModule({ onCall: (name) => (isCreateHostCall(name) ? nextHandle++ : undefined) });
+    const module = makeFakeModule({ abi, onCall: (name) => (isCreateHostCall(name) ? nextHandle++ : undefined) });
     const a = env.newContext({ sharedModule: module, canvasId: 'pm-a', ...extraA });
     const b = env.newContext({ sharedModule: module, canvasId: 'pm-b', ...extraB });
     await a.start();
@@ -924,25 +925,38 @@ test('two engines in one Module: a preset that failed to switch reaches only the
     });
 });
 
-test('a context that booted its own Module hears its engine\'s preset failures although it never learned the handle', async () => {
+test('a context that booted its own Module drives the engine create_host_with_config() made, and destructs the Module', async () => {
     await withEnv({ withResizeObserver: false }, async (env) => {
-        // checkInit() creates the engine through create_host_with_config() but
-        // returns only the init code, so on this path context.hostHandle stays 0
-        // while the engine's events name the real handle (7 here). A filter on
-        // `engineHost: 0` would mean "the legacy default host only" and drop
-        // every one of them: seen in a real browser, not just on paper.
+        // checkInit() creates the engine through create_host_with_config(),
+        // which on an ABI v2 bundle adopts the implicit default host and gives
+        // it a real handle (7 here). Host 0 then names no engine: a context
+        // that kept driving host 0 failed with "projectM engine host 0 no
+        // longer exists" on its first resize, in a real browser.
         const errors = [];
+        let module = null;
         const context = env.newContext({
-            ...mainTopology(env, async () => makeFakeModule({ hostHandle: 7 })),
+            ...mainTopology(env, async () => {
+                module = makeFakeModule({ hostHandle: 7 });
+                return module;
+            }),
             onError: (detail) => errors.push(detail),
         });
         await context.start();
-        assert.equal(context.hostHandle, 0, 'the premise: this path does not know its handle');
+        assert.equal(context.hostHandle, 7, 'the context learned its engine\'s handle');
+        const afterCreate = module.engineCalls.slice(
+            module.engineCalls.findIndex((call) => call.name === 'create_host_with_config') + 1);
+        assert.ok(afterCreate.length > 0, 'the context drove its engine after creating it');
+        assert.deepEqual([...new Set(afterCreate.map((call) => call.host))], [7], 'every call named host 7');
 
         env.window.pmOnPresetSwitchFailed(7, '/presets/bad.milk', 'warp shader: syntax error');
-        assert.equal(errors.length, 1, 'the failure from the engine\'s real handle must arrive');
+        assert.equal(errors.length, 1, 'the failure from the engine\'s handle must arrive');
         assert.equal(errors[0].code, PRESET_SWITCH_FAILED);
         assert.equal(errors[0].error.preset, '/presets/bad.milk');
+
+        context.destroy();
+        assert.equal(module.destructed, true, 'the context owns the Module: teardown destructs it');
+        assert.equal(module.calls.some((call) => call.name === 'destroy_host'), false,
+            'not just the one host, leaving the Module behind');
     });
 });
 
@@ -968,6 +982,51 @@ test('a preset load that awaits its fetch still lands on its own engine after a 
         // Each start() locks its own engine, then B's setLocked() above.
         const locks = module.engineCalls.filter((call) => call.name === '_set_preset_locked');
         assert.deepEqual(locks.map((call) => call.host), [a.hostHandle, b.hostHandle, b.hostHandle]);
+    });
+});
+
+test('ABI v2: two engines in one Module are driven without ever calling set_active_host', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env);
+        a.setLocked(false);
+        b.setLocked(true);
+        a.resize();
+
+        assert.ok(module.pmCalls > 0, 'engine calls went to the pm_ exports');
+        assert.deepEqual(module.calls.filter((call) => call.name === 'set_active_host'), [],
+            'nothing selects a host: every engine call names its own');
+        const locks = module.engineCalls.filter((call) => call.name === '_set_preset_locked');
+        assert.deepEqual(locks.map((call) => call.host), [a.hostHandle, b.hostHandle, a.hostHandle, b.hostHandle]);
+    });
+});
+
+test('context.call drives this context\'s engine through the generated host API', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env);
+        assert.ok(a.call, 'a started main-thread context has one');
+        assert.equal(a.call.host, a.hostHandle);
+        assert.equal(a.call, a.call, 'cached');
+
+        a.call.setMesh(48, 32);
+        b.call?.setMesh(64, 48);
+        const meshes = module.engineCalls.filter((call) => call.name === '_set_mesh');
+        assert.deepEqual(meshes.slice(-2).map((call) => call.host), [a.hostHandle, b.hostHandle]);
+
+        a.destroy();
+        assert.equal(a.call, null, 'gone with the engine');
+    });
+});
+
+test('a bundle from before ABI v2 still lands each call on its own engine by activating it', async () => {
+    await withEnv({ withResizeObserver: false }, async (env) => {
+        const { a, b, module } = await startSharedPair(env, { abi: 1 });
+        b.setLocked(true);
+        a.setLocked(false);
+
+        assert.equal(module.pmCalls, 0);
+        assert.ok(module.calls.some((call) => call.name === 'set_active_host'), 'the legacy path activates');
+        const locks = module.engineCalls.filter((call) => call.name === '_set_preset_locked');
+        assert.deepEqual(locks.slice(-2).map((call) => call.host), [b.hostHandle, a.hostHandle]);
     });
 });
 

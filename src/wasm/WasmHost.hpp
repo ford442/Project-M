@@ -9,37 +9,39 @@
 // engine would silently share the first one's GL context and transition state.
 //
 // WasmHost gathers all of that per-instance state into a single heap-allocated
-// struct. The host layer keeps a small registry (capped at kMaxHosts) and an
-// "active" host; every export operates on the active host, which the JS side
-// selects with set_active_host() before driving that instance (the "close over
-// it in ProjectMContext" option from the issue). Legacy hosts that never call
-// the multi-instance API keep working against a lazily-created compat *default*
-// host (slot 0), so nothing breaks in a single PR.
+// struct, kept in a small registry (capped at kMaxHosts). Every engine export
+// is a pm_<name>(host, ...) that names its host (ABI v2, #352): the generated
+// barrier (WasmApiBarrier.hpp) resolves the handle and hands the
+// implementation its WasmHost&. Implementations reach no other host.
 //
-// See docs/EMSCRIPTEN.md ("Multi-instance host state").
+// The "active" host survives only for the compat shims (the pre-v2 export
+// names, which act on whichever host set_active_host() selected) and for
+// legacy single-engine pages, which get a lazily-created compat *default* host
+// (slot 0) that pm_ exports address as handle 0.
+//
+// See docs/EMSCRIPTEN.md ("Multi-instance host state") and docs/WASM_JS_API.md
+// ("ABI v2").
 #pragma once
 
 #include "ProjectMWasmInternal.hpp"
 #include "WasmGraphics.hpp"
 #include "WasmPresetPrepare.hpp"
 #include "WasmWebGLContext.hpp"
+#include "generated/WasmApiImpl.hpp"
 
 #include <map>
 #include <memory>
 #include <optional>
 #include <utility>
 
-// Maximum simultaneous engines in one Module. v1 targets 2 (A/B, compare-two-
-// presets). Each host owns an engine + dual-FBO pair, so this is bounded by
-// VRAM, not INITIAL_MEMORY. A create_host() past the cap fails with a typed
-// error rather than silently sharing GL state.
-//
-// Do not raise this on the strength of #226 alone. #246 (Phase C) made the
-// context config, PCM ring and shader-cache key per-host, but the Web Audio
-// worklet is still one per Module (it fans out to every host's ring) and the
-// in-page audio engine (#228) has not landed. Revisit the audio story there
-// before going past 2.
-constexpr int kMaxHosts = 2;
+// Maximum simultaneous engines in one Module: PROJECTM_WASM_MAX_HOSTS in
+// cmake/EmscriptenWasmFlags.cmake, which also sizes the pthread pool (one
+// preset prepare thread per host). Each host owns an engine, a dual-FBO pair,
+// a PCM ring and a WebGL context, so the real bound is VRAM and the browser's
+// live-context limit, not the heap. The one AudioWorklet fans every quantum out
+// to each host's ring. A create_host() past the cap fails with a typed error
+// rather than silently sharing GL state.
+constexpr int kMaxHosts = kWasmMaxHosts;
 
 // =============================================================================
 // PcmRingState – one host's WASM-owned PCM ring (#246). Layout and threading
@@ -100,6 +102,9 @@ struct LiveTextureSlot {
     int height = 0;
     std::vector<uint8_t> staging; //!< width * height RGBA8, top row first.
     bool dirty = false;           //!< Committed since the last upload.
+    //! Changes with every (re)allocation of `staging`: what texture_slot_commit_generation()
+    //! compares, so a frame written into a replaced buffer is never committed.
+    uint32_t generation = 0;
 };
 
 // =============================================================================
@@ -242,6 +247,9 @@ struct WasmHost {
     // Live textures by lower-case name, and the host variables (eval_set()) the
     // engine applies every frame. Both outlive the engine, like EngineSettings.
     std::map<std::string, LiveTextureSlot> liveTextures;
+    //! Next LiveTextureSlot::generation; per host, so a slot removed and
+    //! registered again never repeats one.
+    uint32_t nextBufferGeneration = 1;
     std::map<std::string, double> hostVariables;
 
     // ---- Transpiled-GLSL cache load (#246) ----
@@ -265,6 +273,12 @@ struct WasmHost {
     // main loop renders it). The loop itself is process-global; each host opts
     // in individually.
     bool renderLoopStarted = false;
+
+    // ---- Last error an export reported on this host (WasmApiBarrier.hpp) ----
+    // pm_get_last_error() / pm_get_last_error_message(); kept until
+    // pm_clear_last_error() or the next error.
+    int lastErrorCode = 0;
+    std::string lastErrorMessage;
 };
 
 // Process-global Emscripten main-loop registration flag. The loop services
@@ -273,16 +287,32 @@ struct WasmHost {
 // scripts/check_wasm_host_globals.sh).
 extern bool g_mainLoopRegistered;
 
-// ---- Active-host accessor -----------------------------------------------------
+// ---- Active-host accessor (compat shims only) ---------------------------------
 // Host() returns the active host, lazily creating the compat default (slot 0)
-// so it is never null — legacy no-handle exports can rely on it. Every export
-// body opens with `WasmHost& H = Host();`.
+// so it is never null; it throws std::bad_alloc when even that fails. Only the
+// registry (WasmHost.cpp) and the compat-only exports (WasmLegacyExports.cpp)
+// call it; scripts/check_wasm_host_globals.sh fails anything else that does.
 WasmHost& Host();
 
-// Switches the active host and makes its WebGL context current (no-op make-
-// current while the host has no context yet, e.g. between create_host() and
-// init()). Passing nullptr falls back to the default host.
+// The handle of Host(), for a compat name forwarding to its pm_ export
+// (generated/WasmApiExports.cpp). Never throws: when the default host cannot be
+// allocated it records the error and returns a handle that names no host, so
+// the pm_ export returns its failure value.
+uintptr_t ActiveHostHandle() noexcept;
+
+// Switches the active host (set_active_host()) and binds it (BindHost(): its
+// WebGL context current). Passing nullptr falls back to the default host.
 void SetActiveHost(WasmHost* host);
+
+// The host `handle` names: create_host*()'s handle while it is live, or for 0
+// the implicit default host a legacy init() brought up. nullptr otherwise.
+// Never creates a host.
+WasmHost* ResolveHost(uintptr_t handle);
+
+// Makes `host` the host the next GL calls are for: its WebGL context current
+// and libprojectM's shader-cache key on its in-flight load. Does not change
+// which host is active.
+void BindHost(WasmHost& host);
 
 // Allocates a new host (up to kMaxHosts) and returns it, or nullptr at the cap.
 // Does NOT init the engine or make it active; callers (create_host export) do.
@@ -298,9 +328,11 @@ int HostSlotCount();           //!< kMaxHosts (fixed-size slot array).
 WasmHost* HostSlot(int index); //!< Live host in slot, or nullptr.
 int LiveHostCount();           //!< Number of currently-allocated hosts.
 
-// The active host without lazily creating the default (nullptr if none), for
-// callers that need to restore the selection after iterating hosts.
+// The active host without lazily creating the default (nullptr if none).
 WasmHost* ActiveHostOrNull();
+
+// The implicit default host (handle 0 of a pm_ export), or nullptr.
+WasmHost* ImplicitDefaultHost();
 
 // Opaque handle for a host (the value create_host() returns / JS tags ring
 // descriptors with), and the registry-checked reverse lookup (nullptr for a
@@ -317,9 +349,6 @@ WasmHost* HostFromHandle(uintptr_t handle);
 // because EM_JS hands a uintptr_t to JavaScript as a signed i32.
 double EventHostHandle(const WasmHost& host);
 
-// EventHostHandle() of the active host, or kNoEventHost when there is none.
-double ActiveEventHostHandle();
-
 // The event handle for a failure that happened before any engine existed (a
 // create_host*() refused at the kMaxHosts cap). No context's handle is -1, so
 // a host-filtered listener never takes it for its own.
@@ -332,6 +361,6 @@ constexpr double kNoEventHost = -1.0;
 projectm_handle EngineFromHandle(uintptr_t engineHandle);
 
 // Points libprojectM's process-wide transpiled-GLSL cache key at `host`'s
-// in-flight load (or clears it). SetActiveHost() calls this so the key always
-// belongs to the active host. Defined in WasmShaderCache.cpp.
+// in-flight load (or clears it). BindHost() calls this so the key always
+// belongs to the host being driven. Defined in WasmShaderCache.cpp.
 void ArmShaderCacheKeyForHost(const WasmHost& host);

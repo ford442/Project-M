@@ -100,69 +100,61 @@ float ResolveTransitionDuration(WasmHost& host)
     return host.transitionDuration;
 }
 
-extern "C" {
+namespace WasmApi {
 
 /**
  * @brief Tempo in BPM, 0 while the tracker is not confident.
  */
-EMSCRIPTEN_KEEPALIVE
-float get_rhythm_bpm()
+float get_rhythm_bpm(WasmHost& H)
 {
-    return CurrentRhythm(Host()).bpm;
+    return CurrentRhythm(H).bpm;
 }
 
 /**
  * @brief Beat phase, 0..1 (0 = beat).
  */
-EMSCRIPTEN_KEEPALIVE
-float get_rhythm_beat_phase()
+float get_rhythm_beat_phase(WasmHost& H)
 {
-    return CurrentRhythm(Host()).beat_phase;
+    return CurrentRhythm(H).beat_phase;
 }
 
 /**
  * @brief Bar phase, 0..1 over four beats (0 = downbeat).
  */
-EMSCRIPTEN_KEEPALIVE
-float get_rhythm_bar_phase()
+float get_rhythm_bar_phase(WasmHost& H)
 {
-    return CurrentRhythm(Host()).bar_phase;
+    return CurrentRhythm(H).bar_phase;
 }
 
 /**
  * @brief Tracker confidence, 0..1.
  */
-EMSCRIPTEN_KEEPALIVE
-float get_rhythm_confidence()
+float get_rhythm_confidence(WasmHost& H)
 {
-    return CurrentRhythm(Host()).confidence;
+    return CurrentRhythm(H).confidence;
 }
 
 /**
  * @brief Beats counted since the engine started. A double: exact far beyond any session.
  */
-EMSCRIPTEN_KEEPALIVE
-double get_rhythm_beat_index()
+double get_rhythm_beat_index(WasmHost& H)
 {
-    return static_cast<double>(CurrentRhythm(Host()).beat_index);
+    return static_cast<double>(CurrentRhythm(H).beat_index);
 }
 
 /**
  * @brief Section index, incremented on every detected section change.
  */
-EMSCRIPTEN_KEEPALIVE
-int get_rhythm_section()
+int get_rhythm_section(WasmHost& H)
 {
-    return CurrentRhythm(Host()).section;
+    return CurrentRhythm(H).section;
 }
 
 /**
  * @brief Uses a known tempo instead of estimating it; 0 goes back to estimating.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_rhythm_hint(float bpm)
+void set_rhythm_hint(WasmHost& H, float bpm)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     H.engineSettings.rhythmHint = bpm;
     if (pm)
@@ -175,10 +167,8 @@ void set_rhythm_hint(float bpm)
  * @brief When the playlist switches presets: 0 timer, 1 every @p bars bars, 2 on a
  *        section change (at most every @p bars bars). See projectM-4/rhythm.h.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_preset_switch_policy(int policy, int bars)
+void set_preset_switch_policy(WasmHost& H, int policy, int bars)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     const int clampedPolicy = policy >= 0 && policy <= 2 ? policy : 0;
     const auto clampedBars = static_cast<uint32_t>(std::max(bars, 0));
@@ -192,10 +182,8 @@ void set_preset_switch_policy(int policy, int bars)
 /**
  * @brief The preset switch policy (0 timer, 1 bars, 2 section).
  */
-EMSCRIPTEN_KEEPALIVE
-int get_preset_switch_policy()
+int get_preset_switch_policy(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
     {
@@ -211,10 +199,8 @@ int get_preset_switch_policy()
  * Covers both the dual-FBO compositor's crossfades (transition_start()) and the
  * engine's own soft cuts.
  */
-EMSCRIPTEN_KEEPALIVE
-void transition_set_duration_beats(float beats)
+void transition_set_duration_beats(WasmHost& H, float beats)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     H.transitionBeats = std::isfinite(beats) && beats > 0.0f ? beats : 0.0f;
     H.engineSettings.transitionBeats = H.transitionBeats;
@@ -227,19 +213,16 @@ void transition_set_duration_beats(float beats)
 /**
  * @brief Crossfade length in beats, 0 if crossfades use seconds.
  */
-EMSCRIPTEN_KEEPALIVE
-float transition_get_duration_beats()
+float transition_get_duration_beats(WasmHost& H)
 {
-    return Host().transitionBeats;
+    return H.transitionBeats;
 }
 
 /**
  * @brief Makes beat-detection hard cuts wait for the next beat (at most one beat).
  */
-EMSCRIPTEN_KEEPALIVE
-void set_hard_cut_on_beat(bool enabled)
+void set_hard_cut_on_beat(WasmHost& H, bool enabled)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     H.engineSettings.hardCutOnBeat = enabled;
     if (pm)
@@ -254,10 +237,8 @@ void set_hard_cut_on_beat(bool enabled)
  * The page measures it (AudioContext.outputLatency + baseLatency + the worklet's
  * buffering; ProjectMContext.setRhythmLatency('auto')) or the user nudges it.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_rhythm_latency_ms(double ms)
+void set_rhythm_latency_ms(WasmHost& H, double ms)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     const double clamped = std::isfinite(ms) ? std::clamp(ms, 0.0, 1000.0) : 0.0;
     H.engineSettings.rhythmLatencyMs = clamped;
@@ -270,10 +251,8 @@ void set_rhythm_latency_ms(double ms)
 /**
  * @brief The latency set with set_rhythm_latency_ms(), in ms.
  */
-EMSCRIPTEN_KEEPALIVE
-double get_rhythm_latency_ms()
+double get_rhythm_latency_ms(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
     {
@@ -285,10 +264,8 @@ double get_rhythm_latency_ms()
 /**
  * @brief Quantises bar and section switches to phrases of @p bars bars (0 = off).
  */
-EMSCRIPTEN_KEEPALIVE
-void set_preset_switch_phrase(int bars)
+void set_preset_switch_phrase(WasmHost& H, int bars)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     const auto clamped = static_cast<uint32_t>(std::clamp(bars, 0, 64));
     H.engineSettings.presetSwitchPhrase = clamped;
@@ -301,10 +278,8 @@ void set_preset_switch_phrase(int bars)
 /**
  * @brief Hard cut on the first downbeat after each detected section change.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_section_hard_cut(bool enabled)
+void set_section_hard_cut(WasmHost& H, bool enabled)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     H.engineSettings.sectionHardCut = enabled;
     if (pm)
@@ -319,12 +294,10 @@ void set_section_hard_cut(bool enabled)
  * Off by default: a page that does not listen pays nothing. Only frames with an
  * event call into JavaScript - about two a second at 120 BPM.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_rhythm_events(bool enabled)
+void set_rhythm_events(WasmHost& H, bool enabled)
 {
-    WasmHost& H = Host();
     H.rhythmEventsEnabled = enabled;
     H.pendingRhythmEvents = 0;
 }
 
-} // extern "C"
+} // namespace WasmApi

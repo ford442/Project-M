@@ -18,7 +18,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/WasmApiManifest.cmake")
 #   - the OpenMP team: omp_set_num_threads(kWasmOpenMpThreads) in
 #     projectM_emscripten.cpp, i.e. kWasmOpenMpThreads - 1 helper threads;
 #   - one preset prepare thread per WasmHost (src/wasm/WasmPresetPrepare.cpp),
-#     at most kMaxHosts of them.
+#     at most PROJECTM_WASM_MAX_HOSTS of them.
 # PTHREAD_POOL_SIZE pre-spawns a Worker for each. A pthread_create() with the
 # pool empty still works, but its Worker is created lazily and the thread only
 # starts once the creating thread yields; OpenMP barriers waiting on such a
@@ -34,9 +34,15 @@ include("${CMAKE_CURRENT_LIST_DIR}/WasmApiManifest.cmake")
 # lazy-Worker hang above back. To change them, edit them here and run
 # scripts/sync_wasm_link_common.sh.
 set(PROJECTM_WASM_OPENMP_THREADS 4)          # OpenMP team size (omp_set_num_threads).
-set(PROJECTM_WASM_PRESET_PREPARE_THREADS 2)  # One per WasmHost: >= kMaxHosts (src/wasm/WasmHost.hpp).
+# Engines one Module can run at once (kMaxHosts, src/wasm/WasmHost.hpp). Each
+# host owns a preset prepare thread, so the pool is derived from it: raising it
+# costs one pre-spawned Worker (and its 512 KB stack) per host, not a rebuild
+# of anything else. Every host gets its own engine, PCM ring and context; the
+# one AudioWorklet fans each quantum out to every host's ring.
+set(PROJECTM_WASM_MAX_HOSTS 4)
+set(PROJECTM_WASM_PRESET_PREPARE_THREADS ${PROJECTM_WASM_MAX_HOSTS})  # One per WasmHost.
 math(EXPR PROJECTM_WASM_PTHREAD_POOL_SIZE "${PROJECTM_WASM_OPENMP_THREADS} - 1 + ${PROJECTM_WASM_PRESET_PREPARE_THREADS}")
-foreach(_projectm_wasm_constant IN ITEMS PROJECTM_WASM_OPENMP_THREADS PROJECTM_WASM_PRESET_PREPARE_THREADS PROJECTM_WASM_PTHREAD_POOL_SIZE)
+foreach(_projectm_wasm_constant IN ITEMS PROJECTM_WASM_OPENMP_THREADS PROJECTM_WASM_MAX_HOSTS PROJECTM_WASM_PRESET_PREPARE_THREADS PROJECTM_WASM_PTHREAD_POOL_SIZE)
     # Build dirs configured before this was a constant still carry the old
     # cache entry; that is fine as long as it agrees.
     if(DEFINED CACHE{${_projectm_wasm_constant}} AND NOT "$CACHE{${_projectm_wasm_constant}}" STREQUAL "${${_projectm_wasm_constant}}")
@@ -84,168 +90,8 @@ set(PROJECTM_WASM_EXCEPTION_ARGS -fwasm-exceptions)
 # PROJECTM_WASM_LTO in its environment that disagrees. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
 set(PROJECTM_WASM_LTO OFF CACHE BOOL "Compile the WASM static libraries to LLVM bitcode (-flto); link the bundle with PROJECTM_WASM_LTO=1.")
 
-# Browser wrapper exports (projectM_emscripten.cpp final emcc link).
-# Every EMSCRIPTEN_KEEPALIVE symbol plus legacy add_audio_data and runtime helpers.
-set(PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS
-        _malloc
-        _free
-        _main
-        _add_audio_data
-        _pl
-        _destruct
-        _get_projectm_handle
-        _init
-        _set_canvas_selectors
-        _set_context_config
-        _set_render_path_overrides
-        _get_render_path_overrides
-        _init_with_canvases
-        _rebind_canvases
-        _create_host
-        _create_host_with_config
-        _get_last_init_error
-        _set_active_host
-        _get_active_host
-        _destroy_host
-        _host_count
-        _max_host_count
-        _load_preset_file
-        _load_preset_file_hard
-        _switch_preset
-        _set_aspect_correction
-        _render_frame
-        _start_render
-        _set_window_size
-        _set_mesh
-        _add_preset_path
-        _add_existing_vfs_presets
-        _add_preset_file
-        _add_custom_milk_paths
-        _projectm_pcm_add_float_wrapper
-        _pcm_ring_init
-        _pcm_ring_shutdown
-        _pcm_ring_drain
-        _get_pcm_ring_header_ptr
-        _get_pcm_ring_data_ptr
-        _get_pcm_ring_capacity_frames
-        _get_pcm_ring_index_modulus
-        _get_pcm_ring_write_index
-        _get_pcm_ring_read_index
-        _get_pcm_ring_overruns
-        _attach_worklet_ingest
-        _connect_media_element_source
-        _create_sprite
-        _projectm_sprite_create_wrapper
-        _projectm_sprite_destroy_wrapper
-        _projectm_sprite_destroy_all_wrapper
-        _projectm_sprite_get_sprite_count_wrapper
-        _projectm_sprite_get_sprite_ids_wrapper
-        _projectm_sprite_set_max_sprites_wrapper
-        _projectm_sprite_get_max_sprites_wrapper
-        _projectm_sprite_get_var_wrapper
-        _projectm_sprite_set_var_wrapper
-        _reload_texture
-        _texture_slot_register
-        _texture_slot_buffer
-        _texture_slot_commit
-        _texture_slot_unregister
-        _eval_set
-        _eval_clear
-        _stop_worklet_playback
-        _set_audio_source_to_stream
-        _set_preset_locked
-        _set_transparency_mode
-        _get_transparency_mode
-        _set_transparency_threshold
-        _get_transparency_threshold
-        _set_perf_hud
-        _set_target_fps
-        _set_quality_governor
-        _get_quality_tier
-        _get_governor_render_scale
-        _get_governor_blur_cap
-        _is_preset_ready
-        _get_rendered_frame_count
-        _preset_switch_failed
-        _live_playlist_count
-        _get_main_loop_timing_mode
-        _get_omp_enabled
-        _get_omp_max_threads
-        _get_omp_thread_count_in_parallel
-        _get_omp_blocktime
-        _shader_cache_begin_load
-        _shader_cache_import_glsl
-        _shader_cache_end_load
-        _get_glsl_generator_version
-        _pm_handle_context_loss
-        _dual_fbo_begin_transition
-        _dual_fbo_end_transition
-        _dual_fbo_cancel_transition
-        _dual_fbo_swap_preset_a
-        _dual_fbo_swap_preset_b
-        _dual_fbo_get_a_read_fbo
-        _dual_fbo_get_a_write_fbo
-        _dual_fbo_get_a_read_tex
-        _dual_fbo_get_a_write_tex
-        _dual_fbo_get_b_read_fbo
-        _dual_fbo_get_b_write_fbo
-        _dual_fbo_get_b_read_tex
-        _dual_fbo_get_b_write_tex
-        _dual_fbo_is_preset_a_allocated
-        _dual_fbo_is_preset_b_allocated
-        _dual_fbo_set_idle_release_seconds
-        _dual_fbo_get_idle_release_seconds
-        _dual_fbo_is_preset_b_ready
-        _dual_fbo_get_format
-        _get_context_snapshot
-        _dual_fbo_render_preset_a
-        _dual_fbo_render_preset_b
-        _transition_start
-        _transition_cancel
-        _transition_is_active
-        _transition_get_blend
-        _transition_set_duration
-        _transition_get_duration
-        _set_deterministic_seed
-        _is_deterministic_seed
-        _set_deterministic_clock
-        _is_deterministic_clock
-        _deterministic_now_ms
-        _deterministic_frame_index
-        _set_render_loop_paused
-        _get_rhythm_bpm
-        _get_rhythm_beat_phase
-        _get_rhythm_bar_phase
-        _get_rhythm_confidence
-        _get_rhythm_beat_index
-        _get_rhythm_section
-        _set_rhythm_hint
-        _set_preset_switch_policy
-        _get_preset_switch_policy
-        _transition_set_duration_beats
-        _transition_get_duration_beats
-        _set_hard_cut_on_beat
-        _set_rhythm_latency_ms
-        _get_rhythm_latency_ms
-        _set_preset_switch_phrase
-        _set_section_hard_cut
-        _set_rhythm_events
-        _set_flash_limit_enabled
-        _get_flash_limit_enabled
-        _set_flash_limit_threshold
-        _get_flash_limit_threshold
-        _get_flash_limit_clamped_frames
-        _get_committed_frame_count
-        _capture_frame_request
-        _capture_frame_status
-        _capture_frame_resolve
-        _capture_frame_data_ptr
-        _capture_frame_width
-        _capture_frame_height
-        _capture_frame_index
-        _capture_frame_release
-        )
-
+# Browser wrapper exports: PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS is derived
+# from cmake/WasmApiManifest.cmake (included above), the only list of exports.
 list(JOIN PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "," PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS_STR)
 
 # EXPORTED_RUNTIME_METHODS shared by CMake lib link and shell wrapper link.
@@ -392,6 +238,12 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         "ALLOW_MEMORY_GROWTH=0"
         "INITIAL_MEMORY=256mb"
         "MALLOC=mimalloc"
+        # A failed allocation returns null (and operator new throws
+        # std::bad_alloc) instead of aborting the whole Module: every wrapper
+        # export catches it at its exception barrier (WasmApiBarrier.hpp) and
+        # records it as that host's last error, so one engine running out of
+        # heap does not take the other hosts in the Module down with it.
+        "ABORTING_MALLOC=0"
         "FORCE_FILESYSTEM=1"
         # OFFSCREENCANVAS_SUPPORT is intentionally unset: it proxies GL from a
         # pthread back to the main thread, which undoes the OffscreenCanvas render

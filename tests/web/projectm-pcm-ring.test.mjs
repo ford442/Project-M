@@ -288,3 +288,25 @@ test('hostHandle reads and writes that engine\'s ring and restores the active ho
     );
     assert.equal(readPcmRingDescriptor(module, HOST_B)?.headerPtr, ringOf(HOST_B).header.byteOffset);
 });
+
+test('ABI v2: hostHandle reads that engine\'s ring through its pm_ exports, activating nothing', () => {
+    const { module, HOST_A, HOST_B, ringOf, activations, getActive } = fakeMultiHostModule();
+    // An ABI v2 bundle (#352): each ring export has a pm_ twin taking the host.
+    const layoutOf = (handle) => ({
+        headerPtr: ringOf(handle).header.byteOffset,
+        dataPtr: ringOf(handle).data.byteOffset,
+    });
+    const v2 = Object.assign(module, {
+        _pm_host_is_live: (handle) => (handle === HOST_A || handle === HOST_B ? 1 : 0),
+        _pm_get_pcm_ring_header_ptr: (handle) => layoutOf(handle).headerPtr,
+        _pm_get_pcm_ring_data_ptr: (handle) => layoutOf(handle).dataPtr,
+        _pm_get_pcm_ring_capacity_frames: () => module._get_pcm_ring_capacity_frames(),
+        _pm_get_pcm_ring_index_modulus: () => module._get_pcm_ring_index_modulus(),
+    });
+
+    assert.ok(feedPcmThroughRing(v2, new Float32Array([0.5, -0.5]), { hostHandle: HOST_B }));
+    assert.deepEqual(activations, [], 'no set_active_host() call');
+    assert.equal(getActive(), HOST_A);
+    assert.equal(Atomics.load(ringOf(HOST_B).header, 0), 1, 'host B received the frame');
+    assert.equal(Atomics.load(ringOf(HOST_A).header, 0), 0, 'host A ring untouched');
+});

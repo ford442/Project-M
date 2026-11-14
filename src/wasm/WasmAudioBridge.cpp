@@ -16,25 +16,11 @@
 #include "WasmHost.hpp"
 #include "WasmLog.hpp"
 
-// Per-instance host state (#168 Phase B / #246). The audio-source flag and the
-// PCM ring are WasmHost members; C++ bodies reach them through
-// `WasmHost& H = Host();` plus same-named local references. The Web Audio
+// Per-instance host state (#168 Phase B / #246). The PCM ring is a WasmHost
+// member; the export implementations get their host from the barrier. The Web Audio
 // worklet node is still one per Module: it receives one ring descriptor per
 // host (tagged with the host handle) and fans each quantum out to every
 // attached ring, so one AudioContext feeds N engines.
-
-// The engine a PCM export should feed. An explicit handle (multi-instance PCM
-// routing) must name a live engine — JS can pass any integer, and one naming a
-// destroyed or never-created engine would otherwise be dereferenced as one.
-// 0 means the active host's engine (legacy single-instance callers).
-static projectm_handle ResolvePcmTargetEngine(uintptr_t pm_handle_value)
-{
-    if (pm_handle_value != 0)
-    {
-        return EngineFromHandle(pm_handle_value);
-    }
-    return Host().appData.projectm_engine;
-}
 
 // Per-host ring registry + worklet hand-off (#246).
 //
@@ -75,15 +61,19 @@ EM_JS(void, js_register_pcm_ring, (uintptr_t hostHandle, uintptr_t headerPtr, ui
 // clang-format on
 
 // clang-format off
-EM_JS(void, js_unregister_pcm_ring, (uintptr_t hostHandle), {
+// Returns 1 when the detach went to a processor that may have mapped the ring
+// (shared memory): it answers pcmRingDetached once it has dropped its views,
+// and the handler below hands that to pcm_ring_release_retired().
+EM_JS(int, js_unregister_pcm_ring, (uintptr_t hostHandle, uintptr_t headerPtr), {
     const handle = hostHandle >>> 0;
     if (Module.__pmPcmRings) {
         Module.__pmPcmRings.delete(handle);
     }
     const node = globalThis.projectMWorkletNode_Global_Cpp;
-    if (node) {
-        node.port.postMessage({ type: 'pcmRingDetach', hostHandle: handle });
-    }
+    if (!node) { return 0; }
+    node.port.postMessage({ type: 'pcmRingDetach', hostHandle: handle, headerPtr: headerPtr >>> 0 });
+    const memory = wasmMemory && wasmMemory.buffer;
+    return typeof SharedArrayBuffer !== 'undefined' && memory instanceof SharedArrayBuffer ? 1 : 0;
 });
 // clang-format on
 
@@ -111,9 +101,9 @@ void PublishPcmRingToWorklet(uintptr_t hostHandle, uintptr_t headerPtr, uintptr_
     js_register_pcm_ring(hostHandle, headerPtr, dataPtr, capacityFrames, indexModulus);
 }
 
-void WithdrawPcmRingFromWorklet(uintptr_t hostHandle)
+bool WithdrawPcmRingFromWorklet(uintptr_t hostHandle, uintptr_t headerPtr)
 {
-    js_unregister_pcm_ring(hostHandle);
+    return js_unregister_pcm_ring(hostHandle, headerPtr) != 0;
 }
 
 // Fallback ingest for the non-isolated case: the processor posts PCM, and this
@@ -131,6 +121,13 @@ EM_JS(void, js_install_worklet_pcm_handler, (), {
     if (!node) { return; }
     node.port.onmessage = (event) => {
         const data = event.data;
+        if (data && data.type === 'pcmRingDetached') {
+            // The processor dropped its views of a released ring.
+            if (typeof Module._pcm_ring_release_retired === 'function') {
+                Module._pcm_ring_release_retired(data.headerPtr >>> 0);
+            }
+            return;
+        }
         if (!data || data.type !== 'pcmData' || !data.audioData) { return; }
         const channels = data.channelsForPM === 2 ? 2 : 1;
         const rings = Module.__pmPcmRings;
@@ -331,8 +328,6 @@ EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool
 });
 // clang-format on
 
-extern "C" {
-
 // Routes an <audio>/<video> element into the worklet via a
 // MediaElementAudioSourceNode, so element playback is not a special case with
 // its own analyser and its own sampling behaviour -- it is the same producer
@@ -373,11 +368,12 @@ EM_JS(int, js_connect_media_element_source, (const char* selector), {
 });
 // clang-format on
 
+namespace WasmApi {
+
 // Hands the worklet every live host's ring descriptor and installs the
 // postMessage fallback. Exported because html/projectm-worklet-playback.js
 // repairs a failed worklet setup on a later user gesture and must re-attach
 // ingest to the new node.
-EMSCRIPTEN_KEEPALIVE
 void attach_worklet_ingest()
 {
     js_install_worklet_pcm_handler();
@@ -385,7 +381,6 @@ void attach_worklet_ingest()
 }
 
 // Connects a media element (CSS selector) to the worklet. Returns 1 on success.
-EMSCRIPTEN_KEEPALIVE
 int connect_media_element_source(const char* selector)
 {
     return js_connect_media_element_source(selector);
@@ -395,17 +390,17 @@ void pl(const char* song_path_in_vfs)
 {
     WASM_LOG_INFO("C++: pl() called for unique path: %s", song_path_in_vfs);
     js_load_song_into_worklet(song_path_in_vfs, true, true);
-    return;
 }
 
 // Kept for the audio router's contract (html/projectm-audio-source-router.js).
 // Nothing reads the answer any more: every source writes the same PCM ring, so
 // which one is live is JS-side state only (docs/AUDIO_PIPELINE.md).
-EMSCRIPTEN_KEEPALIVE
 void set_audio_source_to_stream(bool is_streaming)
 {
     WASM_LOG_INFO("C++: Audio source set to stream: %s", is_streaming ? "true" : "false");
 }
+
+} // namespace WasmApi
 
 // clang-format off
 EM_JS(void, js_stop_worklet_playback, (), {
@@ -416,42 +411,25 @@ EM_JS(void, js_stop_worklet_playback, (), {
 });
 // clang-format on
 
-EMSCRIPTEN_KEEPALIVE
+namespace WasmApi {
+
 void stop_worklet_playback()
 {
     js_stop_worklet_playback();
 }
 
-} // extern "C"
-
-extern "C" {
-
-void add_audio_data(uint8_t* data, int len)
+// Feeds interleaved float PCM straight to the host's engine (the ring is the
+// normal ingest; this is the marshaling fallback for bundles and producers
+// that predate it).
+void pcm_add_float(WasmHost& H, float* audio_data, uint32_t num_samples_per_channel, int channels_enum_value)
 {
-    WasmHost& H = Host();
-    auto& pm = H.appData.projectm_engine;
-    if (!pm)
+    projectm_handle engine = H.appData.projectm_engine;
+    if (engine == nullptr || audio_data == nullptr)
     {
+        WASM_LOG_ERROR("pm_pcm_add_float: host %lu has no engine.", static_cast<unsigned long>(HostHandle(H)));
         return;
     }
-    projectm_pcm_add_uint8(pm, data, len, PROJECTM_MONO);
-    return;
-}
+    projectm_pcm_add_float(engine, audio_data, num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));
 }
 
-extern "C" {
-EMSCRIPTEN_KEEPALIVE
-void projectm_pcm_add_float_wrapper(uintptr_t pm_handle_value, float* audio_data, unsigned int num_samples_per_channel, int channels_enum_value)
-{
-    // An explicit handle feeds that instance (multi-instance A/B); 0 feeds the
-    // active host's engine, the legacy single-instance contract.
-    projectm_handle current_pm_handle = ResolvePcmTargetEngine(pm_handle_value);
-    if (!current_pm_handle)
-    {
-        WASM_LOG_ERROR("Error: no live projectM engine for handle %lu in pcm_add_float_wrapper.",
-                       static_cast<unsigned long>(pm_handle_value));
-        return;
-    }
-    projectm_pcm_add_float(current_pm_handle, audio_data, num_samples_per_channel, static_cast<projectm_channels>(channels_enum_value));
-}
-} // extern "C"
+} // namespace WasmApi

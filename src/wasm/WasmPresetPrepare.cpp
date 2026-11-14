@@ -271,7 +271,7 @@ static void CompletePresetSwitch(WasmHost& host, const PendingPresetSwitch& pres
         // The switch (GL compile, or the link result) lands in this frame's cost;
         // keep the quality governor from reacting to it.
         host.postLoadGraceFrames = kPostLoadGraceFrames;
-        ResetGovernorCounters();
+        ResetGovernorCounters(host);
     }
     else if (deferredSwitch && host.appData.playlist != nullptr)
     {
@@ -292,7 +292,7 @@ static void PollPendingSwitchFromEventLoop(void* hostHandle)
 }
 
 // Completes host.pendingSwitch once the engine has made the switch. The host
-// must be active. While the engine is still waiting on the driver, a short timer
+// must be bound. While the engine is still waiting on the driver, a short timer
 // keeps polling, so a page that waits for is_preset_ready() without rendering
 // frames (the golden capture) still sees the switch complete.
 static void PollPendingSwitch(WasmHost& host)
@@ -345,13 +345,9 @@ void ActivatePreparedPreset(WasmHost& host)
         return;
     }
 
-    // Engine callbacks fired from the load (switch failed) operate on the active
-    // host, and the GL work must hit this host's context.
-    WasmHost* const previous = ActiveHostOrNull();
-    if (previous != &host)
-    {
-        SetActiveHost(&host);
-    }
+    // The GL work must hit this host's context. Engine callbacks fired from the
+    // load (switch failed) carry the host as their user_data.
+    BindHost(host);
 
     auto& pm = host.appData.projectm_engine;
     if (prepared && pm == nullptr)
@@ -371,9 +367,4 @@ void ActivatePreparedPreset(WasmHost& host)
         host.pendingSwitch = PendingPresetSwitch{prepared->hardCut, prepared->playlistIndex};
     }
     PollPendingSwitch(host);
-
-    if (previous != nullptr && previous != &host)
-    {
-        SetActiveHost(previous);
-    }
 }

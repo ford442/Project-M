@@ -384,18 +384,25 @@ export async function bootEngine(request, sink) {
     applyRenderPathOverrides(module, renderPathOverridesFor(options));
 
     let initCode = -1;
+    // The engine's own handle: create_host_with_config()'s, or 0 for a legacy
+    // init(). Every call must name it: on an ABI v2 bundle host 0 is only the
+    // implicit default host, which create_host_with_config() adopts and
+    // renames. (Teardown still destructs the whole Module: this context owns it.)
+    let engineHost = 0;
     if (!followCanvasReplacement(canvas, documentRef, sink, () => checkInit(module, {
         primaryCanvasSelector: request.primaryCanvasSelector,
         secondaryCanvasSelector: request.secondaryCanvasSelector,
         contextConfig: contextConfigFor(options),
         onCode: (code) => { initCode = code; },
+        onHost: (host) => { engineHost = host; },
     }))) {
         const error = new Error(`projectM init failed (init code ${initCode})`);
         sink.reportError(error, initCode);
         throw error;
     }
 
-    const transport = createModuleTransport(module);
+    sink.adoptHost(engineHost);
+    const transport = createModuleTransport(module, { host: engineHost });
     sink.adoptTransport(transport);
     return transport;
 }
@@ -584,10 +591,12 @@ export async function bootSharedModule(options, defaultBaseUrl) {
  */
 export function releaseEngine({ module, transport, hostHandle, ownsModule }) {
     try {
-        if (hostHandle && module) {
+        if (hostHandle && module && !ownsModule) {
             // Multi-instance: free just this engine; the shared Module and any
             // sibling contexts keep running. The Module itself is torn down by
-            // whoever booted it (bootProjectMSharedModule caller).
+            // whoever booted it (bootProjectMSharedModule caller). A context
+            // that booted its own Module also knows its handle, but tears the
+            // whole Module down below.
             destroyHost(module, hostHandle);
         } else if (transport) {
             // Tears down the module on the main thread, terminates the worker in

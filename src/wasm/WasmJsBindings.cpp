@@ -144,27 +144,28 @@ EM_JS(void, js_notify_init_success, (double host), {
 // (the main thread, or the render worker's own module), so one value suffices.
 static int g_lastInitError = 0;
 
-extern "C" {
-void js_report_init_error_for_host(double host, int code, const char* detail)
+void ReportInitErrorForEventHost(double host, int code, const char* detail)
 {
     g_lastInitError = code;
     js_notify_init_error(host, code, detail);
 }
 
-void js_report_init_error(int code, const char* detail)
+void ReportInitError(const WasmHost& host, int code, const char* detail)
 {
-    js_report_init_error_for_host(ActiveEventHostHandle(), code, detail);
+    ReportInitErrorForEventHost(EventHostHandle(host), code, detail);
 }
 
-void js_report_init_success()
+void ReportInitSuccess(const WasmHost& host)
 {
     g_lastInitError = 0;
-    js_notify_init_success(ActiveEventHostHandle());
+    js_notify_init_success(EventHostHandle(host));
 }
 
-EMSCRIPTEN_KEEPALIVE
+namespace WasmApi {
+
 int get_last_init_error()
 {
     return g_lastInitError;
 }
-} // extern "C"
+
+} // namespace WasmApi

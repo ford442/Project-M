@@ -45,6 +45,8 @@ set(PROJECTM_WASM_WRAPPER_SOURCES
         WasmPresent.cpp
         WasmLog.cpp
         WasmLiveInput.cpp
+        WasmLegacyExports.cpp
+        generated/WasmApiExports.cpp
         )
 
 # Not in ALL: scripts/build_wasm_install.sh builds and installs the libraries,
@@ -74,6 +76,8 @@ set_property(TARGET projectM_wasm PROPERTY CXX_VISIBILITY_PRESET)
 # features.cmake's add_definitions(-include config.h) reaches every target in the
 # tree, this one included, and cannot be reset per target; config.h is found here.
 target_include_directories(projectM_wasm PRIVATE
+        # generated/WasmApiExports.cpp includes the wrapper's own headers.
+        "${CMAKE_CURRENT_SOURCE_DIR}"
         "${PROJECTM_BINARY_DIR}/include"
         "${PROJECTM_SOURCE_DIR}/src/api/include"
         "${PROJECTM_BINARY_DIR}/src/api/include"

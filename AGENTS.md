@@ -54,6 +54,9 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 ├── src/wasm/                # Emscripten host wrapper (all TUs, see docs/EMSCRIPTEN.md)
 │   ├── projectM_emscripten.cpp # WASM host wrapper: engine lifecycle + main()
 │   ├── WasmHost.hpp/.cpp       # Per-instance WasmHost struct + host registry + create/set/destroy_host
+│   ├── WasmApiBarrier.hpp      # The barrier every export runs in (ABI v2: pm_<name>(host, ...), last error)
+│   ├── WasmLegacyExports.cpp   # Compat-only exports on the active host (init_with_canvases, set_context_config, ...)
+│   ├── generated/              # WasmApiExports.cpp + WasmApiImpl.hpp, generated from cmake/WasmApiManifest.cmake
 │   ├── ProjectMWasmInternal.hpp # Shared WASM host includes + cross-TU state
 │   ├── WasmRenderLoop.cpp      # Main loop, start_render/render_frame/set_window_size
 │   ├── WasmShaderCache.cpp     # Transpiled-GLSL cache hooks + shader_cache_* exports

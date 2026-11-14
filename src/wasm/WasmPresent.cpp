@@ -85,11 +85,10 @@ void PollPendingCapture(FrameCaptureState& capture)
     }
 }
 
-// The active host's capture, with its GL context current (every export below
-// runs after bindModuleToHost()/set_active_host() selected the host).
-FrameCaptureState* ActiveCapture()
+// The host's capture, or nullptr while it has no context (the barrier made
+// that context current).
+FrameCaptureState* ContextCapture(WasmHost& H)
 {
-    WasmHost& H = Host();
     if (H.glCtx == 0)
     {
         return nullptr;
@@ -194,16 +193,14 @@ double FlashClampedFramesForHud(WasmHost& host)
     return static_cast<double>(host.flashClampedFrames);
 }
 
-extern "C" {
+namespace WasmApi {
 
 /**
  * Turns the temporal flash limiter on or off for the active host's engine
  * (projectm_set_flash_limit_enabled()). Remembered across engine re-creation.
  */
-EMSCRIPTEN_KEEPALIVE
-void set_flash_limit_enabled(bool enabled)
+void set_flash_limit_enabled(WasmHost& H, bool enabled)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     H.engineSettings.flashLimitEnabled = enabled;
     H.flashClampedFrames = 0;
@@ -215,10 +212,8 @@ void set_flash_limit_enabled(bool enabled)
     projectm_set_flash_limit_enabled(pm, enabled);
 }
 
-EMSCRIPTEN_KEEPALIVE
-bool get_flash_limit_enabled()
+bool get_flash_limit_enabled(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
     {
@@ -228,10 +223,8 @@ bool get_flash_limit_enabled()
 }
 
 /** The limiter's threshold (projectm_set_flash_limit_threshold()). */
-EMSCRIPTEN_KEEPALIVE
-void set_flash_limit_threshold(float threshold)
+void set_flash_limit_threshold(WasmHost& H, float threshold)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     H.engineSettings.flashLimitThreshold = threshold;
     if (!pm)
@@ -241,10 +234,8 @@ void set_flash_limit_threshold(float threshold)
     projectm_set_flash_limit_threshold(pm, threshold);
 }
 
-EMSCRIPTEN_KEEPALIVE
-float get_flash_limit_threshold()
+float get_flash_limit_threshold(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
     {
@@ -257,10 +248,8 @@ float get_flash_limit_threshold()
  * Frames the active host's limiter clamped since it was enabled. Reads back
  * from the GPU: poll it a few times a second, not every frame.
  */
-EMSCRIPTEN_KEEPALIVE
-unsigned int get_flash_limit_clamped_frames()
+uint32_t get_flash_limit_clamped_frames(WasmHost& H)
 {
-    WasmHost& H = Host();
     auto& pm = H.appData.projectm_engine;
     if (!pm)
     {
@@ -272,10 +261,9 @@ unsigned int get_flash_limit_clamped_frames()
 }
 
 /** emscripten_webgl_commit_frame() calls on this host since it was created (0 unless explicitSwapControl). */
-EMSCRIPTEN_KEEPALIVE
-unsigned int get_committed_frame_count()
+uint32_t get_committed_frame_count(WasmHost& H)
 {
-    return Host().committedFrameCount;
+    return H.committedFrameCount;
 }
 
 /**
@@ -283,10 +271,9 @@ unsigned int get_committed_frame_count()
  * capture that has not been picked up. Returns 1, or 0 when the host has no
  * context.
  */
-EMSCRIPTEN_KEEPALIVE
-int capture_frame_request()
+int capture_frame_request(WasmHost& H)
 {
-    FrameCaptureState* capture = ActiveCapture();
+    FrameCaptureState* capture = ContextCapture(H);
     if (capture == nullptr)
     {
         return 0;
@@ -301,13 +288,12 @@ int capture_frame_request()
  * 2 pending (read issued, GPU not done), 3 ready, 4 failed. Moves a pending
  * capture to ready once the GPU has finished, without waiting for it.
  */
-EMSCRIPTEN_KEEPALIVE
-int capture_frame_status()
+int capture_frame_status(WasmHost& H)
 {
-    FrameCaptureState* capture = ActiveCapture();
+    FrameCaptureState* capture = ContextCapture(H);
     if (capture == nullptr)
     {
-        return static_cast<int>(Host().capture.status);
+        return static_cast<int>(H.capture.status);
     }
     PollPendingCapture(*capture);
     return static_cast<int>(capture->status);
@@ -318,13 +304,12 @@ int capture_frame_status()
  * now, waiting for the GPU if it has to (an export tick can afford that; a
  * live frame should poll capture_frame_status() instead).
  */
-EMSCRIPTEN_KEEPALIVE
-int capture_frame_resolve(int wait)
+int capture_frame_resolve(WasmHost& H, bool wait)
 {
-    FrameCaptureState* capture = ActiveCapture();
+    FrameCaptureState* capture = ContextCapture(H);
     if (capture == nullptr)
     {
-        return static_cast<int>(Host().capture.status);
+        return static_cast<int>(H.capture.status);
     }
     if (wait != 0 && capture->status == FrameCaptureStatus::Pending)
     {
@@ -338,10 +323,9 @@ int capture_frame_resolve(int wait)
 }
 
 /** Heap address of the ready capture's RGBA8 pixels (top row first), or 0. */
-EMSCRIPTEN_KEEPALIVE
-uintptr_t capture_frame_data_ptr()
+uintptr_t capture_frame_data_ptr(WasmHost& H)
 {
-    const FrameCaptureState& capture = Host().capture;
+    const FrameCaptureState& capture = H.capture;
     if (capture.status != FrameCaptureStatus::Ready || capture.pixels.empty())
     {
         return 0;
@@ -349,30 +333,26 @@ uintptr_t capture_frame_data_ptr()
     return reinterpret_cast<uintptr_t>(capture.pixels.data());
 }
 
-EMSCRIPTEN_KEEPALIVE
-int capture_frame_width()
+int capture_frame_width(WasmHost& H)
 {
-    return Host().capture.width;
+    return H.capture.width;
 }
 
-EMSCRIPTEN_KEEPALIVE
-int capture_frame_height()
+int capture_frame_height(WasmHost& H)
 {
-    return Host().capture.height;
+    return H.capture.height;
 }
 
 /** get_rendered_frame_count() as it read right after the captured frame. */
-EMSCRIPTEN_KEEPALIVE
-unsigned int capture_frame_index()
+uint32_t capture_frame_index(WasmHost& H)
 {
-    return Host().capture.frameIndex;
+    return H.capture.frameIndex;
 }
 
 /** Frees the captured pixels (the pack buffer is kept for the next capture). */
-EMSCRIPTEN_KEEPALIVE
-void capture_frame_release()
+void capture_frame_release(WasmHost& H)
 {
-    FrameCaptureState& capture = Host().capture;
+    FrameCaptureState& capture = H.capture;
     if (capture.status == FrameCaptureStatus::Pending)
     {
         DeleteFence(capture);
@@ -382,4 +362,4 @@ void capture_frame_release()
     capture.status = FrameCaptureStatus::Idle;
 }
 
-} // extern "C"
+} // namespace WasmApi

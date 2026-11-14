@@ -41,6 +41,8 @@
 #include <MilkdropPreset/MilkdropStaticShaders.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
 
+struct WasmHost;
+
 // =============================================================================
 // AppData – per-instance engine/playlist/loading triple.
 //
@@ -48,9 +50,9 @@
 // (see WasmHost.hpp), one per engine instance, so two visualizers can share a
 // single Module without iframes. The former g_* host-state globals (transition
 // timeline, dual-FBO manager, quality governor, audio-source flag, WebGL
-// context, canvas selectors) are likewise WasmHost members now; each TU reaches
-// them through `WasmHost& H = Host();` plus same-named reference aliases so the
-// export bodies read unchanged.
+// context, canvas selectors) are likewise WasmHost members now; every export
+// implementation is handed its `WasmHost& H` (WasmApiBarrier.hpp) and binds
+// same-named reference aliases so the bodies read unchanged.
 // =============================================================================
 typedef struct {
     projectm_handle projectm_engine;
@@ -58,24 +60,16 @@ typedef struct {
     EM_BOOL loading; //!< A preset preparation is in flight (rendering continues).
 } AppData;
 
-// ---- PCM ring (defined in WasmPcmRing.cpp) --------------------------------
-// The single audio ingest path. render_frame() drains it once per frame; JS
-// producers write into it at audio rate. See WasmPcmRing.cpp for the layout.
-// One ring per WasmHost (#246): every export operates on the active host's
-// ring, so draining host A never consumes host B's writes.
-extern "C" {
-int pcm_ring_init(int capacity_frames);
-void pcm_ring_shutdown();
-int pcm_ring_drain();
-}
-
 // ---- Worklet ring hand-off (defined in WasmAudioBridge.cpp) ---------------
 // Publishes / withdraws one host's ring descriptor, tagged with its host
 // handle, to the shared AudioWorklet and to the Module-side ring registry the
 // postMessage fallback fans out over. Safe to call before the worklet exists.
 void PublishPcmRingToWorklet(uintptr_t hostHandle, uintptr_t headerPtr, uintptr_t dataPtr,
                              int capacityFrames, int indexModulus);
-void WithdrawPcmRingFromWorklet(uintptr_t hostHandle);
+// Returns whether a worklet may still hold views of the ring at headerPtr: the
+// withdrawal was posted to one over shared memory. Its pcmRingDetached answer
+// (WasmApi::pcm_ring_release_retired) says when it no longer does.
+bool WithdrawPcmRingFromWorklet(uintptr_t hostHandle, uintptr_t headerPtr);
 
 // Frames to ignore right after a preset finishes loading. Shared between preset
 // activation (WasmPresetPrepare.cpp) and the governor (WasmPerfGovernor.cpp).
@@ -88,22 +82,23 @@ constexpr int kPostLoadGraceFrames = 10;
 // case frame N reads exactly N/fps. Code that measures how long something
 // actually took — the quality governor's frame cost — must keep calling
 // emscripten_get_now() directly. See WasmDeterminism.cpp.
-double WasmNow();
+double WasmNow(const WasmHost& host);
 
-// Advances the virtual clock by one frame and pushes it into the engine.
-// Called once per frame from render_frame(); a no-op unless enabled.
-void DeterministicFrameTick();
+// Advances the host's virtual clock by one frame and pushes it into its
+// engine. Called once per frame from render_frame(); a no-op unless enabled.
+void DeterministicFrameTick(WasmHost& host);
 
-// ---- Render loop (defined in WasmRenderLoop.cpp) ---------------------------
-// render_frame() is the single per-frame entry point: the Emscripten main loop
-// registered by start_render() calls it, and so does the render worker, which
-// pauses that loop and drives frames itself (see WasmDeterminism.cpp).
-extern "C" {
-void render_frame();
-}
+// ---- Engine lifecycle (defined in projectM_emscripten.cpp) ------------------
+// InitHost() brings up a host's WebGL context, engine and playlist (init(),
+// create_host*(), rebind_canvases()); 0 or an already-reported init error code.
+// TearDownHostForContextLoss() drops the engine and GL state of a host whose
+// context was lost, keeping the context handle for the restore check.
+int InitHost(WasmHost& host);
+// InitHost() on Host(), for main()'s legacy bring-up (WasmLegacyExports.cpp).
+int InitDefaultHost();
+void TearDownHostForContextLoss(WasmHost& host);
 
 // ---- Musical-time events (defined in WasmRhythm.cpp) -----------------------
-struct WasmHost;
 // CollectRhythmEvents() runs after every engine render inside render_frame() and
 // remembers the beat/bar/section events of the frame; FlushRhythmEvents() runs once
 // at the end of render_frame() and reports them to the page, if it asked for them
@@ -147,15 +142,15 @@ void InstallShaderTranspileCacheHooks();
 // Applied once from init(), before the first preset renders: whatever the host
 // set with set_render_path_overrides(), or else the page's own query string.
 // See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
-void ApplyRenderPathOverrides();
+void ApplyRenderPathOverrides(WasmHost& host);
 
 // ---- Quality governor entry points (defined in WasmPerfGovernor.cpp) -------
-void ResetGovernorCounters();
-void UpdateQualityGovernor(double frameMs);
-// Re-applies the active host's current tier's blur cap and blur resolution to a
+void ResetGovernorCounters(WasmHost& host);
+void UpdateQualityGovernor(WasmHost& host, double frameMs);
+// Re-applies the host's current tier's blur cap and blur resolution to a
 // freshly created engine (the tier's mesh travels in EngineSettings). No-op
 // until the governor has picked a tier.
-void ReapplyQualityTierLimits();
+void ReapplyQualityTierLimits(WasmHost& host);
 
 // ---- Preset switch callbacks (defined in WasmPlaylistBridge.cpp) -----------
 // Registered with projectM/projectM-playlist from init() in
@@ -188,8 +183,11 @@ void js_update_preset_name(const char* name);
 // `host` is EventHostHandle() of the engine whose preset failed.
 void js_report_preset_switch_failed(double host, const char* preset_filename, const char* message);
 void js_init_projectm_glue();
-// Both report for the active host (EventHostHandle()); _for_host names it.
-void js_report_init_error(int code, const char* detail);
-void js_report_init_error_for_host(double host, int code, const char* detail);
-void js_report_init_success();
 } // extern "C"
+
+// Init outcome reports to the page (WasmJsBindings.cpp), for `host`; the
+// ForEventHost form takes an EventHostHandle() (kNoEventHost for a create
+// refused before any host existed). Each also sets get_last_init_error().
+void ReportInitError(const WasmHost& host, int code, const char* detail);
+void ReportInitErrorForEventHost(double host, int code, const char* detail);
+void ReportInitSuccess(const WasmHost& host);

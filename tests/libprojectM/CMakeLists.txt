@@ -57,6 +57,7 @@ add_executable(projectM-unittest
         PCMAudioReactivityTest.cpp
         PCMAudioBenchTest.cpp
         PerfGpuStageTest.cpp
+        PerPixelEvaluationOrderTest.cpp
         PerPixelGlslLoweringTest.cpp
         PerPixelGpuRenderTest.cpp
         RenderDeviceTest.cpp
@@ -149,6 +150,17 @@ if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
 else()
     add_test(NAME PerPixelGpuRender
             COMMAND projectM-unittest --gtest_filter=*PerPixelGpuRender*)
+endif()
+
+# Per-pixel evaluation order: the classification, and 1 vs 4 OpenMP threads over presets/tests/
+# rendering the same pixels (#352 C). The thread half skips without ENABLE_OPENMP.
+if(XVFB_RUN_EXECUTABLE AND NOT DEFINED ENV{DISPLAY})
+    add_test(NAME PerPixelThreadEquivalence
+            COMMAND ${XVFB_RUN_EXECUTABLE} -a $<TARGET_FILE:projectM-unittest>
+            --gtest_filter=PerPixelEvaluationOrder*:PerPixelThreadEquivalence*)
+else()
+    add_test(NAME PerPixelThreadEquivalence
+            COMMAND projectM-unittest --gtest_filter=PerPixelEvaluationOrder*:PerPixelThreadEquivalence*)
 endif()
 
 # Multi-pass transition tests (subset of projectM-unittest).

@@ -12,11 +12,16 @@ class PerPixelContext
 {
 public:
     /**
-     * @brief Constructor. Creates a new per-frame state object.
+     * @brief Constructor. Creates a new per-pixel state object.
      * @param gmegabuf The global memory buffer to use in the code context.
      * @param globalRegisters The global variables to use in the code context.
+     * @param seedRandom Seed the context's rand() stream from the engine's (SeedEvalRandom()).
+     *                   False for the extra OpenMP pool contexts: they only run programs that
+     *                   never call rand() (PerPixelGlslLowering::ClassifyEvaluationOrder()),
+     *                   and a seed drawn per extra thread would make every later engine draw,
+     *                   and so the frame, depend on the thread count.
      */
-    PerPixelContext(projectm_eval_mem_buffer gmegabuf, PRJM_EVAL_F (*globalRegisters)[100]);
+    PerPixelContext(projectm_eval_mem_buffer gmegabuf, PRJM_EVAL_F (*globalRegisters)[100], bool seedRandom = true);
 
     /**
      * @brief Destructor.

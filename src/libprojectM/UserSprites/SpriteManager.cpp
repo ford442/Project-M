@@ -1,6 +1,7 @@
 #include "UserSprites/SpriteManager.hpp"
 
 #include "UserSprites/Factory.hpp"
+#include "UserSprites/MilkdropSprite.hpp"
 #include "UserSprites/SpriteException.hpp"
 
 #include <Renderer/Shader.hpp>
@@ -9,6 +10,13 @@
 
 namespace libprojectM {
 namespace UserSprites {
+
+SpriteManager::SpriteManager()
+    : m_milkdropGlobals(std::make_unique<MilkdropSpriteGlobals>())
+{
+}
+
+SpriteManager::~SpriteManager() = default;
 
 auto SpriteManager::Spawn(const std::string& type,
                           const std::string& spriteData,
@@ -20,7 +28,7 @@ auto SpriteManager::Spawn(const std::string& type,
         return 0;
     }
 
-    auto sprite = Factory::CreateSprite(type);
+    auto sprite = Factory::CreateSprite(type, *m_milkdropGlobals);
 
     if (!sprite)
     {

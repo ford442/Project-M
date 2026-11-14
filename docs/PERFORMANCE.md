@@ -284,9 +284,11 @@ Since `projectm-eval` contexts are not re-entrant (see
 `vendor/projectm-eval/docs/Memory-Handling.md`), `MilkdropPreset` maintains a pool of one
 `PerPixelContext` per extra OpenMP worker thread (`m_perPixelContextPool`), each compiled with the
 same per-pixel code and sharing the preset's `gmegabuf`/`reg00-99` storage
-(`PresetState::globalMemory` / `globalRegisters`). Access to that shared storage is now protected
-by a real mutex in `EvalLibMutex.cpp` (previously a no-op), avoiding heap corruption in
-`MemoryBuffer.c` when multiple threads read/write `gmegabuf` concurrently. Per-frame read-only
+(`PresetState::globalMemory` / `globalRegisters`). Only a program whose vertices are independent
+gets the pool: one that carries a variable between vertices or uses memory, regs or `rand()` runs
+on one thread, in vertex order, so a frame never depends on the thread count (#352 C, see
+[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) "Evaluation order"). projectm-eval's memory lock
+(`EvalLibMutex.cpp`) is the current engine's `EngineContext::EvalMemoryMutex()`. Per-frame read-only
 variables and `q1..q32` are broadcast to the pool contexts once per frame via
 `PerPixelContext::CopyFrameStateFrom()` — O(thread count), not O(vertex count).
 

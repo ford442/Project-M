@@ -656,7 +656,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, handed to each new engine from `init()` (`projectm_set_render_path_flags()`) |
 | `WasmEvents.hpp` / `WasmEvents.cpp` | The page-event queue: every page callback is queued and delivered once no engine code is on the stack (`EngineCallScope`, opened by every barrier and the render loop's tick) |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
-| `WasmGraphics.hpp` | Dual ping-pong FBO manager, `RenderStateGuard`, `reset_render_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
+| `WasmGraphics.hpp` / `WasmGraphics.cpp` | Dual ping-pong FBO manager, `RenderStateGuard`, `reset_render_state_between_pipelines()`, compositing/crossfade shader. The header has the class definitions (`WasmHost` holds one FBO manager and one compositor by value) and the one-line accessors; everything else is in the `.cpp` |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
 | `WasmPresent.cpp` | The end of a frame: flash-limiter switches (forwarding to libprojectM's C API), per-host frame readback (`capture_frame_*`, taken in `render_frame()` before a manual-present commit) and the commit counter. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
 | `WasmLiveInput.cpp` | Live input: `texture_slot_*` (live textures, per-host staging buffers on the heap, uploaded once per `render_frame()`) and `eval_set` / `eval_clear` (host per-frame variables); both re-applied to a new engine. See [LIVE_INPUT.md](LIVE_INPUT.md) |
@@ -669,11 +669,11 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmPresetPrepare.hpp` / `WasmPresetPrepare.cpp` | Per-host preset prepare thread and its single-slot queue; activation of prepared presets from `render_frame()` (see [Preset loading](#preset-loading)) |
 | `WasmJsBindings.cpp` | EM_JS glue only: the main-thread VFS/song bootstrap (`js_init_projectm_glue`) and the preset-name / init-error / preset-switch-failure notifications to the host page. No DOM and no network: fetching presets, textures and songs is the host page's job (see [Page-side asset loading](#page-side-asset-loading)); `tests/web/wasm-glue-dom.test.mjs` keeps it that way |
 
-`ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` is a
-header of cohesive graphics classes shared by two TUs; it exceeds the ~800-LOC
-guideline for a single unit by design, because splitting the FBO manager,
-state guard, and compositing shader across headers would fragment one tightly
-coupled subsystem.
+`ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` used
+to hold all 853 lines of the graphics classes' implementation, compiled into
+every TU through `WasmHost.hpp`; since #352 D it declares them and
+`WasmGraphics.cpp` implements them. The move changed no output (the WASM
+goldens are unchanged).
 
 All non-header TUs are the sources of the `projectM_wasm` target
 (`PROJECTM_WASM_WRAPPER_SOURCES` in `src/wasm/CMakeLists.txt`). Add new `.cpp`

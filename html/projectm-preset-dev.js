@@ -2,24 +2,12 @@
 // See docs/SIGNATURE_SERIES_WORKFLOW.md
 
 import { getLocalPresetVfsPath, updatePresetDisplay } from './projectm-presets.js';
-import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { canStorePresets, storePreset } from './projectm-preset-store.js';
 import { setupPresetTweaker } from './projectm-preset-tweaker.js';
 import { createDisposables } from './projectm-disposables.js';
 
 /**
  * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
- */
-
-/**
- * The Emscripten FS surface this module needs. The generated
- * `EmscriptenModule['FS']` type only declares `writeFile` (that is all the
- * generated wrappers use), but the dev panel also has to create the `/presets`
- * directory chain, so it describes the wider shape locally rather than widening
- * the shared generated type.
- *
- * @typedef {object} DevPresetFS
- * @property {(path: string, data: Uint8Array | string) => void} writeFile
- * @property {(path: string) => void} mkdir Throws if the directory already exists.
  */
 
 const STYLE_ID = 'pm-preset-dev-style';
@@ -116,20 +104,10 @@ function injectStyles() {
  * @param {string} [options.displayName]
  */
 async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenReady, displayName }) {
-    if (!module?.FS || !module.ccall) throw new Error('Module not ready');
-    const fs = /** @type {DevPresetFS} */ (/** @type {unknown} */ (module.FS));
-    const dir = vfsPath.slice(0, vfsPath.lastIndexOf('/'));
-    if (dir) {
-        dir.split('/').filter(Boolean).reduce((acc, part) => {
-            const next = acc + '/' + part;
-            try { fs.mkdir(next); } catch { /* already exists */ }
-            return next;
-        }, '');
-    }
-    fs.writeFile(vfsPath, bytes);
-    // `load_preset_file` is a ccall manifest entry, so the readiness check above
+    // The preset exports are ccall manifest entries, so the readiness check
     // probes `ccall` rather than a `_`-prefixed member that the type never has.
-    loadPresetFile(/** @type {import('./generated/projectm-wasm-api.ts').ProjectMModule} */ (module), vfsPath);
+    if (!module?.ccall || !canStorePresets(module)) throw new Error('Module not ready');
+    storePreset(/** @type {import('./projectm-preset-store.js').PresetStoreModule} */ (/** @type {unknown} */ (module)), vfsPath, bytes, 'load');
     let milkText;
     try {
         milkText = new TextDecoder().decode(bytes);

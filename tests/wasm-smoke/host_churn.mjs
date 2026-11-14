@@ -113,6 +113,11 @@ try {
         console.error(`FAIL: ${result.rounds}/${options.rounds} rounds ran.`);
         failed = true;
     }
+    // presetData() in host_churn.html: two accepted, three refused, one stale handle.
+    if (result.ok && result.presetDataCases !== 6) {
+        console.error(`FAIL: ${result.presetDataCases}/6 load_preset_data cases ran.`);
+        failed = true;
+    }
     if (poolWarnings.length > 0) {
         console.error(`FAIL: the pthread pool ran out ${poolWarnings.length} time(s): a prepare thread `
             + `outlived its host. First warning:\n${poolWarnings[0]}`);

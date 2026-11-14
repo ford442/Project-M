@@ -290,7 +290,7 @@ test('writePreset refuses a module with no filesystem instead of silently droppi
     delete module.FS;
     assert.throws(
         () => createModuleTransport(module).writePreset('/presets/a.milk', Uint8Array.of(1)),
-        /Module.FS not available/,
+        /Module takes no presets/,
     );
 });
 

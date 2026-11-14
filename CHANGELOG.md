@@ -66,6 +66,12 @@ Browser host and hosting
 - Tab/system audio capture via `getDisplayMedia` (#283); API presets load through the render-worker transport.
 - Canvas renders sharply on HiDPI screens (#320); the audio button no longer sits under the FLAC player (#319).
 - Host layer: one owner per piece of state (#343). SDK build finds URL assets instead of listing them.
+- **WASM ABI v2** (#352): every engine export has a `pm_<name>(host, ...)` form; page events are queued
+  and delivered after the frame; per-pixel output no longer depends on the thread count. New
+  `load_preset_data()` takes a preset as bytes (`storePreset()` in `html/projectm-preset-store.js`), so the
+  host no longer drives the filesystem for presets; older bundles get the FS path as before.
+  `FORCE_FILESYSTEM` stays (textures and songs still use the FS API) and the glue stays a classic
+  script (`EXPORT_ES6` would need Firefox 114); measurements in `docs/EMSCRIPTEN.md`.
 
 Build, CI and docs
 - One WASM build entry, `scripts/build_wasm.sh` (#308); the bundle is the `projectM_wasm` CMake target (#347).

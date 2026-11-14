@@ -34,6 +34,7 @@ set(PROJECTM_WASM_WRAPPER_SOURCES
         WasmRenderPathOverrides.cpp
         WasmWebGLContext.cpp
         WasmDualFbo.cpp
+        WasmGraphics.cpp
         WasmAudioBridge.cpp
         WasmPcmRing.cpp
         WasmPerfGovernor.cpp

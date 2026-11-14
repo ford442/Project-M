@@ -75,6 +75,7 @@
  *   _create_host_with_config?: (...args: number[]) => number,
  *   _texture_slot_buffer?: (...args: number[]) => number,
  *   _texture_slot_generation?: (...args: number[]) => number,
+ *   _load_preset_data?: (...args: number[]) => number,
  *   FS?: { writeFile: (path: string, data: Uint8Array | string) => void, mkdirTree?: (path: string) => void },
  * }} WorkerModule
  */
@@ -375,11 +376,37 @@ function postStats() {
  * written is a preset-parser error with no useful message, so a failure on
  * either half is reported the same way.
  *
+ * A bundle with load_preset_data() (#352 D) takes the bytes in one call; the
+ * FS sequence below is for bundles built before it. This is the worker's copy
+ * of html/projectm-preset-store.js (a classic worker cannot import it).
+ *
  * @param {ProjectMModule} module
  * @param {RenderWorkerPresetMessage} msg
  */
 function handlePreset(module, msg) {
-    const fs = /** @type {WorkerModule} */ (module).FS;
+    const engine = /** @type {WorkerModule} */ (module);
+    if (typeof engine._load_preset_data === 'function' && engine.HEAPU8) {
+        // load_preset_data()'s mode argument (PRESET_STORE_MODES in projectm-preset-store.js).
+        const mode = msg.mode === 'add' ? 2 : (msg.mode === 'load-hard' ? 1 : 0);
+        const ptr = engine._malloc(Math.max(msg.bytes.byteLength, 1));
+        if (!ptr) {
+            postToHost({ type: 'error', message: `preset write failed for ${msg.vfsPath}: no WASM heap left` });
+            return;
+        }
+        try {
+            engine.HEAPU8.set(msg.bytes, ptr);
+            const stored = engine.ccall('load_preset_data', 'number', ['number', 'number', 'string', 'number'],
+                [ptr, msg.bytes.byteLength, msg.vfsPath, mode]);
+            if (!stored) postToHost({ type: 'error', message: `load_preset_data refused ${msg.vfsPath}` });
+        } catch (error) {
+            postToHost({ type: 'error', message: `load_preset_data failed for ${msg.vfsPath}: ${error}` });
+        } finally {
+            engine._free(ptr);
+        }
+        return;
+    }
+
+    const fs = engine.FS;
     if (!fs) {
         postToHost({ type: 'error', message: 'preset write failed: module has no FS' });
         return;

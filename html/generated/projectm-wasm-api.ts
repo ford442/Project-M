@@ -287,6 +287,7 @@ export const WASM_API_SYMBOLS = {
     maxHostCount: 'max_host_count',
     loadPresetFile: 'load_preset_file',
     loadPresetFileHard: 'load_preset_file_hard',
+    loadPresetData: 'load_preset_data',
     switchPreset: 'switch_preset',
     setAspectCorrection: 'set_aspect_correction',
     renderFrame: 'render_frame',
@@ -479,6 +480,7 @@ export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
     maxHostCount: { symbol: 'max_host_count', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
     loadPresetFile: { symbol: 'load_preset_file', returnType: null, argTypes: ['string'], paramTypes: ['string'], hostSymbol: 'pm_load_preset_file', hostMode: 'prepend' },
     loadPresetFileHard: { symbol: 'load_preset_file_hard', returnType: null, argTypes: ['string'], paramTypes: ['string'], hostSymbol: 'pm_load_preset_file_hard', hostMode: 'prepend' },
+    loadPresetData: { symbol: 'load_preset_data', returnType: 'number', argTypes: ['number', 'number', 'string', 'number'], paramTypes: ['number', 'number', 'string', 'number'], hostSymbol: 'pm_load_preset_data', hostMode: 'prepend' },
     switchPreset: { symbol: 'switch_preset', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_switch_preset', hostMode: 'prepend' },
     setAspectCorrection: { symbol: 'set_aspect_correction', returnType: null, argTypes: ['number'], paramTypes: ['boolean'], hostSymbol: 'pm_set_aspect_correction', hostMode: 'prepend' },
     renderFrame: { symbol: 'render_frame', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_render_frame', hostMode: 'prepend' },
@@ -642,6 +644,7 @@ export const HOST_SYMBOLS: ReadonlyMap<string, readonly [string, 'prepend' | 'fi
     ['rebind_canvases', ['pm_rebind_canvases', 'prepend']],
     ['load_preset_file', ['pm_load_preset_file', 'prepend']],
     ['load_preset_file_hard', ['pm_load_preset_file_hard', 'prepend']],
+    ['load_preset_data', ['pm_load_preset_data', 'prepend']],
     ['switch_preset', ['pm_switch_preset', 'prepend']],
     ['set_aspect_correction', ['pm_set_aspect_correction', 'prepend']],
     ['render_frame', ['pm_render_frame', 'prepend']],
@@ -997,6 +1000,11 @@ export function loadPresetFile(module: ProjectMModule, vfsPath: string): void {
 /** Load preset from VFS path with a hard cut (no crossfade) */
 export function loadPresetFileHard(module: ProjectMModule, vfsPath: string): void {
     module.ccall('load_preset_file_hard', null, ['string'], [vfsPath]);
+}
+
+/** Hand a preset to the engine as bytes the caller wrote to the WASM heap (data/len, freed by the caller after the call), stored under name (an absolute path, a relative one goes under /presets/) so the playlist and a context-loss reload find it by that name. mode: 0 load, 1 load with a hard cut, 2 add to the playlist, 3 store only (load it later by name). Returns 1, or 0 for a bad name or mode, when the bytes could not be stored, or without an engine (modes 0 to 2) */
+export function loadPresetData(module: ProjectMModule, data: number, len: number, name: string, mode: number): number {
+    return module.ccall('load_preset_data', 'number', ['number', 'number', 'string', 'number'], [data, len, name, mode]) as number;
 }
 
 /** Advance playlist to next preset */
@@ -1752,6 +1760,8 @@ export interface HostApi {
     loadPresetFile(vfsPath: string): void;
     /** Load preset from VFS path with a hard cut (no crossfade) */
     loadPresetFileHard(vfsPath: string): void;
+    /** Hand a preset to the engine as bytes the caller wrote to the WASM heap (data/len, freed by the caller after the call), stored under name (an absolute path, a relative one goes under /presets/) so the playlist and a context-loss reload find it by that name. mode: 0 load, 1 load with a hard cut, 2 add to the playlist, 3 store only (load it later by name). Returns 1, or 0 for a bad name or mode, when the bytes could not be stored, or without an engine (modes 0 to 2) */
+    loadPresetData(data: number, len: number, name: string, mode: number): number;
     /** Advance playlist to next preset */
     switchPreset(): void;
     /** Enable bezel/aspect correction */
@@ -2028,6 +2038,7 @@ export function createHostApi(module: ProjectMModule, host: number): HostApi {
         rebindCanvases: (primary, secondary) => rebindCanvases(view, primary, secondary),
         loadPresetFile: (vfsPath) => loadPresetFile(view, vfsPath),
         loadPresetFileHard: (vfsPath) => loadPresetFileHard(view, vfsPath),
+        loadPresetData: (data, len, name, mode) => loadPresetData(view, data, len, name, mode),
         switchPreset: () => switchPreset(view),
         setAspectCorrection: (enabled) => setAspectCorrection(view, enabled),
         renderFrame: () => renderFrame(view),
@@ -2179,6 +2190,7 @@ export const PUBLIC_WASM_API = [
     maxHostCount,
     loadPresetFile,
     loadPresetFileHard,
+    loadPresetData,
     switchPreset,
     setAspectCorrection,
     renderFrame,

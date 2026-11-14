@@ -76,6 +76,41 @@ preset-load hook (`on_playlist_preset_load()`) turns each of these into a reques
   `begin` asks the cache on the main thread, so a shader type the cache already holds is not
   transpiled ahead. The render thread then compiles the cached GLSL, as before.
 
+### Presets by buffer
+
+`load_preset_data(data, len, name, mode)` (ABI v2: `pm_load_preset_data(host, data, len, name, mode)`)
+takes a preset as bytes. The caller copies them onto the heap (`_malloc`, `HEAPU8.set`), calls, and
+frees them afterwards. Returns 1, or 0 for an empty name or one ending in `/`, an unknown mode, a
+failed write, or no engine (modes 0 to 2).
+
+| `mode` | `storePreset()` mode | Then |
+|---|---|---|
+| 0 | `load` | as `load_preset_file()` |
+| 1 | `load-hard` | as `load_preset_file_hard()` |
+| 2 | `add` | as `add_preset_file()` |
+| 3 | `store` | nothing; the caller loads it by name later |
+
+The bytes still land in MEMFS, under `name` (a relative name goes under `/presets/`, missing
+directories are created). The playlist, the context-loss reload
+(`html/projectm-context-loss.js` reloads the current path), the preset-name events and the
+shader cache all know a preset by its path, and `RequestPresetPrepare()` reads it back in
+microseconds. What changes is that the host no longer drives the filesystem for presets
+(`mkdirTree`, `FS.writeFile`, then a second call to load). `storePreset()` in
+`html/projectm-preset-store.js` is the one place that does it on the main thread
+(`projectm-presets.js`, `projectm-preset-library.js`, `projectm-preset-dev.js` and the module
+transport's `writePreset`), and `handlePreset()` in the render worker is its copy there. For a
+bundle without the export (any older bundle the page can still select with `?wasm=`) both fall
+back to the FS sequence.
+
+**`FORCE_FILESYSTEM` stays.** Measured 2026-11-14 (emsdk 6.0.6, this tree): linking without
+`FORCE_FILESYSTEM` and without `FS` in `EXPORTED_RUNTIME_METHODS` saves 564 B of glue (124 B
+gzipped), and the `.wasm` is byte-identical. The FS runtime (MEMFS) stays linked either way:
+libprojectM opens presets and textures with stdio, and the song bootstrap in `WasmJsBindings.cpp`
+writes the FS from `EM_JS`. The JS FS API is still what loads textures (`projectm-textures.js`,
+the depth map in `projectm-experimental-bridge.js`) and songs (`projectm-worklet-playback.js`
+reads `FS.readFile`), and what the `tests/wasm-smoke/` pages use to stage presets. 124 B is not
+worth breaking those; revisit once textures and songs go by buffer too.
+
 ## WebGL context attributes
 
 `WasmWebGLContext.cpp` creates the rendering context with Emscripten's html5 WebGL API only — there is
@@ -545,6 +580,35 @@ CI runs `scripts/verify_wasm_link_common.sh` to ensure generated files are commi
 
 Typed JavaScript wrappers are generated into `html/generated/projectm-wasm-api.{ts,js}` from `cmake/WasmApiManifest.cmake`. See [WASM_JS_API.md](WASM_JS_API.md).
 
+## Module shape: classic glue, not `EXPORT_ES6`
+
+The glue is a classic script (`MODULARIZE=1`, `EXPORT_NAME=createModule`): pages load it with a
+`<script>` tag, and the render worker loads it with `importScripts()`. Everything else in `html/` is
+an ES module. `-sEXPORT_ES6=1` was evaluated (#352 D) and **not adopted**.
+
+Measured 2026-11-14 on the same tree with emsdk 6.0.6, the bundle linked once as is and once with
+`-sEXPORT_ES6=1` added. Startup is the time from loading the glue to `createModule()` resolving
+(pthread pool started), in headless Chromium 131 (Playwright 1.49.1), median of 10 alternating
+runs:
+
+| | classic | `EXPORT_ES6` |
+|---|---|---|
+| glue | 201,231 B (46,768 B gzipped) | 201,071 B (46,693 B gzipped) |
+| `.wasm` | 1,854,841 B | byte-identical |
+| startup | 267 ms (198 to 358) | 261 ms (195 to 421) |
+
+Nothing measurable is gained, and there is a cost. The ES6 glue starts its pthreads as module
+workers (`new Worker(…, {type: "module"})`). Firefox has module workers only from 114, so on
+Firefox 89 to 113, inside the [feature floor](#wasm-feature-floor), the pthread pool would not
+start and neither would the engine. Adopting it would also mean:
+- the render worker becomes a module worker that imports the glue, so its tests import it too,
+  instead of evaluating it in `node:vm`;
+- `prepare_deploy_bundle.sh`'s rewrite of the bundle name in the glue and the `--pre-js` that
+  restores `mainScriptUrlOrBlob` get re-checked;
+- every `tests/wasm-smoke/` page switches from a `<script>` tag to `import()`.
+
+Revisit when the floor moves to Firefox 114 or later.
+
 ## Wasm feature floor
 
 An engine that lacks a feature used by any one instruction rejects the **whole** module at
@@ -656,7 +720,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, handed to each new engine from `init()` (`projectm_set_render_path_flags()`) |
 | `WasmEvents.hpp` / `WasmEvents.cpp` | The page-event queue: every page callback is queued and delivered once no engine code is on the stack (`EngineCallScope`, opened by every barrier and the render loop's tick) |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
-| `WasmGraphics.hpp` | Dual ping-pong FBO manager, `RenderStateGuard`, `reset_render_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
+| `WasmGraphics.hpp` / `WasmGraphics.cpp` | Dual ping-pong FBO manager, `RenderStateGuard`, `reset_render_state_between_pipelines()`, compositing/crossfade shader. The header has the class definitions (`WasmHost` holds one FBO manager and one compositor by value) and the one-line accessors; everything else is in the `.cpp` |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
 | `WasmPresent.cpp` | The end of a frame: flash-limiter switches (forwarding to libprojectM's C API), per-host frame readback (`capture_frame_*`, taken in `render_frame()` before a manual-present commit) and the commit counter. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
 | `WasmLiveInput.cpp` | Live input: `texture_slot_*` (live textures, per-host staging buffers on the heap, uploaded once per `render_frame()`) and `eval_set` / `eval_clear` (host per-frame variables); both re-applied to a new engine. See [LIVE_INPUT.md](LIVE_INPUT.md) |
@@ -665,15 +729,15 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
 | `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
 | `WasmRhythm.cpp` | Musical time: `get_rhythm_*` readouts, `set_rhythm_hint`, `set_preset_switch_policy`, `transition_set_duration_beats`, `set_hard_cut_on_beat`, and the `set_rhythm_events` → `pmOnRhythmEvent` beat/bar/section events (see [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis)) |
-| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, preset-readiness queries |
+| `WasmPlaylistBridge.cpp` | Preset-switch callbacks, the playlist's preset-load hook, playlist path/preset add helpers, `load_preset_file()`, `load_preset_data()` (see [Presets by buffer](#presets-by-buffer)), preset-readiness queries |
 | `WasmPresetPrepare.hpp` / `WasmPresetPrepare.cpp` | Per-host preset prepare thread and its single-slot queue; activation of prepared presets from `render_frame()` (see [Preset loading](#preset-loading)) |
 | `WasmJsBindings.cpp` | EM_JS glue only: the main-thread VFS/song bootstrap (`js_init_projectm_glue`) and the preset-name / init-error / preset-switch-failure notifications to the host page. No DOM and no network: fetching presets, textures and songs is the host page's job (see [Page-side asset loading](#page-side-asset-loading)); `tests/web/wasm-glue-dom.test.mjs` keeps it that way |
 
-`ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` is a
-header of cohesive graphics classes shared by two TUs; it exceeds the ~800-LOC
-guideline for a single unit by design, because splitting the FBO manager,
-state guard, and compositing shader across headers would fragment one tightly
-coupled subsystem.
+`ProjectMWasmBuildConfig.hpp` is generated (see above). `WasmGraphics.hpp` used
+to hold all 853 lines of the graphics classes' implementation, compiled into
+every TU through `WasmHost.hpp`; since #352 D it declares them and
+`WasmGraphics.cpp` implements them. The move changed no output (the WASM
+goldens are unchanged).
 
 All non-header TUs are the sources of the `projectM_wasm` target
 (`PROJECTM_WASM_WRAPPER_SOURCES` in `src/wasm/CMakeLists.txt`). Add new `.cpp`

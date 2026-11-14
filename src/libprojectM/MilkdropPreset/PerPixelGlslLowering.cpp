@@ -4,6 +4,8 @@
 #include "MilkdropStaticShaders.hpp"
 #include "RhythmVariables.hpp"
 
+#include <EngineContext.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -152,8 +154,7 @@ auto PerPixelGlslLowering::RhythmUniformName(int index) -> const std::string&
 
 auto PerPixelGlslLowering::ForcedToCpu() -> bool
 {
-    const char* const setting = std::getenv("PROJECTM_PER_PIXEL_EVAL");
-    return setting != nullptr && std::string(setting) == "cpu";
+    return EngineContext::Current().HasRenderPath(EngineContext::PerPixelForceCpu);
 }
 
 auto PerPixelGlslLowering::CpuSlice::ValueCount() const -> int
@@ -199,6 +200,19 @@ auto PerPixelGlslLowering::Lower(projectm_eval_code* /*code*/) -> Result
     Result result;
     result.reason = "built against a projectM-Eval that does not expose the expression tree";
     return result;
+}
+
+auto PerPixelGlslLowering::ClassifyEvaluationOrder(projectm_eval_code* code) -> EvaluationOrder
+{
+    EvaluationOrder order;
+    order.parallel = code == nullptr;
+    if (!order.parallel)
+    {
+        // Nothing can be proven order-independent without the tree, and a wrong guess makes
+        // the frame depend on the thread count.
+        order.reason = "built against a projectM-Eval that does not expose the expression tree";
+    }
+    return order;
 }
 
 #else
@@ -1602,6 +1616,58 @@ auto TopLevelStatements(Node* program) -> std::vector<Node*>
     return statements;
 }
 
+/**
+ * @brief The first construct anywhere in @a node that makes vertices observe each other
+ *        through something other than a variable: memory, reg00..reg99 or rand().
+ * @return A reason, or an empty string.
+ */
+auto SharedStateHazard(const Node* node, const std::unordered_map<VariableKey, std::string>& variableNames) -> std::string
+{
+    if (node == nullptr || node->func == nullptr)
+    {
+        return {};
+    }
+    auto* const func = node->func;
+    if (func == prjm_eval_func_mem || func == prjm_eval_func_memset ||
+        func == prjm_eval_func_memcpy || func == prjm_eval_func_freembuf)
+    {
+        return "uses megabuf()/gmegabuf()";
+    }
+    if (func == prjm_eval_func_rand)
+    {
+        return "calls rand(), whose numbers depend on the order the vertices run in";
+    }
+    if (func == prjm_eval_func_var && variableNames.find(node->var) == variableNames.end())
+    {
+        // Not in the context's own list: a reg00..reg99 global, shared with every context.
+        return "uses reg00..reg99";
+    }
+    if (func == prjm_eval_func_execute_list)
+    {
+        for (const auto* item = node->list; item != nullptr; item = item->next)
+        {
+            auto reason = SharedStateHazard(item->expr, variableNames);
+            if (!reason.empty())
+            {
+                return reason;
+            }
+        }
+        return {};
+    }
+    if (node->args != nullptr)
+    {
+        for (auto** argument = node->args; *argument != nullptr; argument++)
+        {
+            auto reason = SharedStateHazard(*argument, variableNames);
+            if (!reason.empty())
+            {
+                return reason;
+            }
+        }
+    }
+    return {};
+}
+
 auto Percent(double share) -> std::string
 {
     return std::to_string(static_cast<int>(std::lround(share * 100.0))) + "%";
@@ -1628,6 +1694,97 @@ auto PerPixelGlslLowering::Lower(projectm_eval_code* code) -> Result
         result.reason = std::string("internal error in the GPU per-pixel compiler: ") + exception.what();
         return result;
     }
+}
+
+auto PerPixelGlslLowering::ClassifyEvaluationOrder(projectm_eval_code* code) -> EvaluationOrder
+{
+    // Serial is always correct, so an internal failure here only costs the threads.
+    try
+    {
+        return ClassifyProgramOrder(code);
+    }
+    catch (const std::exception& exception)
+    {
+        EvaluationOrder order;
+        order.reason = std::string("internal error in the evaluation-order check: ") + exception.what();
+        return order;
+    }
+}
+
+auto PerPixelGlslLowering::ClassifyProgramOrder(projectm_eval_code* code) -> EvaluationOrder
+{
+    EvaluationOrder order;
+    if (code == nullptr)
+    {
+        order.parallel = true;
+        return order;
+    }
+
+    auto* const program = reinterpret_cast<prjm_eval_program_t*>(code);
+    if (program->cctx == nullptr)
+    {
+        order.reason = "per-pixel program has no compile context";
+        return order;
+    }
+    if (program->program == nullptr)
+    {
+        // Only comments: nothing runs.
+        order.parallel = true;
+        return order;
+    }
+
+    std::unordered_map<VariableKey, std::string> variableNames;
+    for (const auto* entry = program->cctx->variables.first; entry != nullptr; entry = entry->next)
+    {
+        variableNames[&entry->variable->value] = ToLower(entry->variable->name);
+    }
+
+    order.reason = SharedStateHazard(program->program, variableNames);
+    if (!order.reason.empty())
+    {
+        return order;
+    }
+
+    const EffectAnalyzer analyzer(variableNames);
+    std::vector<Effects> statements;
+    VariableSet written;
+    for (auto* node : TopLevelStatements(program->program))
+    {
+        statements.push_back(analyzer.Analyze(node));
+        written.insert(statements.back().mayWrites.begin(), statements.back().mayWrites.end());
+        if (statements.back().external)
+        {
+            order.reason = "calls a function whose effects are not known";
+            return order;
+        }
+    }
+
+    // Walk the vertex: what is read before this vertex has assigned it, and is written by
+    // the program, is what the previous vertex on the same context left behind.
+    VariableSet assigned;
+    for (const auto& entry : variableNames)
+    {
+        if (IsPerVertexBuiltin(entry.second))
+        {
+            assigned.insert(entry.first);
+        }
+    }
+    for (const auto& effects : statements)
+    {
+        for (const auto* variable : effects.reads)
+        {
+            if (written.count(variable) > 0 && assigned.count(variable) == 0)
+            {
+                order.reason = "reads " + variableNames.at(variable) +
+                               " before assigning it on the vertex, so it carries over from the previous vertex";
+                return order;
+            }
+        }
+        assigned.insert(effects.mustWrites.begin(), effects.mustWrites.end());
+    }
+
+    order.parallel = true;
+    return order;
 }
 
 auto PerPixelGlslLowering::LowerProgram(projectm_eval_code* code) -> Result

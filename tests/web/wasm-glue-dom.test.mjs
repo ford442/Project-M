@@ -131,7 +131,9 @@ async function withGlobals(overrides, fn) {
     }
 }
 
-const utf8 = { UTF8ToString: (text) => text };
+// No Module.pmEventQueue: the body delivers at once, as on a pthread. The
+// queue itself is tests/web/wasm-event-queue.test.mjs.
+const utf8 = { UTF8ToString: (text) => text, Module: {} };
 
 test('a preset switch failure cannot throw on a page with no #stat (or no document)', async () => {
     const report = compile('js_report_preset_switch_failed', utf8);

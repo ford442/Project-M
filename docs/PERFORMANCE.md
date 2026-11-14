@@ -215,9 +215,12 @@ in the default topology every one of them was silently a no-op. The worker's `st
 reports `renderPathOverrides` (the mask `get_render_path_overrides()` reads back: 1 blur copy,
 2 copy shader, 4 per-pixel CPU) so a run can confirm the switch landed.
 
-The blur and copy switches are read once, at engine init: the blur render path is decided on
-the first blurred frame and then cached, and the copy path is latched the first time a copy
-runs. Changing either mid-session has no effect.
+Each engine holds its own switches (`EngineContext`, set with `projectm_set_render_path_flags()`;
+a native engine starts from the environment variables as they were when it was created). The
+WASM host hands the page's switches to every engine it creates, before its first preset: the blur
+render path is decided on the first blurred frame and then cached, and the per-pixel path when a
+preset loads, so changing them mid-session does not move a running engine. Until #352 B they were
+process environment variables, and the copy path was latched once per process.
 
 > The copy switch only moves presets that still pay a fullscreen flip. Presets using the
 > default warp shader already skip the pre-warp copy entirely (#176), and presets **with** a
@@ -281,9 +284,11 @@ Since `projectm-eval` contexts are not re-entrant (see
 `vendor/projectm-eval/docs/Memory-Handling.md`), `MilkdropPreset` maintains a pool of one
 `PerPixelContext` per extra OpenMP worker thread (`m_perPixelContextPool`), each compiled with the
 same per-pixel code and sharing the preset's `gmegabuf`/`reg00-99` storage
-(`PresetState::globalMemory` / `globalRegisters`). Access to that shared storage is now protected
-by a real mutex in `EvalLibMutex.cpp` (previously a no-op), avoiding heap corruption in
-`MemoryBuffer.c` when multiple threads read/write `gmegabuf` concurrently. Per-frame read-only
+(`PresetState::globalMemory` / `globalRegisters`). Only a program whose vertices are independent
+gets the pool: one that carries a variable between vertices or uses memory, regs or `rand()` runs
+on one thread, in vertex order, so a frame never depends on the thread count (#352 C, see
+[`GPU_PERPIXEL_EVAL.md`](GPU_PERPIXEL_EVAL.md) "Evaluation order"). projectm-eval's memory lock
+(`EvalLibMutex.cpp`) is the current engine's `EngineContext::EvalMemoryMutex()`. Per-frame read-only
 variables and `q1..q32` are broadcast to the pool contexts once per frame via
 `PerPixelContext::CopyFrameStateFrom()` — O(thread count), not O(vertex count).
 

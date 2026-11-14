@@ -118,7 +118,8 @@ layer (`projectm-core.html`).
 Attributes are baked into the WebGL context and cannot change afterward; each host keeps its own
 (#246) — see [Multi-instance host state](#multi-instance-host-state). `create_host_with_config()`
 returns `0` on failure; `get_last_init_error()` then gives the [init error code](#init-error-codes)
-(`4` instance cap, `2` / `6` / `7` / `8` / `9` context stage).
+(`4` instance cap, `2` / `6` / `7` / `8` / `9` context stage). A live host's own last `init()`
+outcome is `pm_get_init_error(host)`.
 
 **Legacy exports.** `set_context_config(antialias, preserveDrawingBuffer, depth, stencil, alpha,
 powerPreference, fboPrecision)` and `create_host()` stay exported for host pages written against
@@ -417,21 +418,34 @@ ring and the shader-cache key are per-host:
 
 Still shared, by design:
 
-- **Web Audio worklet.** One `AudioContext` + one worklet node per Module
-  (`projectMAudioContext_Global_Cpp` / `projectMWorkletNode_Global_Cpp`). It is sent one
+- **Web Audio worklet.** One `AudioContext` + one worklet node per page
+  (`projectMAudioContext_Global_Cpp` / `projectMWorkletNode_Global_Cpp`), both created by the
+  page (`ensureWorkletReady()`, `html/projectm-worklet-playback.js`); the engine creates neither
+  (before #352 B its `init()` created the context in the in-page topology). The node is sent one
   `pcmRing` descriptor per host (tagged `hostHandle`, withdrawn with `pcmRingDetach`) and writes
   each quantum into every attached ring; without cross-origin isolation the `pcmData` fallback
   handler fans out over `Module.__pmPcmRings` instead. Every engine therefore hears the same
   worklet source; per-engine sources are the host's job (`feedPcmThroughRing(…, { hostHandle })`)
   until the in-page audio engine (#228) lands.
 - **Emscripten main loop** (`g_mainLoopRegistered`): one loop services every started host.
+- **The page-event queue** (`Module.pmEventQueue`, `src/wasm/WasmEvents.cpp`): every page
+  callback is queued, tagged with its host, and delivered once no engine code is on the stack.
+  See [WASM_JS_API.md, Events are delivered after the frame](WASM_JS_API.md#events-are-delivered-after-the-frame).
+
+What used to be per process and is now per host: the init error (`pm_get_init_error()`), the
+deterministic seed and clock, the render-path switches (each engine's `EngineContext`, no more
+`setenv()`), and the perf HUD's frame timings. See
+[WASM_JS_API.md, Engine state that left the Module](WASM_JS_API.md#engine-state-that-left-the-module-352-b).
 
 `kMaxHosts` is `PROJECTM_WASM_MAX_HOSTS` (4) in `cmake/EmscriptenWasmFlags.cmake`, and the
 pthread pool is derived from it (one preset prepare thread per host), so raising it costs one
 pre-spawned Worker per host and nothing else. `scripts/check_wasm_host_globals.sh` (run by the C++
 format gate) rejects object-like `#define` aliases of `WasmHost` state in `src/wasm/`, and any call
 to `Host()` or `SetActiveHost()` outside the compat layer (`WasmHost.cpp`,
-`WasmLegacyExports.cpp`).
+`WasmLegacyExports.cpp`). Given the Emscripten build dir (`build_emscripten.yml` does), it also
+reads the wrapper's objects with `llvm-nm` and fails on any writable static (namespace-scope,
+static member, or function-local) not listed, with its reason, in
+`scripts/wasm_globals_allowlist.txt`.
 
 ## Building the bundle
 
@@ -639,7 +653,8 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmHost.hpp` / `WasmHost.cpp` | Per-instance `WasmHost` struct (all former host globals), the host registry + active-host pointer, and the `create_host` / `set_active_host` / `destroy_host` multi-instance exports (#168 Phase B) |
 | `WasmRenderLoop.cpp` | Emscripten main loop (iterates started hosts), `start_render()`, the dual-FBO compositor decision, `render_frame()`, `set_window_size()` |
 | `WasmShaderCache.cpp` | Transpiled-GLSL cache hooks (host-page store/lookup), `shader_cache_*` and `get_glsl_generator_version()` exports |
-| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, applied once from `init()` |
+| `WasmRenderPathOverrides.cpp` | `?blurPath` / `?copyPath` / `?perPixelEval` ablation switches: `set_render_path_overrides()` from the host (the only route into the render worker), else the page URL, handed to each new engine from `init()` (`projectm_set_render_path_flags()`) |
+| `WasmEvents.hpp` / `WasmEvents.cpp` | The page-event queue: every page callback is queued and delivered once no engine code is on the stack (`EngineCallScope`, opened by every barrier and the render loop's tick) |
 | `WasmWebGLContext.cpp` | WebGL 2 context create/destroy, extension enablement, configurable canvas CSS selectors |
 | `WasmGraphics.hpp` | Dual ping-pong FBO manager, `RenderStateGuard`, `reset_render_state_between_pipelines()`, compositing/crossfade shader (header — shared by the render loop and the dual-FBO exports) |
 | `WasmDualFbo.cpp` | `dual_fbo_*` and `transition_*` exports (per-host FBO/compositor instances live on `WasmHost`) |
@@ -683,7 +698,10 @@ To add a new `EMSCRIPTEN_KEEPALIVE` C export:
    it needs **per-instance** state, add a field to `struct WasmHost` (`WasmHost.hpp`) and reach it
    through `H` — never a new process-global, which would silently be shared across instances, and
    never `Host()`: `scripts/check_wasm_host_globals.sh` fails any call to it outside the compat
-   layer, and rejects object-like `#define` aliases for host state (#246).
+   layer, rejects object-like `#define` aliases for host state (#246), and fails any writable
+   static not in `scripts/wasm_globals_allowlist.txt`. To tell the page something, raise an event
+   through `PostEvent()` (`WasmEvents.hpp`), never by calling a page global from an `EM_JS`
+   directly: the handler may destroy the host you are still using.
 3. **Regenerate** derived artifacts with `scripts/sync_wasm_link_common.sh` and
    commit them (CI runs `scripts/verify_wasm_link_common.sh`).
 4. Keep export **names** stable — hosts and `cmake/WasmApiManifest.cmake` depend
@@ -880,10 +898,12 @@ EM_JS(void, js_notify_init_error, (double host, int code, const char* detail), {
 which invokes `window.pmReportInitError(host, code, detail)` if the host page has defined it.
 `host` is the engine whose init failed (`create_host*()`'s handle, `0` for the default host,
 `-1` for a `create_host*()` refused at `kMaxHosts` before any engine existed); bundles up to
-039 called `(code, detail)`. The same code
-is kept for `get_last_init_error()` (0 after a success), which is how a caller of
-`create_host_with_config()` — which can only return a 0 handle — tells the failures apart; the render
-worker puts it in its `error` message's `code`. On
+039 called `(code, detail)`. Each host keeps its own last code (`pm_get_init_error(host)`, 0 after
+a success). A `create_host*()` that returns 0 leaves no host to hold it, so its code is what
+`get_last_init_error()` reports (otherwise the active host's): that is how a caller of
+`create_host_with_config()` tells the failures apart; the render worker puts it in its `error`
+message's `code`. The callback runs once the failed call has rolled the host back (page events
+are [delivered after the engine is done](WASM_JS_API.md#events-are-delivered-after-the-frame)). On
 success, `init()` calls `js_report_init_success()`, which invokes `window.pmHideInitError(host)` if
 defined. (Listen through `subscribeWasmCallback()` in `html/projectm-wasm-callbacks.js` rather
 than assigning the global yourself — see "Page globals" in `html/README.md`.)
@@ -954,15 +974,14 @@ allow `resume()` from inside a user-gesture handler (click, tap, or key press). 
 producer is affected by this:
 
 - **Worklet playback** and **media elements** (routed through the same worklet) both use the shared
-  `globalThis.projectMAudioContext_Global_Cpp`, created synchronously inside
-  `js_initialize_worklet_system_once` (`WasmAudioBridge.cpp`), which C++ `init()` calls before
-  reporting success via `js_report_init_success()`. If the browser created this context in the
-  `suspended` state, no audio reaches projectM until it is resumed from a user gesture.
-  The worklet *module* is loaded asynchronously (`audioWorklet.addModule`); if that fails or is
-  still pending when `pl()` runs, older builds silently skipped playback. Current builds wait on
-  `globalThis.projectMWorkletReady`, and hosts call `ensureWorkletReady()` /
-  `installWorkletPlaybackSafetyNet()` from `html/projectm-worklet-playback.js` so a failed
-  async setup can be repaired on the music-button gesture.
+  `globalThis.projectMAudioContext_Global_Cpp`, which the page creates: `ensureWorkletReady()`
+  (`html/projectm-worklet-playback.js`) builds the context, loads the processor, creates the
+  worklet node and attaches the engine's ingest (`_attach_worklet_ingest()`). Called from a
+  gesture, it creates the context running; called outside one (an audio element bound at start),
+  the context is born `suspended` and no audio reaches projectM until it is resumed from a user
+  gesture. Bundles before #352 B created the context inside C++ `init()` on the in-page topology
+  and loaded the processor there (`globalThis.projectMWorkletReady`); `ensureWorkletReady()` still
+  waits for that attempt when a bundle makes one, so the two never both build a node.
 - **External PCM** (`html/projectm-external-pcm.js`, used by MOD/FLAC players) never creates an
   `AudioContext` of its own and is unaffected by autoplay restrictions.
 

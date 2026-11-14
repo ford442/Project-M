@@ -122,6 +122,48 @@ PROJECTM_EXPORT void projectm_set_seed(projectm_handle instance, uint32_t seed);
  */
 PROJECTM_EXPORT void projectm_clear_seed(projectm_handle instance);
 
+/**
+ * @brief Creates an instance that has its own deterministic seed from the start.
+ *
+ * Like @a projectm_create() followed by @a projectm_set_seed(), except that the seed also
+ * covers what the instance draws while it is created (transition shaders, the idle preset),
+ * which @a projectm_set_seed() comes too late for. The process default seed is not touched.
+ *
+ * @param seed The seed. Any value is valid, including 0.
+ * @return A projectM handle, or NULL if the instance could not be created.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT projectm_handle projectm_create_seeded(uint32_t seed);
+
+/**
+ * Render-path ablation switches (@a projectm_set_render_path_flags()). Each restores an older
+ * render path so one build can be A/B'd against it.
+ */
+#define PROJECTM_RENDER_PATH_BLUR_COPY 1u      /**< Render-to-scratch + texture copy blur. */
+#define PROJECTM_RENDER_PATH_COPY_SHADER 2u    /**< Fullscreen-quad texture copies instead of blits. */
+#define PROJECTM_RENDER_PATH_PER_PIXEL_CPU 4u  /**< Per-pixel equations stay on the CPU evaluator. */
+
+/**
+ * @brief Sets one instance's render-path switches (PROJECTM_RENDER_PATH_* bits).
+ *
+ * An instance starts from the PROJECTM_BLUR_COPY_PATH=1, PROJECTM_COPY_SHADER_PATH=1 and
+ * PROJECTM_PER_PIXEL_EVAL=cpu environment variables as they were when it was created. Each
+ * path is decided when the instance first needs it, so set them before the first preset
+ * renders. Other instances are not affected.
+ *
+ * @param instance The projectM instance handle.
+ * @param flags A bitmask of PROJECTM_RENDER_PATH_* values. Unknown bits are ignored.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT void projectm_set_render_path_flags(projectm_handle instance, uint32_t flags);
+
+/**
+ * @brief The instance's render-path switches (PROJECTM_RENDER_PATH_* bits).
+ * @param instance The projectM instance handle.
+ * @since 4.2.0
+ */
+PROJECTM_EXPORT uint32_t projectm_get_render_path_flags(projectm_handle instance);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

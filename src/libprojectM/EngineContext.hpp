@@ -5,6 +5,7 @@
 #include "Renderer/Device/RenderDevice.hpp"
 #include "Renderer/ShaderTranspileCache.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -32,6 +33,17 @@ namespace libprojectM {
 class EngineContext
 {
 public:
+    /**
+     * @brief Render-path ablation switches (bits of RenderPathFlags()), the PROJECTM_RENDER_PATH_*
+     *        values of projectm_set_render_path_flags().
+     */
+    enum RenderPathFlag : uint32_t
+    {
+        BlurCopyPath = 1,     //!< Legacy render-to-scratch + texture copy blur (PROJECTM_BLUR_COPY_PATH=1).
+        CopyShaderPath = 2,   //!< Fullscreen-quad texture copies instead of blits (PROJECTM_COPY_SHADER_PATH=1).
+        PerPixelForceCpu = 4, //!< Per-pixel equations stay on the CPU evaluator (PROJECTM_PER_PIXEL_EVAL=cpu).
+    };
+
     EngineContext();
 
     EngineContext(const EngineContext&) = delete;
@@ -117,6 +129,46 @@ public:
     auto LogLevel() const -> Logging::LogLevel;
 
     /**
+     * @brief This engine's render-path switches (RenderPathFlag bits). Each path is decided
+     * when the engine first needs it (a blur target, a texture copy, a preset's per-pixel
+     * code), so set them before the first preset renders. A new context starts from the
+     * PROJECTM_* environment variables, read when it is constructed.
+     */
+    auto RenderPathFlags() const -> uint32_t
+    {
+        return m_renderPathFlags.load(std::memory_order_relaxed);
+    }
+
+    /// Replaces this engine's render-path switches. See RenderPathFlags().
+    void SetRenderPathFlags(uint32_t flags)
+    {
+        m_renderPathFlags.store(flags, std::memory_order_relaxed);
+    }
+
+    /// Whether @a flag is set for this engine.
+    auto HasRenderPath(RenderPathFlag flag) const -> bool
+    {
+        return (RenderPathFlags() & flag) != 0;
+    }
+
+    /**
+     * @brief The lock projectM-Eval takes around this engine's expression-evaluator memory
+     *        (gmegabuf/megabuf block allocation and free), through
+     *        projectm_eval_memory_host_lock_mutex() (MilkdropPreset/EvalLibMutex.cpp).
+     *
+     * Per engine: every buffer the evaluator is given belongs to one engine (a preset's
+     * PresetState, the engine's sprites), so two engines never wait on each other.
+     */
+    auto EvalMemoryMutex() -> std::mutex&
+    {
+        return m_evalMemoryMutex;
+    }
+
+    /// The switches the PROJECTM_BLUR_COPY_PATH / PROJECTM_COPY_SHADER_PATH /
+    /// PROJECTM_PER_PIXEL_EVAL environment variables ask for.
+    static auto RenderPathFlagsFromEnvironment() -> uint32_t;
+
+    /**
      * @brief The context code on this thread draws from: the innermost ScopedEngineContext's,
      *        or the process default.
      */
@@ -157,6 +209,10 @@ private:
     mutable std::mutex m_logMutex;
     Logging::UserCallback m_logCallback;
     Logging::LogLevel m_logLevel{Logging::LogLevel::NotSet};
+
+    std::atomic<uint32_t> m_renderPathFlags{0};
+
+    std::mutex m_evalMemoryMutex;
 };
 
 /**

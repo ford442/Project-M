@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <list>
+#include <memory>
 #include <set>
 #include <utility>
 #include <vector>
@@ -13,10 +14,18 @@
 namespace libprojectM {
 namespace UserSprites {
 
+struct MilkdropSpriteGlobals;
+
 class SpriteManager
 {
 public:
     using SpriteIdentifier = uint32_t;
+
+    SpriteManager();
+    ~SpriteManager();
+
+    SpriteManager(const SpriteManager&) = delete;
+    auto operator=(const SpriteManager&) -> SpriteManager& = delete;
 
     /**
      * @brief Spawns a new sprite.
@@ -106,6 +115,10 @@ private:
      * @return The lowest available/unused sprite ID.
      */
     SpriteIdentifier GetLowestFreeIdentifier();
+
+    //! gmegabuf and reg00..reg99 this engine's Milkdrop sprites share. Declared before
+    //! m_sprites so it is destroyed after every sprite context that uses it.
+    std::unique_ptr<MilkdropSpriteGlobals> m_milkdropGlobals;
 
     uint32_t m_spriteSlots{16};                     //!< Max number of active sprites.
     std::set<SpriteIdentifier> m_spriteIdentifiers; //!< Set to keep track of ordered sprite IDs.

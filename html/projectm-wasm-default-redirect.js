@@ -6,7 +6,7 @@
 // page redeploy. DEFAULT_WASM_VERSION is the fallback when the manifest is
 // missing, slow, or invalid. Keep it in sync with PROJECTM_WASM_DEFAULT_VERSION
 // in projectm-wasm-version.js (checked by scripts/verify_wasm_version_sync.sh).
-var DEFAULT_WASM_VERSION = '039';
+var DEFAULT_WASM_VERSION = '040';
 (function () {
     var MANIFEST_TIMEOUT_MS = 1200;
     /** @type {any} */

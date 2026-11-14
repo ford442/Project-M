@@ -68,7 +68,7 @@ root, because hosts `import './projectm-*.js'`):
   `--no-song-index` skips this step.
 
 The active bundle version is defined once in `html/projectm-wasm-version.js`
-(`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.039-thread`).
+(`PROJECTM_WASM_VERSION` / `PROJECTM_WASM_BUNDLE`, currently `projectm-v.040-thread`).
 Keep it aligned with `scripts/prepare_deploy_bundle.sh` and
 `scripts/verify_deploy_urls.sh` (checked by `scripts/verify_wasm_version_sync.sh`).
 
@@ -95,7 +95,7 @@ source /path/to/emsdk/emsdk_env.sh
 #      any staged copy (.br/.gz included) that does not match those hashes
 #      (docs/EMSCRIPTEN.md "Deploy staleness guard"). Do not post-process the
 #      staged files: that is exactly what the hash check rejects.
-scripts/build_wasm.sh --stage --version 039
+scripts/build_wasm.sh --stage --version 040
 
 # 3. Upload (ships root WASM, pm/ mirror, and html/projectm-*.js hosts)
 python deploy.py --check-bundle         # optional: the bundle checks alone, no network
@@ -107,8 +107,8 @@ python deploy.py --target prod          # production: projectm.1ink.us/ (needs D
 python deploy.py --target test,go,prod  # all configured targets
 
 # 4. Verify (no HTML 404s under pm/)
-scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ projectm-v.039-thread
-scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.039-thread
+scripts/verify_deploy_urls.sh https://test.1ink.us/projectm.1ink.us/ projectm-v.040-thread
+scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.040-thread
 scripts/check_coop_coep.sh https://projectm.1ink.us/
 ```
 
@@ -279,7 +279,7 @@ Check a deploy with:
 
 ```bash
 node scripts/check_production_headers.mjs https://projectm.1ink.us --all-builds
-scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.039-thread
+scripts/verify_deploy_urls.sh https://projectm.1ink.us/ projectm-v.040-thread
 ```
 
 `check_production_headers.mjs` sends Chrome's `Accept-Encoding` and decodes the

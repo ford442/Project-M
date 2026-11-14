@@ -6,15 +6,15 @@
  * - scripts/verify_deploy_urls.sh (default bundle name)
  * - scripts/verify_wasm_version_sync.sh (CI check)
  */
-export const PROJECTM_WASM_VERSION = '039';
+export const PROJECTM_WASM_VERSION = '040';
 
 /**
  * First-party host default for `?wasm=` (redirect + picker fallback).
  * May temporarily lag `PROJECTM_WASM_VERSION` when the latest bundle has
- * known regressions. 039 carries the audio-playback/visualization fixes
- * (tracking issue for #269-#274), so the default follows the latest bundle.
+ * known regressions. 040 follows the latest bundle, which carries the
+ * audio-playback/visualization fixes (tracking issue for #269-#274).
  */
-export const PROJECTM_WASM_DEFAULT_VERSION = '039';
+export const PROJECTM_WASM_DEFAULT_VERSION = '040';
 
 /** Threaded pthread build suffix used by deploy and hosts. */
 export const PROJECTM_WASM_BUNDLE = `projectm-v.${PROJECTM_WASM_VERSION}-thread`;
@@ -42,6 +42,7 @@ export const PROJECTM_WASM_SELECTABLE_VERSIONS = Object.freeze([
     '037',
     '038',
     '039',
+    '040',
 ]);
 
 /**
@@ -53,7 +54,7 @@ export const PROJECTM_WASM_SELECTABLE_VERSIONS = Object.freeze([
  * names each build's glue file, so new versions need no edit here (see
  * docs/adr/0001-wasm-and-media-hosting.md).
  */
-export const PROJECTM_WASM_UTF8_GLUE_VERSIONS = Object.freeze(['030', '035', '036', '037', '038', '039']);
+export const PROJECTM_WASM_UTF8_GLUE_VERSIONS = Object.freeze(['030', '035', '036', '037', '038', '039', '040']);
 
 /** Site-relative path of the build manifest (`scripts/generate_wasm_builds_manifest.mjs`). */
 export const PROJECTM_WASM_BUILDS_MANIFEST_PATH = 'pm/builds.json';

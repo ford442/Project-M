@@ -2,6 +2,8 @@
 
 #include "UserSprites/Sprite.hpp"
 
+#include "UserSprites/MilkdropSprite.hpp"
+
 #include <memory>
 #include <string>
 
@@ -13,7 +15,12 @@ class Factory
 public:
     Factory() = delete;
 
-    static auto CreateSprite(const std::string& type) -> Sprite::Ptr;
+    /**
+     * @param type The sprite type name.
+     * @param milkdropGlobals The engine's sprite gmegabuf and registers, for a "milkdrop" sprite.
+     *                        Must outlive the sprite.
+     */
+    static auto CreateSprite(const std::string& type, MilkdropSpriteGlobals& milkdropGlobals) -> Sprite::Ptr;
 };
 
 } // namespace UserSprites

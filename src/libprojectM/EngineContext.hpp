@@ -151,6 +151,19 @@ public:
         return (RenderPathFlags() & flag) != 0;
     }
 
+    /**
+     * @brief The lock projectM-Eval takes around this engine's expression-evaluator memory
+     *        (gmegabuf/megabuf block allocation and free), through
+     *        projectm_eval_memory_host_lock_mutex() (MilkdropPreset/EvalLibMutex.cpp).
+     *
+     * Per engine: every buffer the evaluator is given belongs to one engine (a preset's
+     * PresetState, the engine's sprites), so two engines never wait on each other.
+     */
+    auto EvalMemoryMutex() -> std::mutex&
+    {
+        return m_evalMemoryMutex;
+    }
+
     /// The switches the PROJECTM_BLUR_COPY_PATH / PROJECTM_COPY_SHADER_PATH /
     /// PROJECTM_PER_PIXEL_EVAL environment variables ask for.
     static auto RenderPathFlagsFromEnvironment() -> uint32_t;
@@ -198,6 +211,8 @@ private:
     Logging::LogLevel m_logLevel{Logging::LogLevel::NotSet};
 
     std::atomic<uint32_t> m_renderPathFlags{0};
+
+    std::mutex m_evalMemoryMutex;
 };
 
 /**

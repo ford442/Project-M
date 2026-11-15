@@ -293,7 +293,6 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
     float sx = static_cast<float>(*perFrameContext.sx);
     float sy = static_cast<float>(*perFrameContext.sy);
 
-    // Can't make this multithreaded as per-pixel code may use gmegabuf or regXX vars.
     auto& vertices = m_warpMesh.Vertices();
 
     if (UsesGpuPerPixel(presetState))
@@ -340,12 +339,14 @@ void PerPixelMesh::CalculateMesh(const PresetState& presetState, const PerFrameC
     }
     else
     {
-        // Per-pixel code is active. Each vertex only reads its own static grid
-        // data (vertices[]/m_radiusAngleBuffer[]) and per-frame values, and
-        // writes to its own output slot, so the loop can run in parallel as
-        // long as each thread uses its own eval context (q1..q32, x, y, rad,
-        // ang, zoom, etc. are registered per-context). gmegabuf/reg vars are
-        // shared across contexts and protected by EvalLibMutex.
+        // Per-pixel code is active. Each vertex reads its own static grid data
+        // (vertices[]/m_radiusAngleBuffer[]) and per-frame values and writes its
+        // own output slot, and each thread runs on its own eval context. That
+        // gives the single-threaded result only when no vertex can see another:
+        // the preset emptied the context pool at load for a program that carries
+        // variables between vertices or uses memory, regs or rand()
+        // (MilkdropPreset::ClassifyPerPixelEvaluationOrder()), and this loop
+        // never runs more threads than there are contexts.
         const int vertexCount = (m_gridSizeX + 1) * (m_gridSizeY + 1);
 
 #ifdef PRJM_ENABLE_OPENMP

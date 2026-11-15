@@ -115,6 +115,49 @@ jobs:
             name: projectm-linux-${{ matrix.libs }}-${{ matrix.fslib }}-${{ matrix.runs-on }}
             path: install/*
 
+  openmp:
+    # The other jobs build without OpenMP, where the CPU per-pixel loop has one thread and
+    # PerPixelThreadEquivalence skips. This one runs the unit suite with the OpenMP loops on,
+    # including that test: every preset in presets/tests/ on 1 and on 4 threads must render the
+    # same pixels (#352 C, docs/GPU_PERPIXEL_EVAL.md "Evaluation order").
+    name: "Release + OpenMP: unit tests, 1 vs 4 threads"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: 'recursive'
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install  --yes --no-install-recommends \
+            libgl1-mesa-dev \
+            libegl-dev \
+            libegl-mesa0 \
+            mesa-common-dev \
+            libsdl2-dev \
+            libglm-dev \
+            libgtest-dev \
+            libgmock-dev \
+            ninja-build \
+            xvfb
+
+      - name: Configure Build
+        run: |
+          cmake -G Ninja \
+            -S "${{ github.workspace }}" \
+            -B "${{ github.workspace }}/cmake-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_OPENMP=ON \
+            -DENABLE_WERROR_RATCHET=ON \
+            -DBUILD_TESTING=YES
+
+      - name: Build
+        run: cmake --build "${{ github.workspace }}/cmake-build" --parallel
+
+      - name: Run Unit Tests
+        run: ctest --test-dir "${{ github.workspace }}/cmake-build" --output-on-failure
+
   sanitizers:
     name: "Debug + ASan/UBSan (${{ matrix.compiler.name }}): unit tests, PresetCompat"
     runs-on: ubuntu-24.04

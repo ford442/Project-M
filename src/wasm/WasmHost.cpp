@@ -9,6 +9,7 @@
 // See WasmHost.hpp and docs/EMSCRIPTEN.md ("Multi-instance host state").
 #include "WasmHost.hpp"
 #include "WasmApiBarrier.hpp"
+#include "WasmEvents.hpp"
 #include "WasmLog.hpp"
 
 #include <cstdlib>
@@ -49,6 +50,14 @@ static std::unique_ptr<WasmHost> g_hosts[kMaxHosts];
 static uintptr_t g_slotGeneration[kMaxHosts] = {};
 static WasmHost* g_activeHost = nullptr;
 bool g_mainLoopRegistered = false;
+// Why the last create_host*() returned 0 (0 after one that succeeded): a
+// failed create leaves no host to hold its init error. get_last_init_error().
+static int g_lastCreateHostError = 0;
+
+void SetLastCreateHostError(int code)
+{
+    g_lastCreateHostError = code;
+}
 
 namespace {
 constexpr unsigned kHandleSlotBits = 8;
@@ -70,6 +79,7 @@ WasmHost* AllocateHost()
             if (g_hosts[i])
             {
                 g_hosts[i]->handle = static_cast<uintptr_t>(i + 1) | (g_slotGeneration[i] << kHandleSlotBits);
+                InitHostDeterminism(*g_hosts[i]);
             }
             return g_hosts[i].get();
         }
@@ -335,6 +345,7 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
     if (host == nullptr && LiveHostCount() < kMaxHosts)
     {
         WASM_LOG_ERROR("create_host: refused – out of memory for a new host.");
+        g_lastCreateHostError = 4;
         ReportInitErrorForEventHost(kNoEventHost, 4, "Out of memory for a new projectM instance");
         return 0;
     }
@@ -343,6 +354,7 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
         WASM_LOG_WARN("create_host: refused – already at kMaxHosts (%d) instances.", kMaxHosts);
         // No engine exists to name: the active host is the caller's previous
         // one, and this failure is not its.
+        g_lastCreateHostError = 4;
         ReportInitErrorForEventHost(kNoEventHost, 4, "Maximum projectM instances per Module reached");
         return 0;
     }
@@ -379,6 +391,7 @@ static uintptr_t CreateHost(const char* primary, const char* secondary, const Wa
     WasmWebGLSetCanvasSelectors(*host, primary, secondary);
 
     const int rc = InitHost(*host);
+    g_lastCreateHostError = rc != 0 ? host->lastInitError : 0;
     if (rc != 0)
     {
         WASM_LOG_ERROR("create_host: init() failed (rc=%d); rolling back.", rc);
@@ -447,7 +460,8 @@ uintptr_t get_active_host()
 }
 
 // Tears down and frees a host created with create_host(). Safe to call with 0
-// or an already-released handle (no-op).
+// or an already-released handle (no-op). The page events still queued for it
+// are dropped: whoever destroyed it is done listening to it.
 void destroy_host(uintptr_t handle)
 {
     // Ignore handles that are not in the registry (0 / double-free / stale).
@@ -456,7 +470,21 @@ void destroy_host(uintptr_t handle)
     {
         return;
     }
+    const double eventHandle = EventHostHandle(*host);
     ReleaseHost(host);
+    WasmEvents::DropHostEvents(eventHandle);
+}
+
+// Compat: the code of the last init failure on this Module, as before ABI v2
+// (one value for every host). After a create_host*() that returned 0, that
+// create's code; otherwise the active host's own (pm_get_init_error()).
+int get_last_init_error()
+{
+    if (g_lastCreateHostError != 0)
+    {
+        return g_lastCreateHostError;
+    }
+    return g_activeHost != nullptr ? g_activeHost->lastInitError : 0;
 }
 
 // Number of currently-allocated engine instances.
@@ -508,6 +536,46 @@ int debug_throw(WasmHost& /*H*/, int kind)
         return tooBig.empty() ? 0 : 1;
     }
     return 1;
+}
+
+// Page-event test hook (tests/wasm-smoke/host_churn.mjs): raises every page
+// event about this host from inside its export, in a fixed order (the
+// pmSetPerfHudEnabled, pmOnPerfFrame, pmOnGovernorTierChange,
+// pmOnGovernorRenderScaleChange, pmOnGovernorBlurCapChange, pmOnRhythmEvent,
+// pmOnPresetSwitchFailed, pmReportInitError, pmHideInitError,
+// pmOnTranspiledShaderStored and updatePresetDisplay handlers, then a pmOnLog
+// line), and checks after each that the host is still the one it was called
+// on: a handler that ran inside the export, and destroyed the host, would fail
+// that. Returns the number of events raised, or -1 if the host went away
+// underneath it.
+int debug_emit_events(WasmHost& H)
+{
+    const uintptr_t handle = H.handle;
+    const double host = EventHostHandle(H);
+    const auto intact = [&] { return HostFromHandle(handle) == &H; };
+    int raised = 0;
+    const auto raise = [&](auto&& notify) {
+        if (raised < 0)
+        {
+            return;
+        }
+        PostEvent(notify);
+        // Touch the host the way engine code after a notification does.
+        raised = intact() ? raised + 1 : -1;
+    };
+    raise([&] { js_perf_hud_set_enabled(host, H.perfHudEnabled ? 1 : 0); });
+    raise([&] { js_perf_report_frame(host, 1.0, 0, 0, 0, 0, 0, 0, -1.0, 60.0, 0, 0, 0, -1.0); });
+    raise([&] { js_governor_report_tier(host, H.qualityTier); });
+    raise([&] { js_governor_report_render_scale(host, 1.0); });
+    raise([&] { js_governor_report_blur_cap(host, -1); });
+    raise([&] { js_report_rhythm_event(host, 1, 120.0, 0.0, 0.0, 0, 1.0); });
+    raise([&] { js_report_preset_switch_failed(host, "debug_emit_events.milk", "debug_emit_events"); });
+    raise([&] { js_notify_init_error(host, 0, "debug_emit_events"); });
+    raise([&] { js_notify_init_success(host); });
+    raise([&] { js_on_transpiled_shader_stored(host, "debug_emit_events", 0, ""); });
+    raise([&] { js_update_preset_name(host, "debug_emit_events.milk"); });
+    raise([&] { WASM_LOG_WARN("debug_emit_events: host %lu", static_cast<unsigned long>(handle)); });
+    return raised;
 }
 
 } // namespace WasmApi

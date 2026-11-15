@@ -3,6 +3,7 @@
 // Performance HUD instrumentation (CPU perf timers + WebGL GPU timer queries)
 // and the adaptive quality governor that trades per-pixel mesh resolution for
 // frame-rate stability. Also hosts the OpenMP introspection exports.
+#include "WasmEvents.hpp"
 #include "WasmHost.hpp"
 
 // =============================================================================
@@ -177,9 +178,13 @@ static void OnGpuStageChange(projectm_perf_gpu_stage stage, void* /*userData*/)
 // listener cannot tell whose tier or frame it is hearing.
 // clang-format off
 EM_JS(void, js_perf_hud_set_enabled, (double host, int enabled), {
-    if (typeof globalThis.pmSetPerfHudEnabled === 'function') {
-        globalThis.pmSetPerfHudEnabled(host, !!enabled);
-    }
+    const deliver = () => {
+        if (typeof globalThis.pmSetPerfHudEnabled === 'function') {
+            globalThis.pmSetPerfHudEnabled(host, !!enabled);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -196,14 +201,19 @@ EM_JS(void, js_perf_report_frame, (
     double rhythmMs,
     double flashClampedFrames
 ), {
-    if (typeof globalThis.pmOnPerfFrame === 'function') {
-        const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
-            ? Module.__pmPerfGpuByCtx.get(GLctx) : null;
-        const gpuStages = {};
-        (Module.__pmPerfGpuStageKeys || []).forEach((key, index) => {
-            gpuStages[key] = (gpu && gpu.ext) ? gpu.lastStageMs[index] : -1;
-        });
-        const gpuFresh = !!(gpu && gpu.ext && gpu.fresh);
+    // The GPU readings belong to the context current now (this host's); the
+    // handler runs after the frame, when another host's may be.
+    const gpu = (Module.__pmPerfGpuByCtx && typeof GLctx !== 'undefined' && GLctx)
+        ? Module.__pmPerfGpuByCtx.get(GLctx) : null;
+    const gpuStages = {};
+    (Module.__pmPerfGpuStageKeys || []).forEach((key, index) => {
+        gpuStages[key] = (gpu && gpu.ext) ? gpu.lastStageMs[index] : -1;
+    });
+    const gpuFresh = !!(gpu && gpu.ext && gpu.fresh);
+    const deliver = () => {
+        if (typeof globalThis.pmOnPerfFrame !== 'function') {
+            return;
+        }
         globalThis.pmOnPerfFrame({
             host: host,
             totalMs: totalMs,
@@ -235,7 +245,9 @@ EM_JS(void, js_perf_report_frame, (
             // (refreshed about twice a second), -1 while the limiter is off.
             flashClampedFrames: flashClampedFrames,
         });
-    }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -309,9 +321,13 @@ constexpr QualityTierSettings kQualityTiers[kMaxQualityTier + 1] = {
 // UI can reflect it (e.g. show a "reduced quality" indicator).
 // clang-format off
 EM_JS(void, js_governor_report_tier, (double host, int tier), {
-    if (typeof globalThis.pmOnGovernorTierChange === 'function') {
-        globalThis.pmOnGovernorTierChange(host, tier);
-    }
+    const deliver = () => {
+        if (typeof globalThis.pmOnGovernorTierChange === 'function') {
+            globalThis.pmOnGovernorTierChange(host, tier);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -322,9 +338,13 @@ EM_JS(void, js_governor_report_tier, (double host, int tier), {
 // counterpart for late-binding hosts.
 // clang-format off
 EM_JS(void, js_governor_report_render_scale, (double host, double scale), {
-    if (typeof globalThis.pmOnGovernorRenderScaleChange === 'function') {
-        globalThis.pmOnGovernorRenderScaleChange(host, scale);
-    }
+    const deliver = () => {
+        if (typeof globalThis.pmOnGovernorRenderScaleChange === 'function') {
+            globalThis.pmOnGovernorRenderScaleChange(host, scale);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -333,9 +353,13 @@ EM_JS(void, js_governor_report_render_scale, (double host, double scale), {
 // JS action is required for the cap to take effect.
 // clang-format off
 EM_JS(void, js_governor_report_blur_cap, (double host, int cap), {
-    if (typeof globalThis.pmOnGovernorBlurCapChange === 'function') {
-        globalThis.pmOnGovernorBlurCapChange(host, cap);
-    }
+    const deliver = () => {
+        if (typeof globalThis.pmOnGovernorBlurCapChange === 'function') {
+            globalThis.pmOnGovernorBlurCapChange(host, cap);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -352,9 +376,11 @@ static void ApplyQualityTier(WasmHost& H, int tier)
     projectm_set_max_blur_level(pm, settings.maxBlurLevel);
     projectm_set_blur_resolution_scale(pm, static_cast<float>(settings.blurResolutionScale));
     const double host = EventHostHandle(H);
-    js_governor_report_tier(host, tier);
-    js_governor_report_render_scale(host, settings.renderScale);
-    js_governor_report_blur_cap(host, settings.maxBlurLevel);
+    PostEvent([&] {
+        js_governor_report_tier(host, tier);
+        js_governor_report_render_scale(host, settings.renderScale);
+        js_governor_report_blur_cap(host, settings.maxBlurLevel);
+    });
 }
 
 void ReapplyQualityTierLimits(WasmHost& H)
@@ -531,7 +557,7 @@ void set_perf_hud(WasmHost& H, int enabled)
     // Per-stage GPU timing (js_perf_gpu_enter_stage()). Process-global like the
     // perf timers themselves; each call lands on whichever host is rendering.
     projectm_perf_set_gpu_stage_callback(g_perfHudEnabled ? &OnGpuStageChange : nullptr, nullptr);
-    js_perf_hud_set_enabled(EventHostHandle(H), enabled);
+    PostEvent([&] { js_perf_hud_set_enabled(EventHostHandle(H), enabled); });
     return;
 }
 

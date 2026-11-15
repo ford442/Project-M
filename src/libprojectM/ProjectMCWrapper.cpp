@@ -163,7 +163,9 @@ projectm_handle projectm_create()
     });
 }
 
-projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const char*, void*), void* user_data)
+namespace {
+
+auto CreateInstance(void* (*load_proc)(const char*, void*), void* user_data, std::optional<uint32_t> seed) -> projectm_handle
 {
     using libprojectM::Logging;
 
@@ -183,7 +185,7 @@ projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const c
         }
 
         // create projectM
-        auto* projectMInstance = new libprojectM::projectMWrapper();
+        auto* projectMInstance = new libprojectM::projectMWrapper(seed);
         return reinterpret_cast<projectm_handle>(projectMInstance);
     }
     catch (const std::exception& e)
@@ -197,6 +199,18 @@ projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const c
         LOG_ERROR("projectm_create_with_opengl_load_proc caught unknown exception");
         return nullptr;
     }
+}
+
+} // namespace
+
+projectm_handle projectm_create_with_opengl_load_proc(void* (*load_proc)(const char*, void*), void* user_data)
+{
+    return CreateInstance(load_proc, user_data, std::nullopt);
+}
+
+projectm_handle projectm_create_seeded(uint32_t seed)
+{
+    return CreateInstance(nullptr, nullptr, seed);
 }
 
 void projectm_destroy(projectm_handle instance)
@@ -624,6 +638,25 @@ void projectm_clear_seed(projectm_handle instance)
 {
     CApiGuard(__func__, [&] {
         Instance(instance).SetSeed(std::nullopt);
+    });
+}
+
+static_assert(PROJECTM_RENDER_PATH_BLUR_COPY == libprojectM::EngineContext::BlurCopyPath);
+static_assert(PROJECTM_RENDER_PATH_COPY_SHADER == libprojectM::EngineContext::CopyShaderPath);
+static_assert(PROJECTM_RENDER_PATH_PER_PIXEL_CPU == libprojectM::EngineContext::PerPixelForceCpu);
+
+void projectm_set_render_path_flags(projectm_handle instance, uint32_t flags)
+{
+    CApiGuard(__func__, [&] {
+        Instance(instance).GetEngineContext().SetRenderPathFlags(
+            flags & (PROJECTM_RENDER_PATH_BLUR_COPY | PROJECTM_RENDER_PATH_COPY_SHADER | PROJECTM_RENDER_PATH_PER_PIXEL_CPU));
+    });
+}
+
+uint32_t projectm_get_render_path_flags(projectm_handle instance)
+{
+    return CApiGuard(__func__, 0u, [&]() -> uint32_t {
+        return Instance(instance).GetEngineContext().RenderPathFlags();
     });
 }
 

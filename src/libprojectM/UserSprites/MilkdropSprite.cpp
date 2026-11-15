@@ -29,8 +29,19 @@
 namespace libprojectM {
 namespace UserSprites {
 
-MilkdropSprite::MilkdropSprite()
-    : m_mesh(Renderer::VertexBufferUsage::DynamicDraw, false, true)
+MilkdropSpriteGlobals::MilkdropSpriteGlobals()
+    : memory(projectm_eval_memory_buffer_create())
+{
+}
+
+MilkdropSpriteGlobals::~MilkdropSpriteGlobals()
+{
+    projectm_eval_memory_buffer_destroy(memory);
+}
+
+MilkdropSprite::MilkdropSprite(MilkdropSpriteGlobals& globals)
+    : m_codeContext(globals)
+    , m_mesh(Renderer::VertexBufferUsage::DynamicDraw, false, true)
 {
     m_mesh.SetRenderPrimitiveType(Renderer::Mesh::PrimitiveType::TriangleStrip);
     m_mesh.SetVertexCount(4);
@@ -304,8 +315,8 @@ void MilkdropSprite::SetVariableValue(const std::string& variableName, double va
     }
 }
 
-MilkdropSprite::CodeContext::CodeContext()
-    : spriteCodeContext(projectm_eval_context_create(nullptr, nullptr))
+MilkdropSprite::CodeContext::CodeContext(MilkdropSpriteGlobals& globals)
+    : spriteCodeContext(projectm_eval_context_create(globals.memory, &globals.registers))
 {
     MilkdropPreset::SeedEvalRandom(spriteCodeContext);
 }

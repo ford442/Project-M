@@ -30,7 +30,7 @@
     starts again shows up as a load that never completes. Reverting the join in
     ~PresetPrepareQueue() to a detach makes the 100-round run warn 37 times.
 
-    Then three ABI v2 (#352) cases, on the long-lived host and a second one:
+    Then four ABI v2 (#352) cases, on the long-lived host and a second one:
 
       * interleaved async calls: two tasks drive their own host through the
         pm_ exports, awaiting between a write and its read-back while the other
@@ -44,16 +44,29 @@
       * PCM ring re-init x10 with a stand-in worklet node: every released ring
         stays parked (never reused) until its pcmRingDetached answer, each new
         ring drains exactly what was written to it, and an acknowledged ring is
-        reused. On the --debug link SAFE_HEAP checks every access.
+        reused. On the --debug link SAFE_HEAP checks every access;
+      * a handler that destroys its host, from every page callback: for each
+        of the twelve, a fresh host raises them all from inside one export
+        (pm_debug_emit_events), and that callback's handler destroys the host
+        and then throws. The export must finish with its host intact (no
+        handler runs inside engine code), the handlers before it run in order,
+        the host's events after it are dropped, and the throw stops nothing
+        else. Then the real paths: a create_host whose pmHideInitError handler
+        destroys the new host, a main-loop frame whose pmOnPerfFrame handler
+        destroys its host while the long-lived one keeps rendering, and a
+        failed preset load whose pmOnPresetSwitchFailed handler does.
   -->
   <canvas id="pm-churn-stay"></canvas>
   <canvas id="pm-churn-a"></canvas>
+  <canvas id="pm-churn-b"></canvas>
+  <canvas id="pm-churn-c"></canvas>
   <div id="preset-name" hidden></div>
   <div id="stat" hidden></div>
   <script>
     const result = {
       ok: false, error: null, rounds: 0, createRefused: 0, stayLoads: 0,
       interleavedCalls: 0, interleavedLoads: 0, barrierCases: 0, ringReinits: 0, ringDetaches: 0,
+      eventCallbacks: 0, eventRealPaths: 0, determinismChecks: 0,
     };
 
     function finish(ok, error) {
@@ -154,10 +167,58 @@
       Module.ccall('destroy_host', null, ['number'], [other]);
       if (Module._pm_host_is_live(other)) throw new Error('a destroyed host is still live');
       if (Module._pm_transition_get_duration(other) !== 0) throw new Error('a stale handle must return the failure value');
+      determinismScope(Module, stay, create);
+      await handlerDestroysHost(Module, stay, create);
 
       result.hostCount = Module._host_count();
       Module.ccall('destroy_host', null, ['number'], [stay]);
       finish(true, null);
+    }
+
+    // The deterministic seed and clock are per host (ABI v2, #352 B):
+    // pm_set_host_deterministic_*() pins one engine and leaves its sibling
+    // alone. The compat names keep their old meaning, every engine in the
+    // Module: the live ones, and each one created afterwards.
+    function determinismScope(Module, stay, create) {
+      const check = (condition, what) => {
+        if (!condition) throw new Error('determinism scope: ' + what);
+        result.determinismChecks += 1;
+      };
+      const seeded = (host) => Module._pm_is_deterministic_seed(host) !== 0;
+      const clocked = (host) => Module._pm_is_deterministic_clock(host) !== 0;
+      check(!seeded(stay) && !clocked(stay), 'the long-lived host starts unpinned');
+
+      const a = create('#pm-churn-a');
+      if (!a) throw new Error('create_host for the determinism check failed');
+      const extra = [a];
+      try {
+        Module._pm_set_host_deterministic_seed(a, 1, 7);
+        Module._pm_set_host_deterministic_clock(a, 1, 30);
+        check(seeded(a) && clocked(a), 'pm_set_host_deterministic_*() pins its host');
+        check(!seeded(stay) && !clocked(stay), 'pm_set_host_deterministic_*() leaves the sibling alone');
+        Module._pm_set_host_deterministic_clock(a, 0, 30);
+        check(!clocked(a), 'pm_set_host_deterministic_clock(host, 0) releases its host');
+
+        Module._set_deterministic_seed(1, 99);
+        Module._set_deterministic_clock(1, 30);
+        check(seeded(stay) && seeded(a) && clocked(stay) && clocked(a), 'the compat names pin every live host');
+        const b = create('#pm-churn-b');
+        if (!b) throw new Error('create_host after set_deterministic_seed() failed');
+        extra.push(b);
+        check(seeded(b) && clocked(b), 'a host created afterwards starts from the compat seed and clock');
+
+        Module._set_deterministic_seed(0, 0);
+        Module._set_deterministic_clock(0, 30);
+        check(!seeded(stay) && !seeded(a) && !seeded(b) && !clocked(stay), 'the compat names release every live host');
+        const c = create('#pm-churn-c');
+        if (!c) throw new Error('create_host after releasing the compat seed failed');
+        extra.push(c);
+        check(!seeded(c) && !clocked(c), 'a host created after the release starts unpinned');
+      } finally {
+        Module._set_deterministic_seed(0, 0);
+        Module._set_deterministic_clock(0, 30);
+        for (const host of extra) Module.ccall('destroy_host', null, ['number'], [host]);
+      }
     }
 
     // Two tasks, one per host, each writing its host's transition duration and
@@ -258,6 +319,106 @@
         result.ringDetaches = detaches.length;
       } finally {
         delete globalThis.projectMWorkletNode_Global_Cpp;
+      }
+    }
+
+    // Every engine-to-page callback, in the order pm_debug_emit_events() raises them.
+    const PAGE_EVENTS = [
+      'pmSetPerfHudEnabled', 'pmOnPerfFrame', 'pmOnGovernorTierChange', 'pmOnGovernorRenderScaleChange',
+      'pmOnGovernorBlurCapChange', 'pmOnRhythmEvent', 'pmOnPresetSwitchFailed', 'pmReportInitError',
+      'pmHideInitError', 'pmOnTranspiledShaderStored', 'updatePresetDisplay', 'pmOnLog',
+    ];
+    // The host a callback's arguments name (null for the two that name none).
+    const eventHost = (name, args) => {
+      if (name === 'pmOnPerfFrame' || name === 'pmOnRhythmEvent') return args[0].host;
+      if (name === 'updatePresetDisplay' || name === 'pmOnLog') return null;
+      return args[0];
+    };
+
+    async function handlerDestroysHost(Module, stay, create) {
+      // onEvent(name, args) is whatever the current step needs.
+      let onEvent = () => {};
+      for (const name of PAGE_EVENTS) {
+        globalThis[name] = (...args) => onEvent(name, args);
+      }
+      const destroy = (host) => Module.ccall('destroy_host', null, ['number'], [host]);
+      const waitFor = async (label, done) => {
+        const deadline = performance.now() + 20000;
+        while (!done()) {
+          if (performance.now() > deadline) throw new Error('events: ' + label + ' never happened');
+          await sleep(10);
+        }
+      };
+      const hostsBefore = Module._host_count();
+      try {
+        for (const target of PAGE_EVENTS) {
+          const host = create('#pm-churn-a');
+          if (!host) throw new Error('events: create_host failed before ' + target);
+          const seen = [];
+          onEvent = (name, args) => {
+            // Only this host's events: the long-lived host keeps rendering.
+            const named = eventHost(name, args);
+            const ours = named === host
+              || (name === 'updatePresetDisplay' && args[0] === 'debug_emit_events.milk')
+              || (name === 'pmOnLog' && String(args[1]).includes('debug_emit_events'));
+            if (!ours) return;
+            seen.push(name);
+            if (name === target) {
+              destroy(host);
+              throw new Error('handler throws after destroying its host (expected)');
+            }
+          };
+          const raised = Module._pm_debug_emit_events(host);
+          onEvent = () => {};
+          if (raised !== PAGE_EVENTS.length) {
+            throw new Error('events: ' + target + ': a handler ran inside the export (raised ' + raised + ')');
+          }
+          // Up to the target in order; after it, only pmOnLog (it names no host, so
+          // destroy_host() does not drop it), which also shows the throw stopped nothing.
+          const index = PAGE_EVENTS.indexOf(target);
+          const expected = PAGE_EVENTS.slice(0, index + 1);
+          if (target !== 'pmOnLog') expected.push('pmOnLog');
+          if (seen.join() !== expected.join()) {
+            throw new Error('events: ' + target + ': delivered ' + seen.join() + ', expected ' + expected.join());
+          }
+          if (Module._pm_host_is_live(host)) throw new Error('events: ' + target + ': the handler did not destroy its host');
+          if (Module._host_count() !== hostsBefore) throw new Error('events: ' + target + ': host count ' + Module._host_count());
+          result.eventCallbacks += 1;
+        }
+
+        // Real path 1: init success, delivered when create_host() returns.
+        onEvent = (name, args) => { if (name === 'pmHideInitError') destroy(args[0]); };
+        const created = create('#pm-churn-a');
+        onEvent = () => {};
+        if (!created) throw new Error('events: create_host failed');
+        if (Module._pm_host_is_live(created)) throw new Error('events: pmHideInitError did not destroy the created host');
+        result.eventRealPaths += 1;
+
+        // Real path 2: a main-loop frame. Events from the whole tick are delivered
+        // after it, so the loop never renders a host its handler destroyed.
+        const framed = create('#pm-churn-a');
+        if (!framed) throw new Error('events: create_host failed');
+        onEvent = (name, args) => { if (name === 'pmOnPerfFrame' && args[0].host === framed) destroy(framed); };
+        Module._pm_set_perf_hud(framed, 1);
+        Module._pm_start_render(framed, 160, 90);
+        const stayFrames = Module._pm_get_rendered_frame_count(stay);
+        await waitFor('pmOnPerfFrame destroying its host', () => !Module._pm_host_is_live(framed));
+        onEvent = () => {};
+        await waitFor('the long-lived host rendering on', () => Module._pm_get_rendered_frame_count(stay) > stayFrames + 2);
+        result.eventRealPaths += 1;
+
+        // Real path 3: a preset load that fails (the file does not exist).
+        const failing = create('#pm-churn-a');
+        if (!failing) throw new Error('events: create_host failed');
+        onEvent = (name, args) => { if (name === 'pmOnPresetSwitchFailed' && args[0] === failing) destroy(failing); };
+        Module.ccall('pm_load_preset_file', null, ['number', 'string'], [failing, '/presets/does-not-exist.milk']);
+        await waitFor('pmOnPresetSwitchFailed destroying its host', () => !Module._pm_host_is_live(failing));
+        onEvent = () => {};
+        Module._pm_render_frame(stay);
+        result.eventRealPaths += 1;
+        if (Module._host_count() !== hostsBefore) throw new Error('events: host count ' + Module._host_count() + ' after the real paths');
+      } finally {
+        for (const name of PAGE_EVENTS) delete globalThis[name];
       }
     }
 

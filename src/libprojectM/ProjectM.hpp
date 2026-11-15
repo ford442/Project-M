@@ -74,6 +74,15 @@ public:
 
     ProjectM();
 
+    /**
+     * @brief An engine with its own deterministic seed from the start (SetSeed() before
+     *        anything is drawn), or with nullopt one that follows the process default.
+     *
+     * Construction already draws (transition shaders, the idle preset), so a seed set with
+     * SetSeed() afterwards does not reach those.
+     */
+    explicit ProjectM(std::optional<uint32_t> seed);
+
     ProjectM(const ProjectM& other) = delete;
     ProjectM(ProjectM&& other) noexcept = delete;
     auto operator=(const ProjectM& other) -> ProjectM& = delete;

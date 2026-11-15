@@ -34,6 +34,7 @@
 // The namespace never reaches JS: the store hook strips it, so the IndexedDB
 // store keeps sharing compiled GLSL blobs across hosts (and visits) by preset
 // key alone. Only the in-flight C++ key was the bug.
+#include "WasmEvents.hpp"
 #include "WasmHost.hpp"
 
 namespace {
@@ -71,10 +72,16 @@ WasmHost* HostForNamespacedKey(const std::string& namespacedKey)
 
 // clang-format off
 EM_JS(void, js_on_transpiled_shader_stored, (double host, const char* key, int kind, const char* glsl), {
-    if (typeof globalThis.pmOnTranspiledShaderStored === 'function')
-    {
-        globalThis.pmOnTranspiledShaderStored(host, UTF8ToString(key), kind, UTF8ToString(glsl));
-    }
+    const keyStr = UTF8ToString(key);
+    const glslStr = UTF8ToString(glsl);
+    const deliver = () => {
+        if (typeof globalThis.pmOnTranspiledShaderStored === 'function')
+        {
+            globalThis.pmOnTranspiledShaderStored(host, keyStr, kind, glslStr);
+        }
+    };
+    const queue = Module['pmEventQueue'];
+    if (queue) { queue.post(host, deliver); } else { deliver(); }
 });
 // clang-format on
 
@@ -102,15 +109,17 @@ void InstallShaderTranspileCacheHooks()
             // entries stay shareable across hosts and visits.
             if (const WasmHost* host = HostForNamespacedKey(key))
             {
-                js_on_transpiled_shader_stored(EventHostHandle(*host), host->shaderCache.key.c_str(), shaderType,
-                                               glsl.c_str());
+                PostEvent([&] {
+                    js_on_transpiled_shader_stored(EventHostHandle(*host), host->shaderCache.key.c_str(), shaderType,
+                                                   glsl.c_str());
+                });
                 return;
             }
             const auto separator = key.find('|');
             const std::string hostKey = separator == std::string::npos ? key : key.substr(separator + 1);
             // No live host armed this key (it was released mid-load): still
             // worth persisting, but it belongs to no engine.
-            js_on_transpiled_shader_stored(kNoEventHost, hostKey.c_str(), shaderType, glsl.c_str());
+            PostEvent([&] { js_on_transpiled_shader_stored(kNoEventHost, hostKey.c_str(), shaderType, glsl.c_str()); });
         });
 }
 

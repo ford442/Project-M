@@ -5,6 +5,8 @@
 
 #include "MilkdropStaticShaders.hpp"
 
+#include <EngineContext.hpp>
+
 #include <Renderer/BlendMode.hpp>
 #include <Renderer/Point.hpp>
 #include <Renderer/ShaderCache.hpp>
@@ -324,16 +326,16 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
 namespace {
 
 /**
- * @brief Returns true if the legacy copy path was requested via the environment.
+ * @brief Returns true if the engine asked for the legacy copy path.
  *
- * Ablation switch for benchmarking: setting PROJECTM_BLUR_COPY_PATH=1 restores the
+ * Ablation switch for benchmarking: the engine's BlurCopyPath render-path flag
+ * (PROJECTM_BLUR_COPY_PATH=1, projectm_set_render_path_flags()) restores the
  * render-to-scratch + texture copy behaviour, so the direct path can be A/B'd
  * against it on a single build. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
  */
 auto CopyPathForcedByEnvironment() -> bool
 {
-    const char* const value = std::getenv("PROJECTM_BLUR_COPY_PATH");
-    return value != nullptr && value[0] == '1' && value[1] == '\0';
+    return EngineContext::Current().HasRenderPath(EngineContext::BlurCopyPath);
 }
 
 } // namespace

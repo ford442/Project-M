@@ -327,15 +327,15 @@ preset with a CPU slice reports `gpu`.
 
 | Topic | CPU today | GPU path | Rule |
 |-------|-----------|----------|------|
-| Carry-state locals (`thresh`, `dx_r`) | Persist on the eval context; OpenMP → persist **per thread** | The statements that carry them run in the CPU slice, in vertex order | Exact against single-threaded CPU order |
+| Carry-state locals (`thresh`, `dx_r`) | Persist on the eval context; such a program runs on one thread, in vertex order (see **Evaluation order**) | The statements that carry them run in the CPU slice, in vertex order | Exact against single-threaded CPU order |
 | Writes to a per-frame variable (`q*`, `time`, `bass`, …) | Loaded once per frame, then persist across vertices | A GPU local when assigned before every read; otherwise the CPU slice | Never "re-seed and hope" |
 | `reg00`..`reg99` | Shared between evaluation contexts | The touching statements run in the CPU slice | Exact against single-threaded CPU order |
-| `rand()` | Milkdrop's Mersenne Twister, shared by every context | Drawn by the CPU slice, same calls, same order | The number of draws per frame must match, or every later draw (shapes, waves) shifts |
+| `rand()` | A Mersenne Twister per evaluation context, seeded from the engine's stream | Drawn by the CPU slice, same calls, same order | The number of draws per frame must match, or every later draw (shapes, waves) shifts |
 | `invsqrt()` | 64-bit fast inverse square root, one Newton step | `inversesqrt()` is a different, more accurate function | CPU slice |
 | Precision | `double` | `highp float` | Allowed, but see **Precision** above: truncation flips whole units, and feedback amplifies |
 | `if` as l-value | Eval returns a reference | No equivalent | CPU slice |
 | `if` with a side-effecting dead branch | Only the taken branch runs | An `if` statement writing a temp preserves that; `mix()` would not | Emit the statement form, never `mix()` |
-| OpenMP | `kMinPerPixelMeshVerts=1000`, `kmp_set_blocktime(0)` | Not used on the GPU path; the CPU slice is one thread by construction | The CPU path is untouched; the pool is not spun "just in case" |
+| OpenMP | `kMinPerPixelMeshVerts=1000`, `kmp_set_blocktime(0)`; only order-independent programs get the context pool | Not used on the GPU path; the CPU slice is one thread by construction | The pool is not spun "just in case" |
 
 ### HUD and `projectm_perf_frame_timings`
 
@@ -541,15 +541,36 @@ The `gmegabuf()` three read the buffer only (the per-frame code writes it), so t
 is the same for every vertex of a frame; evaluating those reads once per frame into a
 uniform would move them to the GPU. Not done here.
 
-#### OpenMP
+#### Evaluation order (OpenMP, #352 C)
 
-With `PRJM_ENABLE_OPENMP` the CPU path gives each thread its own evaluation context, so a
-carried local is carried **per thread**, over each thread's static chunk of vertices, and
-the picture depends on the thread count. Nothing on the GPU path reproduces that; the
-slice reproduces single-threaded order, which is also what original Milkdrop computes. The
-differential test compares against single-threaded evaluation, and the render test renders
-its CPU side on one thread (`omp_set_num_threads(1)`). Expect a slice preset to look
-slightly different from the multi-threaded CPU path; the GPU path is the faithful one.
+With `PRJM_ENABLE_OPENMP` the CPU path gives each thread its own evaluation context. That
+equals single-threaded evaluation, which is what original Milkdrop computes and what the
+CPU slice reproduces, only when no vertex can observe another. So the preset classifies
+its per-pixel program at load (`PerPixelGlslLowering::ClassifyEvaluationOrder()`, called
+from `MilkdropPreset::ClassifyPerPixelEvaluationOrder()`), with the same effect analysis
+the lowering uses. The program runs on one thread, in vertex order, when it:
+
+- reads a variable it also writes before assigning it on the vertex (`thresh`: the value
+  carries over from the previous vertex; `x`, `y`, `rad`, `ang` and the ten transform
+  channels are re-seeded first and never carry),
+- touches `megabuf`/`gmegabuf` (megabuf is per context) or `reg00`..`reg99`,
+- calls `rand()` (each context draws from its own stream, in the order it runs), or
+- calls anything whose effects are unknown.
+
+Such a preset drops its context pool, and `CalculateMesh()` never runs more threads than
+there are contexts. Everything else keeps the pool. The pool contexts do not draw a
+`rand()` seed from the engine's stream either: one draw per extra thread would shift every
+later draw (`rand_preset`, shapes, waves) by the thread count. The check is conservative
+(a read inside the same top-level statement as the assignment before it counts as a read
+before assignment), and without the evaluator's tree (an installed projectM-eval) every
+program is serial.
+
+In the `weeks` corpus 183 of 211 presets with per-pixel code stay parallel; 21 carry a
+variable (mostly `thresh`), 4 call `rand()`, 3 use memory (`PerPixelEvaluationOrder.CorpusReport`
+prints the split). `PerPixelThreadEquivalence` renders every preset in `presets/tests/` on the
+CPU path with 1 and with 4 threads and requires the same pixels;
+`111-per_pixel-carried`, `112-per_pixel-megabuf`, `113-per_pixel-rand` and
+`114-per_pixel-locals` are its fixtures. `build_linux.yml`'s `openmp` job runs it.
 
 #### Upstream: a public tree API
 

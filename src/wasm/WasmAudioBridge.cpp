@@ -165,76 +165,12 @@ EM_JS(void, js_install_worklet_pcm_handler, (), {
 });
 // clang-format on
 
-// clang-format off
-EM_JS(void, js_initialize_worklet_system_once, (), {
-    if (globalThis.projectMAudioContext_Global_Cpp) { return; }
-    // In a pthread or the OffscreenCanvas render worker
-    // (html/projectm-render-worker.js) there is no Web Audio by design: the
-    // host page's main thread owns audio and writes PCM into this engine's
-    // ring (external players, the worklet transport). Say so once instead of
-    // warning that something is missing.
-    const inWorker = (typeof ENVIRONMENT_IS_PTHREAD !== 'undefined' && ENVIRONMENT_IS_PTHREAD)
-        || (typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlobalScope);
-    if (inWorker) {
-        if (!globalThis.projectMAudioInitWorkerNoticeShown) {
-            globalThis.projectMAudioInitWorkerNoticeShown = true;
-            console.info("JS Audio Init: engine runs in a worker; audio is captured on the host page's main thread and fed into the PCM ring.");
-        }
-        return;
-    }
-    try {
-        const AudioContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext;
-        if (!AudioContextCtor) {
-            console.warn("JS Audio Init: Web Audio unavailable in this context.");
-            return;
-        }
-        const audioContext = new AudioContextCtor();
-        globalThis.projectMAudioContext_Global_Cpp = audioContext;
-        console.log("JS Audio Init: Web Audio context created.");
-
-        // Shared promise so hosts / pl() can await worklet readiness instead of
-        // silently no-op'ing when addModule is still in flight or previously failed.
-        let resolveReady;
-        let rejectReady;
-        globalThis.projectMWorkletReady = new Promise((resolve, reject) => {
-            resolveReady = resolve;
-            rejectReady = reject;
-        });
-        globalThis.projectMWorkletReadyResolve = resolveReady;
-        globalThis.projectMWorkletReadyReject = rejectReady;
-
-        (async () => {
-            try {
-                // Module.audioWorkletUrl lets a page that does not sit next to worklets/
-                // (the tests/wasm-smoke pages) say where the processor is.
-                await audioContext.audioWorklet.addModule(Module['audioWorkletUrl'] || 'worklets/projectm-audio-processor.js');
-                if (globalThis.projectMWorkletNode_Global_Cpp) {
-                    _attach_worklet_ingest();
-                    resolveReady(globalThis.projectMWorkletNode_Global_Cpp);
-                    return;
-                }
-                const workletNode = new AudioWorkletNode(audioContext, 'projectm-audio-processor');
-                globalThis.projectMWorkletNode_Global_Cpp = workletNode;
-                _attach_worklet_ingest();
-                workletNode.connect(audioContext.destination);
-                console.log("JS Audio Init: AudioWorkletNode created and connected permanently.");
-                resolveReady(workletNode);
-            } catch (err) {
-                console.error("JS Audio Init: AudioWorklet setup failed:", err);
-                // Allow a later user-gesture repair (html/projectm-worklet-playback.js)
-                // to recreate the promise / node.
-                globalThis.projectMWorkletNode_Global_Cpp = null;
-                if (typeof rejectReady === 'function') {
-                    rejectReady(err);
-                }
-            }
-        })();
-    } catch(e) {
-        console.error("JS Audio Init: Failed to initialize worklet system:", e);
-    }
-    return;
-});
-// clang-format on
+// The AudioContext and the AudioWorkletNode belong to the host page
+// (html/projectm-worklet-playback.js ensureWorkletReady(): it creates both,
+// publishes them as projectMAudioContext_Global_Cpp / projectMWorkletNode_Global_Cpp
+// and calls _attach_worklet_ingest()). The engine used to create its own
+// AudioContext inside init(), which made it the one piece of page state the
+// glue owned, and only in the in-page topology: the render worker never had one.
 
 // clang-format off
 EM_JS(void, js_load_song_into_worklet, (const char* path_in_vfs, bool loop, bool startPlaying), {

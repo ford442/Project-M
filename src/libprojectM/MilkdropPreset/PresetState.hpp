@@ -182,6 +182,11 @@ public:
     //! vertex is independent. Points into the per-pixel context's compiled program.
     std::shared_ptr<const PerPixelGlslLowering::CpuSlice> perPixelGpuCpuSlice;
 
+    //! The CPU evaluation loop may spread the per-pixel program's vertices over threads
+    //! (PerPixelGlslLowering::ClassifyEvaluationOrder()). False: one thread, vertex order.
+    bool perPixelCpuParallel{false};
+    std::string perPixelCpuSerialReason; //!< Why not, when perPixelCpuParallel is false.
+
     std::weak_ptr<Renderer::Shader> untexturedShader; //!< Shader used to draw untextured primitives, e.g. waveforms.
     std::weak_ptr<Renderer::Shader> texturedShader;   //!< Shader used to draw textured primitives, e.g. textured shapes and the warp mesh.
 

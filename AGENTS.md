@@ -71,6 +71,7 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── WasmPresetPrepare.cpp   # Per-host preset prepare thread (no ASYNCIFY)
 │   ├── WasmPresent.cpp         # Flash-limiter switches, per-host frame capture, commit counter
 │   ├── WasmLiveInput.cpp       # Live textures (per-host staging buffers) + eval_set host variables
+│   ├── WasmEvents.hpp/.cpp     # Page-event queue: callbacks delivered after the frame/export, never inside it
 │   └── WasmJsBindings.cpp      # EM_JS glue: VFS/song bootstrap + host-page notifications (no DOM, no network)
 ├── CMakeLists.txt          # Root build configuration
 ├── vcpkg.json              # vcpkg dependency manifest
@@ -335,6 +336,11 @@ Third-party code that is compiled as part of the project:
 - `scripts/check_engine_globals.sh <build-dir>` (run by `build_linux.yml`) lists every writable
   static in libprojectM's objects with `nm` and fails on any not in
   `scripts/engine_globals_allowlist.txt`, where each entry says why it is process-wide.
+- The WASM host wrapper has the same rule for its per-host state (`WasmHost`):
+  `scripts/check_wasm_host_globals.sh <emscripten-build-dir>` (rule 5, run by
+  `build_emscripten.yml`) fails on any writable static in `src/wasm/` not in
+  `scripts/wasm_globals_allowlist.txt`. Page callbacks go through `PostEvent()`
+  (`src/wasm/WasmEvents.hpp`), which delivers them after the frame or export, never inside it.
 
 ### Static Analysis
 - A `.clang-tidy` file is provided. It enables checks from:
@@ -418,7 +424,7 @@ ctest --test-dir <build-dir> --verbose --build-config <Debug|Release>
 
 | Directory | Framework | Coverage |
 |-----------|-----------|----------|
-| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), the color output contract (`ColorOutputTest`, GPU: canvas alpha opaque or valid premultiplied, Display-P3 encode order; see `docs/EMSCRIPTEN.md` "Canvas alpha"), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), the render-device seam (`RenderDeviceTest`: the feedback-hazard tracker without GL, `GlDevice` clear/readback, state capture/restore and a real feedback draw on GPU), the user-sprite C API (`UserSpriteApiTest`, GPU) and the experimental `pm_depth` sampler plus `projectm_reload_texture()` (`ExperimentalDepthSamplerTest`: header parsing and rewrite without GL, in-place reload on GPU), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`) |
+| `tests/libprojectM/` | Google Test | HLSL parser, logging, preset file parser, waveform aligner, preset compat, shader cache, temporal flash limiter (`FlashLimiterTest`, GPU, see `docs/FLASH_LIMITER.md`), the color output contract (`ColorOutputTest`, GPU: canvas alpha opaque or valid premultiplied, Display-P3 encode order; see `docs/EMSCRIPTEN.md` "Canvas alpha"), GPU-timer stage markers (`PerfGpuStageTest`: where each Y-flip falls), the render-device seam (`RenderDeviceTest`: the feedback-hazard tracker without GL, `GlDevice` clear/readback, state capture/restore and a real feedback draw on GPU), the user-sprite C API (`UserSpriteApiTest`, GPU) and the experimental `pm_depth` sampler plus `projectm_reload_texture()` (`ExperimentalDepthSamplerTest`: header parsing and rewrite without GL, in-place reload on GPU), GPU per-pixel lowering and CPU-vs-GPU render (need SDL2 + a display or `xvfb-run` on Linux, and a vendored projectM-eval, see `ENABLE_SYSTEM_PROJECTM_EVAL`), per-pixel evaluation order (`PerPixelThreadEquivalence`: which programs may run on the OpenMP pool, and `presets/tests/` rendering the same pixels on 1 and 4 threads; the thread half needs `ENABLE_OPENMP=ON`, which `build_linux.yml`'s `openmp` job sets) |
 | `tests/playlist/` | Google Test | Playlist API, filter logic, item handling |
 | `tests/cxx-interface/` | CMake compile test | Verifies installed C++ headers can be consumed by an external project. It sets C++20 itself and fails at configure time if the installed target does not export `cxx_std_20`, so the install must come from a build with `-DENABLE_CXX_INTERFACE=ON` (as in `build_linux.yml`) |
 
@@ -586,7 +592,7 @@ until the preset is repaired; see `docs/agents/kimi_preset_authoring_plan.md`.
 ## CI & Deployment
 
 GitHub Actions workflows are in `.github/workflows/`:
-- `build_linux.yml` — Ubuntu 22.04/24.04 matrix (shared/static × stl/boost filesystem), runs unit tests and C++ interface test
+- `build_linux.yml` — Ubuntu 22.04/24.04 matrix (shared/static × stl/boost filesystem), runs unit tests and C++ interface test; an `openmp` job runs the unit suite with `ENABLE_OPENMP=ON`
 - `build_windows.yml` — Visual Studio / Ninja builds with vcpkg
 - `build_osx.yml` — macOS shared/static builds, with/without framework
 - `build_emscripten.yml` — Emscripten WASM build

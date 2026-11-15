@@ -7,8 +7,8 @@
 // synthetic audio schedule written into the PCM ring, a fixed frame count. This
 // TU pins the other two:
 //
-//   * RNG — delegated to libprojectM's process-global seed source via
-//     projectm_set_deterministic_seed() (projectM-4/debug.h).
+//   * RNG — the host's engine gets its own seed (projectm_create_seeded() /
+//     projectm_set_seed(), projectM-4/debug.h); the process default is left alone.
 //   * Time — a virtual clock. `set_deterministic_clock(1, fps)` makes frame N
 //     happen at exactly N/fps seconds: the engine is told so through
 //     projectm_set_frame_time(), and the WASM host's own time base (transition
@@ -30,17 +30,17 @@
 
 #include "WasmHost.hpp"
 
+#include <optional>
+
 #include <projectM-4/debug.h>
 
-// The on/off switches and the frame period are process-wide harness settings.
-// The frame index and the virtual "now" are per host (WasmHost): the shared
-// main loop renders every started host once per tick, so a single index
-// advanced once per host per tick and two engines each saw every other frame.
+// Every switch here is per host (WasmHost): the shared main loop renders every
+// started host once per tick, and a harness that pins one engine must leave
+// its sibling alone (pm_set_host_deterministic_seed/clock()). The compat names
+// set_deterministic_seed/clock() keep their pre-ABI-v2 meaning, "every engine
+// in the Module": they set every live host and the defaults below, which each
+// host created afterwards starts from (InitHostDeterminism()).
 namespace {
-
-bool g_deterministicClock{false};
-bool g_deterministicSeed{false};
-double g_msPerFrame{1000.0 / 60.0};
 
 void ResetVirtualClock(WasmHost& host)
 {
@@ -48,11 +48,46 @@ void ResetVirtualClock(WasmHost& host)
     host.virtualNowMs = 0.0;
 }
 
+double MsPerFrame(double fps)
+{
+    return (fps > 0.0) ? (1000.0 / fps) : (1000.0 / 60.0);
+}
+
+// What set_deterministic_seed/clock() asked of every engine created from now
+// on. Page configuration, like the render-path overrides: it is read when a
+// host is allocated and never reaches a host that already exists.
+struct PageDeterminism {
+    std::optional<uint32_t> seed;
+    bool clock = false;
+    double msPerFrame = 1000.0 / 60.0;
+};
+PageDeterminism g_pageDeterminism;
+
+template<typename Fn>
+void ForEachHost(Fn&& fn)
+{
+    for (int i = 0; i < HostSlotCount(); ++i)
+    {
+        if (WasmHost* host = HostSlot(i))
+        {
+            fn(*host);
+        }
+    }
+}
+
 } // namespace
+
+void InitHostDeterminism(WasmHost& host)
+{
+    host.deterministicSeed = g_pageDeterminism.seed;
+    host.deterministicClock = g_pageDeterminism.clock;
+    host.msPerFrame = g_pageDeterminism.msPerFrame;
+    ResetVirtualClock(host);
+}
 
 double WasmNow(const WasmHost& host)
 {
-    if (!g_deterministicClock)
+    if (!host.deterministicClock)
     {
         return emscripten_get_now();
     }
@@ -62,14 +97,14 @@ double WasmNow(const WasmHost& host)
 void DeterministicFrameTick(WasmHost& H)
 {
     auto& pm = H.appData.projectm_engine;
-    if (!g_deterministicClock)
+    if (!H.deterministicClock)
     {
         return;
     }
     // Frame N is defined to happen at N / fps seconds. Set the clock before the
     // frame renders so the engine's per-frame evaluation and this TU's own
     // WasmNow() readers agree on when "now" is for this frame.
-    H.virtualNowMs = static_cast<double>(H.deterministicFrameIndex) * g_msPerFrame;
+    H.virtualNowMs = static_cast<double>(H.deterministicFrameIndex) * H.msPerFrame;
     if (pm != nullptr)
     {
         projectm_set_frame_time(pm, H.virtualNowMs / 1000.0);
@@ -77,63 +112,95 @@ void DeterministicFrameTick(WasmHost& H)
     H.deterministicFrameIndex++;
 }
 
+projectm_handle CreateHostEngine(const WasmHost& host)
+{
+    return host.deterministicSeed ? projectm_create_seeded(*host.deterministicSeed) : projectm_create();
+}
+
+void ApplyDeterministicClock(WasmHost& host)
+{
+    if (host.appData.projectm_engine != nullptr && host.deterministicClock)
+    {
+        projectm_set_frame_time(host.appData.projectm_engine, 0.0);
+    }
+}
+
 namespace WasmApi {
 
 /**
- * Pins libprojectM's RNG. Safe to call before or after init(); the seed policy
- * is process-global and survives engine re-creation.
+ * Pins this host's engine's RNG (projectm_set_seed(), so other engines in the
+ * Module keep their own). On a running engine it covers what is drawn from
+ * then on; an engine created later (init(), context loss, rebind) is created
+ * with the seed (projectm_create_seeded()), which also covers what it draws
+ * while it is constructed.
  */
-void set_deterministic_seed(bool enabled, uint32_t seed)
+void set_host_deterministic_seed(WasmHost& H, bool enabled, uint32_t seed)
 {
-    g_deterministicSeed = enabled;
-    if (g_deterministicSeed)
+    auto& pm = H.appData.projectm_engine;
+    H.deterministicSeed = enabled ? std::optional<uint32_t>(seed) : std::nullopt;
+    if (pm == nullptr)
     {
-        projectm_set_deterministic_seed(static_cast<uint32_t>(seed));
+        return;
+    }
+    if (enabled)
+    {
+        projectm_set_seed(pm, seed);
     }
     else
     {
-        projectm_clear_deterministic_seed();
+        projectm_clear_seed(pm);
     }
-}
-
-bool is_deterministic_seed()
-{
-    return g_deterministicSeed;
 }
 
 /**
- * Switches every host and its engine onto a virtual clock advancing 1/fps per
- * frame that host renders, restarting each host's frame count at 0. Disabling
- * hands the engines back to their own system clock (projectm_set_frame_time() < 0).
+ * Compat: every engine in the Module, the live ones and each one created
+ * afterwards (set it before init() / create_host*() to cover engine creation).
  */
-void set_deterministic_clock(bool enabled, double fps)
+void set_deterministic_seed(bool enabled, uint32_t seed)
 {
-    g_deterministicClock = enabled;
-    if (g_deterministicClock)
+    g_pageDeterminism.seed = enabled ? std::optional<uint32_t>(seed) : std::nullopt;
+    ForEachHost([&](WasmHost& host) { set_host_deterministic_seed(host, enabled, seed); });
+}
+
+bool is_deterministic_seed(WasmHost& H)
+{
+    return H.deterministicSeed.has_value();
+}
+
+/**
+ * Switches this host and its engine onto a virtual clock advancing 1/fps per
+ * frame it renders, restarting its frame count at 0. Disabling hands the
+ * engine back to its own system clock (projectm_set_frame_time() < 0). Holds
+ * across engine re-creation.
+ */
+void set_host_deterministic_clock(WasmHost& H, bool enabled, double fps)
+{
+    H.deterministicClock = enabled;
+    if (enabled)
     {
-        g_msPerFrame = (fps > 0.0) ? (1000.0 / fps) : (1000.0 / 60.0);
+        H.msPerFrame = MsPerFrame(fps);
     }
-    const auto reset = [](WasmHost& host) {
-        ResetVirtualClock(host);
-        if (host.appData.projectm_engine != nullptr)
-        {
-            projectm_set_frame_time(host.appData.projectm_engine, g_deterministicClock ? 0.0 : -1.0);
-        }
-    };
-    // A host created later starts its own clock at frame 0.
-    const int slots = HostSlotCount();
-    for (int i = 0; i < slots; ++i)
+    ResetVirtualClock(H);
+    if (H.appData.projectm_engine != nullptr)
     {
-        if (WasmHost* host = HostSlot(i))
-        {
-            reset(*host);
-        }
+        projectm_set_frame_time(H.appData.projectm_engine, enabled ? 0.0 : -1.0);
     }
 }
 
-bool is_deterministic_clock()
+/** Compat: every engine in the Module, the live ones and each one created afterwards. */
+void set_deterministic_clock(bool enabled, double fps)
 {
-    return g_deterministicClock;
+    g_pageDeterminism.clock = enabled;
+    if (enabled)
+    {
+        g_pageDeterminism.msPerFrame = MsPerFrame(fps);
+    }
+    ForEachHost([&](WasmHost& host) { set_host_deterministic_clock(host, enabled, fps); });
+}
+
+bool is_deterministic_clock(WasmHost& H)
+{
+    return H.deterministicClock;
 }
 
 /** The host's virtual clock reading, in milliseconds. Real time when not enabled. */

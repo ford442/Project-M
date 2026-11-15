@@ -28,9 +28,7 @@
 
 # --- Process-wide by nature: GL loading and the platform, the same for every engine ---
 ^libprojectM::Renderer::Platform::                          # GL resolver/loader singletons and their env switches
-^libprojectM::Renderer::\(anonymous namespace\)::BlitPathEnabled\(\)::enabled$  # env switch read once
 ^libprojectM::MilkdropPreset::MilkdropStaticShaders::Get\(\)::instance$  # shader source text + GLSL version; no GL objects
-^\(anonymous namespace\)::g_evalMemoryMutex$                # guards projectm-eval's process-global gmegabuf memory
 
 # --- Third-party statics pulled in by headers (only the ENABLE_BOOST_FILESYSTEM legs) ---
 ^boost::(integral_constant<|system::detail::)               # boost::system/boost::filesystem header internals (error categories, std-category map): process-wide by nature, not ours

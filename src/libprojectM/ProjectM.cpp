@@ -54,10 +54,19 @@
 namespace libprojectM {
 
 ProjectM::ProjectM()
+    : ProjectM(std::nullopt)
+{
+}
+
+ProjectM::ProjectM(std::optional<uint32_t> seed)
     : m_switchScheduler(std::make_unique<PresetSwitchScheduler>())
     , m_engineContext(std::make_shared<EngineContext>())
     , m_presetFactoryManager(std::make_shared<PresetFactoryManager>())
 {
+    if (seed)
+    {
+        m_engineContext->SetSeed(seed);
+    }
     const ScopedEngineContext engineScope(*m_engineContext);
     Initialize();
 }

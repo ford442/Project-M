@@ -387,15 +387,18 @@ void MilkdropPreset::InitializePreset(PresetFileParser& parsedFile, MilkdropPrep
     // worker thread (threads 1..N-1). projectm-eval contexts are not
     // re-entrant, so PerPixelMesh::CalculateMesh() needs a dedicated context
     // per thread to evaluate per-pixel code in parallel. All contexts share
-    // the gmegabuf/reg vars via m_state.globalMemory/m_state.globalRegisters,
-    // which is protected by EvalLibMutex.
+    // the gmegabuf/reg vars via m_state.globalMemory/m_state.globalRegisters.
+    // ClassifyPerPixelEvaluationOrder() drops the pool again for a program
+    // whose vertices can see each other (memory, regs, rand(), carried vars).
     m_perPixelContextPool.clear();
 #ifdef PRJM_ENABLE_OPENMP
     const int threadCount = std::max(1, omp_get_max_threads());
     m_perPixelContextPool.reserve(threadCount - 1);
     for (int i = 1; i < threadCount; i++)
     {
-        auto perPixelContext = std::make_unique<PerPixelContext>(m_state.globalMemory, &m_state.globalRegisters);
+        // Unseeded: see PerPixelContext(). The engine's random stream must not advance by
+        // the thread count.
+        auto perPixelContext = std::make_unique<PerPixelContext>(m_state.globalMemory, &m_state.globalRegisters, false);
         perPixelContext->RegisterBuiltinVariables();
         m_perPixelContextPool.push_back(std::move(perPixelContext));
     }
@@ -439,7 +442,7 @@ void MilkdropPreset::LowerPerPixelCodeToGlsl()
 
     if (PerPixelGlslLowering::ForcedToCpu())
     {
-        m_state.perPixelGpuReason = "forced to the CPU path by PROJECTM_PER_PIXEL_EVAL=cpu";
+        m_state.perPixelGpuReason = "forced to the CPU path (PROJECTM_PER_PIXEL_EVAL=cpu / perPixelEval=cpu)";
         return;
     }
 
@@ -466,6 +469,22 @@ void MilkdropPreset::LowerPerPixelCodeToGlsl()
     }
 }
 
+void MilkdropPreset::ClassifyPerPixelEvaluationOrder()
+{
+    // The CPU loop runs one vertex per thread context. That is only the same as running the
+    // vertices in order when none of them can see another (ABI v2 #352 C): a frame must not
+    // depend on how many threads the host gave OpenMP.
+    const auto order = PerPixelGlslLowering::ClassifyEvaluationOrder(m_perPixelContext.perPixelCodeHandle);
+    m_state.perPixelCpuParallel = order.parallel;
+    m_state.perPixelCpuSerialReason = order.reason;
+    if (!order.parallel)
+    {
+        // CalculateMesh() never runs more threads than there are contexts.
+        m_perPixelContextPool.clear();
+        LOG_DEBUG("[MilkdropPreset] Per-pixel code runs on one thread, in vertex order: " + order.reason);
+    }
+}
+
 void MilkdropPreset::CompileCodeAndRunInitExpressions()
 {
     // Per-frame init and code
@@ -475,6 +494,7 @@ void MilkdropPreset::CompileCodeAndRunInitExpressions()
 
     // Per-vertex code
     m_perPixelContext.CompilePerPixelCode(m_state.perPixelCode);
+    ClassifyPerPixelEvaluationOrder();
     for (auto& perPixelContext : m_perPixelContextPool)
     {
         perPixelContext->CompilePerPixelCode(m_state.perPixelCode);

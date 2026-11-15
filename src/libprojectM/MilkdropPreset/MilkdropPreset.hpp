@@ -124,6 +124,15 @@ private:
     void LowerPerPixelCodeToGlsl();
 
     /**
+     * @brief Decides whether the CPU per-pixel loop may use the OpenMP context pool.
+     *
+     * Fills in perPixelCpuParallel / perPixelCpuSerialReason, and empties the pool for a
+     * program whose vertices must run in order (PerPixelGlslLowering::ClassifyEvaluationOrder()).
+     * Called after m_perPixelContext compiled its code and before the pool compiles it.
+     */
+    void ClassifyPerPixelEvaluationOrder();
+
+    /**
      * @brief Loads the warp and composite shader code.
      * @param prepared If not null, the prepared shaders to use instead of analysing the code again.
      */

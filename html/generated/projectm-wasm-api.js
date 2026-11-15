@@ -126,8 +126,10 @@ export const WASM_API_SYMBOLS = {
     transitionSetDuration: 'transition_set_duration',
     transitionGetDuration: 'transition_get_duration',
     setDeterministicSeed: 'set_deterministic_seed',
+    pmSetHostDeterministicSeed: 'pm_set_host_deterministic_seed',
     isDeterministicSeed: 'is_deterministic_seed',
     setDeterministicClock: 'set_deterministic_clock',
+    pmSetHostDeterministicClock: 'pm_set_host_deterministic_clock',
     isDeterministicClock: 'is_deterministic_clock',
     deterministicNowMs: 'deterministic_now_ms',
     deterministicFrameIndex: 'deterministic_frame_index',
@@ -163,8 +165,10 @@ export const WASM_API_SYMBOLS = {
     captureFrameHeight: 'capture_frame_height',
     captureFrameIndex: 'capture_frame_index',
     captureFrameRelease: 'capture_frame_release',
+    pmDebugEmitEvents: 'pm_debug_emit_events',
     pmDebugThrow: 'pm_debug_throw',
     pmHostIsLive: 'pm_host_is_live',
+    pmGetInitError: 'pm_get_init_error',
     pmGetLastError: 'pm_get_last_error',
     pmGetLastErrorMessage: 'pm_get_last_error_message',
     pmClearLastError: 'pm_clear_last_error',
@@ -194,7 +198,7 @@ export const WASM_API_SIGNATURES = {
     setCanvasSelectors: { symbol: 'set_canvas_selectors', returnType: null, argTypes: ['string', 'string'], paramTypes: ['string', 'string'], hostSymbol: null, hostMode: null },
     setContextConfig: { symbol: 'set_context_config', returnType: null, argTypes: ['number', 'number', 'number', 'number', 'number', 'number', 'number'], paramTypes: ['number', 'number', 'number', 'number', 'number', 'number', 'number'], hostSymbol: null, hostMode: null },
     setRenderPathOverrides: { symbol: 'set_render_path_overrides', returnType: null, argTypes: ['number', 'number', 'number'], paramTypes: ['boolean', 'boolean', 'boolean'], hostSymbol: null, hostMode: null },
-    getRenderPathOverrides: { symbol: 'get_render_path_overrides', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
+    getRenderPathOverrides: { symbol: 'get_render_path_overrides', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_render_path_overrides', hostMode: 'prepend' },
     initWithCanvases: { symbol: 'init_with_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'], hostSymbol: null, hostMode: null },
     rebindCanvases: { symbol: 'rebind_canvases', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'], hostSymbol: 'pm_rebind_canvases', hostMode: 'prepend' },
     createHost: { symbol: 'create_host', returnType: 'number', argTypes: ['string', 'string'], paramTypes: ['string', 'string'], hostSymbol: null, hostMode: null },
@@ -307,9 +311,11 @@ export const WASM_API_SIGNATURES = {
     transitionSetDuration: { symbol: 'transition_set_duration', returnType: null, argTypes: ['number'], paramTypes: ['number'], hostSymbol: 'pm_transition_set_duration', hostMode: 'prepend' },
     transitionGetDuration: { symbol: 'transition_get_duration', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_transition_get_duration', hostMode: 'prepend' },
     setDeterministicSeed: { symbol: 'set_deterministic_seed', returnType: null, argTypes: ['number', 'number'], paramTypes: ['boolean', 'number'], hostSymbol: null, hostMode: null },
-    isDeterministicSeed: { symbol: 'is_deterministic_seed', returnType: 'boolean', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
+    pmSetHostDeterministicSeed: { symbol: 'pm_set_host_deterministic_seed', returnType: null, argTypes: ['number', 'number', 'number'], paramTypes: ['number', 'boolean', 'number'], hostSymbol: null, hostMode: null },
+    isDeterministicSeed: { symbol: 'is_deterministic_seed', returnType: 'boolean', argTypes: [], paramTypes: [], hostSymbol: 'pm_is_deterministic_seed', hostMode: 'prepend' },
     setDeterministicClock: { symbol: 'set_deterministic_clock', returnType: null, argTypes: ['number', 'number'], paramTypes: ['boolean', 'number'], hostSymbol: null, hostMode: null },
-    isDeterministicClock: { symbol: 'is_deterministic_clock', returnType: 'boolean', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
+    pmSetHostDeterministicClock: { symbol: 'pm_set_host_deterministic_clock', returnType: null, argTypes: ['number', 'number', 'number'], paramTypes: ['number', 'boolean', 'number'], hostSymbol: null, hostMode: null },
+    isDeterministicClock: { symbol: 'is_deterministic_clock', returnType: 'boolean', argTypes: [], paramTypes: [], hostSymbol: 'pm_is_deterministic_clock', hostMode: 'prepend' },
     deterministicNowMs: { symbol: 'deterministic_now_ms', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_deterministic_now_ms', hostMode: 'prepend' },
     deterministicFrameIndex: { symbol: 'deterministic_frame_index', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_deterministic_frame_index', hostMode: 'prepend' },
     setRenderLoopPaused: { symbol: 'set_render_loop_paused', returnType: null, argTypes: ['number'], paramTypes: ['boolean'], hostSymbol: null, hostMode: null },
@@ -344,8 +350,10 @@ export const WASM_API_SIGNATURES = {
     captureFrameHeight: { symbol: 'capture_frame_height', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_capture_frame_height', hostMode: 'prepend' },
     captureFrameIndex: { symbol: 'capture_frame_index', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_capture_frame_index', hostMode: 'prepend' },
     captureFrameRelease: { symbol: 'capture_frame_release', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_capture_frame_release', hostMode: 'prepend' },
+    pmDebugEmitEvents: { symbol: 'pm_debug_emit_events', returnType: 'number', argTypes: ['number'], paramTypes: ['number'], hostSymbol: null, hostMode: null },
     pmDebugThrow: { symbol: 'pm_debug_throw', returnType: 'number', argTypes: ['number', 'number'], paramTypes: ['number', 'number'], hostSymbol: null, hostMode: null },
     pmHostIsLive: { symbol: 'pm_host_is_live', returnType: 'boolean', argTypes: ['number'], paramTypes: ['number'], hostSymbol: null, hostMode: null },
+    pmGetInitError: { symbol: 'pm_get_init_error', returnType: 'number', argTypes: ['number'], paramTypes: ['number'], hostSymbol: null, hostMode: null },
     pmGetLastError: { symbol: 'pm_get_last_error', returnType: 'number', argTypes: ['number'], paramTypes: ['number'], hostSymbol: null, hostMode: null },
     pmGetLastErrorMessage: { symbol: 'pm_get_last_error_message', returnType: 'string', argTypes: ['number'], paramTypes: ['number'], hostSymbol: null, hostMode: null },
     pmClearLastError: { symbol: 'pm_clear_last_error', returnType: null, argTypes: ['number'], paramTypes: ['number'], hostSymbol: null, hostMode: null },
@@ -363,6 +371,7 @@ export const HOST_SYMBOLS = new Map([
     ['destruct', ['pm_destruct', 'prepend']],
     ['get_projectm_handle', ['pm_get_projectm_handle', 'prepend']],
     ['init', ['pm_init', 'prepend']],
+    ['get_render_path_overrides', ['pm_get_render_path_overrides', 'prepend']],
     ['rebind_canvases', ['pm_rebind_canvases', 'prepend']],
     ['load_preset_file', ['pm_load_preset_file', 'prepend']],
     ['load_preset_file_hard', ['pm_load_preset_file_hard', 'prepend']],
@@ -452,6 +461,8 @@ export const HOST_SYMBOLS = new Map([
     ['transition_get_blend', ['pm_transition_get_blend', 'prepend']],
     ['transition_set_duration', ['pm_transition_set_duration', 'prepend']],
     ['transition_get_duration', ['pm_transition_get_duration', 'prepend']],
+    ['is_deterministic_seed', ['pm_is_deterministic_seed', 'prepend']],
+    ['is_deterministic_clock', ['pm_is_deterministic_clock', 'prepend']],
     ['deterministic_now_ms', ['pm_deterministic_now_ms', 'prepend']],
     ['deterministic_frame_index', ['pm_deterministic_frame_index', 'prepend']],
     ['get_rhythm_bpm', ['pm_get_rhythm_bpm', 'prepend']],
@@ -655,12 +666,12 @@ export function setContextConfig(module, antialias, preserveDrawingBuffer, depth
     module.ccall('set_context_config', null, ['number', 'number', 'number', 'number', 'number', 'number', 'number'], [antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision]);
 }
 
-/** Set the ?blurPath=copy / ?copyPath=shader / ?perPixelEval=cpu ablation switches from the host (call before init — overrides the URL and is the only way they reach the render worker) */
+/** Set the ?blurPath=copy / ?copyPath=shader / ?perPixelEval=cpu ablation switches for every engine created afterwards (call before init / create_host — overrides the URL and is the only way they reach the render worker) */
 export function setRenderPathOverrides(module, blurCopyPath, copyShaderPath, perPixelForceCpu) {
     module._set_render_path_overrides(blurCopyPath ? 1 : 0, copyShaderPath ? 1 : 0, perPixelForceCpu ? 1 : 0);
 }
 
-/** Render-path switches in effect as a bitmask (1=blurPath copy, 2=copyPath shader, 4=perPixelEval cpu) */
+/** Render-path switches this host's engine runs with as a bitmask (1=blurPath copy, 2=copyPath shader, 4=perPixelEval cpu, 0 without an engine) */
 export function getRenderPathOverrides(module) {
     return module._get_render_path_overrides();
 }
@@ -685,7 +696,7 @@ export function createHostWithConfig(module, primary, secondary, flags, powerPre
     return module.ccall('create_host_with_config', 'number', ['string', 'string', 'number', 'number', 'number'], [primary, secondary, flags, powerPreference, fboPrecision]);
 }
 
-/** Code of the most recent init()/create_host*() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes) */
+/** Code of the last create_host*() that returned 0, else the active host's last init() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes) */
 export function getLastInitError(module) {
     return module._get_last_init_error();
 }
@@ -1220,22 +1231,32 @@ export function transitionGetDuration(module) {
     return module._transition_get_duration();
 }
 
-/** Pin libprojectM's RNG to a seed so a preset renders identical pixels run to run */
+/** Pin the RNG of every engine in this Module to a seed: the live ones and every one created afterwards (set before init / create_host so engine creation is covered too). One engine only: pm_set_host_deterministic_seed */
 export function setDeterministicSeed(module, enabled, seed) {
     module._set_deterministic_seed(enabled ? 1 : 0, seed);
 }
 
-/** Whether deterministic RNG seeding is active */
+/** Pin this host's engine's RNG to a seed so a preset renders identical pixels run to run. It covers what the engine draws from then on: for what it draws while it is created, set_deterministic_seed() before create_host */
+export function pmSetHostDeterministicSeed(module, host,  enabled, seed) {
+    module._pm_set_host_deterministic_seed(host,  enabled ? 1 : 0, seed);
+}
+
+/** Whether this host's engine has a deterministic seed */
 export function isDeterministicSeed(module) {
     return !!module._is_deterministic_seed();
 }
 
-/** Drive the engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs) */
+/** Drive every engine in this Module from a virtual clock where frame N happens at N/fps: the live ones and every one created afterwards (golden-image capture only, never perf runs). One engine only: pm_set_host_deterministic_clock */
 export function setDeterministicClock(module, enabled, fps) {
     module._set_deterministic_clock(enabled ? 1 : 0, fps);
 }
 
-/** Whether the virtual clock is active */
+/** Drive this host's engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs) */
+export function pmSetHostDeterministicClock(module, host,  enabled, fps) {
+    module._pm_set_host_deterministic_clock(host,  enabled ? 1 : 0, fps);
+}
+
+/** Whether this host's virtual clock is active */
 export function isDeterministicClock(module) {
     return !!module._is_deterministic_clock();
 }
@@ -1410,6 +1431,11 @@ export function captureFrameRelease(module) {
     module._capture_frame_release();
 }
 
+/** Test hook for the page-event queue: raises every page event about this host from inside the export, returning how many were raised with the host intact after each (-1 if one destroyed it underneath) */
+export function pmDebugEmitEvents(module, host) {
+    return module._pm_debug_emit_events(host);
+}
+
 /** Test hook for the exception barrier: 1 throws std::runtime_error, 2 allocates past the heap (std::bad_alloc), returning 1 if nothing was thrown */
 export function pmDebugThrow(module, host,  kind) {
     return module._pm_debug_throw(host,  kind);
@@ -1418,6 +1444,11 @@ export function pmDebugThrow(module, host,  kind) {
 /** Whether handle names a live host: create_host*()'s handle until destroy_host(), or 0 while the implicit default host exists */
 export function pmHostIsLive(module, handle) {
     return !!module._pm_host_is_live(handle);
+}
+
+/** Code of this host's last init() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes) */
+export function pmGetInitError(module, host) {
+    return module._pm_get_init_error(host);
 }
 
 /** Code of the last error an export reported on this host (0 none, 1 exception, 2 out of memory, 3 stale buffer generation), see pm_get_last_error_message */
@@ -1458,6 +1489,7 @@ export function createHostApi(module, host) {
         destruct: () => destruct(view),
         getProjectmHandle: () => getProjectmHandle(view),
         init: () => init(view),
+        getRenderPathOverrides: () => getRenderPathOverrides(view),
         rebindCanvases: (primary, secondary) => rebindCanvases(view, primary, secondary),
         loadPresetFile: (vfsPath) => loadPresetFile(view, vfsPath),
         loadPresetFileHard: (vfsPath) => loadPresetFileHard(view, vfsPath),
@@ -1545,6 +1577,10 @@ export function createHostApi(module, host) {
         transitionGetBlend: () => transitionGetBlend(view),
         transitionSetDuration: (seconds) => transitionSetDuration(view, seconds),
         transitionGetDuration: () => transitionGetDuration(view),
+        setHostDeterministicSeed: (enabled, seed) => pmSetHostDeterministicSeed(view, host, enabled, seed),
+        isDeterministicSeed: () => isDeterministicSeed(view),
+        setHostDeterministicClock: (enabled, fps) => pmSetHostDeterministicClock(view, host, enabled, fps),
+        isDeterministicClock: () => isDeterministicClock(view),
         deterministicNowMs: () => deterministicNowMs(view),
         deterministicFrameIndex: () => deterministicFrameIndex(view),
         getRhythmBpm: () => getRhythmBpm(view),
@@ -1578,7 +1614,9 @@ export function createHostApi(module, host) {
         captureFrameHeight: () => captureFrameHeight(view),
         captureFrameIndex: () => captureFrameIndex(view),
         captureFrameRelease: () => captureFrameRelease(view),
+        debugEmitEvents: () => pmDebugEmitEvents(view, host),
         debugThrow: (kind) => pmDebugThrow(view, host, kind),
+        getInitError: () => pmGetInitError(view, host),
         getLastError: () => pmGetLastError(view, host),
         getLastErrorMessage: () => pmGetLastErrorMessage(view, host),
         clearLastError: () => pmClearLastError(view, host),
@@ -1666,8 +1704,10 @@ export const PUBLIC_WASM_API = [
     transitionSetDuration,
     transitionGetDuration,
     setDeterministicSeed,
+    pmSetHostDeterministicSeed,
     isDeterministicSeed,
     setDeterministicClock,
+    pmSetHostDeterministicClock,
     isDeterministicClock,
     deterministicNowMs,
     deterministicFrameIndex,
@@ -1704,6 +1744,7 @@ export const PUBLIC_WASM_API = [
     captureFrameIndex,
     captureFrameRelease,
     pmHostIsLive,
+    pmGetInitError,
     pmGetLastError,
     pmGetLastErrorMessage,
     pmClearLastError,

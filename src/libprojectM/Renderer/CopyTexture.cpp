@@ -1,8 +1,9 @@
 #include "Renderer/CopyTexture.hpp"
 #include "Renderer/ShaderPrelude.hpp"
 
+#include "EngineContext.hpp"
+
 #include <algorithm>
-#include <cstdlib>
 
 namespace libprojectM {
 namespace Renderer {
@@ -10,19 +11,15 @@ namespace Renderer {
 namespace {
 
 /**
- * Ablation switch for benchmarking: setting PROJECTM_COPY_SHADER_PATH=1 restores the
- * pre-#179 behaviour where every texture copy is a fullscreen textured quad, so the
- * framebuffer blit path can be A/B'd against it on a single build.
- * See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
+ * Ablation switch for benchmarking: the engine's CopyShaderPath render-path flag
+ * (PROJECTM_COPY_SHADER_PATH=1, projectm_set_render_path_flags()) restores the pre-#179
+ * behaviour where every texture copy is a fullscreen textured quad, so the framebuffer
+ * blit path can be A/B'd against it on a single build. Per engine: two engines in one
+ * process can take different paths. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
  */
 auto BlitPathEnabled() -> bool
 {
-    static const bool enabled = []() {
-        const char* const value = std::getenv("PROJECTM_COPY_SHADER_PATH");
-        return !(value != nullptr && value[0] == '1');
-    }();
-
-    return enabled;
+    return !EngineContext::Current().HasRenderPath(EngineContext::CopyShaderPath);
 }
 
 } // anonymous namespace

@@ -432,8 +432,9 @@ test('init applies the render-path switches, then creates the engine with the co
     const module = fakeRingModule();
     /** @type {string[]} */
     const order = [];
-    // Models the C++ side: set_render_path_overrides() sets the environment the
-    // engine reads, get_render_path_overrides() reads it back as a mask.
+    // Models the C++ side: set_render_path_overrides() sets the switches the
+    // engines created afterwards start from, get_render_path_overrides() reads
+    // one engine's back as a mask.
     let overrideMask = 0;
     module._set_render_path_overrides = (blur, copy, perPixel) => {
         order.push('set_render_path_overrides');

@@ -40,7 +40,7 @@ run rather than a description of the renderer.
 | Preset | One preset per page load, written into MEMFS. | `deterministic_capture.html` |
 | Audio | `generateDeterministicBlock(frameIndex)` — every sample a pure function of its absolute index — one block per rendered frame, through the WASM PCM ring. | `html/projectm-synthetic-audio.js` |
 | Frame index | The RAF main loop is **paused**; the harness calls `render_frame()` itself, once per audio block. | `set_render_loop_paused()` |
-| RNG | `projectm_set_deterministic_seed()` before `init()`. | `src/libprojectM/RandomSeed.cpp` |
+| RNG | `set_deterministic_seed()` before `init()`: every engine created afterwards gets its own stream from that seed (`projectm_create_seeded()`), so the process default is left alone. One engine only: `pm_set_host_deterministic_seed(host, ...)`. | `src/wasm/WasmDeterminism.cpp`, `src/libprojectM/EngineContext.cpp` |
 | Time | Virtual clock: frame N happens at exactly N/fps, pushed into the engine via `projectm_set_frame_time()`. | `src/wasm/WasmDeterminism.cpp` |
 
 Three of those deserve their reasoning spelled out, because each replaced

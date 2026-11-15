@@ -4,8 +4,10 @@
  *
  * Without GL: contexts with their own seeds draw independently of each other and of the
  * process default, the current context follows ScopedEngineContext, and streams on parallel
- * threads match the same streams drawn on one. On a headless GL context: two ProjectM
- * instances with different seeds, used interleaved, each render what they render alone.
+ * threads match the same streams drawn on one, and render-path switches are per engine. On a
+ * headless GL context: two ProjectM instances with different seeds, used interleaved, each
+ * render what they render alone, and an instance created with projectm_create_seeded()
+ * renders what a process seed set before projectm_create() renders.
  */
 
 #include "HeadlessGlContext.hpp"
@@ -192,6 +194,29 @@ TEST_F(EngineContextTest, PerfStateIsPerEngine)
     Perf::SetEnabled(false);
 }
 
+TEST_F(EngineContextTest, RenderPathFlagsArePerEngine)
+{
+    // What the WASM host's ?blurPath / ?copyPath / ?perPixelEval switches set, per engine,
+    // instead of process environment variables (#352).
+    EngineContext plain;
+    EngineContext ablated;
+    const auto fromEnvironment = EngineContext::RenderPathFlagsFromEnvironment();
+    EXPECT_EQ(plain.RenderPathFlags(), fromEnvironment) << "a new engine starts from the environment";
+
+    ablated.SetRenderPathFlags(EngineContext::CopyShaderPath | EngineContext::PerPixelForceCpu);
+    EXPECT_EQ(plain.RenderPathFlags(), fromEnvironment) << "another engine is not affected";
+    {
+        const ScopedEngineContext scope(ablated);
+        EXPECT_TRUE(EngineContext::Current().HasRenderPath(EngineContext::CopyShaderPath));
+        EXPECT_TRUE(EngineContext::Current().HasRenderPath(EngineContext::PerPixelForceCpu));
+        EXPECT_FALSE(EngineContext::Current().HasRenderPath(EngineContext::BlurCopyPath));
+        {
+            const ScopedEngineContext inner(plain);
+            EXPECT_EQ(EngineContext::Current().RenderPathFlags(), fromEnvironment);
+        }
+    }
+}
+
 TEST_F(EngineContextTest, EachEngineDrawsThroughItsOwnDevice)
 {
     namespace Device = libprojectM::Renderer::Device;
@@ -366,6 +391,63 @@ protected:
 std::unique_ptr<libprojectM::Test::HeadlessGlContext> EngineSeedRenderTest::s_context;
 
 } // namespace
+
+TEST_F(EngineSeedRenderTest, SeededCreateRendersWhatTheProcessSeedRenders)
+{
+    // projectm_create_seeded() is how the WASM host pins one engine (#352): it must cover
+    // what the engine draws while it is constructed exactly as a process seed set before
+    // projectm_create() did, or the goldens would move.
+    constexpr uint32_t kSeed = 1234;
+    constexpr int kFrames = 4;
+    const auto loadAndRender = [&](projectm_handle instance) {
+        std::vector<std::vector<unsigned char>> frames;
+        projectm_set_window_size(instance, kSize, kSize);
+        projectm_set_preset_duration(instance, 3600.0);
+        projectm_set_soft_cut_duration(instance, 0.0);
+        projectm_load_preset_file(instance, (std::string(PROJECTM_PRESET_TESTS_DIR) + "/271-compshader-rand-preset.milk").c_str(), false);
+        for (int frame = 0; frame < kFrames; frame++)
+        {
+            frames.push_back(RenderAndRead(instance, frame));
+        }
+        return frames;
+    };
+
+    // The old way: a process seed set before the engine is created, and kept.
+    projectm_set_deterministic_seed(kSeed);
+    auto* processSeeded = projectm_create();
+    if (processSeeded == nullptr)
+    {
+        projectm_clear_deterministic_seed();
+        GTEST_SKIP() << "projectm_create() is unavailable with this context";
+    }
+    const auto expected = loadAndRender(processSeeded);
+    projectm_destroy(processSeeded);
+    projectm_clear_deterministic_seed();
+
+    auto* seeded = projectm_create_seeded(kSeed);
+    ASSERT_NE(seeded, nullptr);
+    EXPECT_FALSE(projectm_is_deterministic_seed_set()) << "the process default is left alone";
+    EXPECT_EQ(loadAndRender(seeded), expected);
+    projectm_destroy(seeded);
+}
+
+TEST_F(EngineSeedRenderTest, RenderPathFlagsRoundTripPerInstance)
+{
+    auto* a = projectm_create();
+    if (a == nullptr)
+    {
+        GTEST_SKIP() << "projectm_create() is unavailable with this context";
+    }
+    auto* b = projectm_create();
+    ASSERT_NE(b, nullptr);
+    const uint32_t initial = projectm_get_render_path_flags(b);
+    projectm_set_render_path_flags(a, PROJECTM_RENDER_PATH_BLUR_COPY | PROJECTM_RENDER_PATH_PER_PIXEL_CPU | 0x80u);
+    EXPECT_EQ(projectm_get_render_path_flags(a), PROJECTM_RENDER_PATH_BLUR_COPY | PROJECTM_RENDER_PATH_PER_PIXEL_CPU)
+        << "unknown bits are dropped";
+    EXPECT_EQ(projectm_get_render_path_flags(b), initial) << "another instance is not affected";
+    projectm_destroy(a);
+    projectm_destroy(b);
+}
 
 TEST_F(EngineSeedRenderTest, InterleavedEnginesRenderWhatTheyRenderAlone)
 {

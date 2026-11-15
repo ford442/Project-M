@@ -11,10 +11,32 @@
 namespace libprojectM {
 namespace UserSprites {
 
+/**
+ * @brief gmegabuf and reg00..reg99 of one engine's Milkdrop sprites.
+ *
+ * Owned by the engine's SpriteManager and shared by its sprites. Not projectM-Eval's built-in
+ * process-wide storage: two engines' sprites must not see each other's values, and the
+ * evaluator's memory lock is per engine (EngineContext::EvalMemoryMutex()).
+ */
+struct MilkdropSpriteGlobals
+{
+    MilkdropSpriteGlobals();
+    ~MilkdropSpriteGlobals();
+
+    MilkdropSpriteGlobals(const MilkdropSpriteGlobals&) = delete;
+    auto operator=(const MilkdropSpriteGlobals&) -> MilkdropSpriteGlobals& = delete;
+
+    projectm_eval_mem_buffer memory{nullptr}; //!< gmegabuf.
+    PRJM_EVAL_F registers[100]{};             //!< reg00..reg99.
+};
+
 class MilkdropSprite : public Sprite
 {
 public:
-    MilkdropSprite();
+    /**
+     * @param globals The engine's sprite gmegabuf and registers. Must outlive the sprite.
+     */
+    explicit MilkdropSprite(MilkdropSpriteGlobals& globals);
 
     ~MilkdropSprite() override = default;
 
@@ -36,7 +58,7 @@ private:
      * @brief Context for the init and per-frame code.
      */
     struct CodeContext {
-        CodeContext();
+        explicit CodeContext(MilkdropSpriteGlobals& globals);
 
         ~CodeContext();
 

@@ -22,6 +22,7 @@ extern "C" {
 void pm_destruct(uintptr_t host);
 uintptr_t pm_get_projectm_handle(uintptr_t host);
 int pm_init(uintptr_t host);
+int pm_get_render_path_overrides(uintptr_t host);
 int pm_rebind_canvases(uintptr_t host, const char* primary, const char* secondary);
 void pm_load_preset_file(uintptr_t host, const char* vfsPath);
 void pm_load_preset_file_hard(uintptr_t host, const char* vfsPath);
@@ -109,6 +110,10 @@ bool pm_transition_is_active(uintptr_t host);
 float pm_transition_get_blend(uintptr_t host);
 void pm_transition_set_duration(uintptr_t host, float seconds);
 float pm_transition_get_duration(uintptr_t host);
+void pm_set_host_deterministic_seed(uintptr_t host, bool enabled, uint32_t seed);
+bool pm_is_deterministic_seed(uintptr_t host);
+void pm_set_host_deterministic_clock(uintptr_t host, bool enabled, double fps);
+bool pm_is_deterministic_clock(uintptr_t host);
 double pm_deterministic_now_ms(uintptr_t host);
 uint32_t pm_deterministic_frame_index(uintptr_t host);
 float pm_get_rhythm_bpm(uintptr_t host);
@@ -142,7 +147,9 @@ int pm_capture_frame_width(uintptr_t host);
 int pm_capture_frame_height(uintptr_t host);
 uint32_t pm_capture_frame_index(uintptr_t host);
 void pm_capture_frame_release(uintptr_t host);
+int pm_debug_emit_events(uintptr_t host);
 int pm_debug_throw(uintptr_t host, int kind);
+int pm_get_init_error(uintptr_t host);
 int pm_get_last_error(uintptr_t host);
 const char* pm_get_last_error_message(uintptr_t host);
 void pm_clear_last_error(uintptr_t host);
@@ -218,18 +225,25 @@ void set_context_config(int antialias, int preserveDrawingBuffer, int depth, int
     Guarded("set_context_config", [&]() { WasmApi::set_context_config(antialias, preserveDrawingBuffer, depth, stencil, alpha, powerPreference, fboPrecision); });
 }
 
-// Set the ?blurPath=copy / ?copyPath=shader / ?perPixelEval=cpu ablation switches from the host (call before init — overrides the URL and is the only way they reach the render worker)
+// Set the ?blurPath=copy / ?copyPath=shader / ?perPixelEval=cpu ablation switches for every engine created afterwards (call before init / create_host — overrides the URL and is the only way they reach the render worker)
 EMSCRIPTEN_KEEPALIVE
 void set_render_path_overrides(bool blurCopyPath, bool copyShaderPath, bool perPixelForceCpu)
 {
     Guarded("set_render_path_overrides", [&]() { WasmApi::set_render_path_overrides(blurCopyPath, copyShaderPath, perPixelForceCpu); });
 }
 
-// Render-path switches in effect as a bitmask (1=blurPath copy, 2=copyPath shader, 4=perPixelEval cpu)
+// Render-path switches this host's engine runs with as a bitmask (1=blurPath copy, 2=copyPath shader, 4=perPixelEval cpu, 0 without an engine)
+EMSCRIPTEN_KEEPALIVE
+int pm_get_render_path_overrides(uintptr_t host)
+{
+    return WithHost<int>(host, {}, "pm_get_render_path_overrides", [&](WasmHost& h) { return WasmApi::get_render_path_overrides(h); });
+}
+
+// Compat shim: pm_get_render_path_overrides() on the host set_active_host() selected.
 EMSCRIPTEN_KEEPALIVE
 int get_render_path_overrides()
 {
-    return Guarded<int>({}, "get_render_path_overrides", [&]() { return WasmApi::get_render_path_overrides(); });
+    return pm_get_render_path_overrides(ActiveHostHandle());
 }
 
 // Compat only: Set canvas selectors then init (returns 0 on success)
@@ -267,7 +281,7 @@ uintptr_t create_host_with_config(const char* primary, const char* secondary, in
     return Guarded<uintptr_t>({}, "create_host_with_config", [&]() { return WasmApi::create_host_with_config(primary, secondary, flags, powerPreference, fboPrecision); });
 }
 
-// Code of the most recent init()/create_host*() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes)
+// Code of the last create_host*() that returned 0, else the active host's last init() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes)
 EMSCRIPTEN_KEEPALIVE
 int get_last_init_error()
 {
@@ -1633,32 +1647,60 @@ float transition_get_duration()
     return pm_transition_get_duration(ActiveHostHandle());
 }
 
-// Pin libprojectM's RNG to a seed so a preset renders identical pixels run to run
+// Pin the RNG of every engine in this Module to a seed: the live ones and every one created afterwards (set before init / create_host so engine creation is covered too). One engine only: pm_set_host_deterministic_seed
 EMSCRIPTEN_KEEPALIVE
 void set_deterministic_seed(bool enabled, uint32_t seed)
 {
     Guarded("set_deterministic_seed", [&]() { WasmApi::set_deterministic_seed(enabled, seed); });
 }
 
-// Whether deterministic RNG seeding is active
+// Pin this host's engine's RNG to a seed so a preset renders identical pixels run to run. It covers what the engine draws from then on: for what it draws while it is created, set_deterministic_seed() before create_host
+EMSCRIPTEN_KEEPALIVE
+void pm_set_host_deterministic_seed(uintptr_t host, bool enabled, uint32_t seed)
+{
+    WithHost(host, "pm_set_host_deterministic_seed", [&](WasmHost& h) { WasmApi::set_host_deterministic_seed(h, enabled, seed); });
+}
+
+// Whether this host's engine has a deterministic seed
+EMSCRIPTEN_KEEPALIVE
+bool pm_is_deterministic_seed(uintptr_t host)
+{
+    return WithHost<bool>(host, {}, "pm_is_deterministic_seed", [&](WasmHost& h) { return WasmApi::is_deterministic_seed(h); });
+}
+
+// Compat shim: pm_is_deterministic_seed() on the host set_active_host() selected.
 EMSCRIPTEN_KEEPALIVE
 bool is_deterministic_seed()
 {
-    return Guarded<bool>({}, "is_deterministic_seed", [&]() { return WasmApi::is_deterministic_seed(); });
+    return pm_is_deterministic_seed(ActiveHostHandle());
 }
 
-// Drive the engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs)
+// Drive every engine in this Module from a virtual clock where frame N happens at N/fps: the live ones and every one created afterwards (golden-image capture only, never perf runs). One engine only: pm_set_host_deterministic_clock
 EMSCRIPTEN_KEEPALIVE
 void set_deterministic_clock(bool enabled, double fps)
 {
     Guarded("set_deterministic_clock", [&]() { WasmApi::set_deterministic_clock(enabled, fps); });
 }
 
-// Whether the virtual clock is active
+// Drive this host's engine from a virtual clock where frame N happens at N/fps (golden-image capture only, never perf runs)
+EMSCRIPTEN_KEEPALIVE
+void pm_set_host_deterministic_clock(uintptr_t host, bool enabled, double fps)
+{
+    WithHost(host, "pm_set_host_deterministic_clock", [&](WasmHost& h) { WasmApi::set_host_deterministic_clock(h, enabled, fps); });
+}
+
+// Whether this host's virtual clock is active
+EMSCRIPTEN_KEEPALIVE
+bool pm_is_deterministic_clock(uintptr_t host)
+{
+    return WithHost<bool>(host, {}, "pm_is_deterministic_clock", [&](WasmHost& h) { return WasmApi::is_deterministic_clock(h); });
+}
+
+// Compat shim: pm_is_deterministic_clock() on the host set_active_host() selected.
 EMSCRIPTEN_KEEPALIVE
 bool is_deterministic_clock()
 {
-    return Guarded<bool>({}, "is_deterministic_clock", [&]() { return WasmApi::is_deterministic_clock(); });
+    return pm_is_deterministic_clock(ActiveHostHandle());
 }
 
 // The host time base in milliseconds: virtual when the clock is on, real otherwise
@@ -2130,6 +2172,13 @@ void capture_frame_release()
     pm_capture_frame_release(ActiveHostHandle());
 }
 
+// Test hook for the page-event queue: raises every page event about this host from inside the export, returning how many were raised with the host intact after each (-1 if one destroyed it underneath)
+EMSCRIPTEN_KEEPALIVE
+int pm_debug_emit_events(uintptr_t host)
+{
+    return WithHost<int>(host, -1, "pm_debug_emit_events", [&](WasmHost& h) { return WasmApi::debug_emit_events(h); });
+}
+
 // Test hook for the exception barrier: 1 throws std::runtime_error, 2 allocates past the heap (std::bad_alloc), returning 1 if nothing was thrown
 EMSCRIPTEN_KEEPALIVE
 int pm_debug_throw(uintptr_t host, int kind)
@@ -2142,6 +2191,13 @@ EMSCRIPTEN_KEEPALIVE
 bool pm_host_is_live(uintptr_t handle)
 {
     return Guarded<bool>({}, "pm_host_is_live", [&]() { return WasmApi::pm_host_is_live(handle); });
+}
+
+// Code of this host's last init() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes)
+EMSCRIPTEN_KEEPALIVE
+int pm_get_init_error(uintptr_t host)
+{
+    return WithHost<int>(host, {}, "pm_get_init_error", [&](WasmHost& h) { return WasmApi::get_init_error(h); });
 }
 
 // Code of the last error an export reported on this host (0 none, 1 exception, 2 out of memory, 3 stale buffer generation), see pm_get_last_error_message

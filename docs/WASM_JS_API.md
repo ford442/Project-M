@@ -313,7 +313,9 @@ the other engines in it. A host-scoped failure is that host's last error:
 | 3 | a buffer commit named a generation that was replaced (below) |
 
 `pm_debug_throw(host, kind)` (internal) throws (1) or exhausts the heap (2) inside an export, for
-`tests/wasm-smoke/host_churn.html`.
+`tests/wasm-smoke/host_churn.html`. The render loop's tick and the preset-activation timers run
+each host's work behind the same barrier, so a frame that throws records its error on that host
+and the other hosts still render.
 
 **Buffers carry a generation.** A live texture's staging buffer is `{ ptr, byteLength,
 generation }` (`acquireTextureBuffer()` in `html/projectm-live-texture.js`). The generation
@@ -338,13 +340,74 @@ its engine:
 | `handle:pm_<impl>` | compat `<name>(handle, ...)` + `pm_<impl>(host, ...)` | `WasmApi::<impl>(WasmHost&, ...)` |
 | `handle-or-active:pm_<impl>` | as `handle`, but compat handle 0 is the active host | same |
 | `alias:<impl>` | compat `<name>(...)` forwarding to `pm_<impl>` on the active host | (the other entry's) |
-| `module` | `<name>(...)`: no engine (registry, render-path switches, audio) | `WasmApi::<name>(...)` |
+| `module` | `<name>(...)`: no engine (registry, the page's render-path switches, audio) | `WasmApi::<name>(...)` |
 | `legacy[:impl]` | compat-only, on the active host (`init_with_canvases`, `set_active_host`, ...) | `WasmApi::<impl>(...)` in the compat layer (`WasmLegacyExports.cpp`, `WasmHost.cpp`) |
 | `runtime` | Emscripten runtime symbols (`_malloc`, ...) | none |
 
 Types are C types (`void bool i32 u32 f32 f64 usize cstr` and pointers such as `f32*`); a return
 may carry its failure value (`i32=-1`). Doc strings may not contain `;` (CMake splits list
 entries on it).
+
+## Events are delivered after the frame
+
+Bundles since #352 B never call a page callback from inside engine code. The callbacks are:
+
+| Callback | Names its host as |
+|---|---|
+| `pmOnPerfFrame(stats)`, `pmOnRhythmEvent(event)` | `stats.host`, `event.host` |
+| `pmOnGovernorTierChange(host, tier)`, `pmOnGovernorRenderScaleChange(host, scale)`, `pmOnGovernorBlurCapChange(host, cap)` | first argument |
+| `pmOnPresetSwitchFailed(host, preset, message)`, `pmReportInitError(host, code, detail)`, `pmHideInitError(host)` | first argument |
+| `pmSetPerfHudEnabled(host, enabled)`, `pmOnTranspiledShaderStored(host, key, kind, glsl)` | first argument |
+| `updatePresetDisplay(name)`, `pmOnLog(level, text)` | not passed (`updatePresetDisplay` is still tagged with its host internally) |
+
+Each of them goes into a queue on the Module (`Module.pmEventQueue`, `src/wasm/WasmEvents.cpp`),
+tagged with its host. Its arguments are read when it is raised, so heap strings are copied before
+the engine can free them. The queue is delivered when no engine code is left on the stack:
+
+- when the export that raised the events returns, which is when its barrier ends, after the
+  implementation is done with its host;
+- after a main-loop tick, once every started host has rendered its frame;
+- when a preset-activation timer (`WasmPresetPrepare.cpp`) has finished.
+
+So, from a handler, a page may:
+
+- **Call any export**, including on the host the event names. The events that call raises are
+  delivered in the same pass, after the ones already queued.
+- **Destroy the host** (`destroy_host(host)`). That host's events still in the queue are dropped.
+  Nothing below the handler is still using the host. The events of other hosts are delivered, and
+  so is `pmOnLog`, which belongs to no host.
+- **Throw.** Each handler runs in its own `try`/`catch`. The error is logged
+  (`[projectM] page event handler threw`), and the events after it still run.
+
+What changes for a page: a handler no longer runs before the export that raised its event
+returns. For example, `pmReportInitError` for a failed `create_host_with_config()` runs before
+that call returns to JavaScript, but after the engine has rolled the host back. `pmOnPerfFrame`
+for host A comes after host B's frame in the same tick, and `pmOnLog` comes after the line
+reaches the console. On a pthread there is no queue, and a notification calls that worker's
+globals directly, as before.
+
+`pm_debug_emit_events(host)` (internal) raises every one of them from inside one export, for
+`tests/wasm-smoke/host_churn.html`. That page's handler-destroys-host case does it once per
+callback, with that callback's handler destroying the host. It then covers three real paths:
+`create_host()` with `pmHideInitError`, a main-loop frame with `pmOnPerfFrame`, and a failed
+preset load with `pmOnPresetSwitchFailed`. `tests/web/wasm-event-queue.test.mjs` runs the queue's
+own EM_JS in Node.
+
+## Engine state that left the Module (#352 B)
+
+These used to be one value per Module, or per process. Each now belongs to the host it describes:
+
+| State | Before | Now |
+|---|---|---|
+| Init error | `get_last_init_error()`: the last `init()`/`create_host*()` on any host | `pm_get_init_error(host)`: that host's last `init()`. `get_last_init_error()` still answers for a `create_host*()` that returned 0, which leaves no host to hold the code. Otherwise it gives the active host's |
+| Deterministic seed and clock | `set_deterministic_seed/clock()`: a process-wide seed and a Module-wide clock | Each host holds its own (`pm_set_host_deterministic_seed/clock(host, ...)`, `pm_is_deterministic_*(host)`), and a seeded engine is created with its seed (`projectm_create_seeded()`), which also covers what it draws while it is constructed. The compat names keep their meaning, every engine in the Module: they set every live host, and every host created afterwards starts from them. So a page that pins the seed once, before its first `init()`/`create_host*()`, still gets the same pixels from each engine it creates |
+| Render-path switches (`?blurPath`, `?copyPath`, `?perPixelEval`) | `setenv()`, read once per process (`CopyTexture` cached its switch in a function static) | One engine's `EngineContext` (`projectm_set_render_path_flags()`). `set_render_path_overrides()` is still the page's call, made before `create_host*()`, and every engine created afterwards starts from it. `pm_get_render_path_overrides(host)` reads one engine's switches |
+| Frame timings for the perf HUD | `projectm_perf_get_frame_timings()`: the last frame any engine finished | `projectm_perf_get_instance_frame_timings()` for the host that rendered |
+| The page's `AudioContext` | Created by the glue inside `init()` (in-page topology only) | Created by the page (`ensureWorkletReady()`, `html/projectm-worklet-playback.js`) in both topologies |
+
+What stays Module-wide is listed with its reason in `scripts/wasm_globals_allowlist.txt`.
+`scripts/check_wasm_host_globals.sh <build-dir>` (rule 5, in `build_emscripten.yml`) fails on any
+writable static in `src/wasm/`'s objects that the list does not name.
 
 ## Raw `Module._foo` / `ccall`
 

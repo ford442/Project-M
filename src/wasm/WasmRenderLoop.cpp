@@ -16,6 +16,7 @@
 // Engine lifecycle (init/destruct/rebind) and AppData ownership live in
 // projectM_emscripten.cpp; the FBO/compositor classes live in WasmGraphics.hpp
 // and their exports in WasmDualFbo.cpp.
+#include "WasmApiBarrier.hpp"
 #include "WasmGraphics.hpp"
 #include "WasmHost.hpp"
 #include "WasmLog.hpp"
@@ -51,12 +52,14 @@ static void RenderHostFrame(WasmHost& H)
     if (g_perfHudEnabled)
     {
         projectm_perf_frame_timings timings;
-        projectm_perf_get_frame_timings(&timings);
-        js_perf_report_frame(
-            EventHostHandle(H), timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
-            timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
-            timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps, timings.shader_link_pending,
-            timings.per_pixel_eval_path, timings.rhythm_analysis_ms, FlashClampedFramesForHud(H));
+        projectm_perf_get_instance_frame_timings(H.appData.projectm_engine, &timings);
+        PostEvent([&] {
+            js_perf_report_frame(
+                EventHostHandle(H), timings.total_ms, timings.audio_analysis_ms, timings.per_frame_eval_ms,
+                timings.per_pixel_eval_ms, timings.blur_ms, timings.waveforms_shapes_ms,
+                timings.composite_ms, js_perf_gpu_get_last_ms(), timings.fps, timings.shader_link_pending,
+                timings.per_pixel_eval_path, timings.rhythm_analysis_ms, FlashClampedFramesForHud(H));
+        });
     }
     UpdateQualityGovernor(H, emscripten_get_now() - frameStartMs);
 }
@@ -67,8 +70,16 @@ static void RenderHostFrame(WasmHost& H)
 // current — and rendered in turn within the same requestAnimationFrame tick.
 // Binding does not change which host is active, so a compat-shim caller that
 // yielded between two calls still reaches the host it selected.
+//
+// The tick is one engine-call scope: the page events every host raised while
+// rendering (pmOnPerfFrame, pmOnRhythmEvent, pmOnGovernor*, ...) are delivered
+// after the last host's frame, so a handler that destroys a host cannot pull
+// it out from under this loop. Each host's frame runs behind the exception
+// barrier: one that throws records its error on that host, and the others
+// still render.
 static void renderLoop()
 {
+    const WasmEvents::EngineCallScope tick;
     const int slots = HostSlotCount();
     for (int i = 0; i < slots; ++i)
     {
@@ -77,8 +88,10 @@ static void renderLoop()
         {
             continue;
         }
-        BindHost(*h);
-        RenderHostFrame(*h);
+        WasmApiDetail::RunGuarded(h->handle, "render loop", [h] {
+            BindHost(*h);
+            RenderHostFrame(*h);
+        });
     }
 }
 

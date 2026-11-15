@@ -244,6 +244,10 @@ set(PROJECTM_WASM_SHARED_S_LINK_SETTINGS
         # records it as that host's last error, so one engine running out of
         # heap does not take the other hosts in the Module down with it.
         "ABORTING_MALLOC=0"
+        # The JS FS API: textures, songs and the test pages still write MEMFS
+        # through it. Presets no longer need it (load_preset_data()). Dropping
+        # it saves 124 B gzipped; MEMFS stays linked for libprojectM's stdio
+        # (docs/EMSCRIPTEN.md "Presets by buffer").
         "FORCE_FILESYSTEM=1"
         # OFFSCREENCANVAS_SUPPORT is intentionally unset: it proxies GL from a
         # pthread back to the main thread, which undoes the OffscreenCanvas render

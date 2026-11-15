@@ -25,6 +25,7 @@ import { captureFrameFromModule } from './projectm-frame-capture.js';
 import { createLiveTextureWriter, createLiveTextures, pixelsOf, sourceSize } from './projectm-live-texture.js';
 import { claimGlobal } from './projectm-globals.js';
 import { feedPcm } from './projectm-pcm-ring.js';
+import { canStorePresets, storePreset } from './projectm-preset-store.js';
 import { isRenderWorkerSupported, renderWorkerUnsupportedReason, setupRenderWorker } from './projectm-render-worker-host.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
@@ -140,25 +141,11 @@ export function createModuleTransport(module, { host = 0 } = {}) {
         },
 
         writePreset(vfsPath, bytes, mode = 'load') {
-            if (!module.FS) {
-                throw new Error('Module.FS not available');
+            if (!canStorePresets(module)) {
+                throw new Error('Module takes no presets (neither load_preset_data nor FS)');
             }
-            try {
-                // A bundle that preloads no presets has no /presets to write
-                // into; the worker side does the same before its write.
-                const dir = vfsPath.slice(0, vfsPath.lastIndexOf('/'));
-                if (dir && module.FS.mkdirTree) module.FS.mkdirTree(dir);
-            } catch (_) {
-                // Already there; the write below reports anything real.
-            }
-            module.FS.writeFile(vfsPath, bytes);
-            if (mode === 'add') {
-                wasmApi.addPresetFile(engine, vfsPath);
-            } else if (mode === 'load-hard') {
-                wasmApi.loadPresetFileHard(engine, vfsPath);
-            } else {
-                wasmApi.loadPresetFile(engine, vfsPath);
-            }
+            // Through the engine view, so the preset lands on `host`.
+            storePreset(/** @type {import('./projectm-preset-store.js').PresetStoreModule} */ (/** @type {unknown} */ (engine)), vfsPath, bytes, mode);
         },
 
         resize(width, height) {

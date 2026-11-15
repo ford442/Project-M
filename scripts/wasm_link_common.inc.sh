@@ -32,6 +32,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _max_host_count
     _load_preset_file
     _load_preset_file_hard
+    _load_preset_data
     _switch_preset
     _set_aspect_correction
     _render_frame
@@ -177,6 +178,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _pm_rebind_canvases
     _pm_load_preset_file
     _pm_load_preset_file_hard
+    _pm_load_preset_data
     _pm_switch_preset
     _pm_set_aspect_correction
     _pm_render_frame

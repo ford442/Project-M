@@ -66,7 +66,7 @@
     const result = {
       ok: false, error: null, rounds: 0, createRefused: 0, stayLoads: 0,
       interleavedCalls: 0, interleavedLoads: 0, barrierCases: 0, ringReinits: 0, ringDetaches: 0,
-      eventCallbacks: 0, eventRealPaths: 0, determinismChecks: 0,
+      eventCallbacks: 0, eventRealPaths: 0, determinismChecks: 0, presetDataCases: 0,
     };
 
     function finish(ok, error) {
@@ -164,9 +164,14 @@
       await interleavedCalls(Module, stay, other);
       exceptionBarrier(Module, stay, other);
       ringReinit(Module, other);
+      await presetData(Module, other);
       Module.ccall('destroy_host', null, ['number'], [other]);
       if (Module._pm_host_is_live(other)) throw new Error('a destroyed host is still live');
       if (Module._pm_transition_get_duration(other) !== 0) throw new Error('a stale handle must return the failure value');
+      if (loadPresetData(Module, other, PRESET_DATA_BYTES, 'churn-data/stale.milk', 0) !== 0) {
+        throw new Error('preset data: a stale handle must return 0');
+      }
+      result.presetDataCases += 1;
       determinismScope(Module, stay, create);
       await handlerDestroysHost(Module, stay, create);
 
@@ -224,6 +229,53 @@
     // Two tasks, one per host, each writing its host's transition duration and
     // reading it back after an await, while the other task activates its own
     // host in between. Then a concurrent preset load on both.
+    // A small valid preset, for the calls that are meant to be refused.
+    const PRESET_DATA_BYTES = new TextEncoder().encode('[preset00]\nzoom=1.01\n');
+
+    // pm_load_preset_data(host, ptr, len, name, mode) with the bytes copied onto the heap, freed after.
+    function loadPresetData(Module, host, bytes, name, mode) {
+      const ptr = Module._malloc(Math.max(bytes.byteLength, 1));
+      if (!ptr) throw new Error('preset data: malloc failed');
+      try {
+        Module.HEAPU8.set(bytes, ptr);
+        return Module.ccall('pm_load_preset_data', 'number', ['number', 'number', 'number', 'string', 'number'],
+          [host, ptr, bytes.byteLength, name, mode]);
+      } finally {
+        Module._free(ptr);
+      }
+    }
+
+    // Presets by buffer (#352 D): a load by bytes completes on the host it
+    // names and leaves the preset in the VFS under its name (the playlist and a
+    // context-loss reload find it there); store-only touches no engine; bad
+    // requests return 0.
+    async function presetData(Module, other) {
+      const bytes = Module.FS.readFile('/presets/churn-light.milk');
+      const sameBytes = (path) => {
+        const stored = Module.FS.readFile(path);
+        return stored.length === bytes.length && stored.every((value, i) => value === bytes[i]);
+      };
+
+      if (loadPresetData(Module, other, bytes, 'churn-data/light.milk', 1) !== 1) throw new Error('preset data: load refused');
+      const deadline = performance.now() + 60000;
+      while (Module._pm_is_preset_ready(other, 0) !== 1) {
+        if (Module._pm_preset_switch_failed(other)) throw new Error('preset data: the load by bytes failed');
+        if (performance.now() > deadline) throw new Error('preset data: the load by bytes never completed');
+        await sleep(5);
+      }
+      if (!sameBytes('/presets/churn-data/light.milk')) throw new Error('preset data: the stored copy differs');
+      result.presetDataCases += 1;
+
+      if (loadPresetData(Module, other, bytes, '/presets/churn-data/stored.milk', 3) !== 1) throw new Error('preset data: store refused');
+      if (!sameBytes('/presets/churn-data/stored.milk')) throw new Error('preset data: store-only wrote something else');
+      result.presetDataCases += 1;
+
+      for (const [name, mode, why] of [['', 0, 'an empty name'], ['churn-data/x.milk', 9, 'an unknown mode'], ['/presets/', 0, 'a directory']]) {
+        if (loadPresetData(Module, other, PRESET_DATA_BYTES, name, mode) !== 0) throw new Error('preset data: ' + why + ' was accepted');
+        result.presetDataCases += 1;
+      }
+    }
+
     async function interleavedCalls(Module, stay, other) {
       const drive = async (host, sibling, base) => {
         for (let i = 0; i < 20; i += 1) {

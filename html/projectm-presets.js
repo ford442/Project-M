@@ -1,4 +1,4 @@
-import { loadPresetFile } from './generated/projectm-wasm-api.js';
+import { canStorePresets, storePreset } from './projectm-preset-store.js';
 
 /**
  * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModuleLike
@@ -23,7 +23,7 @@ import { loadPresetFile } from './generated/projectm-wasm-api.js';
  * @property {(vfsPath: string, bytes: Uint8Array) => void} [writeBytes] Where the
  *   fetched preset should be written. Supplied by hosts whose engine (and
  *   therefore whose virtual filesystem) is not on this thread; when omitted the
- *   bytes go straight into `module.FS`.
+ *   bytes go straight into `module` (storePreset()).
  * @property {'load' | 'load-hard' | 'add'} [writeMode] How a writer without
  *   `writeBytes` should hand the preset to the engine.
  */
@@ -207,7 +207,7 @@ export function getLocalPresetVfsPath(filename) {
 }
 
 /**
- * Writer for preset bytes when this thread has no module FS.
+ * Writer for preset bytes when this thread has no engine module.
  *
  * Context start() publishes `projectMWritePreset` via installTransportPresetWriter.
  * An explicit `writeBytes` still wins (it already closed over load vs add).
@@ -240,11 +240,11 @@ export async function fetchApiPreset({
     writeMode = 'load'
 } = {}) {
     // Check where the bytes go before touching the network. In the
-    // render-worker topology the main-thread module has no FS; the caller
+    // render-worker topology there is no main-thread module; the caller
     // must route the write through the render transport.
     const writer = resolvePresetWriter(writeBytes, writeMode);
-    if (!writer && !(module && module.FS)) {
-        throw new Error('fetchApiPreset: no VFS on this thread; pass writeBytes (render-worker topology) or a module with FS');
+    if (!writer && !canStorePresets(module)) {
+        throw new Error('fetchApiPreset: no engine on this thread; pass writeBytes (render-worker topology) or a module');
     }
     const dir = presetDir || getPresetDir();
     const bases = apiBases || getPresetApiBases({ preferred: apiBase, fallbacks: fallbackApiBases });
@@ -273,10 +273,9 @@ export async function fetchApiPreset({
             // this function reaching for a module that is not on this thread.
             if (writer) {
                 writer(vfsPath, bytes);
-            } else {
-                const fs = module?.FS;
-                if (!fs) throw new Error('Module.FS is unavailable');
-                fs.writeFile(vfsPath, bytes);
+            } else if (module) {
+                // Stored only: the caller loads it, or adds it to the playlist.
+                storePreset(module, vfsPath, bytes, 'store');
             }
 
             return {
@@ -366,7 +365,7 @@ export async function loadRandomApiPreset({
     // With `writeBytes` the caller owns both the write and the load (the
     // render transport's writePreset does both in the worker).
     const writer = resolvePresetWriter(writeBytes, 'load');
-    if (!writer && (!module || !module.FS || !isPresetLoadReady(module))) {
+    if (!writer && (!module || !canStorePresets(module) || !isPresetLoadReady(module))) {
         console.warn('[ProjectM] random API preset skipped: module not ready');
         return null;
     }
@@ -383,7 +382,7 @@ export async function loadRandomApiPreset({
             writeBytes,
             writeMode: 'load'
         });
-        if (!writer && module) loadPresetFile(module, result.vfsPath);
+        if (!writer && module) storePreset(module, result.vfsPath, result.bytes, 'load');
         if (startTransitionWhenReady) {
             startTransitionWhenReady({ module });
         }
@@ -413,7 +412,7 @@ export async function loadLocalPresetFile(file, {
     rememberLast = true,
     documentRef = document
 } = {}) {
-    if (!module || !module.FS || !isPresetLoadReady(module)) {
+    if (!module || !canStorePresets(module) || !isPresetLoadReady(module)) {
         throw new Error('Module not ready');
     }
 
@@ -429,15 +428,9 @@ export async function loadLocalPresetFile(file, {
 
     const vfsPath = getLocalPresetVfsPath(file.name);
     try {
-        module.FS.writeFile(vfsPath, bytes);
+        storePreset(module, vfsPath, bytes, 'load');
     } catch (error) {
-        throw new Error(`Failed to write preset to Emscripten FS: ${error instanceof Error ? error.message : error}`);
-    }
-
-    try {
-        loadPresetFile(module, vfsPath);
-    } catch (error) {
-        throw new Error(`Preset parser rejected ${file.name}: ${error instanceof Error ? error.message : error}`);
+        throw new Error(`Failed to load local preset ${file.name}: ${error instanceof Error ? error.message : error}`);
     }
 
     if (startTransitionWhenReady) {
@@ -484,8 +477,8 @@ export async function loadPresetFromUrl(url, {
     windowRef = window,
     signal,
 } = {}) {
-    if (!module?.FS) {
-        throw new Error('Module.FS not available');
+    if (!module || !canStorePresets(module)) {
+        throw new Error('Module takes no presets (neither load_preset_data nor FS)');
     }
 
     const response = await fetch(url, signal ? { signal } : undefined);
@@ -502,8 +495,7 @@ export async function loadPresetFromUrl(url, {
     const filename = String(url).split('/').pop()?.split('?')[0] || 'preset.milk';
     const resolvedPath = vfsPath || `/presets/url_${safePresetName(filename)}`;
 
-    module.FS.writeFile(resolvedPath, bytes);
-    loadPresetFile(module, resolvedPath);
+    storePreset(module, resolvedPath, bytes, 'load');
 
     if (startTransitionWhenReady) {
         startTransitionWhenReady({ module });

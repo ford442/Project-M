@@ -428,7 +428,7 @@ test('a failing start leaves 0 workers, 0 listeners, 0 channels and no globals b
         const context = env.newContext({
             sharedModule: module,
             audioSource: 'external',
-            // No `module.FS` on the fake, so this fails last — after the router,
+            // No `module.FS` or heap on the fake, so this fails last — after the router,
             // receiver, context-loss handlers, resize listener and hooks exist.
             presetUrl: 'https://cdn.test/presets/x.milk',
             onError: (detail) => errors.push(detail),
@@ -436,7 +436,7 @@ test('a failing start leaves 0 workers, 0 listeners, 0 channels and no globals b
             onFps: () => {},
         });
 
-        await assert.rejects(() => context.start(), /Module\.FS not available/);
+        await assert.rejects(() => context.start(), /Module takes no presets/);
 
         assert.equal(errors.length, 1);
         assert.equal(context.ready, false);

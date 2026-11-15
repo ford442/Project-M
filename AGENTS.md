@@ -61,13 +61,13 @@ Supported platforms: Windows, Linux, macOS (including iOS/tvOS), BSD, Android, a
 │   ├── WasmRenderLoop.cpp      # Main loop, start_render/render_frame/set_window_size
 │   ├── WasmShaderCache.cpp     # Transpiled-GLSL cache hooks + shader_cache_* exports
 │   ├── WasmRenderPathOverrides.cpp # ?blurPath / ?copyPath / ?perPixelEval switches
-│   ├── WasmGraphics.hpp        # Dual-FBO manager, GL state guard, compositing shader
+│   ├── WasmGraphics.hpp/.cpp   # Dual-FBO manager, GL state guard, compositing shader
 │   ├── WasmWebGLContext.cpp    # WebGL context create/destroy + canvas selectors
 │   ├── WasmDualFbo.cpp         # dual_fbo_* / transition_* exports
 │   ├── WasmAudioBridge.cpp     # Audio worklet + stream analyser + PCM feed
 │   ├── WasmPerfGovernor.cpp    # Perf HUD + adaptive quality governor + OpenMP info
 │   ├── WasmRhythm.cpp          # Tempo/beat readouts, musical preset scheduling, beat events
-│   ├── WasmPlaylistBridge.cpp  # Preset callbacks + playlist path helpers
+│   ├── WasmPlaylistBridge.cpp  # Preset callbacks, playlist path helpers, load_preset_data (presets by buffer)
 │   ├── WasmPresetPrepare.cpp   # Per-host preset prepare thread (no ASYNCIFY)
 │   ├── WasmPresent.cpp         # Flash-limiter switches, per-host frame capture, commit counter
 │   ├── WasmLiveInput.cpp       # Live textures (per-host staging buffers) + eval_set host variables

@@ -630,6 +630,51 @@ test('ABI v2: engine calls reach the pm_ export with the engine they name, and n
     assert.ok(!module.ccalls.some((call) => call.name === 'set_active_host'), 'no host is activated');
 });
 
+test('a preset message hands the bytes to pm_load_preset_data for the engine it names', async () => {
+    /** @type {number[]} */
+    const freed = [];
+    const module = Object.assign(withAbiV2(fakeRingModule(), ['load_preset_data']), {
+        HEAPU8: new Uint8Array(64),
+        _malloc: () => 8,
+        _free: (/** @type {number} */ ptr) => freed.push(ptr),
+        // Present marks the export; the worker calls it through ccall (it takes a string).
+        _load_preset_data: () => assert.fail('load_preset_data takes a string: call it through ccall'),
+    });
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    await worker.send({ type: 'preset', vfsPath: '/presets/a.milk', bytes: Uint8Array.of(7, 8, 9), mode: 'load-hard', host: 2 });
+    await worker.send({ type: 'preset', vfsPath: '/presets/b.milk', bytes: Uint8Array.of(1), mode: 'add' });
+
+    assert.deepEqual(module.ccalls.map((call) => [call.name, ...call.args]), [
+        ['pm_load_preset_data', 2, 8, 3, '/presets/a.milk', 1],
+        ['pm_load_preset_data', 1, 8, 1, '/presets/b.milk', 2],
+    ]);
+    assert.deepEqual([...module.HEAPU8.subarray(8, 9)], [1], 'the bytes were copied onto the heap');
+    assert.deepEqual(freed, [8, 8]);
+    assert.ok(!worker.posted.some((message) => message.type === 'error'), JSON.stringify(worker.posted));
+});
+
+test('a preset message on a bundle without load_preset_data writes the FS and calls the path export', async () => {
+    /** @type {Array<[string, number[]]>} */
+    const written = [];
+    const module = Object.assign(fakeRingModule(), {
+        FS: {
+            mkdirTree: () => {},
+            writeFile: (/** @type {string} */ path, /** @type {Uint8Array} */ bytes) => written.push([path, [...bytes]]),
+        },
+    });
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+
+    await worker.send({ type: 'preset', vfsPath: '/presets/a.milk', bytes: Uint8Array.of(4), mode: 'load' });
+
+    assert.deepEqual(written, [['/presets/a.milk', [4]]]);
+    assert.deepEqual(module.ccalls.map((call) => [call.name, ...call.args]).filter(([name]) => name !== 'set_active_host'), [
+        ['load_preset_file', '/presets/a.milk'],
+    ]);
+});
+
 test('resize before the module exists is ignored rather than throwing', async () => {
     const worker = loadWorker({ createModule: null });
     await worker.send({ type: 'resize', width: 800, height: 600 });

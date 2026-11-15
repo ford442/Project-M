@@ -11,6 +11,7 @@ import {
     updatePresetDisplay,
 } from '../projectm-presets.js';
 import { bundleScansAssets } from '../projectm-textures.js';
+import { canStorePresets } from '../projectm-preset-store.js';
 import { startTransitionWhenReady } from '../projectm-transitions.js';
 import { startWeeksOnFire } from '../projectm-weeks-on-fire.js';
 
@@ -46,7 +47,7 @@ export function createShellPresets({ profile, log, windowRef, storage, state, we
      * @returns {((vfsPath: string, bytes: Uint8Array) => void) | undefined}
      */
     function presetWriterFor(mode) {
-        if (getModule()?.FS) return undefined;
+        if (canStorePresets(getModule())) return undefined;
         const transport = getContext()?.transport;
         if (transport?.writePreset) {
             return (vfsPath, bytes) => transport.writePreset?.(vfsPath, bytes, mode);
@@ -107,7 +108,7 @@ export function createShellPresets({ profile, log, windowRef, storage, state, we
             })
         );
         if (startup.length === 0 || !getContext()) return;
-        if (module?.FS) {
+        if (module && canStorePresets(module)) {
             loadPresetFile(module, startup[0].vfsPath);
             updatePresetDisplay(startup[0].filename);
             for (const entry of startup.slice(1)) addPresetFile(module, entry.vfsPath);

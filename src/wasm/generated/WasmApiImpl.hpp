@@ -35,6 +35,7 @@ int host_count();
 int max_host_count();
 void load_preset_file(WasmHost& host, const char* vfsPath);
 void load_preset_file_hard(WasmHost& host, const char* vfsPath);
+int load_preset_data(WasmHost& host, uint8_t* data, uintptr_t len, const char* name, int mode);
 void switch_preset(WasmHost& host);
 void set_aspect_correction(WasmHost& host, bool enabled);
 void render_frame(WasmHost& host);

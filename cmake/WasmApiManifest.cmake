@@ -75,6 +75,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "max_host_count|public|module|direct|i32||Compile-time cap on simultaneous engine instances per Module"
     "load_preset_file|public|host|ccall|void|vfsPath:cstr|Load preset from Emscripten VFS path"
     "load_preset_file_hard|public|host|ccall|void|vfsPath:cstr|Load preset from VFS path with a hard cut (no crossfade)"
+    "load_preset_data|public|host|ccall|i32|data:u8*,len:usize,name:cstr,mode:i32|Hand a preset to the engine as bytes the caller wrote to the WASM heap (data/len, freed by the caller after the call), stored under name (an absolute path, a relative one goes under /presets/) so the playlist and a context-loss reload find it by that name. mode: 0 load, 1 load with a hard cut, 2 add to the playlist, 3 store only (load it later by name). Returns 1, or 0 for a bad name or mode, when the bytes could not be stored, or without an engine (modes 0 to 2)"
     "switch_preset|public|host|direct|void||Advance playlist to next preset"
     "set_aspect_correction|public|host|direct|void|enabled:bool|Enable bezel/aspect correction"
     "render_frame|public|host|direct|void||Render one visualization frame"

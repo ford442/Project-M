@@ -26,6 +26,7 @@ int pm_get_render_path_overrides(uintptr_t host);
 int pm_rebind_canvases(uintptr_t host, const char* primary, const char* secondary);
 void pm_load_preset_file(uintptr_t host, const char* vfsPath);
 void pm_load_preset_file_hard(uintptr_t host, const char* vfsPath);
+int pm_load_preset_data(uintptr_t host, uint8_t* data, uintptr_t len, const char* name, int mode);
 void pm_switch_preset(uintptr_t host);
 void pm_set_aspect_correction(uintptr_t host, bool enabled);
 void pm_render_frame(uintptr_t host);
@@ -349,6 +350,20 @@ EMSCRIPTEN_KEEPALIVE
 void load_preset_file_hard(const char* vfsPath)
 {
     pm_load_preset_file_hard(ActiveHostHandle(), vfsPath);
+}
+
+// Hand a preset to the engine as bytes the caller wrote to the WASM heap (data/len, freed by the caller after the call), stored under name (an absolute path, a relative one goes under /presets/) so the playlist and a context-loss reload find it by that name. mode: 0 load, 1 load with a hard cut, 2 add to the playlist, 3 store only (load it later by name). Returns 1, or 0 for a bad name or mode, when the bytes could not be stored, or without an engine (modes 0 to 2)
+EMSCRIPTEN_KEEPALIVE
+int pm_load_preset_data(uintptr_t host, uint8_t* data, uintptr_t len, const char* name, int mode)
+{
+    return WithHost<int>(host, {}, "pm_load_preset_data", [&](WasmHost& h) { return WasmApi::load_preset_data(h, data, len, name, mode); });
+}
+
+// Compat shim: pm_load_preset_data() on the host set_active_host() selected.
+EMSCRIPTEN_KEEPALIVE
+int load_preset_data(uint8_t* data, uintptr_t len, const char* name, int mode)
+{
+    return pm_load_preset_data(ActiveHostHandle(), data, len, name, mode);
 }
 
 // Advance playlist to next preset

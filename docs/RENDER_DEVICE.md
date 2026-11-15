@@ -79,7 +79,7 @@ Calls need the right context current, as before.
 | `VertexBuffer`, `VertexArray`, `VertexIndexArray`, `Mesh` | `BufferHandle`/`VertexArrayHandle`; vertex types no longer carry GL attribute-pointer code. |
 | `BlendMode`, `CopyTexture`, `BlurTexture`, `FlashLimiter`, `PresetTransition` | Commands on the device; `BlendMode::Function` is `Device::BlendFactor`. |
 | Preset drawables (`Border`, `CustomShape`, `CustomWaveform`, `Waveform`, `Filters`, `MotionVectors`), `MilkdropSprite`, `ProjectM.cpp` | Commands on the device. |
-| `src/wasm/WasmGraphics.hpp` | `DualPingPongFramebuffer` on device handles; `GLStateSnapshot`/`GLStateGuard` became `Device::StateSnapshot` + `RenderStateGuard`; `gl_reset_state_between_pipelines()` became `reset_render_state_between_pipelines()`; the compositor is a `Renderer::Shader` + `VertexArray` + `VertexBuffer<Point>` instead of its own compile/link code. |
+| `src/wasm/WasmGraphics.hpp` / `.cpp` | `DualPingPongFramebuffer` on device handles; `GLStateSnapshot`/`GLStateGuard` became `Device::StateSnapshot` + `RenderStateGuard`; `gl_reset_state_between_pipelines()` became `reset_render_state_between_pipelines()`; the compositor is a `Renderer::Shader` + `VertexArray` + `VertexBuffer<Point>` instead of its own compile/link code. |
 | `WasmRenderLoop.cpp`, `WasmPresent.cpp` | `start_render()` state, the opaque-alpha fill and the frame capture (pixel-pack buffer + fence) on the device. |
 
 ## Equivalence

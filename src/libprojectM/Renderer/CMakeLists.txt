@@ -14,8 +14,10 @@ set(TRANSITION_SHADER_FILES
         TransitionShaders/TransitionShaderBuiltInPixelateGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInPlasmaGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInRadialWipeGlsl330.frag
+        TransitionShaders/TransitionShaderBuiltInShatterGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInSimpleBlendGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInSliceSwipeGlsl330.frag
+        TransitionShaders/TransitionShaderBuiltInStarWipeGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInSweepGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInTileFlipGlsl330.frag
         TransitionShaders/TransitionShaderBuiltInTunnelGlsl330.frag

@@ -29,7 +29,7 @@ uniform float4   _c13;          // .xy = blur2_min, blur2_max
 uniform float4   _c14;          // projectM: pm_bpm, pm_beat_phase, pm_beat_pulse, pm_bar_phase
 uniform float4   _c15;          // projectM: pm_onset, pm_onset_lo, pm_onset_mid, pm_onset_hi
 uniform float4   _c16;          // projectM: pm_centroid, pm_flatness, pm_rms, pm_rhythm_conf
-uniform float4   _c17;          // projectM: pm_beat_index, pm_section, pm_section_change, unused
+uniform float4   _c17;          // projectM: pm_beat_index, pm_section, pm_section_change, iPass
 uniform float4   _qa;           // q vars bank 1 [q1-q4]
 uniform float4   _qb;           // q vars bank 2 [q5-q8]
 uniform float4   _qc;           // q vars ...
@@ -105,6 +105,13 @@ uniform float4x3 rot_rand4;
 #define pm_beat_index     _c17.x
 #define pm_section        _c17.y
 #define pm_section_change _c17.z
+
+// Extra shader passes (warp_nPasses / comp_nPasses, docs/MILK_SHADER_PASSES.md):
+// iPass is this shader's pass number (0 = first; the stage's own shader is the last),
+// sampler_lastpass the previous pass's output (the main image in pass 0).
+#define iPass             _c17.w
+#define iLastPassTex      sampler_lastpass
+#define GetLastPass(uv)   (tex2D(sampler_lastpass,uv).xyz)
 #define q1 _qa.x
 #define q2 _qa.y
 #define q3 _qa.z

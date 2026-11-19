@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -59,6 +60,25 @@ public:
      */
     static void ReadShaderVersions(PresetFileParser& parsedFile, int& presetVersion,
                                    int& warpShaderVersion, int& compositeShaderVersion);
+
+    /**
+     * @brief Reads a stage's extra shader passes (#229, docs/MILK_SHADER_PASSES.md).
+     *
+     * <tt>STAGE_nPasses=N</tt> declares N - 1 passes before the stage's own shader, whose code
+     * is in the <tt>STAGE_pass1_</tt> .. <tt>STAGE_pass(N-1)_</tt> blocks. Without the key
+     * (or with N == 1) any pass blocks are ignored, so files that only Milkdrop reads are
+     * unaffected. Static so background preparation can refuse a preset before GL objects exist.
+     *
+     * @param parsedFile The file parser with the preset data.
+     * @param stage "warp" or "comp".
+     * @param stageHasShader Whether the stage has a shader of its own, which the passes feed.
+     * @return The code of each extra pass, in order; empty if the preset declares none.
+     * @throws MilkdropPresetLoadException if N is outside 1..MaxShaderPasses, a declared pass has
+     *         no code, or the stage has no shader.
+     */
+    static auto ReadShaderPasses(PresetFileParser& parsedFile, const std::string& stage, bool stageHasShader) -> std::vector<std::string>;
+
+    static constexpr int MaxShaderPasses{3}; //!< Most passes per stage, the stage's own shader included.
 
     static constexpr int DefaultPresetVersion{100}; //!< Preset version if the file does not specify one.
     static constexpr int DefaultShaderVersion{2};   //!< Shader version if the file does not specify one.
@@ -170,6 +190,9 @@ public:
 
     std::string warpShader;      //!< Warp shader code.
     std::string compositeShader; //!< Composite shader code.
+
+    std::vector<std::string> warpPassShaders;      //!< Extra warp passes before warpShader (warp_nPasses), in order.
+    std::vector<std::string> compositePassShaders; //!< Extra composite passes before compositeShader (comp_nPasses), in order.
 
     //! Per-pixel equations compiled to GLSL, injected into the warp vertex shader.
     //! Empty when the preset stays on the CPU evaluation path. See PerPixelGlslLowering.

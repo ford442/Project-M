@@ -2,6 +2,7 @@
 
 #include "Filters.hpp"
 #include "MilkdropShader.hpp"
+#include "ShaderPassChain.hpp"
 #include "VideoEcho.hpp"
 
 #include <Renderer/Mesh.hpp>
@@ -54,6 +55,21 @@ public:
     void CompileCompositeShader(PresetState& presetState);
 
     /**
+     * @brief Loads the extra composite passes (PresetState::compositePassShaders, #229). Call after LoadCompositeShader().
+     *
+     * Skipped without a composite shader that samples sampler_lastpass (including when the
+     * default shader replaced one that failed to preprocess). A pass that fails to preprocess,
+     * like one that fails to compile, puts the preset on the default composite shader.
+     * @param presetState The preset state to retrieve the pass code from.
+     */
+    void LoadCompositePasses(const PresetState& presetState);
+
+    /**
+     * @brief Number of extra composite passes before the composite shader.
+     */
+    auto CompositePassCount() const -> int;
+
+    /**
      * @brief Whether the composite shader program is still linking (RenderContext::deferShaderLink).
      */
     auto IsCompositeShaderCompilePending() const -> bool;
@@ -97,7 +113,7 @@ private:
      * @brief Replaces the composite shader with the default one and compiles it.
      * @param presetState The preset state.
      */
-    void FallBackToDefaultCompositeShader(PresetState& presetState);
+    void FallBackToDefaultCompositeShader(PresetState& presetState, const std::string& reason);
 
     /**
      * Composite mesh vertex with all required attributes.
@@ -149,6 +165,7 @@ private:
     int m_viewportHeight{}; //!< Last known viewport height.
 
     std::unique_ptr<MilkdropShader> m_compositeShader; //!< The composite shader. Either preset-defined or empty.
+    ShaderPassChain m_compositePasses{MilkdropShader::ShaderType::CompositeShader}; //!< Extra passes before m_compositeShader (comp_nPasses).
     std::unique_ptr<VideoEcho> m_videoEcho;            //!< Video echo effect. Used if no composite shader is loaded and video echo is enabled.
     std::unique_ptr<Filters> m_filters;                //!< Color post-processing filters. Used if no composite shader is loaded.
 };

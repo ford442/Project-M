@@ -14,43 +14,47 @@ TransitionShaderManager::TransitionShaderManager()
     // Compile all candidate shaders and keep only those that succeeded.
     // Each entry is {shaderBody, passCount}. Most are single-pass (1).
     // Glitch, HeatWave, MultiPassTest, PageCurl and Tunnel use 2 passes for
-    // enhanced visual quality.
+    // enhanced visual quality. The name is the shader file's
+    // TransitionShaderBuiltIn<Name>Glsl330 part.
     struct Candidate
     {
+        const char* name;
         const std::string& body;
         int passCount;
     };
 
     std::vector<Candidate> candidates;
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInBurnGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInCircleGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInCubeRotateGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInDreamyGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInGlitchGlsl330, 2});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInHeatWaveGlsl330, 2});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInKaleidoscopeGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInLiquidMeltGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInMosaicZoomGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInMotionBlurGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInMultiPassTestGlsl330, 2});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInPageCurlGlsl330, 2});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInPixelateGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInPlasmaGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInRadialWipeGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInSliceSwipeGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInSweepGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInTileFlipGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInTunnelGlsl330, 2});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInWarpGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInWaterDropGlsl330, 1});
-    candidates.emplace_back(Candidate{kTransitionShaderBuiltInZoomBlurGlsl330, 1});
+    candidates.emplace_back(Candidate{"Burn", kTransitionShaderBuiltInBurnGlsl330, 1});
+    candidates.emplace_back(Candidate{"Circle", kTransitionShaderBuiltInCircleGlsl330, 1});
+    candidates.emplace_back(Candidate{"CubeRotate", kTransitionShaderBuiltInCubeRotateGlsl330, 1});
+    candidates.emplace_back(Candidate{"Dreamy", kTransitionShaderBuiltInDreamyGlsl330, 1});
+    candidates.emplace_back(Candidate{"Glitch", kTransitionShaderBuiltInGlitchGlsl330, 2});
+    candidates.emplace_back(Candidate{"HeatWave", kTransitionShaderBuiltInHeatWaveGlsl330, 2});
+    candidates.emplace_back(Candidate{"Kaleidoscope", kTransitionShaderBuiltInKaleidoscopeGlsl330, 1});
+    candidates.emplace_back(Candidate{"LiquidMelt", kTransitionShaderBuiltInLiquidMeltGlsl330, 1});
+    candidates.emplace_back(Candidate{"MosaicZoom", kTransitionShaderBuiltInMosaicZoomGlsl330, 1});
+    candidates.emplace_back(Candidate{"MotionBlur", kTransitionShaderBuiltInMotionBlurGlsl330, 1});
+    candidates.emplace_back(Candidate{"MultiPassTest", kTransitionShaderBuiltInMultiPassTestGlsl330, 2});
+    candidates.emplace_back(Candidate{"PageCurl", kTransitionShaderBuiltInPageCurlGlsl330, 2});
+    candidates.emplace_back(Candidate{"Pixelate", kTransitionShaderBuiltInPixelateGlsl330, 1});
+    candidates.emplace_back(Candidate{"Plasma", kTransitionShaderBuiltInPlasmaGlsl330, 1});
+    candidates.emplace_back(Candidate{"RadialWipe", kTransitionShaderBuiltInRadialWipeGlsl330, 1});
+    candidates.emplace_back(Candidate{"Shatter", kTransitionShaderBuiltInShatterGlsl330, 1});
+    candidates.emplace_back(Candidate{"SliceSwipe", kTransitionShaderBuiltInSliceSwipeGlsl330, 1});
+    candidates.emplace_back(Candidate{"StarWipe", kTransitionShaderBuiltInStarWipeGlsl330, 1});
+    candidates.emplace_back(Candidate{"Sweep", kTransitionShaderBuiltInSweepGlsl330, 1});
+    candidates.emplace_back(Candidate{"TileFlip", kTransitionShaderBuiltInTileFlipGlsl330, 1});
+    candidates.emplace_back(Candidate{"Tunnel", kTransitionShaderBuiltInTunnelGlsl330, 2});
+    candidates.emplace_back(Candidate{"Warp", kTransitionShaderBuiltInWarpGlsl330, 1});
+    candidates.emplace_back(Candidate{"WaterDrop", kTransitionShaderBuiltInWaterDropGlsl330, 1});
+    candidates.emplace_back(Candidate{"ZoomBlur", kTransitionShaderBuiltInZoomBlurGlsl330, 1});
 
     for (auto& entry : candidates)
     {
         auto shader = CompileTransitionShader(entry.body);
         if (shader != nullptr)
         {
-            m_transitionShaders.push_back({std::move(shader), entry.passCount});
+            m_transitionShaders.push_back({std::move(shader), entry.passCount, entry.name});
         }
     }
 
@@ -93,6 +97,29 @@ auto TransitionShaderManager::PassCountAt(std::size_t index) const -> int
     }
 
     return m_transitionShaders.at(index).passCount;
+}
+
+auto TransitionShaderManager::NameAt(std::size_t index) const -> std::string
+{
+    if (index >= m_transitionShaders.size())
+    {
+        return {};
+    }
+
+    return m_transitionShaders.at(index).name;
+}
+
+auto TransitionShaderManager::IndexOf(const std::string& name) const -> std::optional<std::size_t>
+{
+    for (std::size_t index = 0; index < m_transitionShaders.size(); ++index)
+    {
+        if (m_transitionShaders.at(index).name == name)
+        {
+            return index;
+        }
+    }
+
+    return std::nullopt;
 }
 
 auto TransitionShaderManager::GetPassCount(const std::shared_ptr<Shader>& shader) const -> int

@@ -1,0 +1,34 @@
+MILKDROP_PRESET_VERSION=201
+PSVERSION=2
+PSVERSION_WARP=2
+PSVERSION_COMP=2
+[preset00]
+per_frame_1000=// two-pass warp (#229, docs/MILK_SHADER_PASSES.md)
+
+// warp_nPasses=2: warp_pass1_ runs first and draws a gradient into its own target;
+// the warp shader then shows that target (sampler_lastpass) instead of the feedback
+// image. Red grows left to right and green top to bottom, as uv_orig does, so the
+// frame also shows that the pass output is upright. Blue is iPass * 0.5: 0 in the
+// pass, 0.5 in the warp shader. ShaderPassTest reads it back.
+fDecay=1
+zoom=1
+rot=0
+warp=0
+wave_a=0
+ob_size=0
+ib_size=0
+bMotionVectorsOn=0
+
+warp_nPasses=2
+warp_pass1_1=`shader_body
+warp_pass1_2=`{
+warp_pass1_3=`ret = float3(uv_orig.x, uv_orig.y, iPass * 0.5);
+warp_pass1_4=`}
+warp_1=`shader_body
+warp_2=`{
+warp_3=`ret = float3(tex2D(sampler_lastpass, uv_orig).xy, iPass * 0.5);
+warp_4=`}
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = tex2D(sampler_main, uv).xyz;
+comp_4=`}

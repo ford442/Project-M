@@ -91,33 +91,69 @@ auto FinalComposite::SelectCompositeShaderSource(const std::string& compositeSha
     }
 }
 
+void FinalComposite::LoadCompositePasses(const PresetState& presetState)
+{
+    m_compositePasses.Clear();
+    if (!m_compositeShader || presetState.compositePassShaders.empty())
+    {
+        return;
+    }
+    if (!m_compositeShader->ReferencesLastPass())
+    {
+        // Their output would go unused.
+        LOG_WARN("[FinalComposite] comp_nPasses is set, but the composite shader never samples sampler_lastpass; skipping the extra passes.");
+        return;
+    }
+
+    try
+    {
+        m_compositePasses.Load(presetState.compositePassShaders);
+    }
+    catch (const Renderer::ShaderException& ex)
+    {
+        LOG_ERROR("[FinalComposite] Error loading composite pass shader code: " + ex.message());
+        m_compositePasses.Clear();
+        // Compiled when the preset is initialized, with the rest.
+        m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
+        m_compositeShader->LoadCode(defaultCompositeShader);
+    }
+}
+
+auto FinalComposite::CompositePassCount() const -> int
+{
+    return m_compositePasses.Count();
+}
+
 void FinalComposite::CompileCompositeShader(PresetState& presetState)
 {
     if (m_compositeShader)
     {
         try
         {
+            // The composite shader first, as in PerPixelMesh::CompileWarpShader().
             m_compositeShader->LoadTexturesAndCompile(presetState);
+            m_compositePasses.Compile(presetState);
+            m_compositeShader->SetPassIndex(m_compositePasses.Count());
             if (!m_compositeShader->IsCompilePending())
             {
                 LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
             }
         }
-        catch (Renderer::ShaderException&)
+        catch (Renderer::ShaderException& ex)
         {
-            FallBackToDefaultCompositeShader(presetState);
+            FallBackToDefaultCompositeShader(presetState, ex.message());
         }
     }
 }
 
 auto FinalComposite::IsCompositeShaderCompilePending() const -> bool
 {
-    return m_compositeShader && m_compositeShader->IsCompilePending();
+    return m_compositeShader && (m_compositeShader->IsCompilePending() || m_compositePasses.IsCompilePending());
 }
 
 auto FinalComposite::IsCompositeShaderCompileComplete() const -> bool
 {
-    return !m_compositeShader || m_compositeShader->IsCompileComplete();
+    return !m_compositeShader || (m_compositeShader->IsCompileComplete() && m_compositePasses.IsCompileComplete());
 }
 
 void FinalComposite::FinishCompositeShader(PresetState& presetState)
@@ -130,19 +166,21 @@ void FinalComposite::FinishCompositeShader(PresetState& presetState)
     try
     {
         m_compositeShader->FinishCompile(presetState);
+        m_compositePasses.FinishCompile(presetState);
         LOG_DEBUG("[FinalComposite] Successfully compiled composite shader code.");
     }
-    catch (Renderer::ShaderException&)
+    catch (Renderer::ShaderException& ex)
     {
-        FallBackToDefaultCompositeShader(presetState);
+        FallBackToDefaultCompositeShader(presetState, ex.message());
     }
 }
 
-void FinalComposite::FallBackToDefaultCompositeShader(PresetState& presetState)
+void FinalComposite::FallBackToDefaultCompositeShader(PresetState& presetState, const std::string& reason)
 {
-    LOG_WARN("[FinalComposite] Error compiling composite warp shader code - Using fallback shader.");
+    LOG_WARN("[FinalComposite] Error compiling composite shader code - Using fallback shader. " + reason);
 
-    // Fall back to default shader
+    // Fall back to default shader, which has no extra passes.
+    m_compositePasses.Clear();
     m_compositeShader = std::make_unique<MilkdropShader>(MilkdropShader::ShaderType::CompositeShader);
     m_compositeShader->LoadCode(defaultCompositeShader);
     m_compositeShader->LoadTexturesAndCompile(presetState);
@@ -154,6 +192,12 @@ void FinalComposite::Draw(const PresetState& presetState, const PerFrameContext&
     {
         InitializeMesh(presetState);
         ApplyHueShaderColors(presetState);
+
+        // Extra passes (comp_nPasses) draw the same mesh into their own targets first.
+        m_compositeShader->SetLastPassTexture(m_compositePasses.Render(presetState, perFrameContext, [this](MilkdropShader& pass) {
+            Renderer::Device::SetPipeline(m_compositeMesh.Pipeline(pass.Shader(), Renderer::Device::BlendState::Replace()));
+            m_compositeMesh.Draw();
+        }));
 
         // Render the grid, no blending.
         m_compositeShader->LoadVariables(presetState, perFrameContext);

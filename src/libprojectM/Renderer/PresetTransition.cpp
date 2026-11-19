@@ -24,6 +24,7 @@
 
 #include "Renderer/PresetTransition.hpp"
 
+#include "Renderer/Texture.hpp"
 #include "Renderer/TextureManager.hpp"
 
 #include <Logging.hpp>
@@ -326,6 +327,28 @@ void PresetTransition::Draw(const Preset& oldPreset,
         noiseDescriptors[textureUnit - 2].Bind(textureUnit, *m_transitionShader);
         textureUnit++;
     }
+    const int noiseTextureEnd = textureUnit;
+
+    // Host wipe mask for the Masked blend mode, looked up once per transition and only
+    // if this transition uses that mode. Without one the shader uses its procedural noise.
+    if (m_blendMode == TransitionBlendMode::Masked && !m_maskLookedUp)
+    {
+        m_maskLookedUp = true;
+        if (auto mask = context.textureManager->FindTexture(std::string("fc_") + MaskTextureName))
+        {
+            m_maskTexture = mask->Texture();
+        }
+    }
+    const int maskTextureUnit = textureUnit;
+    const bool maskBound = m_blendMode == TransitionBlendMode::Masked && m_maskTexture != nullptr && !m_maskTexture->Empty();
+    m_transitionShader->SetUniformInt("iMaskBound", maskBound ? 1 : 0);
+    if (maskBound)
+    {
+        commands.SetActiveTextureUnit(maskTextureUnit);
+        m_transitionShader->SetUniformInt("iMask", maskTextureUnit);
+        m_maskTexture->Bind(maskTextureUnit, m_presetSampler);
+        textureUnit++;
+    }
 
     // ------------------------------------------------------------------
     // Render the transition quad (single-pass or multi-pass)
@@ -376,9 +399,13 @@ void PresetTransition::Draw(const Preset& oldPreset,
     oldTex->Unbind(0);
     newTex->Unbind(1);
 
-    for (int i = 2; i < textureUnit; i++)
+    for (int i = 2; i < noiseTextureEnd; i++)
     {
         noiseDescriptors[i - 2].Unbind(i);
+    }
+    if (maskBound)
+    {
+        m_maskTexture->Unbind(maskTextureUnit);
     }
 
     commands.SetActiveTextureUnit(0);

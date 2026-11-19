@@ -64,7 +64,9 @@ add_executable(projectM-unittest
         RhythmAnalyzerTest.cpp
         BeatLockedSwitchTest.cpp
         ShaderCacheTest.cpp
+        ShaderPassTest.cpp
         ShaderTranspileCacheTest.cpp
+        TransitionLooksTest.cpp
         UserSpriteApiTest.cpp
         UtilsTest.cpp
         WaveformAlignerTest.cpp

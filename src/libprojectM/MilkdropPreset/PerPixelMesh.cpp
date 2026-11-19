@@ -101,18 +101,54 @@ auto PerPixelMesh::SelectWarpShaderSource(int warpShaderVersion, const std::stri
     }
 }
 
+void PerPixelMesh::LoadWarpPasses(const PresetState& presetState)
+{
+    m_warpPasses.Clear();
+    if (!m_warpShader || presetState.warpPassShaders.empty())
+    {
+        return;
+    }
+    if (!m_warpShader->ReferencesLastPass())
+    {
+        // Their output would go unused.
+        LOG_WARN("[PerPixelMesh] warp_nPasses is set, but the warp shader never samples sampler_lastpass; skipping the extra passes.");
+        return;
+    }
+
+    try
+    {
+        m_warpPasses.Load(presetState.warpPassShaders);
+    }
+    catch (Renderer::ShaderException& ex)
+    {
+        LOG_ERROR("[PerPixelMesh] Error loading warp pass shader code: " + ex.message());
+        m_warpPasses.Clear();
+        m_warpShader.reset();
+    }
+}
+
+auto PerPixelMesh::WarpPassCount() const -> int
+{
+    return m_warpPasses.Count();
+}
+
 void PerPixelMesh::CompileWarpShader(PresetState& presetState)
 {
     if (m_warpShader)
     {
         try
         {
+            // The warp shader first: it resolves the random texture slots it shares with its
+            // passes and the composite shader, as background preparation predicted.
             m_warpShader->LoadTexturesAndCompile(presetState);
+            m_warpPasses.Compile(presetState);
+            m_warpShader->SetPassIndex(m_warpPasses.Count());
             LOG_DEBUG("[PerPixelMesh] Successfully compiled warp shader code.");
         }
-        catch (Renderer::ShaderException&)
+        catch (Renderer::ShaderException& ex)
         {
-            LOG_ERROR("[PerPixelMesh] Error compiling warp shader code.");
+            LOG_ERROR("[PerPixelMesh] Error compiling warp shader code: " + ex.message());
+            m_warpPasses.Clear();
             m_warpShader.reset();
         }
     }
@@ -120,12 +156,12 @@ void PerPixelMesh::CompileWarpShader(PresetState& presetState)
 
 auto PerPixelMesh::IsWarpShaderCompilePending() const -> bool
 {
-    return m_warpShader && m_warpShader->IsCompilePending();
+    return m_warpShader && (m_warpShader->IsCompilePending() || m_warpPasses.IsCompilePending());
 }
 
 auto PerPixelMesh::IsWarpShaderCompileComplete() const -> bool
 {
-    return !m_warpShader || m_warpShader->IsCompileComplete();
+    return !m_warpShader || (m_warpShader->IsCompileComplete() && m_warpPasses.IsCompileComplete());
 }
 
 void PerPixelMesh::FinishWarpShader(PresetState& presetState)
@@ -138,11 +174,13 @@ void PerPixelMesh::FinishWarpShader(PresetState& presetState)
     try
     {
         m_warpShader->FinishCompile(presetState);
+        m_warpPasses.FinishCompile(presetState);
         LOG_DEBUG("[PerPixelMesh] Successfully compiled warp shader code.");
     }
-    catch (Renderer::ShaderException&)
+    catch (Renderer::ShaderException& ex)
     {
-        LOG_ERROR("[PerPixelMesh] Error compiling warp shader code.");
+        LOG_ERROR("[PerPixelMesh] Error compiling warp shader code: " + ex.message());
+        m_warpPasses.Clear();
         m_warpShader.reset();
     }
 }
@@ -550,37 +588,32 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
     }
     else
     {
+        const auto setWarpUniforms = [&](Renderer::Shader& shader) {
+            shader.SetUniformFloat4("aspect", {presetState.renderContext.aspectX,
+                                               presetState.renderContext.aspectY,
+                                               presetState.renderContext.invAspectX,
+                                               presetState.renderContext.invAspectY});
+            shader.SetUniformFloat("warpTime", warpTime);
+            shader.SetUniformFloat("warpScaleInverse", warpScaleInverse);
+            shader.SetUniformFloat4("warpFactors", warpFactors);
+            shader.SetUniformFloat2("texelOffset", texelOffsets);
+            shader.SetUniformFloat("decay", decay);
+            SetPerPixelUniforms(shader, presetState, perFrameContext);
+        };
+
+        // Extra passes (warp_nPasses) draw the same mesh into their own targets first.
+        m_warpShader->SetLastPassTexture(m_warpPasses.Render(presetState, perFrameContext, [&](MilkdropShader& pass) {
+            setWarpUniforms(pass.Shader());
+            DrawWarpMesh(presetState, perFrameContext, pass.Shader());
+        }));
+
         m_warpShader->LoadVariables(presetState, perFrameContext);
         auto& shader = m_warpShader->Shader();
         warpProgram = &shader;
-        shader.SetUniformFloat4("aspect", {presetState.renderContext.aspectX,
-                                           presetState.renderContext.aspectY,
-                                           presetState.renderContext.invAspectX,
-                                           presetState.renderContext.invAspectY});
-        shader.SetUniformFloat("warpTime", warpTime);
-        shader.SetUniformFloat("warpScaleInverse", warpScaleInverse);
-        shader.SetUniformFloat4("warpFactors", warpFactors);
-        shader.SetUniformFloat2("texelOffset", texelOffsets);
-        shader.SetUniformFloat("decay", decay);
-        SetPerPixelUniforms(shader, presetState, perFrameContext);
+        setWarpUniforms(shader);
     }
 
-    assert(!presetState.mainTexture.expired());
-    presetState.mainTexture.lock()->Bind(0);
-
-    // Set wrap mode and bind the sampler to get interpolation right.
-    if (*perFrameContext.wrap > 0.0001f)
-    {
-        m_perPixelSampler.WrapMode(Renderer::Device::WrapMode::Repeat);
-    }
-    else
-    {
-        m_perPixelSampler.WrapMode(Renderer::Device::WrapMode::ClampToEdge);
-    }
-    m_perPixelSampler.Bind(0);
-
-    Renderer::Device::SetPipeline(WarpPipeline(*warpProgram));
-    m_warpMesh.Draw();
+    DrawWarpMesh(presetState, perFrameContext, *warpProgram);
 
     Renderer::Mesh::Unbind();
     Renderer::Sampler::Unbind(0);
@@ -596,6 +629,27 @@ auto PerPixelMesh::WarpPipeline(const Renderer::Shader& shader) const -> Rendere
     desc.vertexLayout.AddBuffer(6, 2, sizeof(Renderer::Point));
     desc.vertexLayout.AddBuffer(7, 2, sizeof(Renderer::Point));
     return desc;
+}
+
+void PerPixelMesh::DrawWarpMesh(const PresetState& presetState, const PerFrameContext& perFrameContext,
+                                const Renderer::Shader& program)
+{
+    assert(!presetState.mainTexture.expired());
+    presetState.mainTexture.lock()->Bind(0);
+
+    // Set wrap mode and bind the sampler to get interpolation right.
+    if (*perFrameContext.wrap > 0.0001f)
+    {
+        m_perPixelSampler.WrapMode(Renderer::Device::WrapMode::Repeat);
+    }
+    else
+    {
+        m_perPixelSampler.WrapMode(Renderer::Device::WrapMode::ClampToEdge);
+    }
+    m_perPixelSampler.Bind(0);
+
+    Renderer::Device::SetPipeline(WarpPipeline(program));
+    m_warpMesh.Draw();
 }
 
 auto PerPixelMesh::HasCustomWarpShader() const -> bool

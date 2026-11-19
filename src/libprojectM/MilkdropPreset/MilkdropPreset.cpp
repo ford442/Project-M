@@ -521,11 +521,17 @@ void MilkdropPreset::LoadShaderCode(MilkdropPreparedPreset* prepared)
     {
         m_perPixelMesh.LoadWarpShader(std::move(prepared->m_warpShader));
         m_finalComposite.LoadCompositeShader(m_state, std::move(prepared->m_compositeShader));
-        return;
+    }
+    else
+    {
+        m_perPixelMesh.LoadWarpShader(m_state);
+        m_finalComposite.LoadCompositeShader(m_state);
     }
 
-    m_perPixelMesh.LoadWarpShader(m_state);
-    m_finalComposite.LoadCompositeShader(m_state);
+    // Extra shader passes (#229) are not prepared off the render thread: only presets that
+    // declare them have any, and they are analysed here and transpiled at compile time.
+    m_perPixelMesh.LoadWarpPasses(m_state);
+    m_finalComposite.LoadCompositePasses(m_state);
 }
 
 auto MilkdropPreset::ParseFilename(const std::string& filename) -> std::string

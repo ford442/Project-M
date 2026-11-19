@@ -142,6 +142,22 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 | `iChannel0` | `sampler2D` | The old (fading out) preset output |
 | `iChannel1` | `sampler2D` | The new (fading in) preset output |
 
+### Wipe mask (`Masked` blend mode)
+
+| Name | Type | Description |
+|------|------|-------------|
+| `iMask` | `sampler2D` | The host's wipe mask, `pm_wipe_mask`. Only bound while the blend mode is `Masked` |
+| `iMaskBound` | `int` | 1 while `iMask` holds the host's mask, 0 otherwise |
+
+`blendMasked()` (and so every transition that blends through `prjmBlendPresets()` in `Masked`
+mode) uses the mask's luma as each pixel's reveal threshold: black reveals first, white last. The
+image is read upright (v = 0 is its top row) and stretched over the frame. A host provides it by
+writing `/textures/pm_wipe_mask.png` (any format the texture loader reads) into the engine's
+texture path, or with a live texture named `pm_wipe_mask` (`projectm_texture_slot_register()`,
+`docs/LIVE_INPUT.md`). Without one, `Masked` uses its procedural two-octave noise. The engine
+looks the mask up once per transition, quietly when there is none; `t == 0` and `t == 1` stay
+exact in both cases.
+
 ### Noise Samplers
 
 These are the same noise textures used by Milkdrop presets:
@@ -179,7 +195,7 @@ Convenience macros are also defined:
 
 ## Built-in Effects
 
-As of the latest version, projectM includes **18 built-in transition effects**.
+As of the latest version, projectM includes **24 built-in transition shaders** (23 looks plus `MultiPassTest`; SimpleBlend is the built-in fallback, not part of the pool).
 
 > **Audio reactivity.** Most effects respond to `iBass`, `iMid`, or `iTreb` (and their attenuated variants) — bass typically drives intensity/zoom, mid drives rotation/spin, and treble drives chromatic and color cycling. See each effect for specifics.
 
@@ -193,6 +209,9 @@ As of the latest version, projectM includes **18 built-in transition effects**.
 | **SliceSwipe** | 8–22 slices slide off-screen with staggered, hash-randomized per-slice delay and direction. Bass adds a faint sheen across the active slices. |
 | **PageCurl** | 3D-ish page-turn with curl shadow, leading-edge highlight, and a darker desaturated paper-back. Mid lightly modulates curl radius. |
 | **CubeRotate** | Perspective rotation about X or Y. The old preset rotates away as the new face rolls in, with cosine-based face shading. |
+| **RadialWipe** | Clock/radar sweep around a pivot with a glowing seam. Mid wobbles the edge; bass brightens the seam. |
+| **StarWipe** | Star-shaped iris (5–7 points, per transition) that grows from the centre to the corners. Bass pumps the points mid-transition; rim light and treble glitter on the edge. Goes through the blend library, so every blend mode applies. |
+| **Shatter** | The old frame breaks into ~25 Voronoi shards (jittered from `iRandStatic`) that fall away one by one, each translating, spinning and shrinking on its own timing, with lit cracks and treble sparkle. The new preset shows through the gaps. |
 
 ### Distortion Effects
 
@@ -210,6 +229,8 @@ As of the latest version, projectM includes **18 built-in transition effects**.
 | **Plasma** | Turbulent fractal value-noise dissolve with a color-cycled molten edge. Bass pumps the turbulence; treble cycles the edge hue. |
 | **Pixelate** | Progressive pixelation that resolves to sharp pixels of the new preset. Bass kicks momentarily blow up block size during the early phase. |
 | **Glitch** | RGB channel split + horizontal scanline displacement. Bass amplifies glitch intensity. |
+| **Burn** | Burning-paper dissolve along a noise field, with an ember edge and charring. Bass pumps the embers; treble flickers the flame colour. |
+| **LiquidMelt** | Columns of the old preset sag and drip off the bottom at staggered speeds, with a wet meniscus highlight. |
 
 ### Blur Effects
 
@@ -218,6 +239,7 @@ As of the latest version, projectM includes **18 built-in transition effects**.
 | **ZoomBlur** | Radial zoom blur with chromatic aberration, randomized focal point (50% off-center), tent-weighted samples, and exponential dissolve. Bass amps blur; treble pumps chroma. |
 | **MotionBlur** | Directional 16-tap motion blur wipe at a random angle. Bass amplifies blur length. |
 | **Dreamy** | Heavy spiral blur, midpoint desaturation, soft pastel lift, filmic highlight bloom, and vignette. Mid drives the haze breathing. |
+| **Tunnel** | Two passes: the old preset recedes down a swirling tunnel while the new one rushes out of the vanishing point, then chroma, streaks and a bass-pumped glow. |
 | **MosaicZoom** | Tiles fly outward from their own centers with per-tile delay and treble-driven rotation jitter. The new preset bleeds in beneath, with drop shadows under each tile. |
 
 ### Blends

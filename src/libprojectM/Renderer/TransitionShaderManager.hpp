@@ -2,7 +2,10 @@
 
 #include "Renderer/Shader.hpp"
 
+#include <cstddef>
+#include <optional>
 #include <random>
+#include <string>
 
 namespace libprojectM {
 namespace Renderer {
@@ -55,6 +58,20 @@ public:
      */
     auto PassCountAt(std::size_t index) const -> int;
 
+    /**
+     * @brief Returns the name of a compiled shader by index, e.g. "StarWipe".
+     * @param index Zero-based index into the compiled shader list.
+     * @return The name, or an empty string if @p index is out of range.
+     */
+    auto NameAt(std::size_t index) const -> std::string;
+
+    /**
+     * @brief Finds a compiled shader by name.
+     * @param name The shader name, as NameAt() returns it.
+     * @return The index, or nullopt if no compiled shader has that name.
+     */
+    auto IndexOf(const std::string& name) const -> std::optional<std::size_t>;
+
 private:
     /**
      * @brief Compiles a single transition shader program.
@@ -66,6 +83,7 @@ private:
     {
         std::shared_ptr<Shader> shader; //!< The compiled transition shader.
         int passCount{1};               //!< Number of render passes (1 = single-pass, 2+ = multi-pass).
+        std::string name;               //!< Name, e.g. "StarWipe".
     };
 
     std::vector<TransitionEntry> m_transitionShaders; //!< Currently loaded and compiled transition shaders.

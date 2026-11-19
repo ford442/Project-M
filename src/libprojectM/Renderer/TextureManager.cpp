@@ -42,6 +42,26 @@ TextureSamplerDescriptor TextureManager::GetTexture(const std::string& fullName)
     return {m_textures[unqualifiedName], m_samplers.at({wrapMode, filterMode}), fullName, unqualifiedName};
 }
 
+auto TextureManager::FindTexture(const std::string& fullName) -> std::optional<TextureSamplerDescriptor>
+{
+    std::string unqualifiedName;
+    Device::WrapMode wrapMode{};
+    Device::FilterMode filterMode{};
+
+    ExtractTextureSettings(fullName, wrapMode, filterMode, unqualifiedName);
+    if (m_textures.find(unqualifiedName) != m_textures.end())
+    {
+        return TextureSamplerDescriptor{m_textures[unqualifiedName], m_samplers.at({wrapMode, filterMode}), fullName, unqualifiedName};
+    }
+
+    auto descriptor = TryLoadingTexture(fullName, false);
+    if (descriptor.Texture() == m_placeholderTexture)
+    {
+        return std::nullopt;
+    }
+    return descriptor;
+}
+
 auto TextureManager::GetSampler(const std::string& fullName) -> std::shared_ptr<class Sampler>
 {
     std::string unqualifiedName;
@@ -339,7 +359,7 @@ auto TextureManager::RgbaImageBytes(int width, int height) -> uint64_t
     return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u;
 }
 
-auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSamplerDescriptor
+auto TextureManager::TryLoadingTexture(const std::string& name, bool warnIfMissing) -> TextureSamplerDescriptor
 {
     Device::WrapMode wrapMode{};
     Device::FilterMode filterMode{};
@@ -429,7 +449,10 @@ auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSample
         }
     }
 
-    LOG_WARN("[TextureManager] Failed to find requested texture \"" + unqualifiedName + "\"");
+    if (warnIfMissing)
+    {
+        LOG_WARN("[TextureManager] Failed to find requested texture \"" + unqualifiedName + "\"");
+    }
 
     // Return a placeholder.
     return {m_placeholderTexture, m_samplers.at({wrapMode, filterMode}), name, unqualifiedName};

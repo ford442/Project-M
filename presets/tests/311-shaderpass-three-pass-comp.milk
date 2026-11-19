@@ -1,0 +1,34 @@
+MILKDROP_PRESET_VERSION=201
+PSVERSION=2
+PSVERSION_WARP=2
+PSVERSION_COMP=2
+[preset00]
+per_frame_1000=// three-pass composite (#229, docs/MILK_SHADER_PASSES.md)
+
+// comp_nPasses=3: two extra passes before the composite shader, alternating between
+// the two pass targets. Each stage reads the one before (pass 2 with GetLastPass(),
+// the composite shader with iLastPassTex) and adds 0.25 * iPass to one channel, so
+// the frame is a flat (0.4, 0.25, 0.5) only if every pass ran, in order, with the
+// right pass number. ShaderPassTest reads it back.
+fDecay=1
+zoom=1
+rot=0
+warp=0
+wave_a=0
+ob_size=0
+ib_size=0
+bMotionVectorsOn=0
+
+comp_nPasses=3
+comp_pass1_1=`shader_body
+comp_pass1_2=`{
+comp_pass1_3=`ret = float3(0.8, 0.0, 0.0) + float3(0.0, 0.0, 0.25 * iPass);
+comp_pass1_4=`}
+comp_pass2_1=`shader_body
+comp_pass2_2=`{
+comp_pass2_3=`ret = GetLastPass(uv) * float3(0.5, 0.0, 0.0) + float3(0.0, 0.25 * iPass, 0.0);
+comp_pass2_4=`}
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = tex2D(iLastPassTex, uv).xyz + float3(0.0, 0.0, 0.25 * iPass);
+comp_4=`}

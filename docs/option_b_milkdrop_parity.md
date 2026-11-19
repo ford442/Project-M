@@ -1,7 +1,7 @@
 # Option B: Milkdrop Blending Parity (Long-term Incremental Project)
 
 **Status:** Active — Phase B2 complete, B3 complete (all 5 blend modes shipped),
-B4 complete, B5 in progress (4 favorites shipped), B6 in progress  
+B4 complete, B5 in progress (6 favorites shipped, host mask texture for Masked), B6 in progress  
 **Approach:** Incremental sessions (at least once per week)  
 **Goal:** Make Project-M’s preset transitions feel as smooth, organic, and high-quality as classic Milkdrop.
 
@@ -28,7 +28,7 @@ We want to close the gap while staying Emscripten/WebGL compatible.
 | **B2**    | Multi-pass Transition Support     | Enable 2-pass and simple multi-pass effects    | High     | 3–4           | **Done**   |
 | **B3**    | Advanced Blending & Compositing   | Add more sophisticated blending modes          | Medium   | 3–4           | **Done**    |
 | **B4**    | Timing, Synchronization & Polish  | Match Milkdrop’s frame-accurate feel           | High     | 2–3           | **Done**    |
-| **B5**    | Exotic Effects & Favorites        | Replicate beloved Milkdrop transitions         | Medium   | Ongoing       | **In progress** (4 shipped) |
+| **B5**    | Exotic Effects & Favorites        | Replicate beloved Milkdrop transitions         | Medium   | Ongoing       | **In progress** (6 shipped) |
 | **B6**    | Performance & Parallelism         | Add OpenMP pragmas + other optimizations       | Medium   | 2–4           | **Started** |
 
 ---
@@ -88,6 +88,14 @@ We want to close the gap while staying Emscripten/WebGL compatible.
   remapped so `t == 0` and `t == 1` are still exact — a Masked transition starts
   and finishes on the same frame as any other. All 5 modes are now in the random
   rotation (`Count`, not `Masked`, bounds the draw).
+- **Host mask texture for `Masked`** (#229). A host that puts a grayscale image at
+  `/textures/pm_wipe_mask.png` in the engine's texture path (or registers a live
+  texture named `pm_wipe_mask`, see `docs/LIVE_INPUT.md`) authors the wipe shape:
+  `blendMasked()` reads the mask's luma as the per-pixel threshold, black first,
+  white last, upright (v = 0 at the top of the image), stretched over the frame.
+  It is bound as `iMask` with `iMaskBound = 1`, looked up once per transition and
+  only for `Masked`. Without one the procedural noise above is used. The same
+  threshold remap keeps `t == 0` and `t == 1` exact either way.
 - **End-of-transition pop fixed.** Additive ended on `old + new`, Multiplicative
   on `old * new` and Screen on `screen(old, new)` — none of which is the new
   preset, so the frame the transition completed and the renderer hard-cut to the
@@ -127,6 +135,8 @@ every push in the "Transition shader GLSL/GLES validation" job.
 | RadialWipe (B5) | ✅ | Blend factor = clock-sweep reveal |
 | LiquidMelt (B5) | ✅ | Blend factor = melt-line reveal |
 | Tunnel (B5)  | ✅ | Multi-pass; blend on the zoom-trail hand-off in pass 0 |
+| StarWipe (B5) | ✅ | Blend factor = star-mask reveal |
+| Shatter (B5) | ➖ | Per-shard geometric select: each pixel shows a shard of the old preset or the new one behind it |
 | Circle       | ➖ | Geometric per-pixel select + chromatic aberration; a blend mode would fight the hard circular boundary |
 | CubeRotate   | ➖ | Per-pixel face selection (3D geometry), not a full-frame crossfade |
 | TileFlip     | ➖ | Per-tile card front/back selection |
@@ -182,9 +192,9 @@ because each pixel shows one preset or the other rather than a mixed result.
     supersede each other: every superseded poll resolves rather than dangling,
     exactly one transition is started, and no poll loop survives the storm
 
-### Phase B5: Exotic Effects & Favorites (In progress — 4 shipped)
+### Phase B5: Exotic Effects & Favorites (In progress — 6 shipped)
 
-**Implemented (4 high-impact Milkdrop-style looks):**
+**Implemented (6 high-impact Milkdrop-style looks):**
 - **Burn** — the classic "burn away" dissolve: the old preset erodes along a
   two-octave value-noise field like burning paper, with a hot ember edge that
   glows just ahead of the advancing burn line and a charred darkening behind it.
@@ -205,8 +215,19 @@ because each pixel shows one preset or the other rather than a mixed result.
   bass-pumped tunnel-mouth glow, treble rim sparkle and a speed-tightened
   vignette. The vanishing point, swirl direction and swirl strength are
   randomized per transition.
+- **Shatter** (#229) — glass break: the old frame cracks into about 25 Voronoi
+  shards (seeds jittered per transition from `iRandStatic`) that fall away one by
+  one, each translating, spinning and shrinking on its own timing as
+  `iProgressEased` advances, with a flash and lit edges on the cracks and treble
+  sparkle along them. The new preset shows through the gaps. At rest the frame is
+  sampled unchanged, so both endpoints are exact.
+- **StarWipe** (#229) — a star-shaped iris (5 to 7 points, chosen per transition)
+  grows from the centre until it covers the corners. Bass pumps the points
+  (deeper valleys between them) mid-transition only, a rim light and treble
+  glitter ride the edge, and the reveal goes through `prjmBlendPresets()` with the
+  threshold remap, so every blend mode works and the endpoints are exact.
 
-All four reuse the Phase B3 blend library and are registered in
+All six reuse the Phase B3 blend library and are registered in
 `TransitionShaderManager` + `Renderer/CMakeLists.txt`.
 
 **Intentionally deferred** (documented as different, not ported):
@@ -236,17 +257,13 @@ All pragmas use the existing `#ifdef PRJM_ENABLE_OPENMP` guard with `schedule(st
 
 ## Next Session
 
-**Recommended focus:** Continue B5 with 1–2 more favorites (a shatter/glass-break
-look and a "star wipe" are the remaining obvious gaps), and/or capture
-side-by-side screenshots/GIFs of the shipped Burn / RadialWipe / LiquidMelt /
-Tunnel transitions for the docs — the nightly screenshot workflow
-(`.github/workflows/nightly_preset_screenshots.yml`) already builds the
-dual-pipeline bundle and is the natural place to hang capture from.
+**Recommended focus:** capture side-by-side GIFs of the older Burn / RadialWipe /
+LiquidMelt / Tunnel transitions too (Shatter and StarWipe stills are in
+`docs/images/transitions/`, made with `scripts/capture_transition_stills.sh`).
 
-**Blend-mode stretch (optional):** the `Masked` dissolve currently uses a
-procedural noise field. Feeding it from a user-supplied grayscale mask texture
-would let hosts author custom wipe shapes, but needs a texture-binding path and
-a fallback for when no mask is bound.
+**Done** (#229): the shatter and star-wipe looks, and the host mask texture for
+`Masked`. Preset-authored shader passes (`warp_nPasses`/`comp_nPasses`) are a
+preset feature rather than a transition one; see `docs/MILK_SHADER_PASSES.md`.
 
 ---
 

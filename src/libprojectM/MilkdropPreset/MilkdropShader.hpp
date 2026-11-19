@@ -192,6 +192,33 @@ public:
      */
     auto Shader() -> Renderer::Shader&;
 
+    /**
+     * @brief Makes this shader one of a preset's extra passes (#229, see ShaderPassChain).
+     *
+     * An extra pass renders Y-flipped, so its output has the orientation sampler_main has and
+     * the next pass can sample it with the same uv. It is not looked up in or stored to the
+     * transpiled-GLSL cache, which holds one shader per preset and type. Call before
+     * LoadTexturesAndCompile().
+     */
+    void SetExtraPass();
+
+    /**
+     * @brief Whether the shader samples <tt>sampler_lastpass</tt> (any prefix), i.e. uses the
+     *        output of extra passes before it. Valid once code is loaded.
+     */
+    auto ReferencesLastPass() const -> bool;
+
+    /**
+     * @brief Sets the pass number the shader sees as <tt>iPass</tt> (0 for the first pass).
+     */
+    void SetPassIndex(int passIndex);
+
+    /**
+     * @brief Sets the image <tt>sampler_lastpass</tt> shows: the previous pass's output, or
+     *        nullptr for the first pass, which sees the main texture there.
+     */
+    void SetLastPassTexture(std::shared_ptr<Renderer::Texture> texture);
+
 private:
     /**
      * @brief Prepares the shader code to be translated into GLSL.
@@ -230,7 +257,12 @@ private:
     std::unique_ptr<PreparedMilkdropShader> m_prepared; //!< Speculative transpile from background preparation, until compiled.
     bool m_deferredLinkUsesCachedGlsl{false};           //!< The pending link is of cached GLSL, which may be stale.
 
+    bool m_extraPass{false};                              //!< One of a preset's extra passes (SetExtraPass()).
+    int m_passIndex{0};                                   //!< iPass.
+    std::shared_ptr<Renderer::Texture> m_lastPassTexture; //!< What sampler_lastpass shows; nullptr: the main texture.
+
     std::vector<Renderer::TextureSamplerDescriptor> m_mainTextureDescriptors;    //!< Descriptors for all main texture references.
+    std::vector<Renderer::TextureSamplerDescriptor> m_lastPassDescriptors;       //!< Descriptors for all sampler_lastpass references.
     std::vector<Renderer::TextureSamplerDescriptor> m_textureSamplerDescriptors; //!< Descriptors of all referenced samplers in the shader code.
 
     std::array<float, 4> m_randValues{};               //!< Random values which don't change every frame.

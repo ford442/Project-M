@@ -40,6 +40,8 @@
     { "path": "presets/tests/261-compshader-noisevol_lq.milk", "label": "composite shader + 3D noise volume" },
     { "path": "presets/tests/270-compshader-solid-color.milk", "label": "composite shader, solid output" },
     { "path": "presets/tests/300-beatdetect-bassmidtreb.milk", "label": "beat detection, bass/mid/treble" },
+    { "path": "presets/tests/310-shaderpass-two-pass-warp.milk", "label": "extra warp shader pass (warp_nPasses=2, #229)" },
+    { "path": "presets/tests/311-shaderpass-three-pass-comp.milk", "label": "two extra composite passes (comp_nPasses=3, #229)" },
     {
       "path": "presets/custom/milk011.milk",
       "label": "heavy multi-pass warp + blur",

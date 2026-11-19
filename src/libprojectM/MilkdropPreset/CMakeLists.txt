@@ -84,6 +84,8 @@ add_library(MilkdropPreset OBJECT
         PresetState.cpp
         PresetState.hpp
         RhythmVariables.hpp
+        ShaderPassChain.cpp
+        ShaderPassChain.hpp
         ShaderTranspiler.cpp
         ShaderTranspiler.hpp
         ShapePerFrameContext.cpp

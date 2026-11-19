@@ -74,7 +74,15 @@ void MilkdropPreparedPreset::Prepare(const PresetPrepareContext& context)
     int compositeShaderVersion{PresetState::DefaultShaderVersion};
     PresetState::ReadShaderVersions(*m_parser, presetVersion, warpShaderVersion, compositeShaderVersion);
 
-    if (auto source = PerPixelMesh::SelectWarpShaderSource(warpShaderVersion, ExperimentalDepthSampler::ShaderCode(*m_parser, "warp_")))
+    const std::string warpCode = ExperimentalDepthSampler::ShaderCode(*m_parser, "warp_");
+    const std::string compositeCode = ExperimentalDepthSampler::ShaderCode(*m_parser, "comp_");
+
+    // Refuse a preset with invalid extra shader passes (#229) here, before the render thread
+    // creates any GL object for it. PresetState::Initialize() reads them again.
+    PresetState::ReadShaderPasses(*m_parser, "warp", warpShaderVersion > 0 && !warpCode.empty());
+    PresetState::ReadShaderPasses(*m_parser, "comp", compositeShaderVersion > 0 && !compositeCode.empty());
+
+    if (auto source = PerPixelMesh::SelectWarpShaderSource(warpShaderVersion, warpCode))
     {
         m_warpShader.emplace();
         m_warpShader->source = std::move(*source);
@@ -83,7 +91,7 @@ void MilkdropPreparedPreset::Prepare(const PresetPrepareContext& context)
     if (compositeShaderVersion > 0)
     {
         m_compositeShader.emplace();
-        m_compositeShader->source = FinalComposite::SelectCompositeShaderSource(ExperimentalDepthSampler::ShaderCode(*m_parser, "comp_"));
+        m_compositeShader->source = FinalComposite::SelectCompositeShaderSource(compositeCode);
     }
 
     // The transpile cache state the load began with, for the render thread's compile.

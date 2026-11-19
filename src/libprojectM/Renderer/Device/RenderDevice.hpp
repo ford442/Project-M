@@ -17,6 +17,7 @@
 #include "Renderer/Device/DeviceTypes.hpp"
 
 #include <cstddef>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -71,7 +72,7 @@ public:
     /**
      * @brief Selects the attachments fragment outputs 0..n-1 write to, on the bound draw target.
      */
-    virtual void SetDrawBuffers(const std::vector<AttachmentPoint>& points) = 0;
+    virtual void SetDrawBuffers(std::span<const AttachmentPoint> points) = 0;
 
     /**
      * @brief Selects the attachment read by ReadPixels(), Blit() and CopyToBoundTexture().

@@ -4,6 +4,8 @@
 
 #include <Logging.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -179,15 +181,16 @@ void GlCommandList::AttachTexture(TargetBinding binding, AttachmentPoint point, 
     m_tracker.OnAttach(binding, point, texture);
 }
 
-void GlCommandList::SetDrawBuffers(const std::vector<AttachmentPoint>& points)
+void GlCommandList::SetDrawBuffers(std::span<const AttachmentPoint> points)
 {
-    std::vector<GLenum> buffers;
-    buffers.reserve(points.size());
-    for (const auto point : points)
+    // Eight colour attachments plus depth, stencil and depth-stencil (see Framebuffer).
+    std::array<GLenum, 11> buffers{};
+    const size_t count = std::min(points.size(), buffers.size());
+    for (size_t i = 0; i < count; ++i)
     {
-        buffers.push_back(ToGl(point));
+        buffers[i] = ToGl(points[i]);
     }
-    glDrawBuffers(static_cast<GLsizei>(buffers.size()), buffers.data());
+    glDrawBuffers(static_cast<GLsizei>(count), buffers.data());
 }
 
 void GlCommandList::SetReadBuffer(AttachmentPoint point)

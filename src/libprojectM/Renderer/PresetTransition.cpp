@@ -316,7 +316,9 @@ void PresetTransition::Draw(const Preset& oldPreset,
     }
 
     int textureUnit = 2;
-    std::vector<TextureSamplerDescriptor> noiseDescriptors(m_noiseTextureNames.size());
+    // Reused every frame: only the first frame of a transition allocates the list.
+    auto& noiseDescriptors = m_noiseDescriptors;
+    noiseDescriptors.resize(m_noiseTextureNames.size());
     for (const auto& noiseTextureName : m_noiseTextureNames)
     {
         noiseDescriptors[textureUnit - 2] = context.textureManager->GetTexture(noiseTextureName);

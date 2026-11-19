@@ -11,7 +11,7 @@ namespace MilkdropPreset {
 namespace Waveforms {
 
 auto WaveformMath::GetVertices(const PresetState& presetState,
-                               const PerFrameContext& presetPerFrameContext) -> std::array<VertexList, 2>
+                               const PerFrameContext& presetPerFrameContext) -> std::array<VertexList, 2>&
 {
     static_assert(WaveformMaxPoints >= libprojectM::Audio::SpectrumSamples, "WaveformMaxPoints is smaller than SpectrumSamples");
     static_assert(WaveformMaxPoints >= libprojectM::Audio::WaveformSamples, "WaveformMaxPoints is smaller than WaveformSamples");
@@ -84,11 +84,10 @@ auto WaveformMath::GetVertices(const PresetState& presetState,
 
     GenerateVertices(presetState, presetPerFrameContext);
 
-    std::array<VertexList, 2> smoothedVertices;
-    SmoothWave(m_wave1Vertices, smoothedVertices.at(0));
-    SmoothWave(m_wave2Vertices, smoothedVertices.at(1));
+    SmoothWave(m_wave1Vertices, m_smoothedVertices[0]);
+    SmoothWave(m_wave2Vertices, m_smoothedVertices[1]);
 
-    return smoothedVertices;
+    return m_smoothedVertices;
 }
 
 auto WaveformMath::IsLoop() -> bool

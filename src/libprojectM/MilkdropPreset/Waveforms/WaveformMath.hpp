@@ -28,11 +28,12 @@ public:
      * Depending on the waveform type, only the first set of vertices might be present.
      * @param presetState The preset state older, including the render context.
      * @param presetPerFrameContext The preset per-frame context.
-     * @return An array with either one or two sets of waveform vertices.
+     * @return Either one or two sets of waveform vertices. The lists belong to this object and
+     *         are overwritten by the next call; the caller may modify them until then.
      */
     auto GetVertices(const PresetState& presetState,
                      const PerFrameContext& presetPerFrameContext)
-        -> std::array<VertexList, 2>;
+        -> std::array<VertexList, 2>&;
 
     /**
      * @brief Indicates whether the waveform should be drawn as a closed line loop instead of a strip.
@@ -88,6 +89,8 @@ protected:
 
     VertexList m_wave1Vertices;
     VertexList m_wave2Vertices;
+
+    std::array<VertexList, 2> m_smoothedVertices; //!< GetVertices() output, reused so a frame does not allocate.
 };
 
 } // namespace Waveforms

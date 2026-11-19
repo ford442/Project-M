@@ -99,6 +99,9 @@ private:
 
     Renderer::Mesh m_mesh; //!< Points in this waveform.
 
+    std::vector<Renderer::Point> m_points; //!< Per-frame scratch: unsmoothed points, sized to the sample count.
+    std::vector<Renderer::Color> m_colors; //!< Per-frame scratch: their colors.
+
     friend class WaveformPerFrameContext;
     friend class WaveformPerPointContext;
 };

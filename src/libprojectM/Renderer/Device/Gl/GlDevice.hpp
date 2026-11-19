@@ -32,7 +32,7 @@ public:
     void BindRenderTarget(TargetBinding binding, RenderTargetHandle target) override;
     auto BoundRenderTarget(TargetBinding binding) -> RenderTargetHandle override;
     void AttachTexture(TargetBinding binding, AttachmentPoint point, TextureHandle texture) override;
-    void SetDrawBuffers(const std::vector<AttachmentPoint>& points) override;
+    void SetDrawBuffers(std::span<const AttachmentPoint> points) override;
     void SetReadBuffer(AttachmentPoint point) override;
     auto CheckRenderTarget(TargetBinding binding) -> RenderTargetStatus override;
 

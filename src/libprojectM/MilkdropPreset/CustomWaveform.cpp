@@ -157,8 +157,11 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
         sampleDataR[sample] *= mult;
     }
 
-    std::vector<Renderer::Point> points(sampleCount);
-    std::vector<Renderer::Color> colors(sampleCount);
+    // Member scratch: resizing within the capacity of an earlier frame does not allocate.
+    auto& points = m_points;
+    auto& colors = m_colors;
+    points.resize(static_cast<size_t>(sampleCount));
+    colors.resize(static_cast<size_t>(sampleCount));
 
     float const sampleMultiplicator = sampleCount > 1 ? 1.0f / static_cast<float>(sampleCount - 1) : 0.0f;
 

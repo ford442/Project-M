@@ -373,7 +373,8 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
     // Same as the unlimited path in ProjectM::RenderFrame(): FBO 0 must draw to GL_BACK.
     if (!targetFramebuffer.Valid())
     {
-        commands.SetDrawBuffers({Device::AttachmentPoint::Back});
+        constexpr Device::AttachmentPoint back[]{Device::AttachmentPoint::Back};
+        commands.SetDrawBuffers(back);
     }
 #endif
     commands.SetViewport({0, 0, m_width, m_height});

@@ -50,7 +50,7 @@ void Waveform::Draw(const PerFrameContext& presetPerFrameContext)
         Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
     }
 
-    auto smoothedVertices = m_waveformMath->GetVertices(m_presetState, presetPerFrameContext);
+    auto& smoothedVertices = m_waveformMath->GetVertices(m_presetState, presetPerFrameContext);
 
     for (auto& smoothedWave : smoothedVertices)
     {

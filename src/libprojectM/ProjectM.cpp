@@ -453,7 +453,8 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
         // per-FBO draw buffer state that leaks into FBO 0 on some drivers.
         if (!targetFramebuffer.Valid())
         {
-            commands.SetDrawBuffers({Renderer::Device::AttachmentPoint::Back});
+            constexpr Renderer::Device::AttachmentPoint back[]{Renderer::Device::AttachmentPoint::Back};
+            commands.SetDrawBuffers(back);
         }
 #endif
     }

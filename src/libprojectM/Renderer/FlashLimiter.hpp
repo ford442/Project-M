@@ -128,6 +128,7 @@ private:
     };
 
     auto Allocate(int width, int height) -> bool;
+
     /**
      * @brief Deletes the textures. With @p keepClampedFrames, reads the count back first so
      *        ClampedFrames() still answers afterwards.
@@ -135,6 +136,12 @@ private:
     void Release(bool keepClampedFrames = true);
     auto CompileShaders() -> bool;
     void DrawFullscreen(const Target& target, int width, int height) const;
+
+    /**
+     * @brief Makes the pipeline of a limiter pass with @a shader current.
+     */
+    void SetPassPipeline(const Shader& shader) const;
+
     auto ReadClampedFrames(const Target& state) const -> uint32_t;
 
     auto CreateTarget(int width, int height) -> Target;

@@ -4,14 +4,16 @@
  *
  * Two groups:
  *
- *  - ResourceStateTracker on its own, no GL: a draw that samples the texture its own target
- *    renders to is a hazard, and so is a blit or copy that reads what it writes. Sampling a
- *    different texture, or leaving the target's texture bound on a unit the program does
- *    not read, is not.
+ *  - Without GL: ResourceStateTracker on its own (a draw that samples the texture its own
+ *    target renders to is a hazard, and so is a blit or copy that reads what it writes;
+ *    sampling a different texture, or leaving the target's texture bound on a unit the
+ *    program does not read, is not), and PipelineDesc hashing.
  *  - GlDevice on a real context (SDL2 + a display, or xvfb-run): a pass that clears a
- *    render target reads back the clear colour, CaptureState()/RestoreState() round-trip,
- *    and with validation on a real feedback draw is reported through the backend's hooks
- *    and reaches the projectm_set_log_callback() callback.
+ *    render target reads back the clear colour; pipelines are cached by description, apply
+ *    their state, skip what is already applied until InvalidateState(), and a draw without
+ *    one is skipped; clears ignore the pipeline's write masks and keep them;
+ *    CaptureState()/RestoreState() round-trip; and with validation on a real feedback draw is
+ *    reported through the backend's hooks and reaches the projectm_set_log_callback() callback.
  */
 
 #include "HeadlessGlContext.hpp"
@@ -173,6 +175,39 @@ TEST(ResourceStateTrackerTest, DestroyedTextureIsForgotten)
 
 namespace {
 
+TEST(PipelineDescTest, EqualDescriptionsHashEqual)
+{
+    Device::PipelineDesc first;
+    first.shader = Device::ProgramHandle{7};
+    first.vertexLayout.AddBuffer(0, 2, 8).AddBuffer(2, 2, 8);
+    first.WithBlend(Device::BlendState::Alpha());
+
+    auto second = first;
+    EXPECT_EQ(first, second);
+    EXPECT_EQ(Device::Hash(first), Device::Hash(second));
+
+    // Each part of the description takes part in the key.
+    second.WithBlend(Device::BlendState::AdditiveAlpha());
+    EXPECT_NE(first, second);
+    EXPECT_NE(Device::Hash(first), Device::Hash(second));
+
+    second = first;
+    second.raster.lineSmooth = true;
+    EXPECT_NE(Device::Hash(first), Device::Hash(second));
+
+    second = first;
+    second.topology = Device::PrimitiveType::LineStrip;
+    EXPECT_NE(Device::Hash(first), Device::Hash(second));
+
+    second = first;
+    second.vertexLayout.AddBuffer(1, 4, 16);
+    EXPECT_NE(Device::Hash(first), Device::Hash(second));
+
+    second = first;
+    second.depthStencil.depthWrite = false;
+    EXPECT_NE(Device::Hash(first), Device::Hash(second));
+}
+
 #ifdef USE_GLES
 constexpr const char* kShaderHeader = "#version 300 es\nprecision mediump float;\n";
 #else
@@ -320,15 +355,187 @@ TEST_F(GlDeviceTest, ClearPassReadsBack)
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
 }
 
+TEST_F(GlDeviceTest, PipelinesAreCachedByDescription)
+{
+    std::vector<Device::PipelineHandle> handles;
+    {
+        libprojectM::Renderer::Shader shader;
+        shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kFragmentBody);
+
+        Device::PipelineDesc alpha;
+        alpha.shader = shader.Handle();
+        alpha.WithBlend(Device::BlendState::Alpha());
+        auto replace = alpha;
+        replace.WithBlend(Device::BlendState::Replace());
+
+        const auto first = m_device->CreatePipeline(alpha);
+        ASSERT_TRUE(first.Valid());
+        EXPECT_EQ(m_device->CreatePipeline(alpha), first);
+        const auto second = m_device->CreatePipeline(replace);
+        EXPECT_NE(second, first);
+        EXPECT_EQ(m_device->PipelineCount(), 2u);
+        ASSERT_NE(m_device->Pipeline(first), nullptr);
+        EXPECT_EQ(*m_device->Pipeline(first), alpha);
+
+        // A pipeline needs a program.
+        EXPECT_FALSE(m_device->CreatePipeline(Device::PipelineDesc{}).Valid());
+        handles = {first, second};
+    }
+
+    // Deleting the program drops its pipelines.
+    EXPECT_EQ(m_device->PipelineCount(), 0u);
+    for (const auto handle : handles)
+    {
+        EXPECT_EQ(m_device->Pipeline(handle), nullptr);
+    }
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, PipelineAppliesItsStateOnce)
+{
+    libprojectM::Renderer::Shader shader;
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kFragmentBody);
+    auto& commands = m_device->Commands();
+    const auto isEnabled = [](GLenum capability) { return glIsEnabled(capability) == GL_TRUE; };
+    const auto integer = [](GLenum name) {
+        GLint value{};
+        glGetIntegerv(name, &value);
+        return value;
+    };
+
+    Device::PipelineDesc desc;
+    desc.shader = shader.Handle();
+    desc.WithBlend(Device::BlendState::Alpha());
+    desc.depthStencil.depthWrite = false;
+    Device::SetPipeline(*m_device, desc);
+    EXPECT_TRUE(isEnabled(GL_BLEND));
+    EXPECT_EQ(integer(GL_BLEND_SRC_RGB), GL_SRC_ALPHA);
+    EXPECT_EQ(integer(GL_BLEND_DST_RGB), GL_ONE_MINUS_SRC_ALPHA);
+    EXPECT_EQ(integer(GL_DEPTH_WRITEMASK), GL_FALSE);
+    EXPECT_EQ(static_cast<uint32_t>(integer(GL_CURRENT_PROGRAM)), shader.Handle().id);
+
+    // The command list skips state it already applied, so GL changed behind its back stays
+    // changed until InvalidateState() (ScopedDevice calls it when devices switch).
+    glDisable(GL_BLEND);
+    Device::SetPipeline(*m_device, desc);
+    EXPECT_FALSE(isEnabled(GL_BLEND));
+    commands.InvalidateState();
+    Device::SetPipeline(*m_device, desc);
+    EXPECT_TRUE(isEnabled(GL_BLEND));
+
+    // Hosts get GL's defaults back.
+    commands.ResetPipelineState();
+    EXPECT_FALSE(isEnabled(GL_BLEND));
+    EXPECT_EQ(integer(GL_DEPTH_WRITEMASK), GL_TRUE);
+    EXPECT_EQ(integer(GL_CURRENT_PROGRAM), 0);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, DrawNeedsAPipeline)
+{
+    libprojectM::Renderer::Shader shader;
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kFragmentBody);
+    std::vector<std::string> logged;
+    projectm_set_log_callback(&CollectLog, true, &logged);
+    projectm_set_log_level(PROJECTM_LOG_LEVEL_WARN, true);
+    auto& commands = m_device->Commands();
+    // A negative count is GL_INVALID_VALUE, so whether the draw reached GL shows in glGetError().
+    const auto drawReachesGl = [&commands] {
+        commands.Draw(0, -1);
+        return glGetError() == GL_INVALID_VALUE;
+    };
+
+    commands.ResetPipelineState();
+    EXPECT_FALSE(drawReachesGl());
+    EXPECT_FALSE(drawReachesGl());
+
+    Device::PipelineDesc desc;
+    desc.shader = shader.Handle();
+    Device::SetPipeline(*m_device, desc);
+    EXPECT_TRUE(drawReachesGl());
+
+    // Binding the pipeline's own program again (to upload uniforms) keeps it; another one does not.
+    shader.Bind();
+    EXPECT_TRUE(drawReachesGl());
+    libprojectM::Renderer::Shader::Unbind();
+    EXPECT_FALSE(drawReachesGl());
+
+    // So does an unknown handle.
+    Device::SetPipeline(*m_device, desc);
+    commands.SetPipeline(Device::PipelineHandle{12345});
+    EXPECT_FALSE(drawReachesGl());
+
+    projectm_set_log_callback(nullptr, true, nullptr);
+    projectm_set_log_level(PROJECTM_LOG_LEVEL_NOTSET, true);
+    // Each mistake is logged once.
+    EXPECT_EQ(std::count_if(logged.begin(), logged.end(), [](const std::string& message) {
+                  return message.find("without a pipeline") != std::string::npos;
+              }),
+              1);
+    EXPECT_EQ(std::count_if(logged.begin(), logged.end(), [](const std::string& message) {
+                  return message.find("unknown or destroyed pipeline") != std::string::npos;
+              }),
+              1);
+    commands.ResetPipelineState();
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, ClearsIgnoreAndKeepThePipelineMasks)
+{
+    libprojectM::Renderer::Shader shader;
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kFragmentBody);
+    auto& commands = m_device->Commands();
+    const auto texture = CreateColorTexture();
+    const auto target = CreateTarget(texture);
+    commands.SetEnabled(Device::Capability::ScissorTest, false);
+    commands.SetViewport({0, 0, kWidth, kHeight});
+
+    // A pipeline that writes no alpha.
+    Device::PipelineDesc desc;
+    desc.shader = shader.Handle();
+    desc.targets[0].writeAlpha = false;
+    Device::SetPipeline(*m_device, desc);
+
+    commands.SetClearColor({1.0f, 0.0f, 1.0f, 1.0f});
+    commands.Clear(Device::ClearColor);
+    auto pixels = ReadTarget(target);
+    EXPECT_EQ(pixels[0], 255);
+    EXPECT_EQ(pixels[3], 255) << "Clear() writes alpha whatever the pipeline masks";
+
+    std::array<GLboolean, 4> mask{};
+    glGetBooleanv(GL_COLOR_WRITEMASK, mask.data());
+    EXPECT_EQ(mask[3], GL_FALSE) << "the pipeline's mask is back after the clear";
+
+    // Alpha only, as the WASM host fills the alpha of an opaque frame.
+    commands.SetClearColor({0.0f, 0.0f, 0.0f, 0.0f});
+    commands.Clear(Device::ClearColor);
+    commands.ClearColorAttachment(0, {1.0f, 1.0f, 1.0f, 1.0f}, {false, false, false, true});
+    pixels = ReadTarget(target);
+    EXPECT_EQ(pixels[0], 0);
+    EXPECT_EQ(pixels[1], 0);
+    EXPECT_EQ(pixels[2], 0);
+    EXPECT_EQ(pixels[3], 255);
+
+    commands.ResetPipelineState();
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    m_device->DestroyRenderTarget(target);
+    m_device->DestroyTexture(texture);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
 TEST_F(GlDeviceTest, CaptureRestoreRoundTrip)
 {
+    libprojectM::Renderer::Shader shader;
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kFragmentBody);
     auto& commands = m_device->Commands();
     const auto texture = CreateColorTexture();
     const auto target = CreateTarget(texture);
 
-    commands.SetEnabled(Device::Capability::Blend, true);
-    commands.SetBlendFunction(Device::BlendFactor::SourceAlpha, Device::BlendFactor::OneMinusSourceAlpha);
-    commands.SetDepthMask(false);
+    Device::PipelineDesc blended;
+    blended.shader = shader.Handle();
+    blended.WithBlend(Device::BlendState::Alpha());
+    blended.depthStencil.depthWrite = false;
+    Device::SetPipeline(*m_device, blended);
     commands.SetViewport({1, 2, 3, 4});
     commands.SetEnabled(Device::Capability::ScissorTest, true);
     commands.SetScissor({2, 1, 5, 6});
@@ -348,9 +555,10 @@ TEST_F(GlDeviceTest, CaptureRestoreRoundTrip)
     EXPECT_EQ(saved.drawTarget, target);
 
     // Knock everything over, then put it back.
-    commands.SetEnabled(Device::Capability::Blend, false);
-    commands.SetBlendFunction(Device::BlendFactor::One, Device::BlendFactor::Zero);
-    commands.SetDepthMask(true);
+    Device::PipelineDesc replace;
+    replace.shader = shader.Handle();
+    replace.WithBlend(Device::BlendState::Factors(Device::BlendFactor::One, Device::BlendFactor::Zero));
+    Device::SetPipeline(*m_device, replace);
     commands.SetViewport({0, 0, kWidth, kHeight});
     commands.SetEnabled(Device::Capability::ScissorTest, false);
     commands.SetScissor({0, 0, kWidth, kHeight});
@@ -373,9 +581,8 @@ TEST_F(GlDeviceTest, CaptureRestoreRoundTrip)
     EXPECT_EQ(restored.drawTarget, saved.drawTarget);
 
     // Leave the shared context as other tests expect it.
-    commands.SetEnabled(Device::Capability::Blend, false);
-    commands.SetBlendFunction(Device::BlendFactor::One, Device::BlendFactor::Zero);
-    commands.SetDepthMask(true);
+    Device::SetPipeline(*m_device, replace);
+    commands.ResetPipelineState();
     commands.SetEnabled(Device::Capability::ScissorTest, false);
     commands.BindTexture(0, Device::TextureTarget::Texture2D, {});
     commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
@@ -402,21 +609,22 @@ TEST_F(GlDeviceTest, ValidationReportsARealFeedbackDraw)
     const auto vertexArray = m_device->CreateVertexArray();
 
     commands.SetEnabled(Device::Capability::ScissorTest, false);
-    commands.SetEnabled(Device::Capability::Blend, false);
     commands.BeginPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
-    shader.Bind();
+    Device::PipelineDesc pipeline;
+    pipeline.shader = shader.Handle();
+    Device::SetPipeline(*m_device, pipeline);
     shader.SetUniformInt("source", 0);
     commands.BindVertexArray(vertexArray);
 
     // Unit 0 holds another texture; the target's own texture on unit 1 is never sampled.
     commands.BindTexture(0, Device::TextureTarget::Texture2D, other);
     commands.BindTexture(1, Device::TextureTarget::Texture2D, feedback);
-    commands.Draw(Device::PrimitiveType::Triangles, 0, 3);
+    commands.Draw(0, 3);
     EXPECT_EQ(m_device->Validation().HazardCount(), 0u);
 
     // Now the program samples the texture it renders to.
     commands.BindTexture(0, Device::TextureTarget::Texture2D, feedback);
-    commands.Draw(Device::PrimitiveType::Triangles, 0, 3);
+    commands.Draw(0, 3);
     EXPECT_EQ(m_device->Validation().HazardCount(), 1u);
     commands.EndPass();
 
@@ -431,7 +639,7 @@ TEST_F(GlDeviceTest, ValidationReportsARealFeedbackDraw)
     commands.BindVertexArray({});
     commands.BindTexture(1, Device::TextureTarget::Texture2D, {});
     commands.BindTexture(0, Device::TextureTarget::Texture2D, {});
-    libprojectM::Renderer::Shader::Unbind();
+    commands.ResetPipelineState();
     commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
     m_device->DestroyVertexArray(vertexArray);
     m_device->DestroyRenderTarget(target);
@@ -453,16 +661,23 @@ TEST_F(GlDeviceTest, ValidationReportsGlErrorsOncePerOperation)
         });
     };
 
+    libprojectM::Renderer::Shader shader;
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kFragmentBody);
+    Device::PipelineDesc pipeline;
+    pipeline.shader = shader.Handle();
+    Device::SetPipeline(*m_device, pipeline);
+
     // Off: the device leaves the error for whoever polls next.
-    commands.Draw(Device::PrimitiveType::Triangles, 0, -1); // GL_INVALID_VALUE
+    commands.Draw(0, -1); // GL_INVALID_VALUE
     EXPECT_EQ(countGlErrors(), 0);
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_INVALID_VALUE));
 
     // On: drained and logged, once however often the same operation fails.
     m_device->Validation().SetEnabled(true);
-    commands.Draw(Device::PrimitiveType::Triangles, 0, -1);
-    commands.Draw(Device::PrimitiveType::Triangles, 0, -1);
+    commands.Draw(0, -1);
+    commands.Draw(0, -1);
     m_device->Validation().SetEnabled(false);
+    commands.ResetPipelineState();
 
     projectm_set_log_callback(nullptr, true, nullptr);
     projectm_set_log_level(PROJECTM_LOG_LEVEL_NOTSET, true);

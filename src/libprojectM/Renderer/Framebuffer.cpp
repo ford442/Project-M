@@ -326,12 +326,6 @@ void Framebuffer::RemoveDepthStencilAttachment(int framebufferIndex)
     RemoveAttachment(framebufferIndex, AttachmentPoint::DepthStencil);
 }
 
-void Framebuffer::MaskDrawBuffer(int bufferIndex, bool masked)
-{
-    // Invert the flag, as "true" means the color channel *will* be written.
-    m_device->Commands().SetDrawBufferWriteMask(bufferIndex, !masked);
-}
-
 void Framebuffer::AddOwnedAttachment(int framebufferIndex, AttachmentPoint point, std::shared_ptr<TextureAttachment> textureAttachment)
 {
     const auto texture = textureAttachment->Texture();

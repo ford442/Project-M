@@ -309,21 +309,17 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
 
     using Device::Capability;
     auto& commands = m_device->Commands();
-    const bool blendEnabled = commands.IsEnabled(Capability::Blend);
+    // Blending, culling and depth testing are off in the passes' pipelines. The scissor
+    // test is not pipeline state; the host's is put back for the final blit.
     const bool scissorEnabled = commands.IsEnabled(Capability::ScissorTest);
-    const bool cullEnabled = commands.IsEnabled(Capability::CullFace);
-    const bool depthEnabled = commands.IsEnabled(Capability::DepthTest);
-    commands.SetEnabled(Capability::Blend, false);
     commands.SetEnabled(Capability::ScissorTest, false);
-    commands.SetEnabled(Capability::CullFace, false);
-    commands.SetEnabled(Capability::DepthTest, false);
     commands.BindVertexArray(m_vertexArray);
 
     const int previous = m_current;
     const int next = 1 - m_current;
 
     // Pass 1: frame -> 32x32 luminance cells.
-    m_downsampleShader->Bind();
+    SetPassPipeline(*m_downsampleShader);
     m_downsampleShader->SetUniformInt("frame_texture", 0);
     BindTexture(0, m_frame.texture);
     DrawFullscreen(m_luma, LumaGridSize, LumaGridSize);
@@ -331,7 +327,7 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
     // Pass 2: cells + previous state -> next state.
     const double step = std::clamp(secondsSinceLastFrame, 0.0, 1.0);
     const auto envelopeDecay = static_cast<float>(static_cast<double>(m_threshold) * step / WindowSeconds);
-    m_stateShader->Bind();
+    SetPassPipeline(*m_stateShader);
     m_stateShader->SetUniformInt("luma_texture", 0);
     m_stateShader->SetUniformInt("previous_state", 1);
     m_stateShader->SetUniformFloat("threshold", m_threshold);
@@ -342,7 +338,7 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
     DrawFullscreen(m_state.at(next), StateWidth, 1);
 
     // Pass 3: frame + held frame + next state -> next held frame.
-    m_mixShader->Bind();
+    SetPassPipeline(*m_mixShader);
     m_mixShader->SetUniformInt("frame_texture", 0);
     m_mixShader->SetUniformInt("held_texture", 1);
     m_mixShader->SetUniformInt("state_texture", 2);
@@ -357,7 +353,6 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
         BindTexture(unit, {});
     }
     commands.SetActiveTextureUnit(0);
-    Shader::Unbind();
     commands.BindVertexArray({});
 
     m_current = next;
@@ -383,19 +378,6 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
         commands.SetEnabled(Capability::ScissorTest, true);
     }
     commands.Blit({0, 0, m_width, m_height}, {0, 0, m_width, m_height}, Device::FilterMode::Nearest);
-
-    if (blendEnabled)
-    {
-        commands.SetEnabled(Capability::Blend, true);
-    }
-    if (cullEnabled)
-    {
-        commands.SetEnabled(Capability::CullFace, true);
-    }
-    if (depthEnabled)
-    {
-        commands.SetEnabled(Capability::DepthTest, true);
-    }
 }
 
 auto FlashLimiter::ClampedFrames() -> uint32_t
@@ -543,11 +525,20 @@ auto FlashLimiter::CompileShaders() -> bool
     return true;
 }
 
+void FlashLimiter::SetPassPipeline(const Shader& shader) const
+{
+    // One fullscreen triangle from gl_VertexID: no vertex inputs, no blending.
+    Device::PipelineDesc desc;
+    desc.shader = shader.Handle();
+    desc.topology = Device::PrimitiveType::Triangles;
+    Device::SetPipeline(*m_device, desc);
+}
+
 void FlashLimiter::DrawFullscreen(const Target& target, int width, int height) const
 {
     auto& commands = m_device->Commands();
     commands.BeginPass({target.framebuffer, Device::TargetBinding::Draw, Device::Rect{0, 0, width, height}});
-    commands.Draw(Device::PrimitiveType::Triangles, 0, 3);
+    commands.Draw(0, 3);
     commands.EndPass();
 }
 

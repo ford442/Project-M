@@ -34,8 +34,6 @@ generate_shader_resources(${CMAKE_CURRENT_BINARY_DIR}/BuiltInTransitionsResource
 
 add_library(Renderer OBJECT
         ${CMAKE_CURRENT_BINARY_DIR}/BuiltInTransitionsResources.hpp
-        BlendMode.cpp
-        BlendMode.hpp
         Color.hpp
         CopyTexture.cpp
         CopyTexture.hpp

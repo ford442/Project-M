@@ -94,28 +94,8 @@ public:
     [[nodiscard]] virtual auto IsEnabled(Capability capability) -> bool = 0;
 
     /**
-     * @brief Sets the same factors for color and alpha.
+     * @brief GL only: the width of line primitives. Ignored elsewhere (WebGPU lines are 1 px).
      */
-    virtual void SetBlendFunction(BlendFactor source, BlendFactor destination) = 0;
-    virtual void SetBlendFunction(const BlendFunction& function) = 0;
-    [[nodiscard]] virtual auto GetBlendFunction() -> BlendFunction = 0;
-
-    virtual void SetDepthMask(bool writeEnabled) = 0;
-    [[nodiscard]] virtual auto DepthMask() -> bool = 0;
-
-    /**
-     * @brief Enables or disables writes to each channel of every draw buffer.
-     */
-    virtual void SetColorMask(bool red, bool green, bool blue, bool alpha) = 0;
-
-    /**
-     * @brief Enables or disables all writes to one draw buffer.
-     *
-     * Where per-buffer masks are not available (GLES 3.1 and lower) this masks every buffer.
-     */
-    virtual void SetDrawBufferWriteMask(int drawBuffer, bool writeEnabled) = 0;
-
-    virtual void SetCullMode(FrontFace frontFace, CullFace cullFace) = 0;
     virtual void SetLineWidth(float width) = 0;
 
     /**
@@ -123,18 +103,40 @@ public:
      */
     virtual void SetNicestQualityHints() = 0;
 
+    /**
+     * @brief Sets the colour a Clear() of the colour buffer writes.
+     */
     virtual void SetClearColor(const std::array<float, 4>& color) = 0;
+
+    /**
+     * @brief Clears the bound draw target. Clears every channel and the whole depth buffer,
+     *        whatever the current pipeline's write masks say.
+     */
     virtual void Clear(uint8_t clearMask) = 0;
 
     /**
      * @brief Clears one color draw buffer of the bound draw target, ignoring the clear color.
+     *
+     * Only the channels @a writeMask enables (red, green, blue, alpha) change.
      */
-    virtual void ClearColorAttachment(int drawBuffer, const std::array<float, 4>& color) = 0;
+    virtual void ClearColorAttachment(int drawBuffer, const std::array<float, 4>& color,
+                                      const std::array<bool, 4>& writeMask = {true, true, true, true}) = 0;
 
-    // ---- Programs and uniforms --------------------------------------------------------
+    // ---- Pipelines and uniforms -------------------------------------------------------
 
     /**
-     * @brief Makes a program current; an invalid handle unbinds.
+     * @brief Makes a pipeline current: its program, blending, culling, depth state, colour
+     *        write masks and topology apply to the following draws.
+     *
+     * An invalid or destroyed handle is ignored (and logged once).
+     */
+    virtual void SetPipeline(PipelineHandle pipeline) = 0;
+
+    /**
+     * @brief Makes a program current without the rest of a pipeline, for uniform setup
+     *        outside a draw (e.g. right after linking); an invalid handle unbinds.
+     *
+     * A draw needs SetPipeline().
      */
     virtual void SetProgram(ProgramHandle program) = 0;
 
@@ -213,14 +215,16 @@ public:
     virtual void SetConstantVertexAttribute(int index, const std::array<float, 4>& value) = 0;
 
     /**
-     * @brief Draws @a count vertices of the bound vertex array, in order.
+     * @brief Draws @a count vertices of the bound vertex array, in order, as the current
+     *        pipeline's topology. Does nothing without a current pipeline.
      */
-    virtual void Draw(PrimitiveType primitive, int first, int count) = 0;
+    virtual void Draw(int first, int count) = 0;
 
     /**
-     * @brief Draws @a count 32-bit indices from the bound vertex array's index buffer.
+     * @brief Draws @a count 32-bit indices from the bound vertex array's index buffer, as the
+     *        current pipeline's topology. Does nothing without a current pipeline.
      */
-    virtual void DrawIndexed(PrimitiveType primitive, int count) = 0;
+    virtual void DrawIndexed(int count) = 0;
 
     // ---- Copies and readback ----------------------------------------------------------
 
@@ -242,6 +246,25 @@ public:
 
     [[nodiscard]] virtual auto CaptureState() -> StateSnapshot = 0;
     virtual void RestoreState(const StateSnapshot& state) = 0;
+
+    /**
+     * @brief Forgets which pipeline state the backend last applied, so the next SetPipeline()
+     *        applies all of it.
+     *
+     * Backends that filter redundant state changes (GL) must not trust their record after
+     * someone else used the context. ScopedDevice calls it when it installs a device and when
+     * it hands the context back, so engine entry points and the code around them need not.
+     */
+    virtual void InvalidateState() = 0;
+
+    /**
+     * @brief Puts pipeline state back to its defaults: no program, blending, culling and depth
+     *        testing off, depth writes and every colour channel on, no line smoothing.
+     *
+     * The state the renderer left a host's context in before pipelines existed. Called at the
+     * end of each frame; a backend without global state (WebGPU) does nothing.
+     */
+    virtual void ResetPipelineState() = 0;
 };
 
 /**
@@ -331,6 +354,10 @@ public:
     // ---- Programs ------------------------------------------------------------------
 
     [[nodiscard]] virtual auto CreateProgram() -> ProgramHandle = 0;
+
+    /**
+     * @brief Destroys a program and every pipeline created with it.
+     */
     virtual void DestroyProgram(ProgramHandle program) = 0;
 
     /**
@@ -375,6 +402,26 @@ public:
      */
     [[nodiscard]] virtual auto AttributeLocation(ProgramHandle program, const char* name) -> int = 0;
 
+    // ---- Pipelines -------------------------------------------------------------------
+
+    /**
+     * @brief The pipeline for @a desc. Equal descriptions get the same handle (the device
+     *        keeps a cache keyed by Hash(desc)), so callers may ask every frame.
+     *
+     * The pipeline lives until its program is destroyed. An invalid program gives an invalid handle.
+     */
+    [[nodiscard]] virtual auto CreatePipeline(const PipelineDesc& desc) -> PipelineHandle = 0;
+
+    /**
+     * @brief The description a pipeline was created from, or nullptr for an unknown handle.
+     */
+    [[nodiscard]] virtual auto Pipeline(PipelineHandle pipeline) const -> const PipelineDesc* = 0;
+
+    /**
+     * @brief How many pipelines the device holds (for tests and the perf HUD).
+     */
+    [[nodiscard]] virtual auto PipelineCount() const -> size_t = 0;
+
     // ---- Fences ----------------------------------------------------------------------
 
     /**
@@ -418,6 +465,51 @@ inline auto Commands() -> ICommandList&
 {
     return Current().Commands();
 }
+
+/**
+ * @brief Makes the pipeline for @a desc current on @a device (created on first use, cached after).
+ */
+inline void SetPipeline(IRenderDevice& device, const PipelineDesc& desc)
+{
+    device.Commands().SetPipeline(device.CreatePipeline(desc));
+}
+
+/**
+ * @brief SetPipeline() on the current device.
+ */
+inline void SetPipeline(const PipelineDesc& desc)
+{
+    SetPipeline(Current(), desc);
+}
+
+/**
+ * @brief Calls ICommandList::ResetPipelineState() on the current device's command list when it
+ *        goes out of scope.
+ *
+ * Entry points that draw hold one, so the host's GL code finds GL's default blend, depth and
+ * cull state afterwards, whatever pipeline drew last.
+ */
+class ScopedPipelineReset
+{
+public:
+    ScopedPipelineReset()
+        : m_commands(Commands())
+    {
+    }
+
+    ~ScopedPipelineReset()
+    {
+        m_commands.ResetPipelineState();
+    }
+
+    ScopedPipelineReset(const ScopedPipelineReset&) = delete;
+    ScopedPipelineReset(ScopedPipelineReset&&) = delete;
+    auto operator=(const ScopedPipelineReset&) -> ScopedPipelineReset& = delete;
+    auto operator=(ScopedPipelineReset&&) -> ScopedPipelineReset& = delete;
+
+private:
+    ICommandList& m_commands;
+};
 
 } // namespace Device
 } // namespace Renderer

@@ -1,6 +1,9 @@
 #include "VideoEcho.hpp"
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
+#include <Renderer/Shader.hpp>
+
+using libprojectM::Renderer::Device::BlendFactor;
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -58,6 +61,7 @@ void VideoEcho::Draw()
     }
 
     auto shader = m_presetState.texturedShader.lock();
+    m_shader = shader.get();
     shader->Bind();
     shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
     shader->SetUniformInt("texture_sampler", 0);
@@ -78,15 +82,19 @@ void VideoEcho::Draw()
         DrawGammaAdjustment();
     }
 
-    Renderer::BlendMode::SetBlendActive(false);
     Renderer::Mesh::Unbind();
-    Renderer::Shader::Unbind();
+    m_shader = nullptr;
 
     if (mainTexture)
     {
         mainTexture->Unbind(0);
         Renderer::Sampler::Unbind(0);
     }
+}
+
+void VideoEcho::SetBlend(const Renderer::Device::BlendState& blend)
+{
+    Renderer::Device::SetPipeline(m_echoMesh.Pipeline(*m_shader, blend));
 }
 
 void VideoEcho::DrawVideoEcho()
@@ -99,7 +107,8 @@ void VideoEcho::DrawVideoEcho()
     auto const videoEchoOrientation = ((m_presetState.videoEchoOrientation % 4) + 4) % 4;
     auto const gammaAdj = m_presetState.gammaAdj;
 
-    Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::Zero);
+    // Blending stays on with (one, zero) for the first pass, as it always was.
+    SetBlend(Renderer::Device::BlendState::Factors(BlendFactor::One, BlendFactor::Zero));
 
     for (int pass = 0; pass < 2; pass++)
     {
@@ -144,7 +153,7 @@ void VideoEcho::DrawVideoEcho()
 
         if (pass == 0)
         {
-            Renderer::BlendMode::SetBlendFunction(Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::One);
+            SetBlend(Renderer::Device::BlendState::Factors(BlendFactor::One, BlendFactor::One));
         }
 
         if (gammaAdj > 0.001f)
@@ -186,7 +195,7 @@ void VideoEcho::DrawGammaAdjustment()
                           {0.0f, 1.0f},
                           {1.0f, 1.0f}});
 
-    Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::Zero);
+    SetBlend(Renderer::Device::BlendState::Factors(BlendFactor::One, BlendFactor::Zero));
 
     auto const gammaAdj = m_presetState.gammaAdj;
     int const redrawCount = static_cast<int>(gammaAdj - 0.0001f) + 1;
@@ -217,7 +226,7 @@ void VideoEcho::DrawGammaAdjustment()
 
         if (redraw == 0)
         {
-            Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::One);
+            SetBlend(Renderer::Device::BlendState::Factors(BlendFactor::One, BlendFactor::One));
         }
     }
 }

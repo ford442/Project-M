@@ -226,15 +226,6 @@ public:
     void RemoveDepthStencilAttachment(int framebufferIndex);
 
     /**
-     * @brief Sets the masked flag for a specific draw buffer.
-     * This can be used to enable or disable rendering to specific color attachments.
-     * With GLES 3.1 and lower, this will always mask all buffers.
-     * @param bufferIndex The index of the buffer to set the mask flag on.
-     * @param masked true if the attachment should be masked, false if not.
-     */
-    void MaskDrawBuffer(int bufferIndex, bool masked);
-
-    /**
      * @brief Returns the render target of the given framebuffer.
      * @param framebufferIndex The framebuffer index.
      * @return The render target handle, or an invalid handle if the index is out of range.

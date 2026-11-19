@@ -1,8 +1,9 @@
 #include "Filters.hpp"
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
+#include <Renderer/Shader.hpp>
 
-using libprojectM::Renderer::BlendMode;
+using libprojectM::Renderer::Device::BlendFactor;
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -24,9 +25,10 @@ void Filters::Draw()
         return;
     }
 
-    BlendMode::SetBlendActive(true);
-
     auto shader = m_presetState.untexturedShader.lock();
+    m_shader = shader.get();
+
+    // The program has to be current for the uniforms; each draw below sets its own pipeline.
     shader->Bind();
     shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
     shader->SetUniformFloat("vertex_point_size", 1.0f);
@@ -51,40 +53,36 @@ void Filters::Draw()
     }
 
     Renderer::Mesh::Unbind();
-    Renderer::Shader::Unbind();
-
-    BlendMode::SetBlendActive(false);
+    m_shader = nullptr;
 }
 
+void Filters::DrawBlended(BlendFactor source, BlendFactor destination)
+{
+    Renderer::Device::SetPipeline(m_filterMesh.Pipeline(*m_shader, Renderer::Device::BlendState::Factors(source, destination)));
+    m_filterMesh.Draw();
+}
 
 void Filters::Brighten()
 {
-    BlendMode::SetBlendFunction(BlendMode::Function::OneMinusDestinationColor, BlendMode::Function::Zero);
-    m_filterMesh.Draw();
-    BlendMode::SetBlendFunction(BlendMode::Function::Zero, BlendMode::Function::DestinationColor);
-    m_filterMesh.Draw();
-    BlendMode::SetBlendFunction(BlendMode::Function::OneMinusDestinationColor, BlendMode::Function::Zero);
-    m_filterMesh.Draw();
+    DrawBlended(BlendFactor::OneMinusDestinationColor, BlendFactor::Zero);
+    DrawBlended(BlendFactor::Zero, BlendFactor::DestinationColor);
+    DrawBlended(BlendFactor::OneMinusDestinationColor, BlendFactor::Zero);
 }
 
 void Filters::Darken()
 {
-    BlendMode::SetBlendFunction(BlendMode::Function::Zero, BlendMode::Function::DestinationColor);
-    m_filterMesh.Draw();
+    DrawBlended(BlendFactor::Zero, BlendFactor::DestinationColor);
 }
 
 void Filters::Solarize()
 {
-    BlendMode::SetBlendFunction(BlendMode::Function::Zero, BlendMode::Function::OneMinusDestinationColor);
-    m_filterMesh.Draw();
-    BlendMode::SetBlendFunction(BlendMode::Function::DestinationColor, BlendMode::Function::One);
-    m_filterMesh.Draw();
+    DrawBlended(BlendFactor::Zero, BlendFactor::OneMinusDestinationColor);
+    DrawBlended(BlendFactor::DestinationColor, BlendFactor::One);
 }
 
 void Filters::Invert()
 {
-    BlendMode::SetBlendFunction(BlendMode::Function::OneMinusDestinationColor, BlendMode::Function::Zero);
-    m_filterMesh.Draw();
+    DrawBlended(BlendFactor::OneMinusDestinationColor, BlendFactor::Zero);
 }
 
 void Filters::UpdateMesh()

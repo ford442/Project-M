@@ -7,7 +7,7 @@
 
 #include <EngineContext.hpp>
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Point.hpp>
 #include <Renderer/ShaderCache.hpp>
 
@@ -194,7 +194,8 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
         m_blurFramebuffer.Bind(0);
     }
 
-    Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::Zero);
+    // Blending stays on with (one, zero), as it always has; the result is a plain write.
+    const auto blend = Renderer::Device::BlendState::Factors(Renderer::Device::BlendFactor::One, Renderer::Device::BlendFactor::Zero);
 
     for (unsigned int pass = 0; pass < passes; pass++)
     {
@@ -218,7 +219,7 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
             return;
         }
 
-        blurShader->Bind();
+        Renderer::Device::SetPipeline(*m_device, m_blurMesh.Pipeline(*blurShader, blend));
         blurShader->SetUniformInt("texture_sampler", 0);
 
         // Point the framebuffer at this pass' destination texture (direct path) or at the
@@ -313,7 +314,6 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
     }
 
     Renderer::Mesh::Unbind();
-    Renderer::BlendMode::Set(false, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
 
     // Bind previous framebuffer and reset viewport size
     commands.BindRenderTarget(TargetBinding::Read, origReadFramebuffer);

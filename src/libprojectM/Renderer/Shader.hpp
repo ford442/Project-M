@@ -139,6 +139,14 @@ public:
     [[nodiscard]] bool Validate(std::string& validationMessage) const;
 
     /**
+     * @brief The device program, for pipelines (Device::PipelineDesc::shader).
+     */
+    [[nodiscard]] auto Handle() const -> Device::ProgramHandle
+    {
+        return m_shaderProgram;
+    }
+
+    /**
      * Binds the program into the current context.
      */
     void Bind() const;

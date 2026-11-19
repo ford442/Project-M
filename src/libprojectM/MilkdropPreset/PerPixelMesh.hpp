@@ -123,6 +123,11 @@ private:
     };
 
     /**
+     * @brief The warp draw's pipeline: @a shader, no blending, the mesh and per-vertex buffers.
+     */
+    auto WarpPipeline(const Renderer::Shader& shader) const -> Renderer::Device::PipelineDesc;
+
+    /**
      * @brief Initializes the vertex array and fills in static data if needed.
      *
      * The vertices will be reallocated if the grid size has changed. If either this happened,

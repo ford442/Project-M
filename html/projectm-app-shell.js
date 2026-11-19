@@ -43,7 +43,7 @@ import { updatePresetDisplay } from './projectm-presets.js';
 import { startTransitionWhenReady } from './projectm-transitions.js';
 import { loadWasmBuildsManifest } from './projectm-wasm-manifest.js';
 import { getSelectableWasmVersions } from './projectm-wasm-version.js';
-import { ensureWorkletReady } from './projectm-worklet-playback.js';
+import { acquireAudioGraph, ensureWorkletReady } from './projectm-worklet-playback.js';
 import { applyWeeksOnFireDomConfig, isWeeksOnFireMode, wireFlacDecoderBridge } from './projectm-weeks-on-fire.js';
 import {
     LOCK_STORAGE_KEY,
@@ -165,6 +165,9 @@ export function boot(documentRef, options = {}) {
           })
         : null;
     if (audioRouter) owned.add(() => audioRouter.destroy());
+    // The page shell holds the audio graph for the page's life, so a context it
+    // replaces (a retried init, a WASM build switch) does not close the song.
+    owned.add(acquireAudioGraph());
     owned.add(
         setupExternalAudioReceiver(
             audioRouter

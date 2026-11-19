@@ -76,7 +76,14 @@ const DEFAULT_AUDIO_SOURCES = [
  */
 export function resolvePlayerUrl(elementId, storageKey, defaultUrl, documentRef) {
     const doc = documentRef ?? (typeof document !== 'undefined' ? document : null);
-    const stored = localStorage.getItem(storageKey);
+    let stored = null;
+    try {
+        // Throws in a sandboxed iframe or with site data blocked; the DOM and
+        // default URL still apply.
+        stored = globalThis.localStorage?.getItem(storageKey) ?? null;
+    } catch {
+        stored = null;
+    }
     if (stored) {
         return stored;
     }
@@ -324,7 +331,13 @@ export function createAudioPlayerController({
         if (typeof source.resolveUrl === 'function') {
             return source.resolveUrl();
         }
-        return (source.storageKey ? globalThis.localStorage?.getItem(source.storageKey) : null) ||
+        let stored = null;
+        try {
+            stored = source.storageKey ? globalThis.localStorage?.getItem(source.storageKey) : null;
+        } catch {
+            stored = null;
+        }
+        return stored ||
             (source.elementId ? doc()?.getElementById(source.elementId)?.textContent?.trim() : null) ||
             source.defaultUrl;
     }

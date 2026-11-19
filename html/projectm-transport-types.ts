@@ -125,6 +125,12 @@ export interface RenderTransport {
     unregisterTexture(name: string): Promise<boolean>;
 
     /**
+     * Registers every live texture this transport knows again, at its size, on
+     * the engine a context-loss recovery rebuilt. Resolves how many came back.
+     */
+    restoreTextures(): Promise<number>;
+
+    /**
      * Subscribes to WebGL context loss/restore notifications that the transport
      * itself can see. In the worker topology the context lives in the worker, so
      * the transport relays what the worker reports. On the main thread the

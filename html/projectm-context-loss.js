@@ -21,9 +21,11 @@
 // Either way, recovery is transport.recoverContext(): init() rebuilds the engine
 // on the restored context (it refuses with code 5 while the context is still
 // lost, and the overlay stays up), start_render() recreates the dual-FBO
-// pipeline, and the last-displayed preset is reloaded through the same
-// transport from windowRef.currentPresetPath (set by updatePresetDisplay() in
-// projectm-presets.js).
+// pipeline, and a ProjectMContext plays back its own replay record
+// (html/context/replay.js: preset, mesh, flash limit, eval values, live
+// textures, sprites). Only a bare transport, which has no record, falls back to
+// reloading windowRef.currentPresetPath (set by updatePresetDisplay() in
+// projectm-presets.js), a page global that is wrong with two contexts.
 //
 // The overlay ("Graphics paused — tap to restore") is page UI and needs a
 // document; without one (headless, tests) recovery still runs, just silently.
@@ -214,7 +216,12 @@ export function setupContextLossRecovery(target, {
                 return;
             }
             lost = false;
-            reloadPreset();
+            // A ProjectMContext replays its own state (preset included) inside
+            // recoverContext(); only a bare transport falls back to the page's
+            // last-displayed preset.
+            if (isTransport(target) || typeof target.recoverContext !== 'function') {
+                reloadPreset();
+            }
             hideOverlay();
         } catch (err) {
             console.error('[projectM] Context restore failed:', err);

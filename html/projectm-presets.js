@@ -453,7 +453,11 @@ export async function loadLocalPresetFile(file, {
         updatePresetDisplay(vfsPath, { documentRef, text: milkText });
     }
     if (rememberLast) {
-        localStorage.setItem(LOCAL_PRESET_LAST_NAME_KEY, file.name);
+        try {
+            localStorage.setItem(LOCAL_PRESET_LAST_NAME_KEY, file.name);
+        } catch {
+            // Storage blocked or full: remembering the name is a convenience.
+        }
     }
     setStatusMessage(`Loaded local preset: ${file.name}`, { documentRef });
 

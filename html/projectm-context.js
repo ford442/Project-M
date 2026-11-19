@@ -34,6 +34,9 @@ import {
     throwIfAborted,
 } from './context/boot.js';
 import { attachAudioRouter, resolveMediaElement, wireAudioSource } from './context/audio.js';
+import { replayOpsFor } from './context/replay.js';
+import { watchPageLifecycle } from './context/lifecycle.js';
+import { acquireAudioGraph } from './projectm-worklet-playback.js';
 import {
     applyRhythmOptions,
     clampRhythmLatencyMs,
@@ -53,6 +56,7 @@ import {
     ProjectMContextControls,
     emitContextEvent,
     engineOf,
+    replayOf,
     rhythmOf,
     setContextSnapshot,
 } from './context/controls.js';
@@ -287,6 +291,9 @@ export class ProjectMContext extends ProjectMContextControls {
             throwIfAborted(signal);
 
             installTransportHooks({ transport, documentRef, windowRef }).forEach((d) => this.#own(d));
+            // The page's AudioContext + worklet: closed when the last holder goes.
+            this.#own(acquireAudioGraph({ audioContext: this.options.audioContext }));
+            this.#own(watchPageLifecycle({ context: this, transport, documentRef, windowRef, wakeLock: this.options.wakeLock }));
 
             this.audioRouter = attachAudioRouter({
                 existingRouter: existingAudioRouter,
@@ -523,6 +530,7 @@ export class ProjectMContext extends ProjectMContextControls {
         // The transport goes away with the engine; on() listeners stay registered
         // and a later start() reconnects them.
         rhythmOf(this).detach();
+        replayOf(this).clear();
         setContextSnapshot(this, null);
 
         const disposers = this.#disposers.splice(0).reverse();
@@ -551,13 +559,13 @@ export class ProjectMContext extends ProjectMContextControls {
      */
     async loadPresetUrl(url) {
         const transport = this.#requireTransport();
-        return loadPresetUrlInto(url, {
+        return recordLoaded(this, await loadPresetUrlInto(url, {
             transport,
             engine: engineOf(this),
             isCurrent: () => this.transport === transport,
             windowRef: this.options.windowRef,
             signal: this.#attempt?.signal,
-        });
+        }));
     }
 
     /**
@@ -566,12 +574,12 @@ export class ProjectMContext extends ProjectMContextControls {
      */
     async loadPresetFile(file) {
         const transport = this.#requireTransport();
-        return loadPresetFileInto(file, {
+        return recordLoaded(this, await loadPresetFileInto(file, {
             transport,
             engine: engineOf(this),
             isCurrent: () => this.transport === transport,
             documentRef: this.options.documentRef,
-        });
+        }));
     }
 
     /** @returns {RenderTransport} */
@@ -601,6 +609,8 @@ export class ProjectMContext extends ProjectMContextControls {
             // A recovered engine runs on a new context; describe that one. (Not
             // if destroy() landed meanwhile: that context has nothing left to describe.)
             setContextSnapshot(this, readContextSnapshot(transport, contextConfigFor(this.options)));
+            // init() started from the options; put back what was set since.
+            await replayOf(this).replay(transport, replayOpsFor(this, transport));
         }
         return status;
     }
@@ -702,6 +712,19 @@ export class ProjectMContext extends ProjectMContextControls {
             onFps,
         }));
     }
+}
+
+/**
+ * Notes a preset this context loaded, for replay after a context loss.
+ *
+ * @template {{ vfsPath: string }} T
+ * @param {ProjectMContext} context
+ * @param {T} loaded
+ * @returns {T}
+ */
+function recordLoaded(context, loaded) {
+    replayOf(context).recordPreset(loaded.vfsPath);
+    return loaded;
 }
 
 /**

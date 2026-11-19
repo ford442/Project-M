@@ -48,6 +48,7 @@ const PROCESSOR_NAME = 'projectm-audio-processor';
 function ensureHostAudioContext() {
     const existing = globalThis.projectMAudioContext_Global_Cpp;
     if (existing) return existing;
+
     const Ctor = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (typeof Ctor !== 'function') return null;
     try {
@@ -69,6 +70,90 @@ function ensureHostAudioContext() {
 
 /** @type {Promise<boolean> | null} */
 let workletSetupPromise = null;
+
+// ---------------------------------------------------------------------------
+// The audio graph's owner (ADR 0001 §6: one AudioContext per page).
+//
+// The AudioContext and the worklet node are page-wide, so no single
+// ProjectMContext owns them; every holder (each live context, the page shell)
+// acquires the graph and releases it when it goes. The last release
+// disconnects the worklet node and closes the AudioContext, so creating and
+// destroying contexts no longer leaves a running AudioContext and worklet
+// behind. An AudioContext the embedder injected (`audioContext` option) is
+// theirs: it is adopted, never closed, and only the node this module built on
+// it is taken down.
+// ---------------------------------------------------------------------------
+
+/** How many holders the audio graph has. */
+let graphHolders = 0;
+/** @type {AudioContext | null} The embedder's AudioContext, if one was injected. */
+let injectedContext = null;
+
+/**
+ * Takes a hold on the page's audio graph.
+ *
+ * @param {object} [options]
+ * @param {AudioContext | null} [options.audioContext] An AudioContext the
+ *   embedder owns, to build the graph on instead of creating one. Adopted only
+ *   when no graph exists yet.
+ * @returns {() => void} Releases this hold (idempotent).
+ */
+export function acquireAudioGraph({ audioContext = null } = {}) {
+    graphHolders += 1;
+    if (audioContext && !globalThis.projectMAudioContext_Global_Cpp) {
+        injectedContext = audioContext;
+        // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by name by the engine audio EM_JS
+        globalThis.projectMAudioContext_Global_Cpp = audioContext;
+    }
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        graphHolders = Math.max(0, graphHolders - 1);
+        if (graphHolders === 0) {
+            closeAudioGraph();
+        }
+    };
+}
+
+/** How many holders the audio graph has (tests, diagnostics). */
+export function audioGraphHolderCount() {
+    return graphHolders;
+}
+
+/**
+ * Takes the graph down: the worklet node is disconnected and its port closed,
+ * and an AudioContext this module created is closed. Called by the last
+ * release; the next acquire + gesture builds a fresh graph.
+ */
+function closeAudioGraph() {
+    const node = globalThis.projectMWorkletNode_Global_Cpp;
+    if (node) {
+        try {
+            node.port.onmessage = null;
+            node.port.close?.();
+            node.disconnect();
+        } catch {
+            // Already disconnected.
+        }
+    }
+    // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by name by the engine audio EM_JS
+    globalThis.projectMWorkletNode_Global_Cpp = null;
+
+    const ctx = globalThis.projectMAudioContext_Global_Cpp;
+    if (ctx && ctx !== injectedContext && ctx.state !== 'closed' && typeof ctx.close === 'function') {
+        Promise.resolve()
+            .then(() => ctx.close())
+            .catch((err) => {
+                console.warn('[projectM] AudioContext.close() failed:', err);
+            });
+    }
+    injectedContext = null;
+    // eslint-disable-next-line no-restricted-syntax -- owned page slot (OWNED_GLOBALS in scripts/check_host_globals.sh), read by name by the engine audio EM_JS
+    globalThis.projectMAudioContext_Global_Cpp = undefined;
+    workletSetupPromise = null;
+    warnedPcmDropped = false;
+}
 
 /**
  * @param {number} ms

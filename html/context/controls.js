@@ -22,6 +22,7 @@ import {
 import { createEngineBinder, meshGridFor, readFlashLimitStats } from './render.js';
 import { createSpriteOn, destroySpriteOn, getSpriteVarOn, setSpriteVarOn } from './sprites.js';
 import { clearEvalVarOn, liveInputTransport, setEvalVarOn } from './live-input.js';
+import { ReplayRecord } from './replay.js';
 
 /**
  * @typedef {import('../projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
@@ -49,6 +50,8 @@ let engineOfImpl;
 let rhythmOfImpl;
 /** @type {(context: ProjectMContextControls, snapshot: ProjectMContextSnapshot | null) => void} */
 let setContextSnapshotImpl;
+/** @type {(context: ProjectMContextControls) => ReplayRecord} */
+let replayOfImpl;
 
 /**
  * This context's engine on the main thread: the module, bound to `hostHandle`
@@ -61,6 +64,13 @@ let setContextSnapshotImpl;
 export const engineOf = (context) => engineOfImpl(context);
 /** @param {ProjectMContextControls} context */
 export const rhythmOf = (context) => rhythmOfImpl(context);
+/**
+ * What this context set on its engine since start(), for replay after a
+ * context loss (context/replay.js).
+ *
+ * @param {ProjectMContextControls} context
+ */
+export const replayOf = (context) => replayOfImpl(context);
 /**
  * @param {ProjectMContextControls} context
  * @param {ProjectMContextSnapshot | null} snapshot
@@ -97,6 +107,8 @@ export class ProjectMContextControls {
 
     /** Beat/bar/section events, connected to the engine while anyone listens. */
     #rhythm = new RhythmEventRelay((type, detail) => emitContextEvent(this, type, detail), () => this.hostHandle);
+    /** Settings a context-loss recovery plays back; see context/replay.js. */
+    #replay = new ReplayRecord();
 
     /** What the engine negotiated with WebGL; see {@link ProjectMContextControls#contextSnapshot}. */
     #contextSnapshot = /** @type {ProjectMContextSnapshot | null} */ (null);
@@ -166,6 +178,7 @@ export class ProjectMContextControls {
     static {
         engineOfImpl = (context) => context.#engine;
         rhythmOfImpl = (context) => context.#rhythm;
+        replayOfImpl = (context) => context.#replay;
         setContextSnapshotImpl = (context, snapshot) => {
             context.#contextSnapshot = snapshot;
         };
@@ -201,6 +214,7 @@ export class ProjectMContextControls {
 
     /** @param {boolean} locked */
     setLocked(locked) {
+        this.#replay.recordLocked(locked);
         if (this.transport) {
             this.transport.callVoid('setPresetLocked', locked);
             return;
@@ -216,6 +230,7 @@ export class ProjectMContextControls {
      * @returns {string | undefined}
      */
     setMeshQuality(quality) {
+        this.#replay.recordMeshQuality(quality);
         const engine = this.#engine;
         if (engine) {
             // 'auto' resolves against the device, which needs the module's own
@@ -349,6 +364,9 @@ export class ProjectMContextControls {
      * @param {number} [threshold] 0.005..1; omitted keeps the current one (default 0.06).
      */
     setFlashLimit(enabled, threshold) {
+        if (this.transport) {
+            this.#replay.recordFlashLimit(!!enabled, threshold);
+        }
         this.transport?.setFlashLimit(!!enabled, threshold);
     }
 
@@ -385,8 +403,9 @@ export class ProjectMContextControls {
      *   before start(), on a bundle without the sprite exports, and when the engine
      *   refuses the sprite (code that does not compile, an unknown type).
      */
-    createSprite(code, { type = 'milkdrop' } = {}) {
-        return createSpriteOn(this.transport, String(code), type);
+    async createSprite(code, { type = 'milkdrop' } = {}) {
+        const engineId = await createSpriteOn(this.transport, String(code), type);
+        return this.#replay.recordSprite(engineId, String(code), type);
     }
 
     /**
@@ -397,7 +416,9 @@ export class ProjectMContextControls {
      * @returns {Promise<void>}
      */
     destroySprite(id) {
-        return destroySpriteOn(this.transport, id);
+        const engineId = this.#replay.spriteId(id);
+        this.#replay.recordSpriteDestroyed(id);
+        return destroySpriteOn(this.transport, engineId);
     }
 
     /**
@@ -408,7 +429,7 @@ export class ProjectMContextControls {
      * @returns {Promise<number>}
      */
     getSpriteVar(id, name) {
-        return getSpriteVarOn(this.transport, id, name);
+        return getSpriteVarOn(this.transport, this.#replay.spriteId(id), name);
     }
 
     /**
@@ -423,7 +444,11 @@ export class ProjectMContextControls {
      * @returns {Promise<void>}
      */
     setSpriteVar(id, name, value) {
-        return setSpriteVarOn(this.transport, id, name, Number(value));
+        const engineId = this.#replay.spriteId(id);
+        return setSpriteVarOn(this.transport, engineId, name, Number(value)).then((result) => {
+            this.#replay.recordSpriteVar(id, name, Number(value));
+            return result;
+        });
     }
 
     /**
@@ -533,8 +558,12 @@ export class ProjectMContextControls {
      * @param {number} value
      * @returns {Promise<boolean>} false for a refused name or a non-finite value.
      */
-    setEvalVar(name, value) {
-        return setEvalVarOn(this.transport, name, Number(value));
+    async setEvalVar(name, value) {
+        const ok = await setEvalVarOn(this.transport, name, Number(value));
+        if (ok) {
+            this.#replay.recordEvalVar(name, Number(value));
+        }
+        return ok;
     }
 
     /**
@@ -544,8 +573,10 @@ export class ProjectMContextControls {
      * @param {string} [name]
      * @returns {Promise<boolean>} true if a value was removed.
      */
-    clearEvalVar(name = '') {
-        return clearEvalVarOn(this.transport, name);
+    async clearEvalVar(name = '') {
+        const removed = await clearEvalVarOn(this.transport, name);
+        this.#replay.recordEvalClear(typeof name === 'string' ? name : '');
+        return removed;
     }
 
     /**

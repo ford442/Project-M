@@ -395,6 +395,17 @@ export interface ProjectMContextOptions {
     externalPcmOrigins?: string[];
     /** Fired when the exclusive audio-source policy changes (see AudioSourceRouter). */
     onAudioSourceChange?: (status: ProjectMAudioSourceStatus) => void;
+    /**
+     * An AudioContext the embedder owns, to build projectM's audio graph on
+     * instead of creating one. Adopted when no graph exists yet; projectM never
+     * closes it (it closes only the one it created, when the last context goes).
+     */
+    audioContext?: AudioContext;
+    /**
+     * Hold a Screen Wake Lock while the page is visible and its AudioContext
+     * runs, so a playing visualizer does not dim. Defaults to true; false opts out.
+     */
+    wakeLock?: boolean;
     /** Reuse an existing {@link AudioSourceRouter} (e.g. legacy `projectm-core.html`). */
     audioRouter?: import('./projectm-audio-source-router.js').AudioSourceRouter;
     /**

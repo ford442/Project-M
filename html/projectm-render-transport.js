@@ -195,6 +195,10 @@ export function createModuleTransport(module, { host = 0 } = {}) {
             return live().unregister(name);
         },
 
+        restoreTextures() {
+            return liveTextures ? liveTextures.restore() : Promise.resolve(0);
+        },
+
         onContextEvent() {
             // The canvas is on this thread and dispatches the DOM events itself.
             return () => {};
@@ -403,6 +407,10 @@ export function createWorkerTransport(handle, { exports = null, createImageBitma
 
         unregisterTexture(name) {
             return liveTextures.unregister(name);
+        },
+
+        restoreTextures() {
+            return liveTextures.restore();
         },
 
         onContextEvent(listener) {

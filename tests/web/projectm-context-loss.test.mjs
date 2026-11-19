@@ -261,7 +261,10 @@ test('a context target recovers through its own recoverContext(), which activate
 
     assert.deepEqual(recovered, ['context']);
     assert.equal(transport.calls.some((call) => call[0] === 'recoverContext'), false, 'not bypassed');
-    assert.deepEqual(transport.calls, [['callVoid', 'loadPresetFile', '/presets/c.milk']]);
+    // The context replays its own record (context/replay.js) inside
+    // recoverContext(); the page-global preset path, which may name a
+    // sibling's preset, is not reloaded over it.
+    assert.deepEqual(transport.calls, []);
 });
 
 test('a context that has no transport yet has nothing to recover', () => {

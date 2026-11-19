@@ -315,6 +315,32 @@ export function createLiveTextures(backend) {
         },
 
         /**
+         * Registers every known slot again, at its size, on an engine that lost
+         * them: a recovered WebGL context runs on a freshly created engine. A
+         * slot the new engine refuses is forgotten, so the next `update()` of
+         * that name registers it from the frame.
+         *
+         * @returns {Promise<number>} How many slots are back.
+         */
+        async restore() {
+            let restored = 0;
+            for (const [key, slot] of [...slots]) {
+                let ok = false;
+                try {
+                    ok = !!(await backend.registerSlot(key, slot.width, slot.height));
+                } catch {
+                    ok = false;
+                }
+                if (ok) {
+                    restored += 1;
+                } else {
+                    slots.delete(key);
+                }
+            }
+            return restored;
+        },
+
+        /**
          * The size a registered slot has, or null.
          *
          * @param {string} name

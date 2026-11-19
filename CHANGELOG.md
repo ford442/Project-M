@@ -58,6 +58,15 @@ Engine and C API
   with `std::terminate`); it stays queued until the context is back.
 
 Browser host and hosting
+- **Host lifecycle** (#353 Track 1): the page's AudioContext and worklet now have owners. Each live
+  `ProjectMContext` (and the page shell) holds the audio graph, and the last one to go disconnects the
+  worklet and closes the AudioContext it created. A new `audioContext` option injects one the
+  embedder owns, which is never closed. A hidden or frozen page pauses the engine's render loop and
+  resumes it on show or bfcache restore, and a Screen Wake Lock is held while audio plays
+  (`wakeLock: false` opts out). Context-loss recovery replays a per-context record (preset, mesh
+  quality, flash limit, preset lock, `eval_set` values, live-texture slots, sprites under their
+  original ids) instead of reloading the page-global `currentPresetPath`. The two `localStorage`
+  calls that threw with storage blocked are guarded.
 - **Builds load from a manifest** (#290): `pm/builds.json`, UTF-8 `.js` glue only (`.1ijs`/`.3ijs` redirect), per-folder
   song indexes, `.htaccess` headers. `docs/adr/0001-wasm-and-media-hosting.md`.
 - Per-host WebGL context contract (`create_host_with_config()`, distinct init codes), per-engine events, and the

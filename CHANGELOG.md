@@ -55,6 +55,15 @@ Engine and C API
   gone. The waveform, custom-wave and transition paths no longer allocate every frame. Output is pixel-identical.
   After `projectm_opengl_render_frame()` and `projectm_opengl_burn_texture()` the host finds GL's default
   blend/depth/cull state and program 0 (before, the last blend function and program stayed bound).
+- **Shader passes in `.milk` presets** (#229): `warp_nPasses`/`comp_nPasses` (at most 3 shaders per stage) run
+  `warp_passK_`/`comp_passK_` shaders before the stage's own, which read the previous pass as `sampler_lastpass`
+  (`iLastPassTex`, `GetLastPass(uv)`) and know their number as `iPass`. A count over 3 or a declared pass without code
+  fails the load (switch-failed callback), a pass that fails to compile puts the stage on its default shader, and
+  presets without the key render exactly as before. `docs/MILK_SHADER_PASSES.md`.
+- **Two transitions and a host wipe mask** (#229): `Shatter` (the old frame breaks into falling glass shards) and
+  `StarWipe` (a star iris whose points bass pumps) join the random pool. The `Masked` blend mode reads a host's
+  grayscale `/textures/pm_wipe_mask.png` (or a live texture `pm_wipe_mask`) as its reveal order, falling back to its
+  noise. `docs/transition_shaders.md`; GIFs in `docs/images/transitions/`.
 - User sprites from the embed SDK, an experimental `pm_depth` sampler, `projectm_reload_texture()` (#308, stacked #309).
 - Beat-locked preset switching with latency compensation (#345).
 - This branch (`p0-main-green`): `projectm_perf_enter_gpu_stage()` takes an `int` (out-of-range values are

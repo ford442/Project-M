@@ -184,6 +184,17 @@ jobs:
       - name: Run WASM Browser Smoke Test
         run: node tests/wasm-smoke/run.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" "${{ github.workspace }}/presets/tests/000-empty.milk"
 
+      # The same smoke with presets that declare extra shader passes (#229,
+      # docs/MILK_SHADER_PASSES.md): a two-pass warp, then a soft cut to a
+      # three-pass composite. A pass that fails to load or compile under WebGL 2
+      # fails the run (preset_switch_failed or the readiness poll).
+      - name: Run WASM Browser Smoke Test — shader passes
+        run: |
+          node tests/wasm-smoke/run.mjs \
+            "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js" \
+            "${{ github.workspace }}/presets/tests/310-shaderpass-two-pass-warp.milk" \
+            "${{ github.workspace }}/presets/tests/311-shaderpass-three-pass-comp.milk"
+
       # Real WEBGL_lose_context on both render topologies: the overlay appears,
       # the engine is torn down, and it is rebuilt when the context is restored
       # (a tap in between must not break that). Exits 2 if the browser detects

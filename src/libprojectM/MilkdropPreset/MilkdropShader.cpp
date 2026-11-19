@@ -164,10 +164,10 @@ void MilkdropShader::PrepareTranspile(ShaderType type, PreparedMilkdropShader& s
         std::string const lowerCaseName = Utils::ToLower(baseName);
 
         // The main texture is the preset framebuffer's color attachment, always a 2D texture.
-        if (lowerCaseName == "main")
+        if (lowerCaseName == "main" || lowerCaseName == "lastpass")
         {
             samplerDeclarations.insert(Renderer::TextureSamplerDescriptor::SamplerDeclarationFor(name, false));
-            texSizeDeclarations.insert(Renderer::TextureSamplerDescriptor::TexSizeDeclarationFor("main"));
+            texSizeDeclarations.insert(Renderer::TextureSamplerDescriptor::TexSizeDeclarationFor(lowerCaseName));
             continue;
         }
 
@@ -297,6 +297,18 @@ void MilkdropShader::LoadTexturesAndCompile(PresetState& presetState)
             continue;
         }
 
+        // The previous shader pass's output (#229), or the main texture in the first pass.
+        // Declared with the main texture, which is the same kind of 2D texture.
+        if (lowerCaseName == "lastpass")
+        {
+            Renderer::TextureSamplerDescriptor desc(presetState.mainTexture.lock(),
+                                                    presetState.renderContext.textureManager->GetSampler(name),
+                                                    name,
+                                                    "lastpass");
+            m_lastPassDescriptors.push_back(std::move(desc));
+            continue;
+        }
+
         // A few presets directly use the (undocumented) sampler name.
         if (lowerCaseName == "blur1")
         {
@@ -416,7 +428,8 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
 
     m_shader.Bind();
 
-    m_shader.SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
+    // An extra pass renders upside down: see SetExtraPass().
+    m_shader.SetUniformMat4x4("vertex_transformation", m_extraPass ? PresetState::orthogonalProjectionFlipped : PresetState::orthogonalProjection);
 
     m_shader.SetUniformFloat4("rand_frame", {floatRand(),
                                              floatRand(),
@@ -508,7 +521,7 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
     m_shader.SetUniformFloat4("_c17", {rhythm(RhythmVariables::BeatIndex),
                                        rhythm(RhythmVariables::Section),
                                        rhythm(RhythmVariables::SectionChange),
-                                       0.0f});
+                                       static_cast<float>(m_passIndex)});
 
 
     std::array<glm::mat4, 24> tempMatrices{};
@@ -586,6 +599,12 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
         desc.Bind(textureUnit, m_shader);
         textureUnit++;
     }
+    for (auto& desc : m_lastPassDescriptors)
+    {
+        desc.Texture(m_lastPassTexture ? m_lastPassTexture : presetState.mainTexture.lock());
+        desc.Bind(textureUnit, m_shader);
+        textureUnit++;
+    }
     presetState.blurTexture.Bind(textureUnit, m_shader);
     for (auto& desc : m_textureSamplerDescriptors)
     {
@@ -601,6 +620,29 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
 auto MilkdropShader::Shader() -> Renderer::Shader&
 {
     return m_shader;
+}
+
+void MilkdropShader::SetExtraPass()
+{
+    m_extraPass = true;
+}
+
+auto MilkdropShader::ReferencesLastPass() const -> bool
+{
+    return std::any_of(m_source.samplerNames.begin(), m_source.samplerNames.end(), [](const std::string& name) {
+        const std::string baseName = name.length() > 3 && name.at(2) == '_' ? name.substr(3) : name;
+        return Utils::ToLower(baseName) == "lastpass";
+    });
+}
+
+void MilkdropShader::SetPassIndex(int passIndex)
+{
+    m_passIndex = passIndex;
+}
+
+void MilkdropShader::SetLastPassTexture(std::shared_ptr<Renderer::Texture> texture)
+{
+    m_lastPassTexture = std::move(texture);
 }
 
 void MilkdropShader::PreprocessPresetShader(ShaderType type, std::string& program)
@@ -702,6 +744,12 @@ void MilkdropShader::GetReferencedSamplers(const std::string& program, MilkdropS
         }
     }
 
+    // The header's GetLastPass() and iLastPassTex name sampler_lastpass without spelling it.
+    if (stripped.find("GetLastPass") != std::string::npos || stripped.find("iLastPassTex") != std::string::npos)
+    {
+        source.samplerNames.insert("lastpass");
+    }
+
     if (stripped.find("GetBlur3") != std::string::npos)
     {
         UpdateMaxBlurLevel(BlurTexture::BlurLevel::Blur3, source);
@@ -739,6 +787,11 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
         samplerDeclarations.insert(desc.SamplerDeclaration());
         texSizeDeclarations.insert(desc.TexSizeDeclaration());
     }
+    for (const auto& desc : m_lastPassDescriptors)
+    {
+        samplerDeclarations.insert(desc.SamplerDeclaration());
+        texSizeDeclarations.insert(desc.TexSizeDeclaration());
+    }
     for (const auto& desc : presetState.blurTexture.GetDescriptorsForBlurLevel(m_source.maxBlurLevelRequired))
     {
         samplerDeclarations.insert(desc.SamplerDeclaration());
@@ -753,16 +806,29 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
     // A prepared load uses the key and cached GLSL captured when it began: the host may have ended
     // its cache load (and cleared the key) since. Only a load prepared and initialized in one call
     // reads the key now.
-    const std::string cacheKey = prepared && prepared->transpileCacheKey ? *prepared->transpileCacheKey
-                                                                          : Renderer::GetTranspiledGlslCacheKey();
+    // The cache holds one shader per preset and type: the main one, never an extra pass.
+    const std::string cacheKey = m_extraPass                               ? std::string()
+                                 : prepared && prepared->transpileCacheKey ? *prepared->transpileCacheKey
+                                                                           : Renderer::GetTranspiledGlslCacheKey();
     const int shaderTypeInt = static_cast<int>(m_type);
 
     auto compileGlsl = [&](const std::string& glslCode) {
         // The warp vertex shader carries this preset's per-pixel code when it was
         // compiled to GLSL, so it has to be composed rather than taken as-is.
-        const std::string vertexShader = m_type == ShaderType::WarpShader
-                                             ? PerPixelGlslLowering::ComposeWarpVertexShader(presetState.perPixelGpuGlsl)
-                                             : MilkdropStaticShaders::Get()->GetPresetCompVertexShader();
+        std::string vertexShader = m_type == ShaderType::WarpShader
+                                       ? PerPixelGlslLowering::ComposeWarpVertexShader(presetState.perPixelGpuGlsl)
+                                       : MilkdropStaticShaders::Get()->GetPresetCompVertexShader();
+        if (m_extraPass && m_type == ShaderType::CompositeShader)
+        {
+            // The composite mesh is in clip space already (the warp pass flips with
+            // vertex_transformation instead): an extra pass renders upside down.
+            static const std::string clipSpace = "gl_Position = position;";
+            auto const pos = vertexShader.find(clipSpace);
+            if (pos != std::string::npos)
+            {
+                vertexShader.replace(pos, clipSpace.length(), "gl_Position = vec4(position.x, -position.y, position.zw);");
+            }
+        }
         if (deferLink)
         {
             // Errors surface in FinishCompile().

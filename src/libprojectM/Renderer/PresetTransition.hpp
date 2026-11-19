@@ -35,7 +35,7 @@ enum class TransitionBlendMode : int
     Additive,       //!< Old + New * progress.
     Multiplicative, //!< Old * (1-progress) + (Old * New) * progress.
     Screen,         //!< Screen blending.
-    Masked,         //!< Procedural noise mask turns the blend factor into a dissolve threshold.
+    Masked,         //!< A mask (the host's pm_wipe_mask texture, or procedural noise) turns the blend factor into a dissolve threshold.
     Count           //!< Number of blend modes (not a valid selection).
 };
 
@@ -45,6 +45,16 @@ enum class TransitionBlendMode : int
 class PresetTransition
 {
 public:
+    /**
+     * @brief Texture the Masked blend mode uses as its mask, if one exists.
+     *
+     * A grayscale image (luma is used): black regions reveal the new preset first, white
+     * ones last. Found like any texture: a live texture of this name, the texture load
+     * callback, or a file such as textures/pm_wipe_mask.png. Without one, Masked dissolves
+     * along procedural noise.
+     */
+    static constexpr const char* MaskTextureName = "pm_wipe_mask";
+
     PresetTransition() = delete;
 
     /**
@@ -204,6 +214,9 @@ private:
 
     bool m_transparencyMode{false};       //!< If true, near-black final-output pixels are written with alpha = 0.
     float m_transparencyThreshold{0.01f}; //!< RGB max-component threshold for transparency mode.
+
+    bool m_maskLookedUp{false};             //!< True once MaskTextureName was looked up for this transition.
+    std::shared_ptr<Texture> m_maskTexture; //!< The host's wipe mask, if Masked mode found one.
 
     std::shared_ptr<Framebuffer> m_passFramebuffer; //!< Intermediate FBO for multi-pass transitions (pass 0 output).
     Device::RenderTargetHandle m_originalDrawFbo;   //!< Original draw framebuffer saved before pass 0 binds the intermediate FBO.

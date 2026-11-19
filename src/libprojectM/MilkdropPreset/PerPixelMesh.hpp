@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PerPixelGlslLowering.hpp"
+#include "ShaderPassChain.hpp"
 
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Shader.hpp>
@@ -60,7 +61,24 @@ public:
     static auto SelectWarpShaderSource(int warpShaderVersion, const std::string& warpShader) -> std::optional<MilkdropShaderSource>;
 
     /**
-     * @brief Loads the required textures and compiles the warp shader.
+     * @brief Loads the extra warp passes (PresetState::warpPassShaders, #229). Call after LoadWarpShader().
+     *
+     * Without a warp shader of its own (none declared, or its code failed to preprocess) or one
+     * that samples sampler_lastpass, the passes would feed nothing and are not loaded. A pass that fails to preprocess drops the
+     * warp shader, as a warp shader that fails to compile does.
+     * @param presetState The preset state to retrieve the pass code from.
+     */
+    void LoadWarpPasses(const PresetState& presetState);
+
+    /**
+     * @brief Number of extra warp passes before the warp shader.
+     */
+    auto WarpPassCount() const -> int;
+
+    /**
+     * @brief Loads the required textures and compiles the warp shader and its extra passes.
+     *
+     * If any of them fails, the preset runs on the default warp shader, without extra passes.
      * @param presetState The preset state to retrieve the configuration values from.
      */
     void CompileWarpShader(PresetState& presetState);
@@ -126,6 +144,13 @@ private:
      * @brief The warp draw's pipeline: @a shader, no blending, the mesh and per-vertex buffers.
      */
     auto WarpPipeline(const Renderer::Shader& shader) const -> Renderer::Device::PipelineDesc;
+
+    /**
+     * @brief Binds the main texture with the preset's wrap mode and draws the mesh with @a program,
+     *        whose uniforms are set.
+     */
+    void DrawWarpMesh(const PresetState& presetState, const PerFrameContext& perFrameContext,
+                      const Renderer::Shader& program);
 
     /**
      * @brief Initializes the vertex array and fills in static data if needed.
@@ -223,6 +248,7 @@ private:
     std::shared_ptr<Renderer::Shader> m_perPixelMeshShader;           //!< Special shader which calculates the per-pixel UV coordinates.
     std::string m_perPixelMeshShaderKey;                              //!< Cache key the above was built for, so a preset switch cannot reuse the wrong program.
     std::unique_ptr<MilkdropShader> m_warpShader;                     //!< The warp shader. Either preset-defined or a default shader.
+    ShaderPassChain m_warpPasses{MilkdropShader::ShaderType::WarpShader};                                               //!< Extra passes before m_warpShader (warp_nPasses).
     Renderer::Sampler m_perPixelSampler{Renderer::Device::WrapMode::ClampToEdge, Renderer::Device::FilterMode::Linear}; //!< The main texture sampler.
 };
 

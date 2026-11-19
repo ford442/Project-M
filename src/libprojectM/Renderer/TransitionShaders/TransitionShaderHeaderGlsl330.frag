@@ -105,13 +105,18 @@ vec4 blendScreen(vec4 a, vec4 b, float t)
     return _prjmEndpointSafe(a, b, t, mix(a, screen, t));
 }
 
-// --- Masked blend (procedural dissolve mask) ---
+// --- Masked blend (dissolve mask) ---
 //
-// The mask is generated in-shader rather than sampled from a texture: the noise
-// samplers are optional (they can be absent when the texture manager has no
-// noise textures loaded) and an unbound sampler would silently collapse the mask
-// to black. A two-octave value noise keyed off iRandStatic keeps the pattern
-// stable for the whole transition but different from one transition to the next.
+// The mask is a host-supplied grayscale texture when one is bound (iMaskBound != 0;
+// PresetTransition binds the texture named "pm_wipe_mask"), and otherwise generated
+// in-shader. The fallback is procedural rather than one of the noise samplers on
+// purpose: those are optional, and sampling an unbound sampler would silently
+// collapse the mask to black. A two-octave value noise keyed off iRandStatic keeps
+// the pattern stable for the whole transition but different from one transition to
+// the next.
+uniform sampler2D iMask; //!< Host wipe mask: black reveals first, white last.
+uniform int iMaskBound;  //!< 1 if iMask holds a host mask, 0 to use the procedural noise.
+
 float _prjm_maskHash(vec2 p)
 {
     float seed = float(iRandStatic.x & 1023) * 0.017 + 0.113;
@@ -152,7 +157,19 @@ float _prjm_maskNoise(vec2 uv)
 vec4 blendMasked(vec4 a, vec4 b, float t)
 {
     const float softness = 0.18;
-    float mask = _prjm_maskNoise(gl_FragCoord.xy / iResolution.xy);
+    vec2 maskUv = gl_FragCoord.xy / iResolution.xy;
+    float mask;
+    if (iMaskBound != 0)
+    {
+        // Texture rows run top to bottom, fragment rows bottom to top: flip so the
+        // image's top edge is the screen's.
+        vec3 maskRgb = texture(iMask, vec2(maskUv.x, 1.0 - maskUv.y)).rgb;
+        mask = clamp(dot(maskRgb, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+    }
+    else
+    {
+        mask = _prjm_maskNoise(maskUv);
+    }
     float threshold = clamp(t, 0.0, 1.0) * (1.0 + 2.0 * softness) - softness;
     float reveal = smoothstep(mask - softness, mask + softness, threshold);
     return mix(a, b, reveal);

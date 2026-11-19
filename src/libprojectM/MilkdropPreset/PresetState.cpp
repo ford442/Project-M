@@ -1,6 +1,7 @@
 #include "PresetState.hpp"
 
 #include "ExperimentalDepthSampler.hpp"
+#include "MilkdropPresetExceptions.hpp"
 #include "MilkdropStaticShaders.hpp"
 #include "PresetFileParser.hpp"
 
@@ -142,6 +143,42 @@ void PresetState::Initialize(PresetFileParser& parsedFile)
     // Shader code (pm_depth is rewritten only in presets marked "// pm:experimental depth...").
     warpShader = ExperimentalDepthSampler::ShaderCode(parsedFile, "warp_");
     compositeShader = ExperimentalDepthSampler::ShaderCode(parsedFile, "comp_");
+    warpPassShaders = ReadShaderPasses(parsedFile, "warp", warpShaderVersion > 0 && !warpShader.empty());
+    compositePassShaders = ReadShaderPasses(parsedFile, "comp", compositeShaderVersion > 0 && !compositeShader.empty());
+}
+
+auto PresetState::ReadShaderPasses(PresetFileParser& parsedFile, const std::string& stage, bool stageHasShader) -> std::vector<std::string>
+{
+    const std::string countKey = stage + "_nPasses";
+    const int passCount = parsedFile.GetInt(countKey, 1);
+    if (passCount == 1)
+    {
+        return {};
+    }
+    if (passCount < 1 || passCount > MaxShaderPasses)
+    {
+        throw MilkdropPresetLoadException("[MilkdropPreset] " + countKey + "=" + std::to_string(passCount) +
+                                          ": a stage can have 1 to " + std::to_string(MaxShaderPasses) + " shader passes.");
+    }
+    if (!stageHasShader)
+    {
+        throw MilkdropPresetLoadException("[MilkdropPreset] " + countKey + "=" + std::to_string(passCount) +
+                                          " without a " + stage + " shader for the passes to feed.");
+    }
+
+    std::vector<std::string> passes;
+    for (int pass = 1; pass < passCount; pass++)
+    {
+        const std::string prefix = stage + "_pass" + std::to_string(pass) + "_";
+        auto code = ExperimentalDepthSampler::ShaderCode(parsedFile, prefix);
+        if (code.empty())
+        {
+            throw MilkdropPresetLoadException("[MilkdropPreset] " + countKey + "=" + std::to_string(passCount) +
+                                              " but there is no " + prefix + "1 shader code.");
+        }
+        passes.push_back(std::move(code));
+    }
+    return passes;
 }
 
 void PresetState::ReadShaderVersions(PresetFileParser& parsedFile, int& presetVersion,

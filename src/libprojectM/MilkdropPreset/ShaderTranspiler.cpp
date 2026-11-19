@@ -60,6 +60,12 @@ auto GetReferencedSamplers(const std::string& program) -> std::set<std::string>
         found = stripped.find("texsize_", found);
     }
 
+    // As in MilkdropShader::GetReferencedSamplers(): the header's GetLastPass() and iLastPassTex.
+    if (stripped.find("GetLastPass") != std::string::npos || stripped.find("iLastPassTex") != std::string::npos)
+    {
+        samplerNames.insert("lastpass");
+    }
+
     return samplerNames;
 }
 

@@ -6,6 +6,7 @@
 #include <MilkdropPreset/ExperimentalDepthSampler.hpp>
 #include <MilkdropPreset/MilkdropShader.hpp>
 #include <MilkdropPreset/PresetFileParser.hpp>
+#include <MilkdropPreset/PresetState.hpp>
 #include <MilkdropPreset/ShaderTranspiler.hpp>
 #include <MilkdropStaticShaders.hpp>
 #include <Renderer/Shader.hpp>
@@ -164,10 +165,11 @@ struct PresetCheckResult {
     bool parsed{false};
     std::string warpError;
     std::string compositeError;
+    std::string passError; //!< An invalid warp_nPasses/comp_nPasses declaration, or a pass that fails to transpile.
 
     auto Passed() const -> bool
     {
-        return parsed && warpError.empty() && compositeError.empty();
+        return parsed && warpError.empty() && compositeError.empty() && passError.empty();
     }
 };
 
@@ -190,8 +192,36 @@ auto CheckPreset(const std::string& filePath) -> PresetCheckResult
 
     // Read like PresetState does, so an experimental preset's pm_depth is declared here too.
     using libprojectM::MilkdropPreset::ExperimentalDepthSampler;
-    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, ExperimentalDepthSampler::ShaderCode(parser, "warp_"));
-    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, ExperimentalDepthSampler::ShaderCode(parser, "comp_"));
+    const auto warpCode = ExperimentalDepthSampler::ShaderCode(parser, "warp_");
+    const auto compositeCode = ExperimentalDepthSampler::ShaderCode(parser, "comp_");
+    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, warpCode);
+    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, compositeCode);
+
+    // Extra shader passes (warp_nPasses / comp_nPasses, #229), declared and transpiled like the stage shader.
+    using libprojectM::MilkdropPreset::PresetState;
+    const auto checkPasses = [&](const std::string& stage, ShaderTranspiler::ShaderType type, const std::string& stageCode) {
+        try
+        {
+            const auto passes = PresetState::ReadShaderPasses(parser, stage, !stageCode.empty());
+            for (size_t pass = 0; pass < passes.size() && result.passError.empty(); pass++)
+            {
+                auto error = TranspilePresetShader(type, passes.at(pass));
+                if (!error.empty())
+                {
+                    result.passError = stage + "_pass" + std::to_string(pass + 1) + "_: " + error;
+                }
+            }
+        }
+        catch (const std::exception& ex)
+        {
+            result.passError = ex.what();
+        }
+    };
+    checkPasses("warp", ShaderTranspiler::ShaderType::WarpShader, warpCode);
+    if (result.passError.empty())
+    {
+        checkPasses("comp", ShaderTranspiler::ShaderType::CompositeShader, compositeCode);
+    }
 
     return result;
 }
@@ -487,6 +517,8 @@ TEST_P(PresetCompat, ParseAndTranspile)
                                           << result.warpError;
     EXPECT_TRUE(result.compositeError.empty()) << "Composite shader transpile failed for \"" << filePath << "\":\n"
                                                << result.compositeError;
+    EXPECT_TRUE(result.passError.empty()) << "Shader passes of \"" << filePath << "\" are invalid:\n"
+                                          << result.passError;
 }
 
 /**

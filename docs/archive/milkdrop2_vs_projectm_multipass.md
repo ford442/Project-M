@@ -5,6 +5,25 @@
 
 ---
 
+> **Status (2026-11-19, #229): what was built, what was not.** This note is archived; read it as
+> the design discussion it was, not as a description of the code.
+>
+> - **Correction.** Section 1 describes Milkdrop 2 as having per-pass `passX_` shader blocks and
+>   `pass`/`pass_time`/`lastpass` variables in `.milk` files. It does not: a Milkdrop 2 preset has
+>   exactly one warp and one composite shader, and Milkdrop's preset transitions are a fixed
+>   blend in the engine, not authored passes. Treat section 1 as a wish list.
+> - **Implemented: multi-pass transitions** (sections 2 and 3). `PresetTransition` runs up to
+>   three passes with `iPass` and the previous pass as a texture; Glitch, PageCurl, HeatWave and
+>   Tunnel use it. See `docs/transition_shaders.md` and `docs/option_b_milkdrop_parity.md`.
+> - **Implemented: authored passes in `.milk` presets** (#229), the projectM extension this note
+>   was reaching for: `warp_nPasses`/`comp_nPasses` (at most 3 shaders per stage),
+>   `warp_passK_`/`comp_passK_` code blocks, `sampler_lastpass`/`iLastPassTex`/`GetLastPass()`,
+>   `iPass`, two ping-pong render targets per stage, sequential passes (no MRT, so WebGL 2 works).
+>   See `docs/MILK_SHADER_PASSES.md`.
+> - **Not implemented:** `iPassTime` (all passes run in the same frame, so `time` is the same for
+>   each), per-pass vertex shaders, per-pass blend modes or render-target sizes, and frame-feedback
+>   render targets (out of scope in #229).
+
 ## 1. How Milkdrop2 Handles Multi-Pass
 
 ### Core Concepts in Milkdrop2:

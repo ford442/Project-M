@@ -381,14 +381,14 @@ TEST_F(PresetTransitionStressTest, MultiPassRosterIsFullyRegistered)
 // Every registered built-in transition shader must compile on the test platform.
 // This guards against a shader silently dropping out of the pool (as the Circle
 // shader did before its sampler-in-ternary was fixed for GLSL ES / WebGL2), and
-// confirms the Phase B5 additions (Burn, RadialWipe, LiquidMelt, Tunnel) build
-// cleanly. scripts/check_transition_shaders.sh runs the same assembly through
+// confirms the Phase B5 additions (Burn, RadialWipe, LiquidMelt, Tunnel, Shatter,
+// StarWipe) build cleanly. scripts/check_transition_shaders.sh runs the same assembly through
 // glslangValidator for both GLSL 330 and GLSL ES 300 without needing a GL context.
 // -----------------------------------------------------------------------------
 TEST_F(PresetTransitionStressTest, AllBuiltInTransitionShadersCompile)
 {
     // Keep in sync with the candidate list in TransitionShaderManager.cpp.
-    constexpr std::size_t expectedBuiltInCount = 22;
+    constexpr std::size_t expectedBuiltInCount = 24;
     EXPECT_EQ(m_shaderManager->CompiledShaderCount(), expectedBuiltInCount)
         << "A built-in transition shader failed to compile — check for GLSL/GLES "
            "incompatibilities in recently changed shaders.";

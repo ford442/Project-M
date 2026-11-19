@@ -36,6 +36,14 @@ public:
     auto GetTexture(const std::string& fullName) -> TextureSamplerDescriptor;
 
     /**
+     * @brief Like GetTexture(), for a texture that is optional: no placeholder and no warning if it is missing.
+     * @param fullName The sampler name, with an optional filter/wrap prefix, e.g. "fc_pm_wipe_mask".
+     * @return The descriptor (a live texture, a texture from the load callback or from a file),
+     *         or nullopt if there is no texture of that name.
+     */
+    auto FindTexture(const std::string& fullName) -> std::optional<TextureSamplerDescriptor>;
+
+    /**
      * @brief Returns a random texture descriptor, optionally using a prefix (after the `randXX_` name).
      * Will use the default texture loading logic by calling GetTexture() if a texture was selected.
      * @param randomName The filename prefix to filter. If empty, all available textures are matches. Case-insensitive.
@@ -183,7 +191,7 @@ private:
         std::string lowerCaseBaseName; //!< Texture base file name, lower case.
     };
 
-    auto TryLoadingTexture(const std::string& name) -> TextureSamplerDescriptor;
+    auto TryLoadingTexture(const std::string& name, bool warnIfMissing = true) -> TextureSamplerDescriptor;
 
     void Preload();
 

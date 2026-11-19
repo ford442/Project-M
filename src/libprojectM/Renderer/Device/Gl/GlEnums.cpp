@@ -257,23 +257,11 @@ auto ToGl(Capability capability) -> GLenum
 {
     switch (capability)
     {
-        case Capability::Blend:
-        default:
-            return GL_BLEND;
         case Capability::ScissorTest:
+        default:
             return GL_SCISSOR_TEST;
-        case Capability::CullFace:
-            return GL_CULL_FACE;
-        case Capability::DepthTest:
-            return GL_DEPTH_TEST;
         case Capability::Dither:
             return GL_DITHER;
-        case Capability::LineSmooth:
-#ifdef USE_GLES
-            return GL_NONE;
-#else
-            return GL_LINE_SMOOTH;
-#endif
         case Capability::FramebufferSrgb:
 #ifdef USE_GLES
             return GL_NONE;

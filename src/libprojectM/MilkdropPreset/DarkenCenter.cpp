@@ -1,6 +1,6 @@
 #include "DarkenCenter.hpp"
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -37,18 +37,14 @@ void DarkenCenter::Draw()
         m_mesh.Update();
     }
 
-    Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
-
     auto shader = m_presetState.untexturedShader.lock();
-    shader->Bind();
+    Renderer::Device::SetPipeline(m_mesh.Pipeline(*shader, Renderer::Device::BlendState::Alpha()));
     shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
     shader->SetUniformFloat("vertex_point_size", 1.0f);
 
     m_mesh.Draw();
 
-    Renderer::BlendMode::SetBlendActive(false);
     Renderer::Mesh::Unbind();
-    Renderer::Shader::Unbind();
 }
 
 } // namespace MilkdropPreset

@@ -5,7 +5,7 @@
 
 #include "Waveforms/Factory.hpp"
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -32,7 +32,6 @@ void Waveform::Draw(const PerFrameContext& presetPerFrameContext)
         }
     }
 
-    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
     Renderer::Device::Commands().SetLineWidth(1.0f);
 
     auto shader = m_presetState.untexturedShader.lock();
@@ -41,16 +40,10 @@ void Waveform::Draw(const PerFrameContext& presetPerFrameContext)
     shader->SetUniformFloat("vertex_point_size", 1.0f);
 
     // Additive wave drawing (vice overwrite)
-    if (m_presetState.additiveWaves)
-    {
-        Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::One);
-    }
-    else
-    {
-        Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
-    }
+    const auto blend = m_presetState.additiveWaves ? Renderer::Device::BlendState::AdditiveAlpha()
+                                                   : Renderer::Device::BlendState::Alpha();
 
-    auto smoothedVertices = m_waveformMath->GetVertices(m_presetState, presetPerFrameContext);
+    auto& smoothedVertices = m_waveformMath->GetVertices(m_presetState, presetPerFrameContext);
 
     for (auto& smoothedWave : smoothedVertices)
     {
@@ -73,6 +66,7 @@ void Waveform::Draw(const PerFrameContext& presetPerFrameContext)
                                           : m_waveformMath->IsLoop()
                                               ? Renderer::Mesh::PrimitiveType::LineLoop
                                               : Renderer::Mesh::PrimitiveType::LineStrip);
+        Renderer::Device::SetPipeline(m_waveMesh.Pipeline(*shader, blend));
 
         // If thick outline is used, draw the shape four times with slight offsets
         // (top left, top right, bottom right, bottom left).
@@ -113,9 +107,7 @@ void Waveform::Draw(const PerFrameContext& presetPerFrameContext)
         }
     }
 
-    Renderer::BlendMode::SetBlendActive(false);;
     Renderer::Mesh::Unbind();
-    Renderer::Shader::Unbind();
 }
 
 void Waveform::ModulateOpacityByVolume(const PerFrameContext& presetPerFrameContext)

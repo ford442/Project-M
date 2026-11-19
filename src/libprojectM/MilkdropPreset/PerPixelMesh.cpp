@@ -9,7 +9,7 @@
 
 #include <Logging.hpp>
 #include <OpenMpConfig.hpp>
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/ShaderCache.hpp>
 #include <Utils.hpp>
 
@@ -524,12 +524,12 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
     // Decay
     float decay = std::min(static_cast<float>(*perFrameContext.decay), 1.0f);
 
-    // No blending between presets here, so we make sure blending is disabled.
-    Renderer::BlendMode::SetBlendActive(false);
-
+    // No blending between presets here, so blending is off.
+    const Renderer::Shader* warpProgram{nullptr};
     if (!m_warpShader)
     {
         auto perPixelMeshShader = GetDefaultWarpShader(presetState);
+        warpProgram = perPixelMeshShader.get();
         perPixelMeshShader->Bind();
         perPixelMeshShader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
         perPixelMeshShader->SetUniformInt("texture_sampler", 0);
@@ -552,6 +552,7 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
     {
         m_warpShader->LoadVariables(presetState, perFrameContext);
         auto& shader = m_warpShader->Shader();
+        warpProgram = &shader;
         shader.SetUniformFloat4("aspect", {presetState.renderContext.aspectX,
                                            presetState.renderContext.aspectY,
                                            presetState.renderContext.invAspectX,
@@ -578,11 +579,23 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
     }
     m_perPixelSampler.Bind(0);
 
+    Renderer::Device::SetPipeline(WarpPipeline(*warpProgram));
     m_warpMesh.Draw();
 
     Renderer::Mesh::Unbind();
     Renderer::Sampler::Unbind(0);
-    Renderer::Shader::Unbind();
+}
+
+auto PerPixelMesh::WarpPipeline(const Renderer::Shader& shader) const -> Renderer::Device::PipelineDesc
+{
+    auto desc = m_warpMesh.Pipeline(shader, Renderer::Device::BlendState::Replace());
+    // The per-vertex values the CPU path uploads (attribute locations 3-7, see the constructor).
+    desc.vertexLayout.AddBuffer(3, 2, sizeof(RadiusAngle));
+    desc.vertexLayout.AddBuffer(4, 4, sizeof(ZoomRotWarp));
+    desc.vertexLayout.AddBuffer(5, 2, sizeof(Renderer::Point));
+    desc.vertexLayout.AddBuffer(6, 2, sizeof(Renderer::Point));
+    desc.vertexLayout.AddBuffer(7, 2, sizeof(Renderer::Point));
+    return desc;
 }
 
 auto PerPixelMesh::HasCustomWarpShader() const -> bool

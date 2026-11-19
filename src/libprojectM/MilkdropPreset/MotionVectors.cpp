@@ -2,7 +2,7 @@
 
 #include "MilkdropStaticShaders.hpp"
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/ShaderCache.hpp>
 #include <Renderer/TextureManager.hpp>
 #include <Utils.hpp>
@@ -65,10 +65,10 @@ void MotionVectors::Draw(const PerFrameContext& presetPerFrameContext, std::shar
 
     m_motionVectorMesh.SetVertexCount(static_cast<std::size_t>(countX + 1) * 2); // countX + 1 lines for each grid row, 2 vertices each.
 
-    Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
-
     auto shader = GetShader();
-    shader->Bind();
+    auto pipeline = m_motionVectorMesh.Pipeline(*shader, Renderer::Device::BlendState::Alpha());
+    pipeline.raster.lineSmooth = true;
+    Renderer::Device::SetPipeline(pipeline);
     shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
     shader->SetUniformFloat("length_multiplier", static_cast<float>(*presetPerFrameContext.mv_l));
     shader->SetUniformFloat("minimum_length", minimumLength);
@@ -83,7 +83,6 @@ void MotionVectors::Draw(const PerFrameContext& presetPerFrameContext, std::shar
                                                               static_cast<float>(*presetPerFrameContext.mv_a)});
 
     Renderer::Device::Commands().SetLineWidth(1.0f);
-    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, true);
 
     auto& lineVertices = m_motionVectorMesh.Vertices();
 
@@ -113,11 +112,6 @@ void MotionVectors::Draw(const PerFrameContext& presetPerFrameContext, std::shar
     }
 
     Renderer::Mesh::Unbind();
-    Renderer::Shader::Unbind();
-
-    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
-
-    Renderer::BlendMode::SetBlendActive(false);
 }
 
 std::shared_ptr<Renderer::Shader> MotionVectors::GetShader()

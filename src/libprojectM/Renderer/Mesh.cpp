@@ -1,5 +1,7 @@
 #include "Renderer/Mesh.hpp"
 
+#include "Renderer/Shader.hpp"
+
 namespace libprojectM {
 namespace Renderer {
 
@@ -79,6 +81,24 @@ auto Mesh::Indices() const -> const VertexIndexArray&
     return m_indices;
 }
 
+auto Mesh::Pipeline(const Shader& shader, const Device::BlendState& blend) const -> Device::PipelineDesc
+{
+    Device::PipelineDesc desc;
+    desc.shader = shader.Handle();
+    desc.topology = m_primitiveType;
+    desc.vertexLayout.AddBuffer(0, 2, sizeof(Point));
+    if (m_useColorAttributes)
+    {
+        desc.vertexLayout.AddBuffer(1, 4, sizeof(class Color));
+    }
+    if (m_useUVAttributes)
+    {
+        desc.vertexLayout.AddBuffer(2, 2, sizeof(TextureUV));
+    }
+    desc.WithBlend(blend);
+    return desc;
+}
+
 void Mesh::Bind() const
 {
     m_vertexArray.Bind();
@@ -119,7 +139,7 @@ void Mesh::Draw()
         m_indices.Update();
     }
 
-    Device::Commands().DrawIndexed(m_primitiveType, static_cast<int>(m_indices.Size()));
+    Device::Commands().DrawIndexed(static_cast<int>(m_indices.Size()));
 
     VertexArray::Unbind();
 }

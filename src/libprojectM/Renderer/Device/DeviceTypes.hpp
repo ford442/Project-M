@@ -50,6 +50,7 @@ using BufferHandle = Handle<struct BufferTag>;
 using VertexArrayHandle = Handle<struct VertexArrayTag>;
 using RenderTargetHandle = Handle<struct RenderTargetTag>; //!< id 0: the default framebuffer.
 using ProgramHandle = Handle<struct ProgramTag>;
+using PipelineHandle = Handle<struct PipelineTag>; //!< See IRenderDevice::CreatePipeline().
 
 /**
  * @brief A GPU fence, signalled once the commands issued before it have completed.
@@ -228,19 +229,20 @@ struct BlendFunction {
     BlendFactor destinationColor{BlendFactor::Zero};
     BlendFactor sourceAlpha{BlendFactor::One};
     BlendFactor destinationAlpha{BlendFactor::Zero};
+
+    friend auto operator==(const BlendFunction&, const BlendFunction&) -> bool = default;
 };
 
 /**
- * @brief Fixed-function switches. Backends without one of them ignore it.
+ * @brief Fixed-function switches that are not pipeline state. Backends without one ignore it.
+ *
+ * Blending, face culling, depth testing, colour write masks and line smoothing belong to a
+ * pipeline (PipelineDesc) and are set with ICommandList::SetPipeline().
  */
 enum class Capability : uint8_t
 {
-    Blend,
     ScissorTest,
-    CullFace,
-    DepthTest,
     Dither,          //!< GL only.
-    LineSmooth,      //!< Desktop GL only; ignored on GLES/WebGL.
     FramebufferSrgb, //!< Desktop GL only; ignored on GLES/WebGL.
 };
 
@@ -415,6 +417,161 @@ struct ProgramCompileResult {
     Status status{Status::Ok};
     std::string log; //!< The driver's info log for the failed stage or link.
 };
+
+// ---- Pipelines ----------------------------------------------------------------------------
+
+/**
+ * @brief Blending of one colour target. The equation is always "add".
+ */
+struct BlendState {
+    bool enabled{false};
+    BlendFunction function;
+
+    friend auto operator==(const BlendState&, const BlendState&) -> bool = default;
+
+    /// No blending: the fragment replaces the target.
+    static constexpr auto Replace() -> BlendState
+    {
+        return {};
+    }
+
+    /// Blending on with the same @a source / @a destination factors for colour and alpha.
+    static constexpr auto Factors(BlendFactor source, BlendFactor destination) -> BlendState
+    {
+        return {true, {source, destination, source, destination}};
+    }
+
+    /// Classic alpha blending: src * a + dst * (1 - a).
+    static constexpr auto Alpha() -> BlendState
+    {
+        return Factors(BlendFactor::SourceAlpha, BlendFactor::OneMinusSourceAlpha);
+    }
+
+    /// Additive alpha blending: src * a + dst.
+    static constexpr auto AdditiveAlpha() -> BlendState
+    {
+        return Factors(BlendFactor::SourceAlpha, BlendFactor::One);
+    }
+};
+
+/**
+ * @brief Rasterizer state.
+ */
+struct RasterState {
+    bool cullEnabled{false};
+    FrontFace frontFace{FrontFace::CounterClockwise}; //!< Only applied with culling on.
+    CullFace cullFace{CullFace::Back};                //!< Only applied with culling on.
+    bool lineSmooth{false};                           //!< Desktop GL only; ignored elsewhere.
+
+    friend auto operator==(const RasterState&, const RasterState&) -> bool = default;
+};
+
+/**
+ * @brief Depth and stencil state. projectM draws without depth; hosts may attach one.
+ */
+struct DepthStencilState {
+    bool depthTest{false};
+    bool depthWrite{true}; //!< GL's default; nothing projectM draws has a depth buffer.
+
+    friend auto operator==(const DepthStencilState&, const DepthStencilState&) -> bool = default;
+};
+
+/**
+ * @brief One float vertex attribute: where a shader input reads from.
+ */
+struct VertexAttribute {
+    uint8_t location{};   //!< Shader input location.
+    uint8_t components{}; //!< 1 to 4 floats.
+    uint8_t buffer{};     //!< Index into VertexLayout::strides (the vertex buffer slot).
+    uint32_t offset{};    //!< Byte offset in a vertex.
+
+    friend auto operator==(const VertexAttribute&, const VertexAttribute&) -> bool = default;
+};
+
+/**
+ * @brief The vertex inputs of a pipeline.
+ *
+ * On GL the vertex array object holds the same layout (it is set up when a Mesh is created),
+ * so the GL backend only keys its cache on it; a WebGPU backend builds its vertex buffer
+ * layouts from it.
+ */
+struct VertexLayout {
+    static constexpr int MaxAttributes = 8;
+    static constexpr int MaxBuffers = 8;
+
+    std::array<VertexAttribute, MaxAttributes> attributes{};
+    uint8_t attributeCount{};
+    std::array<uint32_t, MaxBuffers> strides{}; //!< Bytes between vertices, per buffer slot.
+    uint8_t bufferCount{};
+
+    friend auto operator==(const VertexLayout&, const VertexLayout&) -> bool = default;
+
+    /// Appends an attribute that reads @a components floats from its own buffer slot.
+    constexpr auto AddBuffer(uint8_t location, uint8_t components, uint32_t stride, uint32_t offset = 0) -> VertexLayout&
+    {
+        attributes[attributeCount++] = {location, components, bufferCount, offset};
+        strides[bufferCount++] = stride;
+        return *this;
+    }
+};
+
+/**
+ * @brief One colour target of a pipeline.
+ */
+struct ColorTargetState {
+    TextureFormat format{TextureFormat::RGBA8}; //!< GL ignores it; WebGPU pipelines are format-specific.
+    bool writeRed{true};
+    bool writeGreen{true};
+    bool writeBlue{true};
+    bool writeAlpha{true};
+    BlendState blend;
+
+    friend auto operator==(const ColorTargetState&, const ColorTargetState&) -> bool = default;
+};
+
+/**
+ * @brief Everything a draw needs besides its resources: program, vertex inputs, topology and
+ *        fixed-function state. Created once with IRenderDevice::CreatePipeline(), which
+ *        returns the same handle for an equal description.
+ */
+struct PipelineDesc {
+    static constexpr int MaxColorTargets = 4;
+
+    ProgramHandle shader;
+    VertexLayout vertexLayout;
+    PrimitiveType topology{PrimitiveType::Triangles};
+    RasterState raster;
+    DepthStencilState depthStencil;
+    std::array<ColorTargetState, MaxColorTargets> targets{};
+    uint8_t targetCount{1};
+
+    friend auto operator==(const PipelineDesc&, const PipelineDesc&) -> bool = default;
+
+    /// The blend state of every target (projectM blends all targets alike).
+    constexpr auto WithBlend(const BlendState& blend) -> PipelineDesc&
+    {
+        for (auto& target : targets)
+        {
+            target.blend = blend;
+        }
+        return *this;
+    }
+
+    /// The format of every target.
+    constexpr auto WithFormat(TextureFormat format) -> PipelineDesc&
+    {
+        for (auto& target : targets)
+        {
+            target.format = format;
+        }
+        return *this;
+    }
+};
+
+/**
+ * @brief A stable hash of a PipelineDesc, for caches.
+ */
+auto Hash(const PipelineDesc& desc) -> size_t;
 
 /**
  * @brief The slice of pipeline state a host keeps stable around a render.

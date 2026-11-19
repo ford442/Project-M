@@ -2,7 +2,7 @@
 
 #include "PresetFileParser.hpp"
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/TextureManager.hpp>
 #include <Utils.hpp>
 
@@ -82,8 +82,6 @@ void CustomShape::Draw()
         return;
     }
 
-    Renderer::BlendMode::SetBlendActive(true);
-
     for (int instance = 0; instance < m_instances; instance++)
     {
         m_perFrameContext.LoadStateVariables(m_presetState, *this, instance);
@@ -92,10 +90,8 @@ void CustomShape::Draw()
         const int sides = Utils::SaturatingToInt(*m_perFrameContext.sides, 3, 100);
 
         // Additive Drawing or Overwrite
-        Renderer::BlendMode::SetBlendFunction(Renderer::BlendMode::Function::SourceAlpha,
-                                              Utils::ExpressionIsTrue(*m_perFrameContext.additive)
-                                                  ? Renderer::BlendMode::Function::One
-                                                  : Renderer::BlendMode::Function::OneMinusSourceAlpha);
+        const auto blend = Utils::ExpressionIsTrue(*m_perFrameContext.additive) ? Renderer::Device::BlendState::AdditiveAlpha()
+                                                                                : Renderer::Device::BlendState::Alpha();
 
         auto& vertexData = m_fillMesh.Vertices();
         auto& colorData = m_fillMesh.Colors();
@@ -140,7 +136,7 @@ void CustomShape::Draw()
         if (m_fillMesh.UseUV())
         {
             auto shader = m_presetState.texturedShader.lock();
-            shader->Bind();
+            Renderer::Device::SetPipeline(m_fillMesh.Pipeline(*shader, blend));
             shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
             shader->SetUniformInt("texture_sampler", 0);
 
@@ -188,7 +184,7 @@ void CustomShape::Draw()
         {
             // Untextured (creates a color gradient: center=r/g/b/a to border=r2/b2/g2/a2)
             auto shader = m_presetState.untexturedShader.lock();
-            shader->Bind();
+            Renderer::Device::SetPipeline(m_fillMesh.Pipeline(*shader, blend));
             shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
         }
 
@@ -215,7 +211,9 @@ void CustomShape::Draw()
             }
 
             auto shader = m_presetState.untexturedShader.lock();
-            shader->Bind();
+            auto outline = m_outlineMesh.Pipeline(*shader, blend);
+            outline.raster.lineSmooth = true;
+            Renderer::Device::SetPipeline(outline);
             shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
             shader->SetUniformFloat("vertex_point_size", 1.0f);
 
@@ -224,7 +222,6 @@ void CustomShape::Draw()
                                                                       static_cast<float>(*m_perFrameContext.border_b),
                                                                       static_cast<float>(*m_perFrameContext.border_a)});
             Renderer::Device::Commands().SetLineWidth(1.0f);
-            Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, true);
 
             const auto iterations = m_thickOutline ? 4 : 1;
 
@@ -270,10 +267,6 @@ void CustomShape::Draw()
     }
 
     Renderer::Mesh::Unbind();
-    Renderer::Shader::Unbind();
-
-    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
-    Renderer::BlendMode::SetBlendActive(false);
 }
 
 } // namespace MilkdropPreset

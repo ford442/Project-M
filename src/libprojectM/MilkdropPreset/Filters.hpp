@@ -44,9 +44,15 @@ private:
      */
     void Invert();
 
+    /**
+     * @brief Draws the filter quad once with blending @a source * src + @a destination * dst.
+     */
+    void DrawBlended(Renderer::Device::BlendFactor source, Renderer::Device::BlendFactor destination);
+
     const PresetState& m_presetState; //!< The global preset state.
 
     Renderer::Mesh m_filterMesh;
+    const Renderer::Shader* m_shader{nullptr}; //!< The untextured shader, during Draw().
 
     int m_viewportWidth{}; //!< Last known viewport width
     int m_viewportHeight{}; //!< Last known viewport height

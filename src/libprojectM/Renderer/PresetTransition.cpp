@@ -240,7 +240,8 @@ void PresetTransition::Draw(const Preset& oldPreset,
         bicubicProgress = linearProgress < 0.5 ? 4.0 * linearProgress * linearProgress * linearProgress : 1.0 - pow(-2.0 * linearProgress + 2.0, 3.0) / 2.0;
     }
 
-    m_transitionShader->Bind();
+    // The transition shader mixes both presets itself: no blending.
+    Device::SetPipeline(m_mesh.Pipeline(*m_transitionShader, Device::BlendState::Replace()));
 
     // Numerical parameters
     m_transitionShader->SetUniformFloat3("iResolution", {static_cast<float>(context.viewportSizeX),
@@ -316,7 +317,9 @@ void PresetTransition::Draw(const Preset& oldPreset,
     }
 
     int textureUnit = 2;
-    std::vector<TextureSamplerDescriptor> noiseDescriptors(m_noiseTextureNames.size());
+    // Reused every frame: only the first frame of a transition allocates the list.
+    auto& noiseDescriptors = m_noiseDescriptors;
+    noiseDescriptors.resize(m_noiseTextureNames.size());
     for (const auto& noiseTextureName : m_noiseTextureNames)
     {
         noiseDescriptors[textureUnit - 2] = context.textureManager->GetTexture(noiseTextureName);
@@ -381,7 +384,6 @@ void PresetTransition::Draw(const Preset& oldPreset,
     commands.SetActiveTextureUnit(0);
 
     Mesh::Unbind();
-    Shader::Unbind();
 
     // Update last frame time.
     m_lastFrameTime = currentFrameTime;

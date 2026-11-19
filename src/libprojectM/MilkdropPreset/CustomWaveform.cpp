@@ -3,7 +3,7 @@
 #include "PerFrameContext.hpp"
 #include "PresetFileParser.hpp"
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 #include <OpenMpConfig.hpp>
 #include <Utils.hpp>
 
@@ -157,8 +157,11 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
         sampleDataR[sample] *= mult;
     }
 
-    std::vector<Renderer::Point> points(sampleCount);
-    std::vector<Renderer::Color> colors(sampleCount);
+    // Member scratch: resizing within the capacity of an earlier frame does not allocate.
+    auto& points = m_points;
+    auto& colors = m_colors;
+    points.resize(static_cast<size_t>(sampleCount));
+    colors.resize(static_cast<size_t>(sampleCount));
 
     float const sampleMultiplicator = sampleCount > 1 ? 1.0f / static_cast<float>(sampleCount - 1) : 0.0f;
 
@@ -220,21 +223,12 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
 
     SmoothWave(points, colors);
 
-    Renderer::Device::Commands().SetEnabled(Renderer::Device::Capability::LineSmooth, false);
     Renderer::Device::Commands().SetLineWidth(1.0f);
 
     // Additive wave drawing (vice overwrite)
-    if (m_additive)
-    {
-        Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::One);
-    }
-    else
-    {
-        Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
-    }
-
     auto shader = m_presetState.untexturedShader.lock();
-    shader->Bind();
+    Renderer::Device::SetPipeline(m_mesh.Pipeline(*shader, m_additive ? Renderer::Device::BlendState::AdditiveAlpha()
+                                                                       : Renderer::Device::BlendState::Alpha()));
     shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
     shader->SetUniformFloat("vertex_point_size", m_drawThick ? 2.0f : 1.0f);
 
@@ -285,8 +279,6 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
     }
 
     m_mesh.Unbind();
-    Renderer::Shader::Unbind();
-    Renderer::BlendMode::SetBlendActive(false);
 }
 
 void CustomWaveform::LoadPerFrameEvaluationVariables(const PerFrameContext& presetPerFrameContext)

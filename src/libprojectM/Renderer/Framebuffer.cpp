@@ -2,6 +2,7 @@
 
 #include <Logging.hpp>
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <string>
@@ -325,12 +326,6 @@ void Framebuffer::RemoveDepthStencilAttachment(int framebufferIndex)
     RemoveAttachment(framebufferIndex, AttachmentPoint::DepthStencil);
 }
 
-void Framebuffer::MaskDrawBuffer(int bufferIndex, bool masked)
-{
-    // Invert the flag, as "true" means the color channel *will* be written.
-    m_device->Commands().SetDrawBufferWriteMask(bufferIndex, !masked);
-}
-
 void Framebuffer::AddOwnedAttachment(int framebufferIndex, AttachmentPoint point, std::shared_ptr<TextureAttachment> textureAttachment)
 {
     const auto texture = textureAttachment->Texture();
@@ -423,7 +418,15 @@ void Framebuffer::UpdateDrawBuffers(int framebufferIndex)
 
     const auto& attachments = m_attachments.at(framebufferIndex);
 
-    std::vector<AttachmentPoint> buffers;
+    // At most eight colour attachments plus depth, stencil and depth-stencil.
+    std::array<AttachmentPoint, 11> buffers{};
+    size_t bufferCount{0};
+    const auto push = [&buffers, &bufferCount](AttachmentPoint point) {
+        if (bufferCount < buffers.size())
+        {
+            buffers[bufferCount++] = point;
+        }
+    };
 
     bool hasDepthAttachment = false;
     bool hasStencilAttachment = false;
@@ -443,25 +446,25 @@ void Framebuffer::UpdateDrawBuffers(int framebufferIndex)
                 hasDepthStencilAttachment = true;
                 break;
             default:
-                buffers.push_back(attachment.first);
+                push(attachment.first);
                 break;
         }
     }
 
     if (hasDepthAttachment)
     {
-        buffers.push_back(AttachmentPoint::Depth);
+        push(AttachmentPoint::Depth);
     }
     if (hasStencilAttachment)
     {
-        buffers.push_back(AttachmentPoint::Stencil);
+        push(AttachmentPoint::Stencil);
     }
     if (hasDepthStencilAttachment)
     {
-        buffers.push_back(AttachmentPoint::DepthStencil);
+        push(AttachmentPoint::DepthStencil);
     }
 
-    m_device->Commands().SetDrawBuffers(buffers);
+    m_device->Commands().SetDrawBuffers(std::span<const AttachmentPoint>(buffers.data(), bufferCount));
 }
 
 void Framebuffer::RemoveAttachment(int framebufferIndex, AttachmentPoint attachmentType)

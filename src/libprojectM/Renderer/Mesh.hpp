@@ -89,6 +89,17 @@ public:
     }
 
     /**
+     * @brief A pipeline that draws this mesh with @a shader: the vertex layout of the attributes
+     *        in use, the primitive type, and @a blend on every target.
+     *
+     * Draw() uses the topology of the current pipeline, so set this (or one built from it) first.
+     * @param shader The program to draw with.
+     * @param blend Blending of every colour target.
+     * @return The description, for IRenderDevice::CreatePipeline() or Device::SetPipeline().
+     */
+    auto Pipeline(const class Shader& shader, const Device::BlendState& blend = {}) const -> Device::PipelineDesc;
+
+    /**
      * Returns the current number of vertices in the vertex buffer.
      * @return The number of vertices in the vertex buffer.
      */

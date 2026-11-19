@@ -4,6 +4,8 @@
 
 #include <Logging.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -112,8 +114,9 @@ void TexSubImage(GLenum target, const TextureDesc& desc, const void* data)
 
 // ==== GlCommandList ===================================================================
 
-GlCommandList::GlCommandList(ResourceStateTracker& tracker)
-    : m_tracker(tracker)
+GlCommandList::GlCommandList(GlDevice& device, ResourceStateTracker& tracker)
+    : m_device(device)
+    , m_tracker(tracker)
 {
 }
 
@@ -179,15 +182,16 @@ void GlCommandList::AttachTexture(TargetBinding binding, AttachmentPoint point, 
     m_tracker.OnAttach(binding, point, texture);
 }
 
-void GlCommandList::SetDrawBuffers(const std::vector<AttachmentPoint>& points)
+void GlCommandList::SetDrawBuffers(std::span<const AttachmentPoint> points)
 {
-    std::vector<GLenum> buffers;
-    buffers.reserve(points.size());
-    for (const auto point : points)
+    // Eight colour attachments plus depth, stencil and depth-stencil (see Framebuffer).
+    std::array<GLenum, 11> buffers{};
+    const size_t count = std::min(points.size(), buffers.size());
+    for (size_t i = 0; i < count; ++i)
     {
-        buffers.push_back(ToGl(point));
+        buffers[i] = ToGl(points[i]);
     }
-    glDrawBuffers(static_cast<GLsizei>(buffers.size()), buffers.data());
+    glDrawBuffers(static_cast<GLsizei>(count), buffers.data());
 }
 
 void GlCommandList::SetReadBuffer(AttachmentPoint point)
@@ -241,65 +245,6 @@ auto GlCommandList::IsEnabled(Capability capability) -> bool
     return glCapability != GL_NONE && glIsEnabled(glCapability) == GL_TRUE;
 }
 
-void GlCommandList::SetBlendFunction(BlendFactor source, BlendFactor destination)
-{
-    glBlendFunc(ToGl(source), ToGl(destination));
-}
-
-void GlCommandList::SetBlendFunction(const BlendFunction& function)
-{
-    glBlendFuncSeparate(ToGl(function.sourceColor), ToGl(function.destinationColor),
-                        ToGl(function.sourceAlpha), ToGl(function.destinationAlpha));
-}
-
-auto GlCommandList::GetBlendFunction() -> BlendFunction
-{
-    GLint sourceColor{GL_ONE};
-    GLint destinationColor{GL_ZERO};
-    GLint sourceAlpha{GL_ONE};
-    GLint destinationAlpha{GL_ZERO};
-    glGetIntegerv(GL_BLEND_SRC_RGB, &sourceColor);
-    glGetIntegerv(GL_BLEND_DST_RGB, &destinationColor);
-    glGetIntegerv(GL_BLEND_SRC_ALPHA, &sourceAlpha);
-    glGetIntegerv(GL_BLEND_DST_ALPHA, &destinationAlpha);
-    return {BlendFactorFromGl(static_cast<GLenum>(sourceColor)), BlendFactorFromGl(static_cast<GLenum>(destinationColor)),
-            BlendFactorFromGl(static_cast<GLenum>(sourceAlpha)), BlendFactorFromGl(static_cast<GLenum>(destinationAlpha))};
-}
-
-void GlCommandList::SetDepthMask(bool writeEnabled)
-{
-    glDepthMask(writeEnabled ? GL_TRUE : GL_FALSE);
-}
-
-auto GlCommandList::DepthMask() -> bool
-{
-    GLboolean depthMask{GL_TRUE};
-    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
-    return depthMask == GL_TRUE;
-}
-
-void GlCommandList::SetColorMask(bool red, bool green, bool blue, bool alpha)
-{
-    glColorMask(red ? GL_TRUE : GL_FALSE, green ? GL_TRUE : GL_FALSE, blue ? GL_TRUE : GL_FALSE, alpha ? GL_TRUE : GL_FALSE);
-}
-
-void GlCommandList::SetDrawBufferWriteMask(int drawBuffer, bool writeEnabled)
-{
-    const auto mask = static_cast<GLboolean>(writeEnabled);
-#ifdef USE_GLES
-    (void) drawBuffer;
-    glColorMask(mask, mask, mask, mask);
-#else
-    glColorMaski(drawBuffer, mask, mask, mask, mask);
-#endif
-}
-
-void GlCommandList::SetCullMode(FrontFace frontFace, CullFace cullFace)
-{
-    glFrontFace(frontFace == FrontFace::Clockwise ? GL_CW : GL_CCW);
-    glCullFace(cullFace == CullFace::Back ? GL_BACK : GL_FRONT);
-}
-
 void GlCommandList::SetLineWidth(float width)
 {
     glLineWidth(width);
@@ -321,13 +266,20 @@ void GlCommandList::SetClearColor(const std::array<float, 4>& color)
 
 void GlCommandList::Clear(uint8_t clearMask)
 {
+    // A clear writes everything, whatever the current pipeline's masks say; they are put back
+    // afterwards, so the pipeline still holds for the next draw.
+    const bool known = m_stateKnown.load();
+    const auto colorMask = m_applied.colorMask;
+    const bool depthWrite = m_applied.depthStencil.depthWrite;
     GLbitfield bits{};
     if ((clearMask & ClearColor) != 0)
     {
+        ApplyColorMask({true, true, true, true}, known);
         bits |= GL_COLOR_BUFFER_BIT;
     }
     if ((clearMask & ClearDepth) != 0)
     {
+        ApplyDepthWrite(true, known);
         bits |= GL_DEPTH_BUFFER_BIT;
     }
     if ((clearMask & ClearStencil) != 0)
@@ -335,17 +287,185 @@ void GlCommandList::Clear(uint8_t clearMask)
         bits |= GL_STENCIL_BUFFER_BIT;
     }
     glClear(bits);
+    if (known)
+    {
+        ApplyColorMask(colorMask, true);
+        ApplyDepthWrite(depthWrite, true);
+    }
 }
 
-void GlCommandList::ClearColorAttachment(int drawBuffer, const std::array<float, 4>& color)
+void GlCommandList::ClearColorAttachment(int drawBuffer, const std::array<float, 4>& color, const std::array<bool, 4>& writeMask)
 {
+    const bool known = m_stateKnown.load();
+    const auto colorMask = m_applied.colorMask;
+    ApplyColorMask(writeMask, known);
     glClearBufferfv(GL_COLOR, drawBuffer, color.data());
+    if (known)
+    {
+        ApplyColorMask(colorMask, true);
+    }
+}
+
+void GlCommandList::ApplyProgram(ProgramHandle program, bool known)
+{
+    if (!known || m_applied.program != program)
+    {
+        glUseProgram(program.id);
+        m_applied.program = program;
+    }
+    m_tracker.OnSetProgram(program);
+}
+
+void GlCommandList::ApplyColorMask(const std::array<bool, 4>& mask, bool known)
+{
+    if (!known || m_applied.colorMask != mask)
+    {
+        glColorMask(mask[0] ? GL_TRUE : GL_FALSE, mask[1] ? GL_TRUE : GL_FALSE, mask[2] ? GL_TRUE : GL_FALSE, mask[3] ? GL_TRUE : GL_FALSE);
+        m_applied.colorMask = mask;
+    }
+}
+
+void GlCommandList::ApplyDepthWrite(bool enabled, bool known)
+{
+    if (!known || m_applied.depthStencil.depthWrite != enabled)
+    {
+        glDepthMask(enabled ? GL_TRUE : GL_FALSE);
+        m_applied.depthStencil.depthWrite = enabled;
+    }
+}
+
+void GlCommandList::Apply(const PipelineDesc& desc)
+{
+    // exchange() first: an InvalidateState() from another thread while this runs leaves the
+    // flag cleared, so the next pipeline applies everything again.
+    const bool known = m_stateKnown.exchange(true);
+
+    ApplyProgram(desc.shader, known);
+
+    // GL 3.3 / GLES 3.0 blend all draw buffers alike; projectM never blends them differently.
+    const auto& blend = desc.targets[0].blend;
+    if (!known || m_applied.blend.enabled != blend.enabled)
+    {
+        blend.enabled ? glEnable(GL_BLEND) : glDisable(GL_BLEND);
+    }
+    if (blend.enabled && (!known || !m_applied.blend.enabled || m_applied.blend.function != blend.function))
+    {
+        glBlendFuncSeparate(ToGl(blend.function.sourceColor), ToGl(blend.function.destinationColor),
+                            ToGl(blend.function.sourceAlpha), ToGl(blend.function.destinationAlpha));
+        m_applied.blend.function = blend.function;
+    }
+    m_applied.blend.enabled = blend.enabled;
+
+    const auto& raster = desc.raster;
+    if (!known || m_applied.raster.cullEnabled != raster.cullEnabled)
+    {
+        raster.cullEnabled ? glEnable(GL_CULL_FACE) : glDisable(GL_CULL_FACE);
+    }
+    if (raster.cullEnabled && (!known || !m_applied.raster.cullEnabled || m_applied.raster.frontFace != raster.frontFace ||
+                               m_applied.raster.cullFace != raster.cullFace))
+    {
+        glFrontFace(raster.frontFace == FrontFace::Clockwise ? GL_CW : GL_CCW);
+        glCullFace(raster.cullFace == CullFace::Back ? GL_BACK : GL_FRONT);
+        m_applied.raster.frontFace = raster.frontFace;
+        m_applied.raster.cullFace = raster.cullFace;
+    }
+    m_applied.raster.cullEnabled = raster.cullEnabled;
+#ifndef USE_GLES
+    if (!known || m_applied.raster.lineSmooth != raster.lineSmooth)
+    {
+        raster.lineSmooth ? glEnable(GL_LINE_SMOOTH) : glDisable(GL_LINE_SMOOTH);
+    }
+#endif
+    m_applied.raster.lineSmooth = raster.lineSmooth;
+
+    if (!known || m_applied.depthStencil.depthTest != desc.depthStencil.depthTest)
+    {
+        desc.depthStencil.depthTest ? glEnable(GL_DEPTH_TEST) : glDisable(GL_DEPTH_TEST);
+        m_applied.depthStencil.depthTest = desc.depthStencil.depthTest;
+    }
+    ApplyDepthWrite(desc.depthStencil.depthWrite, known);
+
+    // Write masks: one glColorMask when every target agrees (always, in projectM).
+    const auto maskOf = [](const ColorTargetState& target) -> std::array<bool, 4> {
+        return {target.writeRed, target.writeGreen, target.writeBlue, target.writeAlpha};
+    };
+    const auto first = maskOf(desc.targets[0]);
+    bool uniformMask = true;
+    for (int target = 1; target < desc.targetCount; ++target)
+    {
+        uniformMask = uniformMask && maskOf(desc.targets.at(target)) == first;
+    }
+    if (uniformMask)
+    {
+        ApplyColorMask(first, known);
+    }
+    else
+    {
+#ifdef USE_GLES
+        // glColorMaski needs GLES 3.2; every buffer gets the first target's mask.
+        ApplyColorMask(first, known);
+#else
+        for (int target = 0; target < desc.targetCount; ++target)
+        {
+            const auto mask = maskOf(desc.targets.at(target));
+            glColorMaski(target, mask[0], mask[1], mask[2], mask[3]);
+        }
+        // No single mask describes the context now: the next pipeline applies everything.
+        m_stateKnown.store(false);
+#endif
+    }
+}
+
+void GlCommandList::SetPipeline(PipelineHandle pipeline)
+{
+    const PipelineDesc* desc = m_device.Pipeline(pipeline);
+    if (desc == nullptr)
+    {
+        if (!m_reportedUnknownPipeline)
+        {
+            m_reportedUnknownPipeline = true;
+            LOG_WARN("[RenderDevice] SetPipeline() with an unknown or destroyed pipeline; the draws that follow are skipped.");
+        }
+        m_hasPipeline = false;
+        return;
+    }
+    Apply(*desc);
+    m_topology = desc->topology;
+    m_hasPipeline = true;
 }
 
 void GlCommandList::SetProgram(ProgramHandle program)
 {
-    glUseProgram(program.id);
-    m_tracker.OnSetProgram(program);
+    // Rebinding the current pipeline's program (uniform uploads) keeps the pipeline. Only the
+    // program is applied here, so unknown state stays unknown until the next pipeline.
+    const bool known = m_stateKnown.load();
+    if (!known || m_applied.program != program)
+    {
+        m_hasPipeline = false;
+    }
+    ApplyProgram(program, known);
+}
+
+void GlCommandList::InvalidateState()
+{
+    m_stateKnown.store(false);
+}
+
+void GlCommandList::ResetPipelineState()
+{
+    Apply(PipelineDesc{});
+    m_hasPipeline = false;
+}
+
+void GlCommandList::OnProgramDestroyed(ProgramHandle program)
+{
+    if (m_applied.program == program)
+    {
+        // GL keeps a deleted program alive while it is current; the name may be reused.
+        m_applied.program = {};
+        m_stateKnown.store(false);
+        m_hasPipeline = false;
+    }
 }
 
 void GlCommandList::SetUniform(int location, UniformType type, int count, const void* data)
@@ -502,16 +622,34 @@ void GlCommandList::SetConstantVertexAttribute(int index, const std::array<float
     glVertexAttrib4f(index, value[0], value[1], value[2], value[3]);
 }
 
-void GlCommandList::Draw(PrimitiveType primitive, int first, int count)
+void GlCommandList::Draw(int first, int count)
 {
-    glDrawArrays(ToGl(primitive), first, count);
+    if (!m_hasPipeline)
+    {
+        if (!m_reportedMissingPipeline)
+        {
+            m_reportedMissingPipeline = true;
+            LOG_WARN("[RenderDevice] Draw() without a pipeline; skipped.");
+        }
+        return;
+    }
+    glDrawArrays(ToGl(m_topology), first, count);
     m_tracker.OnDraw();
     ReportGlErrors("Draw");
 }
 
-void GlCommandList::DrawIndexed(PrimitiveType primitive, int count)
+void GlCommandList::DrawIndexed(int count)
 {
-    glDrawElements(ToGl(primitive), count, GL_UNSIGNED_INT, nullptr);
+    if (!m_hasPipeline)
+    {
+        if (!m_reportedMissingPipeline)
+        {
+            m_reportedMissingPipeline = true;
+            LOG_WARN("[RenderDevice] DrawIndexed() without a pipeline; skipped.");
+        }
+        return;
+    }
+    glDrawElements(ToGl(m_topology), count, GL_UNSIGNED_INT, nullptr);
     m_tracker.OnDraw();
     ReportGlErrors("DrawIndexed");
 }
@@ -536,8 +674,19 @@ auto GlCommandList::CaptureState() -> StateSnapshot
 {
     StateSnapshot state;
     state.blendEnabled = glIsEnabled(GL_BLEND) == GL_TRUE;
-    state.blendFunction = GetBlendFunction();
-    state.depthMask = DepthMask();
+    GLint sourceColor{GL_ONE};
+    GLint destinationColor{GL_ZERO};
+    GLint sourceAlpha{GL_ONE};
+    GLint destinationAlpha{GL_ZERO};
+    glGetIntegerv(GL_BLEND_SRC_RGB, &sourceColor);
+    glGetIntegerv(GL_BLEND_DST_RGB, &destinationColor);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &sourceAlpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &destinationAlpha);
+    state.blendFunction = {BlendFactorFromGl(static_cast<GLenum>(sourceColor)), BlendFactorFromGl(static_cast<GLenum>(destinationColor)),
+                           BlendFactorFromGl(static_cast<GLenum>(sourceAlpha)), BlendFactorFromGl(static_cast<GLenum>(destinationAlpha))};
+    GLboolean depthMask{GL_TRUE};
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    state.depthMask = depthMask == GL_TRUE;
     state.viewport = Viewport();
     state.scissorEnabled = glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
     GLint scissorBox[4]{};
@@ -554,9 +703,13 @@ auto GlCommandList::CaptureState() -> StateSnapshot
 void GlCommandList::RestoreState(const StateSnapshot& state)
 {
     BindRenderTarget(TargetBinding::ReadDraw, state.drawTarget);
-    SetEnabled(Capability::Blend, state.blendEnabled);
-    SetBlendFunction(state.blendFunction);
-    SetDepthMask(state.depthMask);
+    state.blendEnabled ? glEnable(GL_BLEND) : glDisable(GL_BLEND);
+    glBlendFuncSeparate(ToGl(state.blendFunction.sourceColor), ToGl(state.blendFunction.destinationColor),
+                        ToGl(state.blendFunction.sourceAlpha), ToGl(state.blendFunction.destinationAlpha));
+    glDepthMask(state.depthMask ? GL_TRUE : GL_FALSE);
+    // Pipeline state changed behind the record.
+    InvalidateState();
+    m_hasPipeline = false;
     SetViewport(state.viewport);
     SetEnabled(Capability::ScissorTest, state.scissorEnabled);
     SetScissor(state.scissorBox);
@@ -777,7 +930,62 @@ void GlDevice::DestroyProgram(ProgramHandle program)
         return;
     }
     m_tracker.OnDestroyProgram(program);
+    for (auto it = m_pipelines.begin(); it != m_pipelines.end();)
+    {
+        if (it->second.shader == program)
+        {
+            const auto hash = Hash(it->second);
+            const auto range = m_pipelinesByHash.equal_range(hash);
+            for (auto entry = range.first; entry != range.second; ++entry)
+            {
+                if (entry->second == it->first)
+                {
+                    m_pipelinesByHash.erase(entry);
+                    break;
+                }
+            }
+            it = m_pipelines.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    m_commands.OnProgramDestroyed(program);
     glDeleteProgram(program.id);
+}
+
+auto GlDevice::CreatePipeline(const PipelineDesc& desc) -> PipelineHandle
+{
+    if (!desc.shader.Valid())
+    {
+        return {};
+    }
+    const auto hash = Hash(desc);
+    const auto range = m_pipelinesByHash.equal_range(hash);
+    for (auto entry = range.first; entry != range.second; ++entry)
+    {
+        const auto found = m_pipelines.find(entry->second);
+        if (found != m_pipelines.end() && found->second == desc)
+        {
+            return {entry->second};
+        }
+    }
+    const uint32_t id = m_nextPipelineId++;
+    m_pipelines.emplace(id, desc);
+    m_pipelinesByHash.emplace(hash, id);
+    return {id};
+}
+
+auto GlDevice::Pipeline(PipelineHandle pipeline) const -> const PipelineDesc*
+{
+    const auto found = m_pipelines.find(pipeline.id);
+    return found == m_pipelines.end() ? nullptr : &found->second;
+}
+
+auto GlDevice::PipelineCount() const -> size_t
+{
+    return m_pipelines.size();
 }
 
 auto GlDevice::BeginCompileProgram(ProgramHandle program,

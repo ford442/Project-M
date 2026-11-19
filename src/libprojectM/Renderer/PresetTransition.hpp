@@ -3,6 +3,7 @@
 #include "Renderer/Framebuffer.hpp"
 #include "Renderer/Mesh.hpp"
 #include "Renderer/Shader.hpp"
+#include "Renderer/TextureSamplerDescriptor.hpp"
 
 #include <Preset.hpp>
 
@@ -184,6 +185,7 @@ private:
                                                  "pw_noisevol_lq",
                                                  "noisevol_hq",
                                                  "pw_noisevol_hq"}; //!< Names of noise textures to retrieve from TextureManager.
+    std::vector<TextureSamplerDescriptor> m_noiseDescriptors; //!< Per-frame scratch, one per noise texture.
 
     Mesh m_mesh;                                                                                      //!< The mesh used to draw the transition effect.
     std::shared_ptr<Shader> m_transitionShader;                                                       //!< The compiled shader used for this transition.

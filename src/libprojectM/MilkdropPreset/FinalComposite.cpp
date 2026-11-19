@@ -4,7 +4,7 @@
 
 #include <Logging.hpp>
 #include <OpenMpConfig.hpp>
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 
 #include <cstddef>
 
@@ -155,10 +155,10 @@ void FinalComposite::Draw(const PresetState& presetState, const PerFrameContext&
         InitializeMesh(presetState);
         ApplyHueShaderColors(presetState);
 
-        // Render the grid
-        Renderer::BlendMode::SetBlendActive(false);
+        // Render the grid, no blending.
         m_compositeShader->LoadVariables(presetState, perFrameContext);
 
+        Renderer::Device::SetPipeline(m_compositeMesh.Pipeline(m_compositeShader->Shader(), Renderer::Device::BlendState::Replace()));
         m_compositeMesh.Draw();
         Renderer::Mesh::Unbind();
     }
@@ -171,8 +171,6 @@ void FinalComposite::Draw(const PresetState& presetState, const PerFrameContext&
             m_filters->Draw();
         }
     }
-
-    Renderer::Shader::Unbind();
 }
 
 auto FinalComposite::HasCompositeShader() const -> bool

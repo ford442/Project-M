@@ -9,7 +9,7 @@
 
 #include <Preset.hpp>
 
-#include <Renderer/BlendMode.hpp>
+#include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/ShaderCache.hpp>
 #include <Renderer/ShaderPrelude.hpp>
 #include <Renderer/TextureManager.hpp>
@@ -242,26 +242,30 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
 
     Renderer::Device::Commands().SetConstantVertexAttribute(1, {r, g, b, a});
 
+    using Renderer::Device::BlendFactor;
+    using Renderer::Device::BlendState;
+    BlendState blend;
     switch (blendMode)
     {
         case 0:
         default:
-            Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
+            blend = BlendState::Alpha();
             break;
         case 1:
-            Renderer::BlendMode::SetBlendActive(false);
+            blend = BlendState::Replace();
             break;
         case 2:
-            Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::One, Renderer::BlendMode::Function::One);
+            blend = BlendState::Factors(BlendFactor::One, BlendFactor::One);
             break;
         case 3:
-            Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceColor, Renderer::BlendMode::Function::OneMinusSourceColor);
+            blend = BlendState::Factors(BlendFactor::SourceColor, BlendFactor::OneMinusSourceColor);
             break;
         case 4:
             // Milkdrop actually changed color keying to using texture alpha. The color key is ignored.
-            Renderer::BlendMode::Set(true, Renderer::BlendMode::Function::SourceAlpha, Renderer::BlendMode::Function::OneMinusSourceAlpha);
+            blend = BlendState::Alpha();
             break;
     }
+    Renderer::Device::SetPipeline(m_mesh.Pipeline(*spriteShader, blend));
 
     // Draw to current output buffer
     m_mesh.Draw();
@@ -286,8 +290,6 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
 
     m_texture->Unbind(0);
     Renderer::Mesh::Unbind();
-    Renderer::Shader::Unbind();
-    Renderer::BlendMode::SetBlendActive(false);
 }
 
 auto MilkdropSprite::Done() const -> bool

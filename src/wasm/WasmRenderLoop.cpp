@@ -123,7 +123,8 @@ void start_render(WasmHost& H, int width, int height)
     // every bit of extra entropy on the final blit helps hide 8-bit banding, so
     // leave it enabled in that case instead of unconditionally disabling it.
     commands.SetEnabled(Capability::Dither, g_dualFbo.GetFormat() == FboFloatFormat::RGBA8);
-    commands.SetCullMode(RenderDevice::FrontFace::Clockwise, RenderDevice::CullFace::Back);
+    // Face culling is pipeline state now, and no projectM pipeline culls; the front face
+    // this used to set never took effect.
     // app_data.loading is left alone: it means "a preset preparation is in
     // flight", and starting the render loop does not change that.
     projectm_set_window_size(pm, width, height);
@@ -222,9 +223,8 @@ static void FillAlphaOfOpaqueFrame(const WasmHost& H, projectm_handle pm)
     auto& commands = RenderDevice::Commands();
     commands.BindRenderTarget(RenderDevice::TargetBinding::Draw, {});
     commands.SetEnabled(RenderDevice::Capability::ScissorTest, false);
-    commands.SetColorMask(false, false, false, true);
-    commands.ClearColorAttachment(0, {0.0f, 0.0f, 0.0f, 1.0f});
-    commands.SetColorMask(true, true, true, true);
+    // Alpha only: the colour is the frame.
+    commands.ClearColorAttachment(0, {0.0f, 0.0f, 0.0f, 1.0f}, {false, false, false, true});
 }
 
 static void ReleaseDualFboIfIdle(WasmHost& H)

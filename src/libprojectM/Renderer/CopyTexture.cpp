@@ -310,12 +310,8 @@ auto CopyTexture::TryBlit(const std::shared_ptr<class Texture>& originalTexture,
 
     auto& commands = m_device->Commands();
 
-    // A blit ignores blending (and the fragment shader entirely), so it is only
-    // equivalent to the quad draw while blending is off.
-    if (commands.IsEnabled(Device::Capability::Blend))
-    {
-        return false;
-    }
+    // The quad draw's pipeline has blending off (BindShader()), so a blit, which ignores
+    // blending, gives the same pixels.
 
     // The quad path is clipped by the viewport, the blit path is not. Only take the blit when
     // the viewport covers the whole destination, so both produce the same pixels.
@@ -398,7 +394,6 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
     m_device->Commands().BindTexture(0, Device::TextureTarget::Texture2D, {});
     Mesh::Unbind();
     Sampler::Unbind(0);
-    Shader::Unbind();
 }
 
 void CopyTexture::Copy(ShaderCache& shaderCache,
@@ -424,7 +419,6 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
 
     Mesh::Unbind();
     Sampler::Unbind(0);
-    Shader::Unbind();
 }
 
 std::shared_ptr<Shader> CopyTexture::BindShader(ShaderCache& shaderCache)
@@ -450,7 +444,8 @@ std::shared_ptr<Shader> CopyTexture::BindShader(ShaderCache& shaderCache)
         shaderCache.Insert("copy_texture", shader);
     }
 
-    shader->Bind();
+    // Copies replace the target: no blending.
+    Device::SetPipeline(*m_device, m_mesh.Pipeline(*shader, Device::BlendState::Replace()));
 
     return shader;
 }

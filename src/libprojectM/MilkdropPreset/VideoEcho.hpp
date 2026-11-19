@@ -20,6 +20,11 @@ public:
 	void Draw();
 
 private:
+    /**
+     * @brief Sets the echo mesh pipeline with @a blend (the textured shader is current).
+     */
+    void SetBlend(const Renderer::Device::BlendState& blend);
+
     void DrawVideoEcho();
 
     void DrawGammaAdjustment();
@@ -28,6 +33,7 @@ private:
 
     std::array<std::array<float, 3>, 4> m_shade; // !< Random, changing color values for the four corners
     Renderer::Mesh m_echoMesh; //!< The video echo/gamma adj mesh
+    const Renderer::Shader* m_shader{nullptr}; //!< The textured shader, during Draw().
     Renderer::Sampler m_sampler{Renderer::Device::WrapMode::ClampToEdge, Renderer::Device::FilterMode::Linear};
 };
 

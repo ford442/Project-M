@@ -303,6 +303,7 @@ auto ProjectM::ClearHostVariable(const std::string& name) -> bool
 void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
 {
     const ScopedEngineContext engineScope(*m_engineContext);
+    const Renderer::Device::ScopedPipelineReset pipelineReset;
     Perf::FrameGuard perfFrameGuard;
 
     // Switch to a preset whose shader programs have finished linking since the last frame.
@@ -453,7 +454,8 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
         // per-FBO draw buffer state that leaks into FBO 0 on some drivers.
         if (!targetFramebuffer.Valid())
         {
-            commands.SetDrawBuffers({Renderer::Device::AttachmentPoint::Back});
+            constexpr Renderer::Device::AttachmentPoint back[]{Renderer::Device::AttachmentPoint::Back};
+            commands.SetDrawBuffers(back);
         }
 #endif
     }
@@ -707,6 +709,7 @@ void ProjectM::UserSpriteSetVariableValue(uint32_t spriteId, const std::string& 
 void ProjectM::BurnInTexture(uint32_t openGlTextureId, int left, int top, int width, int height)
 {
     const ScopedEngineContext engineScope(*m_engineContext);
+    const Renderer::Device::ScopedPipelineReset pipelineReset;
     if (m_activePreset)
     {
         m_activePreset->BindFramebuffer();

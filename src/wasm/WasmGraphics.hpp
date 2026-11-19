@@ -647,10 +647,9 @@ inline void SetBaselineViewportAndScissor(RenderDevice::StateSnapshot& baseline,
  * prevent Preset A's additive blend/texture state from contaminating Preset B.
  *
  * Resets:
- *   - Blending disabled (One, Zero – opaque replace mode)
+ *   - Pipeline state to GL's defaults (blending off with One, Zero; depth writes on; no culling)
  *   - Texture units 0-7 unbound (2D)
  *   - FBO unbound (default framebuffer)
- *   - Depth mask enabled (default)
  */
 inline void reset_render_state_between_pipelines()
 {
@@ -659,9 +658,8 @@ inline void reset_render_state_between_pipelines()
 
     auto& commands = RenderDevice::Commands();
 
-    // Disable blending; reset to opaque replace mode.
-    commands.SetEnabled(RenderDevice::Capability::Blend, false);
-    commands.SetBlendFunction(RenderDevice::BlendFactor::One, RenderDevice::BlendFactor::Zero);
+    // Blending off (one, zero), depth writes on, nothing culled.
+    commands.ResetPipelineState();
 
     // Unbind textures on the first kMaxProjectMTextureUnits units.
     for (int unit = 0; unit < kMaxProjectMTextureUnits; ++unit)
@@ -669,9 +667,6 @@ inline void reset_render_state_between_pipelines()
         commands.BindTexture(unit, RenderDevice::TextureTarget::Texture2D, {});
     }
     commands.SetActiveTextureUnit(0); // Leave active unit at 0 as a clean default.
-
-    // Reset depth mask.
-    commands.SetDepthMask(true);
 
     // Unbind any FBO (render to default framebuffer).
     commands.BindRenderTarget(RenderDevice::TargetBinding::ReadDraw, {});
@@ -747,6 +742,7 @@ public:
         m_vbo->Set({{-1.0f, -1.0f}, {1.0f, -1.0f}, {-1.0f, 1.0f}, {1.0f, 1.0f}});
 
         const int positionLocation = m_program->AttributeLocation("aPosition");
+        m_positionLocation = positionLocation;
         m_vao->Bind();
         m_vbo->Update();
         if (positionLocation >= 0)
@@ -788,12 +784,18 @@ public:
 
         // Render to the default framebuffer (browser canvas).
         commands.BeginPass({{}, RenderDevice::TargetBinding::ReadDraw, RenderDevice::Rect{0, 0, width, height}});
-        commands.SetEnabled(Capability::Blend, false);
-        commands.SetEnabled(Capability::DepthTest, false);
-        commands.SetDepthMask(false);
         commands.SetEnabled(Capability::ScissorTest, false);
 
-        m_program->Bind();
+        // No blending, no depth test or writes: the quad replaces the canvas.
+        RenderDevice::PipelineDesc pipeline;
+        pipeline.shader = m_program->Handle();
+        pipeline.topology = RenderDevice::PrimitiveType::TriangleStrip;
+        if (m_positionLocation >= 0)
+        {
+            pipeline.vertexLayout.AddBuffer(static_cast<uint8_t>(m_positionLocation), 2, sizeof(libprojectM::Renderer::Point));
+        }
+        pipeline.depthStencil.depthWrite = false;
+        RenderDevice::SetPipeline(pipeline);
 
         commands.BindTexture(0, texture2D, texA);
         m_program->SetUniformInt("uTexA", 0);
@@ -808,15 +810,13 @@ public:
         m_program->SetUniformFloat("u_transparencyThreshold", transparencyThreshold);
 
         m_vao->Bind();
-        commands.Draw(RenderDevice::PrimitiveType::TriangleStrip, 0, 4);
+        commands.Draw(0, 4);
         libprojectM::Renderer::VertexArray::Unbind();
         commands.EndPass();
 
         // Clean up texture bindings.
         commands.BindTexture(1, texture2D, {});
         commands.BindTexture(0, texture2D, {});
-
-        libprojectM::Renderer::Shader::Unbind();
     }
 
     bool IsInitialized() const
@@ -843,6 +843,7 @@ private:
     bool m_initialized = false;
     std::unique_ptr<libprojectM::Renderer::Shader> m_program;
     std::unique_ptr<libprojectM::Renderer::VertexArray> m_vao;
+    int m_positionLocation{-1}; //!< Where aPosition was linked; -1 if the linker dropped it.
     std::unique_ptr<libprojectM::Renderer::VertexBuffer<libprojectM::Renderer::Point>> m_vbo;
 };
 

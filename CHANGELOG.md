@@ -49,6 +49,12 @@ Engine and C API
   incomplete framebuffers, a PCM lock, owned prepare jobs.
 - **Render-device seam** (#308): all GL behind `Renderer/Device` (WebGPU groundwork, bit-identical output).
   `docs/RENDER_DEVICE.md`.
+- **Render-device pipelines** (#354 B1): each draw sets an immutable `PipelineDesc` (program, blend, cull, depth,
+  write masks, line smoothing, vertex layout, topology), cached by hash; `Draw()`/`DrawIndexed()` take no primitive,
+  and GL calls for state already applied are skipped. `BlendMode` and the stateful blend/depth/mask/cull calls are
+  gone. The waveform, custom-wave and transition paths no longer allocate every frame. Output is pixel-identical.
+  After `projectm_opengl_render_frame()` and `projectm_opengl_burn_texture()` the host finds GL's default
+  blend/depth/cull state and program 0 (before, the last blend function and program stayed bound).
 - User sprites from the embed SDK, an experimental `pm_depth` sampler, `projectm_reload_texture()` (#308, stacked #309).
 - Beat-locked preset switching with latency compensation (#345).
 - This branch (`p0-main-green`): `projectm_perf_enter_gpu_stage()` takes an `int` (out-of-range values are

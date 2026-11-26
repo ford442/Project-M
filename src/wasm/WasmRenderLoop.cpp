@@ -39,7 +39,7 @@ static void RenderHostFrame(WasmHost& H)
     // to the canvas; the dual-FBO compositor runs only during preset crossfades.
     if (g_perfHudEnabled)
     {
-        js_perf_gpu_begin_frame();
+        js_perf_gpu_begin_frame(H.contextCaps.timerQuery ? 1 : 0);
     }
     WasmApi::render_frame(H);
     if (g_perfHudEnabled)

@@ -153,6 +153,10 @@ export function setupRenderWorker({
     // get_context_snapshot() for the worker's context, from 'ready' and from
     // each successful recovery. Null until reported, and for a bundle without it.
     let contextSnapshotBits: number | null = null;
+    // get_context_limit() for the same context, reported alongside it.
+    let contextLimitValues: readonly number[] | null = null;
+    const limitsOf = (limits: unknown): readonly number[] | null =>
+        Array.isArray(limits) && limits.every((n) => typeof n === 'number') ? Object.freeze([...limits]) : null;
 
     const contextListeners = new Set<(event: RenderWorkerContextEvent) => void>();
     let pendingRecovery: Promise<number> | null = null;
@@ -226,6 +230,7 @@ export function setupRenderWorker({
             case 'ready':
                 engineHost = typeof msg.host === 'number' ? msg.host : DEFAULT_HOST;
                 contextSnapshotBits = typeof msg.contextSnapshot === 'number' ? msg.contextSnapshot : null;
+                contextLimitValues = limitsOf(msg.contextLimits);
                 if (onReady) onReady();
                 break;
             case 'unsupported':
@@ -275,6 +280,7 @@ export function setupRenderWorker({
                 if (msg.status === 0) {
                     // A rebuilt engine runs on a new context; describe that one.
                     contextSnapshotBits = typeof msg.contextSnapshot === 'number' ? msg.contextSnapshot : null;
+                    contextLimitValues = limitsOf(msg.contextLimits);
                 }
                 if (settleRecovery) {
                     settleRecovery(msg.status);
@@ -341,6 +347,10 @@ export function setupRenderWorker({
 
         contextSnapshot() {
             return contextSnapshotBits;
+        },
+
+        contextLimits() {
+            return contextLimitValues;
         },
 
         onContextEvent(listener) {

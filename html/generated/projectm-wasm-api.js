@@ -29,7 +29,7 @@ export const ProjectMError = Object.freeze({
 /** C symbol names for render-worker ccall proxying. */
 export const WASM_API_SYMBOLS = {
     addAudioData: 'add_audio_data',
-    pl: 'pl',
+    playSong: 'play_song',
     destruct: 'destruct',
     getProjectmHandle: 'get_projectm_handle',
     init: 'init',
@@ -104,12 +104,15 @@ export const WASM_API_SYMBOLS = {
     setTargetFps: 'set_target_fps',
     setQualityGovernor: 'set_quality_governor',
     getQualityTier: 'get_quality_tier',
+    setQualityTierCeiling: 'set_quality_tier_ceiling',
+    getQualityTierCeiling: 'get_quality_tier_ceiling',
     getGovernorRenderScale: 'get_governor_render_scale',
     getGovernorBlurCap: 'get_governor_blur_cap',
     isPresetReady: 'is_preset_ready',
     getRenderedFrameCount: 'get_rendered_frame_count',
     presetSwitchFailed: 'preset_switch_failed',
     livePlaylistCount: 'live_playlist_count',
+    debugForceTrap: 'debug_force_trap',
     getMainLoopTimingMode: 'get_main_loop_timing_mode',
     getOmpEnabled: 'get_omp_enabled',
     getOmpMaxThreads: 'get_omp_max_threads',
@@ -140,6 +143,7 @@ export const WASM_API_SYMBOLS = {
     dualFboIsPresetBReady: 'dual_fbo_is_preset_b_ready',
     dualFboGetFormat: 'dual_fbo_get_format',
     getContextSnapshot: 'get_context_snapshot',
+    getContextLimit: 'get_context_limit',
     dualFboRenderPresetA: 'dual_fbo_render_preset_a',
     dualFboRenderPresetB: 'dual_fbo_render_preset_b',
     transitionStart: 'transition_start',
@@ -214,7 +218,7 @@ export const WASM_API_SYMBOLS = {
 /** @type {Record<string, WasmApiSignature>} */
 export const WASM_API_SIGNATURES = {
     addAudioData: { symbol: 'add_audio_data', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'], hostSymbol: null, hostMode: null },
-    pl: { symbol: 'pl', returnType: null, argTypes: ['string'], paramTypes: ['string'], hostSymbol: null, hostMode: null },
+    playSong: { symbol: 'play_song', returnType: null, argTypes: ['string'], paramTypes: ['string'], hostSymbol: null, hostMode: null },
     destruct: { symbol: 'destruct', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_destruct', hostMode: 'prepend' },
     getProjectmHandle: { symbol: 'get_projectm_handle', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_projectm_handle', hostMode: 'prepend' },
     init: { symbol: 'init', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_init', hostMode: 'prepend' },
@@ -289,12 +293,15 @@ export const WASM_API_SIGNATURES = {
     setTargetFps: { symbol: 'set_target_fps', returnType: null, argTypes: ['number'], paramTypes: ['number'], hostSymbol: 'pm_set_target_fps', hostMode: 'prepend' },
     setQualityGovernor: { symbol: 'set_quality_governor', returnType: null, argTypes: ['number'], paramTypes: ['boolean'], hostSymbol: 'pm_set_quality_governor', hostMode: 'prepend' },
     getQualityTier: { symbol: 'get_quality_tier', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_quality_tier', hostMode: 'prepend' },
+    setQualityTierCeiling: { symbol: 'set_quality_tier_ceiling', returnType: null, argTypes: ['number'], paramTypes: ['number'], hostSymbol: 'pm_set_quality_tier_ceiling', hostMode: 'prepend' },
+    getQualityTierCeiling: { symbol: 'get_quality_tier_ceiling', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_quality_tier_ceiling', hostMode: 'prepend' },
     getGovernorRenderScale: { symbol: 'get_governor_render_scale', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_governor_render_scale', hostMode: 'prepend' },
     getGovernorBlurCap: { symbol: 'get_governor_blur_cap', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_governor_blur_cap', hostMode: 'prepend' },
     isPresetReady: { symbol: 'is_preset_ready', returnType: 'number', argTypes: ['number'], paramTypes: ['number'], hostSymbol: 'pm_is_preset_ready', hostMode: 'prepend' },
     getRenderedFrameCount: { symbol: 'get_rendered_frame_count', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_rendered_frame_count', hostMode: 'prepend' },
     presetSwitchFailed: { symbol: 'preset_switch_failed', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_preset_switch_failed', hostMode: 'prepend' },
     livePlaylistCount: { symbol: 'live_playlist_count', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
+    debugForceTrap: { symbol: 'debug_force_trap', returnType: null, argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
     getMainLoopTimingMode: { symbol: 'get_main_loop_timing_mode', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
     getOmpEnabled: { symbol: 'get_omp_enabled', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
     getOmpMaxThreads: { symbol: 'get_omp_max_threads', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: null, hostMode: null },
@@ -325,6 +332,7 @@ export const WASM_API_SIGNATURES = {
     dualFboIsPresetBReady: { symbol: 'dual_fbo_is_preset_b_ready', returnType: 'boolean', argTypes: [], paramTypes: [], hostSymbol: 'pm_dual_fbo_is_preset_b_ready', hostMode: 'prepend' },
     dualFboGetFormat: { symbol: 'dual_fbo_get_format', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_dual_fbo_get_format', hostMode: 'prepend' },
     getContextSnapshot: { symbol: 'get_context_snapshot', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_context_snapshot', hostMode: 'prepend' },
+    getContextLimit: { symbol: 'get_context_limit', returnType: 'number', argTypes: ['number'], paramTypes: ['number'], hostSymbol: 'pm_get_context_limit', hostMode: 'prepend' },
     dualFboRenderPresetA: { symbol: 'dual_fbo_render_preset_a', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_dual_fbo_render_preset_a', hostMode: 'prepend' },
     dualFboRenderPresetB: { symbol: 'dual_fbo_render_preset_b', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_dual_fbo_render_preset_b', hostMode: 'prepend' },
     transitionStart: { symbol: 'transition_start', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_transition_start', hostMode: 'prepend' },
@@ -447,6 +455,8 @@ export const HOST_SYMBOLS = new Map([
     ['set_target_fps', ['pm_set_target_fps', 'prepend']],
     ['set_quality_governor', ['pm_set_quality_governor', 'prepend']],
     ['get_quality_tier', ['pm_get_quality_tier', 'prepend']],
+    ['set_quality_tier_ceiling', ['pm_set_quality_tier_ceiling', 'prepend']],
+    ['get_quality_tier_ceiling', ['pm_get_quality_tier_ceiling', 'prepend']],
     ['get_governor_render_scale', ['pm_get_governor_render_scale', 'prepend']],
     ['get_governor_blur_cap', ['pm_get_governor_blur_cap', 'prepend']],
     ['is_preset_ready', ['pm_is_preset_ready', 'prepend']],
@@ -476,6 +486,7 @@ export const HOST_SYMBOLS = new Map([
     ['dual_fbo_is_preset_b_ready', ['pm_dual_fbo_is_preset_b_ready', 'prepend']],
     ['dual_fbo_get_format', ['pm_dual_fbo_get_format', 'prepend']],
     ['get_context_snapshot', ['pm_get_context_snapshot', 'prepend']],
+    ['get_context_limit', ['pm_get_context_limit', 'prepend']],
     ['dual_fbo_render_preset_a', ['pm_dual_fbo_render_preset_a', 'prepend']],
     ['dual_fbo_render_preset_b', ['pm_dual_fbo_render_preset_b', 'prepend']],
     ['transition_start', ['pm_transition_start', 'prepend']],
@@ -659,9 +670,9 @@ export function addAudioData(module, data, len) {
     module._add_audio_data(data, len);
 }
 
-/** Play audio file from VFS path */
-export function pl(module, songPath) {
-    module.ccall('pl', null, ['string'], [songPath]);
+/** Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names) */
+export function playSong(module, songPath) {
+    module.ccall('play_song', null, ['string'], [songPath]);
 }
 
 /** Tear down projectM engine */
@@ -1034,6 +1045,16 @@ export function getQualityTier(module) {
     return module._get_quality_tier();
 }
 
+/** Best quality tier the governor may step up to (0 = no cap, 1 = regular, 2 = low), applied at once to a running governor above it (the battery context profile sets 1) */
+export function setQualityTierCeiling(module, tier) {
+    module._set_quality_tier_ceiling(tier);
+}
+
+/** Best quality tier the governor may choose (set_quality_tier_ceiling) */
+export function getQualityTierCeiling(module) {
+    return module._get_quality_tier_ceiling();
+}
+
 /** Current governor internal render-scale factor (1.0/0.75/0.5) */
 export function getGovernorRenderScale(module) {
     return module._get_governor_render_scale();
@@ -1062,6 +1083,11 @@ export function presetSwitchFailed(module) {
 /** Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook) */
 export function livePlaylistCount(module) {
     return module._live_playlist_count();
+}
+
+/** Executes a wasm unreachable inside the wrapper, which kills the Module (symbolizer round-trip test hook, tests/wasm-smoke/symbolize_trap.mjs) */
+export function debugForceTrap(module) {
+    module._debug_force_trap();
 }
 
 /** Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook) */
@@ -1209,9 +1235,14 @@ export function dualFboGetFormat(module) {
     return module._dual_fbo_get_format();
 }
 
-/** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot */
+/** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8), bit14 EXT_disjoint_timer_query_webgl2 offered, bit15 get_context_limit() answers. Decoded into ProjectMContext.contextSnapshot and contextCaps */
 export function getContextSnapshot(module) {
     return module._get_context_snapshot();
+}
+
+/** One limit of this host's WebGL context, read when it was created (which: 0 MAX_TEXTURE_SIZE, 1 MAX_RENDERBUFFER_SIZE, 2 MAX_SAMPLES), 0 without a context. Decoded into ProjectMContext.contextCaps */
+export function getContextLimit(module, which) {
+    return module._get_context_limit(which);
 }
 
 /** Render preset A into dual FBO */
@@ -1564,6 +1595,8 @@ export function createHostApi(module, host) {
         setTargetFps: (fps) => setTargetFps(view, fps),
         setQualityGovernor: (enabled) => setQualityGovernor(view, enabled),
         getQualityTier: () => getQualityTier(view),
+        setQualityTierCeiling: (tier) => setQualityTierCeiling(view, tier),
+        getQualityTierCeiling: () => getQualityTierCeiling(view),
         getGovernorRenderScale: () => getGovernorRenderScale(view),
         getGovernorBlurCap: () => getGovernorBlurCap(view),
         isPresetReady: (minFramesSinceReady) => isPresetReady(view, minFramesSinceReady),
@@ -1592,6 +1625,7 @@ export function createHostApi(module, host) {
         dualFboIsPresetBReady: () => dualFboIsPresetBReady(view),
         dualFboGetFormat: () => dualFboGetFormat(view),
         getContextSnapshot: () => getContextSnapshot(view),
+        getContextLimit: (which) => getContextLimit(view, which),
         dualFboRenderPresetA: () => dualFboRenderPresetA(view),
         dualFboRenderPresetB: () => dualFboRenderPresetB(view),
         transitionStart: () => transitionStart(view),
@@ -1708,6 +1742,8 @@ export const PUBLIC_WASM_API = [
     setTargetFps,
     setQualityGovernor,
     getQualityTier,
+    setQualityTierCeiling,
+    getQualityTierCeiling,
     getGovernorRenderScale,
     getGovernorBlurCap,
     getGlslGeneratorVersion,
@@ -1720,6 +1756,7 @@ export const PUBLIC_WASM_API = [
     dualFboIsPresetBReady,
     dualFboGetFormat,
     getContextSnapshot,
+    getContextLimit,
     transitionStart,
     transitionCancel,
     transitionIsActive,

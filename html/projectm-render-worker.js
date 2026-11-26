@@ -133,9 +133,18 @@ function recoverContext(host) {
     }
     postToHost({ type: 'context-recovered', status, ...(status === 0 ? contextSnapshotField() : {}) });
 }
+const CONTEXT_LIMIT_ORDER = [0, 1, 2];
 function contextSnapshotField() {
     const m = selectEngine(engineHost);
-    return m && typeof m._get_context_snapshot === 'function' ? { contextSnapshot: m._get_context_snapshot() } : {};
+    if (!m || typeof m._get_context_snapshot !== 'function') {
+        return {};
+    }
+    const field = { contextSnapshot: m._get_context_snapshot() };
+    if (typeof m._get_context_limit === 'function') {
+        const getLimit = m._get_context_limit;
+        field.contextLimits = CONTEXT_LIMIT_ORDER.map((which) => getLimit(which));
+    }
+    return field;
 }
 function postStats() {
     flushPerfFrames();

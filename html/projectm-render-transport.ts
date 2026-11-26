@@ -31,6 +31,7 @@ import type {
     WasmApiResult,
     WasmApiSignature,
 } from './generated/projectm-wasm-api.js';
+import { CONTEXT_LIMITS } from './projectm-context-config.js';
 import { captureFrameFromModule } from './projectm-frame-capture.js';
 import { createLiveTextureWriter, createLiveTextures, pixelsOf, sourceSize } from './projectm-live-texture.js';
 import { claimGlobal } from './projectm-globals.js';
@@ -256,6 +257,13 @@ export function createModuleTransport(
             return typeof module._get_context_snapshot === 'function' ? Number(invoke('getContextSnapshot', [])) : null;
         },
 
+        contextLimits() {
+            if (typeof module._get_context_limit !== 'function') {
+                return null;
+            }
+            return Object.values(CONTEXT_LIMITS).map((which) => Number(invoke('getContextLimit', [which])));
+        },
+
         recoverContext(width = 0, height = 0) {
             // init() replaces whatever engine is left and refuses with 5 while
             // the context is still lost; nothing is built in that case. The
@@ -461,6 +469,10 @@ export function createWorkerTransport(
 
         contextSnapshot() {
             return handle.contextSnapshot();
+        },
+
+        contextLimits() {
+            return handle.contextLimits();
         },
 
         recoverContext() {

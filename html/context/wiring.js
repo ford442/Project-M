@@ -16,7 +16,7 @@ import { setQualityGovernorEnabled, setTargetFps } from '../projectm-fps-governo
 import { installTransportPcmWriter, installTransportPresetWriter } from '../projectm-render-transport.js';
 import { INIT_CONTEXT_LOST } from '../projectm-init-errors.js';
 import { setMeshQuality } from '../projectm-mesh-quality.js';
-import { resolveFlashLimit } from '../projectm-context-config.js';
+import { qualityTierCeilingFor, resolveFlashLimit } from '../projectm-context-config.js';
 
 /**
  * @typedef {import('@projectm/types/context').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
@@ -91,6 +91,22 @@ export function applyInitialFlashLimit(transport, options) {
     const flashLimit = resolveFlashLimit(options);
     if (flashLimit && transport.topology === 'main') {
         transport.setFlashLimit(flashLimit.enabled, flashLimit.threshold);
+    }
+}
+
+/**
+ * The context profile's governor ceiling (set_quality_tier_ceiling()), on
+ * either topology: the engine applies it to a running governor at once, so it
+ * does not need to arrive before the first frame. Nothing without a profile, or
+ * on a bundle without the export. The host keeps it across a context loss.
+ *
+ * @param {RenderTransport} transport
+ * @param {Partial<ProjectMResolvedContextOptions>} options
+ */
+export function applyQualityTierCeiling(transport, options) {
+    const ceiling = qualityTierCeilingFor(options);
+    if (ceiling !== null && transport.supports('setQualityTierCeiling')) {
+        transport.callVoid('setQualityTierCeiling', ceiling);
     }
 }
 

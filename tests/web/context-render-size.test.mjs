@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { syncCanvasSize, followContainerSize, devicePixelSizeOf, setBackingStore } from '../../html/context/render.js';
+import { syncCanvasSize, followContainerSize, devicePixelSizeOf, fitWithin, setBackingStore } from '../../html/context/render.js';
 
 function countingCanvas() {
     let width = 300;
@@ -186,4 +186,44 @@ test('followContainerSize re-measures (null) on a devicePixelRatio change', () =
     win.devicePixelRatio = 2;
     listeners[0]();
     assert.deepEqual(calls, [null]);
+});
+
+test('fitWithin keeps the aspect ratio and never grows anything', () => {
+    assert.deepEqual(fitWithin(7680, 4320, 4096), [4096, 2304]);
+    assert.deepEqual(fitWithin(3000, 6000, 4096), [2048, 4096]);
+    assert.deepEqual(fitWithin(1920, 1080, 4096), [1920, 1080]);
+    assert.deepEqual(fitWithin(1920, 1080, 0), [1920, 1080], '0 = no known limit');
+    assert.deepEqual(fitWithin(100000, 1, 4096), [4096, 1], 'never below one pixel');
+});
+
+test('syncCanvasSize fits the backing store inside contextCaps.maxRenderbufferSize; the CSS box stays full size', () => {
+    const canvas = countingCanvas();
+    const transport = mainTransport();
+    syncCanvasSize({
+        transport,
+        container: container(3840, 2160),
+        mainCanvas: canvas,
+        devicePixelRatio: 2,
+        maxBackingStoreSize: 4096,
+    });
+    assert.deepEqual([canvas.width, canvas.height], [4096, 2304]);
+    assert.equal(canvas.style.width, '3840px', 'the browser upscales the clamped store over the unchanged box');
+    assert.deepEqual(transport.resizes, [[4096, 2304]]);
+});
+
+test('syncCanvasSize in the worker topology sends a layout size inside the limit', () => {
+    const resizes = [];
+    const transport = { topology: 'worker', resize: (w, h) => resizes.push([w, h]), supports: () => false, callVoid: () => {} };
+    const canvas = countingCanvas();
+    syncCanvasSize({
+        transport,
+        container: container(3840, 2160),
+        mainCanvas: canvas,
+        devicePixelRatio: 2,
+        renderScale: 0.5,
+        maxBackingStoreSize: 4096,
+    });
+    // The worker scales by renderScale itself (<= 1), so a fitted layout keeps it inside.
+    assert.deepEqual(resizes, [[4096, 2304]]);
+    assert.equal(canvas.assignments, 0, 'the transferred canvas is not touched here');
 });

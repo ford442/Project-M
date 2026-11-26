@@ -141,6 +141,10 @@ export type ProjectMModule = EmscriptenModule & {
     _pm_set_quality_governor?: (host: HostHandle, enabled: number) => void;
     _get_quality_tier: () => number;
     _pm_get_quality_tier?: (host: HostHandle) => number;
+    _set_quality_tier_ceiling: (tier: number) => void;
+    _pm_set_quality_tier_ceiling?: (host: HostHandle, tier: number) => void;
+    _get_quality_tier_ceiling: () => number;
+    _pm_get_quality_tier_ceiling?: (host: HostHandle) => number;
     _get_governor_render_scale: () => number;
     _pm_get_governor_render_scale?: (host: HostHandle) => number;
     _get_governor_blur_cap: () => number;
@@ -152,6 +156,7 @@ export type ProjectMModule = EmscriptenModule & {
     _preset_switch_failed: () => number;
     _pm_preset_switch_failed?: (host: HostHandle) => number;
     _live_playlist_count: () => number;
+    _debug_force_trap: () => void;
     _get_main_loop_timing_mode: () => number;
     _get_omp_enabled: () => number;
     _get_omp_max_threads: () => number;
@@ -201,6 +206,8 @@ export type ProjectMModule = EmscriptenModule & {
     _pm_dual_fbo_get_format?: (host: HostHandle) => number;
     _get_context_snapshot: () => number;
     _pm_get_context_snapshot?: (host: HostHandle) => number;
+    _get_context_limit: (which: number) => number;
+    _pm_get_context_limit?: (host: HostHandle, which: number) => number;
     _dual_fbo_render_preset_a: () => void;
     _pm_dual_fbo_render_preset_a?: (host: HostHandle) => void;
     _dual_fbo_render_preset_b: () => void;
@@ -304,7 +311,7 @@ export type ProjectMModule = EmscriptenModule & {
 /** C symbol names for render-worker ccall proxying. */
 export declare const WASM_API_SYMBOLS: {
     readonly addAudioData: 'add_audio_data';
-    readonly pl: 'pl';
+    readonly playSong: 'play_song';
     readonly destruct: 'destruct';
     readonly getProjectmHandle: 'get_projectm_handle';
     readonly init: 'init';
@@ -379,12 +386,15 @@ export declare const WASM_API_SYMBOLS: {
     readonly setTargetFps: 'set_target_fps';
     readonly setQualityGovernor: 'set_quality_governor';
     readonly getQualityTier: 'get_quality_tier';
+    readonly setQualityTierCeiling: 'set_quality_tier_ceiling';
+    readonly getQualityTierCeiling: 'get_quality_tier_ceiling';
     readonly getGovernorRenderScale: 'get_governor_render_scale';
     readonly getGovernorBlurCap: 'get_governor_blur_cap';
     readonly isPresetReady: 'is_preset_ready';
     readonly getRenderedFrameCount: 'get_rendered_frame_count';
     readonly presetSwitchFailed: 'preset_switch_failed';
     readonly livePlaylistCount: 'live_playlist_count';
+    readonly debugForceTrap: 'debug_force_trap';
     readonly getMainLoopTimingMode: 'get_main_loop_timing_mode';
     readonly getOmpEnabled: 'get_omp_enabled';
     readonly getOmpMaxThreads: 'get_omp_max_threads';
@@ -415,6 +425,7 @@ export declare const WASM_API_SYMBOLS: {
     readonly dualFboIsPresetBReady: 'dual_fbo_is_preset_b_ready';
     readonly dualFboGetFormat: 'dual_fbo_get_format';
     readonly getContextSnapshot: 'get_context_snapshot';
+    readonly getContextLimit: 'get_context_limit';
     readonly dualFboRenderPresetA: 'dual_fbo_render_preset_a';
     readonly dualFboRenderPresetB: 'dual_fbo_render_preset_b';
     readonly transitionStart: 'transition_start';
@@ -484,8 +495,8 @@ export type WasmApiName = keyof typeof WASM_API_SYMBOLS;
 export interface WasmApiCalls {
     /** Legacy uint8 PCM feed */
     addAudioData(data: number, len: number): void;
-    /** Play audio file from VFS path */
-    pl(songPath: string): void;
+    /** Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names) */
+    playSong(songPath: string): void;
     /** Tear down projectM engine */
     destruct(): void;
     /** Opaque projectM handle of the active host: the pmHandle the projectm_sprite_*_wrapper and PCM exports take (its host handle, 0 without an engine) */
@@ -634,6 +645,10 @@ export interface WasmApiCalls {
     setQualityGovernor(enabled: boolean): void;
     /** Current quality tier index (0=high, 1=regular, 2=low) */
     getQualityTier(): number;
+    /** Best quality tier the governor may step up to (0 = no cap, 1 = regular, 2 = low), applied at once to a running governor above it (the battery context profile sets 1) */
+    setQualityTierCeiling(tier: number): void;
+    /** Best quality tier the governor may choose (set_quality_tier_ceiling) */
+    getQualityTierCeiling(): number;
     /** Current governor internal render-scale factor (1.0/0.75/0.5) */
     getGovernorRenderScale(): number;
     /** Current governor blur-level cap (-1 = unlimited, else 0-3) */
@@ -646,6 +661,8 @@ export interface WasmApiCalls {
     presetSwitchFailed(): number;
     /** Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook) */
     livePlaylistCount(): number;
+    /** Executes a wasm unreachable inside the wrapper, which kills the Module (symbolizer round-trip test hook, tests/wasm-smoke/symbolize_trap.mjs) */
+    debugForceTrap(): void;
     /** Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook) */
     getMainLoopTimingMode(): number;
     /** Whether OpenMP was compiled in (0/1) */
@@ -704,8 +721,10 @@ export interface WasmApiCalls {
     dualFboIsPresetBReady(): boolean;
     /** Dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the fboPrecision numbering) */
     dualFboGetFormat(): number;
-    /** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot */
+    /** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8), bit14 EXT_disjoint_timer_query_webgl2 offered, bit15 get_context_limit() answers. Decoded into ProjectMContext.contextSnapshot and contextCaps */
     getContextSnapshot(): number;
+    /** One limit of this host's WebGL context, read when it was created (which: 0 MAX_TEXTURE_SIZE, 1 MAX_RENDERBUFFER_SIZE, 2 MAX_SAMPLES), 0 without a context. Decoded into ProjectMContext.contextCaps */
+    getContextLimit(which: number): number;
     /** Render preset A into dual FBO */
     dualFboRenderPresetA(): void;
     /** Render preset B into dual FBO */
@@ -884,8 +903,8 @@ export declare function feedPcmFloat(module: ProjectMModule, data: Float32Array,
 /** Legacy uint8 PCM feed */
 export declare function addAudioData(module: ProjectMModule, data: number, len: number): void;
 
-/** Play audio file from VFS path */
-export declare function pl(module: ProjectMModule, songPath: string): void;
+/** Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names) */
+export declare function playSong(module: ProjectMModule, songPath: string): void;
 
 /** Tear down projectM engine */
 export declare function destruct(module: ProjectMModule): void;
@@ -1109,6 +1128,12 @@ export declare function setQualityGovernor(module: ProjectMModule, enabled: bool
 /** Current quality tier index (0=high, 1=regular, 2=low) */
 export declare function getQualityTier(module: ProjectMModule): number;
 
+/** Best quality tier the governor may step up to (0 = no cap, 1 = regular, 2 = low), applied at once to a running governor above it (the battery context profile sets 1) */
+export declare function setQualityTierCeiling(module: ProjectMModule, tier: number): void;
+
+/** Best quality tier the governor may choose (set_quality_tier_ceiling) */
+export declare function getQualityTierCeiling(module: ProjectMModule): number;
+
 /** Current governor internal render-scale factor (1.0/0.75/0.5) */
 export declare function getGovernorRenderScale(module: ProjectMModule): number;
 
@@ -1126,6 +1151,9 @@ export declare function presetSwitchFailed(module: ProjectMModule): number;
 
 /** Playlists created by init() and not yet destroyed, across all hosts (lifecycle test hook) */
 export declare function livePlaylistCount(module: ProjectMModule): number;
+
+/** Executes a wasm unreachable inside the wrapper, which kills the Module (symbolizer round-trip test hook, tests/wasm-smoke/symbolize_trap.mjs) */
+export declare function debugForceTrap(module: ProjectMModule): void;
 
 /** Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook) */
 export declare function getMainLoopTimingMode(module: ProjectMModule): number;
@@ -1214,8 +1242,11 @@ export declare function dualFboIsPresetBReady(module: ProjectMModule): boolean;
 /** Dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the fboPrecision numbering) */
 export declare function dualFboGetFormat(module: ProjectMModule): number;
 
-/** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot */
+/** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8), bit14 EXT_disjoint_timer_query_webgl2 offered, bit15 get_context_limit() answers. Decoded into ProjectMContext.contextSnapshot and contextCaps */
 export declare function getContextSnapshot(module: ProjectMModule): number;
+
+/** One limit of this host's WebGL context, read when it was created (which: 0 MAX_TEXTURE_SIZE, 1 MAX_RENDERBUFFER_SIZE, 2 MAX_SAMPLES), 0 without a context. Decoded into ProjectMContext.contextCaps */
+export declare function getContextLimit(module: ProjectMModule, which: number): number;
 
 /** Render preset A into dual FBO */
 export declare function dualFboRenderPresetA(module: ProjectMModule): void;
@@ -1499,6 +1530,10 @@ export interface HostApi {
     setQualityGovernor(enabled: boolean): void;
     /** Current quality tier index (0=high, 1=regular, 2=low) */
     getQualityTier(): number;
+    /** Best quality tier the governor may step up to (0 = no cap, 1 = regular, 2 = low), applied at once to a running governor above it (the battery context profile sets 1) */
+    setQualityTierCeiling(tier: number): void;
+    /** Best quality tier the governor may choose (set_quality_tier_ceiling) */
+    getQualityTierCeiling(): number;
     /** Current governor internal render-scale factor (1.0/0.75/0.5) */
     getGovernorRenderScale(): number;
     /** Current governor blur-level cap (-1 = unlimited, else 0-3) */
@@ -1553,8 +1588,10 @@ export interface HostApi {
     dualFboIsPresetBReady(): boolean;
     /** Dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8 — the fboPrecision numbering) */
     dualFboGetFormat(): number;
-    /** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot */
+    /** What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8), bit14 EXT_disjoint_timer_query_webgl2 offered, bit15 get_context_limit() answers. Decoded into ProjectMContext.contextSnapshot and contextCaps */
     getContextSnapshot(): number;
+    /** One limit of this host's WebGL context, read when it was created (which: 0 MAX_TEXTURE_SIZE, 1 MAX_RENDERBUFFER_SIZE, 2 MAX_SAMPLES), 0 without a context. Decoded into ProjectMContext.contextCaps */
+    getContextLimit(which: number): number;
     /** Render preset A into dual FBO */
     dualFboRenderPresetA(): void;
     /** Render preset B into dual FBO */
@@ -1731,6 +1768,8 @@ export declare const PUBLIC_WASM_API: readonly [
     typeof setTargetFps,
     typeof setQualityGovernor,
     typeof getQualityTier,
+    typeof setQualityTierCeiling,
+    typeof getQualityTierCeiling,
     typeof getGovernorRenderScale,
     typeof getGovernorBlurCap,
     typeof getGlslGeneratorVersion,
@@ -1743,6 +1782,7 @@ export declare const PUBLIC_WASM_API: readonly [
     typeof dualFboIsPresetBReady,
     typeof dualFboGetFormat,
     typeof getContextSnapshot,
+    typeof getContextLimit,
     typeof transitionStart,
     typeof transitionCancel,
     typeof transitionIsActive,

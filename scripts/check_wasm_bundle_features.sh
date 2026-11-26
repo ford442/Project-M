@@ -114,7 +114,9 @@ build_fact() {
 
 # Main thread: the start-up code sets the stack base (the stack pointer's
 # initial value, global 0) and then the stack end; STACK_SIZE is the difference.
-stack_pointer=$(sed -n 's/^ (global \$global\$0 (mut i32) (i32.const \([0-9]*\)))$/\1/p' "$wat" | head -n1)
+# The first global is the stack pointer: $global$0 in a release module, or
+# $__stack_pointer in the profile flavor, which keeps the name section.
+stack_pointer=$(sed -n 's/^ (global \$[^ ]* (mut i32) (i32.const \([0-9]*\)))$/\1/p' "$wat" | head -n1)
 stack_end=""
 if [[ -n "$stack_pointer" ]]; then
     stack_end=$(grep -A4 "^   (i32.const $stack_pointer)\$" "$wat" | sed -n 's/^   (i32.const \([0-9]*\))$/\1/p' | grep -vx "$stack_pointer" | head -n1)
@@ -129,7 +131,10 @@ fi
 
 # pthreads: the main thread's _emscripten_thread_init() call passes
 # DEFAULT_PTHREAD_STACK_SIZE (5th argument); a worker's own call passes 0.
-pthread_stack=$(grep -oE '_emscripten_thread_init\([^)]*\)' "$glue" | awk -F, '{print $5}' | sort -n | tail -n1)
+# The profile flavor's glue is not minified: the call spans lines and carries
+# /*name=*/ comments, so both are dropped before splitting the arguments.
+pthread_stack=$(tr '\n' ' ' < "$glue" | grep -oE '_emscripten_thread_init\([^)]*\)' \
+    | sed -E 's#/\*[^*]*\*/##g; s/[[:space:]]+//g' | awk -F, '{print $5}' | sort -n | tail -n1)
 if [[ "$pthread_stack" != "$want_pthread_stack" ]]; then
     echo "ERROR: pthread stack is ${pthread_stack:-unknown} bytes, expected DEFAULT_PTHREAD_STACK_SIZE=$want_pthread_stack." >&2
     failed=1
@@ -148,6 +153,27 @@ elif grep -qE '^[0-9]+:__assert_fail$' "$symbols"; then
     failed=1
 fi
 
+# Every export the glue binds must be its own wasm export. The link minifies
+# export names, and an export whose real name is also one of the minified names
+# (the two-letter `pl` was) gets a second binding in the glue's rewrite: a build
+# of this tree bound __emscripten_tls_init, which every pthread runs at start,
+# to pl() (docs/EMSCRIPTEN.md "Export names").
+duplicates=$(python3 - "$glue" <<'PY'
+import re, sys
+from collections import defaultdict
+text = open(sys.argv[1], encoding='utf-8').read()
+bound = defaultdict(list)
+for js_name, export in re.findall(r'([A-Za-z_$][\w$]*)=(?:Module\["[\w$]+"\]=)?wasmExports\["([\w$]+)"\]', text):
+    if js_name not in bound[export]:
+        bound[export].append(js_name)
+print('; '.join(f'wasmExports["{e}"] <- {", ".join(names)}' for e, names in bound.items() if len(names) > 1))
+PY
+)
+if [[ -n "$duplicates" ]]; then
+    echo "ERROR: $(basename "$glue") binds several exports to one wasm export: $duplicates" >&2
+    failed=1
+fi
+
 lto_libs="$(build_fact lto-libs)"
 lto_link="$(build_fact lto-link)"
 if [[ -z "$lto_libs" || "$lto_libs" != "$lto_link" ]]; then
@@ -156,6 +182,6 @@ if [[ -z "$lto_libs" || "$lto_libs" != "$lto_link" ]]; then
 fi
 
 if [[ "$failed" -eq 0 ]]; then
-    echo "OK: $(basename "$wasm") build: stack ${want_stack}/${want_pthread_stack} B (main/pthread), NDEBUG, LTO=${lto_libs} on both sides"
+    echo "OK: $(basename "$wasm") build: stack ${want_stack}/${want_pthread_stack} B (main/pthread), NDEBUG, LTO=${lto_libs} on both sides, one binding per export"
 fi
 exit "$failed"

@@ -37,6 +37,7 @@ import { ReplayRecord } from './replay.js';
  * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  * @typedef {import('../projectm-audio-source-router.js').AudioSourceRouter} AudioSourceRouter
  * @typedef {import('@projectm/types/context').ProjectMContextSnapshot} ProjectMContextSnapshot
+ * @typedef {import('@projectm/types/context').ProjectMContextCaps} ProjectMContextCaps
  * @typedef {import('@projectm/types/context').ProjectMLiveTextureSource} ProjectMLiveTextureSource
  * @typedef {import('@projectm/types/context').ProjectMRegisterTextureOptions} ProjectMRegisterTextureOptions
  * @typedef {import('@projectm/types/context').ProjectMUpdateTextureOptions} ProjectMUpdateTextureOptions
@@ -48,7 +49,7 @@ import { ReplayRecord } from './replay.js';
 let engineOfImpl;
 /** @type {(context: ProjectMContextControls) => RhythmEventRelay} */
 let rhythmOfImpl;
-/** @type {(context: ProjectMContextControls, snapshot: ProjectMContextSnapshot | null) => void} */
+/** @type {(context: ProjectMContextControls, snapshot: ProjectMContextSnapshot | null, caps: ProjectMContextCaps | null) => void} */
 let setContextSnapshotImpl;
 /** @type {(context: ProjectMContextControls) => ReplayRecord} */
 let replayOfImpl;
@@ -74,8 +75,9 @@ export const replayOf = (context) => replayOfImpl(context);
 /**
  * @param {ProjectMContextControls} context
  * @param {ProjectMContextSnapshot | null} snapshot
+ * @param {ProjectMContextCaps | null} [caps]
  */
-export const setContextSnapshot = (context, snapshot) => setContextSnapshotImpl(context, snapshot);
+export const setContextSnapshot = (context, snapshot, caps = null) => setContextSnapshotImpl(context, snapshot, caps);
 
 /**
  * Dispatches one of the context's per-instance events.
@@ -112,6 +114,8 @@ export class ProjectMContextControls {
 
     /** What the engine negotiated with WebGL; see {@link ProjectMContextControls#contextSnapshot}. */
     #contextSnapshot = /** @type {ProjectMContextSnapshot | null} */ (null);
+    /** The same negotiation as one capability set; see {@link ProjectMContextControls#contextCaps}. */
+    #contextCaps = /** @type {ProjectMContextCaps | null} */ (null);
     /** setTransparent(true) on an opaque canvas has been reported. */
     #warnedOpaqueTransparency = false;
     /** @type {ProjectMModule | null} */
@@ -179,8 +183,9 @@ export class ProjectMContextControls {
         engineOfImpl = (context) => context.#engine;
         rhythmOfImpl = (context) => context.#rhythm;
         replayOfImpl = (context) => context.#replay;
-        setContextSnapshotImpl = (context, snapshot) => {
+        setContextSnapshotImpl = (context, snapshot, caps) => {
             context.#contextSnapshot = snapshot;
+            context.#contextCaps = caps;
         };
     }
 
@@ -697,5 +702,21 @@ export class ProjectMContextControls {
      */
     get contextSnapshot() {
         return this.#contextSnapshot;
+    }
+
+    /**
+     * Everything the engine negotiated with WebGL, as one capability set: the
+     * extensions it enabled, whether the GPU timer is offered, float render
+     * target support, MAX_TEXTURE_SIZE / MAX_RENDERBUFFER_SIZE / MAX_SAMPLES and
+     * the attributes the context really has. Read from the engine when the
+     * context is created (no second context is probed), at the same moments as
+     * {@link contextSnapshot}, and null at the same times. The canvas sizing
+     * reads `maxRenderbufferSize` from it. Fields the bundle cannot report are
+     * null.
+     *
+     * @returns {ProjectMContextCaps | null}
+     */
+    get contextCaps() {
+        return this.#contextCaps;
     }
 }

@@ -88,6 +88,12 @@ else
     cmake_args+=(-DPROJECTM_WASM_LTO=OFF)
 fi
 
+if [[ "${PROJECTM_WASM_DEBUG_INFO:-0}" == "1" ]]; then
+    cmake_args+=(-DPROJECTM_WASM_DEBUG_INFO=ON)
+else
+    cmake_args+=(-DPROJECTM_WASM_DEBUG_INFO=OFF)
+fi
+
 if [[ -n "$GTEST_DIR" ]]; then
     cmake_args+=(-DGTest_DIR="$GTEST_DIR")
 fi

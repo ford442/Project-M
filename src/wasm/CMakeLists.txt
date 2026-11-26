@@ -16,13 +16,25 @@
 #   PROJECTM_WASM_EXPLICIT_SWAP      OFFSCREEN_FRAMEBUFFER, for explicitSwapControl hosts (never deployed)
 #   PROJECTM_WASM_GL_DEBUG           GL_TRACK_ERRORS=1 + GL_ASSERTIONS=1 (never deployed)
 #   PROJECTM_WASM_DEBUG              ASSERTIONS=2, SAFE_HEAP, STACK_OVERFLOW_CHECK=2 (never deployed)
+#   PROJECTM_WASM_PROFILE            -g wrapper TUs; link -g2 --profiling-funcs + DWARF split into
+#                                    <bundle>.debug.wasm (never deployed; docs/EMSCRIPTEN.md "Build flavors")
+#   PROJECTM_WASM_MALLOC             the allocator: mimalloc (deployed) or dlmalloc (measurement only)
 #   PROJECTM_WASM_EXTRA_LINK_FLAGS   appended verbatim (e.g. -sINITIAL_MEMORY=16mb for measure-heap)
 #   PROJECTM_WASM_WERROR             -Werror on the wrapper TUs (CI)
 
 option(PROJECTM_WASM_EXPLICIT_SWAP "Link the explicit-swap (OFFSCREEN_FRAMEBUFFER) flavor of the bundle." OFF)
 option(PROJECTM_WASM_GL_DEBUG "Link the bundle with GL error tracking and GL assertions." OFF)
 option(PROJECTM_WASM_DEBUG "Link the bundle with ASSERTIONS=2, SAFE_HEAP and STACK_OVERFLOW_CHECK=2." OFF)
+option(PROJECTM_WASM_PROFILE "Link the profiling flavor: function names kept and DWARF in a separate .debug.wasm." OFF)
 option(PROJECTM_WASM_WERROR "Treat warnings in the src/wasm/ wrapper as errors." OFF)
+# mimalloc is what deploys (cmake/EmscriptenWasmFlags.cmake). dlmalloc is the
+# A/B for docs/PERFORMANCE.md "Allocator": a dlmalloc link is tagged +dlmalloc
+# and never staged.
+set(PROJECTM_WASM_MALLOC "mimalloc" CACHE STRING "Allocator for the bundle link: mimalloc (deployed) or dlmalloc (measurement flavor).")
+set_property(CACHE PROJECTM_WASM_MALLOC PROPERTY STRINGS mimalloc dlmalloc)
+if(NOT PROJECTM_WASM_MALLOC MATCHES "^(mimalloc|dlmalloc)$")
+    message(FATAL_ERROR "PROJECTM_WASM_MALLOC=${PROJECTM_WASM_MALLOC}: expected mimalloc or dlmalloc.")
+endif()
 set(PROJECTM_WASM_EXTRA_LINK_FLAGS "" CACHE STRING "Extra emcc flags for the bundle link, space-separated.")
 
 # Link order matters for a bit-identical bundle: keep it.
@@ -113,6 +125,9 @@ target_compile_options(projectM_wasm PRIVATE
         # Only fires on JavaScript literals inside EM_JS bodies.
         -Wno-invalid-pp-token
         $<$<BOOL:${PROJECTM_WASM_WERROR}>:-Werror>
+        # DWARF for the wrapper TUs. -g does not change clang's code generation;
+        # the link below decides what survives into the .wasm.
+        $<$<BOOL:${PROJECTM_WASM_PROFILE}>:-g>
         ${PROJECTM_WASM_SIMD_COMPILE_FLAGS}
         ${PROJECTM_WASM_CODEGEN_COMPILE_FLAGS}
         -O3
@@ -125,6 +140,10 @@ set(_projectm_wasm_link_s "")
 foreach(_setting IN LISTS PROJECTM_WASM_SHARED_S_LINK_SETTINGS PROJECTM_WASM_WRAPPER_ONLY_S_LINK_SETTINGS)
     if(NOT _setting MATCHES "=")
         set(_setting "${_setting}=1")
+    endif()
+    # The one shared setting the bundle can override (PROJECTM_WASM_MALLOC).
+    if(_setting MATCHES "^MALLOC=")
+        set(_setting "MALLOC=${PROJECTM_WASM_MALLOC}")
     endif()
     list(APPEND _projectm_wasm_link_s "SHELL:-s ${_setting}")
 endforeach()
@@ -152,6 +171,15 @@ target_link_options(projectM_wasm PRIVATE
         $<$<BOOL:${PROJECTM_WASM_DEBUG}>:-sASSERTIONS=2>
         $<$<BOOL:${PROJECTM_WASM_DEBUG}>:-sSAFE_HEAP=1>
         $<$<BOOL:${PROJECTM_WASM_DEBUG}>:-sSTACK_OVERFLOW_CHECK=2>
+        # Profile: the name section stays in the .wasm (-g2 + --profiling-funcs,
+        # so DevTools profiles and stack traces carry function names without a
+        # symbol map), and the DWARF goes to <bundle>.debug.wasm, which the
+        # .wasm points DevTools at by its bare name (SEPARATE_DWARF_URL).
+        # scripts/symbolize_wasm_trace.mjs reads either.
+        $<$<BOOL:${PROJECTM_WASM_PROFILE}>:-g2>
+        $<$<BOOL:${PROJECTM_WASM_PROFILE}>:--profiling-funcs>
+        "$<$<BOOL:${PROJECTM_WASM_PROFILE}>:-gseparate-dwarf=${CMAKE_CURRENT_BINARY_DIR}/projectm-v.030-thread.debug.wasm>"
+        $<$<BOOL:${PROJECTM_WASM_PROFILE}>:-sSEPARATE_DWARF_URL=projectm-v.030-thread.debug.wasm>
         ${_projectm_wasm_extra_link}
         )
 

@@ -85,6 +85,25 @@ Engine and C API
   with `std::terminate`); it stays queued until the context is back.
 
 Browser host and hosting
+- **Fix: an export bound to the wrong function.** The link minifies export names to one or two letters, and the
+  song export was called `pl`, one of those names: the glue then bound a second export to `pl()`. In this tree's
+  bundle that was `__emscripten_tls_init`, which every pthread runs at start (thread-local storage was never set up
+  on the OpenMP and prepare threads, and each started "playing" a song: the `JS Load Song: AudioContext missing`
+  error). The export is `play_song` now (`playSong()` in the audio router falls back to `pl` on older bundles), and
+  `scripts/check_wasm_bundle_features.sh` fails any bundle whose glue binds two names to one export.
+  `docs/EMSCRIPTEN.md` "Export names".
+- **Context capabilities** (`ProjectMContext.contextCaps`, `ProjectMContextCaps`): what the engine negotiated with
+  WebGL as one typed set, read once when the context is created: the enabled extensions, whether
+  `EXT_disjoint_timer_query_webgl2` is offered, float render-target support, `MAX_TEXTURE_SIZE`,
+  `MAX_RENDERBUFFER_SIZE`, `MAX_SAMPLES` and the real attributes. New export `get_context_limit(which)`;
+  `get_context_snapshot()` gains bit 14 (timer offered) and bit 15 (limits available). The canvas backing store is
+  now fitted inside `MAX_RENDERBUFFER_SIZE` (the browser used to clamp an oversized drawing buffer silently), and the
+  perf HUD's GPU timer no longer asks a context without the extension for it. The worker sends the limits with its
+  snapshot (`contextLimits`). `docs/EMSCRIPTEN.md` "The capability set".
+- **Context profiles**: `contextProfile: 'quality' | 'balanced' | 'battery' | 'low-latency'` (`?profile=`,
+  `<project-m-visualizer context-profile>`) sets powerPreference, MSAA, `desynchronized`, the transition FBO
+  precision and a governor ceiling; explicit options still win. New exports `set_quality_tier_ceiling(tier)` /
+  `get_quality_tier_ceiling()`. `docs/EMSCRIPTEN.md` "Context profiles".
 - **TypeScript for the protocol core**: `projectm-context`, `projectm-render-transport`,
   `projectm-render-worker`, `projectm-render-worker-host` and `projectm-pcm-ring` are `.ts` under
   `strict`, `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess` (`html/tsconfig.strict.json`), each
@@ -130,6 +149,19 @@ Browser host and hosting
 
 Build, CI and docs
 - One WASM build entry, `scripts/build_wasm.sh` (#308); the bundle is the `projectM_wasm` CMake target (#347).
+- **Build flavors**: `scripts/build_wasm.sh --flavor release|profile|debug`. `profile` keeps function names
+  (`-g2 --profiling-funcs`) and splits DWARF into `projectm-v.030-thread.debug.wasm`; it is never deployable
+  (`+profile`, and `+debug-info` for any link against `-g` libraries). `scripts/symbolize_wasm_trace.mjs` resolves a
+  pasted Chrome/Firefox/Safari stack trace from the release `.symbols`, a name section or the DWARF; CI round-trips
+  a forced trap (internal hook `debug_force_trap()`) on both flavors. `docs/EMSCRIPTEN.md` "Build flavors",
+  "Symbolizing a production stack trace".
+- **Flag snapshots**: `scripts/check_wasm_link_flags.sh` holds every flavor's compile and link lines to
+  `tests/wasm-smoke/link-flags/`, in `build_emscripten.yml`; `docs/EMSCRIPTEN.md` "Flag matrix" corrected
+  (pool size 7, runtime methods).
+- **Allocator A/B** (`PROJECTM_WASM_MALLOC=dlmalloc`, `+dlmalloc`, never deployed): on software GL, frame p50/p95 are
+  the same within run-to-run noise, preset switching leans slightly towards mimalloc, and dlmalloc's heap peak is
+  6-8 MiB lower (12 MB fixed heap or less against 20 MB). mimalloc stays until a GPU-runner A/B confirms or
+  overturns it (`docs/PERFORMANCE.md` "Allocator").
 - Main CI repaired (#306, #321); hazard inventory over the preset corpora (#344); upstream sync of 2026-11-06 (#346);
   WebGL extension allow-list and WASM logging through `Logging` (#347).
 - This branch: workflows pinned to commit SHAs with Dependabot, least-privilege `permissions`, per-job timeouts;

@@ -73,6 +73,16 @@ struct WasmContextCaps {
     bool loseContext = false;              //!< WEBGL_lose_context: the context can be lost and restored on demand.
     bool textureFilterAnisotropic = false; //!< EXT_texture_filter_anisotropic: transition textures filter anisotropically.
     bool parallelShaderCompile = false;    //!< KHR_parallel_shader_compile: shader links complete off the render thread.
+    //! EXT_disjoint_timer_query_webgl2 is offered (getSupportedExtensions()). Reported,
+    //! not enabled: the perf HUD's GPU timer enables it only when asked to time, and
+    //! skips a context without it instead of asking again.
+    bool timerQuery = false;
+    //! Limits, read once with getParameter() (0 until read). The page clamps the canvas
+    //! backing store to maxRenderbufferSize (syncCanvasSize()), the drawing buffer the
+    //! browser would otherwise clamp silently.
+    int maxTextureSize = 0;      //!< MAX_TEXTURE_SIZE
+    int maxRenderbufferSize = 0; //!< MAX_RENDERBUFFER_SIZE
+    int maxSamples = 0;          //!< MAX_SAMPLES: the most MSAA samples a render target can have.
     //! The attributes the context really has, read back from getContextAttributes()
     //! (WasmContextConfigFlag numbering). Can differ from the config: a browser may
     //! not offer antialias or desynchronized. explicitSwapControl is Emscripten's, not
@@ -96,11 +106,23 @@ enum WasmContextSnapshotBit : int
     kSnapshotFloatLinear = 1 << 6,              //!< WasmContextCaps::floatLinear
     kSnapshotTextureFilterAnisotropic = 1 << 7, //!< WasmContextCaps::textureFilterAnisotropic
     kSnapshotParallelShaderCompile = 1 << 10,   //!< WasmContextCaps::parallelShaderCompile
+    kSnapshotTimerQuery = 1 << 14,              //!< WasmContextCaps::timerQuery (offered, not enabled)
+    //! get_context_limit() answers on this bundle (WasmContextLimit). Bundles before it leave this 0.
+    kSnapshotLimitsKnown = 1 << 15,
     //! The extension bits are the whole enabled set (ProjectMEnableRequiredWebGLExtensions() in
     //! WasmWebGLContext.cpp). Bundles from before the allow-list enabled every
     //! extension the browser offered and leave this 0.
     kSnapshotExtensionsKnown = 1 << 11,
 };
+// get_context_limit()'s argument: which WasmContextCaps limit to return. The JS
+// decoder (CONTEXT_LIMITS in html/projectm-context-config.js) mirrors it.
+enum WasmContextLimit : int
+{
+    kContextLimitMaxTextureSize = 0,
+    kContextLimitMaxRenderbufferSize = 1,
+    kContextLimitMaxSamples = 2,
+};
+
 constexpr int kSnapshotFormatShift = 8;        //!< The active dual-FBO format (FboFloatFormat) sits at this bit...
 constexpr int kSnapshotFormatMask = 0x3;       //!< ...in two bits.
 constexpr int kSnapshotPowerShift = 12;        //!< WasmContextCaps::powerPreference sits at this bit...

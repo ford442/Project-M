@@ -1354,6 +1354,52 @@ test('contextSnapshot is null until start(), then what the engine negotiated, fr
     });
 });
 
+test('contextCaps: the snapshot and get_context_limit() as one set, read at start; the canvas is fitted inside it', async () => {
+    await withEnv({}, async (env) => {
+        const module = makeFakeModule({ hostHandle: 12 });
+        // valid, float colour buffer, extensions + limits known, timer offered, RGBA16F
+        const packed = 0x1 | 0x2 | (1 << 11) | (1 << 14) | (1 << 15);
+        module._get_context_snapshot = () => packed;
+        /** @type {Array<[number, number]>} */
+        const limitReads = [];
+        module._get_context_limit = (which) => {
+            limitReads.push([module.activeHost, which]);
+            return [8192, 2048, 4][which];
+        };
+        const context = env.newContext({ sharedModule: module });
+        assert.equal(context.contextCaps, null, 'nothing negotiated before start()');
+        await context.start();
+
+        const caps = context.contextCaps;
+        assert.ok(caps && Object.isFrozen(caps));
+        assert.equal(caps.floatColorBuffer, true);
+        assert.equal(caps.timerQuery, true);
+        assert.deepEqual(caps.extensions, ['EXT_color_buffer_float']);
+        assert.deepEqual([caps.maxTextureSize, caps.maxRenderbufferSize, caps.maxSamples], [8192, 2048, 4]);
+        assert.deepEqual(limitReads, [[12, 0], [12, 1], [12, 2]], 'each limit read once, on this context\'s engine');
+        assert.ok(context.canvas.width <= 2048 && context.canvas.height <= 2048,
+            `the backing store fits MAX_RENDERBUFFER_SIZE (${context.canvas.width}x${context.canvas.height})`);
+
+        context.destroy();
+        assert.equal(context.contextCaps, null);
+    });
+});
+
+test('a context profile sends its governor ceiling; no profile sends nothing', async () => {
+    for (const [contextProfile, expected] of [['battery', [1]], ['quality', [0]], [undefined, []]]) {
+        await withEnv({}, async (env) => {
+            const module = makeFakeModule();
+            /** @type {number[]} */
+            const ceilings = [];
+            module._set_quality_tier_ceiling = (tier) => { ceilings.push(tier); };
+            const context = env.newContext({ sharedModule: module, ...(contextProfile ? { contextProfile } : {}) });
+            await context.start();
+            assert.deepEqual(ceilings, expected, String(contextProfile));
+            context.destroy();
+        });
+    }
+});
+
 test('a degraded context shows up as RGBA8 with the float capabilities off', async () => {
     await withEnv({}, async (env) => {
         const module = makeFakeModule();

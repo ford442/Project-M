@@ -127,6 +127,14 @@ jobs:
       - name: Verify WASM link flags are in sync
         run: scripts/verify_wasm_link_common.sh
 
+      # Every flavor's compile and link flags (release, profile, debug, gl-debug,
+      # explicit-swap, dlmalloc, lto) against tests/wasm-smoke/link-flags/: a
+      # change to what the bundle is built with is a reviewed diff, not a
+      # surprise. Configure-only (ninja -t commands), and the build dir's own
+      # options are put back afterwards. docs/EMSCRIPTEN.md "Flag matrix".
+      - name: WASM build flags match their snapshots
+        run: scripts/check_wasm_link_flags.sh "${{ github.workspace }}/cmake-build"
+
       # Rule 5 reads the wrapper's compiled objects: every writable static in
       # src/wasm/ must be in scripts/wasm_globals_allowlist.txt (#352 B). The
       # format gate runs the same script without a build, which skips rule 5.
@@ -289,6 +297,28 @@ jobs:
             --allow-dark \
             --out screenshots/ci-stack \
             --frames 30
+
+      # A forced trap (debug_force_trap(), a wasm unreachable) symbolized with
+      # the release link's symbol map: the production path for a stack trace
+      # (scripts/symbolize_wasm_trace.mjs, docs/EMSCRIPTEN.md "Symbolizing a
+      # production stack trace").
+      - name: Symbolizer round trip (release, symbol map)
+        run: node tests/wasm-smoke/symbolize_trap.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
+
+      # The profile flavor: function names kept and DWARF split into
+      # projectm-v.030-thread.debug.wasm. --link-only, so the DWARF covers the
+      # wrapper TUs (a full --flavor profile build also compiles the libraries
+      # with -g); the trap is in the wrapper, and must resolve to its source line.
+      - name: Link the profile flavor
+        env:
+          PROJECTM_WASM_WERROR: '1'
+          CMAKE_BUILD_DIR: ${{ github.workspace }}/cmake-build
+          INSTALL_DIR: ${{ github.workspace }}/install
+          OUT_DIR: ${{ github.workspace }}/cmake-build/wasm-smoke-profile
+        run: scripts/build_wasm.sh --link-only --flavor profile
+
+      - name: Symbolizer round trip (profile, DWARF)
+        run: node tests/wasm-smoke/symbolize_trap.mjs --module "${{ github.workspace }}/cmake-build/wasm-smoke-profile/projectm-v.030-thread.js" --require-dwarf
 
       # The render loop must keep drawing the current preset while the next one
       # is prepared (it used to stop for the whole load). Frame count is the gate;

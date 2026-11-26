@@ -2,6 +2,7 @@
 // Edit the .ts, then run `npm run build:html` (CI: npm run check:html-build).
 import { DEFAULT_HOST, WASM_API_SIGNATURES, bindModuleToHost } from './generated/projectm-wasm-api.js';
 import * as wasmApi from './generated/projectm-wasm-api.js';
+import { CONTEXT_LIMITS } from './projectm-context-config.js';
 import { captureFrameFromModule } from './projectm-frame-capture.js';
 import { createLiveTextureWriter, createLiveTextures, pixelsOf, sourceSize } from './projectm-live-texture.js';
 import { claimGlobal } from './projectm-globals.js';
@@ -123,6 +124,12 @@ export function createModuleTransport(module, { host = DEFAULT_HOST } = {}) {
         },
         contextSnapshot() {
             return typeof module._get_context_snapshot === 'function' ? Number(invoke('getContextSnapshot', [])) : null;
+        },
+        contextLimits() {
+            if (typeof module._get_context_limit !== 'function') {
+                return null;
+            }
+            return Object.values(CONTEXT_LIMITS).map((which) => Number(invoke('getContextLimit', [which])));
         },
         recoverContext(width = 0, height = 0) {
             return new Promise((resolve) => {
@@ -258,6 +265,9 @@ export function createWorkerTransport(handle, { exports = null, createImageBitma
         },
         contextSnapshot() {
             return handle.contextSnapshot();
+        },
+        contextLimits() {
+            return handle.contextLimits();
         },
         recoverContext() {
             return handle.recoverContext();

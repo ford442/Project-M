@@ -110,6 +110,7 @@ symbol's doc text is not an API change and needs nothing.
 | `feedPcmFloat` | (helper) | Wraps `projectm_pcm_add_float_wrapper` |
 | `setTargetFps` | `set_target_fps` | |
 | `setQualityGovernor` | `set_quality_governor` | |
+| `setQualityTierCeiling` / `getQualityTierCeiling` | `set_quality_tier_ceiling` / `get_quality_tier_ceiling` | The best tier the governor may step up to (0 = no cap); the `battery` context profile sets 1. See [EMSCRIPTEN.md](EMSCRIPTEN.md#context-profiles) |
 | `getQualityTier` | `get_quality_tier` | 0=high, 1=regular, 2=low (governor v2, see [PERFORMANCE.md](PERFORMANCE.md#adaptive-quality-governor-wasm-v2)) |
 | `getGovernorRenderScale` | `get_governor_render_scale` | Current tier's internal render-scale factor (1.0/0.75/0.5) |
 | `getGovernorBlurCap` | `get_governor_blur_cap` | Current tier's blur-level cap (-1 = unlimited, else 0-3) |
@@ -122,7 +123,8 @@ symbol's doc text is not an API change and needs nothing.
 | `dualFboGetIdleReleaseSeconds` | `dual_fbo_get_idle_release_seconds` | |
 | `dualFboIsPresetBReady` | `dual_fbo_is_preset_b_ready` | |
 | `dualFboGetFormat` | `dual_fbo_get_format` | 0=RGBA16F, 1=RGBA32F, 2=RGBA8 (same numbering as `create_host_with_config`'s `fboPrecision`) |
-| `getContextSnapshot` | `get_context_snapshot` | What the host negotiated with WebGL, packed: bit 0 has a context, 1 `EXT_color_buffer_float`, 2 `EXT_float_blend`, 3 `WEBGL_lose_context`, bits 8-9 the dual-FBO format. 0 before init. Prefer `ProjectMContext.contextSnapshot`, which decodes it. See [EMSCRIPTEN.md](EMSCRIPTEN.md#reading-what-was-negotiated) |
+| `getContextSnapshot` | `get_context_snapshot` | What the host negotiated with WebGL, packed: bit 0 has a context, 1 `EXT_color_buffer_float`, 2 `EXT_float_blend`, 3 `WEBGL_lose_context`, bits 8-9 the dual-FBO format, 14 `EXT_disjoint_timer_query_webgl2` offered, 15 `get_context_limit()` answers. 0 before init. Prefer `ProjectMContext.contextSnapshot` / `contextCaps`, which decode it. See [EMSCRIPTEN.md](EMSCRIPTEN.md#reading-what-was-negotiated) |
+| `getContextLimit` | `get_context_limit` | One of the context's limits, read when it was created: `0` `MAX_TEXTURE_SIZE`, `1` `MAX_RENDERBUFFER_SIZE`, `2` `MAX_SAMPLES`; 0 without a context. Decoded into `ProjectMContext.contextCaps` |
 | `transitionStart` | `transition_start` | |
 | `transitionCancel` | `transition_cancel` | |
 | `transitionIsActive` | `transition_is_active` | |

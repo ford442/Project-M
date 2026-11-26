@@ -294,6 +294,7 @@ The `.wasm`/glue artifacts are still **not** in the tarball — fetch them with
 | `transparent` | Enable near-black transparency mode |
 | `locked` | Lock preset (no auto-switch) |
 | `power-preference` | WebGL `powerPreference`: `default` (the default for embeds), `low-power`, or `high-performance` |
+| `context-profile` | Read at boot: `quality`, `balanced`, `battery` or `low-latency` sets powerPreference, MSAA, `desynchronized`, the transition FBO precision and how high the quality governor may go ([docs/EMSCRIPTEN.md](../../docs/EMSCRIPTEN.md#context-profiles)). `power-preference` still wins. The same choice is the `contextProfile` option of `createProjectMContext()` |
 | `require-cross-origin-isolation` | When `"false"`, skip the COOP/COEP pre-check (WASM may still fail) |
 | `external-pcm-origins` | JSON array or comma-separated origin allowlist for `postMessage` PCM |
 

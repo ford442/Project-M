@@ -238,7 +238,8 @@ static bool WebGL2AvailableWithoutPerformanceCaveat()
 // dual-FBO format choice included) reads the answers from WasmContextCaps.
 // enableExtensionsByDefault is off, so this list is the context's whole
 // extension set (get_context_snapshot() reports it). The perf HUD's GPU timer
-// enables EXT_disjoint_timer_query_webgl2 itself, from JS, only when asked to time.
+// enables EXT_disjoint_timer_query_webgl2 itself, from JS, only when asked to
+// time, and only on a context whose caps say it is offered (ReadContextLimits()).
 static WasmContextCaps ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx)
 {
     WasmContextCaps caps;
@@ -270,6 +271,47 @@ static WasmContextCaps ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CO
     // whether this context can be made to lose itself (context-loss testing).
     caps.loseContext = enable("WEBGL_lose_context");
     return caps;
+}
+
+// One WasmContextLimit of the current context (GLctx), 0 when it cannot say
+// (lost context, unknown `which`). A function of its own: EM_ASM expands to a
+// static in a named section, which a lambda cannot hold.
+static int ReadContextLimit(int which)
+{
+    // clang-format off
+    return EM_ASM_INT({
+        try {
+            const gl = typeof GLctx !== 'undefined' ? GLctx : null;
+            if (!gl) { return 0; }
+            // Parenthesized: the body is a macro argument, and a comma outside
+            // parentheses (an array literal's) would split it.
+            const name = ([gl.MAX_TEXTURE_SIZE, gl.MAX_RENDERBUFFER_SIZE, gl.MAX_SAMPLES])[$0];
+            const value = name === undefined ? 0 : Number(gl.getParameter(name));
+            return Number.isFinite(value) && value > 0 ? value | 0 : 0;
+        } catch (e) {
+            return 0;
+        } }, which);
+    // clang-format on
+}
+
+// The rest of WasmContextCaps, read from the current context (GLctx) once: whether
+// the GPU timer extension is offered (without enabling it), and the size and
+// sample limits. A lost context answers 0 / false.
+static void ReadContextLimits(WasmContextCaps& caps)
+{
+    // clang-format off
+    caps.timerQuery = EM_ASM_INT({
+        try {
+            const gl = typeof GLctx !== 'undefined' ? GLctx : null;
+            const offered = gl ? gl.getSupportedExtensions() : null;
+            return offered && offered.indexOf('EXT_disjoint_timer_query_webgl2') >= 0 ? 1 : 0;
+        } catch (e) {
+            return 0;
+        } }) != 0;
+    // clang-format on
+    caps.maxTextureSize = ReadContextLimit(kContextLimitMaxTextureSize);
+    caps.maxRenderbufferSize = ReadContextLimit(kContextLimitMaxRenderbufferSize);
+    caps.maxSamples = ReadContextLimit(kContextLimitMaxSamples);
 }
 
 /**
@@ -554,6 +596,7 @@ int WasmWebGLCreateAndActivateContext(WasmHost& H)
     // projectm_create(). Calling glHint here raises RuntimeError: null function
     // (projectm-v.035-thread regression). Hints are set in start_render() after GLAD loads.
     H.contextCaps = ProjectMEnableRequiredWebGLExtensions(g_glCtx);
+    ReadContextLimits(H.contextCaps);
     ReadContextAttributes(H.contextCaps, requestedFlags, cfg.powerPreference);
     if (H.contextCaps.attributesKnown &&
         (H.contextCaps.attributeFlags != GrantedContextFlags(requestedFlags) ||
@@ -631,7 +674,8 @@ int get_context_snapshot(WasmHost& H)
     snapshot |= caps.floatLinear ? kSnapshotFloatLinear : 0;
     snapshot |= caps.textureFilterAnisotropic ? kSnapshotTextureFilterAnisotropic : 0;
     snapshot |= caps.parallelShaderCompile ? kSnapshotParallelShaderCompile : 0;
-    snapshot |= kSnapshotExtensionsKnown;
+    snapshot |= caps.timerQuery ? kSnapshotTimerQuery : 0;
+    snapshot |= kSnapshotExtensionsKnown | kSnapshotLimitsKnown;
     snapshot |= (static_cast<int>(H.dualFbo.GetFormat()) & kSnapshotFormatMask) << kSnapshotFormatShift;
     if (caps.attributesKnown)
     {
@@ -640,6 +684,29 @@ int get_context_snapshot(WasmHost& H)
         snapshot |= (caps.attributeFlags & kSnapshotAttributesMask) << kSnapshotAttributesShift;
     }
     return snapshot;
+}
+
+// One of the context's limits (WasmContextLimit), as WasmContextCaps holds them:
+// read once when the context was created. 0 without a context or for an unknown
+// `which`.
+int get_context_limit(WasmHost& H, int which)
+{
+    if (H.glCtx == 0)
+    {
+        return 0;
+    }
+    const WasmContextCaps& caps = H.contextCaps;
+    switch (which)
+    {
+        case kContextLimitMaxTextureSize:
+            return caps.maxTextureSize;
+        case kContextLimitMaxRenderbufferSize:
+            return caps.maxRenderbufferSize;
+        case kContextLimitMaxSamples:
+            return caps.maxSamples;
+        default:
+            return 0;
+    }
 }
 } // namespace WasmApi
 

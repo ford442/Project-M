@@ -24,16 +24,25 @@
 #
 # Usage:
 #   source /path/to/emsdk/emsdk_env.sh
-#   scripts/build_wasm.sh [--lto] [--debug] [--stage] [--link-only] [--version NNN]
+#   scripts/build_wasm.sh [--flavor release|profile|debug] [--lto] [--stage] [--link-only] [--version NNN]
 #
+#   --flavor     which bundle (docs/EMSCRIPTEN.md "Build flavors"):
+#                  release  the deployed bundle (default)
+#                  profile  -O3 with function names kept (-g2 --profiling-funcs)
+#                           and DWARF split into projectm-v.030-thread.debug.wasm;
+#                           a full build also compiles the libraries with -g
+#                           (PROJECTM_WASM_DEBUG_INFO). For DevTools profiles and
+#                           scripts/symbolize_wasm_trace.mjs. Never deployable.
+#                  debug    runtime checks (ASSERTIONS=2, SAFE_HEAP,
+#                           STACK_OVERFLOW_CHECK=2). Never deployable.
+#                A non-release flavor's OUT_DIR defaults to cmake-build/wasm-smoke-<flavor>,
+#                so it does not replace the release link.
+#   --debug      same as --flavor debug.
 #   --lto        whole-program LTO: the libraries are compiled to bitcode and the
 #                link optimises across them (cmake/EmscriptenWasmFlags.cmake).
 #                Switching it in an existing build dir rebuilds the libraries.
-#   --debug      the runtime-checks link flavor (ASSERTIONS=2, SAFE_HEAP,
-#                STACK_OVERFLOW_CHECK=2); never deployable. OUT_DIR defaults to
-#                cmake-build/wasm-smoke-debug so it does not replace the release link.
-#   --stage      also stage the bundle for deploy.py (refused with --debug or any
-#                other flavor).
+#   --stage      also stage the bundle for deploy.py (release only; refused with any
+#                other flavor or link option).
 #   --link-only  relink against the libraries already in INSTALL_DIR (e.g. a second
 #                link flavor in CI).
 #   --version    deploy version for --stage (default: PROJECTM_WASM_VERSION, else
@@ -43,7 +52,7 @@
 # (cmake-build/wasm-smoke), and everything the three scripts read:
 # BUILD_TESTING, GTEST_DIR, ENABLE_OPENMP, CMAKE_BUILD_TYPE (libraries);
 # PROJECTM_WASM_WERROR, PROJECTM_WASM_GL_DEBUG, PROJECTM_WASM_EXPLICIT_SWAP,
-# PROJECTM_WASM_EXTRA_LINK_FLAGS (link); PROJECTM_BUILDS_MERGE_URL,
+# PROJECTM_WASM_MALLOC (mimalloc | dlmalloc), PROJECTM_WASM_EXTRA_LINK_FLAGS (link); PROJECTM_BUILDS_MERGE_URL,
 # PROJECTM_BUILDS_ARGS (staging).
 
 set -euo pipefail
@@ -51,7 +60,7 @@ set -euo pipefail
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 lto=0
-debug=0
+flavor=release
 stage=0
 link_only=0
 version="${PROJECTM_WASM_VERSION:-}"
@@ -63,7 +72,12 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --lto) lto=1 ;;
-        --debug) debug=1 ;;
+        --debug) flavor=debug ;;
+        --flavor)
+            flavor="${2:?--flavor needs a value: release, profile or debug}"
+            shift
+            ;;
+        --flavor=*) flavor="${1#--flavor=}" ;;
         --stage) stage=1 ;;
         --link-only) link_only=1 ;;
         --version)
@@ -83,9 +97,22 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-if [[ "$stage" == "1" && ( "$debug" == "1" || "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" || "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" || -n "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}" ) ]]; then
-    echo "build_wasm.sh: --stage builds the deployable bundle; drop --debug and the PROJECTM_WASM_GL_DEBUG /" >&2
-    echo "PROJECTM_WASM_EXPLICIT_SWAP / PROJECTM_WASM_EXTRA_LINK_FLAGS link flavors." >&2
+case "$flavor" in
+    release | profile | debug) ;;
+    *)
+        echo "build_wasm.sh: unknown --flavor '$flavor' (release, profile or debug)" >&2
+        exit 2
+        ;;
+esac
+debug=0
+profile=0
+[[ "$flavor" == "debug" ]] && debug=1
+[[ "$flavor" == "profile" ]] && profile=1
+
+if [[ "$stage" == "1" && ( "$flavor" != "release" || "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" || "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" \
+    || "${PROJECTM_WASM_MALLOC:-mimalloc}" != "mimalloc" || -n "${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}" ) ]]; then
+    echo "build_wasm.sh: --stage builds the deployable bundle; use --flavor release and drop the PROJECTM_WASM_GL_DEBUG /" >&2
+    echo "PROJECTM_WASM_EXPLICIT_SWAP / PROJECTM_WASM_MALLOC / PROJECTM_WASM_EXTRA_LINK_FLAGS link flavors." >&2
     exit 2
 fi
 if [[ -n "${PROJECTM_WASM_LTO:-}" && "${PROJECTM_WASM_LTO}" != "$lto" && "$link_only" == "0" ]]; then
@@ -103,8 +130,8 @@ export PROJECT_ROOT
 export INSTALL_DIR="${INSTALL_DIR:-$PROJECT_ROOT/install}"
 export CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-$PROJECT_ROOT/cmake-build-wasm}"
 if [[ -z "${OUT_DIR:-}" ]]; then
-    if [[ "$debug" == "1" ]]; then
-        OUT_DIR="$PROJECT_ROOT/cmake-build/wasm-smoke-debug"
+    if [[ "$flavor" != "release" ]]; then
+        OUT_DIR="$PROJECT_ROOT/cmake-build/wasm-smoke-$flavor"
     else
         OUT_DIR="$PROJECT_ROOT/cmake-build/wasm-smoke"
     fi
@@ -112,13 +139,15 @@ fi
 export OUT_DIR
 
 if [[ "$link_only" == "0" ]]; then
-    echo "=== [1/3] Static libraries (LTO=$lto) -> $INSTALL_DIR ===" >&2
-    PROJECTM_WASM_LTO="$lto" bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
+    # DWARF in the libraries only for the profile flavor; any other full build
+    # clears it, like LTO, so a build dir never silently keeps it.
+    echo "=== [1/3] Static libraries (LTO=$lto, DWARF=$profile) -> $INSTALL_DIR ===" >&2
+    PROJECTM_WASM_LTO="$lto" PROJECTM_WASM_DEBUG_INFO="$profile" bash "$PROJECT_ROOT/scripts/build_wasm_install.sh"
 fi
 
-echo "=== [2/3] Wrapper link -> $OUT_DIR ===" >&2
+echo "=== [2/3] Wrapper link ($flavor) -> $OUT_DIR ===" >&2
 # The link takes LTO from the libraries; nothing to pass.
-env -u PROJECTM_WASM_LTO PROJECTM_WASM_DEBUG="$debug" \
+env -u PROJECTM_WASM_LTO PROJECTM_WASM_DEBUG="$debug" PROJECTM_WASM_PROFILE="$profile" \
     bash "$PROJECT_ROOT/scripts/build_wasm_smoke_wrapper.sh"
 
 echo "=== [3/3] Bundle checks ===" >&2
@@ -133,5 +162,9 @@ if [[ "$stage" == "1" ]]; then
     env "${stage_env[@]}" bash "$PROJECT_ROOT/scripts/prepare_deploy_bundle.sh"
 fi
 
+if [[ "$profile" == "1" ]]; then
+    echo "Profile flavor: DWARF in $OUT_DIR/projectm-v.030-thread.debug.wasm; symbolize a trace with" >&2
+    echo "  node scripts/symbolize_wasm_trace.mjs --dwarf $OUT_DIR/projectm-v.030-thread.debug.wasm < trace.txt" >&2
+fi
 echo "Built $OUT_DIR/projectm-v.030-thread.{js,wasm}:" >&2
 cat "$OUT_DIR/projectm-v.030-thread.build-id" >&2

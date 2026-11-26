@@ -184,6 +184,15 @@ export interface RenderTransport {
      */
     contextSnapshot(): number | null;
 
+    /**
+     * `get_context_limit()`'s answers for this transport's context, in
+     * `CONTEXT_LIMITS` order (`[maxTextureSize, maxRenderbufferSize, maxSamples]`),
+     * or null when the bundle predates the export (or the worker has not
+     * reported them yet). Synchronous like {@link contextSnapshot}, and reported
+     * at the same moments.
+     */
+    contextLimits(): readonly number[] | null;
+
     /** Release whatever this transport owns (the worker, or the module). */
     destroy(): void;
 }

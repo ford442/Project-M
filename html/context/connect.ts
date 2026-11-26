@@ -20,11 +20,12 @@ import { contextConfigFor } from './boot.js';
 import { attachAudioRouter, resolveMediaElement, wireAudioSource } from './audio.js';
 import { watchPageLifecycle } from './lifecycle.js';
 import { applyRhythmOptions, clampRhythmLatencyMs, measureOutputLatencyMs, relayPresetEvents } from './presets.js';
-import { followContainerSize, readContextSnapshot } from './render.js';
+import { followContainerSize, readContextNegotiation } from './render.js';
 import { emitContextEvent, engineOf, rhythmOf, setContextSnapshot } from './controls.js';
 import {
     applyEngineSettings,
     applyInitialFlashLimit,
+    applyQualityTierCeiling,
     followGovernorRenderScale,
     installPlaybackHooks,
     installTransportHooks,
@@ -136,12 +137,17 @@ export function connectEngine(host: ConnectHost, transport: RenderTransport, sig
 
     installPlaybackHooks({ transport, context, canvas: context.canvas, documentRef, windowRef }).forEach((d) => own(d));
     applyInitialFlashLimit(transport, options);
+    applyQualityTierCeiling(transport, options);
 
     // Everything from here drives the engine, through the transport or
     // engineOf(). Both select this context's host on every call, so the
     // `await context.loadPresetUrl()` start() makes next cannot resume on a
     // sibling's engine; nothing here relies on an activation lasting.
 
+    // What the context negotiated, before the first sizing: resize() fits the
+    // backing store inside contextCaps.maxRenderbufferSize.
+    const { snapshot, caps } = readContextNegotiation(transport, contextConfigFor(options));
+    setContextSnapshot(context, snapshot, caps);
     context.resize();
 
     const engine = engineOf(context);
@@ -223,8 +229,6 @@ export function connectEngine(host: ConnectHost, transport: RenderTransport, sig
             emitContextEvent(context, 'preset-changed', detail);
         })
     );
-
-    setContextSnapshot(context, readContextSnapshot(transport, contextConfigFor(options)));
 }
 
 /** Engine reports that become the context's errors; see context/wiring.js. */

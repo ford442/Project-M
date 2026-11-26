@@ -250,7 +250,7 @@ engine.
 `html/projectm-audio-source-router.js` (the one router module) enforces an
 **exclusive** policy:
 
-| Active source | Element (`#audio-stream-element`) | Worklet (`pl()`) | External PCM |
+| Active source | Element (`#audio-stream-element`) | Worklet (`play_song()`) | External PCM |
 |---------------|-----------------------------------|------------------|--------------|
 | `none` | off | stopped | dropped |
 | `element` | connected (`set_audio_source_to_stream(true)`) | stopped | dropped |
@@ -261,7 +261,7 @@ engine.
   `external` / `none`) and wires `projectm-external-pcm.js` through
   `feedGate` + `wrapExternalFeed`.
 - **`projectm-core.html`** shares one router with `autoSwitchOnFeed: true` so
-  the first FLAC/MOD PCM chunk or `pl()` call promotes that path and mutes the
+  the first FLAC/MOD PCM chunk or `play_song()` call promotes that path and mutes the
   others.
 - Status is exposed as `context.getAudioSourceStatus()` and the custom-element
   event **`pm-audio-source`** (`detail`: `{ activeSource, streamEnabled,
@@ -278,7 +278,7 @@ There is no "mix" mode; see [Mixing](#mixing-not-implemented).
 | **Legacy uint8** | `add_audio_data()` | variable | Mono 8-bit centered at 128 (does not use the ring) |
 
 FLAC “Start/Change Song” uses the worklet path: the `./flac/` decoder posts a WAV on
-`BroadcastChannel('file')`, WASM writes it to MEMFS and calls `pl()`. If
+`BroadcastChannel('file')`, WASM writes it to MEMFS and calls `play_song()` (`pl()` before the rename). If
 `projectMWorkletNode_Global_Cpp` is missing, playback never starts — hosts must call
 `ensureWorkletReady()` on the music gesture and `installWorkletPlaybackSafetyNet()` after init
 (`html/projectm-worklet-playback.js`).
@@ -544,7 +544,7 @@ page-level registry in the same module (`getHostAudioSourceRouter()`), which
 `playSong()` and the worklet path consult. That registry is hand-written host
 policy: the generated `html/generated/projectm-wasm-api.*` is ccall/direct
 wrappers only, and `scripts/sync_wasm_link_common.sh` knows nothing about
-sources. **Use `playSong(module, path)`, not the raw generated `pl()`**, from
+sources. **Use `playSong(module, path)`, not the raw generated `playSong()` wrapper of `play_song()`**, from
 host code: it is the gate, and drops the call when another source owns the
 ingress path.
 

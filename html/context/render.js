@@ -6,7 +6,7 @@
 // (the WebGL context snapshot, the flash limiter's stats).
 
 import { watchDevicePixelRatio } from '../projectm-init.js';
-import { decodeContextSnapshot } from '../projectm-context-config.js';
+import { decodeContextCaps, decodeContextSnapshot, readContextLimits } from '../projectm-context-config.js';
 import { bindModuleToHost } from '../generated/projectm-wasm-api.js';
 
 /**
@@ -15,6 +15,7 @@ import { bindModuleToHost } from '../generated/projectm-wasm-api.js';
  * @typedef {import('@projectm/types/context').ProjectMMeshQuality} ProjectMMeshQuality
  * @typedef {import('@projectm/types/context').ProjectMFlashLimitStats} ProjectMFlashLimitStats
  * @typedef {import('@projectm/types/context').ProjectMContextSnapshot} ProjectMContextSnapshot
+ * @typedef {import('@projectm/types/context').ProjectMContextCaps} ProjectMContextCaps
  * @typedef {import('@projectm/types/render-worker').WasmContextConfig} WasmContextConfig
  */
 
@@ -56,11 +57,29 @@ export function setBackingStore(canvas, width, height) {
 }
 
 /**
- * @param {{ transport: RenderTransport | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number; renderScale?: number; devicePixelSize?: DevicePixelSize | null }} options
+ * Scales `width` x `height` down, keeping its aspect ratio, until neither side
+ * exceeds `limit` (no limit when it is 0 or less).
+ *
+ * @param {number} width
+ * @param {number} height
+ * @param {number} limit
+ * @returns {[number, number]}
+ */
+export function fitWithin(width, height, limit) {
+    const fit = limit > 0 ? Math.min(1, limit / Math.max(width, height)) : 1;
+    return fit < 1 ? [Math.max(1, Math.floor(width * fit)), Math.max(1, Math.floor(height * fit))] : [width, height];
+}
+
+/**
+ * @param {{ transport: RenderTransport | null; container: Element; mainCanvas: HTMLCanvasElement; secondaryCanvas?: HTMLCanvasElement | null; aspectCorrection?: boolean; devicePixelRatio?: number; renderScale?: number; devicePixelSize?: DevicePixelSize | null; maxBackingStoreSize?: number }} options
  *   `devicePixelSize` is the container's exact content box in device pixels
  *   (ResizeObserver `device-pixel-content-box`). When given it is the layout
  *   size; otherwise that is the CSS rect times `devicePixelRatio`, which can be
  *   a pixel off where the browser snaps the box differently.
+ *   `maxBackingStoreSize` is the context's `MAX_RENDERBUFFER_SIZE`
+ *   (`contextCaps.maxRenderbufferSize`; 0 = unknown): a larger drawing buffer is
+ *   clamped by the browser behind the engine's back, so the backing store is
+ *   fitted inside it here, aspect ratio kept, and the CSS box upscales it.
  * @returns {boolean}
  */
 export function syncCanvasSize({
@@ -72,6 +91,7 @@ export function syncCanvasSize({
     devicePixelRatio = globalThis.devicePixelRatio || 1,
     renderScale = 1,
     devicePixelSize = null,
+    maxBackingStoreSize = 0,
 }) {
     if (!transport || !container || !mainCanvas) {
         return false;
@@ -101,8 +121,14 @@ export function syncCanvasSize({
         layoutWidth = Math.max(1, Math.round(rect.width * devicePixelRatio));
         layoutHeight = Math.max(1, Math.round(rect.height * devicePixelRatio));
     }
-    const width = Math.max(1, Math.round(layoutWidth * scale));
-    const height = Math.max(1, Math.round(layoutHeight * scale));
+    const [width, height] = fitWithin(
+        Math.max(1, Math.round(layoutWidth * scale)),
+        Math.max(1, Math.round(layoutHeight * scale)),
+        maxBackingStoreSize,
+    );
+    // The worker scales what it is sent by renderScale <= 1, so fitting the
+    // layout size keeps its backing store inside the limit too.
+    const [sentLayoutWidth, sentLayoutHeight] = fitWithin(layoutWidth, layoutHeight, maxBackingStoreSize);
 
     // The CSS box is the device-pixel layout size over the DPR rather than the
     // raw (often fractional) container rect, so at full render scale the
@@ -122,8 +148,8 @@ export function syncCanvasSize({
     // The worker scales the layout size by its own copy of the render scale,
     // so sending it the already-scaled size would apply the factor twice.
     transport.resize(
-        ownsBackingStore ? width : layoutWidth,
-        ownsBackingStore ? height : layoutHeight,
+        ownsBackingStore ? width : sentLayoutWidth,
+        ownsBackingStore ? height : sentLayoutHeight,
     );
     if (aspectCorrection !== undefined && transport.supports('setAspectCorrection')) {
         transport.callVoid('setAspectCorrection', aspectCorrection);
@@ -305,10 +331,10 @@ export function meshGridFor(quality) {
  *
  * @param {RenderTransport} transport
  * @param {WasmContextConfig} [requested]
+ * @param {number | null} [packed] get_context_snapshot()'s result, when the caller already read it.
  * @returns {ProjectMContextSnapshot | null}
  */
-export function readContextSnapshot(transport, requested) {
-    const packed = transport.contextSnapshot();
+export function readContextSnapshot(transport, requested, packed = transport.contextSnapshot()) {
     const snapshot = packed === null ? null : decodeContextSnapshot(packed, requested);
     if (snapshot && snapshot.mismatches.length > 0) {
         const list = snapshot.mismatches
@@ -317,6 +343,35 @@ export function readContextSnapshot(transport, requested) {
         console.warn(`[projectM] the WebGL context does not have the requested attributes (requested -> effective): ${list}`);
     }
     return snapshot;
+}
+
+/**
+ * What the transport's context negotiated, both ways ({@link readContextSnapshot},
+ * {@link readContextCaps}), from one get_context_snapshot() read.
+ *
+ * @param {RenderTransport} transport
+ * @param {WasmContextConfig} [requested]
+ * @returns {{ snapshot: ProjectMContextSnapshot | null, caps: ProjectMContextCaps | null }}
+ */
+export function readContextNegotiation(transport, requested) {
+    const packed = transport.contextSnapshot();
+    return { snapshot: readContextSnapshot(transport, requested, packed), caps: readContextCaps(transport, packed) };
+}
+
+/**
+ * The transport's context as one capability set ({@link decodeContextCaps}):
+ * the snapshot plus get_context_limit()'s answers. Null where the snapshot is.
+ *
+ * @param {RenderTransport} transport
+ * @param {number | null} [packed] get_context_snapshot()'s result, when the caller already read it.
+ * @returns {ProjectMContextCaps | null}
+ */
+export function readContextCaps(transport, packed = transport.contextSnapshot()) {
+    if (packed === null) {
+        return null;
+    }
+    const limits = transport.contextLimits();
+    return decodeContextCaps(packed, limits ? readContextLimits(packed, (which) => limits[which] ?? 0) : null);
 }
 
 /**

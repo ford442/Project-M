@@ -222,6 +222,10 @@ struct WasmHost {
     bool governorEnabled = true;
     int targetFps = 60;
     int qualityTier = 0;
+    //! The best (lowest-index) tier the governor may choose: 0 lets it reach full
+    //! quality, 1 caps it at "regular" (the battery context profile).
+    //! set_quality_tier_ceiling(); kept across an engine re-created after a context loss.
+    int qualityTierCeiling = 0;
     bool qualityTierInitialized = false;
     int overBudgetFrames = 0;
     int underBudgetFrames = 0;

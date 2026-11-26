@@ -187,6 +187,25 @@ test('context attributes come from the query, then localStorage', () => {
     assert.equal(resolveContextAttributes(new URLSearchParams(''), null, { __projectMCaptureMode: true }).preserveDrawingBuffer, true);
 });
 
+test('?profile= picks a context profile and leaves the attributes it sets to it', () => {
+    const storage = fakeStorage({});
+    assert.deepEqual(resolveContextAttributes(new URLSearchParams('profile=Battery'), storage, {}), {
+        contextProfile: 'battery',
+        preserveDrawingBuffer: false,
+        depth: false,
+        stencil: false,
+    });
+    // What the URL (or canvasAA) does say still wins over the profile.
+    const explicit = resolveContextAttributes(new URLSearchParams('profile=battery&aa=1&fboPrecision=half'), storage, {});
+    assert.equal(explicit.contextProfile, 'battery');
+    assert.equal(explicit.antialias, true);
+    assert.equal(explicit.fboPrecision, 'half');
+    assert.equal(resolveContextAttributes(new URLSearchParams('profile=quality'), fakeStorage({ canvasAA: '0' }), {}).antialias, false);
+    // An unknown profile is ignored: the attributes as without one.
+    assert.deepEqual(resolveContextAttributes(new URLSearchParams('profile=turbo'), storage, {}),
+        resolveContextAttributes(new URLSearchParams(''), storage, {}));
+});
+
 test('render config: governor, mesh quality and musical scheduling', () => {
     const defaults = resolveRenderConfig(new URLSearchParams(''), null, 2);
     assert.equal(defaults.targetFps, 60);

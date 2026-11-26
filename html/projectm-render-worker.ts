@@ -338,14 +338,27 @@ function recoverContext(host: HostHandle | undefined): void {
     postToHost({ type: 'context-recovered', status, ...(status === 0 ? contextSnapshotField() : {}) });
 }
 
+/** get_context_limit()'s arguments, in CONTEXT_LIMITS order (maxTextureSize, maxRenderbufferSize, maxSamples). */
+const CONTEXT_LIMIT_ORDER = [0, 1, 2] as const;
+
 /**
  * get_context_snapshot() as a message field, so the host reads what the worker's
  * context negotiated without a round trip it would have to wait for. Absent from
  * a bundle that predates the export.
  */
-function contextSnapshotField(): { contextSnapshot?: number } {
+function contextSnapshotField(): { contextSnapshot?: number; contextLimits?: number[] } {
     const m = selectEngine(engineHost);
-    return m && typeof m._get_context_snapshot === 'function' ? { contextSnapshot: m._get_context_snapshot() } : {};
+    if (!m || typeof m._get_context_snapshot !== 'function') {
+        return {};
+    }
+    const field: { contextSnapshot: number; contextLimits?: number[] } = { contextSnapshot: m._get_context_snapshot() };
+    // get_context_limit()'s argument per limit: CONTEXT_LIMITS in projectm-context-config.js.
+    // A classic worker cannot import it; tests/web/projectm-render-worker.test.mjs keeps the two equal.
+    if (typeof m._get_context_limit === 'function') {
+        const getLimit = m._get_context_limit;
+        field.contextLimits = CONTEXT_LIMIT_ORDER.map((which) => getLimit(which));
+    }
+    return field;
 }
 
 function postStats() {

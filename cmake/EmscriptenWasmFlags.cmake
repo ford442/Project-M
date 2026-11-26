@@ -90,6 +90,17 @@ set(PROJECTM_WASM_EXCEPTION_ARGS -fwasm-exceptions)
 # PROJECTM_WASM_LTO in its environment that disagrees. Size/link-time numbers: docs/PERFORMANCE.md ("Whole-program LTO").
 set(PROJECTM_WASM_LTO OFF CACHE BOOL "Compile the WASM static libraries to LLVM bitcode (-flto); link the bundle with PROJECTM_WASM_LTO=1.")
 
+# DWARF in the static libraries (-g), for the profile flavor's split
+# <bundle>.debug.wasm (src/wasm/CMakeLists.txt PROJECTM_WASM_PROFILE) to cover
+# libprojectM's code and not only the wrapper's. A library-compile switch like
+# PROJECTM_WASM_LTO: scripts/build_wasm.sh --flavor profile sets it, every other
+# full build clears it, and switching rebuilds the libraries. A release link
+# against -g libraries is NOT the release binary (measured with emsdk 6.0.6: the
+# .wasm and the symbol map differ), so any link against them is tagged
+# +debug-info in its build-id and cannot be staged or deployed
+# (docs/EMSCRIPTEN.md "Build flavors").
+set(PROJECTM_WASM_DEBUG_INFO OFF CACHE BOOL "Compile the WASM static libraries with DWARF (-g) for the profile flavor's .debug.wasm.")
+
 # Browser wrapper exports: PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS is derived
 # from cmake/WasmApiManifest.cmake (included above), the only list of exports.
 list(JOIN PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS "," PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS_STR)
@@ -293,6 +304,9 @@ function(projectm_apply_emscripten_lib_compile_flags)
             )
     if(PROJECTM_WASM_LTO)
         add_compile_options(-flto)
+    endif()
+    if(PROJECTM_WASM_DEBUG_INFO)
+        add_compile_options(-g)
     endif()
 endfunction()
 

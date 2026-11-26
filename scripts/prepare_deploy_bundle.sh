@@ -53,11 +53,13 @@ PROJECTM_WASM_VERSION="${PROJECTM_WASM_VERSION:-040}"
 SMOKE_BUNDLE="projectm-v.030-thread"
 
 # The GL-debug and explicit-swap link flavors are for local diagnosis and #256 /
-# #262 work, never production (docs/EMSCRIPTEN.md "Link flavors"). Their build-id
+# #262 work, never production (docs/EMSCRIPTEN.md "Build flavors"). Their build-id
 # carries a +flavor suffix, so the reuse check below and deploy.py refuse them
 # anyway; this just says so before a rebuild.
-if [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" || "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" || "${PROJECTM_WASM_DEBUG:-0}" == "1" ]]; then
-    echo "ERROR: PROJECTM_WASM_GL_DEBUG / PROJECTM_WASM_EXPLICIT_SWAP / PROJECTM_WASM_DEBUG select a non-deployable link flavor; unset them." >&2
+if [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" || "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" || "${PROJECTM_WASM_DEBUG:-0}" == "1" \
+    || "${PROJECTM_WASM_PROFILE:-0}" == "1" || "${PROJECTM_WASM_MALLOC:-mimalloc}" != "mimalloc" ]]; then
+    echo "ERROR: PROJECTM_WASM_GL_DEBUG / PROJECTM_WASM_EXPLICIT_SWAP / PROJECTM_WASM_DEBUG / PROJECTM_WASM_PROFILE /" >&2
+    echo "PROJECTM_WASM_MALLOC=${PROJECTM_WASM_MALLOC:-mimalloc} select a non-deployable link flavor; unset them." >&2
     exit 1
 fi
 

@@ -106,7 +106,7 @@ fll.addEventListener('message', ea => {
     globalThis.projectMLastSongPath = uniqueFileName;
     setTimeout(function() {
         Module.ccall(
-            'pl',                   // C function name
+            'play_song',            // C function name (pl() on older bundles)
             null,                   // return type
             ['string'],             // argument types
             [uniqueFileName]        // arguments

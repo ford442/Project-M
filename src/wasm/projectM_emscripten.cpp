@@ -540,6 +540,27 @@ int live_playlist_count()
     return g_livePlaylistCount;
 }
 
+} // namespace WasmApi
+
+// Out of line and out of WasmApi, so the trap's innermost frame has a name and a
+// line of its own for scripts/symbolize_wasm_trace.mjs to resolve. noinline only
+// binds clang: the release link's wasm-opt still inlines it into the export, the
+// profile flavor's DWARF-preserving link keeps it.
+[[gnu::noinline]] static void ForceTrapForSymbolizerTest()
+{
+    __builtin_trap();
+}
+
+namespace WasmApi {
+// A real trap (wasm `unreachable`, a RuntimeError in JS) for
+// tests/wasm-smoke/symbolize_trap.mjs. A trap is not a C++ exception: the
+// export's barrier does not catch it and the Module is unusable afterwards, so
+// only a test page that throws the Module away calls this.
+void debug_force_trap()
+{
+    ForceTrapForSymbolizerTest();
+}
+
 void set_aspect_correction(WasmHost& H, bool enabled)
 {
     auto& pm = H.appData.projectm_engine;

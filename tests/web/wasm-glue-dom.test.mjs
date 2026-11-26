@@ -215,15 +215,15 @@ test('the glue init sets up the VFS and the song hook without reading the page',
             assert.deepEqual(channels.map((channel) => channel.name), ['file']);
 
             // The legacy FLAC decoder posts a decoded WAV: it lands in /snd, the host
-            // safety net learns the path, and pl() is called once the timer fires.
+            // safety net learns the path, and play_song() is called once the timer fires.
             const [, listener] = channels[0].listeners.find(([type]) => type === 'message');
             listener({ data: { data: new Uint8Array([1, 2, 3]).buffer } });
             const [firstPath] = [...files.keys()];
             assert.match(firstPath, /^\/snd\/song_\d+\.wav$/);
             assert.equal(globalThis.projectMLastSongPath, firstPath);
-            assert.deepEqual(ccalls, [], 'pl() waits for the timer');
+            assert.deepEqual(ccalls, [], 'play_song() waits for the timer');
             timers.shift()();
-            assert.deepEqual(ccalls, [['pl', null, ['string'], [firstPath]]]);
+            assert.deepEqual(ccalls, [['play_song', null, ['string'], [firstPath]]]);
             const shutDown = channels.find((channel) => channel.name === 'shutDown');
             assert.deepEqual(shutDown?.posted, [{ data: 222 }], 'and the decoder is told to shut down');
 

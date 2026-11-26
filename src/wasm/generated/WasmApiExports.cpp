@@ -74,6 +74,8 @@ void pm_set_perf_hud(uintptr_t host, int enabled);
 void pm_set_target_fps(uintptr_t host, int fps);
 void pm_set_quality_governor(uintptr_t host, bool enabled);
 int pm_get_quality_tier(uintptr_t host);
+void pm_set_quality_tier_ceiling(uintptr_t host, int tier);
+int pm_get_quality_tier_ceiling(uintptr_t host);
 double pm_get_governor_render_scale(uintptr_t host);
 int pm_get_governor_blur_cap(uintptr_t host);
 int pm_is_preset_ready(uintptr_t host, int minFramesSinceReady);
@@ -102,6 +104,7 @@ float pm_dual_fbo_get_idle_release_seconds(uintptr_t host);
 bool pm_dual_fbo_is_preset_b_ready(uintptr_t host);
 int pm_dual_fbo_get_format(uintptr_t host);
 int pm_get_context_snapshot(uintptr_t host);
+int pm_get_context_limit(uintptr_t host, int which);
 void pm_dual_fbo_render_preset_a(uintptr_t host);
 void pm_dual_fbo_render_preset_b(uintptr_t host);
 void pm_transition_start(uintptr_t host);
@@ -162,11 +165,11 @@ void add_audio_data(uint8_t* data, int len)
     Guarded("add_audio_data", [&]() { WasmApi::add_audio_data(data, len); });
 }
 
-// Play audio file from VFS path
+// Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names)
 EMSCRIPTEN_KEEPALIVE
-void pl(const char* songPath)
+void play_song(const char* songPath)
 {
-    Guarded("pl", [&]() { WasmApi::pl(songPath); });
+    Guarded("play_song", [&]() { WasmApi::play_song(songPath); });
 }
 
 // Tear down projectM engine
@@ -1087,6 +1090,34 @@ int get_quality_tier()
     return pm_get_quality_tier(ActiveHostHandle());
 }
 
+// Best quality tier the governor may step up to (0 = no cap, 1 = regular, 2 = low), applied at once to a running governor above it (the battery context profile sets 1)
+EMSCRIPTEN_KEEPALIVE
+void pm_set_quality_tier_ceiling(uintptr_t host, int tier)
+{
+    WithHost(host, "pm_set_quality_tier_ceiling", [&](WasmHost& h) { WasmApi::set_quality_tier_ceiling(h, tier); });
+}
+
+// Compat shim: pm_set_quality_tier_ceiling() on the host set_active_host() selected.
+EMSCRIPTEN_KEEPALIVE
+void set_quality_tier_ceiling(int tier)
+{
+    pm_set_quality_tier_ceiling(ActiveHostHandle(), tier);
+}
+
+// Best quality tier the governor may choose (set_quality_tier_ceiling)
+EMSCRIPTEN_KEEPALIVE
+int pm_get_quality_tier_ceiling(uintptr_t host)
+{
+    return WithHost<int>(host, {}, "pm_get_quality_tier_ceiling", [&](WasmHost& h) { return WasmApi::get_quality_tier_ceiling(h); });
+}
+
+// Compat shim: pm_get_quality_tier_ceiling() on the host set_active_host() selected.
+EMSCRIPTEN_KEEPALIVE
+int get_quality_tier_ceiling()
+{
+    return pm_get_quality_tier_ceiling(ActiveHostHandle());
+}
+
 // Current governor internal render-scale factor (1.0/0.75/0.5)
 EMSCRIPTEN_KEEPALIVE
 double pm_get_governor_render_scale(uintptr_t host)
@@ -1162,6 +1193,13 @@ EMSCRIPTEN_KEEPALIVE
 int live_playlist_count()
 {
     return Guarded<int>({}, "live_playlist_count", [&]() { return WasmApi::live_playlist_count(); });
+}
+
+// Executes a wasm unreachable inside the wrapper, which kills the Module (symbolizer round-trip test hook, tests/wasm-smoke/symbolize_trap.mjs)
+EMSCRIPTEN_KEEPALIVE
+void debug_force_trap()
+{
+    Guarded("debug_force_trap", [&]() { WasmApi::debug_force_trap(); });
 }
 
 // Emscripten main-loop timing mode (1 = requestAnimationFrame), -1 before start_render (pacing test hook)
@@ -1521,7 +1559,7 @@ int dual_fbo_get_format()
     return pm_dual_fbo_get_format(ActiveHostHandle());
 }
 
-// What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8). Decoded into ProjectMContext.contextSnapshot
+// What this host negotiated with WebGL, packed in an int (0 before init): bit0 has a context, bit1 EXT_color_buffer_float, bit2 EXT_float_blend, bit3 WEBGL_lose_context present, bits 8-9 active dual-FBO format (0=RGBA16F, 1=RGBA32F, 2=RGBA8), bit14 EXT_disjoint_timer_query_webgl2 offered, bit15 get_context_limit() answers. Decoded into ProjectMContext.contextSnapshot and contextCaps
 EMSCRIPTEN_KEEPALIVE
 int pm_get_context_snapshot(uintptr_t host)
 {
@@ -1533,6 +1571,20 @@ EMSCRIPTEN_KEEPALIVE
 int get_context_snapshot()
 {
     return pm_get_context_snapshot(ActiveHostHandle());
+}
+
+// One limit of this host's WebGL context, read when it was created (which: 0 MAX_TEXTURE_SIZE, 1 MAX_RENDERBUFFER_SIZE, 2 MAX_SAMPLES), 0 without a context. Decoded into ProjectMContext.contextCaps
+EMSCRIPTEN_KEEPALIVE
+int pm_get_context_limit(uintptr_t host, int which)
+{
+    return WithHost<int>(host, {}, "pm_get_context_limit", [&](WasmHost& h) { return WasmApi::get_context_limit(h, which); });
+}
+
+// Compat shim: pm_get_context_limit() on the host set_active_host() selected.
+EMSCRIPTEN_KEEPALIVE
+int get_context_limit(int which)
+{
+    return pm_get_context_limit(ActiveHostHandle(), which);
 }
 
 // Render preset A into dual FBO

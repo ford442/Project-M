@@ -688,7 +688,14 @@ deployed binary is the one CI tested. Nothing may rewrite the bundle after the l
 pass, no minifier): see `docs/EMSCRIPTEN.md` "Building the bundle". The bundle is the
 `projectM_wasm` CMake target (`src/wasm/CMakeLists.txt`, Emscripten only, not in `ALL`); its TUs
 compile with the libraries' `config.h` and compile definitions, and the shell script only picks
-the link flavor and copies the output.
+the link flavor and copies the output. `--flavor release|profile|debug` picks the bundle: `profile`
+keeps function names and splits DWARF into `projectm-v.030-thread.debug.wasm` for
+`scripts/symbolize_wasm_trace.mjs`; only `release` can be staged (docs/EMSCRIPTEN.md "Build flavors").
+
+**Build flags are snapshotted.** `scripts/check_wasm_link_flags.sh <emscripten-build-dir>` (in
+`build_emscripten.yml`) compares every flavor's compile and link lines with
+`tests/wasm-smoke/link-flags/`. A deliberate flag change regenerates them with `--update` in the same
+change (docs/EMSCRIPTEN.md "Flag matrix").
 
 **It refuses a stale bundle.** Staging writes `<bundle>.build-id`: a source fingerprint plus the
 sha256 of the linked `.wasm` and `.js`. `deploy.py` fails if the fingerprint does not match the tree

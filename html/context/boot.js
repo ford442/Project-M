@@ -25,16 +25,16 @@ import {
 } from '../projectm-render-worker-host.js';
 import { checkInit } from '../projectm-init-errors.js';
 import { createConfiguredHost, resolveFlashLimit, resolveWasmContextConfig } from '../projectm-context-config.js';
-import { destroyHost } from '../generated/projectm-wasm-api.js';
+import { DEFAULT_HOST, destroyHost } from '../generated/projectm-wasm-api.js';
 import { resolveDevicePixelRatio } from './render.js';
 
 /**
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
- * @typedef {import('../projectm-context-types.ts').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
- * @typedef {import('../projectm-render-worker-types.ts').WasmContextConfig} WasmContextConfig
- * @typedef {import('../projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
- * @typedef {import('../projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/context').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
+ * @typedef {import('@projectm/types/render-worker').WasmContextConfig} WasmContextConfig
+ * @typedef {import('@projectm/types/render-worker').RenderPathOverrides} RenderPathOverrides
+ * @typedef {import('@projectm/types/context').ProjectMContextOptions} ProjectMContextOptions
  * @typedef {{ pmScript: string, rootScript: string, api?: string[] | null }} BundlePaths
  * @typedef {{
  *   wasmVersion?: string,
@@ -259,7 +259,7 @@ export async function createModule({
  * @typedef {object} BootSink
  * @property {(module: ProjectMModule) => void} adoptModule Also publishes `window.Module`.
  * @property {(transport: RenderTransport) => void} adoptTransport
- * @property {(handle: number) => void} adoptHost
+ * @property {(handle: import('../generated/projectm-wasm-api.js').HostHandle) => void} adoptHost
  * @property {(canvas: HTMLCanvasElement) => void} replaceCanvas
  * @property {(error: Error, code: number) => void} reportError
  */
@@ -388,7 +388,8 @@ export async function bootEngine(request, sink) {
     // init(). Every call must name it: on an ABI v2 bundle host 0 is only the
     // implicit default host, which create_host_with_config() adopts and
     // renames. (Teardown still destructs the whole Module: this context owns it.)
-    let engineHost = 0;
+    /** @type {import('../generated/projectm-wasm-api.js').HostHandle} */
+    let engineHost = DEFAULT_HOST;
     if (!followCanvasReplacement(canvas, documentRef, sink, () => checkInit(module, {
         primaryCanvasSelector: request.primaryCanvasSelector,
         secondaryCanvasSelector: request.secondaryCanvasSelector,
@@ -585,7 +586,7 @@ export async function bootSharedModule(options, defaultBaseUrl) {
  * @param {{
  *   module: ProjectMModule | null,
  *   transport: RenderTransport | null,
- *   hostHandle: number,
+ *   hostHandle: import('../generated/projectm-wasm-api.js').HostHandle,
  *   ownsModule: boolean,
  * }} engine
  */

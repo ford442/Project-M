@@ -2,14 +2,24 @@
 #
 # Generates, from cmake/WasmApiManifest.cmake (included through
 # EmscriptenWasmFlags.cmake by GenerateWasmLinkCommon.cmake, which includes
-# this file and sets _impl_out, _exports_out, _ts_out and _js_out):
+# this file and sets _impl_out, _exports_out, _errors_out, _dts_out,
+# _dts_shim_out and _js_out):
 #
 #   src/wasm/generated/WasmApiImpl.hpp     WasmApi:: declarations the TUs define
 #   src/wasm/generated/WasmApiExports.cpp  every extern "C" export, each a
 #                                          barrier (WasmApiBarrier.hpp) over
 #                                          its WasmApi:: implementation
-#   html/generated/projectm-wasm-api.ts/.js  typed wrappers, signatures,
+#   src/wasm/generated/WasmApiErrors.hpp   enum class WasmApiError
+#   html/generated/projectm-wasm-api.js    wrappers, signatures,
 #                                          bindModuleToHost(), createHostApi()
+#   packages/types/src/wasm-api.d.ts       their exact types: HostHandle,
+#                                          ProjectMError, WasmApiCalls (the
+#                                          @projectm/types/wasm-api entry)
+#   html/generated/projectm-wasm-api.d.ts  re-exports it, so an importer of
+#                                          the .js gets those types
+#
+# scripts/check_wasm_api_dts.mjs checks the four agree (manifest, C++ exports,
+# .d.ts, .js), independently of this generator.
 #
 # Regenerate with scripts/sync_wasm_link_common.sh; CI checks the files are
 # current with scripts/verify_wasm_link_common.sh.
@@ -46,8 +56,10 @@ function(_projectm_wasm_cxx_type type out_var)
         set(_t "float")
     elseif(type STREQUAL "f64")
         set(_t "double")
-    elseif(type STREQUAL "usize")
+    elseif(type STREQUAL "usize" OR type STREQUAL "host")
         set(_t "uintptr_t")
+    elseif(type STREQUAL "error")
+        set(_t "int")
     elseif(type STREQUAL "cstr")
         set(_t "const char*")
     elseif(type STREQUAL "i32*")
@@ -81,12 +93,27 @@ function(_projectm_wasm_js_type type out_var)
     set(${out_var} "${_t}" PARENT_SCOPE)
 endfunction()
 
-# JS type -> TypeScript type.
+# JS type -> TypeScript type: what crosses the ccall boundary (number,
+# boolean, string, void), and what paramTypes in WASM_API_SIGNATURES says.
 function(_projectm_wasm_ts_type js_type out_var)
     if(js_type STREQUAL "void" OR js_type STREQUAL "boolean" OR js_type STREQUAL "string")
         set(${out_var} "${js_type}" PARENT_SCOPE)
     else()
         set(${out_var} "number" PARENT_SCOPE)
+    endif()
+endfunction()
+
+# Manifest type -> the type the .d.ts declares: _projectm_wasm_ts_type, except
+# that a host handle is HostHandle and an error code ProjectMError.
+function(_projectm_wasm_dts_type type out_var)
+    if(type STREQUAL "host")
+        set(${out_var} "HostHandle" PARENT_SCOPE)
+    elseif(type STREQUAL "error")
+        set(${out_var} "ProjectMError" PARENT_SCOPE)
+    else()
+        _projectm_wasm_js_type("${type}" _js)
+        _projectm_wasm_ts_type("${_js}" _ts)
+        set(${out_var} "${_ts}" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -295,6 +322,9 @@ ${_export_protos}${_export_defs}
 set(_ts_module_members "")
 set(_ts_wrappers "")
 set(_js_wrappers "")
+set(_dts_calls "")
+set(_dts_symbols "")
+set(_public_types "")
 set(_symbols "")
 set(_signature_lines "")
 set(_host_symbol_lines "")
@@ -312,7 +342,7 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
     # and takes the host as an explicit first argument.
     if(e_kind STREQUAL "host-v2")
         set(_symbol "${e_v2}")
-        _projectm_wasm_join_args("host:usize" "${e_args}" _js_args)
+        _projectm_wasm_join_args("host:host" "${e_args}" _js_args)
     else()
         set(_symbol "${e_legacy}")
         set(_js_args "${e_args}")
@@ -320,6 +350,7 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
     _projectm_wasm_snake_to_camel("${_symbol}" _js_name)
     _projectm_wasm_js_type("${e_return_type}" _js_ret)
     _projectm_wasm_ts_type("${_js_ret}" _ts_ret)
+    _projectm_wasm_dts_type("${e_return_type}" _dts_ret)
 
     set(_ts_params "")
     set(_js_params "")
@@ -335,14 +366,18 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
             list(GET _fields 1 _arg_type)
             _projectm_wasm_js_type("${_arg_type}" _js_arg)
             _projectm_wasm_ts_type("${_js_arg}" _ts_arg)
-            list(APPEND _ts_params "${_arg_name}: ${_ts_arg}")
+            _projectm_wasm_dts_type("${_arg_type}" _dts_arg)
+            list(APPEND _ts_params "${_arg_name}: ${_dts_arg}")
             list(APPEND _js_params "${_arg_name}")
             if(_js_arg STREQUAL "string")
                 list(APPEND _ccall_types "'string'")
                 list(APPEND _wasm_params "${_arg_name}: number")
-            else()
+            elseif(_js_arg STREQUAL "boolean")
                 list(APPEND _ccall_types "'number'")
                 list(APPEND _wasm_params "${_arg_name}: number")
+            else()
+                list(APPEND _ccall_types "'number'")
+                list(APPEND _wasm_params "${_arg_name}: ${_dts_arg}")
             endif()
             list(APPEND _param_types "'${_ts_arg}'")
             if(_js_arg STREQUAL "boolean")
@@ -368,13 +403,13 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
     # Module members (direct bindings only; ccall-only symbols are not on the
     # module object). pm_ exports are optional: bundles before ABI v2 lack them.
     if(e_binding STREQUAL "direct")
-        string(APPEND _ts_module_members "    _${_symbol}: (${_wasm_params}) => ${_ts_ret};\n")
+        string(APPEND _ts_module_members "    _${_symbol}: (${_wasm_params}) => ${_dts_ret};\n")
         if(NOT e_v2 STREQUAL "" AND NOT e_kind STREQUAL "host-v2")
             set(_v2_wasm_params "${_wasm_params}")
             if(e_host_mode STREQUAL "prepend")
-                _projectm_wasm_join_args("host: number" "${_wasm_params}" _v2_wasm_params)
+                _projectm_wasm_join_args("host: HostHandle" "${_wasm_params}" _v2_wasm_params)
             endif()
-            string(APPEND _ts_module_members "    _${e_v2}?: (${_v2_wasm_params}) => ${_ts_ret};\n")
+            string(APPEND _ts_module_members "    _${e_v2}?: (${_v2_wasm_params}) => ${_dts_ret};\n")
         endif()
     endif()
 
@@ -390,16 +425,13 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
     _projectm_wasm_join_args("module: ProjectMModule" "${_ts_params}" _ts_sig)
     _projectm_wasm_join_args("module" "${_js_params}" _js_sig)
     if(_js_ret STREQUAL "void")
-        set(_ts_line "    ${_body};\n")
         set(_js_line "    ${_body};\n")
-    elseif(e_binding STREQUAL "ccall")
-        set(_ts_line "    return ${_body} as ${_ts_ret};\n")
-        set(_js_line "    return ${_body};\n")
     else()
-        set(_ts_line "    return ${_body};\n")
         set(_js_line "    return ${_body};\n")
     endif()
-    string(APPEND _ts_wrappers "\n/** ${e_doc} */\nexport function ${_js_name}(${_ts_sig}): ${_ts_ret} {\n${_ts_line}}\n")
+    string(APPEND _ts_wrappers "\n/** ${e_doc} */\nexport declare function ${_js_name}(${_ts_sig}): ${_dts_ret};\n")
+    string(APPEND _dts_calls "    /** ${e_doc} */\n    ${_js_name}(${_ts_params}): ${_dts_ret};\n")
+    string(APPEND _dts_symbols "    readonly ${_js_name}: '${_symbol}';\n")
     string(APPEND _js_wrappers "\n/** ${e_doc} */\nexport function ${_js_name}(${_js_sig}) {\n${_js_line}}\n")
 
     string(APPEND _symbols "    ${_js_name}: '${_symbol}',\n")
@@ -414,6 +446,7 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
 
     if(e_visibility STREQUAL "public")
         list(APPEND _public_names "    ${_js_name}")
+        list(APPEND _public_types "    typeof ${_js_name}")
     endif()
 
     # createHostApi(): one method per engine call, named after the
@@ -429,9 +462,8 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
                 string(REPLACE ":" ";" _fields "${_pair}")
                 list(GET _fields 0 _arg_name)
                 list(GET _fields 1 _arg_type)
-                _projectm_wasm_js_type("${_arg_type}" _js_arg)
-                _projectm_wasm_ts_type("${_js_arg}" _ts_arg)
-                list(APPEND _api_ts_params "${_arg_name}: ${_ts_arg}")
+                _projectm_wasm_dts_type("${_arg_type}" _dts_arg)
+                list(APPEND _api_ts_params "${_arg_name}: ${_dts_arg}")
                 list(APPEND _api_js_params "${_arg_name}")
             endforeach()
         endif()
@@ -443,11 +475,12 @@ foreach(_entry IN LISTS PROJECTM_WASM_API_MANIFEST)
             # host-v2 and handle entries take the handle explicitly.
             _projectm_wasm_join_args("view, host" "${_api_js_params}" _api_call)
         endif()
-        string(APPEND _ts_host_api_members "    /** ${e_doc} */\n    ${_api_name}(${_api_ts_params}): ${_ts_ret};\n")
+        string(APPEND _ts_host_api_members "    /** ${e_doc} */\n    ${_api_name}(${_api_ts_params}): ${_dts_ret};\n")
         string(APPEND _host_api_items "        ${_api_name}: (${_api_js_params}) => ${_js_name}(${_api_call}),\n")
     endif()
 endforeach()
 list(JOIN _public_names ",\n" _public_names)
+list(JOIN _public_types ",\n" _public_types)
 
 # ---- bindModuleToHost() -------------------------------------------------------
 # A view of the module bound to one engine. With an ABI v2 bundle (it exports
@@ -601,11 +634,86 @@ set(_host_api_doc "
  * what the call takes after the host.
  */")
 
-# ---- TypeScript ----------------------------------------------------------------
-file(WRITE "${_ts_out}" "// projectm-wasm-api.ts
+# ---- error codes -------------------------------------------------------------
+set(_errors_cxx "")
+set(_errors_dts "")
+set(_errors_js "")
+set(_errors_expected 0)
+foreach(_error IN LISTS PROJECTM_WASM_API_ERRORS)
+    if(NOT _error MATCHES "^([A-Za-z][A-Za-z0-9]*)\\|([0-9]+)\\|(.+)$")
+        message(FATAL_ERROR "Invalid WASM API error entry: ${_error}")
+    endif()
+    if(NOT CMAKE_MATCH_2 EQUAL _errors_expected)
+        message(FATAL_ERROR "WASM API error ${CMAKE_MATCH_1}: values must be 0, 1, 2, ... in order")
+    endif()
+    math(EXPR _errors_expected "${_errors_expected} + 1")
+    string(APPEND _errors_cxx "    //! ${CMAKE_MATCH_3}.\n    ${CMAKE_MATCH_1} = ${CMAKE_MATCH_2},\n")
+    string(APPEND _errors_dts "    /** ${CMAKE_MATCH_3} */\n    ${CMAKE_MATCH_1} = ${CMAKE_MATCH_2},\n")
+    string(APPEND _errors_js "    ${CMAKE_MATCH_1}: ${CMAKE_MATCH_2},\n")
+endforeach()
+
+file(WRITE "${_errors_out}" "// WasmApiErrors.hpp
+// AUTO-GENERATED by cmake/GenerateWasmApi.cmake from cmake/WasmApiManifest.cmake
+// (PROJECTM_WASM_API_ERRORS) — do not edit by hand.
+// Regenerate: scripts/sync_wasm_link_common.sh
+//
+// The pm_get_last_error() codes. The same list is ProjectMError in
+// html/generated/projectm-wasm-api.{js,d.ts}.
+#pragma once
+
+enum class WasmApiError : int
+{
+${_errors_cxx}};
+")
+
+# ---- TypeScript declarations ---------------------------------------------------
+# The .js is the implementation; this is its exact type. Nothing in it runs,
+# which is why ProjectMError can be a const enum: TypeScript callers that
+# compile with tsc get the values inlined, and those built one file at a time
+# (esbuild) read the frozen ProjectMError object the .js exports, which holds
+# the same values (scripts/check_wasm_api_dts.mjs compares them).
+file(WRITE "${_dts_shim_out}" "// projectm-wasm-api.d.ts
+// AUTO-GENERATED by cmake/GenerateWasmApi.cmake — do not edit by hand.
+// Regenerate: scripts/sync_wasm_link_common.sh
+//
+// The types of projectm-wasm-api.js live in @projectm/types (the one types
+// package html/ and packages/web share): packages/types/src/wasm-api.d.ts.
+export * from '@projectm/types/wasm-api';
+")
+
+file(WRITE "${_dts_out}" "// wasm-api.d.ts (@projectm/types/wasm-api)
 // AUTO-GENERATED by cmake/GenerateWasmApi.cmake — do not edit by hand.
 // Canonical definitions live in cmake/WasmApiManifest.cmake.
 // Regenerate: scripts/sync_wasm_link_common.sh
+//
+// The types of html/generated/projectm-wasm-api.js (its only implementation),
+// which html/generated/projectm-wasm-api.d.ts re-exports: an importer of
+// './generated/projectm-wasm-api.js' gets these.
+
+declare const hostHandleBrand: unique symbol;
+
+/**
+ * An engine host handle: what create_host*() returns, or {@link DEFAULT_HOST}
+ * for the implicit default host a legacy init() brings up. A number at run
+ * time; branded here so a sprite id, a heap pointer or a frame count passed
+ * where a host is expected is a type error. Mint one from a number that is
+ * known to be a handle (a worker's 'ready' message) with {@link asHostHandle}.
+ */
+export type HostHandle = number & { readonly [hostHandleBrand]: true };
+
+/** The implicit default host (handle 0) a single-engine init() brings up. */
+export declare const DEFAULT_HOST: HostHandle;
+
+/**
+ * Brands `value` as a host handle. Throws a TypeError for anything that cannot
+ * be one (not a non-negative integer); it does not check the host is live —
+ * pm_host_is_live() does.
+ */
+export declare function asHostHandle(value: number): HostHandle;
+
+/** pm_get_last_error() codes (PROJECTM_WASM_API_ERRORS in the manifest). */
+export declare const enum ProjectMError {
+${_errors_dts}}
 
 /** Minimal Emscripten module surface used by projectM hosts. */
 export interface EmscriptenModule {
@@ -622,75 +730,75 @@ export type ProjectMModule = EmscriptenModule & {
 ${_ts_module_members}};
 
 /** C symbol names for render-worker ccall proxying. */
-export const WASM_API_SYMBOLS = {
-${_symbols}} as const;
+export declare const WASM_API_SYMBOLS: {
+${_dts_symbols}};
+
+/** The camelCase name of an API call: a key of {@link WASM_API_SYMBOLS}. */
+export type WasmApiName = keyof typeof WASM_API_SYMBOLS;
+
+/**
+ * Every API call by its camelCase name, as the wrappers below take it after
+ * the module: what `RenderTransport.call(name, ...args)` checks a call
+ * against in either render topology.
+ */
+export interface WasmApiCalls {
+${_dts_calls}}
+
+/** The arguments of API call `K`, after the module. */
+export type WasmApiArgs<K extends WasmApiName> = Parameters<WasmApiCalls[K]>;
+
+/** What API call `K` returns. */
+export type WasmApiResult<K extends WasmApiName> = ReturnType<WasmApiCalls[K]>;
 
 /** One row of {@link WASM_API_SIGNATURES}. */
 export interface WasmApiSignature {
     /** The C symbol, as in {@link WASM_API_SYMBOLS}. */
-    symbol: string;
+    readonly symbol: string;
     /** What to hand Module.ccall as its return type; null for void. */
-    returnType: 'number' | 'string' | 'boolean' | null;
+    readonly returnType: 'number' | 'string' | 'boolean' | null;
     /** ccall argument types, positional. */
-    argTypes: Array<'number' | 'string'>;
+    readonly argTypes: ReadonlyArray<'number' | 'string'>;
     /** Manifest-level argument types, for coercing booleans to 0/1. */
-    paramTypes: Array<'number' | 'string' | 'boolean'>;
+    readonly paramTypes: ReadonlyArray<'number' | 'string' | 'boolean'>;
     /** The pm_ export taking a host handle (ABI v2), or null for a non-engine call. */
-    hostSymbol: string | null;
+    readonly hostSymbol: string | null;
     /** How the host reaches hostSymbol: inserted first, or already the first argument. */
-    hostMode: 'prepend' | 'first' | null;
+    readonly hostMode: 'prepend' | 'first' | null;
 }
 
 /**
  * Everything needed to marshal a call without knowing its signature by hand.
- * Keyed like {@link WASM_API_SYMBOLS}; see html/projectm-render-transport.js,
+ * Keyed like {@link WASM_API_SYMBOLS}; see html/projectm-render-transport.ts,
  * which uses it to issue the same call over either topology.
  */
-export const WASM_API_SIGNATURES: Record<string, WasmApiSignature> = {
-${_signature_lines}};
+export declare const WASM_API_SIGNATURES: { readonly [K in WasmApiName]: WasmApiSignature };
 ${_bind_doc}
-export const HOST_SYMBOLS: ReadonlyMap<string, readonly [string, 'prepend' | 'first']> = new Map<string, readonly [string, 'prepend' | 'first']>([
-${_host_symbol_lines}]);
+export declare const HOST_SYMBOLS: ReadonlyMap<string, readonly [string, 'prepend' | 'first']>;
 ${_bind_doc_fn}
-export function bindModuleToHost<M extends ProjectMModule>(module: M, host: number): M {
-${_bind_body}}
+export declare function bindModuleToHost<M extends ProjectMModule>(module: M, host: HostHandle): M;
 
 /**
  * Feed interleaved float PCM into projectM (malloc + HEAPF32 marshaling).
  * @param channels Channel count (default 2).
  */
-export function feedPcmFloat(
-    module: ProjectMModule,
-    data: Float32Array,
-    samplesPerChannel: number,
-    channels = 2,
-): void {
-    const ptr = module._malloc(data.length * 4);
-    module.HEAPF32.set(data, ptr >> 2);
-    try {
-        module._projectm_pcm_add_float_wrapper(0, ptr, samplesPerChannel, channels);
-    } finally {
-        module._free(ptr);
-    }
-}
+export declare function feedPcmFloat(module: ProjectMModule, data: Float32Array, samplesPerChannel: number, channels?: number): void;
 ${_ts_wrappers}
 /** One host's engine calls; see {@link createHostApi}. */
 export interface HostApi {
     /** The host handle every method acts on. */
-    readonly host: number;
+    readonly host: HostHandle;
 ${_ts_host_api_members}}
 ${_host_api_doc}
-export function createHostApi(module: ProjectMModule, host: number): HostApi {
-    const view = bindModuleToHost(module, host);
-    return {
-        host,
-${_host_api_items}    };
-}
+export declare function createHostApi(module: ProjectMModule, host: HostHandle): HostApi;
 
 /** Stable public embed API (see docs/WASM_JS_API.md). */
-export const PUBLIC_WASM_API = [
-${_public_names}
-] as const;
+export declare const PUBLIC_WASM_API: readonly [
+${_public_types}
+];
+
+// Only what is marked export is exported: without this, every top-level
+// declaration of a .d.ts module is (hostHandleBrand included).
+export {};
 ")
 
 # ---- JavaScript ----------------------------------------------------------------
@@ -698,6 +806,25 @@ file(WRITE "${_js_out}" "// projectm-wasm-api.js
 // AUTO-GENERATED by cmake/GenerateWasmApi.cmake — do not edit by hand.
 // Canonical definitions live in cmake/WasmApiManifest.cmake.
 // Regenerate: scripts/sync_wasm_link_common.sh
+
+/** The implicit default host (handle 0) a single-engine init() brings up. */
+export const DEFAULT_HOST = 0;
+
+/**
+ * Brands `value` as a host handle (see HostHandle in projectm-wasm-api.d.ts).
+ * @param {number} value
+ * @returns {number}
+ */
+export function asHostHandle(value) {
+    if (!Number.isInteger(value) || value < 0) {
+        throw new TypeError('not a projectM host handle: ' + String(value));
+    }
+    return value;
+}
+
+/** pm_get_last_error() codes (PROJECTM_WASM_API_ERRORS in the manifest). */
+export const ProjectMError = Object.freeze({
+${_errors_js}});
 
 /** C symbol names for render-worker ccall proxying. */
 export const WASM_API_SYMBOLS = {

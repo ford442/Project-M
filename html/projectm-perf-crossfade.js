@@ -12,8 +12,8 @@ import { fetchFeaturedManifest, loadPresetEntry } from './projectm-preset-librar
 import { startTransitionWhenReady } from './projectm-transitions.js';
 
 /**
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/preset').PresetEntry} PresetEntry
  */
 
 /**

@@ -1,125 +1,54 @@
-// One interface over the two render topologies — see projectm-transport-types.ts
-// for the contract and why it exists.
-//
-// Two factories, one shape:
-//
-//   createModuleTransport(module)  main thread: calls land on the module here
-//   createWorkerTransport(handle)  render worker: calls are proxied as ccalls
-//
-// A transport is bound to one engine. Two engines can share a Module (#168
-// Phase B), and almost every export acts on the *active* one, so each call a
-// transport issues selects its engine first — on the main thread through
-// bindModuleToHost(), in the worker through the `host` field on every control
-// message. A caller that awaits between two calls cannot have a sibling
-// engine's activation land in between.
-//
-// Neither knows anything about canvases, audio graphs, or the DOM. Deciding
-// *which* one a host gets is selectRenderTopology()'s job, at the bottom.
-
-import {
-    WASM_API_SIGNATURES,
-    bindModuleToHost,
-} from './generated/projectm-wasm-api.js';
+// GENERATED from projectm-render-transport.ts by scripts/build_html_ts.mjs — do not edit.
+// Edit the .ts, then run `npm run build:html` (CI: npm run check:html-build).
+import { DEFAULT_HOST, WASM_API_SIGNATURES, bindModuleToHost } from './generated/projectm-wasm-api.js';
 import * as wasmApi from './generated/projectm-wasm-api.js';
 import { captureFrameFromModule } from './projectm-frame-capture.js';
 import { createLiveTextureWriter, createLiveTextures, pixelsOf, sourceSize } from './projectm-live-texture.js';
 import { claimGlobal } from './projectm-globals.js';
 import { feedPcm } from './projectm-pcm-ring.js';
-import { isRenderWorkerSupported, renderWorkerUnsupportedReason, setupRenderWorker } from './projectm-render-worker-host.js';
+import {
+    isRenderWorkerSupported,
+    renderWorkerUnsupportedReason,
+    setupRenderWorker,
+} from './projectm-render-worker-host.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
-
-/**
- * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
- * @typedef {import('./projectm-transport-types.ts').RenderTopology} RenderTopology
- * @typedef {import('./projectm-render-worker-types.ts').RenderWorkerHandle} RenderWorkerHandle
- */
-
-/**
- * @param {string} name
- * @returns {import('./generated/projectm-wasm-api.js').WasmApiSignature}
- */
 function signatureFor(name) {
-    const signature = WASM_API_SIGNATURES[name];
-    if (!signature) {
+    if (!Object.prototype.hasOwnProperty.call(WASM_API_SIGNATURES, name)) {
         throw new Error(`Unknown projectM API call: ${name}`);
     }
-    return signature;
+    return WASM_API_SIGNATURES[name];
 }
-
-/**
- * Coerce JS arguments to what the WASM boundary takes: booleans become 0/1,
- * everything else passes through. The generated paramTypes are the only place
- * that mapping is written down, so the worker side cannot drift from the
- * main-thread wrappers that do the same coercion inline.
- *
- * @param {import('./generated/projectm-wasm-api.js').WasmApiSignature} signature
- * @param {unknown[]} args
- * @returns {unknown[]}
- */
 function coerceArgs(signature, args) {
     return signature.paramTypes.map((paramType, index) => {
         const arg = args[index];
         return paramType === 'boolean' ? (arg ? 1 : 0) : arg;
     });
 }
-
-/**
- * Main-thread transport: the module is right here, so calls go through the
- * generated wrappers unchanged. Those wrappers already do the argument
- * coercion and pick direct-vs-ccall binding per the manifest, so this is a
- * dispatch table, not a second implementation of the API.
- *
- * @param {any} module Emscripten module instance.
- * @param {object} [options]
- * @param {number} [options.host] The engine in `module` this transport drives:
- *   create_host*()'s handle, or 0 for the default host of a single-engine
- *   Module. Every call activates it first, and the engine events it relays are
- *   that engine's only.
- * @returns {RenderTransport}
- */
-export function createModuleTransport(module, { host = 0 } = {}) {
+export function createModuleTransport(module, { host = DEFAULT_HOST } = {}) {
     if (!module) {
         throw new Error('createModuleTransport requires a module instance');
     }
-    // Every engine call goes through this view, so it lands on `host` however
-    // long the caller awaited before making it.
     const engine = bindModuleToHost(module, host);
     const scope = { engineHost: host };
-
-    /**
-     * @param {string} name
-     * @param {unknown[]} args
-     */
     const invoke = (name, args) => {
-        // Assert the name is real even though the wrapper is what we call:
-        // an unknown name should fail the same way in both topologies.
         signatureFor(name);
-        const wrapper = /** @type {Record<string, Function>} */ (
-            /** @type {unknown} */ (wasmApi)
-        )[name];
+        const wrapper = wasmApi[name];
         if (typeof wrapper !== 'function') {
             throw new Error(`projectM API call has no generated wrapper: ${name}`);
         }
         return wrapper(engine, ...args);
     };
-
-    // Live textures: frames are drawn on this thread and copied into the slot's
-    // staging buffer on the heap. Created on first use: most pages never need it.
-    /** @type {ReturnType<typeof createLiveTextures> | null} */
     let liveTextures = null;
-    const live = () => (liveTextures ??= createLiveTextures(createLiveTextureWriter(engine)));
-
+    const live = () => liveTextures ?? (liveTextures = createLiveTextures(createLiveTextureWriter(engine)));
     return {
-        topology: /** @type {RenderTopology} */ ('main'),
+        topology: 'main',
         module,
         host,
         workerHandle: null,
-
         supports(name) {
             const { symbol } = signatureFor(name);
             return typeof module[`_${symbol}`] === 'function';
         },
-
         call(name, ...args) {
             try {
                 return Promise.resolve(invoke(name, args));
@@ -127,31 +56,22 @@ export function createModuleTransport(module, { host = 0 } = {}) {
                 return Promise.reject(error);
             }
         },
-
         callVoid(name, ...args) {
             invoke(name, args);
         },
-
         feedPcm(buffer, channels = 2) {
-            // Same ingest as every other main-thread producer: this engine's
-            // PCM ring, with the marshaling fallback for bundles built before
-            // the ring existed.
             feedPcm({ module, host }, buffer, { channels });
         },
-
         writePreset(vfsPath, bytes, mode = 'load') {
-            if (!module.FS) {
+            const fs = module.FS;
+            if (!fs) {
                 throw new Error('Module.FS not available');
             }
             try {
-                // A bundle that preloads no presets has no /presets to write
-                // into; the worker side does the same before its write.
                 const dir = vfsPath.slice(0, vfsPath.lastIndexOf('/'));
-                if (dir && module.FS.mkdirTree) module.FS.mkdirTree(dir);
-            } catch (_) {
-                // Already there; the write below reports anything real.
-            }
-            module.FS.writeFile(vfsPath, bytes);
+                if (dir && fs.mkdirTree) fs.mkdirTree(dir);
+            } catch (_) {}
+            fs.writeFile(vfsPath, bytes);
             if (mode === 'add') {
                 wasmApi.addPresetFile(engine, vfsPath);
             } else if (mode === 'load-hard') {
@@ -160,76 +80,51 @@ export function createModuleTransport(module, { host = 0 } = {}) {
                 wasmApi.loadPresetFile(engine, vfsPath);
             }
         },
-
         resize(width, height) {
-            if (module._set_window_size) {
+            if (typeof module._set_window_size === 'function') {
                 wasmApi.setWindowSize(engine, width, height);
             }
         },
-
         setFlashLimit(enabled, threshold) {
             if (typeof module._set_flash_limit_enabled !== 'function') {
                 return;
             }
-            // Threshold first, so a limiter switched on never runs a frame on
-            // the previous one.
             if (typeof threshold === 'number' && Number.isFinite(threshold)) {
                 wasmApi.setFlashLimitThreshold(engine, threshold);
             }
             wasmApi.setFlashLimitEnabled(engine, enabled);
         },
-
         captureFrame(options = {}) {
             return captureFrameFromModule(engine, options);
         },
-
         registerTexture(name, width, height, options) {
             return live().register(name, width, height, options);
         },
-
         updateTexture(name, source, options) {
             return live().update(name, source, options);
         },
-
         unregisterTexture(name) {
             return live().unregister(name);
         },
-
         restoreTextures() {
             return liveTextures ? liveTextures.restore() : Promise.resolve(0);
         },
-
         onContextEvent() {
-            // The canvas is on this thread and dispatches the DOM events itself.
             return () => {};
         },
-
         onPerfFrame(listener) {
-            // The engine calls the global on this thread; the bus lets several
-            // listeners share it and keeps only this engine's frames.
             return subscribeWasmCallback('pmOnPerfFrame', listener, globalThis, scope);
         },
-
         onPerfHudEnabled(listener) {
             return subscribeWasmCallback('pmSetPerfHudEnabled', ({ enabled }) => listener(enabled), globalThis, scope);
         },
-
         onRhythmEvent(listener) {
-            return subscribeWasmCallback('pmOnRhythmEvent',
-                (event) => listener(/** @type {import('./projectm-render-worker-types.ts').RhythmEvent} */ (event)),
-                globalThis, scope);
+            return subscribeWasmCallback('pmOnRhythmEvent', (event) => listener(event), globalThis, scope);
         },
-
         contextSnapshot() {
-            return typeof module._get_context_snapshot === 'function'
-                ? Number(invoke('getContextSnapshot', []))
-                : null;
+            return typeof module._get_context_snapshot === 'function' ? Number(invoke('getContextSnapshot', [])) : null;
         },
-
         recoverContext(width = 0, height = 0) {
-            // init() replaces whatever engine is left and refuses with 5 while
-            // the context is still lost; nothing is built in that case. The
-            // executor turns a throw into a rejection, as the worker's does.
             return new Promise((resolve) => {
                 const status = wasmApi.init(engine);
                 if (status === 0 && width > 0 && height > 0) {
@@ -238,45 +133,24 @@ export function createModuleTransport(module, { host = 0 } = {}) {
                 resolve(status);
             });
         },
-
         destroy() {
-            if (module._destruct) {
+            if (typeof module._destruct === 'function') {
                 module._destruct();
             }
         },
     };
 }
-
-/**
- * The page's createImageBitmap(), or null where there is none (Node).
- *
- * @returns {((source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>) | null}
- */
 function defaultCreateImageBitmap() {
     return typeof globalThis.createImageBitmap === 'function' ? globalThis.createImageBitmap.bind(globalThis) : null;
 }
-
-/**
- * An ImageBitmap of `source` at `size`. Pixels of the right size never get
- * here; anything else (a <video>, a canvas, an image) is resized by the
- * browser. A browser that rejects the resize options gets the frame at its own
- * size, and the worker scales it while drawing.
- *
- * @param {(source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>} create
- * @param {import('./projectm-context-types.ts').ProjectMLiveTextureSource} source
- * @param {{ width: number, height: number }} size
- * @returns {Promise<ImageBitmap>}
- */
 async function scaledBitmap(create, source, size) {
-    // Plain `{ width, height, data }` pixels of another size: an ImageData is
-    // something createImageBitmap() takes (a copy, since it takes no shared view).
-    const data = /** @type {{ data?: unknown }} */ (source).data;
+    const data = source.data;
     const natural = sourceSize(source);
     const isImageData = typeof ImageData === 'function' && source instanceof ImageData;
     const bitmapSource =
         !isImageData && (data instanceof Uint8Array || data instanceof Uint8ClampedArray) && natural
             ? new ImageData(new Uint8ClampedArray(data), natural.width, natural.height)
-            : /** @type {ImageBitmapSource} */ (source);
+            : source;
     try {
         return await create(bitmapSource, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'low' });
     } catch (error) {
@@ -286,38 +160,12 @@ async function scaledBitmap(create, source, size) {
         return create(bitmapSource);
     }
 }
-
-/**
- * Render-worker transport: the module is in the worker, so every call becomes
- * a ccall proxied over postMessage, marshaled from the generated signature
- * table rather than from types written out by hand on this side.
- *
- * @param {RenderWorkerHandle} handle
- * @param {object} [options]
- * @param {Iterable<string> | null} [options.exports] Symbols the worker's
- *   bundle exports (the build manifest's `api`, no leading underscore). When
- *   given, supports() answers from it; when not, every call is assumed to exist.
- * @param {((source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>) | null} [options.createImageBitmap]
- *   How live-texture frames become transferable bitmaps; the page's own by default.
- * @returns {RenderTransport}
- */
 export function createWorkerTransport(handle, { exports = null, createImageBitmap = defaultCreateImageBitmap() } = {}) {
     if (!handle) {
         throw new Error('createWorkerTransport requires a render worker handle');
     }
     const exported = exports ? new Set(exports) : null;
-
-    /**
-     * @param {string} symbol
-     * @param {string[]} argTypes
-     * @param {unknown[]} args
-     */
     const ccallNumber = async (symbol, argTypes, args) => Number(await handle.ccall(symbol, 'number', argTypes, args));
-
-    // Live textures: the frame is scaled to the slot's size here
-    // (createImageBitmap's resize runs off the main thread in browsers) and
-    // the bitmap is transferred; html/worker/live-texture.js writes it into
-    // the slot's staging buffer on the worker's heap.
     const liveTextures = createLiveTextures({
         registerSlot: async (name, width, height) =>
             !!(await ccallNumber('texture_slot_register', ['string', 'number', 'number'], [name, width, height])),
@@ -325,30 +173,29 @@ export function createWorkerTransport(handle, { exports = null, createImageBitma
         async writeFrame(name, size, source) {
             const pixels = pixelsOf(source, size);
             if (pixels) {
-                // A copy: the caller keeps its buffer, and the copy is transferred.
                 const copy = new Uint8Array(pixels);
                 handle.postTextureFrame(name, size.width, size.height, { pixels: copy.buffer });
                 return true;
             }
             if (!createImageBitmap) {
-                throw new Error('updateTexture(): this browser has no createImageBitmap() to hand frames to the render worker');
+                throw new Error(
+                    'updateTexture(): this browser has no createImageBitmap() to hand frames to the render worker'
+                );
             }
             const bitmap = await scaledBitmap(createImageBitmap, source, size);
             handle.postTextureFrame(name, size.width, size.height, { bitmap });
             return true;
         },
     });
-
     return {
-        topology: /** @type {RenderTopology} */ ('worker'),
+        topology: 'worker',
         module: null,
         // The worker's engine, as it reported in 'ready'. The handle stamps it
         // on every control message it posts, so this is informational.
         get host() {
-            return handle.engineHost?.() ?? 0;
+            return handle.engineHost?.() ?? DEFAULT_HOST;
         },
         workerHandle: handle,
-
         // The module is on the other side of postMessage, so there is nothing
         // to interrogate synchronously. With the manifest's export list the
         // answer is exact; without it every call is assumed available and a
@@ -357,209 +204,83 @@ export function createWorkerTransport(handle, { exports = null, createImageBitma
             const signature = signatureFor(name);
             return exported ? exported.has(signature.symbol) : true;
         },
-
         call(name, ...args) {
             const signature = signatureFor(name);
             return handle.ccall(
                 signature.symbol,
                 signature.returnType,
                 signature.argTypes,
-                coerceArgs(signature, args),
+                coerceArgs(signature, args)
             );
         },
-
         callVoid(name, ...args) {
             const signature = signatureFor(name);
             handle.ccallVoid(signature.symbol, signature.argTypes, coerceArgs(signature, args));
         },
-
         feedPcm(buffer, channels = 2) {
             handle.feedPcm(buffer, channels);
         },
-
         writePreset(vfsPath, bytes, mode = 'load') {
             handle.postPreset(vfsPath, bytes, mode);
         },
-
         resize(width, height) {
-            // The worker owns the OffscreenCanvas, so it must resize the canvas
-            // itself before telling the engine — postResize does both.
             handle.postResize(width, height);
         },
-
         setFlashLimit(enabled, threshold) {
             handle.postFlashLimit(enabled, threshold);
         },
-
         captureFrame(options = {}) {
-            // The drawing buffer is the worker's and only readable inside the
-            // frame that drew it, so the worker reads it and posts the pixels.
             return handle.captureFrame(options);
         },
-
         registerTexture(name, width, height, options) {
             return liveTextures.register(name, width, height, options);
         },
-
         updateTexture(name, source, options) {
             return liveTextures.update(name, source, options);
         },
-
         unregisterTexture(name) {
             return liveTextures.unregister(name);
         },
-
         restoreTextures() {
             return liveTextures.restore();
         },
-
         onContextEvent(listener) {
             return handle.onContextEvent(listener);
         },
-
         onPerfFrame(listener) {
             return handle.onPerfFrame(listener);
         },
-
         onPerfHudEnabled(listener) {
             return handle.onPerfHudEnabled(listener);
         },
-
         onRhythmEvent(listener) {
             return handle.onRhythmEvent(listener);
         },
-
         contextSnapshot() {
             return handle.contextSnapshot();
         },
-
         recoverContext() {
             return handle.recoverContext();
         },
-
         destroy() {
-            // Lets the worker stop its stats tick and destruct its engine before
-            // it goes; the handle terminates it on the answer or a deadline.
             void handle.shutdown();
         },
     };
 }
-
-/**
- * How long {@link selectRenderTopology} waits for the worker's 'ready' before it
- * gives up on it and falls back. Generous: inside it the worker downloads and
- * compiles the whole bundle, and a slow network must not cost a working
- * topology. What it bounds is a boot that will never finish — a pthread pool
- * that cannot fill, an init that wedged — which used to hang start() for good.
- */
-export const DEFAULT_RENDER_WORKER_BOOT_TIMEOUT_MS = 30000;
-
-/**
- * Point `globalThis.projectMWritePreset` at this transport.
- *
- * Preset fetches run on the host page. In the render-worker topology there is
- * no module FS on that thread, so `fetchApiPreset` / `loadRandomApiPreset`
- * write through this function (vfs path + bytes + 'load'|'add') instead of
- * skipping with "module not ready". Same claim stack as the PCM writer.
- *
- * @param {RenderTransport} transport
- * @returns {() => void}
- */
+export const DEFAULT_RENDER_WORKER_BOOT_TIMEOUT_MS = 3e4;
 export function installTransportPresetWriter(transport) {
-    return claimGlobal(
-        globalThis,
-        'projectMWritePreset',
-        /**
-         * @param {string} vfsPath
-         * @param {Uint8Array} bytes
-         * @param {'load' | 'load-hard' | 'add'} [mode]
-         */
-        (vfsPath, bytes, mode = 'load') => transport.writePreset(vfsPath, bytes, mode)
+    return claimGlobal(globalThis, 'projectMWritePreset', (vfsPath, bytes, mode = 'load') =>
+        transport.writePreset(vfsPath, bytes, mode)
     );
 }
-
-/**
- * Point `globalThis.projectMWritePcmRing` — the writer the baked EM_JS worklet
- * handler prefers over its own inline copy (see `js_install_worklet_pcm_handler`
- * in src/wasm/WasmAudioBridge.cpp) — at this transport.
- *
- * This is what makes worklet audio topology-agnostic: the worklet always runs
- * on the main thread, and this is the one place that decides whether its PCM
- * lands in a ring right here or crosses into the worker. Supersedes
- * installHostPcmRingWriter() for hosts that hold a transport.
- *
- * @param {RenderTransport} transport
- * @returns {() => void} Removes the writer again.
- */
 export function installTransportPcmWriter(transport) {
-    // The engine's worklet ingest calls this global by name, so there is one per
-    // page. Claimed rather than assigned: destroying one context must not
-    // unhook the writer another context installed after it.
-    return claimGlobal(
-        globalThis,
-        'projectMWritePcmRing',
-        /** @param {Float32Array} buffer @param {number} [channels] */
-        (buffer, channels = 2) => transport.feedPcm(buffer, channels)
+    return claimGlobal(globalThis, 'projectMWritePcmRing', (buffer, channels = 2) =>
+        transport.feedPcm(buffer, channels)
     );
 }
-
-/**
- * Whether this page can host the render worker at all.
- *
- * Cross-origin isolation is part of the answer and not a detail: without it
- * there is no SharedArrayBuffer, so the worker cannot share its module heap
- * and the PCM ring degrades to a postMessage chunk per audio callback. The
- * pthread build needs it regardless, but checking here keeps the fallback
- * decision in one place instead of failing later and further away.
- *
- * @param {object} [options]
- * @param {HTMLCanvasElement | null} [options.canvas]
- * @param {boolean} [options.crossOriginIsolated]
- * @returns {boolean}
- */
-export function canUseRenderWorker({
-    canvas,
-    crossOriginIsolated = globalThis.crossOriginIsolated !== false,
-} = {}) {
+export function canUseRenderWorker({ canvas, crossOriginIsolated = globalThis.crossOriginIsolated !== false } = {}) {
     return !!crossOriginIsolated && isRenderWorkerSupported(canvas);
 }
-
-/**
- * Pick a topology and build its transport.
- *
- * The worker is the default (see docs/PERFORMANCE.md): it is the topology that
- * cannot be jank-bombed by the embedding page. `?renderWorker=0` opts out and
- * is a supported path, not a deprecated one — and anything the browser cannot
- * do falls back to the main thread on its own, with `onFallback` saying why.
- *
- * Returns null when the worker was wanted but could not start; the caller then
- * boots the module itself and calls createModuleTransport().
- *
- * @param {object} options
- * @param {HTMLCanvasElement} options.canvas
- * @param {boolean} options.preferWorker
- * @param {string} [options.scriptSrc]
- * @param {number} [options.width]
- * @param {number} [options.height]
- * @param {number} [options.targetFps]
- * @param {boolean} [options.governor]
- * @param {string} [options.meshQuality]
- * @param {import('./projectm-render-worker-types.ts').WasmContextConfig} [options.contextConfig]
- * @param {import('./projectm-render-worker-types.ts').RenderPathOverrides} [options.renderPathOverrides]
- * @param {import('./projectm-render-worker-types.ts').FlashLimitSettings | null} [options.flashLimit]
- *   Applied in the worker before the engine's first frame.
- * @param {Iterable<string> | null} [options.wasmExports] See createWorkerTransport().
- * @param {(reason: string) => void} [options.onFallback]
- * @param {(message: string) => void} [options.onError]
- * @param {(stats: unknown) => void} [options.onStats]
- * @param {number} [options.bootTimeoutMs] How long to wait for 'ready' before
- *   terminating the worker and resolving null ({@link DEFAULT_RENDER_WORKER_BOOT_TIMEOUT_MS}).
- * @param {AbortSignal} [options.signal] Aborting while the worker boots
- *   terminates it and resolves null. Without this a caller that gave up (its
- *   context was destroyed mid-boot) had no handle to terminate: the worker,
- *   and the canvas it took by transfer, outlived it.
- * @returns {Promise<RenderTransport | null>}
- */
 export function selectRenderTopology({
     canvas,
     preferWorker,
@@ -583,21 +304,17 @@ export function selectRenderTopology({
         return Promise.resolve(null);
     }
     if (!canUseRenderWorker({ canvas })) {
-        const reason = globalThis.crossOriginIsolated === false
-            ? 'page is not cross-origin isolated'
-            : renderWorkerUnsupportedReason(canvas);
-        onFallback?.(`OffscreenCanvas, Worker, or cross-origin isolation unavailable: ${reason}`);
+        const reason =
+            globalThis.crossOriginIsolated === false
+                ? 'page is not cross-origin isolated'
+                : renderWorkerUnsupportedReason(canvas);
+        onFallback?.(`OffscreenCanvas, Worker, or cross-origin isolation unavailable: ${String(reason)}`);
         return Promise.resolve(null);
     }
-
     return new Promise((resolve) => {
         let settled = false;
-        /** @type {ReturnType<typeof setupRenderWorker>} */
         let handle = null;
-        /** @type {ReturnType<typeof setTimeout> | 0} */
         let bootTimer = 0;
-
-        /** @param {RenderTransport | null} value */
         const settle = (value) => {
             if (settled) return;
             settled = true;
@@ -605,9 +322,6 @@ export function selectRenderTopology({
             signal?.removeEventListener('abort', onAbort);
             resolve(value);
         };
-        // A boot that ends without handing out a transport must not leave its
-        // worker running: nobody else holds the handle. Terminated outright, not
-        // shut down: a worker that failed its boot may not answer anything.
         const abandon = () => {
             handle?.terminate();
             settle(null);
@@ -616,7 +330,6 @@ export function selectRenderTopology({
             if (!settled) abandon();
         };
         signal?.addEventListener('abort', onAbort, { once: true });
-
         handle = setupRenderWorker({
             canvas,
             scriptSrc,
@@ -650,7 +363,6 @@ export function selectRenderTopology({
             },
             onStats,
         });
-
         if (!handle) {
             settle(null);
             return;

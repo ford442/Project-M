@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "paths": { "@projectm/types/*": ["../packages/types/src/*"] },
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -20,9 +21,14 @@
     "checked when something else happened to import it, and a new module was",
     "unchecked until someone remembered to add it.",
     "",
-    "projectm-render-worker.js is the one exclusion: it runs in a Worker scope, so",
-    "it is checked by tsconfig.worker.json against the WebWorker lib instead (the",
-    "two libs declare conflicting globals and cannot share a program).",
+    "The render worker is the one exclusion: it runs in a Worker scope, so it is",
+    "checked by tsconfig.worker.json against the WebWorker lib instead (the two",
+    "libs declare conflicting globals and cannot share a program).",
+    "",
+    "A TypeScript module (scripts/html-ts-modules.mjs) matches both globs, as",
+    "x.ts and its emitted x.js; TypeScript keeps x.ts and drops x.js, so the",
+    "emitted file is never checked. The .ts modules are checked here and, with",
+    "stricter settings, by tsconfig.strict.json.",
     "",
     "projectm-pcm-bridge.js (the FLAC/MOD player shells' PCM producer, also used by",
     "projectm-display-capture.js) lives at the html root, not under flac-player/,",
@@ -32,6 +38,7 @@
     "generated/**/*.ts",
     "projectm-*.ts",
     "projectm-*.js",
+    "context/*.ts",
     "context/*.js",
     "app-shell/*.js",
     "flac-player/boot.js",
@@ -40,6 +47,7 @@
     "flac-player/preboot.js"
   ],
   "exclude": [
+    "projectm-render-worker.ts",
     "projectm-render-worker.js"
   ]
 }

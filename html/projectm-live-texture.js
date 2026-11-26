@@ -31,9 +31,9 @@ import {
 } from './generated/projectm-wasm-api.js';
 
 /**
- * @typedef {import('./projectm-context-types.ts').ProjectMLiveTextureSource} ProjectMLiveTextureSource
- * @typedef {import('./projectm-context-types.ts').ProjectMUpdateTextureOptions} ProjectMUpdateTextureOptions
- * @typedef {import('./projectm-context-types.ts').ProjectMRegisterTextureOptions} ProjectMRegisterTextureOptions
+ * @typedef {import('@projectm/types/context').ProjectMLiveTextureSource} ProjectMLiveTextureSource
+ * @typedef {import('@projectm/types/context').ProjectMUpdateTextureOptions} ProjectMUpdateTextureOptions
+ * @typedef {import('@projectm/types/context').ProjectMRegisterTextureOptions} ProjectMRegisterTextureOptions
  * @typedef {{ width: number, height: number }} TextureSize
  */
 

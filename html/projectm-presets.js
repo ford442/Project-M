@@ -1,7 +1,7 @@
 import { loadPresetFile } from './generated/projectm-wasm-api.js';
 
 /**
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModuleLike
  */
 
 /**

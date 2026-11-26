@@ -15,7 +15,7 @@ import { startTransitionWhenReady } from '../projectm-transitions.js';
 import { startWeeksOnFire } from '../projectm-weeks-on-fire.js';
 
 /**
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  * @typedef {import('../projectm-context.js').ProjectMContext} ProjectMContext
  * @typedef {import('./config.js').ShellProfile} ShellProfile
  *

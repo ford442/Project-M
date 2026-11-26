@@ -15,12 +15,33 @@
 import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import { CLASSIC_SCRIPTS, listHtmlTsModules } from './scripts/html-ts-modules.mjs';
+
+// html/'s TypeScript modules: lint the .ts, never the .js emitted from it.
+const HTML_TS_MODULES = listHtmlTsModules();
+const EMITTED_JS = HTML_TS_MODULES.map(({ js }) => `html/${js}`);
+const HTML_TS = HTML_TS_MODULES.filter(({ ts }) => !CLASSIC_SCRIPTS.has(ts)).map(({ ts }) => `html/${ts}`);
+const WORKER_TS = HTML_TS_MODULES.filter(({ ts }) => CLASSIC_SCRIPTS.has(ts)).map(({ ts }) => `html/${ts}`);
 
 /** Writes to `window.*` outside projectm-globals.js (claimGlobal) are a bug. */
 const WINDOW_WRITE = {
     selector: 'AssignmentExpression > MemberExpression.left[object.name=/^(window|globalThis|self|windowRef)$/]',
     message:
         'Do not assign window.* / globalThis.* / self.* directly: publish through claimGlobal() (projectm-globals.js) so a second context cannot clobber it. A slot the engine glue shares by name needs an OWNED_GLOBALS entry in scripts/check_host_globals.sh and a disable comment saying so.',
+};
+
+/**
+ * What isolatedModules would have caught in the per-file emit
+ * (scripts/build_html_ts.mjs): a type imported or re-exported as a value
+ * survives the emit and fails to link at run time.
+ */
+const TS_MODULE_RULES = {
+    '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'separate-type-imports' }],
+    '@typescript-eslint/consistent-type-exports': 'error',
+    // TypeScript resolves every name and allows declaration merging; the base
+    // rules know neither `type` aliases nor merged interfaces.
+    'no-undef': 'off',
+    'no-redeclare': 'off',
 };
 
 /** innerHTML from anything but a constant string is an injection point. */
@@ -59,12 +80,15 @@ export default tseslint.config(
             'html/flac-player/vendor/**',
             // Generated from cmake/WasmApiManifest.cmake; checked by check:api.
             'html/generated/**',
+            // Emitted from html/'s .ts modules (npm run check:html-build).
+            ...EMITTED_JS,
             'packages/web/dist/**',
             'packages/web/staging/**',
             'packages/web/playground/**',
             'packages/web/scripts/**',
-            // Type declarations: tsc owns them.
-            '**/*.ts',
+            // Types only (@projectm/types, declarations): tsc owns them.
+            'packages/types/**',
+            '**/*.d.ts',
         ],
     },
     js.configs.recommended,
@@ -90,6 +114,24 @@ export default tseslint.config(
         },
     },
     {
+        // The TypeScript modules (scripts/html-ts-modules.mjs), held to
+        // tsconfig.strict.json, the program that checks them.
+        files: HTML_TS,
+        languageOptions: {
+            ecmaVersion: 2022,
+            sourceType: 'module',
+            globals: { ...globals.browser },
+            parser: tseslint.parser,
+            parserOptions: { project: './html/tsconfig.strict.json', tsconfigRootDir: import.meta.dirname },
+        },
+        plugins: { '@typescript-eslint': tseslint.plugin },
+        rules: {
+            ...TYPE_AWARE_RULES,
+            ...TS_MODULE_RULES,
+            'no-restricted-syntax': ['error', WINDOW_WRITE, INNERHTML_WRITE],
+        },
+    },
+    {
         // claimGlobal() itself, and the classic (non-module) scripts.
         files: ['html/projectm-globals.js'],
         rules: { 'no-restricted-syntax': ['error', INNERHTML_WRITE] },
@@ -105,7 +147,7 @@ export default tseslint.config(
     {
         // The entry and the parts it importScripts() (html/worker/): classic
         // scripts sharing one worker global scope.
-        files: ['html/projectm-render-worker.js', 'html/worker/**/*.js'],
+        files: [...WORKER_TS, 'html/worker/**/*.js'],
         languageOptions: {
             ecmaVersion: 2022,
             sourceType: 'script',
@@ -115,6 +157,10 @@ export default tseslint.config(
         },
         plugins: { '@typescript-eslint': tseslint.plugin },
         rules: { ...TYPE_AWARE_RULES, 'no-restricted-syntax': ['error', INNERHTML_WRITE] },
+    },
+    {
+        files: WORKER_TS,
+        rules: { 'no-undef': 'off', 'no-redeclare': 'off' },
     },
 
     // ---- AudioWorklet processors (AudioWorklet program) --------------------

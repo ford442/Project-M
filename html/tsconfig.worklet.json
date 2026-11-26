@@ -8,6 +8,7 @@
     "render worker) they cannot share a program with the host modules."
   ],
   "compilerOptions": {
+    "paths": { "@projectm/types/*": ["../packages/types/src/*"] },
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",

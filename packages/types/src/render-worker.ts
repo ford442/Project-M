@@ -1,15 +1,17 @@
 // Message protocol shared by the OffscreenCanvas render worker
-// (projectm-render-worker.js) and its main-thread bridge
-// (projectm-render-worker-host.js).
+// (html/projectm-render-worker.ts) and its main-thread bridge
+// (html/projectm-render-worker-host.ts).
 //
-// Types-only companion (no runtime code). The two sides run in different
+// Types only (@projectm/types/render-worker). The two sides run in different
 // global scopes and are typechecked by different tsconfigs — DOM for the host,
 // WebWorker for the worker — so this file is the only place the wire format is
 // written down. A field renamed on one side and not the other is a silent
 // runtime failure across postMessage; declaring it here makes it a build error.
-//
-// Named `*-types.ts` per html/README.md: a same-basename `.ts` would shadow the
-// real `.js` module for every JS importer during typecheck.
+// Both sides post through a function typed with the union they send
+// (RenderWorkerHostMessage, RenderWorkerMessage), so an unknown message type or
+// a missing field is one too.
+
+import type { HostHandle } from './wasm-api.js';
 
 /**
  * Descriptor for the WASM-owned PCM ring (src/wasm/WasmPcmRing.cpp), as posted
@@ -107,7 +109,7 @@ export interface FlashLimitSettings {
  * 0 (or absent, from an older host page) means the worker's only engine.
  */
 export interface RenderWorkerEngineScoped {
-    host?: number;
+    host?: HostHandle;
 }
 
 /** Host → worker: canvas size changed. */
@@ -154,11 +156,17 @@ export interface RenderWorkerPresetMessage extends RenderWorkerEngineScoped {
 export interface RenderWorkerCcallMessage extends RenderWorkerEngineScoped {
     type: 'ccall';
     name: string;
-    returnType: string | null;
-    argTypes: string[];
-    args: unknown[];
+    returnType: CcallReturnType;
+    argTypes: readonly CcallArgType[];
+    args: readonly unknown[];
     requestId?: number;
 }
+
+/** What `Module.ccall` takes as an argument type (WasmApiSignature.argTypes). */
+export type CcallArgType = 'number' | 'string';
+
+/** What `Module.ccall` takes as a return type; null for void (WasmApiSignature.returnType). */
+export type CcallReturnType = 'number' | 'string' | 'boolean' | null;
 
 /**
  * Host → worker: rebuild the engine on the (restored) WebGL context.
@@ -347,7 +355,7 @@ export interface RenderWorkerReadyMessage {
      * The worker engine's host handle (create_host_with_config()'s return).
      * The host stamps it on every control message it sends back.
      */
-    host: number;
+    host: HostHandle;
     /**
      * `get_context_snapshot()`'s packed result for the worker's context (see
      * `decodeContextSnapshot()` in projectm-context-config.js). Absent from a
@@ -577,7 +585,7 @@ export interface RenderWorkerHandle {
      * The worker engine's host handle, from its 'ready' message (0 before
      * then). Every control message this handle posts carries it.
      */
-    engineHost(): number;
+    engineHost(): HostHandle;
     /**
      * `get_context_snapshot()`'s packed result for the worker's context, as its
      * last 'ready' or successful recovery reported it; null before that, and from
@@ -645,11 +653,11 @@ export interface RenderWorkerHandle {
     }>;
     ccall(
         name: string,
-        returnType: string | null,
-        argTypes: string[],
-        args: unknown[],
+        returnType: CcallReturnType,
+        argTypes: readonly CcallArgType[],
+        args: readonly unknown[],
     ): Promise<unknown>;
-    ccallVoid(name: string, argTypes: string[], args: unknown[]): void;
+    ccallVoid(name: string, argTypes: readonly CcallArgType[], args: readonly unknown[]): void;
     /**
      * Ends the worker: posts 'shutdown', terminates it on 'shutdown-complete'
      * or after `timeoutMs`, and rejects every ccall and capture still waiting.
@@ -662,7 +670,7 @@ export interface RenderWorkerHandle {
     dispose(): void;
 }
 
-/** Writer half of the WASM-owned PCM ring (html/projectm-pcm-ring.js). */
+/** Writer half of the WASM-owned PCM ring (html/projectm-pcm-ring.ts). */
 export interface PcmRingWriter {
     /** Duplicates mono input to both channels before writing. */
     write(buffer: Float32Array, channels?: number): number;

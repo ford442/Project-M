@@ -7,13 +7,13 @@
 // the engine.
 
 /**
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  */
 
 /**
  * @param {RenderTransport | null} transport
  * @param {string} method For the error message.
- * @param {string} probe The export whose absence marks an older bundle.
+ * @param {import('../generated/projectm-wasm-api.js').WasmApiName} probe The export whose absence marks an older bundle.
  * @returns {RenderTransport}
  */
 export function liveInputTransport(transport, method, probe) {

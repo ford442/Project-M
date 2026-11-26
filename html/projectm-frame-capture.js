@@ -23,8 +23,8 @@ import {
 } from './generated/projectm-wasm-api.js';
 
 /**
- * @typedef {import('./projectm-context-types.ts').ProjectMCapturedFrame} ProjectMCapturedFrame
- * @typedef {import('./projectm-context-types.ts').ProjectMCaptureFrameOptions} ProjectMCaptureFrameOptions
+ * @typedef {import('@projectm/types/context').ProjectMCapturedFrame} ProjectMCapturedFrame
+ * @typedef {import('@projectm/types/context').ProjectMCaptureFrameOptions} ProjectMCaptureFrameOptions
  */
 
 /** capture_frame_status() values (FrameCaptureStatus in src/wasm/WasmHost.hpp). */

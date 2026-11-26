@@ -9,12 +9,12 @@ import { createAbortError } from './boot.js';
 import { loadLocalPresetFile, loadPresetFromUrl, updatePresetDisplay } from '../projectm-presets.js';
 
 /**
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
- * @typedef {import('../projectm-context-types.ts').ProjectMPresetDetail} ProjectMPresetDetail
- * @typedef {import('../projectm-context-types.ts').ProjectMPresetSwitchPolicy} ProjectMPresetSwitchPolicy
- * @typedef {import('../projectm-context-types.ts').ProjectMRhythmInfo} ProjectMRhythmInfo
- * @typedef {import('../projectm-context-types.ts').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/context').ProjectMPresetDetail} ProjectMPresetDetail
+ * @typedef {import('@projectm/types/context').ProjectMPresetSwitchPolicy} ProjectMPresetSwitchPolicy
+ * @typedef {import('@projectm/types/context').ProjectMRhythmInfo} ProjectMRhythmInfo
+ * @typedef {import('@projectm/types/context').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
  */
 
 /** The events `ProjectMContext.on()` routes from the engine's rhythm analysis. */
@@ -31,7 +31,7 @@ const PRESET_SWITCH_POLICIES = Object.freeze(['timer', 'bars', 'section']);
 
 /**
  * @param {string} url
- * @param {PresetTarget & { windowRef?: Window, signal?: AbortSignal }} target
+ * @param {PresetTarget & { windowRef?: Window | undefined, signal?: AbortSignal | undefined }} target
  * @returns {Promise<{ url: string; vfsPath: string; filename: string }>}
  */
 export async function loadPresetUrlInto(url, { transport, engine, isCurrent, windowRef, signal }) {
@@ -61,7 +61,7 @@ export async function loadPresetUrlInto(url, { transport, engine, isCurrent, win
 
 /**
  * @param {File} file
- * @param {PresetTarget & { documentRef?: Document }} target
+ * @param {PresetTarget & { documentRef?: Document | undefined }} target
  * @returns {Promise<{ filename: string; vfsPath: string }>}
  */
 export async function loadPresetFileInto(file, { transport, engine, isCurrent, documentRef }) {
@@ -106,9 +106,10 @@ export function relayPresetEvents(windowRef, onPresetLoaded) {
 /**
  * One rhythm control op, skipped before start() and on a bundle that predates it.
  *
+ * @template {import('../generated/projectm-wasm-api.js').WasmApiName} K
  * @param {RenderTransport | null} transport
- * @param {string} name
- * @param {...unknown} args
+ * @param {K} name
+ * @param {import('../generated/projectm-wasm-api.js').WasmApiArgs<K>} args
  */
 export function callRhythm(transport, name, ...args) {
     if (!transport || !transport.supports(name)) {

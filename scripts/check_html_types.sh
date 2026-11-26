@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Type-check generated WASM API helpers (html/generated/projectm-wasm-api.ts).
+# Type-check html/ (every tsconfig: DOM, strict TypeScript, worker, AudioWorklet).
 #
-# Prefer `npm install && npm run typecheck` from the repo root (the html/
-# and packages/web/ npm workspace) — this script is the standalone
+# Prefer `npm install && npm run typecheck` from the repo root (the html/,
+# packages/types/ and packages/web/ npm workspace) — this script is the standalone
 # fallback for callers that only want html/'s typecheck and haven't run a
 # root install.
 set -euo pipefail

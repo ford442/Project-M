@@ -50,5 +50,16 @@ jobs:
       - name: Prettier
         run: npm run format:check
 
-      - name: Type-check (DOM, worker and AudioWorklet programs)
+      - name: Type-check (DOM, strict TypeScript, worker and AudioWorklet programs)
         run: npm run typecheck
+
+      # html/'s TypeScript modules deploy as the .js emitted next to them
+      # (scripts/build_html_ts.mjs); a .ts edited without re-emitting would
+      # deploy, and be tested, as the old code.
+      - name: Emitted html/*.js match their .ts
+        run: npm run check:html-build
+
+      # cmake/WasmApiManifest.cmake, the C++ exports, the .d.ts TypeScript
+      # callers are checked against and the .js that runs must agree.
+      - name: WASM API manifest, C++ exports, .d.ts and .js agree
+        run: npm run check:wasm-dts

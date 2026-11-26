@@ -9,9 +9,12 @@
     "",
     "The wrappers import the element from ../staging/, which is gitignored build",
     "output copied from html/. rootDirs maps staging/ onto html/ so this runs on a",
-    "clean checkout, before anything is built."
+    "clean checkout, before anything is built. @projectm/types resolves the same",
+    "way: to the staged copy once there is one, else to packages/types/src, so",
+    "the program never holds both."
   ],
   "compilerOptions": {
+    "paths": { "@projectm/types/*": ["./staging/types/*", "../types/src/*"] },
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",

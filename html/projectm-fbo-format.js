@@ -72,7 +72,7 @@ function createBanner() {
  * The dual-FBO color format the engine picked, by name. Unrecognised indices
  * degrade to 'RGBA8' rather than undefined. Only valid after `startRender()`.
  *
- * @param {import('./generated/projectm-wasm-api.ts').ProjectMModule} Module
+ * @param {import('./generated/projectm-wasm-api.js').ProjectMModule} Module
  * @returns {FboFormatName}
  */
 export function getFboFormatName(Module) {
@@ -87,7 +87,7 @@ export function getFboFormatName(Module) {
  *
  * Must be called after `startRender()`.
  *
- * @param {import('./generated/projectm-wasm-api.ts').ProjectMModule} Module
+ * @param {import('./generated/projectm-wasm-api.js').ProjectMModule} Module
  *   The Emscripten module instance.
  * @returns {{ format: () => FboFormatName, dispose: () => void }} The detected
  *   format, and the undo for the banner (removed if this call added it).
@@ -117,14 +117,14 @@ export function setupFboFormatIndicator(Module) {
  * shown from the first stats that carry a format; until then, and on a bundle
  * that reports -1, the format is unknown.
  *
- * @param {Pick<import('./projectm-render-worker-types.ts').RenderWorkerHandle, 'getLastStats' | 'onStats'>} handle
+ * @param {Pick<import('@projectm/types/render-worker').RenderWorkerHandle, 'getLastStats' | 'onStats'>} handle
  * @returns {{ format: () => FboFormatName | null, dispose: () => void }}
  */
 export function setupWorkerFboFormatIndicator(handle) {
     /** @type {FboFormatName | null} */
     let formatName = null;
 
-    /** @param {import('./projectm-render-worker-types.ts').RenderWorkerStatsMessage | null} stats */
+    /** @param {import('@projectm/types/render-worker').RenderWorkerStatsMessage | null} stats */
     const apply = (stats) => {
         const formatIndex = stats ? stats.fboFormat : -1;
         if (formatName !== null || typeof formatIndex !== 'number' || formatIndex < 0) {

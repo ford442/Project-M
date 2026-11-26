@@ -1,11 +1,8 @@
 // Shared preset-entry shapes for the preset library / picker / favorites / cache
 // modules.
 //
-// Types-only companion (no runtime code), imported from `.js` via
-// `@typedef {import('./projectm-preset-types.ts').PresetEntry}`. Per
-// html/README.md, this must not share a basename with any `.js` module — a
-// same-basename `.ts` would shadow the real implementation for every JS
-// importer during typecheck.
+// Types only (@projectm/types/preset), imported from JSDoc modules via
+// `@typedef {import('@projectm/types/preset').PresetEntry}`.
 
 /**
  * One entry from `custom_presets_manifest.json`, as consumed by the preset

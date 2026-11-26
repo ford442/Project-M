@@ -17,8 +17,8 @@ import {
 import { ownDevTools } from './dev-tools.js';
 
 /**
- * @typedef {import('../projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/context').ProjectMContextOptions} ProjectMContextOptions
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  * @typedef {import('../projectm-context.js').ProjectMContext} ProjectMContext
  * @typedef {import('../projectm-app-shell-ui.js').ShellUi} ShellUi
  * @typedef {import('./config.js').ShellProfile} ShellProfile

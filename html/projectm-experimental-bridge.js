@@ -9,8 +9,8 @@ import { createDisposables } from './projectm-disposables.js';
 import { injectPanel, setStatus } from './projectm-experimental-panel.js';
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  * @typedef {import('./projectm-disposables.js').Disposables} Disposables
  */
 

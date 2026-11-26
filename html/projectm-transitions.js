@@ -10,8 +10,8 @@ import {
 } from './generated/projectm-wasm-api.js';
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  */
 
 const DEFAULT_TRANSITION_READY_TIMEOUT_FRAMES = 300;

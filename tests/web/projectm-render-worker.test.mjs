@@ -13,7 +13,7 @@
 //
 // The last test in this file is the other half of the same problem: the two
 // implementations agree on a wire format written down only in
-// projectm-render-worker-types.ts, so a message type renamed on one side is a
+// packages/types/src/render-worker.ts, so a message type renamed on one side is a
 // silent runtime failure. That test reads all three files and fails when they
 // drift apart.
 
@@ -25,7 +25,7 @@ import vm from 'node:vm';
 
 const WORKER_PATH = fileURLToPath(new URL('../../html/projectm-render-worker.js', import.meta.url));
 const HOST_PATH = fileURLToPath(new URL('../../html/projectm-render-worker-host.js', import.meta.url));
-const TYPES_PATH = fileURLToPath(new URL('../../html/projectm-render-worker-types.ts', import.meta.url));
+const TYPES_PATH = fileURLToPath(new URL('../../packages/types/src/render-worker.ts', import.meta.url));
 
 const WORKER_SOURCE = readFileSync(WORKER_PATH, 'utf8');
 
@@ -1151,7 +1151,7 @@ test('both implementations cover every message type declared in the wire protoco
     /** Interface names in a `export type X = A | B | ...;` union. */
     const unionMembers = (unionName) => {
         const match = new RegExp(`export type ${unionName} =([^;]+);`).exec(typesSource);
-        assert.ok(match, `${unionName} should be declared in projectm-render-worker-types.ts`);
+        assert.ok(match, `${unionName} should be declared in packages/types/src/render-worker.ts`);
         return match[1].split('|').map((part) => part.trim()).filter(Boolean);
     };
 

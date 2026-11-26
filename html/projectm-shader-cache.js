@@ -17,12 +17,12 @@ import {
 import { asDisposable } from './projectm-disposables.js';
 
 /**
- * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
- * @typedef {import('./projectm-preset-types.ts').ShaderCacheRecord} ShaderCacheRecord
- * @typedef {import('./projectm-preset-types.ts').ShaderKind} ShaderKind
- * @typedef {import('./projectm-preset-types.ts').PresetSwitchTiming} PresetSwitchTiming
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/preset').PresetEntry} PresetEntry
+ * @typedef {import('@projectm/types/preset').ShaderCacheRecord} ShaderCacheRecord
+ * @typedef {import('@projectm/types/preset').ShaderKind} ShaderKind
+ * @typedef {import('@projectm/types/preset').PresetSwitchTiming} PresetSwitchTiming
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  */
 
 const ENGINE_VERSION_KEY = 'projectm:shaderCacheEngineVersion';

@@ -6,7 +6,7 @@
 // the audio source. ProjectMContext extends this class; lifecycle and every
 // piece of private state stay in projectm-context.js.
 
-import { createHostApi, setPresetLocked, setTransparencyMode, switchPreset } from '../generated/projectm-wasm-api.js';
+import { DEFAULT_HOST, createHostApi, setPresetLocked, setTransparencyMode, switchPreset } from '../generated/projectm-wasm-api.js';
 import { setMeshQuality } from '../projectm-mesh-quality.js';
 import { setTargetFps } from '../projectm-fps-governor.js';
 import { getAudioContext } from '../projectm-audio-bootstrap.js';
@@ -25,21 +25,21 @@ import { clearEvalVarOn, liveInputTransport, setEvalVarOn } from './live-input.j
 import { ReplayRecord } from './replay.js';
 
 /**
- * @typedef {import('../projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
- * @typedef {import('../projectm-context-types.ts').ProjectMAudioSourceStatus} ProjectMAudioSourceStatus
- * @typedef {import('../projectm-context-types.ts').ProjectMPresetSwitchPolicy} ProjectMPresetSwitchPolicy
- * @typedef {import('../projectm-context-types.ts').ProjectMRhythmInfo} ProjectMRhythmInfo
- * @typedef {import('../projectm-context-types.ts').ProjectMCapturedFrame} ProjectMCapturedFrame
- * @typedef {import('../projectm-context-types.ts').ProjectMCaptureFrameOptions} ProjectMCaptureFrameOptions
- * @typedef {import('../projectm-context-types.ts').ProjectMFlashLimitStats} ProjectMFlashLimitStats
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- * @typedef {import('../generated/projectm-wasm-api.ts').HostApi} HostApi
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/context').ProjectMMeshQuality} ProjectMMeshQuality
+ * @typedef {import('@projectm/types/context').ProjectMAudioSourceStatus} ProjectMAudioSourceStatus
+ * @typedef {import('@projectm/types/context').ProjectMPresetSwitchPolicy} ProjectMPresetSwitchPolicy
+ * @typedef {import('@projectm/types/context').ProjectMRhythmInfo} ProjectMRhythmInfo
+ * @typedef {import('@projectm/types/context').ProjectMCapturedFrame} ProjectMCapturedFrame
+ * @typedef {import('@projectm/types/context').ProjectMCaptureFrameOptions} ProjectMCaptureFrameOptions
+ * @typedef {import('@projectm/types/context').ProjectMFlashLimitStats} ProjectMFlashLimitStats
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
+ * @typedef {import('../generated/projectm-wasm-api.js').HostApi} HostApi
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  * @typedef {import('../projectm-audio-source-router.js').AudioSourceRouter} AudioSourceRouter
- * @typedef {import('../projectm-context-types.ts').ProjectMContextSnapshot} ProjectMContextSnapshot
- * @typedef {import('../projectm-context-types.ts').ProjectMLiveTextureSource} ProjectMLiveTextureSource
- * @typedef {import('../projectm-context-types.ts').ProjectMRegisterTextureOptions} ProjectMRegisterTextureOptions
- * @typedef {import('../projectm-context-types.ts').ProjectMUpdateTextureOptions} ProjectMUpdateTextureOptions
+ * @typedef {import('@projectm/types/context').ProjectMContextSnapshot} ProjectMContextSnapshot
+ * @typedef {import('@projectm/types/context').ProjectMLiveTextureSource} ProjectMLiveTextureSource
+ * @typedef {import('@projectm/types/context').ProjectMRegisterTextureOptions} ProjectMRegisterTextureOptions
+ * @typedef {import('@projectm/types/context').ProjectMUpdateTextureOptions} ProjectMUpdateTextureOptions
  */
 
 // Module-private access to the class's private state, for projectm-context.js
@@ -129,9 +129,9 @@ export class ProjectMContextControls {
      * shares a Module with others (#168 Phase B). 0 means the process
      * default host (single-instance / legacy path), where no set_active_host
      * is needed because there is only one engine.
-     * @type {number}
+     * @type {import('../generated/projectm-wasm-api.js').HostHandle}
      */
-    hostHandle = 0;
+    hostHandle = DEFAULT_HOST;
     /** @type {AudioSourceRouter | null} */
     audioRouter = null;
     /** @type {HTMLCanvasElement | null} */
@@ -584,7 +584,7 @@ export class ProjectMContextControls {
      * the main thread, 'main' when it is not. Hosts should need this only for
      * reporting — every engine op works the same either way.
      *
-     * @returns {import('../projectm-transport-types.ts').RenderTopology | null}
+     * @returns {import('@projectm/types/transport').RenderTopology | null}
      */
     getRenderTopology() {
         return this.transport?.topology ?? null;

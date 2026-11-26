@@ -19,9 +19,9 @@ import { setMeshQuality } from '../projectm-mesh-quality.js';
 import { resolveFlashLimit } from '../projectm-context-config.js';
 
 /**
- * @typedef {import('../projectm-context-types.ts').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/context').ProjectMResolvedContextOptions} ProjectMResolvedContextOptions
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  * @typedef {(() => void) | { dispose(): void } | null | undefined} Disposable
  */
 
@@ -38,8 +38,8 @@ export const PRESET_SWITCH_FAILED = -2;
  *
  * @param {{
  *   transport: RenderTransport,
- *   documentRef?: Document,
- *   windowRef?: (Window & typeof globalThis),
+ *   documentRef?: Document | undefined,
+ *   windowRef?: (Window & typeof globalThis) | undefined,
  * }} params
  * @returns {Disposable[]}
  */
@@ -120,7 +120,7 @@ export function applyEngineSettings(engine, { meshQuality, targetFps, qualityGov
  * keeps renderScale at 1 — see html/projectm-render-worker.js.
  *
  * @param {{
- *   windowRef?: (Window & typeof globalThis),
+ *   windowRef?: (Window & typeof globalThis) | undefined,
  *   engineHost: number,
  *   onScaleChange: (scale: number) => void,
  * }} params

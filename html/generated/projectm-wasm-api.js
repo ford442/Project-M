@@ -3,6 +3,29 @@
 // Canonical definitions live in cmake/WasmApiManifest.cmake.
 // Regenerate: scripts/sync_wasm_link_common.sh
 
+/** The implicit default host (handle 0) a single-engine init() brings up. */
+export const DEFAULT_HOST = 0;
+
+/**
+ * Brands `value` as a host handle (see HostHandle in projectm-wasm-api.d.ts).
+ * @param {number} value
+ * @returns {number}
+ */
+export function asHostHandle(value) {
+    if (!Number.isInteger(value) || value < 0) {
+        throw new TypeError('not a projectM host handle: ' + String(value));
+    }
+    return value;
+}
+
+/** pm_get_last_error() codes (PROJECTM_WASM_API_ERRORS in the manifest). */
+export const ProjectMError = Object.freeze({
+    None: 0,
+    Exception: 1,
+    OutOfMemory: 2,
+    StaleGeneration: 3,
+});
+
 /** C symbol names for render-worker ccall proxying. */
 export const WASM_API_SYMBOLS = {
     addAudioData: 'add_audio_data',

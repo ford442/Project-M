@@ -1,16 +1,9 @@
-// Shared types for projectm-context.js. This file is types-only — the real
-// ProjectMContext class and createProjectMContext() live in projectm-context.js
-// (a `checkJs`-covered module; see tsconfig.json), which imports these shapes via
-// `@typedef {import('./projectm-context-types.ts').ProjectMContextOptions}`. Do not
-// add a `declare class ProjectMContext` stub here: that duplicates the real
-// implementation and drifts silently (see html/README.md TypeScript migration
-// notes / Epic #163).
-//
-// Deliberately named *-types.ts rather than projectm-context.ts: TypeScript's
-// "bundler" module resolution resolves a `./projectm-context.js` specifier to a
-// same-basename `projectm-context.ts` if one exists, which would silently shadow
-// the real projectm-context.js for every JS importer during typecheck (the exact
-// drift this migration is closing). A distinct basename removes the ambiguity.
+// Shared types for ProjectMContext (@projectm/types/context). Types only — the
+// real ProjectMContext class and createProjectMContext() live in
+// html/projectm-context.ts, which imports these shapes, as do the JSDoc modules
+// (`@typedef {import('@projectm/types/context').ProjectMContextOptions}`) and
+// packages/web. Do not add a `declare class ProjectMContext` stub here: that
+// duplicates the real implementation and drifts silently (Epic #163).
 
 export type ProjectMAudioSource = 'element' | 'external' | 'none';
 
@@ -257,7 +250,7 @@ export interface ProjectMContextOptions {
      * iframes. The shared Module is torn down by whoever booted it, not by this
      * context's `destroy()`. See docs/EMSCRIPTEN.md ("Multi-instance host state").
      */
-    sharedModule?: import('./generated/projectm-wasm-api.ts').ProjectMModule | null;
+    sharedModule?: import('./wasm-api.js').ProjectMModule | null;
     /** Override resolved WASM glue URL (absolute or site-relative). */
     wasmScriptUrl?: string;
     /** Base URL for `resolveWasmScriptUrl()` when `wasmScriptUrl` is omitted. */
@@ -361,7 +354,7 @@ export interface ProjectMContextOptions {
      * render worker cannot read the page URL itself. Defaults to the page's own
      * query string (`windowRef.location.search`).
      */
-    renderPathOverrides?: import('./projectm-render-worker-types.ts').RenderPathOverrides;
+    renderPathOverrides?: import('./render-worker.ts').RenderPathOverrides;
     presetUrl?: string;
     presetLocked?: boolean;
     /** When the playlist switches presets. Default `'timer'`. */
@@ -407,7 +400,7 @@ export interface ProjectMContextOptions {
      */
     wakeLock?: boolean;
     /** Reuse an existing {@link AudioSourceRouter} (e.g. legacy `projectm-core.html`). */
-    audioRouter?: import('./projectm-audio-source-router.js').AudioSourceRouter;
+    audioRouter?: import('../../../html/projectm-audio-source-router.js').AudioSourceRouter;
     /**
      * Pins the devicePixelRatio the canvas is sized with. Omit it to follow the
      * window's live ratio (browser zoom, moving to another display).
@@ -415,7 +408,7 @@ export interface ProjectMContextOptions {
     devicePixelRatio?: number;
     documentRef?: Document;
     windowRef?: Window & typeof globalThis;
-    onReady?: (context: import('./projectm-context.js').ProjectMContext) => void;
+    onReady?: (context: import('../../../html/projectm-context.js').ProjectMContext) => void;
     onError?: (detail: ProjectMErrorDetail) => void;
     onPresetChanged?: (detail: ProjectMPresetDetail) => void;
     onFps?: (fps: number) => void;

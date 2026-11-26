@@ -10,10 +10,12 @@ INC="$PROJECT_ROOT/scripts/wasm_link_common.inc.sh"
 GENERATED=(
     "scripts/wasm_link_common.inc.sh|cmake/EmscriptenWasmFlags.cmake"
     "cmake/generated/ProjectMWasmBuildConfig.hpp|cmake/EmscriptenWasmFlags.cmake"
-    "html/generated/projectm-wasm-api.ts|cmake/WasmApiManifest.cmake"
+    "html/generated/projectm-wasm-api.d.ts|cmake/WasmApiManifest.cmake"
+    "packages/types/src/wasm-api.d.ts|cmake/WasmApiManifest.cmake"
     "html/generated/projectm-wasm-api.js|cmake/WasmApiManifest.cmake"
     "src/wasm/generated/WasmApiImpl.hpp|cmake/WasmApiManifest.cmake"
     "src/wasm/generated/WasmApiExports.cpp|cmake/WasmApiManifest.cmake"
+    "src/wasm/generated/WasmApiErrors.hpp|cmake/WasmApiManifest.cmake"
 )
 
 SNAPSHOT="$(mktemp -d)"

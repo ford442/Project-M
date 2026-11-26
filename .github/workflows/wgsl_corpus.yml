@@ -1,0 +1,127 @@
+name: WGSL corpus
+
+# The WebGPU backend's shader path (Phase C, docs/adr/0002-wgsl-shader-path.md):
+#   1. the WGSL generator's unit tests, with naga validating each fixture;
+#   2. scripts/check_wgsl_corpus.sh: every preset of presets/tests, presets/custom and
+#      presets/weeks transpiled to WGSL (PresetCompatWgsl) and validated by a pinned naga,
+#      against tests/libprojectM/data/PresetCompat/wgsl_known_failures.txt;
+#   3. tests/webgpu/wgsl_parity.mjs: each presets/tests and presets/custom shader compiled by
+#      Chromium's Tint, drawn on WebGPU and its GLSL ES twin on WebGL 2 (both on SwiftShader),
+#      and the images compared within the ADR's tolerance budget. presets/weeks runs too but
+#      only reports (heavy shaders take minutes on a software rasterizer).
+# No paths: filter, so it can be a required check.
+
+on:
+  push:
+      branches:
+        - "*"
+      tags:
+        - "*"
+
+  pull_request:
+      branches:
+        - "*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  NAGA_VERSION: "30.0.2"
+
+jobs:
+  wgsl-corpus:
+    name: "WGSL: generator tests, naga corpus, Tint/WebGL parity"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: 'recursive'
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            ninja-build \
+            libgl1-mesa-dev \
+            mesa-common-dev \
+            libsdl2-dev \
+            libglm-dev \
+            libgtest-dev \
+            libgmock-dev
+
+      - name: Restore naga
+        id: naga-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cargo/bin/naga
+          key: naga-cli-${{ env.NAGA_VERSION }}-${{ runner.os }}
+
+      - name: Install naga
+        if: steps.naga-cache.outputs.cache-hit != 'true'
+        run: cargo install naga-cli --version "${NAGA_VERSION}" --locked
+
+      - name: Save naga
+        if: steps.naga-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cargo/bin/naga
+          key: naga-cli-${{ env.NAGA_VERSION }}-${{ runner.os }}
+
+      - name: Configure
+        run: |
+          cmake -G Ninja -S . -B cmake-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DENABLE_WGSL_EMIT=ON \
+            -DENABLE_SYSTEM_PROJECTM_EVAL=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DENABLE_PLAYLIST=OFF
+
+      - name: Build
+        run: cmake --build cmake-build --target projectM-unittest --parallel
+
+      - name: Generator Unit Tests
+        run: PROJECTM_NAGA="$HOME/.cargo/bin/naga" cmake-build/tests/libprojectM/projectM-unittest --gtest_filter='WgslGenerator.*'
+
+      - name: Corpus (transpile + naga)
+        run: WGSL_NAGA_REQUIRED=1 NAGA="$HOME/.cargo/bin/naga" scripts/check_wgsl_corpus.sh cmake-build cmake-build/wgsl-corpus
+
+      - name: Install Playwright
+        working-directory: tests/wasm-smoke
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Parity (presets/tests, presets/custom)
+        run: |
+          node tests/webgpu/wgsl_parity.mjs cmake-build/wgsl-corpus \
+            --filter "tests/,custom/" \
+            --known tests/libprojectM/data/PresetCompat/wgsl_known_failures.txt \
+            --report cmake-build/wgsl-corpus/parity.json
+
+      - name: Parity (presets/weeks, report only)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          node tests/webgpu/wgsl_parity.mjs cmake-build/wgsl-corpus \
+            --filter "weeks/" --timeout 20 \
+            --known tests/libprojectM/data/PresetCompat/wgsl_known_failures.txt \
+            --report cmake-build/wgsl-corpus/parity-weeks.json
+
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: wgsl-corpus
+          path: |
+            cmake-build/wgsl-corpus/report.tsv
+            cmake-build/wgsl-corpus/naga.tsv
+            cmake-build/wgsl-corpus/naga-errors/
+            cmake-build/wgsl-corpus/parity*.json
+          if-no-files-found: ignore

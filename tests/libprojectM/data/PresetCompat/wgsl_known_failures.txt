@@ -1,0 +1,16 @@
+# Presets whose shaders the WGSL path (docs/adr/0002-wgsl-shader-path.md) is known not to
+# handle, one per line, with the reason after a '#':
+#
+#   transpile <corpus>/<file>.milk   # TranspileToWgsl() fails (PresetCompatWgsl)
+#   validate  <corpus>/<file>.milk   # naga rejects the WGSL (scripts/check_wgsl_corpus.sh)
+#   parity    <corpus>/<file>.milk   # outside the parity tolerance on WebGPU (tests/webgpu/wgsl_parity.mjs)
+#
+# <corpus> is tests, custom or weeks. Presets whose shaders do not transpile to GLSL either
+# are not counted; PresetCompat reports those.
+#
+# The ledger only shrinks: a check fails on a failure that is not listed, and on a listed
+# preset that now passes. Fix the generator and delete the line in the same change; never add
+# a line to make a check green without saying why the preset cannot be handled.
+#
+# Empty: on 2026-11-26 every GLSL-passing preset of the three corpora transpiled, validated,
+# and (presets/tests, presets/custom) rendered within tolerance.

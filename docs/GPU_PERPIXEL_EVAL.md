@@ -585,7 +585,12 @@ it lands, the vendored build is the only GPU-capable configuration.
 
 ## Phase 2 spike — hlslparser WGSL emitter vs naga vs stay GLSL
 
-**Status (2026-09-25): not started.** #261 schedules Phase 2 after the toolchain tiering
+**Status (2026-11-26): implemented as decided below, for preset fragment shaders; see
+[ADR 0002](adr/0002-wgsl-shader-path.md)** (generator, corpus mode, naga in CI, a Tint/WebGL
+parity harness, and the measured sizes of the rejected options). Items 2 (a WGSL printer for the
+per-pixel lowering) and 4 (WGSL twins of the built-in shaders) are still open.
+
+*Original plan:* #261 schedules Phase 2 after the toolchain tiering
 work of #260, because it adds a code generator that must stay out of the WebGL2 bundle;
 #260's PR (#265) merged on 2026-09-25, so it can start. The plan #261 fixes, following the decision below:
 

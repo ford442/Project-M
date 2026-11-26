@@ -306,19 +306,19 @@ void PS(float4 _vDiffuse : COLOR,
     program = fullSource;
 }
 
-auto TranspileToGlsl(const std::string& preprocessedProgram,
-                     const std::set<std::string>& samplerDeclarations,
-                     const std::set<std::string>& texSizeDeclarations,
-                     M4::GLSLGenerator::Version generatorVersion,
-                     std::string& glslOut,
-                     std::string& errorOut) -> bool
+namespace {
+
+/**
+ * @brief The steps TranspileToGlsl() and TranspileToWgsl() share: the HLSL preprocessor, the
+ *        sampler/texsize declarations replaced with the given ones, and the parse into @a tree.
+ */
+auto ParsePresetShader(M4::HLSLParser& parser,
+                       const std::string& preprocessedProgram,
+                       const std::set<std::string>& samplerDeclarations,
+                       const std::set<std::string>& texSizeDeclarations,
+                       std::string& sourceOut,
+                       std::string& errorOut) -> bool
 {
-    M4::GLSLGenerator generator;
-    M4::Allocator allocator;
-
-    M4::HLSLTree tree(&allocator);
-    M4::HLSLParser parser(&allocator, &tree);
-
     // Preprocess define macros
     std::string sourcePreprocessed;
     if (!parser.ApplyPreprocessor("", preprocessedProgram.c_str(), preprocessedProgram.size(), sourcePreprocessed))
@@ -362,6 +362,31 @@ auto TranspileToGlsl(const std::string& preprocessedProgram,
         return false;
     }
 
+    sourceOut = std::move(sourcePreprocessed);
+    return true;
+}
+
+} // namespace
+
+auto TranspileToGlsl(const std::string& preprocessedProgram,
+                     const std::set<std::string>& samplerDeclarations,
+                     const std::set<std::string>& texSizeDeclarations,
+                     M4::GLSLGenerator::Version generatorVersion,
+                     std::string& glslOut,
+                     std::string& errorOut) -> bool
+{
+    M4::GLSLGenerator generator;
+    M4::Allocator allocator;
+
+    M4::HLSLTree tree(&allocator);
+    M4::HLSLParser parser(&allocator, &tree);
+
+    std::string sourcePreprocessed;
+    if (!ParsePresetShader(parser, preprocessedProgram, samplerDeclarations, texSizeDeclarations, sourcePreprocessed, errorOut))
+    {
+        return false;
+    }
+
     // Then generate GLSL from the resulting parser tree
     if (!generator.Generate(&tree, M4::GLSLGenerator::Target_FragmentShader,
                             generatorVersion, "PS",
@@ -374,6 +399,39 @@ auto TranspileToGlsl(const std::string& preprocessedProgram,
     glslOut = generator.GetResult();
     return true;
 }
+
+#ifdef PROJECTM_WGSL_EMIT
+auto TranspileToWgsl(const std::string& preprocessedProgram,
+                     const std::set<std::string>& samplerDeclarations,
+                     const std::set<std::string>& texSizeDeclarations,
+                     WgslShader& wgslOut,
+                     std::string& errorOut) -> bool
+{
+    M4::WGSLGenerator generator;
+    M4::Allocator allocator;
+
+    M4::HLSLTree tree(&allocator);
+    M4::HLSLParser parser(&allocator, &tree);
+
+    std::string sourcePreprocessed;
+    if (!ParsePresetShader(parser, preprocessedProgram, samplerDeclarations, texSizeDeclarations, sourcePreprocessed, errorOut))
+    {
+        return false;
+    }
+
+    // The same NaN-free multiply the GLSL path uses (Flag_AlternateNanPropagation).
+    if (!generator.Generate(&tree, M4::WGSLGenerator::Target_FragmentShader, "PS",
+                            M4::WGSLGenerator::Options(M4::WGSLGenerator::Flag_AlternateNanPropagation)))
+    {
+        errorOut = "WGSL generating failed: " + generator.GetError() + "\nPreprocessed source:\n" + sourcePreprocessed;
+        return false;
+    }
+
+    wgslOut.code = generator.GetResult();
+    wgslOut.reflection = generator.GetReflection();
+    return true;
+}
+#endif
 
 } // namespace ShaderTranspiler
 } // namespace MilkdropPreset

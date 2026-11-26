@@ -10,6 +10,10 @@
 
 #include <GLSLGenerator.h>
 
+#ifdef PROJECTM_WGSL_EMIT
+#include <WGSLGenerator.h>
+#endif
+
 #include <set>
 #include <string>
 
@@ -95,6 +99,37 @@ auto TranspileToGlsl(const std::string& preprocessedProgram,
                      M4::GLSLGenerator::Version generatorVersion,
                      std::string& glslOut,
                      std::string& errorOut) -> bool;
+
+#ifdef PROJECTM_WGSL_EMIT
+/**
+ * @brief A preset shader transpiled to WGSL, with the bindings and uniform layout the
+ *        generator assigned (docs/adr/0002-wgsl-shader-path.md).
+ */
+struct WgslShader {
+    std::string code;                         //!< The WGSL module, entry point reflection.entryPoint.
+    M4::WGSLGenerator::Reflection reflection; //!< Bind groups, uniform block layouts, stage inputs/outputs.
+};
+
+/**
+ * @brief Transpiles a preprocessed HLSL preset shader into WGSL.
+ *
+ * Takes the same inputs as TranspileToGlsl() and runs the same preprocessing and parse, so
+ * a shader means the same thing on both paths; only the generator differs. Requires
+ * ENABLE_WGSL_EMIT (off in the Emscripten build).
+ *
+ * @param preprocessedProgram The shader code as returned by PreprocessPresetShader().
+ * @param samplerDeclarations HLSL "uniform sampler2D/3D sampler_..." declarations to insert.
+ * @param texSizeDeclarations HLSL "uniform float4 texsize_..." declarations to insert.
+ * @param wgslOut Receives the WGSL module and its reflection on success.
+ * @param errorOut Receives a human-readable error message on failure.
+ * @return true if transpiling succeeded, false otherwise.
+ */
+auto TranspileToWgsl(const std::string& preprocessedProgram,
+                     const std::set<std::string>& samplerDeclarations,
+                     const std::set<std::string>& texSizeDeclarations,
+                     WgslShader& wgslOut,
+                     std::string& errorOut) -> bool;
+#endif
 
 } // namespace ShaderTranspiler
 } // namespace MilkdropPreset

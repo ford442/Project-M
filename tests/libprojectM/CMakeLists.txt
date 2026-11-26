@@ -71,6 +71,7 @@ add_executable(projectM-unittest
         UserSpriteApiTest.cpp
         UtilsTest.cpp
         WaveformAlignerTest.cpp
+        WgslGeneratorTest.cpp
 
         $<TARGET_OBJECTS:Audio>
         $<TARGET_OBJECTS:MilkdropPreset>

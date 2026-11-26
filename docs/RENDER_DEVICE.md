@@ -14,7 +14,9 @@ Phase B moves the interface to WebGPU's shape on GL, one step at a time:
 [render graph](#render-graph) (B2). From pipelines on, GL calls are no longer issued in
 the old order (state already applied is skipped), so equivalence means identical pixels,
 not identical call traces; see [Equivalence](#equivalence) for what each step was checked
-against. Phases C (shader IR to WGSL) and D (`WgpuDevice`) are next.
+against. Phase C, the shader path (HLSL to WGSL, with reflection from the tree), is in:
+[ADR 0002](adr/0002-wgsl-shader-path.md). Phase D (`WgpuDevice`) is next; the ADR lists what it
+inherits (bind group layouts from the reflection, clip-space y negated).
 
 ## Layout
 

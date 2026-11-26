@@ -67,6 +67,15 @@ Engine and C API
   WASM goldens unchanged. Cached transpiled GLSL from older engines is re-transpiled. `projectm-render` seeds the
   process default (`projectm_set_deterministic_seed()`) so two runs match for every preset, and takes `--then` to
   render a transition. `docs/RENDER_DEVICE.md`.
+- **WGSL shader path** (WebGPU backend, Phase C): `WGSLGenerator` in `vendor/hlslparser` prints WGSL from the same
+  HLSL tree as the GLSL generator and keeps its Milkdrop semantics; `ShaderTranspiler::TranspileToWgsl()` returns the
+  module with its reflection (bind groups, uniform block layouts, stage locations). New option `ENABLE_WGSL_EMIT`
+  (on for native builds, off for Emscripten, so the WebGL 2 bundle does not change). Every GLSL-passing preset of
+  `presets/tests`, `presets/custom` and `presets/weeks` transpiles (ctest `PresetCompat`, `PresetCompatWgsl`), all 863
+  modules pass naga (`scripts/check_wgsl_corpus.sh`), and every `presets/tests` + `presets/custom` shader renders
+  bit-identically on WebGPU (Tint) and WebGL 2 on SwiftShader (`tests/webgpu/wgsl_parity.mjs`); `wgsl_corpus.yml`
+  runs all three. No WebGPU renderer yet. Found on the way: the GLSL generator prints float literals with six
+  significant digits (`43758.5453` is `43758.5`), kept on both paths for now. `docs/adr/0002-wgsl-shader-path.md`.
 - **Shader passes in `.milk` presets** (#229): `warp_nPasses`/`comp_nPasses` (at most 3 shaders per stage) run
   `warp_passK_`/`comp_passK_` shaders before the stage's own, which read the previous pass as `sampler_lastpass`
   (`iLastPassTex`, `GetLastPass(uv)`) and know their number as `iPass`. A count over 3 or a declared pass without code

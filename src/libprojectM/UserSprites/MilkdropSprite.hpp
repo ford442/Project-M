@@ -5,6 +5,7 @@
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Texture.hpp>
 #include <Renderer/TextureSamplerDescriptor.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <projectm-eval.h>
 
@@ -54,6 +55,7 @@ public:
     void SetVariableValue(const std::string& variableName, double value) override;
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     /**
      * @brief Context for the init and per-frame code.
      */

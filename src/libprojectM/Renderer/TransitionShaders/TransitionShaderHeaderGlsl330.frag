@@ -1,19 +1,27 @@
-// Uniforms
-uniform vec3 iResolution;
-uniform vec4 durationParams;
-uniform vec2 timeParams;
-uniform float iFrameRate;
-uniform int iFrame;
-uniform ivec4 iRandStatic;
-uniform ivec4 iRandFrame;
-uniform vec3 iBeatValues;
-uniform vec3 iBeatAttValues;
-
-// Aspect ratio correction uniforms for geometry-sensitive transitions.
-uniform float iAspectX;
-uniform float iAspectY;
-uniform float iInvAspectX;
-uniform float iInvAspectY;
+// Uniforms: one std140 block, _pm_transition (Renderer::TransitionUniforms,
+// docs/RENDER_DEVICE.md "Uniform buffers"). The members keep their old names.
+layout(std140) uniform _pm_transition {
+    vec4 durationParams;
+    ivec4 iRandStatic;
+    ivec4 iRandFrame;
+    vec3 iResolution;
+    float iFrameRate;
+    vec3 iBeatValues;
+    int iFrame;
+    vec3 iBeatAttValues;
+    int iPass;              //!< Current render pass (0 = first, 1 = second).
+    vec2 timeParams;
+    // Aspect ratio correction for geometry-sensitive transitions.
+    float iAspectX;
+    float iAspectY;
+    float iInvAspectX;
+    float iInvAspectY;
+    // Transparency mode for glass-layer compositing over host page content.
+    int u_transparencyEnabled;
+    float u_transparencyThreshold;
+    int iBlendMode; // 0=Alpha, 1=Additive, 2=Multiplicative, 3=Screen, 4=Masked
+    int iMaskBound; //!< 1 if iMask holds a host mask, 0 to use the procedural noise.
+};
 
 // Milkdrop-style easing function for transition progress.
 // easingType: 0 = linear, 1 = smoothstep (default), 2 = ease-in, 3 = ease-out
@@ -55,16 +63,11 @@ float _prjm_getEasedProgress(float t, float easingType)
 #define iMidAtt iBeatAttValues.y
 #define iTrebAtt iBeatAttValues.z
 
-// Multi-pass uniforms
-uniform int iPass;              //!< Current render pass (0 = first, 1 = second).
+// Multi-pass: iPass (in the block above) is the current pass.
 uniform sampler2D iLastPassTex; //!< Result of the previous pass (valid in pass 1+).
 
-// Transparency mode for glass-layer compositing over host page content.
-uniform int u_transparencyEnabled;
-uniform float u_transparencyThreshold;
-
 // === Advanced Blending Library (Phase B3) ===
-uniform int iBlendMode; // 0=Alpha, 1=Additive, 2=Multiplicative, 3=Screen, 4=Masked
+// iBlendMode (in the block above): 0=Alpha, 1=Additive, 2=Multiplicative, 3=Screen, 4=Masked
 
 vec4 blendAlpha(vec4 a, vec4 b, float t)
 {
@@ -114,8 +117,7 @@ vec4 blendScreen(vec4 a, vec4 b, float t)
 // collapse the mask to black. A two-octave value noise keyed off iRandStatic keeps
 // the pattern stable for the whole transition but different from one transition to
 // the next.
-uniform sampler2D iMask; //!< Host wipe mask: black reveals first, white last.
-uniform int iMaskBound;  //!< 1 if iMask holds a host mask, 0 to use the procedural noise.
+uniform sampler2D iMask; //!< Host wipe mask: black reveals first, white last. iMaskBound says if it is bound.
 
 float _prjm_maskHash(vec2 p)
 {

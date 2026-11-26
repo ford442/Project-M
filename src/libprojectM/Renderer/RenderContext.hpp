@@ -13,7 +13,6 @@ namespace libprojectM {
 namespace Renderer {
 
 class ShaderCache;
-class UniformRingBuffer;
 class TextureManager;
 
 /**
@@ -57,7 +56,6 @@ public:
 
     TextureManager* textureManager{nullptr}; //!< Holds all loaded textures for shader access.
     ShaderCache* shaderCache{nullptr}; //!< The shader chace of this projectM instance.
-    UniformRingBuffer* uniformRing{nullptr}; //!< Per-draw uniform blocks of this projectM instance.
 
     /**
      * Per-frame variables the host set (projectm_eval_set()), by lower-case name. Each preset loads

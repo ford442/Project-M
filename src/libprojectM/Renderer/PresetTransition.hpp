@@ -4,6 +4,7 @@
 #include "Renderer/Mesh.hpp"
 #include "Renderer/Shader.hpp"
 #include "Renderer/TextureSamplerDescriptor.hpp"
+#include "Renderer/UniformBlocks.hpp"
 
 #include <Preset.hpp>
 
@@ -111,8 +112,8 @@ public:
     /**
      * @brief Begins a render pass.
      *
-     * Binds the appropriate framebuffer, sets the viewport, and updates
-     * the iPass uniform. Must be paired with EndPass().
+     * Binds the appropriate framebuffer and sets the viewport. The pass's iPass goes in the
+     * _pm_transition block Draw() writes before the pass draws. Must be paired with EndPass().
      *
      * @param passNumber The pass index (0 = first pass, 1 = second pass).
      * @param viewportWidth The viewport width in pixels.
@@ -185,6 +186,7 @@ public:
     auto TransparencyThreshold() const -> float;
 
 private:
+    UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     std::vector<std::string> m_noiseTextureNames{"noise_lq",
                                                  "pw_noise_lq",
                                                  "noise_mq",

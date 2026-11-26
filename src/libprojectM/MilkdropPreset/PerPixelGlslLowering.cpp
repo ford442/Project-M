@@ -46,12 +46,17 @@ constexpr const char* kCpuDeclarations =
     "layout(location = 6) in vec2 warp_distance;\n"
     "layout(location = 7) in vec2 stretch;\n";
 
-/** @brief The four per-frame seeds the equations start from on the GPU path. */
-constexpr const char* kGpuSeedUniforms =
-    "uniform vec4 u_pp_seed_transforms;\n"
-    "uniform vec2 u_pp_seed_center;\n"
-    "uniform vec2 u_pp_seed_distance;\n"
-    "uniform vec2 u_pp_seed_stretch;\n";
+/** @brief The read-only Milkdrop scalars' uniform names, by UniformFlags bit (0..15). */
+constexpr std::array<const char*, 16> kFrameScalarNames{
+    "u_pp_time", "u_pp_fps", "u_pp_frame", "u_pp_progress",
+    "u_pp_bass", "u_pp_mid", "u_pp_treb", "u_pp_bass_att",
+    "u_pp_mid_att", "u_pp_treb_att", "u_pp_meshx", "u_pp_meshy",
+    "u_pp_pixelsx", "u_pp_pixelsy", "u_pp_aspectx", "u_pp_aspecty"};
+
+static_assert(kFrameScalarNames.size() == PerPixelGlslLowering::RhythmUniformFirstBit);
+static_assert(PerPixelUniforms::ScalarCount == PerPixelGlslLowering::RhythmUniformFirstBit + RhythmVariables::Count,
+              "PerPixelUniforms::scalars holds one value per read-only builtin");
+static_assert(QVarCount == 32, "PerPixelUniforms::q holds q1..q32");
 
 /**
  * @brief Seeds the ten channels and runs the generated code, once per vertex.
@@ -128,7 +133,7 @@ auto PerPixelGlslLowering::ComposeWarpVertexShader(const std::string& generatedG
         return source;
     }
 
-    ReplaceMarker(source, kDeclarationsMarker, generatedGlsl + kGpuSeedUniforms);
+    ReplaceMarker(source, kDeclarationsMarker, generatedGlsl);
     ReplaceMarker(source, kSetupMarker, kGpuSetup);
     return source;
 }
@@ -150,6 +155,36 @@ auto PerPixelGlslLowering::RhythmUniformName(int index) -> const std::string&
         return list;
     }();
     return names.at(static_cast<size_t>(index));
+}
+
+auto PerPixelGlslLowering::ScalarUniformName(int bit) -> const char*
+{
+    if (bit < static_cast<int>(RhythmUniformFirstBit))
+    {
+        return kFrameScalarNames.at(static_cast<size_t>(bit));
+    }
+    return RhythmUniformName(bit - static_cast<int>(RhythmUniformFirstBit)).c_str();
+}
+
+auto PerPixelGlslLowering::PerPixelBlockDeclaration() -> const std::string&
+{
+    // std140, the layout of PerPixelUniforms: the vec4s first, then the vec2s, then the
+    // scalars, which pack four to a row.
+    static const std::string declaration = [] {
+        std::string text = "layout(std140) uniform _pm_per_pixel {\n"
+                           "    vec4 u_pp_seed_transforms;\n"
+                           "    vec4 u_pp_q[8];\n"
+                           "    vec2 u_pp_seed_center;\n"
+                           "    vec2 u_pp_seed_distance;\n"
+                           "    vec2 u_pp_seed_stretch;\n";
+        for (int bit = 0; bit < PerPixelUniforms::ScalarCount; bit++)
+        {
+            text += std::string("    float ") + ScalarUniformName(bit) + ";\n";
+        }
+        text += "};\n";
+        return text;
+    }();
+    return declaration;
 }
 
 auto PerPixelGlslLowering::ForcedToCpu() -> bool
@@ -308,22 +343,22 @@ static_assert(PerPixelGlslLowering::RhythmUniformFirstBit + RhythmVariables::Cou
               "The pm_* variables no longer fit into the 32-bit uniform mask");
 
 const ReadOnlyBuiltin kFrameBuiltins[] = {
-    {"time", "u_pp_time", PerPixelGlslLowering::UniformTime},
-    {"fps", "u_pp_fps", PerPixelGlslLowering::UniformFps},
-    {"frame", "u_pp_frame", PerPixelGlslLowering::UniformFrame},
-    {"progress", "u_pp_progress", PerPixelGlslLowering::UniformProgress},
-    {"bass", "u_pp_bass", PerPixelGlslLowering::UniformBass},
-    {"mid", "u_pp_mid", PerPixelGlslLowering::UniformMid},
-    {"treb", "u_pp_treb", PerPixelGlslLowering::UniformTreb},
-    {"bass_att", "u_pp_bass_att", PerPixelGlslLowering::UniformBassAtt},
-    {"mid_att", "u_pp_mid_att", PerPixelGlslLowering::UniformMidAtt},
-    {"treb_att", "u_pp_treb_att", PerPixelGlslLowering::UniformTrebAtt},
-    {"meshx", "u_pp_meshx", PerPixelGlslLowering::UniformMeshX},
-    {"meshy", "u_pp_meshy", PerPixelGlslLowering::UniformMeshY},
-    {"pixelsx", "u_pp_pixelsx", PerPixelGlslLowering::UniformPixelsX},
-    {"pixelsy", "u_pp_pixelsy", PerPixelGlslLowering::UniformPixelsY},
-    {"aspectx", "u_pp_aspectx", PerPixelGlslLowering::UniformAspectX},
-    {"aspecty", "u_pp_aspecty", PerPixelGlslLowering::UniformAspectY},
+    {"time", kFrameScalarNames[0], PerPixelGlslLowering::UniformTime},
+    {"fps", kFrameScalarNames[1], PerPixelGlslLowering::UniformFps},
+    {"frame", kFrameScalarNames[2], PerPixelGlslLowering::UniformFrame},
+    {"progress", kFrameScalarNames[3], PerPixelGlslLowering::UniformProgress},
+    {"bass", kFrameScalarNames[4], PerPixelGlslLowering::UniformBass},
+    {"mid", kFrameScalarNames[5], PerPixelGlslLowering::UniformMid},
+    {"treb", kFrameScalarNames[6], PerPixelGlslLowering::UniformTreb},
+    {"bass_att", kFrameScalarNames[7], PerPixelGlslLowering::UniformBassAtt},
+    {"mid_att", kFrameScalarNames[8], PerPixelGlslLowering::UniformMidAtt},
+    {"treb_att", kFrameScalarNames[9], PerPixelGlslLowering::UniformTrebAtt},
+    {"meshx", kFrameScalarNames[10], PerPixelGlslLowering::UniformMeshX},
+    {"meshy", kFrameScalarNames[11], PerPixelGlslLowering::UniformMeshY},
+    {"pixelsx", kFrameScalarNames[12], PerPixelGlslLowering::UniformPixelsX},
+    {"pixelsy", kFrameScalarNames[13], PerPixelGlslLowering::UniformPixelsY},
+    {"aspectx", kFrameScalarNames[14], PerPixelGlslLowering::UniformAspectX},
+    {"aspecty", kFrameScalarNames[15], PerPixelGlslLowering::UniformAspectY},
 };
 
 /**
@@ -1989,19 +2024,9 @@ auto PerPixelGlslLowering::LowerProgram(projectm_eval_code* code) -> Result
         source += "\n";
     }
 
-    for (const auto& builtin : ReadOnlyBuiltins())
-    {
-        if ((uniforms & builtin.flag) != 0u)
-        {
-            source += "uniform float ";
-            source += builtin.uniform;
-            source += ";\n";
-        }
-    }
-    if (qVectors != 0u)
-    {
-        source += "uniform vec4 u_pp_q[" + std::to_string(QVarCount / 4) + "];\n";
-    }
+    // Every per-frame value and seed, in one block (docs/RENDER_DEVICE.md "Uniform buffers"):
+    // uniforms and qVectors still say which of them the code reads.
+    source += PerPixelBlockDeclaration();
 
     // The CPU slice's values, in the attributes the CPU path uses for its channels.
     for (int attribute = 0, first = 0; first < cpuValues; attribute++)

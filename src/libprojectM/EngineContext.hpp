@@ -14,6 +14,10 @@
 
 namespace libprojectM {
 
+namespace Renderer {
+class UniformRingBuffer;
+} // namespace Renderer
+
 /**
  * @brief State that belongs to one engine (one ProjectM instance) rather than to the process.
  *
@@ -107,6 +111,23 @@ public:
     auto RenderDevice() -> Renderer::Device::IRenderDevice*
     {
         return m_device.get();
+    }
+
+    /**
+     * @brief The ring this engine's per-draw uniform blocks are written to, on its device. The
+     * engine (ProjectM) owns it and starts a frame on it every frame. Null for the process default
+     * context: code outside any engine writes to a ring its drawing object owns
+     * (Renderer::UniformBlockWriter), because the process device is not tied to one GL context.
+     */
+    auto UniformRing() const -> Renderer::UniformRingBuffer*
+    {
+        return m_uniformRing;
+    }
+
+    /// Set by the engine that owns the ring, cleared before it goes.
+    void SetUniformRing(Renderer::UniformRingBuffer* ring)
+    {
+        m_uniformRing = ring;
     }
 
     /**
@@ -205,6 +226,7 @@ private:
     Perf::State m_perfState;
     Renderer::TranspileCacheState m_transpileCache;
     std::unique_ptr<Renderer::Device::IRenderDevice> m_device;
+    Renderer::UniformRingBuffer* m_uniformRing{nullptr}; //!< Owned by the engine, see UniformRing().
 
     mutable std::mutex m_logMutex;
     Logging::UserCallback m_logCallback;

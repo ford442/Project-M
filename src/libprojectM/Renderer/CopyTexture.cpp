@@ -1,5 +1,6 @@
 #include "Renderer/CopyTexture.hpp"
 #include "Renderer/ShaderPrelude.hpp"
+#include "Renderer/UniformBlocks.hpp"
 
 #include "EngineContext.hpp"
 
@@ -26,7 +27,12 @@ layout(location = 2) in vec2 tex_coord;
 
 out vec2 fragment_tex_coord;
 
-uniform mat4 vertex_transformation;
+// _pm_copy (CopyUniforms), the same block in both stages.
+layout(std140) uniform _pm_copy {
+    mat4 vertex_transformation;
+    int u_transparencyEnabled;
+    float u_transparencyThreshold;
+};
 
 void main() {
     gl_Position = vec4(position, 0.0, 1.0) * vertex_transformation;
@@ -38,8 +44,12 @@ static constexpr char CopyTextureFragmentShader[] = R"(
 in vec2 fragment_tex_coord;
 
 uniform sampler2D texture_sampler;
-uniform int u_transparencyEnabled;
-uniform float u_transparencyThreshold;
+// _pm_copy (CopyUniforms), the same block in both stages.
+layout(std140) uniform _pm_copy {
+    mat4 vertex_transformation;
+    int u_transparencyEnabled;
+    float u_transparencyThreshold;
+};
 
 out vec4 color;
 
@@ -385,9 +395,7 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
     std::shared_ptr<Shader> shader = BindShader(shaderCache);
 
     shader->SetUniformInt("texture_sampler", 0);
-    shader->SetUniformInt("u_transparencyEnabled", transparencyMode ? 1 : 0);
-    shader->SetUniformFloat("u_transparencyThreshold", transparencyThreshold);
-    shader->SetUniformMat4x4("vertex_transformation", flipMatrix);
+    m_uniforms.Write(CopyUniforms{flipMatrix, transparencyMode ? 1 : 0, transparencyThreshold});
 
     m_sampler.Bind(0);
 
@@ -411,9 +419,7 @@ void CopyTexture::Copy(ShaderCache& shaderCache,
     std::shared_ptr<Shader> shader = BindShader(shaderCache);
 
     shader->SetUniformInt("texture_sampler", 0);
-    shader->SetUniformInt("u_transparencyEnabled", 0);
-    shader->SetUniformFloat("u_transparencyThreshold", 0.01f);
-    shader->SetUniformMat4x4("vertex_transformation", translationMatrix);
+    m_uniforms.Write(CopyUniforms{translationMatrix, 0, 0.01f});
 
     m_sampler.Bind(0);
 

@@ -92,6 +92,8 @@ add_library(Renderer OBJECT
         TextureSamplerDescriptor.cpp
         TextureSamplerDescriptor.hpp
         TextureUV.hpp
+        UniformBlocks.cpp
+        UniformBlocks.hpp
         UniformRingBuffer.cpp
         UniformRingBuffer.hpp
         TransitionShaderManager.cpp

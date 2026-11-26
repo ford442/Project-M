@@ -148,7 +148,7 @@ vs. 4941 attribute writes); do it only if the attribute upload shows up in
 | Lowering at preset load | `MilkdropPreset::LowerPerPixelCodeToGlsl()`, straight after `CompilePerPixelCode` |
 | Result carried to the renderer | `PresetState::perPixelGpuGlsl` / `perPixelGpuReason` / `perPixelGpuUniforms` / `perPixelGpuQVectors` / `perPixelGpuCpuSlice` |
 | Generated VS injection | `PerPixelGlslLowering::ComposeWarpVertexShader()` fills two marker lines in `PresetWarpVertexShaderGlsl330.vert`; the shader-cache key is a 64-bit FNV-1a of the generated code |
-| Skipping the CPU loop, uploading the uniforms | `PerPixelMesh::CalculateMesh` / `SetPerPixelUniforms` |
+| Skipping the CPU loop, writing the uniform block | `PerPixelMesh::CalculateMesh` / `WritePerPixelUniforms` |
 | HUD / timings | `projectm_perf_frame_timings` + `js_perf_report_frame` + `html/projectm-perf.js` |
 
 Do **not** put the printer in `hlslparser`. Per-pixel equations are not HLSL.
@@ -173,22 +173,22 @@ path — are not read on the GPU path unless the preset has a CPU slice, which h
 per-vertex values over in them instead (`a_pp_cpu0..3`, narrowest first: the vec2s at 5,
 6 and 7, then the vec4 at 4, so a one- or two-value slice uploads 8 bytes per vertex).
 
-**Per-frame uniforms:** `u_pp_time`, `u_pp_fps`, `u_pp_frame`, `u_pp_progress`,
-`u_pp_bass`, `u_pp_mid`, `u_pp_treb`, `u_pp_bass_att`, `u_pp_mid_att`,
-`u_pp_treb_att`, `u_pp_meshx`, `u_pp_meshy`, `u_pp_pixelsx`, `u_pp_pixelsy`,
-`u_pp_aspectx`, `u_pp_aspecty`, the musical-time variables as `u_pp_pm_bpm` …
-`u_pp_pm_rhythm_conf` (one per `pm_*` name, see
-[`MILK_PRESET_GUIDE.md`](MILK_PRESET_GUIDE.md#musical-time-pm_-variables); flag bits 16
-and up of the uniform mask), plus `u_pp_q[8]` (`q1..q32` packed as `vec4`s to stay
-inside WebGL2's uniform limits, uploaded with one `glUniform4fv` call) and the four seed
-uniforms `u_pp_seed_transforms`, `u_pp_seed_center`, `u_pp_seed_distance` and
-`u_pp_seed_stretch`.
+**Per-frame uniforms:** one std140 block, `_pm_per_pixel` (`PerPixelUniforms` in
+`PerPixelGlslLowering.hpp`, slot 2; see [`RENDER_DEVICE.md`](RENDER_DEVICE.md#uniform-buffers)),
+that every lowered program declares (`PerPixelGlslLowering::PerPixelBlockDeclaration()`):
+the four seeds `u_pp_seed_transforms`, `u_pp_seed_center`, `u_pp_seed_distance` and
+`u_pp_seed_stretch`, `u_pp_q[8]` (`q1..q32` as `vec4`s), and the scalars `u_pp_time`,
+`u_pp_fps`, `u_pp_frame`, `u_pp_progress`, `u_pp_bass`, `u_pp_mid`, `u_pp_treb`,
+`u_pp_bass_att`, `u_pp_mid_att`, `u_pp_treb_att`, `u_pp_meshx`, `u_pp_meshy`,
+`u_pp_pixelsx`, `u_pp_pixelsy`, `u_pp_aspectx`, `u_pp_aspecty` and the musical-time
+variables `u_pp_pm_bpm` … `u_pp_pm_rhythm_conf` (one per `pm_*` name, see
+[`MILK_PRESET_GUIDE.md`](MILK_PRESET_GUIDE.md#musical-time-pm_-variables)), in the order
+of their flag bits (`PerPixelGlslLowering::ScalarUniformName()`).
 
-Only the uniforms the generated code actually reads are declared, and the lowering
-reports which ones those are, so a preset that touches `bass` alone costs one upload
-rather than fifty-eight. All of it is per frame, not per vertex. `Shader` caches uniform
-locations per program, so none of these is a `glGetUniformLocation` call after the first
-frame.
+The block holds every value whether or not the code reads it: it is one 304-byte write
+to the engine's uniform ring per draw, not one upload per uniform. The lowering still
+reports which values the code reads (`uniforms`, `qVectors`). All of it is per frame,
+not per vertex.
 
 **Outputs:** the same ten floats the CPU writes today, handed back through `inout`
 parameters. The existing vertex shader body then runs unchanged.
@@ -431,7 +431,7 @@ C++; nothing depends on Phase 2.
 | | Before | After |
 |---|---|---|
 | Static grid (positions, radius/angle, indices) | Uploaded every frame on both paths — 100–400 KB of buffer traffic per frame at high mesh quality — and, worse, *recomputed* every frame: `InitializeMesh()` compared the viewport against `m_viewportWidth`/`m_viewportHeight` but never stored them (upstream has the same bug) | Recomputed and uploaded only when the viewport or mesh size changes (`m_staticDataDirty`). The CPU path still uploads its four transform buffers every frame; the GPU path uploads nothing per vertex unless it has a CPU slice |
-| Uniform locations | `glGetUniformLocation` for every uniform every frame (about 30 names on the GPU path, a JavaScript call plus a string decode each on WebGL), and a `"u_pp_q[N]"` string built per vector | `Shader` caches each name's location (including -1 for inactive ones) until the next link; `u_pp_q` goes up in one `glUniform4fv(loc, 8, …)` |
+| Uniform locations | `glGetUniformLocation` for every uniform every frame (about 30 names on the GPU path, a JavaScript call plus a string decode each on WebGL), and a `"u_pp_q[N]"` string built per vector | `Shader` caches each name's location (including -1 for inactive ones) until the next link; `u_pp_q` goes up in one `glUniform4fv(loc, 8, …)`. Since replaced: every value is a member of the `_pm_per_pixel` block, written in one piece |
 | Per-preset warp programs | `milkdrop_default_warp_shader_gpu_<std::hash>` — 32 bits on wasm32, so a collision silently draws another preset's warp — and never evicted | 64-bit FNV-1a of the generated GLSL plus its length; `ShaderCache::InsertEvictable()` keeps the 32 most recently used. A preset holds its program strongly, so eviction never deletes one in use; an evicted program is `glDeleteProgram`med as soon as nothing holds it |
 
 The `Shader` location cache applies to every program, including the composite and custom

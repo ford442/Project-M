@@ -5,6 +5,7 @@
 #include "ShapePerFrameContext.hpp"
 
 #include <Renderer/Mesh.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <projectm-eval.h>
 
@@ -45,6 +46,7 @@ public:
     void Draw();
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     Renderer::Mesh m_outlineMesh; //!< The shape's border/outline mesh.
     Renderer::Mesh m_fillMesh; //!< The shape's color/texture mesh.
 

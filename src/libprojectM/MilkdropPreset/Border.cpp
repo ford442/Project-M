@@ -3,6 +3,7 @@
 #include "PerFrameContext.hpp"
 
 #include <Renderer/Device/RenderDevice.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -36,8 +37,7 @@ void Border::Draw(const PerFrameContext& presetPerFrameContext)
     auto shader = m_presetState.untexturedShader.lock();
     // No additive drawing for borders
     Renderer::Device::SetPipeline(m_borderMesh.Pipeline(*shader, Renderer::Device::BlendState::Alpha()));
-    shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
-    shader->SetUniformFloat("vertex_point_size", 1.0f);
+    m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, 1.0f});
 
     m_borderMesh.Bind();
 

@@ -10,6 +10,7 @@
 #include <Renderer/RenderContext.hpp>
 #include <Renderer/Shader.hpp>
 #include <Renderer/TextureSamplerDescriptor.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <array>
 #include <memory>
@@ -151,6 +152,8 @@ public:
 
 private:
     static constexpr int NumBlurTextures = 6; //!< Maximum number of blur passes/textures.
+
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
 
     /**
      * How the blur passes get their results into the blur textures.

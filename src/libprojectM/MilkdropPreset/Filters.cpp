@@ -2,6 +2,7 @@
 
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Shader.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 using libprojectM::Renderer::Device::BlendFactor;
 
@@ -28,10 +29,8 @@ void Filters::Draw()
     auto shader = m_presetState.untexturedShader.lock();
     m_shader = shader.get();
 
-    // The program has to be current for the uniforms; each draw below sets its own pipeline.
-    shader->Bind();
-    shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
-    shader->SetUniformFloat("vertex_point_size", 1.0f);
+    // One block for every draw below; each sets its own pipeline.
+    m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, 1.0f});
 
     Renderer::Device::Commands().SetConstantVertexAttribute(1, {1.0, 1.0, 1.0, 1.0});
 

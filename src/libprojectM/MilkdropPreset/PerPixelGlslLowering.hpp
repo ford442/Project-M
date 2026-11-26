@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -9,6 +11,31 @@ struct projectm_eval_code;
 
 namespace libprojectM {
 namespace MilkdropPreset {
+
+/**
+ * @brief <tt>_pm_per_pixel</tt>: the per-frame values the GPU per-pixel code reads, the std140
+ *        block PerPixelGlslLowering::PerPixelBlockDeclaration() declares, member for member.
+ *
+ * Bound to Renderer::UniformSlot::PerPixel (docs/RENDER_DEVICE.md "Uniform buffers").
+ */
+struct alignas(16) PerPixelUniforms {
+    static constexpr const char* BlockName = "_pm_per_pixel";
+    static constexpr int Slot = 2;         //!< Renderer::UniformSlot::PerPixel
+    static constexpr int ScalarCount = 31; //!< The 16 Milkdrop scalars and the 15 pm_* variables.
+
+    std::array<float, 4> seedTransforms{};    //!< u_pp_seed_transforms: zoom, zoomexp, rot, warp
+    std::array<float, 32> q{};                //!< u_pp_q[8]: q1..q32
+    std::array<float, 2> seedCenter{};        //!< u_pp_seed_center: cx, cy
+    std::array<float, 2> seedDistance{};      //!< u_pp_seed_distance: dx, dy
+    std::array<float, 2> seedStretch{};       //!< u_pp_seed_stretch: sx, sy
+    std::array<float, ScalarCount> scalars{}; //!< u_pp_time ... u_pp_pm_*, by UniformFlags bit
+};
+static_assert(offsetof(PerPixelUniforms, q) == 16);
+static_assert(offsetof(PerPixelUniforms, seedCenter) == 144);
+static_assert(offsetof(PerPixelUniforms, seedDistance) == 152);
+static_assert(offsetof(PerPixelUniforms, seedStretch) == 160);
+static_assert(offsetof(PerPixelUniforms, scalars) == 168);
+static_assert(sizeof(PerPixelUniforms) == 304);
 
 /**
  * @brief Compiles a Milkdrop @c per_pixel_* program from the projectM-EvalLib
@@ -85,6 +112,17 @@ public:
     static auto RhythmUniformName(int index) -> const std::string&;
 
     /**
+     * @brief GLSL name of the read-only builtin of UniformFlags bit @a bit (u_pp_time, ...,
+     *        u_pp_pm_*): PerPixelUniforms::scalars[bit].
+     */
+    static auto ScalarUniformName(int bit) -> const char*;
+
+    /**
+     * @brief The <tt>_pm_per_pixel</tt> block declaration every lowered program starts with.
+     */
+    static auto PerPixelBlockDeclaration() -> const std::string&;
+
+    /**
      * @brief Largest number of per-vertex values a CpuSlice may hand to the shader.
      *
      * The values travel in the four warp-mesh attributes the CPU path fills with the ten
@@ -148,8 +186,7 @@ public:
         double m_costShare{};      //!< See CostShare().
     };
 
-    struct Result
-    {
+    struct Result {
         bool lowered{false};      //!< True if @c glsl holds a usable translation.
         std::string reason;       //!< Why the program was refused. Empty on success.
         std::string glsl;         //!< GLSL ES 3.00 source: helpers, attributes plus @c prjm_per_pixel().
@@ -224,8 +261,7 @@ public:
     static auto Available() -> bool;
 
     /** @brief Whether the CPU may spread a per-pixel program's vertices over threads. */
-    struct EvaluationOrder
-    {
+    struct EvaluationOrder {
         bool parallel{false}; //!< Every vertex is independent: any split over threads gives the same values.
         std::string reason;   //!< Why the vertices must run in order on one thread. Empty when parallel.
     };

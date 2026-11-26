@@ -1,10 +1,16 @@
 in vec2 fragment_texture;
 
 uniform sampler2D texture_sampler;
-uniform vec4 _c0; // source texsize (.xy), and inverse (.zw)
-uniform vec4 _c1; // w1..w4
-uniform vec4 _c2; // d1..d4
-uniform vec4 _c3; // scale, bias, w_div
+// _pm_blur (Renderer::BlurUniforms), the same block in every stage of both blur programs.
+layout(std140) uniform _pm_blur {
+    vec4 _c0; // source texsize (.xy), and inverse (.zw)
+    vec4 _c1; // w1..w4
+    vec4 _c2; // d1..d4
+    vec4 _c3; // scale, bias, w_div
+    vec4 _c5; // w1,w2,d1,d2
+    vec4 _c6; // w_div, edge_darken_c1, edge_darken_c2, edge_darken_c3
+    int flipVertical;
+};
 
 out vec4 color;
 

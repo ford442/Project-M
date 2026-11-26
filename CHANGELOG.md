@@ -76,6 +76,15 @@ Engine and C API
   bit-identically on WebGPU (Tint) and WebGL 2 on SwiftShader (`tests/webgpu/wgsl_parity.mjs`); `wgsl_corpus.yml`
   runs all three. No WebGPU renderer yet. Found on the way: the GLSL generator prints float literals with six
   significant digits (`43758.5453` is `43758.5`), kept on both paths for now. `docs/adr/0002-wgsl-shader-path.md`.
+- **Built-in shader uniforms in blocks** (WebGPU backend, Phase C): every value a built-in program reads is now a
+  member of a std140 uniform block written per draw to the engine's uniform ring, as WebGPU requires: the draw
+  transform (`_pm_transform`), texture copies, motion vectors, the warp mesh (`_pm_warp`, including `u_flipMainTex`),
+  the blur constants, the transition header's inputs (`_pm_transition`, same member names, so transition shaders are
+  unchanged), the flash limiter, user sprites, the WASM compositor and the GPU per-pixel path's `u_pp_*`
+  (`_pm_per_pixel`). Only samplers and the preset shaders' `texsize_*` remain plain uniforms on GL.
+  `Renderer/UniformBlocks.hpp` lists the blocks, their slots and C++ mirrors; `UniformBlockLayoutTest` checks every
+  block's driver layout against its struct. Output unchanged: all 2032 `scripts/render_hash_corpus.sh` renders are
+  bit-identical on llvmpipe. `docs/RENDER_DEVICE.md` "The built-in shaders' blocks".
 - **Shader passes in `.milk` presets** (#229): `warp_nPasses`/`comp_nPasses` (at most 3 shaders per stage) run
   `warp_passK_`/`comp_passK_` shaders before the stage's own, which read the previous pass as `sampler_lastpass`
   (`iLastPassTex`, `GetLastPass(uv)`) and know their number as `iPass`. A count over 3 or a declared pass without code

@@ -739,7 +739,7 @@ private:
     std::unique_ptr<Renderer::TextureManager> m_textureManager;                   //!< The texture manager.
     std::map<std::string, double> m_hostVariables;                                //!< SetHostVariable() overrides by lower-case name.
     std::unique_ptr<Renderer::ShaderCache> m_shaderCache;                         //!< The global shader cache.
-    std::unique_ptr<Renderer::UniformRingBuffer> m_uniformRing;                   //!< Per-draw uniform blocks (RenderContext::uniformRing).
+    std::unique_ptr<Renderer::UniformRingBuffer> m_uniformRing;                   //!< Per-draw uniform blocks (EngineContext::UniformRing()).
     std::unique_ptr<Renderer::RenderGraph> m_frameGraph;                          //!< The frame's top-level passes, declared each frame.
     std::unique_ptr<Renderer::TransitionShaderManager> m_transitionShaderManager; //!< The transition shader manager.
     std::unique_ptr<Renderer::CopyTexture> m_textureCopier;                       //!< Class that copies textures 1:1 to another texture or framebuffer.

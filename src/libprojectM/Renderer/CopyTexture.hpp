@@ -3,6 +3,7 @@
 #include "Renderer/Framebuffer.hpp"
 #include "Renderer/Mesh.hpp"
 #include "Renderer/ShaderCache.hpp"
+#include "Renderer/UniformBlocks.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -136,6 +137,7 @@ public:
     auto Texture() -> std::shared_ptr<Texture>;
 
 private:
+    UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     /**
      * Updates the mesh
      */

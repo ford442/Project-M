@@ -13,6 +13,7 @@
 #include <Renderer/ShaderCache.hpp>
 #include <Renderer/ShaderPrelude.hpp>
 #include <Renderer/TextureManager.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <Utils.hpp>
 
@@ -232,7 +233,7 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
 
     spriteShader->Bind();
 
-    spriteShader->SetUniformInt("blend_mode", blendMode);
+    m_uniforms.Write(Renderer::SpriteUniforms{blendMode});
     spriteShader->SetUniformInt("texture_sampler", 0);
 
     m_texture->Bind(0);

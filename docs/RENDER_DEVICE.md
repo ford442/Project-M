@@ -27,7 +27,8 @@ inherits (bind group layouts from the reflection, clip-space y negated).
 | `Renderer/Device/ResourceStateTracker.hpp/.cpp` | The validation layer (see [Validation](#validation-feedback-hazards)). |
 | `Renderer/Device/Gl/GlEnums.hpp/.cpp` | Device enums to `GL_*`. The only place a `GL_*` constant appears for the renderer. |
 | `Renderer/Device/Gl/GlDevice.hpp/.cpp` | The GL backend. |
-| `Renderer/UniformRingBuffer.hpp/.cpp` | The per-engine ring that per-draw uniform blocks are written to. |
+| `Renderer/UniformRingBuffer.hpp/.cpp` | The ring per-draw uniform blocks are written to; each engine owns one (`EngineContext::UniformRing()`). |
+| `Renderer/UniformBlocks.hpp/.cpp` | The built-in shaders' std140 blocks: slots, the block registry, the C++ mirrors, `UniformBlockWriter`. |
 | `Renderer/RenderGraph.hpp/.cpp` | The frame as declared passes, transient targets and their pool. |
 
 `Renderer/Platform/` (context creation, the GL loader) is the other place GL is
@@ -105,8 +106,8 @@ current before drawing:
 ```cpp
 // Mesh::Pipeline() fills in the program, the mesh's topology and its attribute layout.
 Renderer::Device::SetPipeline(m_mesh.Pipeline(*shader, Renderer::Device::BlendState::Alpha()));
-shader->SetUniformMat4x4("vertex_transformation", ...); // the pipeline's program is current
-m_mesh.Draw();                                          // DrawIndexed() with its topology
+m_uniforms.Write(Renderer::TransformUniforms{projection, 1.0f}); // the draw's block, slot 1
+m_mesh.Draw();                                                  // DrawIndexed() with its topology
 ```
 
 - `IRenderDevice::CreatePipeline()` returns a `PipelineHandle` cached by
@@ -152,10 +153,17 @@ padding). Keep the two in step, one declaration per line: in a cbuffer the trans
 name of `float4 a, b;`.
 
 - `MilkdropShader::LoadVariables()` fills the struct and writes it to the engine's
-  `UniformRingBuffer` (`RenderContext::uniformRing`): each draw gets its own range at
-  `UniformBufferOffsetAlignment()`, which is WebGPU's dynamic-offset model. The ring is one
-  64 KiB buffer that wraps across frames; ranges of one frame never overlap, and a frame that
-  needs more grows it once. Nothing is allocated per frame.
+  `UniformRingBuffer` (`EngineContext::UniformRing()`, owned by `ProjectM`): each draw gets its own
+  range at `UniformBufferOffsetAlignment()`, which is WebGPU's dynamic-offset model. The ring is one
+  64 KiB buffer that wraps across frames; ranges of one frame never overlap, and a frame that needs
+  more grows it once. Nothing is allocated per frame. `ProjectM::RenderFrame()` starts each frame on
+  it. A write with the same bytes as the previous one of the frame gets that write's range back: the
+  per-instance draws of shapes and waves rewrite one constant block hundreds of times.
+- Drawing objects write through a `UniformBlockWriter` member: inside an engine it uses the engine's
+  ring; outside any engine (the WASM compositor, tests that draw with renderer objects directly) a
+  4 KiB ring of its own, created on first use and released with the object, like its programs. The
+  process device cannot hold a ring: it is not tied to one GL context (each WASM host has its own,
+  and GPU tests make one per test). A ring nobody starts frames on wraps instead of growing.
 - Device: `BufferKind::Uniform`, `CreateUniformBuffer()`, `WriteBuffer()` (queue-ordered, like
   `queue.writeBuffer()`), `ICommandList::BindUniformBuffer(slot, buffer, offset, size)`, and
   `BindUniformBlock(program, name, slot)`. GLSL 3.30 and ESSL 3.00 cannot say `layout(binding = n)`,
@@ -164,7 +172,44 @@ name of `float4 a, b;`.
 - An assignment to a block member (`q25 = ...;` in shader code) needs a local copy, because block
   members are read-only in GLSL; hlslparser makes the same copy it makes for a plain uniform.
 - Cached transpiled GLSL without the block (from an older engine) is transpiled again.
-- `vertex_transformation` and the per-pixel GPU path's uniforms stay plain uniforms.
+
+### The built-in shaders' blocks
+
+Every other value a built-in program reads is a member of a std140 block too, so no shader has
+default-block uniforms left but its samplers (which texture unit a `sampler2D` reads; on WebGPU a
+bind group entry) and the preset shaders' `texsize_*` (the WGSL path already puts those in
+`pmw_globals`, ADR 0002). `Renderer/UniformBlocks.hpp` lists them:
+
+| Block | Slot | C++ | Read by |
+|---|---|---|---|
+| `_milkdrop_frame` | 0 | `MilkdropFrameUniforms` | preset warp and composite shaders |
+| `_pm_transform` | 1 | `TransformUniforms` | textured and untextured draws: shapes, waves, borders, filters, darken center, video echo |
+| `_pm_copy` | 1 | `CopyUniforms` | `CopyTexture`'s shader path (both stages) |
+| `_pm_motion_vectors` | 1 | `MotionVectorUniforms` | motion vectors |
+| `_pm_warp` | 1 | `WarpUniforms` | the warp mesh's vertex shader (default and preset warp) and the default warp fragment shader (`u_flipMainTex`) |
+| `_pm_blur` | 1 | `BlurUniforms` | both blur programs (`_c0`..`_c3`, `_c5`, `_c6`, `flipVertical`) |
+| `_pm_transition` | 1 | `TransitionUniforms` | the transition shader header (the old uniform names are its members) |
+| `_pm_flash_limiter` | 1 | `FlashLimiterUniforms` | the flash limiter's state and mix passes |
+| `_pm_sprite` | 1 | `SpriteUniforms` | user sprites |
+| `_pm_compositor` | 1 | `CompositorUniforms` | the WASM host's dual-FBO compositor |
+| `_pm_per_pixel` | 2 | `PerPixelUniforms` | the GPU per-pixel path's generated code (`GPU_PERPIXEL_EVAL.md`) |
+
+- Slot 0 is the preset's per-frame block, slot 1 the draw's own block, slot 2 the per-pixel block;
+  no program reads two blocks from one slot. A block two stages of one program declare is
+  declared identically in both.
+- `Shader` binds every registry block a program declares to its slot after each link, so callers
+  do not call `SetUniformBlockBinding()` for them.
+- A draw writes its block with `m_uniforms.Write(block)` right before it draws, or before a run of
+  draws that share it (the flash limiter's state and mix passes, a shape's instances). The slot
+  binding is not pipeline state: it stays until the next block is written to that slot, so a draw
+  must not rely on a block written by someone else.
+- The structs' `static_assert`s pin the std140 offsets; `UniformBlockLayoutTest` (GPU) records every
+  built-in block of every program an engine links while it draws all of them, on both copy and blur
+  paths, and compares each member's offset, the block size and its slot with the struct. A block no
+  program declared fails it, so a renamed one cannot go unchecked.
+- For Phase D these structs are what the hand-written WGSL twins of the built-in shaders declare:
+  each struct is already a WGSL uniform-address-space layout (vec3 at 16-byte alignment, a `mat4`
+  as four columns, `ivec4` as `vec4i`).
 
 ## Bind groups
 
@@ -297,6 +342,11 @@ same build.
   there are no pass violations.
 - Bind groups (B1.4) and the render graph (B2): every render identical to the step before. Sharing the
   extra-pass targets was also checked on a preset with both warp and composite extra passes.
+- The built-in shaders' blocks (Phase C): all 2032 renders identical to the step before. Unlike B1.3, no
+  preset changed: llvmpipe compiles these reads the same way from a block as from the default block.
+  One render of the baseline run (`presets/weeks/pair up gnothing knew nz.milk`, default paths)
+  differed once and matched on every rerun of both builds, a nondeterminism of that preset under a
+  loaded parallel run, not of this change.
 
 Keeping it bit-identical meant keeping GL quirks. One example: `Framebuffer`
 still lists depth and stencil attachments in `glDrawBuffers`. Fix such quirks in

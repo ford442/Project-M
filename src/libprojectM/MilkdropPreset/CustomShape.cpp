@@ -4,6 +4,7 @@
 
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/TextureManager.hpp>
+#include <Renderer/UniformBlocks.hpp>
 #include <Utils.hpp>
 
 #include <vector>
@@ -137,7 +138,7 @@ void CustomShape::Draw()
         {
             auto shader = m_presetState.texturedShader.lock();
             Renderer::Device::SetPipeline(m_fillMesh.Pipeline(*shader, blend));
-            shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
+            m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, 1.0f});
             shader->SetUniformInt("texture_sampler", 0);
 
             // Textured shape, either main texture or texture from "image" key
@@ -185,7 +186,7 @@ void CustomShape::Draw()
             // Untextured (creates a color gradient: center=r/g/b/a to border=r2/b2/g2/a2)
             auto shader = m_presetState.untexturedShader.lock();
             Renderer::Device::SetPipeline(m_fillMesh.Pipeline(*shader, blend));
-            shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
+            m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, 1.0f});
         }
 
         m_fillMesh.Indices().Resize(sides + 2);
@@ -214,8 +215,7 @@ void CustomShape::Draw()
             auto outline = m_outlineMesh.Pipeline(*shader, blend);
             outline.raster.lineSmooth = true;
             Renderer::Device::SetPipeline(outline);
-            shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
-            shader->SetUniformFloat("vertex_point_size", 1.0f);
+            m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, 1.0f});
 
             Renderer::Device::Commands().SetConstantVertexAttribute(1, {static_cast<float>(*m_perFrameContext.border_r),
                                                                       static_cast<float>(*m_perFrameContext.border_g),

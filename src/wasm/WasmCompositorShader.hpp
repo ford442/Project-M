@@ -43,10 +43,13 @@ inline constexpr char kCompositorFragmentShader[] = R"(#version 300 es
 precision highp float;
 uniform sampler2D uTexA;
 uniform sampler2D uTexB;
-uniform float uBlend;
-uniform float uDither;
-uniform int u_transparencyEnabled;
-uniform float u_transparencyThreshold;
+// _pm_compositor (Renderer::CompositorUniforms, docs/RENDER_DEVICE.md "Uniform buffers").
+layout(std140) uniform _pm_compositor {
+    float uBlend;
+    float uDither;
+    int u_transparencyEnabled;
+    float u_transparencyThreshold;
+};
 in vec2 vTexCoord;
 out vec4 fragColor;
 

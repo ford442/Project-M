@@ -1,9 +1,12 @@
 layout(location = 0) in vec2 vertex_position;
 layout(location = 1) in vec4 vertex_color;
 
-uniform mat4 vertex_transformation;
-uniform float length_multiplier;
-uniform float minimum_length;
+// _pm_motion_vectors (Renderer::MotionVectorUniforms).
+layout(std140) uniform _pm_motion_vectors {
+    mat4 vertex_transformation;
+    float length_multiplier;
+    float minimum_length;
+};
 
 uniform sampler2D warp_coordinates;
 

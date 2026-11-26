@@ -5,6 +5,7 @@
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/ShaderCache.hpp>
 #include <Renderer/TextureManager.hpp>
+#include <Renderer/UniformBlocks.hpp>
 #include <Utils.hpp>
 
 #include <algorithm>
@@ -69,9 +70,9 @@ void MotionVectors::Draw(const PerFrameContext& presetPerFrameContext, std::shar
     auto pipeline = m_motionVectorMesh.Pipeline(*shader, Renderer::Device::BlendState::Alpha());
     pipeline.raster.lineSmooth = true;
     Renderer::Device::SetPipeline(pipeline);
-    shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
-    shader->SetUniformFloat("length_multiplier", static_cast<float>(*presetPerFrameContext.mv_l));
-    shader->SetUniformFloat("minimum_length", minimumLength);
+    m_uniforms.Write(Renderer::MotionVectorUniforms{PresetState::orthogonalProjection,
+                                                    static_cast<float>(*presetPerFrameContext.mv_l),
+                                                    minimumLength});
 
     shader->SetUniformInt("warp_coordinates", 0);
 

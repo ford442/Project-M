@@ -18,9 +18,12 @@
 
 #include "HeadlessGlContext.hpp"
 
+#include <EngineContext.hpp>
+
 #include <Renderer/Device/Gl/GlDevice.hpp>
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Shader.hpp>
+#include <Renderer/UniformBlocks.hpp>
 #include <Renderer/UniformRingBuffer.hpp>
 
 #include "TestGl.hpp"
@@ -818,9 +821,10 @@ TEST_F(GlDeviceTest, UniformRingAllocatesOnceAndWraps)
     const size_t alignment = m_device->UniformBufferOffsetAlignment();
     const size_t capacity = 4 * alignment;
     libprojectM::Renderer::UniformRingBuffer ring(capacity);
-    const std::array<float, 4> data{};
+    std::array<float, 4> data{};
 
     // Three ranges a frame in room for four: frames wrap around the buffer without growing it.
+    // Each write differs from the one before (an identical one reuses its range).
     size_t lastOffset{};
     for (int frame = 0; frame < 10; frame++)
     {
@@ -828,6 +832,7 @@ TEST_F(GlDeviceTest, UniformRingAllocatesOnceAndWraps)
         std::vector<size_t> offsets;
         for (int draw = 0; draw < 3; draw++)
         {
+            data[0] = static_cast<float>(draw);
             const auto range = ring.Write(data.data(), sizeof(data));
             EXPECT_EQ(range.offset % alignment, 0u);
             EXPECT_LE(range.offset + range.size, capacity);
@@ -846,6 +851,7 @@ TEST_F(GlDeviceTest, UniformRingAllocatesOnceAndWraps)
     ring.BeginFrame();
     for (int draw = 0; draw < 6; draw++)
     {
+        data[0] = static_cast<float>(draw);
         ring.Write(data.data(), sizeof(data));
     }
     EXPECT_EQ(ring.Allocations(), 2u);
@@ -855,10 +861,85 @@ TEST_F(GlDeviceTest, UniformRingAllocatesOnceAndWraps)
         ring.BeginFrame();
         for (int draw = 0; draw < 6; draw++)
         {
+            data[0] = static_cast<float>(draw);
             ring.Write(data.data(), sizeof(data));
         }
     }
     EXPECT_EQ(ring.Allocations(), 2u);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, UniformRingReusesTheRangeOfAnIdenticalWrite)
+{
+    libprojectM::Renderer::UniformRingBuffer ring(*m_device, 4096);
+    std::array<float, 4> data{1.0f, 2.0f, 3.0f, 4.0f};
+
+    ring.BeginFrame();
+    const auto first = ring.Write(data.data(), sizeof(data));
+    const auto again = ring.Write(data.data(), sizeof(data));
+    EXPECT_EQ(again.offset, first.offset) << "the same bytes as the previous write";
+    EXPECT_EQ(ring.ReusedWrites(), 1u);
+
+    data[3] = 5.0f;
+    const auto changed = ring.Write(data.data(), sizeof(data));
+    EXPECT_NE(changed.offset, first.offset);
+    data[3] = 4.0f;
+    const auto back = ring.Write(data.data(), sizeof(data));
+    EXPECT_NE(back.offset, first.offset) << "only the previous write is reused";
+
+    // Not across frames: the next frame may overwrite this one's ranges.
+    ring.BeginFrame();
+    const auto nextFrame = ring.Write(data.data(), sizeof(data));
+    EXPECT_NE(nextFrame.offset, back.offset);
+    EXPECT_EQ(ring.ReusedWrites(), 1u);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, UniformRingWithoutFramesWrapsInsteadOfGrowing)
+{
+    // A ring nobody starts frames on (a UniformBlockWriter's own, outside engines).
+    const size_t alignment = m_device->UniformBufferOffsetAlignment();
+    libprojectM::Renderer::UniformRingBuffer ring(*m_device, 4 * alignment);
+    std::array<float, 4> data{};
+    for (int draw = 0; draw < 64; draw++)
+    {
+        data[0] = static_cast<float>(draw); // No two writes alike.
+        const auto range = ring.Write(data.data(), sizeof(data));
+        EXPECT_LE(range.offset + range.size, ring.Capacity());
+    }
+    EXPECT_EQ(ring.Allocations(), 1u);
+    EXPECT_EQ(ring.Capacity(), 4 * alignment);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, UniformBlockWriterUsesTheEngineRingInsideAnEngine)
+{
+    // Outside any engine each writer has a ring of its own (the process device is not tied to
+    // one GL context); inside one, every writer uses the engine's.
+    libprojectM::Renderer::UniformBlockWriter writer;
+    libprojectM::Renderer::UniformBlockWriter other;
+    auto& own = writer.Ring();
+    EXPECT_EQ(&writer.Ring(), &own);
+    EXPECT_NE(&other.Ring(), &own);
+    EXPECT_EQ(own.Capacity(), libprojectM::Renderer::UniformBlockWriter::OwnRingCapacity);
+
+    libprojectM::EngineContext engine;
+    libprojectM::Renderer::UniformRingBuffer engineRing(*engine.RenderDevice());
+    engine.SetUniformRing(&engineRing);
+    {
+        const libprojectM::ScopedEngineContext scope(engine);
+        EXPECT_EQ(&writer.Ring(), &engineRing);
+        EXPECT_EQ(&other.Ring(), &engineRing);
+
+        // A write binds the block's slot.
+        const auto range = writer.Write(libprojectM::Renderer::SpriteUniforms{3});
+        GLint bound{};
+        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, libprojectM::Renderer::SpriteUniforms::Slot, &bound);
+        EXPECT_EQ(static_cast<uint32_t>(bound), range.buffer.id);
+        engine.RenderDevice()->Commands().ResetPipelineState();
+    }
+    EXPECT_EQ(&writer.Ring(), &own);
+    engine.SetUniformRing(nullptr);
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
 }
 

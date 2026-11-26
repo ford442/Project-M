@@ -4,6 +4,7 @@
 #include "PresetFileParser.hpp"
 
 #include <Renderer/Device/RenderDevice.hpp>
+#include <Renderer/UniformBlocks.hpp>
 #include <OpenMpConfig.hpp>
 #include <Utils.hpp>
 
@@ -229,8 +230,7 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
     auto shader = m_presetState.untexturedShader.lock();
     Renderer::Device::SetPipeline(m_mesh.Pipeline(*shader, m_additive ? Renderer::Device::BlendState::AdditiveAlpha()
                                                                        : Renderer::Device::BlendState::Alpha()));
-    shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
-    shader->SetUniformFloat("vertex_point_size", m_drawThick ? 2.0f : 1.0f);
+    m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, m_drawThick ? 2.0f : 1.0f});
 
     auto iterations = (m_drawThick && !m_useDots) ? 4 : 1;
 

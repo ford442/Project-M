@@ -21,6 +21,7 @@
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Point.hpp>
 #include <Renderer/Shader.hpp>
+#include <Renderer/UniformBlocks.hpp>
 #include <Renderer/VertexArray.hpp>
 #include <Renderer/VertexBuffer.hpp>
 
@@ -804,10 +805,9 @@ public:
         commands.BindTexture(1, texture2D, texB.Valid() ? texB : texA);
         m_program->SetUniformInt("uTexB", 1);
 
-        m_program->SetUniformFloat("uBlend", blend);
-        m_program->SetUniformFloat("uDither", dither ? 1.0f : 0.0f);
-        m_program->SetUniformInt("u_transparencyEnabled", transparencyMode ? 1 : 0);
-        m_program->SetUniformFloat("u_transparencyThreshold", transparencyThreshold);
+        m_uniforms.Write(libprojectM::Renderer::CompositorUniforms{blend, dither ? 1.0f : 0.0f,
+                                                                   transparencyMode ? 1 : 0,
+                                                                   transparencyThreshold});
 
         m_vao->Bind();
         commands.Draw(0, 4);
@@ -825,7 +825,7 @@ public:
     }
 
     /**
-     * @brief Deletes the program, VAO and VBO and returns to the uninitialised state.
+     * @brief Deletes the program, VAO, VBO and uniform ring and returns to the uninitialised state.
      *
      * Must run while the context that created them is current: GL object ids
      * are global to the Emscripten GL layer, so deleting a stale id under
@@ -836,6 +836,7 @@ public:
         m_program.reset();
         m_vbo.reset();
         m_vao.reset();
+        m_uniforms = {};
         m_initialized = false;
     }
 
@@ -845,6 +846,8 @@ private:
     std::unique_ptr<libprojectM::Renderer::VertexArray> m_vao;
     int m_positionLocation{-1}; //!< Where aPosition was linked; -1 if the linker dropped it.
     std::unique_ptr<libprojectM::Renderer::VertexBuffer<libprojectM::Renderer::Point>> m_vbo;
+    //! The _pm_compositor block's ring: its own, as it draws outside the engine on this host's context.
+    libprojectM::Renderer::UniformBlockWriter m_uniforms;
 };
 
 // The dual-FBO manager and compositing shader are per-instance state: each

@@ -6,6 +6,7 @@
 #include "Waveforms/Factory.hpp"
 
 #include <Renderer/Device/RenderDevice.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -36,8 +37,7 @@ void Waveform::Draw(const PerFrameContext& presetPerFrameContext)
 
     auto shader = m_presetState.untexturedShader.lock();
     shader->Bind();
-    shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjectionFlipped);
-    shader->SetUniformFloat("vertex_point_size", 1.0f);
+    m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjectionFlipped, 1.0f});
 
     // Additive wave drawing (vice overwrite)
     const auto blend = m_presetState.additiveWaves ? Renderer::Device::BlendState::AdditiveAlpha()

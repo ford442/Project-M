@@ -29,6 +29,8 @@
 # --- Process-wide by nature: GL loading and the platform, the same for every engine ---
 ^libprojectM::Renderer::Platform::                          # GL resolver/loader singletons and their env switches
 ^libprojectM::MilkdropPreset::MilkdropStaticShaders::Get\(\)::instance$  # shader source text + GLSL version; no GL objects
+^libprojectM::MilkdropPreset::PerPixelGlslLowering::PerPixelBlockDeclaration\[abi:cxx11\]\(\)::declaration$  # the _pm_per_pixel block's GLSL text, built once; never written after
+^libprojectM::Renderer::BuiltInUniformBlocks$                # constant table of block names and slots (relocated read-only data)
 
 # --- Third-party statics pulled in by headers (only the ENABLE_BOOST_FILESYSTEM legs) ---
 ^boost::(integral_constant<|system::detail::)               # boost::system/boost::filesystem header internals (error categories, std-category map): process-wide by nature, not ours
@@ -38,3 +40,4 @@
 ^libprojectM::MilkdropPreset::FinalComposite::s_meshRebuildCount$  # atomic counter for tests
 ^libprojectM::Renderer::Framebuffer::s_liveInstanceCount$          # atomic counter for leak tests
 ^libprojectM::Renderer::\(anonymous namespace\)::g_compileCompleteOverride$  # Shader::OverrideCompileCompleteForTesting()
+^libprojectM::Renderer::\(anonymous namespace\)::g_linkObserver$            # Shader::SetLinkObserverForTesting()

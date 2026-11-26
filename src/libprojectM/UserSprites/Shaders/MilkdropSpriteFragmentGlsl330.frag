@@ -3,7 +3,10 @@ in vec2 fragment_texture;
 
 uniform sampler2D texture_sampler;
 
-uniform int blend_mode;
+// _pm_sprite (Renderer::SpriteUniforms).
+layout(std140) uniform _pm_sprite {
+    int blend_mode;
+};
 
 out vec4 color;
 

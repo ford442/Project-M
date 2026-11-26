@@ -4,6 +4,7 @@
 #include "PresetState.hpp"
 
 #include <Renderer/Mesh.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <memory>
 
@@ -33,6 +34,7 @@ public:
     void Draw(const PerFrameContext& presetPerFrameContext, std::shared_ptr<Renderer::Texture> motionTexture);
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     std::shared_ptr<Renderer::Shader> GetShader();
 
     PresetState& m_presetState; //!< The global preset state.

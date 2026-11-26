@@ -134,6 +134,14 @@ public:
     static void OverrideCompileCompleteForTesting(std::optional<bool> complete);
 
     /**
+     * @brief Test seam: calls @a observer with every program right after it links (and its
+     *        uniform blocks are bound), e.g. to check block layouts against their C++ mirrors.
+     *
+     * An empty function removes it. Not thread-safe; tests only.
+     */
+    static void SetLinkObserverForTesting(std::function<void(Device::ProgramHandle)> observer);
+
+    /**
      * @brief Validates that the program can run in the current state.
      * @param validationMessage The error message if validation failed.
      * @return true if the shader program is valid and can run, false if it broken.
@@ -266,6 +274,9 @@ public:
     /**
      * @brief Makes the program's uniform block @a blockName read from uniform buffer slot @a slot
      *        (ICommandList::BindUniformBuffer()), now if linked and again after every link.
+     *
+     * Not needed for the built-in blocks (BuiltInUniformBlocks in UniformBlocks.hpp): every link
+     * binds each of them the program declares.
      */
     void SetUniformBlockBinding(const char* blockName, int slot);
 

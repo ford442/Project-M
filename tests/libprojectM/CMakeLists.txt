@@ -68,6 +68,7 @@ add_executable(projectM-unittest
         ShaderPassTest.cpp
         ShaderTranspileCacheTest.cpp
         TransitionLooksTest.cpp
+        UniformBlockLayoutTest.cpp
         UserSpriteApiTest.cpp
         UtilsTest.cpp
         WaveformAlignerTest.cpp

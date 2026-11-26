@@ -1,6 +1,7 @@
 #include "DarkenCenter.hpp"
 
 #include <Renderer/Device/RenderDevice.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -39,8 +40,7 @@ void DarkenCenter::Draw()
 
     auto shader = m_presetState.untexturedShader.lock();
     Renderer::Device::SetPipeline(m_mesh.Pipeline(*shader, Renderer::Device::BlendState::Alpha()));
-    shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
-    shader->SetUniformFloat("vertex_point_size", 1.0f);
+    m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, 1.0f});
 
     m_mesh.Draw();
 

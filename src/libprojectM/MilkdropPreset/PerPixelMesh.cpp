@@ -11,6 +11,7 @@
 #include <OpenMpConfig.hpp>
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/ShaderCache.hpp>
+#include <Renderer/UniformBlocks.hpp>
 #include <Utils.hpp>
 
 #include <algorithm>
@@ -562,6 +563,19 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
     // Decay
     float decay = std::min(static_cast<float>(*perFrameContext.decay), 1.0f);
 
+    // The warp vertex shader's block (and the default fragment shader's u_flipMainTex).
+    Renderer::WarpUniforms warp;
+    warp.vertexTransformation = PresetState::orthogonalProjection;
+    warp.aspect = {presetState.renderContext.aspectX,
+                   presetState.renderContext.aspectY,
+                   presetState.renderContext.invAspectX,
+                   presetState.renderContext.invAspectY};
+    warp.warpFactors = warpFactors;
+    warp.texelOffset = texelOffsets;
+    warp.warpTime = warpTime;
+    warp.warpScaleInverse = warpScaleInverse;
+    warp.decay = decay;
+
     // No blending between presets here, so blending is off.
     const Renderer::Shader* warpProgram{nullptr};
     if (!m_warpShader)
@@ -569,48 +583,33 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
         auto perPixelMeshShader = GetDefaultWarpShader(presetState);
         warpProgram = perPixelMeshShader.get();
         perPixelMeshShader->Bind();
-        perPixelMeshShader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
         perPixelMeshShader->SetUniformInt("texture_sampler", 0);
-        perPixelMeshShader->SetUniformFloat4("aspect", {presetState.renderContext.aspectX,
-                                                        presetState.renderContext.aspectY,
-                                                        presetState.renderContext.invAspectX,
-                                                        presetState.renderContext.invAspectY});
-        perPixelMeshShader->SetUniformFloat("warpTime", warpTime);
-        perPixelMeshShader->SetUniformFloat("warpScaleInverse", warpScaleInverse);
-        perPixelMeshShader->SetUniformFloat4("warpFactors", warpFactors);
-        perPixelMeshShader->SetUniformFloat2("texelOffset", texelOffsets);
-        perPixelMeshShader->SetUniformFloat("decay", decay);
         // The default warp path skips the pre-warp CopyTexture flip, so the
         // main texture is supplied un-flipped.  Signal the fragment shader to
         // fold the V-flip into the sample coordinate instead.
-        perPixelMeshShader->SetUniformInt("u_flipMainTex", 1);
-        SetPerPixelUniforms(*perPixelMeshShader, presetState, perFrameContext);
+        warp.flipMainTex = 1;
+        m_uniforms.Write(warp);
+        WritePerPixelUniforms(presetState, perFrameContext);
     }
     else
     {
-        const auto setWarpUniforms = [&](Renderer::Shader& shader) {
-            shader.SetUniformFloat4("aspect", {presetState.renderContext.aspectX,
-                                               presetState.renderContext.aspectY,
-                                               presetState.renderContext.invAspectX,
-                                               presetState.renderContext.invAspectY});
-            shader.SetUniformFloat("warpTime", warpTime);
-            shader.SetUniformFloat("warpScaleInverse", warpScaleInverse);
-            shader.SetUniformFloat4("warpFactors", warpFactors);
-            shader.SetUniformFloat2("texelOffset", texelOffsets);
-            shader.SetUniformFloat("decay", decay);
-            SetPerPixelUniforms(shader, presetState, perFrameContext);
+        const auto writeWarpUniforms = [&](const MilkdropShader& shader) {
+            // An extra pass renders upside down: see MilkdropShader::SetExtraPass().
+            warp.vertexTransformation = shader.VertexTransformation();
+            m_uniforms.Write(warp);
+            WritePerPixelUniforms(presetState, perFrameContext);
         };
 
         // Extra passes (warp_nPasses) draw the same mesh into their own targets first.
         m_warpShader->SetLastPassTexture(m_warpPasses.Render(presetState, perFrameContext, [&](MilkdropShader& pass) {
-            setWarpUniforms(pass.Shader());
+            writeWarpUniforms(pass);
             DrawWarpMesh(presetState, perFrameContext, pass.Shader());
         }, presetState.warpPassTargets));
 
         m_warpShader->LoadVariables(presetState, perFrameContext);
         auto& shader = m_warpShader->Shader();
         warpProgram = &shader;
-        setWarpUniforms(shader);
+        writeWarpUniforms(*m_warpShader);
     }
 
     DrawWarpMesh(presetState, perFrameContext, *warpProgram);
@@ -718,90 +717,61 @@ auto PerPixelMesh::GetDefaultWarpShader(const PresetState& presetState) -> std::
     return perPixelMeshShader;
 }
 
-void PerPixelMesh::SetPerPixelUniforms(const Renderer::Shader& shader,
-                                       const PresetState& presetState,
-                                       const PerFrameContext& perFrameContext)
+void PerPixelMesh::WritePerPixelUniforms(const PresetState& presetState,
+                                         const PerFrameContext& perFrameContext)
 {
     if (!UsesGpuPerPixel(presetState))
     {
         return;
     }
 
-    shader.SetUniformFloat4("u_pp_seed_transforms",
-                            {static_cast<float>(*perFrameContext.zoom),
-                             static_cast<float>(*perFrameContext.zoomexp),
-                             static_cast<float>(*perFrameContext.rot),
-                             static_cast<float>(*perFrameContext.warp)});
-    shader.SetUniformFloat2("u_pp_seed_center",
-                            {static_cast<float>(*perFrameContext.cx),
-                             static_cast<float>(*perFrameContext.cy)});
-    shader.SetUniformFloat2("u_pp_seed_distance",
-                            {static_cast<float>(*perFrameContext.dx),
-                             static_cast<float>(*perFrameContext.dy)});
-    shader.SetUniformFloat2("u_pp_seed_stretch",
-                            {static_cast<float>(*perFrameContext.sx),
-                             static_cast<float>(*perFrameContext.sy)});
+    PerPixelUniforms block;
+    block.seedTransforms = {static_cast<float>(*perFrameContext.zoom),
+                            static_cast<float>(*perFrameContext.zoomexp),
+                            static_cast<float>(*perFrameContext.rot),
+                            static_cast<float>(*perFrameContext.warp)};
+    block.seedCenter = {static_cast<float>(*perFrameContext.cx),
+                        static_cast<float>(*perFrameContext.cy)};
+    block.seedDistance = {static_cast<float>(*perFrameContext.dx),
+                          static_cast<float>(*perFrameContext.dy)};
+    block.seedStretch = {static_cast<float>(*perFrameContext.sx),
+                         static_cast<float>(*perFrameContext.sy)};
 
-    // Only the scalars the generated code actually reads were declared, so anything
-    // not in the mask has no uniform to set. SetUniformFloat() tolerates a missing
-    // location anyway, and caches the lookups; the mask just skips the calls.
-    const auto uniforms = presetState.perPixelGpuUniforms;
-    const struct
-    {
-        std::uint32_t flag;
-        const char* name;
-        float value;
-    } scalars[] = {
-        {PerPixelGlslLowering::UniformTime, "u_pp_time", static_cast<float>(*perFrameContext.time)},
-        {PerPixelGlslLowering::UniformFps, "u_pp_fps", static_cast<float>(*perFrameContext.fps)},
-        {PerPixelGlslLowering::UniformFrame, "u_pp_frame", static_cast<float>(*perFrameContext.frame)},
-        {PerPixelGlslLowering::UniformProgress, "u_pp_progress", static_cast<float>(*perFrameContext.progress)},
-        {PerPixelGlslLowering::UniformBass, "u_pp_bass", static_cast<float>(*perFrameContext.bass)},
-        {PerPixelGlslLowering::UniformMid, "u_pp_mid", static_cast<float>(*perFrameContext.mid)},
-        {PerPixelGlslLowering::UniformTreb, "u_pp_treb", static_cast<float>(*perFrameContext.treb)},
-        {PerPixelGlslLowering::UniformBassAtt, "u_pp_bass_att", static_cast<float>(*perFrameContext.bass_att)},
-        {PerPixelGlslLowering::UniformMidAtt, "u_pp_mid_att", static_cast<float>(*perFrameContext.mid_att)},
-        {PerPixelGlslLowering::UniformTrebAtt, "u_pp_treb_att", static_cast<float>(*perFrameContext.treb_att)},
-        {PerPixelGlslLowering::UniformMeshX, "u_pp_meshx", static_cast<float>(presetState.renderContext.perPixelMeshX)},
-        {PerPixelGlslLowering::UniformMeshY, "u_pp_meshy", static_cast<float>(presetState.renderContext.perPixelMeshY)},
-        {PerPixelGlslLowering::UniformPixelsX, "u_pp_pixelsx", static_cast<float>(presetState.renderContext.viewportSizeX)},
-        {PerPixelGlslLowering::UniformPixelsY, "u_pp_pixelsy", static_cast<float>(presetState.renderContext.viewportSizeY)},
-        {PerPixelGlslLowering::UniformAspectX, "u_pp_aspectx", presetState.renderContext.aspectX},
-        {PerPixelGlslLowering::UniformAspectY, "u_pp_aspecty", presetState.renderContext.aspectY},
-    };
-
-    for (const auto& scalar : scalars)
-    {
-        if ((uniforms & scalar.flag) != 0u)
-        {
-            shader.SetUniformFloat(scalar.name, scalar.value);
-        }
-    }
+    // By UniformFlags bit (PerPixelGlslLowering::ScalarUniformName()). The block holds every
+    // value whether or not the generated code reads it.
+    auto& scalars = block.scalars;
+    scalars[0] = static_cast<float>(*perFrameContext.time);
+    scalars[1] = static_cast<float>(*perFrameContext.fps);
+    scalars[2] = static_cast<float>(*perFrameContext.frame);
+    scalars[3] = static_cast<float>(*perFrameContext.progress);
+    scalars[4] = static_cast<float>(*perFrameContext.bass);
+    scalars[5] = static_cast<float>(*perFrameContext.mid);
+    scalars[6] = static_cast<float>(*perFrameContext.treb);
+    scalars[7] = static_cast<float>(*perFrameContext.bass_att);
+    scalars[8] = static_cast<float>(*perFrameContext.mid_att);
+    scalars[9] = static_cast<float>(*perFrameContext.treb_att);
+    scalars[10] = static_cast<float>(presetState.renderContext.perPixelMeshX);
+    scalars[11] = static_cast<float>(presetState.renderContext.perPixelMeshY);
+    scalars[12] = static_cast<float>(presetState.renderContext.viewportSizeX);
+    scalars[13] = static_cast<float>(presetState.renderContext.viewportSizeY);
+    scalars[14] = presetState.renderContext.aspectX;
+    scalars[15] = presetState.renderContext.aspectY;
+    static_assert(PerPixelGlslLowering::UniformAspectY == 1u << 15u, "scalars[] follows the UniformFlags bits");
 
     // The pm_* musical-time variables, from the per-frame context so a per-frame assignment
     // carries over exactly as it does on the CPU path.
     for (int index = 0; index < RhythmVariables::Count; index++)
     {
-        if ((uniforms & PerPixelGlslLowering::RhythmUniformFlag(index)) != 0u)
-        {
-            shader.SetUniformFloat(PerPixelGlslLowering::RhythmUniformName(index).c_str(),
-                                   static_cast<float>(perFrameContext.rhythm.Value(static_cast<RhythmVariables::Index>(index))));
-        }
+        scalars.at(PerPixelGlslLowering::RhythmUniformFirstBit + index) =
+            static_cast<float>(perFrameContext.rhythm.Value(static_cast<RhythmVariables::Index>(index)));
     }
 
-    if (presetState.perPixelGpuQVectors != 0u)
+    for (int index = 0; index < QVarCount; index++)
     {
-        // All eight vectors in one call; the ones the shader does not read cost nothing.
-        std::array<glm::vec4, QVarCount / 4> qVectors;
-        for (int vector = 0; vector < QVarCount / 4; vector++)
-        {
-            qVectors[vector] = {static_cast<float>(*perFrameContext.q_vars[vector * 4 + 0]),
-                                static_cast<float>(*perFrameContext.q_vars[vector * 4 + 1]),
-                                static_cast<float>(*perFrameContext.q_vars[vector * 4 + 2]),
-                                static_cast<float>(*perFrameContext.q_vars[vector * 4 + 3])};
-        }
-        shader.SetUniformFloat4Array("u_pp_q", qVectors.data(), static_cast<int>(qVectors.size()));
+        block.q.at(index) = static_cast<float>(*perFrameContext.q_vars[index]);
     }
+
+    m_uniforms.Write(block);
 }
 
 } // namespace MilkdropPreset

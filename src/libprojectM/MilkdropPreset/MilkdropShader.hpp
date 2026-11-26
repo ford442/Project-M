@@ -12,7 +12,7 @@
 
 #include <Renderer/Shader.hpp>
 #include <Renderer/TextureManager.hpp>
-#include <Renderer/UniformRingBuffer.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <array>
 #include <cstdint>
@@ -88,7 +88,7 @@ struct MilkdropFrameUniforms {
     using Mat3x4 = std::array<float, 12>; //!< Three columns of four floats.
 
     static constexpr const char* BlockName = "_milkdrop_frame";
-    static constexpr int Slot = 0; //!< The uniform buffer slot the block reads from.
+    static constexpr int Slot = Renderer::UniformSlot::Frame; //!< The uniform buffer slot the block reads from.
 
     Vec4 randFrame{};               //!< rand_frame
     Vec4 randPreset{};              //!< rand_preset
@@ -233,6 +233,12 @@ public:
     void SetExtraPass();
 
     /**
+     * @brief The warp mesh's vertex_transformation for this shader (WarpUniforms): flipped for
+     *        an extra pass. The composite vertex shader has none.
+     */
+    [[nodiscard]] auto VertexTransformation() const -> const glm::mat4&;
+
+    /**
      * @brief Whether the shader samples <tt>sampler_lastpass</tt> (any prefix), i.e. uses the
      *        output of extra passes before it. Valid once code is loaded.
      */
@@ -250,6 +256,7 @@ public:
     void SetLastPassTexture(std::shared_ptr<Renderer::Texture> texture);
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     /**
      * @brief Prepares the shader code to be translated into GLSL.
      * @param type The shader type.
@@ -328,7 +335,6 @@ private:
     Renderer::Device::IRenderDevice* m_device{&Renderer::Device::Current()};
 
     MilkdropFrameUniforms m_frameUniforms{};                      //!< Filled by LoadVariables(), then copied to the ring.
-    std::unique_ptr<Renderer::UniformRingBuffer> m_fallbackRing; //!< Used when the render context has no ring.
 
     Renderer::Shader m_shader;
 };

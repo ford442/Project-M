@@ -29,13 +29,17 @@
 layout(location = 0) in vec2 vertex_position;
 layout(location = 3) in vec2 rad_ang;
 
-uniform mat4 vertex_transformation;
-uniform vec4 aspect;
-uniform float warpTime;
-uniform float warpScaleInverse;
-uniform vec4 warpFactors;
-uniform vec2 texelOffset;
-uniform float decay;
+// _pm_warp (Renderer::WarpUniforms), the same block in both stages of the default warp program.
+layout(std140) uniform _pm_warp {
+    mat4 vertex_transformation;
+    vec4 aspect;
+    vec4 warpFactors;
+    vec2 texelOffset;
+    float warpTime;
+    float warpScaleInverse;
+    float decay;
+    int u_flipMainTex;
+};
 
 out vec4 frag_COLOR;
 out vec4 frag_TEXCOORD0;

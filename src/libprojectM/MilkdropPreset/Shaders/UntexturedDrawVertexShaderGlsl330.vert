@@ -1,8 +1,11 @@
 layout(location = 0) in vec2 vertex_position;
 layout(location = 1) in vec4 vertex_color;
 
-uniform mat4 vertex_transformation;
-uniform float vertex_point_size;
+// _pm_transform (Renderer::TransformUniforms, docs/RENDER_DEVICE.md "Uniform buffers").
+layout(std140) uniform _pm_transform {
+    mat4 vertex_transformation;
+    float vertex_point_size;
+};
 
 out vec4 fragment_color;
 

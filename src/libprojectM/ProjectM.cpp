@@ -76,6 +76,8 @@ ProjectM::ProjectM(std::optional<uint32_t> seed)
 ProjectM::~ProjectM()
 {
     // Can't use "=default" in the header due to unique_ptr requiring the actual type declarations.
+    // The context may outlive the engine (prepared presets hold it); the ring does not.
+    m_engineContext->SetUniformRing(nullptr);
 }
 
 void ProjectM::PresetSwitchRequestedEvent(bool) const
@@ -563,7 +565,8 @@ void ProjectM::Initialize()
 
     m_textureManager = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
     m_shaderCache = std::make_unique<Renderer::ShaderCache>();
-    m_uniformRing = std::make_unique<Renderer::UniformRingBuffer>();
+    m_uniformRing = std::make_unique<Renderer::UniformRingBuffer>(*m_engineContext->RenderDevice());
+    m_engineContext->SetUniformRing(m_uniformRing.get());
     m_frameGraph = std::make_unique<Renderer::RenderGraph>();
 
     m_transitionShaderManager = std::make_unique<Renderer::TransitionShaderManager>();
@@ -1224,7 +1227,6 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
 
     ctx.textureManager = m_textureManager.get();
     ctx.shaderCache = m_shaderCache.get();
-    ctx.uniformRing = m_uniformRing.get();
     ctx.hostVariables = &m_hostVariables;
 
     if (m_transition)

@@ -1,5 +1,8 @@
 #include "Shader.hpp"
 
+#include "Renderer/UniformBlocks.hpp"
+
+
 #include <Logging.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -10,6 +13,7 @@ namespace Renderer {
 
 namespace {
 std::optional<bool> g_compileCompleteOverride; //!< See Shader::OverrideCompileCompleteForTesting().
+std::function<void(Device::ProgramHandle)> g_linkObserver; //!< See Shader::SetLinkObserverForTesting().
 } // namespace
 
 Shader::Shader()
@@ -82,9 +86,18 @@ void Shader::FinishCompileProgram()
         case Status::Ok:
             m_linked = true;
             m_linkCount++;
+            // Every built-in block the program declares reads from its slot (UniformBlocks.hpp).
+            for (const auto& block : BuiltInUniformBlocks)
+            {
+                m_device->BindUniformBlock(m_shaderProgram, block.name, block.slot);
+            }
             for (const auto& [blockName, slot] : m_uniformBlockBindings)
             {
                 m_device->BindUniformBlock(m_shaderProgram, blockName.c_str(), slot);
+            }
+            if (g_linkObserver)
+            {
+                g_linkObserver(m_shaderProgram);
             }
             return;
 
@@ -235,6 +248,11 @@ auto Shader::UniformLocation(const char* uniform) const -> int
     const int location = m_device->UniformLocation(m_shaderProgram, uniform);
     m_uniformLocations.emplace(name, location);
     return location;
+}
+
+void Shader::SetLinkObserverForTesting(std::function<void(Device::ProgramHandle)> observer)
+{
+    g_linkObserver = std::move(observer);
 }
 
 void Shader::OverrideCompileCompleteForTesting(std::optional<bool> complete)

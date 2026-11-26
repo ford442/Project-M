@@ -339,7 +339,10 @@ Third-party code that is compiled as part of the project:
   The preset shaders' per-frame inputs are the std140 block `cbuffer _milkdrop_frame`
   (`MilkdropFrameUniforms` mirrors it), bound with a bind group per set of textures, and the
   frame is a `Renderer::RenderGraph` (`MilkdropPreset::RenderFrame()`, `ProjectM::RenderFrame()`).
-  See `docs/RENDER_DEVICE.md`.
+  Every other value a built-in shader reads is a std140 block member too: add a uniform to the
+  block and its struct in `Renderer/UniformBlocks.hpp` (written with the drawing object's
+  `UniformBlockWriter`), not a plain `uniform`; `UniformBlockLayoutTest` checks each struct
+  against the driver's layout. See `docs/RENDER_DEVICE.md`.
 - Device changes must stay bit-identical unless they mean to change output. Check
   with the WASM goldens and `PresetCompat`, plus a before/after render of the preset
   corpora if the change touches draw order: `scripts/render_hash_corpus.sh <projectm-render> <out>`

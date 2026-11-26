@@ -432,11 +432,6 @@ auto EvaluateOnGpu(LoweredProgram& lowered,
     source += R"(
 layout(location = 0) in vec4 a_vertex;
 
-uniform vec4 u_seed_transforms;
-uniform vec2 u_seed_center;
-uniform vec2 u_seed_distance;
-uniform vec2 u_seed_stretch;
-
 out vec4 o_transforms;
 out vec2 o_center;
 out vec2 o_distance;
@@ -444,10 +439,10 @@ out vec2 o_stretch;
 
 void main()
 {
-    vec4 transforms = u_seed_transforms;
-    vec2 warp_center = u_seed_center;
-    vec2 warp_distance = u_seed_distance;
-    vec2 stretch = u_seed_stretch;
+    vec4 transforms = u_pp_seed_transforms;
+    vec2 warp_center = u_pp_seed_center;
+    vec2 warp_distance = u_pp_seed_distance;
+    vec2 stretch = u_pp_seed_stretch;
 
     prjm_per_pixel(a_vertex.x, a_vertex.y, a_vertex.z, a_vertex.w,
                    transforms, warp_center, warp_distance, stretch);
@@ -503,43 +498,37 @@ void main()
 
     glUseProgram(program);
 
+    // The _pm_per_pixel block, filled as PerPixelMesh::WritePerPixelUniforms() fills it.
+    libprojectM::MilkdropPreset::PerPixelUniforms block;
     for (int i = 0; i < 16; i++)
     {
-        const GLint location = glGetUniformLocation(program, kReadOnlyUniforms[i]);
-        if (location >= 0)
-        {
-            glUniform1f(location, static_cast<float>(frame.readOnly[i]));
-        }
+        EXPECT_STREQ(PerPixelGlslLowering::ScalarUniformName(i), kReadOnlyUniforms[i]);
+        block.scalars[static_cast<std::size_t>(i)] = static_cast<float>(frame.readOnly[i]);
     }
     const auto rhythmValues = libprojectM::MilkdropPreset::RhythmVariables::Values(frame.rhythm);
     for (int i = 0; i < libprojectM::MilkdropPreset::RhythmVariables::Count; i++)
     {
-        const GLint location = glGetUniformLocation(program, PerPixelGlslLowering::RhythmUniformName(i).c_str());
-        if (location >= 0)
-        {
-            glUniform1f(location, static_cast<float>(rhythmValues[static_cast<std::size_t>(i)]));
-        }
+        block.scalars[PerPixelGlslLowering::RhythmUniformFirstBit + static_cast<std::size_t>(i)] =
+            static_cast<float>(rhythmValues[static_cast<std::size_t>(i)]);
     }
-    const GLint qLocation = glGetUniformLocation(program, "u_pp_q");
-    if (qLocation >= 0)
+    for (int i = 0; i < QVarCount; i++)
     {
-        // One call for the whole array, as PerPixelMesh::SetPerPixelUniforms() does.
-        std::array<float, QVarCount> q{};
-        for (int i = 0; i < QVarCount; i++)
-        {
-            q[static_cast<std::size_t>(i)] = static_cast<float>(frame.q[i]);
-        }
-        glUniform4fv(qLocation, QVarCount / 4, q.data());
+        block.q[static_cast<std::size_t>(i)] = static_cast<float>(frame.q[i]);
     }
-    glUniform4f(glGetUniformLocation(program, "u_seed_transforms"),
-                static_cast<float>(frame.seeds[0]), static_cast<float>(frame.seeds[1]),
-                static_cast<float>(frame.seeds[2]), static_cast<float>(frame.seeds[3]));
-    glUniform2f(glGetUniformLocation(program, "u_seed_center"),
-                static_cast<float>(frame.seeds[4]), static_cast<float>(frame.seeds[5]));
-    glUniform2f(glGetUniformLocation(program, "u_seed_distance"),
-                static_cast<float>(frame.seeds[6]), static_cast<float>(frame.seeds[7]));
-    glUniform2f(glGetUniformLocation(program, "u_seed_stretch"),
-                static_cast<float>(frame.seeds[8]), static_cast<float>(frame.seeds[9]));
+    for (int i = 0; i < 4; i++)
+    {
+        block.seedTransforms[static_cast<std::size_t>(i)] = static_cast<float>(frame.seeds[i]);
+    }
+    block.seedCenter = {static_cast<float>(frame.seeds[4]), static_cast<float>(frame.seeds[5])};
+    block.seedDistance = {static_cast<float>(frame.seeds[6]), static_cast<float>(frame.seeds[7])};
+    block.seedStretch = {static_cast<float>(frame.seeds[8]), static_cast<float>(frame.seeds[9])};
+
+    GLuint blockBuffer = 0;
+    glGenBuffers(1, &blockBuffer);
+    glBindBuffer(GL_UNIFORM_BUFFER, blockBuffer);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(block), &block, GL_STATIC_DRAW);
+    glUniformBlockBinding(program, glGetUniformBlockIndex(program, block.BlockName), block.Slot);
+    glBindBufferBase(GL_UNIFORM_BUFFER, block.Slot, blockBuffer);
 
     std::vector<float> attributes;
     attributes.reserve(vertices.size() * 4);
@@ -622,6 +611,9 @@ void main()
     }
 
     glBindVertexArray(0);
+    glBindBufferBase(GL_UNIFORM_BUFFER, block.Slot, 0);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    glDeleteBuffers(1, &blockBuffer);
     glDeleteBuffers(1, &feedbackBuffer);
     glDeleteBuffers(1, &vertexBuffer);
     if (!sliceBuffers.empty())
@@ -1021,7 +1013,7 @@ TEST_F(PerPixelGlslLoweringTest, RhythmVariablesAreFrameUniforms)
     {
         EXPECT_NE(lowered.lowering.uniforms & PerPixelGlslLowering::RhythmUniformFlag(index), 0u)
             << libprojectM::MilkdropPreset::RhythmVariables::Names[index];
-        EXPECT_NE(lowered.lowering.glsl.find("uniform float " + PerPixelGlslLowering::RhythmUniformName(index) + ";"),
+        EXPECT_NE(lowered.lowering.glsl.find("    float " + PerPixelGlslLowering::RhythmUniformName(index) + ";"),
                   std::string::npos);
     }
 }

@@ -22,6 +22,7 @@
 
 #include <MilkdropPreset/ShaderTranspiler.hpp>
 #include <MilkdropStaticShaders.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include "TestGl.hpp"
 
@@ -330,11 +331,18 @@ auto RunCompositor(const CompositorInputs& in, std::string& error) -> std::vecto
     glBindTexture(GL_TEXTURE_2D, textureB.Id());
     glUniform1i(glGetUniformLocation(program, "uTexA"), 0);
     glUniform1i(glGetUniformLocation(program, "uTexB"), 1);
-    glUniform1f(glGetUniformLocation(program, "uBlend"), in.blend);
-    glUniform1f(glGetUniformLocation(program, "uDither"), in.dither ? 1.0f : 0.0f);
-    glUniform1i(glGetUniformLocation(program, "u_transparencyEnabled"), in.transparency ? 1 : 0);
-    glUniform1f(glGetUniformLocation(program, "u_transparencyThreshold"), in.threshold);
+    // The _pm_compositor block, as WasmGraphics.hpp writes it.
+    const libprojectM::Renderer::CompositorUniforms block{in.blend, in.dither ? 1.0f : 0.0f, in.transparency ? 1 : 0, in.threshold};
+    GLuint blockBuffer = 0;
+    glGenBuffers(1, &blockBuffer);
+    glBindBuffer(GL_UNIFORM_BUFFER, blockBuffer);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(block), &block, GL_STATIC_DRAW);
+    glUniformBlockBinding(program, glGetUniformBlockIndex(program, block.BlockName), block.Slot);
+    glBindBufferBase(GL_UNIFORM_BUFFER, block.Slot, blockBuffer);
     DrawFullscreenQuad();
+    glBindBufferBase(GL_UNIFORM_BUFFER, block.Slot, 0);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    glDeleteBuffers(1, &blockBuffer);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);

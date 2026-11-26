@@ -26,6 +26,7 @@
 
 #include "Renderer/Texture.hpp"
 #include "Renderer/TextureManager.hpp"
+#include "Renderer/UniformBlocks.hpp"
 
 #include <Logging.hpp>
 #include <RandomSeed.hpp>
@@ -129,7 +130,6 @@ void PresetTransition::BeginPass(int passNumber, int viewportWidth, int viewport
     }
 
     Device::Commands().SetViewport({0, 0, viewportWidth, viewportHeight});
-    m_transitionShader->SetUniformInt("iPass", passNumber);
 }
 
 void PresetTransition::EndPass()
@@ -264,47 +264,49 @@ void PresetTransition::Draw(const Preset& oldPreset,
     // The transition shader mixes both presets itself: no blending.
     Device::SetPipeline(m_mesh.Pipeline(*m_transitionShader, Device::BlendState::Replace()));
 
-    // Numerical parameters
-    m_transitionShader->SetUniformFloat3("iResolution", {static_cast<float>(context.viewportSizeX),
-                                                         static_cast<float>(context.viewportSizeY),
-                                                         0.0f});
+    // Numerical parameters: the _pm_transition block, written per pass (iPass, transparency).
+    TransitionUniforms block;
+    block.resolution = {static_cast<float>(context.viewportSizeX),
+                        static_cast<float>(context.viewportSizeY),
+                        0.0f};
 
-    m_transitionShader->SetUniformFloat4("durationParams", {linearProgress,
-                                                            cosineProgress,
-                                                            bicubicProgress,
-                                                            static_cast<float>(m_easingType)});
+    block.durationParams = {static_cast<float>(linearProgress),
+                            static_cast<float>(cosineProgress),
+                            static_cast<float>(bicubicProgress),
+                            static_cast<float>(m_easingType)};
 
-    m_transitionShader->SetUniformFloat2("timeParams", {secondsSinceStart,
-                                                        currentFrameTime - m_lastFrameTime});
+    block.timeParams = {static_cast<float>(secondsSinceStart),
+                        static_cast<float>(currentFrameTime - m_lastFrameTime)};
 
-    m_transitionShader->SetUniformInt4("iRandStatic", m_staticRandomValues);
+    block.randStatic = m_staticRandomValues;
 
-    m_transitionShader->SetUniformInt4("iRandFrame", {rand32(),
-                                                      rand32(),
-                                                      rand32(),
-                                                      rand32()});
+    block.randFrame = {rand32(),
+                       rand32(),
+                       rand32(),
+                       rand32()};
 
-    m_transitionShader->SetUniformFloat3("iBeatValues", {audioData.bass,
-                                                         audioData.mid,
-                                                         audioData.treb});
+    block.beatValues = {audioData.bass,
+                        audioData.mid,
+                        audioData.treb};
 
-    m_transitionShader->SetUniformFloat3("iBeatAttValues", {audioData.bassAtt,
-                                                            audioData.midAtt,
-                                                            audioData.trebAtt});
+    block.beatAttValues = {audioData.bassAtt,
+                           audioData.midAtt,
+                           audioData.trebAtt};
 
-    // Aspect ratio correction uniforms for geometry-sensitive transitions.
-    m_transitionShader->SetUniformFloat("iAspectX", context.aspectX);
-    m_transitionShader->SetUniformFloat("iAspectY", context.aspectY);
-    m_transitionShader->SetUniformFloat("iInvAspectX", context.invAspectX);
-    m_transitionShader->SetUniformFloat("iInvAspectY", context.invAspectY);
+    // Aspect ratio correction for geometry-sensitive transitions.
+    block.aspectX = context.aspectX;
+    block.aspectY = context.aspectY;
+    block.invAspectX = context.invAspectX;
+    block.invAspectY = context.invAspectY;
 
-    m_transitionShader->SetUniformInt("iBlendMode", static_cast<int>(m_blendMode));
-    m_transitionShader->SetUniformInt("u_transparencyEnabled", m_transparencyMode ? 1 : 0);
-    m_transitionShader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
+    block.blendMode = static_cast<int>(m_blendMode);
+    block.transparencyThreshold = m_transparencyThreshold;
 
-    auto setTransparencyUniforms = [&](bool enabled) {
-        m_transitionShader->SetUniformInt("u_transparencyEnabled", enabled && m_transparencyMode ? 1 : 0);
-        m_transitionShader->SetUniformFloat("u_transparencyThreshold", m_transparencyThreshold);
+    // Before each pass's draw (BeginPass() may interrupt the caller's pass first).
+    auto writePassUniforms = [&](int pass, bool transparency) {
+        block.pass = pass;
+        block.transparencyEnabled = transparency && m_transparencyMode ? 1 : 0;
+        m_uniforms.Write(block);
     };
 
     // Texture samplers
@@ -361,7 +363,7 @@ void PresetTransition::Draw(const Preset& oldPreset,
     }
     const int maskTextureUnit = textureUnit;
     const bool maskBound = m_blendMode == TransitionBlendMode::Masked && m_maskTexture != nullptr && !m_maskTexture->Empty();
-    m_transitionShader->SetUniformInt("iMaskBound", maskBound ? 1 : 0);
+    block.maskBound = maskBound ? 1 : 0;
     if (maskBound)
     {
         commands.SetActiveTextureUnit(maskTextureUnit);
@@ -380,12 +382,12 @@ void PresetTransition::Draw(const Preset& oldPreset,
         // Pass 1 samples the intermediate result via iLastPassTex.
 
         BeginPass(0, context.viewportSizeX, context.viewportSizeY);
-        setTransparencyUniforms(false);
+        writePassUniforms(0, false);
         m_mesh.Draw();
         EndPass();
 
         BeginPass(1, context.viewportSizeX, context.viewportSizeY);
-        setTransparencyUniforms(true);
+        writePassUniforms(1, true);
 
         auto pass0Tex = GetPassTexture(0);
         if (pass0Tex)
@@ -408,7 +410,7 @@ void PresetTransition::Draw(const Preset& oldPreset,
     {
         // Single-pass (default): set iPass to 0 so single-pass shaders work unchanged.
         BeginPass(0, context.viewportSizeX, context.viewportSizeY);
-        setTransparencyUniforms(true);
+        writePassUniforms(0, true);
         m_mesh.Draw();
         EndPass();
     }

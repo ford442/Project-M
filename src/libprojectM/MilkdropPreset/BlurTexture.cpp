@@ -12,6 +12,7 @@
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Point.hpp>
 #include <Renderer/ShaderCache.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <array>
 #include <cstdlib>
@@ -251,16 +252,19 @@ void BlurTexture::RenderLevel(unsigned int pass, bool copyPath)
     // shared scratch attachment (copy fallback), and size the viewport to match.
     BindPassTarget(pass, copyPath);
 
+    // The pass's _pm_blur block: both programs declare all of it and read their own constants.
+    Renderer::BlurUniforms constants;
+
     // hook up correct source texture - assume there is only one, at stage 0
     if (pass == 0)
     {
         m_frame.source->Bind(0);
-        blurShader->SetUniformInt("flipVertical", 1);
+        constants.flipVertical = 1;
     }
     else
     {
         m_blurTextures[pass - 1]->Bind(0);
-        blurShader->SetUniformInt("flipVertical", 0);
+        constants.flipVertical = 0;
     }
     m_blurSampler->Bind(0);
 
@@ -290,10 +294,10 @@ void BlurTexture::RenderLevel(unsigned int pass, bool copyPath)
         //float4 _c2; // d1..d4
         //float4 _c3; // scale, bias, w_div, 0
         //-------------------------------------
-        blurShader->SetUniformFloat4("_c0", {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight});
-        blurShader->SetUniformFloat4("_c1", {w1, w2, w3, w4});
-        blurShader->SetUniformFloat4("_c2", {d1, d2, d3, d4});
-        blurShader->SetUniformFloat4("_c3", {scaleNow, biasNow, w_div, 0.0});
+        constants.c0 = {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight};
+        constants.c1 = {w1, w2, w3, w4};
+        constants.c2 = {d1, d2, d3, d4};
+        constants.c3 = {scaleNow, biasNow, w_div, 0.0};
     }
     else
     {
@@ -309,21 +313,22 @@ void BlurTexture::RenderLevel(unsigned int pass, bool copyPath)
         //float4 _c5; // w1,w2,d1,d2
         //float4 _c6; // w_div, edge_darken_c1, edge_darken_c2, edge_darken_c3
         //-------------------------------------
-        blurShader->SetUniformFloat4("_c0", {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight});
-        blurShader->SetUniformFloat4("_c5", {w1, w2, d1, d2});
+        constants.c0 = {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight};
+        constants.c5 = {w1, w2, d1, d2};
         // note: only do this first time; if you do it many times,
         // then the super-blurred levels will have big black lines along the top & left sides.
         if (pass == 1)
         {
             // Darken edges
-            blurShader->SetUniformFloat4("_c6", {w_div, (1 - m_frame.blur1EdgeDarken), m_frame.blur1EdgeDarken, 5.0f});
+            constants.c6 = {w_div, (1 - m_frame.blur1EdgeDarken), m_frame.blur1EdgeDarken, 5.0f};
         }
         else
         {
             // Don't darken
-            blurShader->SetUniformFloat4("_c6", {w_div, 1.0f, 0.0f, 5.0f});
+            constants.c6 = {w_div, 1.0f, 0.0f, 5.0f};
         }
     }
+    m_uniforms.Write(constants);
 
     // Draw fullscreen quad. BindPassTarget() bound the target and set the viewport.
     Renderer::Device::RenderPassDesc blurPass;

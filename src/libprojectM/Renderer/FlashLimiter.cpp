@@ -2,6 +2,7 @@
 
 #include "Renderer/Shader.hpp"
 #include "Renderer/ShaderPrelude.hpp"
+#include "Renderer/UniformBlocks.hpp"
 
 #include <Logging.hpp>
 
@@ -122,9 +123,13 @@ void main()
 constexpr char StateFragmentShader[] = R"(
 uniform sampler2D luma_texture;
 uniform sampler2D previous_state;
-uniform float threshold;
-uniform float envelope_decay;
-uniform int reset_history;
+// _pm_flash_limiter (FlashLimiterUniforms), shared by the state and mix passes.
+layout(std140) uniform _pm_flash_limiter {
+    float threshold;
+    float envelope_decay;
+    int reset_history;
+    int premultiplied_alpha;
+};
 
 out vec4 color;
 
@@ -197,7 +202,13 @@ constexpr char MixFragmentShader[] = R"(
 uniform sampler2D frame_texture;
 uniform sampler2D held_texture;
 uniform sampler2D state_texture;
-uniform int premultiplied_alpha;
+// _pm_flash_limiter (FlashLimiterUniforms), shared by the state and mix passes.
+layout(std140) uniform _pm_flash_limiter {
+    float threshold;
+    float envelope_decay;
+    int reset_history;
+    int premultiplied_alpha;
+};
 
 out vec4 color;
 
@@ -342,9 +353,8 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
     SetPassPipeline(*m_stateShader);
     m_stateShader->SetUniformInt("luma_texture", 0);
     m_stateShader->SetUniformInt("previous_state", 1);
-    m_stateShader->SetUniformFloat("threshold", m_threshold);
-    m_stateShader->SetUniformFloat("envelope_decay", envelopeDecay);
-    m_stateShader->SetUniformInt("reset_history", m_resetHistory ? 1 : 0);
+    // One block for passes 2 and 3.
+    m_uniforms.Write(FlashLimiterUniforms{m_threshold, envelopeDecay, m_resetHistory ? 1 : 0, premultipliedAlpha ? 1 : 0});
     BindTexture(0, m_luma.texture);
     BindTexture(1, m_state.at(previous).texture);
     DrawFullscreen(m_state.at(next), StateWidth, 1);
@@ -354,7 +364,6 @@ void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double
     m_mixShader->SetUniformInt("frame_texture", 0);
     m_mixShader->SetUniformInt("held_texture", 1);
     m_mixShader->SetUniformInt("state_texture", 2);
-    m_mixShader->SetUniformInt("premultiplied_alpha", premultipliedAlpha ? 1 : 0);
     BindTexture(0, m_frame.texture);
     BindTexture(1, m_held.at(previous).texture);
     BindTexture(2, m_state.at(next).texture);

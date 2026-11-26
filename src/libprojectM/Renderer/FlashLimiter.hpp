@@ -21,6 +21,7 @@
 #pragma once
 
 #include "Renderer/Device/RenderDevice.hpp"
+#include "Renderer/UniformBlocks.hpp"
 
 #include <array>
 #include <cstdint>
@@ -127,6 +128,7 @@ public:
     [[nodiscard]] auto PresentedFramebuffer() const -> Device::RenderTargetHandle;
 
 private:
+    UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     struct Target {
         Device::TextureHandle texture;
         Device::RenderTargetHandle framebuffer;

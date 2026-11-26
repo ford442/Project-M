@@ -5,6 +5,7 @@
 
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Shader.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <memory>
 #include <optional>
@@ -122,6 +123,7 @@ public:
 
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     /**
      * Vertex attributes for radius and angle.
      */
@@ -222,13 +224,13 @@ private:
     static auto WarpShaderCacheKey(const PresetState& presetState) -> std::string;
 
     /**
-     * @brief Uploads the per-frame values the generated per-pixel code reads.
+     * @brief Writes and binds the per-frame values the generated per-pixel code reads
+     *        (PerPixelUniforms, the <tt>_pm_per_pixel</tt> block).
      *
      * A no-op on the CPU path, where the same values arrive as vertex attributes.
      */
-    static void SetPerPixelUniforms(const Renderer::Shader& shader,
-                                    const PresetState& presetState,
-                                    const PerFrameContext& perFrameContext);
+    void WritePerPixelUniforms(const PresetState& presetState,
+                               const PerFrameContext& perFrameContext);
 
     int m_gridSizeX{}; //!< Warp mesh X resolution.
     int m_gridSizeY{}; //!< Warp mesh Y resolution.

@@ -6,6 +6,7 @@
 #include <Renderer/Color.hpp>
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Point.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <vector>
 
@@ -45,6 +46,7 @@ public:
     void Draw(const PerFrameContext& presetPerFrameContext);
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     /**
      * @brief Initializes the per-frame context with the preset per-frame state.
      * @param presetPerFrameContext The preset per-frame context to pull q vars from.

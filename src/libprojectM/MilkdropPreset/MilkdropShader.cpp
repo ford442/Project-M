@@ -36,8 +36,6 @@ MilkdropShader::MilkdropShader(ShaderType type)
     : m_type(type)
     , m_randValues({floatRand(), floatRand(), floatRand(), floatRand()})
 {
-    m_shader.SetUniformBlockBinding(MilkdropFrameUniforms::BlockName, MilkdropFrameUniforms::Slot);
-
     unsigned int index = 0;
     do
     {
@@ -414,6 +412,12 @@ void MilkdropShader::FinishCompile(PresetState& presetState)
     presetState.blurTexture.SetRequiredBlurLevel(m_source.maxBlurLevelRequired);
 }
 
+auto MilkdropShader::VertexTransformation() const -> const glm::mat4&
+{
+    // An extra pass renders upside down: see SetExtraPass().
+    return m_extraPass ? PresetState::orthogonalProjectionFlipped : PresetState::orthogonalProjection;
+}
+
 void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFrameContext& perFrameContext)
 {
     // These are the inputs: http://www.geisswerks.com/milkdrop/milkdrop_preset_authoring.html#3f6
@@ -429,9 +433,6 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
     BlurTexture::GetSafeBlurMinMaxValues(perFrameContext, blurMin, blurMax);
 
     m_shader.Bind();
-
-    // An extra pass renders upside down: see SetExtraPass().
-    m_shader.SetUniformMat4x4("vertex_transformation", m_extraPass ? PresetState::orthogonalProjectionFlipped : PresetState::orthogonalProjection);
 
     MilkdropFrameUniforms& u = m_frameUniforms;
 
@@ -580,16 +581,7 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
     }
 
     // One std140 block per draw, in the engine's ring (WebGPU: a dynamic offset).
-    Renderer::UniformRingBuffer* ring = presetState.renderContext.uniformRing;
-    if (ring == nullptr)
-    {
-        if (!m_fallbackRing)
-        {
-            m_fallbackRing = std::make_unique<Renderer::UniformRingBuffer>();
-        }
-        ring = m_fallbackRing.get();
-    }
-    const auto range = ring->Write(&u, sizeof(u));
+    const auto range = m_uniforms.Ring().Write(&u, sizeof(u));
 
     // The textures and samplers, unit by unit as they always were (main, lastpass, blur, the
     // preset's own), and the frame block: one bind group (B1.4). Each group is created the first

@@ -2,6 +2,7 @@
 
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Shader.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 using libprojectM::Renderer::Device::BlendFactor;
 
@@ -63,7 +64,7 @@ void VideoEcho::Draw()
     auto shader = m_presetState.texturedShader.lock();
     m_shader = shader.get();
     shader->Bind();
-    shader->SetUniformMat4x4("vertex_transformation", PresetState::orthogonalProjection);
+    m_uniforms.Write(Renderer::TransformUniforms{PresetState::orthogonalProjection, 1.0f});
     shader->SetUniformInt("texture_sampler", 0);
 
     auto mainTexture = m_presetState.mainTexture.lock();

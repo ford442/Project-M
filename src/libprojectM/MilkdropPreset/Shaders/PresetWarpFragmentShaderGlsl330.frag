@@ -3,12 +3,22 @@ in vec4 frag_TEXCOORD0;
 in vec2 frag_TEXCOORD1;
 
 uniform sampler2D texture_sampler;
-// Set to 1 when the main texture is NOT pre-flipped (i.e. when the default
-// warp path skips the pre-warp CopyTexture flip pass for performance).
+// u_flipMainTex is set to 1 when the main texture is NOT pre-flipped (i.e. when
+// the default warp path skips the pre-warp CopyTexture flip pass for performance).
 // The fragment shader then flips the V sampling coordinate at no extra cost,
 // while still writing the un-flipped UV to the motion-vector attachment so
 // that motion arrows remain visually correct.
-uniform int u_flipMainTex;
+// _pm_warp (Renderer::WarpUniforms), the same block in both stages of the default warp program.
+layout(std140) uniform _pm_warp {
+    mat4 vertex_transformation;
+    vec4 aspect;
+    vec4 warpFactors;
+    vec2 texelOffset;
+    float warpTime;
+    float warpScaleInverse;
+    float decay;
+    int u_flipMainTex;
+};
 
 layout(location = 0) out vec4 color;
 layout(location = 1) out vec2 texCoords;

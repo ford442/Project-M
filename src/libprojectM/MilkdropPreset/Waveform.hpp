@@ -5,6 +5,7 @@
 #include "Waveforms/WaveformMath.hpp"
 
 #include <Renderer/Mesh.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 #include <memory>
 
@@ -22,6 +23,7 @@ public:
     void Draw(const PerFrameContext& presetPerFrameContext);
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     void MaximizeColors(const PerFrameContext& presetPerFrameContext);
     void ModulateOpacityByVolume(const PerFrameContext& presetPerFrameContext);
 

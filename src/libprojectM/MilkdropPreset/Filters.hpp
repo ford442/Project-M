@@ -3,6 +3,7 @@
 #include "PresetState.hpp"
 
 #include <Renderer/Mesh.hpp>
+#include <Renderer/UniformBlocks.hpp>
 
 namespace libprojectM {
 namespace MilkdropPreset {
@@ -22,6 +23,7 @@ public:
     void Draw();
 
 private:
+    Renderer::UniformBlockWriter m_uniforms; //!< Writes this object's uniform blocks (UniformBlocks.hpp).
     void UpdateMesh();
 
     /**

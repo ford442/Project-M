@@ -177,7 +177,10 @@ The three checks share `tests/libprojectM/data/PresetCompat/wgsl_known_failures.
    (`--use-port=emdawnwebgpu`) in the browser, Dawn natively; bind group layouts from the
    reflection; the pipeline cache keyed by `Device::Hash(PipelineDesc)`; hand-written WGSL twins
    of the built-in shaders; clip-space y negated (section 5); the whole-frame pixel diff over
-   `presets/tests` + `presets/custom` with this ADR's budget.
+   `presets/tests` + `presets/custom` with this ADR's budget. The built-in shaders read no
+   default-block uniforms any more: every value is a std140 block member, whose struct in
+   `Renderer/UniformBlocks.hpp` is the layout their WGSL twins declare
+   ([`RENDER_DEVICE.md`](../RENDER_DEVICE.md) "The built-in shaders' blocks").
 3. Phase E: a WGSL printer for `PerPixelGlslLowering`'s plan, writing the warp mesh from a
    compute shader.
 4. Phase F: `?gpu=webgpu|webgl` with auto-detect, device-lost replay, GPU timestamps

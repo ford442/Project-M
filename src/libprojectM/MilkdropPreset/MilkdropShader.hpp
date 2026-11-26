@@ -12,6 +12,7 @@
 
 #include <Renderer/Shader.hpp>
 #include <Renderer/TextureManager.hpp>
+#include <Renderer/UniformRingBuffer.hpp>
 
 #include <array>
 #include <cstdint>
@@ -74,6 +75,28 @@ struct PredictedRandomTexture {
 };
 
 using PredictedRandomTextures = std::map<int, PredictedRandomTexture>; //!< Predictions by random slot, shared by warp and composite.
+
+/**
+ * @brief The preset shaders' per-frame inputs: the std140 layout of <tt>cbuffer _milkdrop_frame</tt>
+ *        in PresetShaderHeaderGlsl330.inc, member for member.
+ *
+ * Every member is a vec4 or a mat3x4 (HLSL float4x3: three vec4 columns), so std140 adds no
+ * padding and the struct is the block byte for byte.
+ */
+struct MilkdropFrameUniforms {
+    using Vec4 = std::array<float, 4>;
+    using Mat3x4 = std::array<float, 12>; //!< Three columns of four floats.
+
+    static constexpr const char* BlockName = "_milkdrop_frame";
+    static constexpr int Slot = 0; //!< The uniform buffer slot the block reads from.
+
+    Vec4 randFrame{};               //!< rand_frame
+    Vec4 randPreset{};              //!< rand_preset
+    std::array<Vec4, 18> c{};       //!< _c0 .. _c17
+    std::array<Vec4, 8> q{};        //!< _qa .. _qh (q1 .. q32)
+    std::array<Mat3x4, 24> rot{};   //!< rot_s1..4, rot_d1..4, rot_f1..4, rot_vf1..4, rot_uf1..4, rot_rand1..4
+};
+static_assert(sizeof(MilkdropFrameUniforms) == (2 + 18 + 8) * 16 + 24 * 48, "MilkdropFrameUniforms must match the std140 block");
 
 /**
  * @brief Holds a warp or composite shader of Milkdrop presets.
@@ -269,6 +292,9 @@ private:
     std::array<glm::vec3, 20> m_randTranslation{};     //!< Random translation vectors which don't change every frame.
     std::array<glm::vec3, 20> m_randRotationCenters{}; //!< Random rotation center vectors which don't change every frame.
     std::array<glm::vec3, 20> m_randRotationSpeeds{};  //!< Random rotation speeds which don't change every frame.
+
+    MilkdropFrameUniforms m_frameUniforms{};                      //!< Filled by LoadVariables(), then copied to the ring.
+    std::unique_ptr<Renderer::UniformRingBuffer> m_fallbackRing; //!< Used when the render context has no ring.
 
     Renderer::Shader m_shader;
 };

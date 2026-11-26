@@ -147,6 +147,17 @@ public:
      */
     virtual void SetUniform(int location, UniformType type, int count, const void* data) = 0;
 
+    /**
+     * @brief Binds @a size bytes of a uniform buffer, starting at @a offset, to uniform block
+     *        slot @a slot. Programs read it through the block bound to that slot
+     *        (IRenderDevice::BindUniformBlock()).
+     *
+     * @a offset must be a multiple of IRenderDevice::UniformBufferOffsetAlignment(). An invalid
+     * handle unbinds the slot. The binding is not pipeline state and survives SetPipeline();
+     * ResetPipelineState() unbinds every slot bound since the last reset.
+     */
+    virtual void BindUniformBuffer(int slot, BufferHandle buffer, size_t offset, size_t size) = 0;
+
     // ---- Textures and samplers --------------------------------------------------------
 
     /**
@@ -305,6 +316,12 @@ public:
      */
     [[nodiscard]] virtual auto MaxTextureAnisotropy() -> float = 0;
 
+    /**
+     * @brief The alignment a uniform buffer range passed to ICommandList::BindUniformBuffer()
+     *        must start at, in bytes (GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT; 256 on WebGPU).
+     */
+    [[nodiscard]] virtual auto UniformBufferOffsetAlignment() -> size_t = 0;
+
     // ---- Textures and samplers --------------------------------------------------------
 
     /**
@@ -337,6 +354,18 @@ public:
 
     [[nodiscard]] virtual auto CreateBuffer() -> BufferHandle = 0;
     virtual void DestroyBuffer(BufferHandle buffer) = 0;
+
+    /**
+     * @brief Creates a buffer with @a bytes of uniform storage (contents undefined), written with
+     *        WriteBuffer() and bound with ICommandList::BindUniformBuffer().
+     */
+    [[nodiscard]] virtual auto CreateUniformBuffer(size_t bytes) -> BufferHandle = 0;
+
+    /**
+     * @brief Copies @a bytes of @a data into a buffer at @a offset, ordered before the commands
+     *        issued after it (WebGPU's queue.writeBuffer()). Leaves no buffer bound for any kind.
+     */
+    virtual void WriteBuffer(BufferHandle buffer, size_t offset, const void* data, size_t bytes) = 0;
 
     /**
      * @brief Reads back the start of a buffer bound for @a kind, e.g. a finished PixelPack read.
@@ -401,6 +430,15 @@ public:
      * @brief The location of an active vertex input, or -1.
      */
     [[nodiscard]] virtual auto AttributeLocation(ProgramHandle program, const char* name) -> int = 0;
+
+    /**
+     * @brief Makes a linked program's uniform block @a name read from uniform buffer slot @a slot.
+     * @return false if the program has no active block of that name (nothing to bind).
+     *
+     * GLSL 3.30 / ESSL 3.00 cannot say layout(binding = n), so the GL backend does this after
+     * each link; a relink forgets it.
+     */
+    virtual auto BindUniformBlock(ProgramHandle program, const char* name, int slot) -> bool = 0;
 
     // ---- Pipelines -------------------------------------------------------------------
 

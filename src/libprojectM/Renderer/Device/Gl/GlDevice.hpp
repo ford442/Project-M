@@ -55,6 +55,7 @@ public:
     void SetPipeline(PipelineHandle pipeline) override;
     void SetProgram(ProgramHandle program) override;
     void SetUniform(int location, UniformType type, int count, const void* data) override;
+    void BindUniformBuffer(int slot, BufferHandle buffer, size_t offset, size_t size) override;
 
     void BindTexture(int unit, TextureTarget target, TextureHandle texture) override;
     auto BoundTexture2D() -> TextureHandle override;
@@ -125,6 +126,7 @@ private:
     PrimitiveType m_topology{PrimitiveType::Triangles};
     bool m_reportedMissingPipeline{false};
     bool m_reportedUnknownPipeline{false};
+    uint32_t m_boundUniformSlots{}; //!< Bit n: slot n had a buffer bound since the last reset.
 };
 
 /**
@@ -144,6 +146,7 @@ public:
     auto ShadingLanguageVersionString() -> std::string override;
     auto SupportsParallelShaderCompile() -> bool override;
     auto MaxTextureAnisotropy() -> float override;
+    auto UniformBufferOffsetAlignment() -> size_t override;
 
     auto CreateTexture(const TextureDesc& desc, const void* data) -> TextureHandle override;
     void UpdateTexture(TextureHandle texture, const TextureDesc& desc, const void* data) override;
@@ -157,6 +160,8 @@ public:
 
     auto CreateBuffer() -> BufferHandle override;
     void DestroyBuffer(BufferHandle buffer) override;
+    auto CreateUniformBuffer(size_t bytes) -> BufferHandle override;
+    void WriteBuffer(BufferHandle buffer, size_t offset, const void* data, size_t bytes) override;
     void ReadBoundBuffer(BufferKind kind, size_t bytes, void* destination) override;
 
     auto CreateVertexArray() -> VertexArrayHandle override;
@@ -176,6 +181,7 @@ public:
     auto ValidateProgram(ProgramHandle program, std::string& log) -> bool override;
     auto UniformLocation(ProgramHandle program, const char* name) -> int override;
     auto AttributeLocation(ProgramHandle program, const char* name) -> int override;
+    auto BindUniformBlock(ProgramHandle program, const char* name, int slot) -> bool override;
 
     auto CreatePipeline(const PipelineDesc& desc) -> PipelineHandle override;
     auto Pipeline(PipelineHandle pipeline) const -> const PipelineDesc* override;

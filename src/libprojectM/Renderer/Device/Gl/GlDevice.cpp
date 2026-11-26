@@ -455,6 +455,31 @@ void GlCommandList::ResetPipelineState()
 {
     Apply(PipelineDesc{});
     m_hasPipeline = false;
+    for (int slot = 0; m_boundUniformSlots != 0; slot++)
+    {
+        if ((m_boundUniformSlots & (1u << slot)) != 0)
+        {
+            glBindBufferBase(GL_UNIFORM_BUFFER, static_cast<GLuint>(slot), 0);
+            m_boundUniformSlots &= ~(1u << slot);
+        }
+    }
+}
+
+void GlCommandList::BindUniformBuffer(int slot, BufferHandle buffer, size_t offset, size_t size)
+{
+    if (slot < 0 || slot >= 32)
+    {
+        return;
+    }
+    if (!buffer.Valid())
+    {
+        glBindBufferBase(GL_UNIFORM_BUFFER, static_cast<GLuint>(slot), 0);
+        m_boundUniformSlots &= ~(1u << slot);
+        return;
+    }
+    glBindBufferRange(GL_UNIFORM_BUFFER, static_cast<GLuint>(slot), buffer.id,
+                      static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size));
+    m_boundUniformSlots |= 1u << slot;
 }
 
 void GlCommandList::OnProgramDestroyed(ProgramHandle program)
@@ -779,6 +804,13 @@ auto GlDevice::MaxTextureAnisotropy() -> float
 #endif
 }
 
+auto GlDevice::UniformBufferOffsetAlignment() -> size_t
+{
+    GLint alignment{};
+    glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
+    return alignment > 0 ? static_cast<size_t>(alignment) : 256;
+}
+
 auto GlDevice::CreateTexture(const TextureDesc& desc, const void* data) -> TextureHandle
 {
     GLuint texture{};
@@ -868,6 +900,28 @@ void GlDevice::DestroyBuffer(BufferHandle buffer)
     {
         glDeleteBuffers(1, &buffer.id);
     }
+}
+
+auto GlDevice::CreateUniformBuffer(size_t bytes) -> BufferHandle
+{
+    GLuint buffer{};
+    glGenBuffers(1, &buffer);
+    // The copy-write binding point, so no binding the renderer or the host uses changes.
+    glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+    glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(bytes), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+    return {buffer};
+}
+
+void GlDevice::WriteBuffer(BufferHandle buffer, size_t offset, const void* data, size_t bytes)
+{
+    if (!buffer.Valid() || bytes == 0)
+    {
+        return;
+    }
+    glBindBuffer(GL_COPY_WRITE_BUFFER, buffer.id);
+    glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(bytes), data);
+    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
 }
 
 void GlDevice::ReadBoundBuffer(BufferKind kind, size_t bytes, void* destination)
@@ -1089,6 +1143,21 @@ auto GlDevice::UniformLocation(ProgramHandle program, const char* name) -> int
 auto GlDevice::AttributeLocation(ProgramHandle program, const char* name) -> int
 {
     return glGetAttribLocation(program.id, name);
+}
+
+auto GlDevice::BindUniformBlock(ProgramHandle program, const char* name, int slot) -> bool
+{
+    if (!program.Valid() || slot < 0)
+    {
+        return false;
+    }
+    const GLuint index = glGetUniformBlockIndex(program.id, name);
+    if (index == GL_INVALID_INDEX)
+    {
+        return false;
+    }
+    glUniformBlockBinding(program.id, index, static_cast<GLuint>(slot));
+    return true;
 }
 
 auto GlDevice::CreateFence() -> FenceHandle

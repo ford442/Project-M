@@ -40,6 +40,7 @@
 #include <Renderer/PresetTransition.hpp>
 #include <Renderer/Shader.hpp>
 #include <Renderer/ShaderCache.hpp>
+#include <Renderer/UniformRingBuffer.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
 #include <Renderer/TextureManager.hpp>
 #include <Renderer/TransitionShaderManager.hpp>
@@ -319,6 +320,8 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
         return;
     }
 
+    m_uniformRing->BeginFrame();
+
     // Update FPS and other timer values.
     m_timeKeeper->UpdateTimers();
 
@@ -516,6 +519,7 @@ void ProjectM::Initialize()
 
     m_textureManager = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
     m_shaderCache = std::make_unique<Renderer::ShaderCache>();
+    m_uniformRing = std::make_unique<Renderer::UniformRingBuffer>();
 
     m_transitionShaderManager = std::make_unique<Renderer::TransitionShaderManager>();
 
@@ -1168,6 +1172,7 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
 
     ctx.textureManager = m_textureManager.get();
     ctx.shaderCache = m_shaderCache.get();
+    ctx.uniformRing = m_uniformRing.get();
     ctx.hostVariables = &m_hostVariables;
 
     if (m_transition)

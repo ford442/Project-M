@@ -90,6 +90,8 @@ add_library(Renderer OBJECT
         TextureSamplerDescriptor.cpp
         TextureSamplerDescriptor.hpp
         TextureUV.hpp
+        UniformRingBuffer.cpp
+        UniformRingBuffer.hpp
         TransitionShaderManager.cpp
         TransitionShaderManager.hpp
         VertexArray.hpp

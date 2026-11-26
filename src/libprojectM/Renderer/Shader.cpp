@@ -37,6 +37,7 @@ void Shader::BeginCompileProgram(const std::string& vertexShaderSource,
 
     // Relinking may move every uniform.
     m_uniformLocations.clear();
+    m_linked = false;
 
     m_pending = std::make_unique<PendingCompile>();
     m_pending->vertexShaderSource = vertexShaderSource;
@@ -79,6 +80,11 @@ void Shader::FinishCompileProgram()
     switch (result.status)
     {
         case Status::Ok:
+            m_linked = true;
+            for (const auto& [blockName, slot] : m_uniformBlockBindings)
+            {
+                m_device->BindUniformBlock(m_shaderProgram, blockName.c_str(), slot);
+            }
             return;
 
         // Report a failed shader compile the way compiling it synchronously did,
@@ -115,6 +121,15 @@ void Shader::ReleasePendingCompile()
 bool Shader::Validate(std::string& validationMessage) const
 {
     return m_device->ValidateProgram(m_shaderProgram, validationMessage);
+}
+
+void Shader::SetUniformBlockBinding(const char* blockName, int slot)
+{
+    m_uniformBlockBindings.emplace_back(blockName, slot);
+    if (m_linked)
+    {
+        m_device->BindUniformBlock(m_shaderProgram, blockName, slot);
+    }
 }
 
 void Shader::Bind() const

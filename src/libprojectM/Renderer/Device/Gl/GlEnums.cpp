@@ -103,6 +103,8 @@ auto ToGl(BufferKind kind) -> GLenum
             return GL_ELEMENT_ARRAY_BUFFER;
         case BufferKind::PixelPack:
             return GL_PIXEL_PACK_BUFFER;
+        case BufferKind::Uniform:
+            return GL_UNIFORM_BUFFER;
     }
 }
 

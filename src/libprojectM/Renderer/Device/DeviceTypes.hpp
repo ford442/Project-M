@@ -169,7 +169,8 @@ enum class BufferKind : uint8_t
 {
     Vertex,   //!< Vertex attribute data.
     Index,    //!< 32-bit vertex indices.
-    PixelPack //!< Destination of ReadPixels() for asynchronous readback.
+    PixelPack, //!< Destination of ReadPixels() for asynchronous readback.
+    Uniform    //!< A uniform block's storage (std140), see ICommandList::BindUniformBuffer().
 };
 
 /**

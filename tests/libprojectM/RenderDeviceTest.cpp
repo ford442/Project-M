@@ -21,6 +21,7 @@
 #include <Renderer/Device/Gl/GlDevice.hpp>
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Shader.hpp>
+#include <Renderer/UniformRingBuffer.hpp>
 
 #include "TestGl.hpp"
 
@@ -682,5 +683,132 @@ TEST_F(GlDeviceTest, ValidationReportsGlErrorsOncePerOperation)
     projectm_set_log_callback(nullptr, true, nullptr);
     projectm_set_log_level(PROJECTM_LOG_LEVEL_NOTSET, true);
     EXPECT_EQ(countGlErrors(), 1);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+namespace {
+
+// Reads its colour from a uniform block (B1.3): std140, bound to a slot after linking.
+constexpr const char* kBlockFragmentBody = R"(
+layout(std140) uniform TestBlock
+{
+    vec4 padding;
+    vec4 color;
+};
+out vec4 fragColor;
+void main()
+{
+    fragColor = color;
+}
+)";
+
+struct TestBlockData {
+    std::array<float, 4> padding{};
+    std::array<float, 4> color{};
+};
+
+} // namespace
+
+TEST_F(GlDeviceTest, DrawsReadTheirUniformBufferRange)
+{
+    libprojectM::Renderer::Shader shader;
+    shader.SetUniformBlockBinding("TestBlock", 2); // Before linking: applied after the link.
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kBlockFragmentBody);
+    EXPECT_FALSE(m_device->BindUniformBlock(shader.Handle(), "NoSuchBlock", 2));
+
+    auto& commands = m_device->Commands();
+    const auto texture = CreateColorTexture();
+    const auto target = CreateTarget(texture);
+    const auto vertexArray = m_device->CreateVertexArray();
+    commands.SetEnabled(Device::Capability::ScissorTest, false);
+
+    libprojectM::Renderer::UniformRingBuffer ring(1024);
+    ring.BeginFrame();
+    Device::PipelineDesc pipeline;
+    pipeline.shader = shader.Handle();
+
+    // Two draws in one frame, each with its own range: the second must not overwrite the first.
+    const std::array<std::array<float, 4>, 2> colors{{{1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}};
+    std::array<libprojectM::Renderer::UniformRingBuffer::Range, 2> ranges{};
+    for (size_t i = 0; i < colors.size(); i++)
+    {
+        commands.BeginPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
+        Device::SetPipeline(*m_device, pipeline);
+        commands.BindVertexArray(vertexArray);
+        TestBlockData data;
+        data.color = colors[i];
+        ranges[i] = ring.WriteAndBind(2, &data, sizeof(data));
+        commands.Draw(0, 3);
+        commands.EndPass();
+
+        const auto pixels = ReadTarget(target);
+        EXPECT_EQ(pixels[0], i == 0 ? 255 : 0);
+        EXPECT_EQ(pixels[2], i == 0 ? 0 : 255);
+    }
+    const size_t alignment = m_device->UniformBufferOffsetAlignment();
+    EXPECT_EQ(ranges[0].offset % alignment, 0u);
+    EXPECT_EQ(ranges[1].offset % alignment, 0u);
+    EXPECT_GE(ranges[1].offset, ranges[0].offset + sizeof(TestBlockData));
+    EXPECT_EQ(ranges[0].buffer, ranges[1].buffer);
+
+    commands.BindVertexArray({});
+    commands.ResetPipelineState(); // Also unbinds slot 2.
+    GLint bound{-1};
+    glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &bound);
+    EXPECT_EQ(bound, 0);
+
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    m_device->DestroyVertexArray(vertexArray);
+    m_device->DestroyRenderTarget(target);
+    m_device->DestroyTexture(texture);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, UniformRingAllocatesOnceAndWraps)
+{
+    const size_t alignment = m_device->UniformBufferOffsetAlignment();
+    const size_t capacity = 4 * alignment;
+    libprojectM::Renderer::UniformRingBuffer ring(capacity);
+    const std::array<float, 4> data{};
+
+    // Three ranges a frame in room for four: frames wrap around the buffer without growing it.
+    size_t lastOffset{};
+    for (int frame = 0; frame < 10; frame++)
+    {
+        ring.BeginFrame();
+        std::vector<size_t> offsets;
+        for (int draw = 0; draw < 3; draw++)
+        {
+            const auto range = ring.Write(data.data(), sizeof(data));
+            EXPECT_EQ(range.offset % alignment, 0u);
+            EXPECT_LE(range.offset + range.size, capacity);
+            offsets.push_back(range.offset);
+            lastOffset = range.offset;
+        }
+        std::sort(offsets.begin(), offsets.end());
+        EXPECT_EQ(std::unique(offsets.begin(), offsets.end()), offsets.end()) << "frame " << frame << " reused a range";
+        EXPECT_LE(ring.FrameBytes(), capacity);
+    }
+    EXPECT_EQ(ring.Allocations(), 1u);
+    EXPECT_EQ(ring.Capacity(), capacity);
+    EXPECT_GT(lastOffset, 0u);
+
+    // A frame that needs more than the buffer grows it once; the frames after fit.
+    ring.BeginFrame();
+    for (int draw = 0; draw < 6; draw++)
+    {
+        ring.Write(data.data(), sizeof(data));
+    }
+    EXPECT_EQ(ring.Allocations(), 2u);
+    EXPECT_GE(ring.Capacity(), 6 * alignment);
+    for (int frame = 0; frame < 4; frame++)
+    {
+        ring.BeginFrame();
+        for (int draw = 0; draw < 6; draw++)
+        {
+            ring.Write(data.data(), sizeof(data));
+        }
+    }
+    EXPECT_EQ(ring.Allocations(), 2u);
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
 }

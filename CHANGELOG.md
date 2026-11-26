@@ -158,7 +158,10 @@ Build, CI and docs
 - **Flag snapshots**: `scripts/check_wasm_link_flags.sh` holds every flavor's compile and link lines to
   `tests/wasm-smoke/link-flags/`, in `build_emscripten.yml`; `docs/EMSCRIPTEN.md` "Flag matrix" corrected
   (pool size 7, runtime methods).
-- **Allocator A/B** (`PROJECTM_WASM_MALLOC=dlmalloc`, `+dlmalloc`, never deployed): measurement in progress.
+- **Allocator A/B** (`PROJECTM_WASM_MALLOC=dlmalloc`, `+dlmalloc`, never deployed): on software GL, frame p50/p95 are
+  the same within run-to-run noise, preset switching leans slightly towards mimalloc, and dlmalloc's heap peak is
+  6-8 MiB lower (12 MB fixed heap or less against 20 MB). mimalloc stays until a GPU-runner A/B confirms or
+  overturns it (`docs/PERFORMANCE.md` "Allocator").
 - Main CI repaired (#306, #321); hazard inventory over the preset corpora (#344); upstream sync of 2026-11-06 (#346);
   WebGL extension allow-list and WASM logging through `Logging` (#347).
 - This branch: workflows pinned to commit SHAs with Dependabot, least-privilege `permissions`, per-job timeouts;

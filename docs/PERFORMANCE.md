@@ -863,6 +863,51 @@ drove to near zero, so the 80 Hz window lights all three. A routing check across
 differ between topologies, since the worker's frames are not paced by this page. Every assertion
 is relative to the same run's silence window, so that difference cannot fail either leg.
 
+## Allocator: mimalloc vs dlmalloc
+
+The bundle links `-sMALLOC=mimalloc` (`cmake/EmscriptenWasmFlags.cmake`), which gives each thread its own heap
+instead of dlmalloc's one lock: the per-pixel OpenMP team, the preset prepare threads and the render thread all
+allocate. `PROJECTM_WASM_MALLOC=dlmalloc` links the same tree with dlmalloc for the A/B (tagged `+dlmalloc`, never
+deployed; `docs/EMSCRIPTEN.md` "Build flavors").
+
+Measured 2026-11-26, emsdk 6.0.6, one tree, headless Chromium with ANGLE/SwiftShader on a 4-core container (OpenMP
+team of 3). Software GL, so frame times are CPU-side and noisy; read them as "no difference this setup can see", not as
+GPU numbers.
+
+**Frames** (`scripts/benchmark_presets_wasm.mjs --software-gl`, the 6 curated presets, 300 frames each, 1280x720,
+three alternating runs per allocator). Per run, the mean over the presets of each preset's `totalMs` p50 / p95, and
+the preset-switch readiness median:
+
+| | mimalloc | dlmalloc |
+|---|---|---|
+| frame p50, per run | 2.39, 2.52, 2.69 ms | 2.61, 2.52, 2.48 ms |
+| frame p95, per run | 6.35, 6.91, 6.99 ms | 6.66, 6.69, 6.79 ms |
+| preset switch, median per run | 419, 305, 422 ms | 388, 473, 537 ms |
+
+The frame ranges overlap run to run. Preset switching (the prepare thread parsing and transpiling, the most
+allocation-heavy work) leans towards mimalloc, inside the noise.
+
+**Heap** (`tests/wasm-smoke/measure-heap.mjs`: empty, per-pixel and composite-shader presets, cold start to a
+dual-FBO transition):
+
+| | mimalloc | dlmalloc |
+|---|---|---|
+| peak with growth on (`-sINITIAL_MEMORY=16mb -sALLOW_MEMORY_GROWTH=1 -sMEMORY_GROWTH_LINEAR_STEP=1mb`) | 18.44 MiB, reached at cold start (mimalloc reserves its first segments before `init()`) | never grows: within the 16 MiB start |
+| smallest fixed heap (growth off, as deployed) all three presets run in | 20 MB (18 MB fails) | 12 MB or less (the smallest tried) |
+
+**Decision: mimalloc stays, unconfirmed.** By the rule the A/B was set up with (keep it if p95 frame time or heap
+peak improves) mimalloc does not earn its place here: p95 is a wash and its heap peak is 6 to 8 MiB higher. That is
+3% of the fixed 256 MB heap, which no workload approaches, and the contention mimalloc exists for (four threads
+allocating at once on real cores, with the GPU off the CPU) is what a SwiftShader run cannot show. Switching the
+deployed allocator waits for the same A/B on a GPU runner (`graphics_perf_bench.yml`, which has none registered yet):
+link both flavors and compare their `scripts/record_frame_budget.mjs` records. If that is also a wash, dlmalloc's
+smaller heap decides.
+
+A measurement note: before `play_song` replaced the `pl` export, the link's export minifier bound a second export to
+`pl()`, and which one depended on the export count (`docs/EMSCRIPTEN.md` "Export names"). In the dlmalloc link it
+was `malloc`, so WebGL context creation failed; in the mimalloc link it was `__emscripten_tls_init`, so no pthread set
+up its thread-local storage, mimalloc's per-thread heaps included. The numbers above are from the fixed tree.
+
 ## Dual-FBO VRAM residency and lazy preset-A allocation (issue #199)
 
 ### What the dual-FBO pairs are for

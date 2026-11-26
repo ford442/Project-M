@@ -1,5 +1,7 @@
 #include "BlurTexture.hpp"
 
+#include <PerfTimers.hpp>
+
 #include "PerFrameContext.hpp"
 #include "PresetState.hpp"
 
@@ -138,37 +140,40 @@ auto BlurTexture::GetDescriptorsForBlurLevel(BlurTexture::BlurLevel blurLevel) c
     return descriptors;
 }
 
-void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameContext& perFrameContext)
+namespace {
+auto CopyPathForcedByEnvironment() -> bool;
+} // namespace
+
+auto BlurTexture::Prepare(const Renderer::Texture& sourceTexture, const PerFrameContext& perFrameContext) -> bool
 {
+    m_frame = {};
     if (m_blurLevel == BlurLevel::None)
     {
-        return;
+        return false;
     }
 
     if (sourceTexture.Width() == 0 ||
         sourceTexture.Height() == 0)
     {
-        return;
+        return false;
     }
 
     AllocateTextures(sourceTexture);
 
     if (!EnsureRenderTarget())
     {
-        return;
+        return false;
     }
 
-    unsigned int const passes = static_cast<int>(EffectiveLevel(m_blurLevel)) * 2;
-    auto const blur1EdgeDarken = static_cast<float>(*perFrameContext.blur1_edge_darken);
-
-    const std::array<float, 8> weights = {4.0f, 3.8f, 3.5f, 2.9f, 1.9f, 1.2f, 0.7f, 0.3f}; //<- user can specify these
+    m_frame.passes = static_cast<unsigned int>(EffectiveLevel(m_blurLevel)) * 2;
+    m_frame.blur1EdgeDarken = static_cast<float>(*perFrameContext.blur1_edge_darken);
 
     Values blurMin;
     Values blurMax;
     GetSafeBlurMinMaxValues(perFrameContext, blurMin, blurMax);
 
-    std::array<float, 3> scale{};
-    std::array<float, 3> bias{};
+    auto& scale = m_frame.scale;
+    auto& bias = m_frame.bias;
 
     // figure out the progressive scale & bias needed, at each step,
     // to go from one [min..max] range to the next.
@@ -183,150 +188,262 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
     scale[2] = 1.0f / (tempMax - tempMin);
     bias[2] = -tempMin * scale[2];
 
+    m_frame.source = &sourceTexture;
+    return m_frame.passes > 0;
+}
+
+void BlurTexture::BeginPasses(bool copyPath)
+{
+    if (m_frame.source == nullptr)
+    {
+        return;
+    }
     // Remember previously bound framebuffer
     using Renderer::Device::TargetBinding;
     auto& commands = m_device->Commands();
-    const auto origReadFramebuffer = commands.BoundRenderTarget(TargetBinding::Read);
-    const auto origDrawFramebuffer = commands.BoundRenderTarget(TargetBinding::Draw);
+    m_frame.origReadFramebuffer = commands.BoundRenderTarget(TargetBinding::Read);
+    m_frame.origDrawFramebuffer = commands.BoundRenderTarget(TargetBinding::Draw);
 
-    if (m_renderPath == RenderPath::Copy)
+    if (copyPath)
     {
         m_blurFramebuffer.Bind(0);
     }
+}
+
+void BlurTexture::RenderLevel(unsigned int pass, bool copyPath)
+{
+    if (m_frame.aborted || m_frame.source == nullptr)
+    {
+        return;
+    }
+    using Renderer::Device::TargetBinding;
+    auto& commands = m_device->Commands();
+    const std::array<float, 8> weights = {4.0f, 3.8f, 3.5f, 2.9f, 1.9f, 1.2f, 0.7f, 0.3f}; //<- user can specify these
 
     // Blending stays on with (one, zero), as it always has; the result is a plain write.
     const auto blend = Renderer::Device::BlendState::Factors(Renderer::Device::BlendFactor::One, Renderer::Device::BlendFactor::Zero);
 
-    for (unsigned int pass = 0; pass < passes; pass++)
+    if (m_blurTextures[pass]->Empty())
     {
-        if (m_blurTextures[pass]->Empty())
-        {
-            continue;
-        }
+        return;
+    }
 
-        // set pixel shader
-        std::shared_ptr<Renderer::Shader> blurShader;
-        if ((pass % 2) == 0)
+    // set pixel shader
+    std::shared_ptr<Renderer::Shader> blurShader;
+    if ((pass % 2) == 0)
+    {
+        blurShader = m_blur1Shader.lock();
+    }
+    else
+    {
+        blurShader = m_blur2Shader.lock();
+    }
+    if (!blurShader)
+    {
+        m_frame.aborted = true;
+        return;
+    }
+
+    Renderer::Device::SetPipeline(*m_device, m_blurMesh.Pipeline(*blurShader, blend));
+    blurShader->SetUniformInt("texture_sampler", 0);
+
+    // Point the framebuffer at this pass' destination texture (direct path) or at the
+    // shared scratch attachment (copy fallback), and size the viewport to match.
+    BindPassTarget(pass, copyPath);
+
+    // hook up correct source texture - assume there is only one, at stage 0
+    if (pass == 0)
+    {
+        m_frame.source->Bind(0);
+        blurShader->SetUniformInt("flipVertical", 1);
+    }
+    else
+    {
+        m_blurTextures[pass - 1]->Bind(0);
+        blurShader->SetUniformInt("flipVertical", 0);
+    }
+    m_blurSampler->Bind(0);
+
+    float srcWidth = static_cast<float>((pass == 0) ? m_frame.source->Width() : m_blurTextures[pass - 1]->Width());
+    float srcHeight = static_cast<float>((pass == 0) ? m_frame.source->Height() : m_blurTextures[pass - 1]->Height());
+
+    float scaleNow = m_frame.scale[pass / 2];
+    float biasNow = m_frame.bias[pass / 2];
+
+    // set constants
+    if (pass % 2 == 0)
+    {
+        // pass 1 (long horizontal pass)
+        //-------------------------------------
+        const float w1 = weights[0] + weights[1];
+        const float w2 = weights[2] + weights[3];
+        const float w3 = weights[4] + weights[5];
+        const float w4 = weights[6] + weights[7];
+        const float d1 = 0 + 2 * weights[1] / w1;
+        const float d2 = 2 + 2 * weights[3] / w2;
+        const float d3 = 4 + 2 * weights[5] / w3;
+        const float d4 = 6 + 2 * weights[7] / w4;
+        const float w_div = 0.5f / (w1 + w2 + w3 + w4);
+        //-------------------------------------
+        //float4 _c0; // source texsize (.xy), and inverse (.zw)
+        //float4 _c1; // w1..w4
+        //float4 _c2; // d1..d4
+        //float4 _c3; // scale, bias, w_div, 0
+        //-------------------------------------
+        blurShader->SetUniformFloat4("_c0", {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight});
+        blurShader->SetUniformFloat4("_c1", {w1, w2, w3, w4});
+        blurShader->SetUniformFloat4("_c2", {d1, d2, d3, d4});
+        blurShader->SetUniformFloat4("_c3", {scaleNow, biasNow, w_div, 0.0});
+    }
+    else
+    {
+        // pass 2 (short vertical pass)
+        //-------------------------------------
+        const float w1 = weights[0] + weights[1] + weights[2] + weights[3];
+        const float w2 = weights[4] + weights[5] + weights[6] + weights[7];
+        const float d1 = 0 + 2 * ((weights[2] + weights[3]) / w1);
+        const float d2 = 2 + 2 * ((weights[6] + weights[7]) / w2);
+        const float w_div = 1.0f / ((w1 + w2) * 2);
+        //-------------------------------------
+        //float4 _c0; // source texsize (.xy), and inverse (.zw)
+        //float4 _c5; // w1,w2,d1,d2
+        //float4 _c6; // w_div, edge_darken_c1, edge_darken_c2, edge_darken_c3
+        //-------------------------------------
+        blurShader->SetUniformFloat4("_c0", {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight});
+        blurShader->SetUniformFloat4("_c5", {w1, w2, d1, d2});
+        // note: only do this first time; if you do it many times,
+        // then the super-blurred levels will have big black lines along the top & left sides.
+        if (pass == 1)
         {
-            blurShader = m_blur1Shader.lock();
+            // Darken edges
+            blurShader->SetUniformFloat4("_c6", {w_div, (1 - m_frame.blur1EdgeDarken), m_frame.blur1EdgeDarken, 5.0f});
         }
         else
         {
-            blurShader = m_blur2Shader.lock();
-        }
-        if (!blurShader)
-        {
-            return;
-        }
-
-        Renderer::Device::SetPipeline(*m_device, m_blurMesh.Pipeline(*blurShader, blend));
-        blurShader->SetUniformInt("texture_sampler", 0);
-
-        // Point the framebuffer at this pass' destination texture (direct path) or at the
-        // shared scratch attachment (copy fallback), and size the viewport to match.
-        BindPassTarget(pass);
-
-        // hook up correct source texture - assume there is only one, at stage 0
-        if (pass == 0)
-        {
-            sourceTexture.Bind(0);
-            blurShader->SetUniformInt("flipVertical", 1);
-        }
-        else
-        {
-            m_blurTextures[pass - 1]->Bind(0);
-            blurShader->SetUniformInt("flipVertical", 0);
-        }
-        m_blurSampler->Bind(0);
-
-        float srcWidth = static_cast<float>((pass == 0) ? sourceTexture.Width() : m_blurTextures[pass - 1]->Width());
-        float srcHeight = static_cast<float>((pass == 0) ? sourceTexture.Height() : m_blurTextures[pass - 1]->Height());
-
-        float scaleNow = scale[pass / 2];
-        float biasNow = bias[pass / 2];
-
-        // set constants
-        if (pass % 2 == 0)
-        {
-            // pass 1 (long horizontal pass)
-            //-------------------------------------
-            const float w1 = weights[0] + weights[1];
-            const float w2 = weights[2] + weights[3];
-            const float w3 = weights[4] + weights[5];
-            const float w4 = weights[6] + weights[7];
-            const float d1 = 0 + 2 * weights[1] / w1;
-            const float d2 = 2 + 2 * weights[3] / w2;
-            const float d3 = 4 + 2 * weights[5] / w3;
-            const float d4 = 6 + 2 * weights[7] / w4;
-            const float w_div = 0.5f / (w1 + w2 + w3 + w4);
-            //-------------------------------------
-            //float4 _c0; // source texsize (.xy), and inverse (.zw)
-            //float4 _c1; // w1..w4
-            //float4 _c2; // d1..d4
-            //float4 _c3; // scale, bias, w_div, 0
-            //-------------------------------------
-            blurShader->SetUniformFloat4("_c0", {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight});
-            blurShader->SetUniformFloat4("_c1", {w1, w2, w3, w4});
-            blurShader->SetUniformFloat4("_c2", {d1, d2, d3, d4});
-            blurShader->SetUniformFloat4("_c3", {scaleNow, biasNow, w_div, 0.0});
-        }
-        else
-        {
-            // pass 2 (short vertical pass)
-            //-------------------------------------
-            const float w1 = weights[0] + weights[1] + weights[2] + weights[3];
-            const float w2 = weights[4] + weights[5] + weights[6] + weights[7];
-            const float d1 = 0 + 2 * ((weights[2] + weights[3]) / w1);
-            const float d2 = 2 + 2 * ((weights[6] + weights[7]) / w2);
-            const float w_div = 1.0f / ((w1 + w2) * 2);
-            //-------------------------------------
-            //float4 _c0; // source texsize (.xy), and inverse (.zw)
-            //float4 _c5; // w1,w2,d1,d2
-            //float4 _c6; // w_div, edge_darken_c1, edge_darken_c2, edge_darken_c3
-            //-------------------------------------
-            blurShader->SetUniformFloat4("_c0", {srcWidth, srcHeight, 1.0f / srcWidth, 1.0f / srcHeight});
-            blurShader->SetUniformFloat4("_c5", {w1, w2, d1, d2});
-            // note: only do this first time; if you do it many times,
-            // then the super-blurred levels will have big black lines along the top & left sides.
-            if (pass == 1)
-            {
-                // Darken edges
-                blurShader->SetUniformFloat4("_c6", {w_div, (1 - blur1EdgeDarken), blur1EdgeDarken, 5.0f});
-            }
-            else
-            {
-                // Don't darken
-                blurShader->SetUniformFloat4("_c6", {w_div, 1.0f, 0.0f, 5.0f});
-            }
-        }
-
-        // Draw fullscreen quad. BindPassTarget() bound the target and set the viewport.
-        Renderer::Device::RenderPassDesc blurPass;
-        blurPass.target = m_renderPath == RenderPath::Direct ? m_directFramebufferId : m_blurFramebuffer.Target(0);
-        blurPass.binding = TargetBinding::ReadDraw;
-        blurPass.label = "blur";
-        commands.BeginRenderPass(blurPass);
-        m_blurMesh.Draw();
-        commands.EndRenderPass();
-
-        if (m_renderPath == RenderPath::Copy)
-        {
-            // Legacy fallback: the pass rendered into the scratch attachment, so the result
-            // still has to be copied into the blur texture.
-            m_blurTextures[pass]->Bind(0);
-            commands.CopyToBoundTexture(0, m_blurTextures[pass]->Width(), m_blurTextures[pass]->Height());
-            m_blurTextures[pass]->Unbind(0);
+            // Don't darken
+            blurShader->SetUniformFloat4("_c6", {w_div, 1.0f, 0.0f, 5.0f});
         }
     }
 
+    // Draw fullscreen quad. BindPassTarget() bound the target and set the viewport.
+    Renderer::Device::RenderPassDesc blurPass;
+    blurPass.target = copyPath ? m_blurFramebuffer.Target(0) : m_directFramebufferId;
+    blurPass.binding = TargetBinding::ReadDraw;
+    blurPass.label = "blur";
+    commands.BeginRenderPass(blurPass);
+    m_blurMesh.Draw();
+    commands.EndRenderPass();
+
+    if (copyPath)
+    {
+        // Legacy fallback: the pass rendered into the scratch attachment, so the result
+        // still has to be copied into the blur texture.
+        m_blurTextures[pass]->Bind(0);
+        commands.CopyToBoundTexture(0, m_blurTextures[pass]->Width(), m_blurTextures[pass]->Height());
+        m_blurTextures[pass]->Unbind(0);
+    }
+}
+
+void BlurTexture::EndPasses()
+{
+    if (m_frame.aborted || m_frame.source == nullptr)
+    {
+        return;
+    }
+    using Renderer::Device::TargetBinding;
+    auto& commands = m_device->Commands();
     Renderer::Mesh::Unbind();
 
     // Bind previous framebuffer and reset viewport size
-    commands.BindRenderTarget(TargetBinding::Read, origReadFramebuffer);
-    commands.BindRenderTarget(TargetBinding::Draw, origDrawFramebuffer);
-    commands.SetViewport({0, 0, sourceTexture.Width(), sourceTexture.Height()});
+    commands.BindRenderTarget(TargetBinding::Read, m_frame.origReadFramebuffer);
+    commands.BindRenderTarget(TargetBinding::Draw, m_frame.origDrawFramebuffer);
+    commands.SetViewport({0, 0, m_frame.source->Width(), m_frame.source->Height()});
 
     Renderer::Shader::Unbind();
+}
+
+void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameContext& perFrameContext)
+{
+    if (!Prepare(sourceTexture, perFrameContext))
+    {
+        return;
+    }
+    const bool copyPath = m_renderPath == RenderPath::Copy;
+    BeginPasses(copyPath);
+    for (unsigned int pass = 0; pass < m_frame.passes; pass++)
+    {
+        RenderLevel(pass, copyPath);
+    }
+    EndPasses();
+}
+
+void BlurTexture::AddPasses(Renderer::RenderGraph& graph, const Renderer::Texture& sourceTexture, const PerFrameContext& perFrameContext,
+                            Renderer::RenderGraph::Resource source, Renderer::RenderGraph::Resource blurTextures)
+{
+    using Renderer::RenderGraph;
+    m_frame = {};
+    if (m_blurLevel == BlurLevel::None)
+    {
+        return;
+    }
+
+    // Allocating (or reallocating) the blur textures happens where the blur runs, after the warp
+    // pass has sampled last frame's levels.
+    m_prepareSource = &sourceTexture;
+    m_prepareContext = &perFrameContext;
+    m_steps.at(0) = {this, Step::Prepare, 0, false};
+    graph.AddPass("blur prepare", {.kind = RenderGraph::PassKind::Encoder}, m_steps.at(0));
+
+    // The two render paths are two declarations of the blur: render straight into each level, or
+    // render into the scratch target and copy (PROJECTM_BLUR_COPY_PATH, ?blurPath=copy). Before the
+    // first frame has probed the format, the path the probe defaults to is declared.
+    const bool copyPath = m_renderPath == RenderPath::Copy || (m_renderPath == RenderPath::Undecided && CopyPathForcedByEnvironment());
+    const auto passes = static_cast<unsigned int>(EffectiveLevel(m_blurLevel)) * 2;
+    static constexpr std::array<const char*, NumBlurTextures> directNames{
+        "blur1 horizontal", "blur1 vertical", "blur2 horizontal", "blur2 vertical", "blur3 horizontal", "blur3 vertical"};
+    static constexpr std::array<const char*, NumBlurTextures> copyNames{
+        "blur1 horizontal + copy", "blur1 vertical + copy", "blur2 horizontal + copy", "blur2 vertical + copy",
+        "blur3 horizontal + copy", "blur3 vertical + copy"};
+
+    m_steps.at(1) = {this, Step::Begin, 0, copyPath};
+    graph.AddPass(copyPath ? "blur begin (copy path)" : "blur begin", {.kind = RenderGraph::PassKind::Encoder}, m_steps.at(1));
+    for (unsigned int pass = 0; pass < passes && pass < NumBlurTextures; pass++)
+    {
+        m_steps.at(pass + 2) = {this, Step::Level, pass, copyPath};
+        // Each level runs its own render pass (and, on the copy path, its copy): the direct path
+        // re-attaches the one render target to each level's texture in between.
+        graph.AddPass(copyPath ? copyNames.at(pass) : directNames.at(pass),
+                      {.kind = RenderGraph::PassKind::Encoder, .reads = {pass == 0 ? source : blurTextures}, .writes = {blurTextures}},
+                      m_steps.at(pass + 2));
+    }
+    m_steps.back() = {this, Step::End, 0, copyPath};
+    graph.AddPass("blur end", {.kind = RenderGraph::PassKind::Encoder}, m_steps.back());
+}
+
+void BlurTexture::Step::operator()(Renderer::RenderGraph::PassContext& /*context*/) const
+{
+    PROJECTM_PERF_SCOPE(Blur);
+    PROJECTM_PERF_GPU_STAGE(Blur);
+    // A path declared before the probe decided it (first frame only) follows the probe.
+    const bool copy = blur->m_renderPath == RenderPath::Undecided ? copyPath : blur->m_renderPath == RenderPath::Copy;
+    switch (kind)
+    {
+        case Prepare:
+            blur->Prepare(*blur->m_prepareSource, *blur->m_prepareContext);
+            break;
+        case Begin:
+            blur->BeginPasses(copy);
+            break;
+        case Level:
+            if (pass < blur->m_frame.passes)
+            {
+                blur->RenderLevel(pass, copy);
+            }
+            break;
+        case End:
+            blur->EndPasses();
+            break;
+    }
 }
 
 namespace {
@@ -397,12 +514,12 @@ auto BlurTexture::EnsureRenderTarget() -> bool
     return true;
 }
 
-void BlurTexture::BindPassTarget(size_t pass)
+void BlurTexture::BindPassTarget(size_t pass, bool copyPath)
 {
     const auto& texture = m_blurTextures[pass];
     auto& commands = m_device->Commands();
 
-    if (m_renderPath == RenderPath::Direct)
+    if (!copyPath)
     {
         using Renderer::Device::TargetBinding;
         commands.BindRenderTarget(TargetBinding::ReadDraw, m_directFramebufferId);

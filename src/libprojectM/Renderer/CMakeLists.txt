@@ -70,6 +70,8 @@ add_library(Renderer OBJECT
         Platform/GLResolver.hpp
         Point.hpp
         PresetTransition.cpp
+        RenderGraph.cpp
+        RenderGraph.hpp
         PresetTransition.hpp
         RenderContext.hpp
         Sampler.cpp

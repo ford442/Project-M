@@ -4,6 +4,9 @@
 #include "Renderer/Mesh.hpp"
 #include "Renderer/ShaderCache.hpp"
 
+#include <cstdint>
+#include <optional>
+
 namespace libprojectM {
 namespace Renderer {
 
@@ -41,6 +44,28 @@ public:
               const std::shared_ptr<Texture>& originalTexture,
               bool flipVertical = false, bool flipHorizontal = false,
               bool transparencyMode = false, float transparencyThreshold = 0.01f);
+
+    /**
+     * @brief How copies into the internal framebuffer are made.
+     */
+    enum class Path : uint8_t
+    {
+        Blit,  //!< A framebuffer blit where the source and viewport allow it, else the shader.
+        Shader //!< Always the textured quad (PROJECTM_COPY_SHADER_PATH, ?copyPath=shader).
+    };
+
+    /**
+     * @brief The path the engine's render-path flags ask for.
+     */
+    [[nodiscard]] static auto DefaultPath() -> Path;
+
+    /**
+     * @brief Sets the copy path; a frame graph picks it when it declares the copy.
+     */
+    void SetPath(Path path)
+    {
+        m_path = path;
+    }
 
     /**
      * @brief Copies the original texture either into the object's internal framebuffer or a given target texture.
@@ -149,6 +174,7 @@ private:
 
     Device::IRenderDevice* m_device{&Device::Current()}; //!< The device that owns the blit read target.
     Device::RenderTargetHandle m_blitReadFramebuffer;    //!< Lazily created read FBO used by TryBlit().
+    std::optional<Path> m_path;                         //!< SetPath(); unset: DefaultPath().
     int m_width{};                        //!< Last known framebuffer/texture width
     int m_height{};                       //!< Last known framebuffer/texture height
     bool m_transparencyMode{false};       //!< Near-black transparency for final blit.

@@ -605,7 +605,7 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
         m_warpShader->SetLastPassTexture(m_warpPasses.Render(presetState, perFrameContext, [&](MilkdropShader& pass) {
             setWarpUniforms(pass.Shader());
             DrawWarpMesh(presetState, perFrameContext, pass.Shader());
-        }));
+        }, presetState.warpPassTargets));
 
         m_warpShader->LoadVariables(presetState, perFrameContext);
         auto& shader = m_warpShader->Shader();

@@ -142,17 +142,47 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     }
 
     const Renderer::Device::Rect viewport{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY};
-    Renderer::Device::Commands().SetViewport(viewport);
+    auto& commands = Renderer::Device::Commands();
+    commands.SetViewport(viewport);
+
+    // The frame, declared as passes (B2, docs/RENDER_DEVICE.md "Render graph"). Pass functions
+    // are the lambdas below; they run in Execute(), in the order they are added.
+    using Renderer::RenderGraph;
+    using PassKind = RenderGraph::PassKind;
+    using Renderer::Device::TargetBinding;
+    auto& graph = m_frameGraph;
+    graph.Reset();
+    const auto previous = graph.Import("previous frame", m_framebuffer.Target(m_previousFrameBuffer));
+    const auto current = graph.Import("current frame", m_framebuffer.Target(m_currentFrameBuffer));
+    const auto flipped = graph.Import("flipped image", {});
+    const auto motionUv = graph.Import("motion vector u/v", {});
+    const auto blur = graph.Import("blur levels", {});
+
+    // Extra shader passes (#229) alternate between two viewport-sized targets. The warp and the
+    // composite passes never run at once, so their transients share the pool's targets.
+    const RenderGraph::TargetDesc passTarget{renderContext.viewportSizeX, renderContext.viewportSizeY, Renderer::Device::TextureFormat::RGBA};
+    const auto passTargets = [&](int count, const char* first, const char* second) {
+        return std::array<RenderGraph::Resource, 2>{count > 0 ? graph.CreateTransient(first, passTarget) : RenderGraph::Resource{},
+                                                    count > 1 ? graph.CreateTransient(second, passTarget) : RenderGraph::Resource{}};
+    };
+    const auto warpTargets = passTargets(m_perPixelMesh.WarpPassCount(), "warp pass target A", "warp pass target B");
+    const auto compositeTargets = passTargets(m_finalComposite.CompositePassCount(), "composite pass target A", "composite pass target B");
+
+    // The copy path (PROJECTM_COPY_SHADER_PATH, ?copyPath=shader) is a different declaration.
+    const auto copyPath = Renderer::CopyTexture::DefaultPath();
+    m_flipTexture.SetPath(copyPath);
+    const bool shaderCopies = copyPath == Renderer::CopyTexture::Path::Shader;
 
     // Motion vector field. Drawn to the previous frame texture before warping it.
     // Only do it after drawing one frame after init or resize.
-    m_framebuffer.BeginRenderPass(m_previousFrameBuffer, "motion vectors");
-    if (!m_isFirstFrame)
-    {
-        PROJECTM_PERF_GPU_STAGE(Warp);
-        m_motionVectors.Draw(m_perFrameContext, m_motionVectorUVMap->Texture());
-    }
-    Renderer::Framebuffer::EndRenderPass();
+    auto motionVectors = [&](RenderGraph::PassContext&) {
+        if (!m_isFirstFrame)
+        {
+            PROJECTM_PERF_GPU_STAGE(Warp);
+            m_motionVectors.Draw(m_perFrameContext, m_motionVectorUVMap->Texture());
+        }
+    };
+    graph.AddPass("motion vectors", {.target = previous, .binding = TargetBinding::ReadDraw, .reads = {motionUv}}, motionVectors);
 
     // y-flip the previous frame and assign the flipped texture as "main".
     // When the preset uses only the default warp shader the fragment shader
@@ -161,11 +191,16 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     // (un-flipped) texture to the warp draw.  Custom HLSL warp shaders
     // expect Milkdrop UV convention (v=0 at top) via sampler_main, so the
     // pre-flip is still needed for those presets.
-    if (m_perPixelMesh.HasCustomWarpShader())
-    {
+    auto flipMain = [&](RenderGraph::PassContext&) {
         PROJECTM_PERF_GPU_STAGE(Copy);
         m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), nullptr, true, false);
         m_state.mainTexture = m_flipTexture.Texture();
+    };
+    const bool customWarp = m_perPixelMesh.HasCustomWarpShader();
+    if (customWarp)
+    {
+        graph.AddPass(shaderCopies ? "flip main (shader)" : "flip main (blit)",
+                      {.kind = PassKind::Encoder, .reads = {previous}, .writes = {flipped}}, flipMain);
     }
     else
     {
@@ -174,12 +209,14 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
 
     // Add motion vector u/v texture for the warp mesh draw and clean both buffers. Before the
     // pass: its attachments are fixed while it is open.
-    m_framebuffer.SetAttachment(m_currentFrameBuffer, 1, m_motionVectorUVMap);
+    auto attachMotionUv = [&](RenderGraph::PassContext&) {
+        m_framebuffer.SetAttachment(m_currentFrameBuffer, 1, m_motionVectorUVMap);
+    };
+    graph.AddPass("attach motion vector u/v", {.kind = PassKind::Encoder, .writes = {current}}, attachMotionUv);
 
     // We now draw to the current framebuffer.
     // Draw previous frame image warped via per-pixel mesh and warp shader
-    m_framebuffer.BeginRenderPass(m_currentFrameBuffer, "warp", Renderer::Device::TargetBinding::ReadDraw, viewport);
-    {
+    auto warp = [&](RenderGraph::PassContext& context) {
         PROJECTM_PERF_SCOPE(PerPixelEval);
         PROJECTM_PERF_GPU_STAGE(Warp);
         // On the GPU path the bucket below covers only the draw submission, not the
@@ -187,27 +224,29 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
         libprojectM::Perf::SetPerPixelPath(m_state.perPixelGpuGlsl.empty()
                                                ? libprojectM::Perf::PerPixelPath::Cpu
                                                : libprojectM::Perf::PerPixelPath::Gpu);
+        m_state.warpPassTargets = {context.Transient(warpTargets[0]), context.Transient(warpTargets[1])};
         m_perPixelMesh.Draw(m_state, m_perFrameContext, m_perPixelContext, m_perPixelContextPool);
-    }
-    Renderer::Framebuffer::EndRenderPass();
+        m_state.warpPassTargets = {};
+    };
+    graph.AddPass("warp", {.target = current, .binding = TargetBinding::ReadDraw, .viewport = viewport,
+                           .reads = {customWarp ? flipped : previous, blur}, .writes = {warpTargets[0], warpTargets[1], motionUv}},
+                  warp);
 
     // Remove the u/v texture from the framebuffer.
-    m_framebuffer.RemoveColorAttachment(m_currentFrameBuffer, 1);
+    auto detachMotionUv = [&](RenderGraph::PassContext&) {
+        m_framebuffer.RemoveColorAttachment(m_currentFrameBuffer, 1);
+    };
+    graph.AddPass("detach motion vector u/v", {.kind = PassKind::Encoder, .writes = {current}}, detachMotionUv);
 
     // Update blur textures
-    {
-        PROJECTM_PERF_SCOPE(Blur);
-        PROJECTM_PERF_GPU_STAGE(Blur);
-        const auto warpedImage = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
-        assert(warpedImage.get());
-        m_state.blurTexture.SetLevelCap(renderContext.maxBlurLevel);
-        m_state.blurTexture.SetResolutionScale(renderContext.blurResolutionScale);
-        m_state.blurTexture.Update(*warpedImage, m_perFrameContext);
-    }
+    const auto warpedImage = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
+    assert(warpedImage.get());
+    m_state.blurTexture.SetLevelCap(renderContext.maxBlurLevel);
+    m_state.blurTexture.SetResolutionScale(renderContext.blurResolutionScale);
+    m_state.blurTexture.AddPasses(graph, *warpedImage, m_perFrameContext, previous, blur);
 
     // Draw audio-data-related stuff, on top of the warped image (the blur left it bound).
-    m_framebuffer.BeginRenderPass(m_currentFrameBuffer, "shapes and waves", Renderer::Device::TargetBinding::ReadDraw, viewport);
-    {
+    auto shapesAndWaves = [&](RenderGraph::PassContext&) {
         PROJECTM_PERF_SCOPE(WaveformsShapes);
         PROJECTM_PERF_GPU_STAGE(Shapes);
         for (auto& shape : m_customShapes)
@@ -226,14 +265,14 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
             m_darkenCenter.Draw();
         }
         m_border.Draw(m_perFrameContext);
-    }
-    Renderer::Framebuffer::EndRenderPass();
+    };
+    graph.AddPass("shapes and waves", {.target = current, .binding = TargetBinding::ReadDraw, .viewport = viewport}, shapesAndWaves);
 
     // y-flip the image for final compositing again
-    {
+    // The CPU bucket covers the flips and the composite together (each pass adds to it); on the
+    // GPU they are separate stages, because the flips are what #176 wants to rank.
+    auto flipForComposite = [&](RenderGraph::PassContext&) {
         PROJECTM_PERF_SCOPE(Composite);
-        // The CPU bucket covers the flips and the composite together; on the GPU they
-        // are separate stages, because the flips are what #176 wants to rank.
         {
             PROJECTM_PERF_GPU_STAGE(Copy);
             m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_currentFrameBuffer, 0), nullptr, true, false);
@@ -242,20 +281,36 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
 
         // We no longer need the previous frame image, use it to render the final composite.
         m_framebuffer.BindRead(m_currentFrameBuffer);
-        m_framebuffer.BeginRenderPass(m_previousFrameBuffer, "composite", Renderer::Device::TargetBinding::Draw, viewport);
+    };
+    graph.AddPass(shaderCopies ? "flip for composite (shader)" : "flip for composite (blit)",
+                  {.kind = PassKind::Encoder, .reads = {current}, .writes = {flipped}}, flipForComposite);
 
-        {
-            PROJECTM_PERF_GPU_STAGE(Composite);
-            m_finalComposite.Draw(m_state, m_perFrameContext);
-        }
-        Renderer::Framebuffer::EndRenderPass();
+    auto composite = [&](RenderGraph::PassContext& context) {
+        PROJECTM_PERF_SCOPE(Composite);
+        PROJECTM_PERF_GPU_STAGE(Composite);
+        m_state.compositePassTargets = {context.Transient(compositeTargets[0]), context.Transient(compositeTargets[1])};
+        m_finalComposite.Draw(m_state, m_perFrameContext);
+        m_state.compositePassTargets = {};
+    };
+    graph.AddPass("composite", {.target = previous, .binding = TargetBinding::Draw, .viewport = viewport,
+                                .reads = {flipped, blur}, .writes = {compositeTargets[0], compositeTargets[1]}},
+                  composite);
 
-        if (!m_finalComposite.HasCompositeShader())
-        {
-            // Flip texture again in "previous" framebuffer as old-school effects are still upside down.
-            PROJECTM_PERF_GPU_STAGE(Copy);
-            m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), m_framebuffer, m_previousFrameBuffer, true, false);
-        }
+    // Flip texture again in "previous" framebuffer as old-school effects are still upside down.
+    auto flipBack = [&](RenderGraph::PassContext&) {
+        PROJECTM_PERF_SCOPE(Composite);
+        PROJECTM_PERF_GPU_STAGE(Copy);
+        m_flipTexture.Draw(*renderContext.shaderCache, m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0), m_framebuffer, m_previousFrameBuffer, true, false);
+    };
+    if (!m_finalComposite.HasCompositeShader())
+    {
+        graph.AddPass(shaderCopies ? "flip composite back (shader)" : "flip composite back (blit)",
+                      {.kind = PassKind::Encoder, .reads = {previous}, .writes = {previous}}, flipBack);
+    }
+
+    if (graph.Compile())
+    {
+        graph.Execute(commands);
     }
 
     // Swap framebuffer IDs for the next frame.

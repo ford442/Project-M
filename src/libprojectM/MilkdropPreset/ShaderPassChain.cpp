@@ -77,7 +77,7 @@ void ShaderPassChain::FinishCompile(PresetState& presetState)
 }
 
 auto ShaderPassChain::Render(const PresetState& presetState, const PerFrameContext& perFrameContext,
-                             const DrawFunction& draw) -> std::shared_ptr<Renderer::Texture>
+                             const DrawFunction& draw, const std::array<Renderer::Framebuffer*, 2>& targets) -> std::shared_ptr<Renderer::Texture>
 {
     if (m_passes.empty())
     {
@@ -90,22 +90,33 @@ auto ShaderPassChain::Render(const PresetState& presetState, const PerFrameConte
 
     const int width = presetState.renderContext.viewportSizeX;
     const int height = presetState.renderContext.viewportSizeY;
-    if (!m_targets)
+    // Target N: the given framebuffer N's index 0, or index N of the chain's own pair.
+    std::array<std::pair<Renderer::Framebuffer*, int>, 2> passTargets{};
+    for (int slot = 0; slot < 2; slot++)
     {
-        // The same color format as the preset's own framebuffers.
-        m_targets = std::make_unique<Renderer::Framebuffer>(2);
-        m_targets->CreateColorAttachment(0, 0);
-        m_targets->CreateColorAttachment(1, 0);
+        if (targets.at(slot) != nullptr)
+        {
+            passTargets.at(slot) = {targets.at(slot), 0};
+            continue;
+        }
+        if (!m_targets)
+        {
+            // The same color format as the preset's own framebuffers.
+            m_targets = std::make_unique<Renderer::Framebuffer>(2);
+            m_targets->CreateColorAttachment(0, 0);
+            m_targets->CreateColorAttachment(1, 0);
+        }
+        m_targets->SetSize(width, height);
+        passTargets.at(slot) = {m_targets.get(), slot};
     }
-    m_targets->SetSize(width, height);
 
     // Pass N draws into target N % 2 and samples the other one, never the one it draws to.
     std::shared_ptr<Renderer::Texture> lastPass;
     for (size_t index = 0; index < m_passes.size(); index++)
     {
-        const int target = static_cast<int>(index % 2);
-        m_targets->BeginRenderPass(target, "extra shader pass", Renderer::Device::TargetBinding::Draw,
-                                   Renderer::Device::Rect{0, 0, width, height});
+        const auto [targetFramebuffer, target] = passTargets.at(index % 2);
+        targetFramebuffer->BeginRenderPass(target, "extra shader pass", Renderer::Device::TargetBinding::Draw,
+                                           Renderer::Device::Rect{0, 0, width, height});
 
         auto& pass = *m_passes.at(index);
         pass.SetLastPassTexture(lastPass);
@@ -113,7 +124,7 @@ auto ShaderPassChain::Render(const PresetState& presetState, const PerFrameConte
         draw(pass);
         Renderer::Framebuffer::EndRenderPass();
 
-        lastPass = m_targets->GetColorAttachmentTexture(target, 0);
+        lastPass = targetFramebuffer->GetColorAttachmentTexture(target, 0);
     }
 
     return lastPass;

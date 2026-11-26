@@ -12,12 +12,14 @@
 
 #include <Audio/FrameAudioData.hpp>
 
+#include <Renderer/Framebuffer.hpp>
 #include <Renderer/RenderContext.hpp>
 #include <Renderer/Shader.hpp>
 #include <Renderer/TextureSamplerDescriptor.hpp>
 
 #include <projectm-eval.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -193,6 +195,11 @@ public:
 
     std::vector<std::string> warpPassShaders;      //!< Extra warp passes before warpShader (warp_nPasses), in order.
     std::vector<std::string> compositePassShaders; //!< Extra composite passes before compositeShader (comp_nPasses), in order.
+
+    //! This frame's targets for the extra passes (transients of the frame graph, which the warp
+    //! and composite passes share), set by MilkdropPreset::RenderFrame(). Null: the chain's own.
+    std::array<Renderer::Framebuffer*, 2> warpPassTargets{};
+    std::array<Renderer::Framebuffer*, 2> compositePassTargets{};
 
     //! Per-pixel equations compiled to GLSL, injected into the warp vertex shader.
     //! Empty when the preset stays on the CPU evaluation path. See PerPixelGlslLowering.

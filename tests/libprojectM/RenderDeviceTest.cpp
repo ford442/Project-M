@@ -176,6 +176,55 @@ TEST(ResourceStateTrackerTest, DestroyedTextureIsForgotten)
 
 namespace {
 
+TEST(ResourceStateTrackerTest, PassViolations)
+{
+    auto tracker = TrackerWithSamplingProgram(0);
+    const Device::RenderTargetHandle target{7};
+    const Device::RenderTargetHandle other{8};
+    Device::RenderPassDesc pass;
+    pass.target = target;
+    pass.label = "test pass";
+
+    // Draws and clears belong in a pass.
+    tracker.OnDraw();
+    tracker.OnClear();
+    EXPECT_EQ(tracker.PassViolationCount(), 2u);
+
+    tracker.ResetPassViolations();
+    tracker.OnBindRenderTarget(Device::TargetBinding::Draw, target);
+    tracker.OnBeginRenderPass(pass);
+    tracker.OnDraw();
+    tracker.OnClear();
+    tracker.OnBindRenderTarget(Device::TargetBinding::Read, other); // Read sources may change.
+    EXPECT_EQ(tracker.PassViolationCount(), 0u);
+    EXPECT_EQ(tracker.PassCount(), 1u);
+
+    // Copies, blits and readbacks do not; nor does changing the target or its attachments.
+    tracker.OnBlit();
+    tracker.OnCopyToTexture(0);
+    tracker.OnReadPixels();
+    tracker.OnAttach(Device::TargetBinding::Draw, Device::AttachmentPoint::Color1, {3});
+    tracker.OnBindRenderTarget(Device::TargetBinding::Draw, other);
+    EXPECT_EQ(tracker.PassViolationCount(), 5u);
+    ASSERT_EQ(tracker.PassViolationMessages().size(), 5u);
+    EXPECT_NE(tracker.PassViolationMessages().back().find("test pass"), std::string::npos);
+    tracker.OnEndRenderPass();
+
+    // After the pass, all of that is fine again.
+    tracker.ResetPassViolations();
+    tracker.OnBlit();
+    tracker.OnAttach(Device::TargetBinding::Draw, Device::AttachmentPoint::Color1, {3});
+    EXPECT_EQ(tracker.PassViolationCount(), 0u);
+}
+
+TEST(ResourceStateTrackerTest, PassViolationsNeedValidation)
+{
+    Device::ResourceStateTracker tracker;
+    tracker.OnDraw();
+    tracker.OnPassViolation("ignored");
+    EXPECT_EQ(tracker.PassViolationCount(), 0u);
+}
+
 TEST(PipelineDescTest, EqualDescriptionsHashEqual)
 {
     Device::PipelineDesc first;
@@ -338,8 +387,8 @@ TEST_F(GlDeviceTest, ClearPassReadsBack)
     pass.load = Device::LoadOp::Clear;
     pass.clearColor = {1.0f, 0.0f, 1.0f, 1.0f};
     commands.SetEnabled(Device::Capability::ScissorTest, false);
-    commands.BeginPass(pass);
-    commands.EndPass();
+    commands.BeginRenderPass(pass);
+    commands.EndRenderPass();
 
     const auto pixels = ReadTarget(target);
     for (size_t i = 0; i < pixels.size(); i += 4)
@@ -610,7 +659,7 @@ TEST_F(GlDeviceTest, ValidationReportsARealFeedbackDraw)
     const auto vertexArray = m_device->CreateVertexArray();
 
     commands.SetEnabled(Device::Capability::ScissorTest, false);
-    commands.BeginPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
+    commands.BeginRenderPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
     Device::PipelineDesc pipeline;
     pipeline.shader = shader.Handle();
     Device::SetPipeline(*m_device, pipeline);
@@ -627,7 +676,7 @@ TEST_F(GlDeviceTest, ValidationReportsARealFeedbackDraw)
     commands.BindTexture(0, Device::TextureTarget::Texture2D, feedback);
     commands.Draw(0, 3);
     EXPECT_EQ(m_device->Validation().HazardCount(), 1u);
-    commands.EndPass();
+    commands.EndRenderPass();
 
     // Hosts see it through the log callback, once per distinct hazard.
     projectm_set_log_callback(nullptr, true, nullptr);
@@ -732,14 +781,14 @@ TEST_F(GlDeviceTest, DrawsReadTheirUniformBufferRange)
     std::array<libprojectM::Renderer::UniformRingBuffer::Range, 2> ranges{};
     for (size_t i = 0; i < colors.size(); i++)
     {
-        commands.BeginPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
+        commands.BeginRenderPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
         Device::SetPipeline(*m_device, pipeline);
         commands.BindVertexArray(vertexArray);
         TestBlockData data;
         data.color = colors[i];
         ranges[i] = ring.WriteAndBind(2, &data, sizeof(data));
         commands.Draw(0, 3);
-        commands.EndPass();
+        commands.EndRenderPass();
 
         const auto pixels = ReadTarget(target);
         EXPECT_EQ(pixels[0], i == 0 ? 255 : 0);
@@ -810,5 +859,69 @@ TEST_F(GlDeviceTest, UniformRingAllocatesOnceAndWraps)
         }
     }
     EXPECT_EQ(ring.Allocations(), 2u);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, RenderPassesAreTrackedAndInterruptible)
+{
+    m_device->Validation().SetEnabled(true);
+    auto& commands = m_device->Commands();
+    const auto texture = CreateColorTexture();
+    const auto other = CreateColorTexture();
+    const auto target = CreateTarget(texture);
+    const auto otherTarget = CreateTarget(other);
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    EXPECT_EQ(commands.CurrentRenderPass(), nullptr);
+
+    Device::RenderPassDesc outer;
+    outer.target = target;
+    outer.viewport = Device::Rect{0, 0, kWidth, kHeight};
+    outer.load = Device::LoadOp::Clear;
+    outer.clearColor = {1.0f, 0.0f, 0.0f, 1.0f};
+    outer.label = "outer";
+    commands.SetEnabled(Device::Capability::ScissorTest, false);
+    commands.BeginRenderPass(outer);
+    ASSERT_NE(commands.CurrentRenderPass(), nullptr);
+    EXPECT_EQ(commands.CurrentRenderPass()->target, target);
+
+    {
+        // Ends the outer pass; another pass runs; the outer one resumes, keeping its contents.
+        const Device::ScopedPassInterruption interruption(commands);
+        EXPECT_EQ(commands.CurrentRenderPass(), nullptr);
+        Device::RenderPassDesc inner;
+        inner.target = otherTarget;
+        inner.load = Device::LoadOp::Clear;
+        inner.clearColor = {0.0f, 1.0f, 0.0f, 1.0f};
+        inner.label = "inner";
+        commands.BeginRenderPass(inner);
+        commands.EndRenderPass();
+    }
+    ASSERT_NE(commands.CurrentRenderPass(), nullptr);
+    EXPECT_EQ(commands.CurrentRenderPass()->target, target);
+    EXPECT_EQ(commands.CurrentRenderPass()->load, Device::LoadOp::Load);
+    EXPECT_EQ(commands.BoundRenderTarget(Device::TargetBinding::Draw), target);
+    commands.EndRenderPass();
+    EXPECT_EQ(m_device->Validation().PassViolationCount(), 0u);
+    EXPECT_EQ(m_device->Validation().PassCount(), 3u);
+
+    const auto red = ReadTarget(target);
+    EXPECT_EQ(red[0], 255);
+    EXPECT_EQ(red[1], 0);
+    const auto green = ReadTarget(otherTarget);
+    EXPECT_EQ(green[0], 0);
+    EXPECT_EQ(green[1], 255);
+
+    // A pass begun inside another, and one still open at the end of a frame, are reported.
+    commands.BeginRenderPass(outer);
+    commands.BeginRenderPass(outer);
+    commands.ResetPipelineState();
+    EXPECT_EQ(commands.CurrentRenderPass(), nullptr);
+    EXPECT_EQ(m_device->Validation().PassViolationCount(), 2u);
+
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    m_device->DestroyRenderTarget(otherTarget);
+    m_device->DestroyRenderTarget(target);
+    m_device->DestroyTexture(other);
+    m_device->DestroyTexture(texture);
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
 }

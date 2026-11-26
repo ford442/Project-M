@@ -446,10 +446,19 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     const bool limitFlashes = m_flashLimiter->BeginFrame(renderContext.viewportSizeX, renderContext.viewportSizeY);
     const Renderer::Device::RenderTargetHandle targetFramebuffer{static_cast<uint32_t>(targetFramebufferObject)};
     auto& commands = Renderer::Device::Commands();
-    if (!limitFlashes)
+    // The pass that draws the output, when it is drawn rather than blitted.
+    Renderer::Device::RenderPassDesc presentPass;
+    if (limitFlashes)
     {
-        commands.BeginPass({targetFramebuffer, Renderer::Device::TargetBinding::Draw,
-                            Renderer::Device::Rect{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY}});
+        presentPass = m_flashLimiter->FramePass();
+    }
+    else
+    {
+        presentPass.target = targetFramebuffer;
+        presentPass.viewport = Renderer::Device::Rect{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY};
+        presentPass.label = "present";
+        commands.BindRenderTarget(Renderer::Device::TargetBinding::Draw, targetFramebuffer);
+        commands.SetViewport(*presentPass.viewport);
 
 #ifdef USE_GLES
         // On WebGL2 / Chrome ANGLE, the default framebuffer's draw buffer must
@@ -467,7 +476,9 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     {
         m_transition->SetTransparencyMode(m_transparencyMode);
         m_transition->SetTransparencyThreshold(m_transparencyThreshold);
+        commands.BeginRenderPass(presentPass);
         m_transition->Draw(*m_activePreset, *m_transitioningPreset, renderContext, audioData, m_timeKeeper->GetFrameTime());
+        commands.EndRenderPass();
     }
     else if (!m_transparencyMode)
     {
@@ -483,12 +494,14 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
     {
         // Transparency mode requires a shader pass to convert near-black pixels
         // to fully transparent alpha — a blit cannot do this.
+        commands.BeginRenderPass(presentPass);
         m_textureCopier->Draw(*renderContext.shaderCache,
                               m_activePreset->OutputTexture(),
                               false,
                               false,
                               true,
                               m_transparencyThreshold);
+        commands.EndRenderPass();
     }
 
     if (limitFlashes)
@@ -714,16 +727,23 @@ void ProjectM::BurnInTexture(uint32_t openGlTextureId, int left, int top, int wi
 {
     const ScopedEngineContext engineScope(*m_engineContext);
     const Renderer::Device::ScopedPipelineReset pipelineReset;
+    auto& commands = Renderer::Device::Commands();
+    const auto burnIn = [&](const Preset& preset) {
+        if (const auto pass = preset.FramebufferPass())
+        {
+            commands.BeginRenderPass(*pass);
+            m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
+            commands.EndRenderPass();
+        }
+    };
     if (m_activePreset)
     {
-        m_activePreset->BindFramebuffer();
-        m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
+        burnIn(*m_activePreset);
     }
 
     if (m_transitioningPreset)
     {
-        m_transitioningPreset->BindFramebuffer();
-        m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
+        burnIn(*m_transitioningPreset);
     }
 
     Renderer::Framebuffer::Unbind();

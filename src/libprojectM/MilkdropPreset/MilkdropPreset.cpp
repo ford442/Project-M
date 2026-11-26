@@ -141,16 +141,18 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
         PerFrameUpdate();
     }
 
-    Renderer::Device::Commands().SetViewport({0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY});
+    const Renderer::Device::Rect viewport{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY};
+    Renderer::Device::Commands().SetViewport(viewport);
 
-    m_framebuffer.Bind(m_previousFrameBuffer);
     // Motion vector field. Drawn to the previous frame texture before warping it.
     // Only do it after drawing one frame after init or resize.
+    m_framebuffer.BeginRenderPass(m_previousFrameBuffer, "motion vectors");
     if (!m_isFirstFrame)
     {
         PROJECTM_PERF_GPU_STAGE(Warp);
         m_motionVectors.Draw(m_perFrameContext, m_motionVectorUVMap->Texture());
     }
+    Renderer::Framebuffer::EndRenderPass();
 
     // y-flip the previous frame and assign the flipped texture as "main".
     // When the preset uses only the default warp shader the fragment shader
@@ -170,13 +172,13 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
         m_state.mainTexture = m_framebuffer.GetColorAttachmentTexture(m_previousFrameBuffer, 0);
     }
 
-    // We now draw to the current framebuffer.
-    m_framebuffer.Bind(m_currentFrameBuffer);
-
-    // Add motion vector u/v texture for the warp mesh draw and clean both buffers.
+    // Add motion vector u/v texture for the warp mesh draw and clean both buffers. Before the
+    // pass: its attachments are fixed while it is open.
     m_framebuffer.SetAttachment(m_currentFrameBuffer, 1, m_motionVectorUVMap);
 
+    // We now draw to the current framebuffer.
     // Draw previous frame image warped via per-pixel mesh and warp shader
+    m_framebuffer.BeginRenderPass(m_currentFrameBuffer, "warp", Renderer::Device::TargetBinding::ReadDraw, viewport);
     {
         PROJECTM_PERF_SCOPE(PerPixelEval);
         PROJECTM_PERF_GPU_STAGE(Warp);
@@ -187,6 +189,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
                                                : libprojectM::Perf::PerPixelPath::Gpu);
         m_perPixelMesh.Draw(m_state, m_perFrameContext, m_perPixelContext, m_perPixelContextPool);
     }
+    Renderer::Framebuffer::EndRenderPass();
 
     // Remove the u/v texture from the framebuffer.
     m_framebuffer.RemoveColorAttachment(m_currentFrameBuffer, 1);
@@ -202,7 +205,8 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
         m_state.blurTexture.Update(*warpedImage, m_perFrameContext);
     }
 
-    // Draw audio-data-related stuff
+    // Draw audio-data-related stuff, on top of the warped image (the blur left it bound).
+    m_framebuffer.BeginRenderPass(m_currentFrameBuffer, "shapes and waves", Renderer::Device::TargetBinding::ReadDraw, viewport);
     {
         PROJECTM_PERF_SCOPE(WaveformsShapes);
         PROJECTM_PERF_GPU_STAGE(Shapes);
@@ -223,6 +227,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
         }
         m_border.Draw(m_perFrameContext);
     }
+    Renderer::Framebuffer::EndRenderPass();
 
     // y-flip the image for final compositing again
     {
@@ -237,12 +242,13 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
 
         // We no longer need the previous frame image, use it to render the final composite.
         m_framebuffer.BindRead(m_currentFrameBuffer);
-        m_framebuffer.BindDraw(m_previousFrameBuffer);
+        m_framebuffer.BeginRenderPass(m_previousFrameBuffer, "composite", Renderer::Device::TargetBinding::Draw, viewport);
 
         {
             PROJECTM_PERF_GPU_STAGE(Composite);
             m_finalComposite.Draw(m_state, m_perFrameContext);
         }
+        Renderer::Framebuffer::EndRenderPass();
 
         if (!m_finalComposite.HasCompositeShader())
         {
@@ -274,12 +280,13 @@ void MilkdropPreset::DrawInitialImage(const std::shared_ptr<Renderer::Texture>& 
     m_flipTexture.Draw(*renderContext.shaderCache, image, m_framebuffer, m_previousFrameBuffer);
 }
 
-void MilkdropPreset::BindFramebuffer()
+auto MilkdropPreset::FramebufferPass() const -> std::optional<Renderer::Device::RenderPassDesc>
 {
     if (m_framebuffer.Width() > 0 && m_framebuffer.Height() > 0)
     {
-        m_framebuffer.BindDraw(m_previousFrameBuffer);
+        return m_framebuffer.RenderPass(m_previousFrameBuffer, "burn-in", Renderer::Device::TargetBinding::Draw);
     }
+    return std::nullopt;
 }
 
 void MilkdropPreset::BindOutputForRead()

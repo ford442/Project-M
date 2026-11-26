@@ -120,9 +120,18 @@ GlCommandList::GlCommandList(GlDevice& device, ResourceStateTracker& tracker)
 {
 }
 
-void GlCommandList::BeginPass(const RenderPassDesc& pass)
+void GlCommandList::BeginRenderPass(const RenderPassDesc& pass)
 {
-    BindRenderTarget(pass.binding, pass.target);
+    if (m_pass)
+    {
+        m_tracker.OnPassViolation(std::string("BeginRenderPass(") + (pass.label ? pass.label : "unnamed") + ") while pass " +
+                                  (m_pass->label ? m_pass->label : "unnamed") + " is open");
+        EndRenderPass();
+    }
+    glBindFramebuffer(ToGl(pass.binding), pass.target.id);
+    m_tracker.OnBindRenderTarget(pass.binding, pass.target);
+    m_pass = pass;
+    m_tracker.OnBeginRenderPass(pass);
     if (pass.viewport)
     {
         SetViewport(*pass.viewport);
@@ -134,10 +143,20 @@ void GlCommandList::BeginPass(const RenderPassDesc& pass)
     }
 }
 
-void GlCommandList::EndPass()
+void GlCommandList::EndRenderPass()
 {
-    m_tracker.OnEndPass();
-    ReportGlErrors("EndPass");
+    if (!m_pass)
+    {
+        m_tracker.OnPassViolation("EndRenderPass() without an open pass");
+    }
+    m_pass.reset();
+    m_tracker.OnEndRenderPass();
+    ReportGlErrors("EndRenderPass");
+}
+
+auto GlCommandList::CurrentRenderPass() const -> const RenderPassDesc*
+{
+    return m_pass ? &*m_pass : nullptr;
 }
 
 void GlCommandList::ReportGlErrors(const char* operation)
@@ -286,6 +305,7 @@ void GlCommandList::Clear(uint8_t clearMask)
     {
         bits |= GL_STENCIL_BUFFER_BIT;
     }
+    m_tracker.OnClear();
     glClear(bits);
     if (known)
     {
@@ -299,6 +319,7 @@ void GlCommandList::ClearColorAttachment(int drawBuffer, const std::array<float,
     const bool known = m_stateKnown.load();
     const auto colorMask = m_applied.colorMask;
     ApplyColorMask(writeMask, known);
+    m_tracker.OnClear();
     glClearBufferfv(GL_COLOR, drawBuffer, color.data());
     if (known)
     {
@@ -453,6 +474,11 @@ void GlCommandList::InvalidateState()
 
 void GlCommandList::ResetPipelineState()
 {
+    if (m_pass)
+    {
+        m_tracker.OnPassViolation(std::string("frame ended inside pass ") + (m_pass->label ? m_pass->label : "unnamed"));
+        EndRenderPass();
+    }
     Apply(PipelineDesc{});
     m_hasPipeline = false;
     for (int slot = 0; m_boundUniformSlots != 0; slot++)
@@ -690,6 +716,7 @@ void GlCommandList::Blit(const Rect& source, const Rect& destination, FilterMode
 
 void GlCommandList::ReadPixels(const Rect& area, void* destination)
 {
+    m_tracker.OnReadPixels();
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(area.x, area.y, area.width, area.height, GL_RGBA, GL_UNSIGNED_BYTE, destination);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);

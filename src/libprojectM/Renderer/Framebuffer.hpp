@@ -8,6 +8,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <atomic>
 #include <vector>
@@ -87,6 +88,30 @@ public:
      * @param framebufferIndex The framebuffer index.
      */
     void BindDraw(int framebufferIndex);
+
+    /**
+     * @brief Starts a render pass on the given index: binds it like Bind() (ReadDraw) or
+     *        BindDraw() (Draw), as ICommandList::BeginRenderPass(). End it with EndRenderPass().
+     * @param framebufferIndex The framebuffer index.
+     * @param label A static name for validation messages and the render graph.
+     * @param binding ReadDraw to also make it the read source, as Bind() does, or Draw.
+     * @param viewport The pass viewport; left unchanged if not set.
+     */
+    void BeginRenderPass(int framebufferIndex, const char* label,
+                         Device::TargetBinding binding = Device::TargetBinding::ReadDraw,
+                         std::optional<Device::Rect> viewport = std::nullopt);
+
+    /**
+     * @brief The pass BeginRenderPass() would start, without starting it.
+     */
+    [[nodiscard]] auto RenderPass(int framebufferIndex, const char* label,
+                                  Device::TargetBinding binding = Device::TargetBinding::ReadDraw,
+                                  std::optional<Device::Rect> viewport = std::nullopt) const -> Device::RenderPassDesc;
+
+    /**
+     * @brief Ends the render pass started with BeginRenderPass().
+     */
+    static void EndRenderPass();
 
     /**
      * @brief Binds the default framebuffer for both reading and writing.

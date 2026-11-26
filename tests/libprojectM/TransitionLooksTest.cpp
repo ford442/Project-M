@@ -133,8 +133,9 @@ public:
     void DrawInitialImage(const std::shared_ptr<Texture>&, const RenderContext&) override
     {
     }
-    void BindFramebuffer() override
+    auto FramebufferPass() const -> std::optional<libprojectM::Renderer::Device::RenderPassDesc> override
     {
+        return std::nullopt;
     }
 
 private:

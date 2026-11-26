@@ -296,8 +296,20 @@ auto FlashLimiter::BeginFrame(int width, int height) -> bool
         }
     }
 
-    m_device->Commands().BeginPass({m_frame.framebuffer, Device::TargetBinding::Draw, Device::Rect{0, 0, width, height}});
+    // Bound outside a pass: the frame is drawn in FramePass(), or blitted in.
+    auto& commands = m_device->Commands();
+    commands.BindRenderTarget(Device::TargetBinding::Draw, m_frame.framebuffer);
+    commands.SetViewport({0, 0, width, height});
     return true;
+}
+
+auto FlashLimiter::FramePass() const -> Device::RenderPassDesc
+{
+    Device::RenderPassDesc pass;
+    pass.target = m_frame.framebuffer;
+    pass.viewport = Device::Rect{0, 0, m_width, m_height};
+    pass.label = "flash limiter frame";
+    return pass;
 }
 
 void FlashLimiter::EndFrame(Device::RenderTargetHandle targetFramebuffer, double secondsSinceLastFrame, bool premultipliedAlpha)
@@ -440,11 +452,15 @@ auto FlashLimiter::Allocate(int width, int height) -> bool
         // Start the clamp count at zero: the count is carried in the state texture.
         const bool scissorEnabled = commands.IsEnabled(Device::Capability::ScissorTest);
         commands.SetEnabled(Device::Capability::ScissorTest, false);
-        commands.SetClearColor({0.0f, 0.0f, 0.0f, 0.0f});
         for (const auto& state : m_state)
         {
-            commands.BindRenderTarget(TargetBinding::Draw, state.framebuffer);
-            commands.Clear(Device::ClearColor);
+            Device::RenderPassDesc clear;
+            clear.target = state.framebuffer;
+            clear.load = Device::LoadOp::Clear;
+            clear.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+            clear.label = "flash limiter state reset";
+            commands.BeginRenderPass(clear);
+            commands.EndRenderPass();
         }
         if (scissorEnabled)
         {
@@ -537,9 +553,9 @@ void FlashLimiter::SetPassPipeline(const Shader& shader) const
 void FlashLimiter::DrawFullscreen(const Target& target, int width, int height) const
 {
     auto& commands = m_device->Commands();
-    commands.BeginPass({target.framebuffer, Device::TargetBinding::Draw, Device::Rect{0, 0, width, height}});
+    commands.BeginRenderPass({target.framebuffer, Device::TargetBinding::Draw, Device::Rect{0, 0, width, height}});
     commands.Draw(0, 3);
-    commands.EndPass();
+    commands.EndRenderPass();
 }
 
 auto FlashLimiter::ReadClampedFrames(const Target& state) const -> uint32_t

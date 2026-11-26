@@ -91,6 +91,11 @@ public:
     auto BeginFrame(int width, int height) -> bool;
 
     /**
+     * @brief The render pass that draws the frame into the limiter, after BeginFrame() returned true.
+     */
+    [[nodiscard]] auto FramePass() const -> Device::RenderPassDesc;
+
+    /**
      * @brief Measures and limits the frame drawn since BeginFrame(), then copies the
      *        result into @p targetFramebuffer.
      *

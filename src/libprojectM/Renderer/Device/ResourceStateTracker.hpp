@@ -46,7 +46,16 @@ public:
     // ---- Hooks, called by backends -----------------------------------------------------
 
     void OnBindRenderTarget(TargetBinding binding, RenderTargetHandle target);
-    void OnEndPass();
+    void OnBeginRenderPass(const RenderPassDesc& pass);
+    void OnEndRenderPass();
+    void OnClear();
+    void OnReadPixels();
+
+    /**
+     * @brief Reports a pass violation the backend found itself (a nested BeginRenderPass(), an
+     *        EndRenderPass() without a pass, a frame that ended inside one).
+     */
+    void OnPassViolation(const std::string& message);
     void OnAttach(TargetBinding binding, AttachmentPoint point, TextureHandle texture);
     void OnBindTexture(int unit, TextureTarget target, TextureHandle texture);
     void OnSetProgram(ProgramHandle program);
@@ -94,6 +103,35 @@ public:
 
     void ResetHazards();
 
+    /**
+     * @brief Pass violations seen since the tracker was enabled or ResetPassViolations(): a draw
+     *        or clear outside a render pass, a copy, blit or readback inside one, a pass begun
+     *        inside another, and a change of the draw target or of its attachments while a
+     *        pass on it is open. Each is fine on GL and invalid on WebGPU.
+     */
+    [[nodiscard]] auto PassViolationCount() const -> uint64_t
+    {
+        return m_passViolationCount;
+    }
+
+    /**
+     * @brief Distinct pass violation descriptions, at most MaxHazardMessages.
+     */
+    [[nodiscard]] auto PassViolationMessages() const -> const std::vector<std::string>&
+    {
+        return m_passViolationMessages;
+    }
+
+    void ResetPassViolations();
+
+    /**
+     * @brief Render passes begun since the tracker was enabled.
+     */
+    [[nodiscard]] auto PassCount() const -> uint64_t
+    {
+        return m_passCount;
+    }
+
     static constexpr size_t MaxHazardMessages{32};
     static constexpr int MaxTextureUnits{32};
 
@@ -108,6 +146,8 @@ private:
     [[nodiscard]] auto AttachmentsOf(RenderTargetHandle target) const -> const Attachments*;
 
     void ReportHazard(const std::string& message);
+    void ReportPassViolation(const std::string& message);
+    [[nodiscard]] auto PassName() const -> std::string;
 
     bool m_enabled{false};
 
@@ -126,6 +166,14 @@ private:
     uint64_t m_hazardCount{};
     std::vector<std::string> m_hazardMessages;
     std::set<std::string> m_reported;
+
+    bool m_inPass{false};
+    RenderTargetHandle m_passTarget;
+    std::string m_passLabel;
+    uint64_t m_passCount{};
+    uint64_t m_passViolationCount{};
+    std::vector<std::string> m_passViolationMessages;
+    std::set<std::string> m_reportedPassViolations;
 };
 
 } // namespace Device

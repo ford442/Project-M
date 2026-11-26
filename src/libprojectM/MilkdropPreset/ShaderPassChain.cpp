@@ -84,9 +84,9 @@ auto ShaderPassChain::Render(const PresetState& presetState, const PerFrameConte
         return nullptr;
     }
 
+    // The caller's pass (the warp or composite draw) resumes, with its contents, afterwards.
     auto& commands = Renderer::Device::Commands();
-    const auto drawTarget = commands.BoundRenderTarget(Renderer::Device::TargetBinding::Draw);
-    const auto readTarget = commands.BoundRenderTarget(Renderer::Device::TargetBinding::Read);
+    const Renderer::Device::ScopedPassInterruption interruption(commands);
 
     const int width = presetState.renderContext.viewportSizeX;
     const int height = presetState.renderContext.viewportSizeY;
@@ -104,20 +104,17 @@ auto ShaderPassChain::Render(const PresetState& presetState, const PerFrameConte
     for (size_t index = 0; index < m_passes.size(); index++)
     {
         const int target = static_cast<int>(index % 2);
-        m_targets->BindDraw(target);
-        commands.SetViewport({0, 0, width, height});
+        m_targets->BeginRenderPass(target, "extra shader pass", Renderer::Device::TargetBinding::Draw,
+                                   Renderer::Device::Rect{0, 0, width, height});
 
         auto& pass = *m_passes.at(index);
         pass.SetLastPassTexture(lastPass);
         pass.LoadVariables(presetState, perFrameContext);
         draw(pass);
+        Renderer::Framebuffer::EndRenderPass();
 
         lastPass = m_targets->GetColorAttachmentTexture(target, 0);
     }
-
-    commands.BindRenderTarget(Renderer::Device::TargetBinding::Draw, drawTarget);
-    commands.BindRenderTarget(Renderer::Device::TargetBinding::Read, readTarget);
-    commands.SetViewport({0, 0, width, height});
 
     return lastPass;
 }

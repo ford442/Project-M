@@ -330,6 +330,15 @@ enum class LoadOp : uint8_t
 };
 
 /**
+ * @brief What happens to a render pass's attachments when it ends.
+ */
+enum class StoreOp : uint8_t
+{
+    Store,  //!< Keep what the pass wrote.
+    Discard //!< Nothing reads it afterwards (a backend may skip the write-back; GL keeps it).
+};
+
+/**
  * @brief A pixel rectangle, origin bottom-left.
  */
 struct Rect {
@@ -350,14 +359,29 @@ struct Rect {
 };
 
 /**
- * @brief Where a render pass draws.
+ * @brief A render pass: the colour targets it draws to and what happens to them at its start and end.
+ *
+ * The colour targets are the attachments of @a target (a render target is an attachment set,
+ * which a WebGPU backend turns into the pass's colorAttachments). They are fixed for the
+ * pass: attaching to or re-binding the draw target while it is open is a pass violation.
  */
 struct RenderPassDesc {
-    RenderTargetHandle target;                //!< id 0: the default framebuffer.
-    TargetBinding binding{TargetBinding::Draw}; //!< ReadDraw also makes it the read source.
-    std::optional<Rect> viewport;             //!< Left unchanged if not set.
+    RenderTargetHandle target;                  //!< id 0: the default framebuffer.
+    TargetBinding binding{TargetBinding::Draw}; //!< ReadDraw also makes it the read source (GL).
+    std::optional<Rect> viewport;               //!< Left unchanged if not set.
     LoadOp load{LoadOp::Load};
-    std::array<float, 4> clearColor{};        //!< Used with LoadOp::Clear.
+    std::array<float, 4> clearColor{}; //!< Used with LoadOp::Clear.
+    StoreOp store{StoreOp::Store};
+    const char* label{nullptr}; //!< For validation messages and the render graph; static storage.
+
+    /// The same pass, resumed after an interruption: same target and viewport, contents kept.
+    [[nodiscard]] auto Resumed() const -> RenderPassDesc
+    {
+        RenderPassDesc resumed = *this;
+        resumed.binding = TargetBinding::Draw;
+        resumed.load = LoadOp::Load;
+        return resumed;
+    }
 };
 
 /**

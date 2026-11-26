@@ -268,7 +268,13 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
     Renderer::Device::SetPipeline(m_mesh.Pipeline(*spriteShader, blend));
 
     // Draw to current output buffer
+    auto& commands = Renderer::Device::Commands();
+    Renderer::Device::RenderPassDesc output;
+    output.target = {static_cast<uint32_t>(outputFramebufferObject)};
+    output.label = "user sprite";
+    commands.BeginRenderPass(output);
     m_mesh.Draw();
+    commands.EndRenderPass();
 
     if (burnIn)
     {
@@ -280,12 +286,16 @@ void MilkdropSprite::Draw(const Audio::FrameAudioData& audioData,
                 continue;
             }
 
-            preset.get()->BindFramebuffer();
-            m_mesh.Draw();
+            if (const auto pass = preset.get()->FramebufferPass())
+            {
+                commands.BeginRenderPass(*pass);
+                m_mesh.Draw();
+                commands.EndRenderPass();
+            }
         }
 
         // Reset to original FBO
-        Renderer::Device::Commands().BindRenderTarget(Renderer::Device::TargetBinding::Draw, {static_cast<uint32_t>(outputFramebufferObject)});
+        commands.BindRenderTarget(Renderer::Device::TargetBinding::Draw, output.target);
     }
 
     m_texture->Unbind(0);

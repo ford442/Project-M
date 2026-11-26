@@ -163,7 +163,9 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
         m_framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0)->Texture(targetTexture);
     }
 
+    m_framebuffer.BeginRenderPass(0, "copy");
     Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
+    Framebuffer::EndRenderPass();
 
     // Rebind our internal texture.
     if (targetTexture)
@@ -201,7 +203,9 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
         // Draw from unflipped texture
         originalTexture->Bind(0);
 
+        m_framebuffer.BeginRenderPass(0, "copy");
         Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
+        Framebuffer::EndRenderPass();
     }
 
     // Swap texture attachments
@@ -244,7 +248,9 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
     internalTexture = m_framebuffer.GetColorAttachmentTexture(0, 0);
     m_framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0)->Texture(targetTexture);
 
+    m_framebuffer.BeginRenderPass(0, "copy");
     Copy(shaderCache, left, top, width, height);
+    Framebuffer::EndRenderPass();
 
     // Rebind our internal texture.
     m_framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0)->Texture(internalTexture);

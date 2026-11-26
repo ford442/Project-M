@@ -300,8 +300,14 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
             }
         }
 
-        // Draw fullscreen quad
+        // Draw fullscreen quad. BindPassTarget() bound the target and set the viewport.
+        Renderer::Device::RenderPassDesc blurPass;
+        blurPass.target = m_renderPath == RenderPath::Direct ? m_directFramebufferId : m_blurFramebuffer.Target(0);
+        blurPass.binding = TargetBinding::ReadDraw;
+        blurPass.label = "blur";
+        commands.BeginRenderPass(blurPass);
         m_blurMesh.Draw();
+        commands.EndRenderPass();
 
         if (m_renderPath == RenderPath::Copy)
         {

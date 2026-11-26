@@ -17,6 +17,7 @@
 #include "Renderer/Device/DeviceTypes.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -42,20 +43,30 @@ public:
     // ---- Passes and render targets ------------------------------------------------------
 
     /**
-     * @brief Starts drawing into a target: binds it, sets the viewport and applies the load op.
+     * @brief Starts a render pass: binds its target, sets the viewport and applies the load op.
      *
-     * A pass lasts until the next BeginPass() or BindRenderTarget() on the draw binding, or
-     * EndPass(). Textures attached to the pass target must not be sampled during the pass.
+     * Every draw and clear happens inside a pass, and passes do not nest: EndRenderPass() ends
+     * it. Inside a pass the target and its attachments are fixed, its attachments must not be
+     * sampled, and copies, blits and readbacks are not allowed (they are WebGPU encoder
+     * commands, not pass commands). The validation layer reports each of these as a pass
+     * violation; see ResourceStateTracker.
      */
-    virtual void BeginPass(const RenderPassDesc& pass) = 0;
+    virtual void BeginRenderPass(const RenderPassDesc& pass) = 0;
 
     /**
-     * @brief Ends the current pass. Its attachments may be sampled from here on.
+     * @brief Ends the current render pass. Its attachments may be sampled from here on.
      */
-    virtual void EndPass() = 0;
+    virtual void EndRenderPass() = 0;
 
     /**
-     * @brief Binds a render target without starting an explicit pass (stateful callers).
+     * @brief The open render pass, or nullptr. Code that has to render elsewhere while its
+     *        caller's pass is open ends it and later begins RenderPassDesc::Resumed().
+     */
+    [[nodiscard]] virtual auto CurrentRenderPass() const -> const RenderPassDesc* = 0;
+
+    /**
+     * @brief Binds a render target outside a pass: for attachment changes, read sources of
+     *        copies and blits, and blit destinations. Draws need BeginRenderPass().
      */
     virtual void BindRenderTarget(TargetBinding binding, RenderTargetHandle target) = 0;
 
@@ -519,6 +530,45 @@ inline void SetPipeline(const PipelineDesc& desc)
 {
     SetPipeline(Current(), desc);
 }
+
+/**
+ * @brief Ends the open render pass for its lifetime and resumes it (RenderPassDesc::Resumed())
+ *        when it goes out of scope. Does nothing if no pass is open.
+ *
+ * For code that renders into targets of its own in the middle of its caller's pass, such as a
+ * preset's extra shader passes: on WebGPU that is ending the pass encoder and beginning a new
+ * one that loads the contents.
+ */
+class ScopedPassInterruption
+{
+public:
+    explicit ScopedPassInterruption(ICommandList& commands)
+        : m_commands(commands)
+    {
+        if (const auto* pass = commands.CurrentRenderPass())
+        {
+            m_resume = pass->Resumed();
+            commands.EndRenderPass();
+        }
+    }
+
+    ~ScopedPassInterruption()
+    {
+        if (m_resume)
+        {
+            m_commands.BeginRenderPass(*m_resume);
+        }
+    }
+
+    ScopedPassInterruption(const ScopedPassInterruption&) = delete;
+    ScopedPassInterruption(ScopedPassInterruption&&) = delete;
+    auto operator=(const ScopedPassInterruption&) -> ScopedPassInterruption& = delete;
+    auto operator=(ScopedPassInterruption&&) -> ScopedPassInterruption& = delete;
+
+private:
+    ICommandList& m_commands;
+    std::optional<RenderPassDesc> m_resume;
+};
 
 /**
  * @brief Calls ICommandList::ResetPipelineState() on the current device's command list when it

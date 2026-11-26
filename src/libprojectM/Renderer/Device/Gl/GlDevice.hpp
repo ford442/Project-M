@@ -12,6 +12,7 @@
 #include "Renderer/Device/ResourceStateTracker.hpp"
 
 #include <atomic>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -32,8 +33,9 @@ class GlCommandList final : public ICommandList
 public:
     GlCommandList(GlDevice& device, ResourceStateTracker& tracker);
 
-    void BeginPass(const RenderPassDesc& pass) override;
-    void EndPass() override;
+    void BeginRenderPass(const RenderPassDesc& pass) override;
+    void EndRenderPass() override;
+    auto CurrentRenderPass() const -> const RenderPassDesc* override;
     void BindRenderTarget(TargetBinding binding, RenderTargetHandle target) override;
     auto BoundRenderTarget(TargetBinding binding) -> RenderTargetHandle override;
     void AttachTexture(TargetBinding binding, AttachmentPoint point, TextureHandle texture) override;
@@ -127,6 +129,7 @@ private:
     bool m_reportedMissingPipeline{false};
     bool m_reportedUnknownPipeline{false};
     uint32_t m_boundUniformSlots{}; //!< Bit n: slot n had a buffer bound since the last reset.
+    std::optional<RenderPassDesc> m_pass; //!< The open render pass.
 };
 
 /**

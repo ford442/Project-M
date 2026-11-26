@@ -94,7 +94,7 @@ public:
 
     void DrawInitialImage(const std::shared_ptr<Renderer::Texture>& image, const Renderer::RenderContext& renderContext) override;
 
-    void BindFramebuffer() override;
+    auto FramebufferPass() const -> std::optional<Renderer::Device::RenderPassDesc> override;
 
     void BindOutputForRead() override;
 

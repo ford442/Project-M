@@ -24,6 +24,21 @@ target_include_directories(hlslparser
         ${CMAKE_SOURCE_DIR}/src
         )
 
+# The WGSL generator (Phase C of the WebGPU backend, docs/adr/0002-wgsl-shader-path.md).
+# Off in the Emscripten build until a WebGPU flavor exists, so the WebGL 2 bundle does
+# not carry it.
+if(ENABLE_WGSL_EMIT)
+    target_sources(hlslparser
+            PRIVATE
+            src/WGSLGenerator.cpp
+            src/WGSLGenerator.h
+            )
+    target_compile_definitions(hlslparser
+            PUBLIC
+            PROJECTM_WGSL_EMIT=1
+            )
+endif()
+
 set_target_properties(hlslparser PROPERTIES
         FOLDER libprojectM
         )

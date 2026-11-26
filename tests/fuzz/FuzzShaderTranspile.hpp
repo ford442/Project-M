@@ -1,7 +1,9 @@
 #pragma once
 
 // The HLSL -> GLSL path that PresetCompat runs (tests/libprojectM/PresetCompatTest.cpp,
-// TranspilePresetShader()), shared by fuzz_hlsl_transpile and fuzz_shader_passes.
+// TranspilePresetShader()), shared by fuzz_hlsl_transpile and fuzz_shader_passes. With
+// ENABLE_WGSL_EMIT (every native build) each shader that transpiles to GLSL also goes
+// through the WGSL generator.
 //
 // Two deliberate differences from PresetCompat:
 //  - Only the exception the engine itself handles around preprocessing is caught
@@ -132,9 +134,19 @@ inline auto TranspilePresetShader(ShaderTranspiler::ShaderType type, std::string
 
     std::string glsl;
     std::string error;
-    return ShaderTranspiler::TranspileToGlsl(code, samplerDeclarations, texSizeDeclarations,
-                                             libprojectM::MilkdropPreset::MilkdropStaticShaders::Get()->GetGlslGeneratorVersion(),
-                                             glsl, error);
+    const bool transpiled = ShaderTranspiler::TranspileToGlsl(code, samplerDeclarations, texSizeDeclarations,
+                                                              libprojectM::MilkdropPreset::MilkdropStaticShaders::Get()->GetGlslGeneratorVersion(),
+                                                              glsl, error);
+#ifdef PROJECTM_WGSL_EMIT
+    // The WebGPU path's generator walks the same tree (docs/adr/0002-wgsl-shader-path.md).
+    // A shader GLSL refuses never reaches it in the engine either.
+    if (transpiled)
+    {
+        ShaderTranspiler::WgslShader wgsl;
+        (void) ShaderTranspiler::TranspileToWgsl(code, samplerDeclarations, texSizeDeclarations, wgsl, error);
+    }
+#endif
+    return transpiled;
 }
 
 } // namespace ProjectMFuzz

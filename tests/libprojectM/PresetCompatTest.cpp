@@ -21,6 +21,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <sstream>
 #include <functional>
 #include <iterator>
 #include <map>
@@ -97,13 +99,93 @@ void BuildSyntheticDeclarations(const std::set<std::string>& samplerNames,
 }
 
 /**
- * @brief Tries to transpile a single preset shader code block (warp_ or comp_) to GLSL.
+ * @brief The shading language a PresetCompat check transpiles to.
+ */
+enum class TranspileTarget
+{
+    Glsl, //!< What the engine compiles (the default PresetCompat mode).
+    Wgsl  //!< The WebGPU path's WGSL (PresetCompatWgsl, ENABLE_WGSL_EMIT builds only).
+};
+
+/**
+ * @brief One transpiled preset shader, as a TranspiledShaderSink receives it.
+ */
+struct TranspiledShader {
+    ShaderTranspiler::ShaderType type{ShaderTranspiler::ShaderType::WarpShader};
+    int pass{0};             //!< 0 = the stage shader, n = warp_/comp_passn_.
+    std::string code;        //!< The target language's code.
+    std::string glslEs;      //!< WGSL target only: the same shader as GLSL ES 3.00, for the WebGL 2 side of a parity check.
+    std::string reflection;  //!< WGSL target only: the reflection as JSON (see ReflectionJson()).
+};
+
+using TranspiledShaderSink = std::function<void(const TranspiledShader&)>;
+
+#ifdef PROJECTM_WGSL_EMIT
+auto JsonString(const std::string& text) -> std::string
+{
+    std::string json = "\"";
+    for (char c : text)
+    {
+        if (c == '"' || c == '\\')
+        {
+            json += '\\';
+        }
+        json += c;
+    }
+    return json + "\"";
+}
+
+/**
+ * @brief The WGSL reflection as JSON, for tests/webgpu/wgsl_parity.mjs: bindings (with uniform
+ *        block layouts), and the GLSL side's names for the same resources.
+ */
+auto ReflectionJson(const M4::WGSLGenerator::Reflection& reflection) -> std::string
+{
+    static const char* kinds[] = {"uniform", "texture2d", "texture3d", "sampler"};
+    std::string json = "{\"entryPoint\":" + JsonString(reflection.entryPoint) + ",\"bindings\":[";
+    for (size_t i = 0; i < reflection.bindings.size(); i++)
+    {
+        const auto& binding = reflection.bindings[i];
+        json += (i > 0 ? "," : "") + std::string("{\"kind\":\"") + kinds[binding.kind] + "\",\"group\":" + std::to_string(binding.group) +
+                ",\"binding\":" + std::to_string(binding.binding) + ",\"name\":" + JsonString(binding.wgslName) +
+                ",\"source\":" + JsonString(binding.sourceName) + ",\"size\":" + std::to_string(binding.size) + ",\"members\":[";
+        for (size_t m = 0; m < binding.members.size(); m++)
+        {
+            const auto& member = binding.members[m];
+            json += (m > 0 ? "," : "") + std::string("{\"name\":") + JsonString(member.name) + ",\"type\":" + JsonString(member.type) +
+                    ",\"offset\":" + std::to_string(member.offset) + ",\"size\":" + std::to_string(member.size) + "}";
+        }
+        json += "]}";
+    }
+    json += "],\"inputs\":[";
+    for (size_t i = 0; i < reflection.inputs.size(); i++)
+    {
+        json += (i > 0 ? "," : "") + std::string("{\"semantic\":") + JsonString(reflection.inputs[i].semantic) +
+                ",\"location\":" + std::to_string(reflection.inputs[i].location) + ",\"type\":" + JsonString(reflection.inputs[i].type) + "}";
+    }
+    json += "],\"outputs\":[";
+    for (size_t i = 0; i < reflection.outputs.size(); i++)
+    {
+        json += (i > 0 ? "," : "") + std::string("{\"semantic\":") + JsonString(reflection.outputs[i].semantic) +
+                ",\"location\":" + std::to_string(reflection.outputs[i].location) + ",\"type\":" + JsonString(reflection.outputs[i].type) + "}";
+    }
+    return json + "]}";
+}
+#endif
+
+/**
+ * @brief Tries to transpile a single preset shader code block (warp_ or comp_) to GLSL or WGSL.
  * @param type The type of shader the code belongs to.
  * @param code The raw shader code as returned by PresetFileParser::GetCode().
+ * @param target The shading language to transpile to.
+ * @param sink If set, receives the transpiled code.
+ * @param pass Passed to @a sink.
  * @return An empty string on success (or if the preset doesn't define this shader), or an
  *         error message describing the failure.
  */
-auto TranspilePresetShader(ShaderTranspiler::ShaderType type, std::string code) -> std::string
+auto TranspilePresetShader(ShaderTranspiler::ShaderType type, std::string code,
+                           TranspileTarget target = TranspileTarget::Glsl,
+                           const TranspiledShaderSink& sink = {}, int pass = 0) -> std::string
 {
     // Empty shader code means the preset doesn't override this shader, and the built-in
     // default shader is used instead. This is not an error.
@@ -146,15 +228,40 @@ auto TranspilePresetShader(ShaderTranspiler::ShaderType type, std::string code) 
     std::set<std::string> texSizeDeclarations;
     BuildSyntheticDeclarations(samplerNames, sampler3DNames, samplerDeclarations, texSizeDeclarations);
 
-    std::string glslCode;
+    std::string transpiled;
     std::string errorMessage;
-    if (!ShaderTranspiler::TranspileToGlsl(code, samplerDeclarations, texSizeDeclarations,
-                                           MilkdropStaticShaders::Get()->GetGlslGeneratorVersion(),
-                                           glslCode, errorMessage))
+    if (target == TranspileTarget::Wgsl)
+    {
+#ifdef PROJECTM_WGSL_EMIT
+        ShaderTranspiler::WgslShader wgsl;
+        if (!ShaderTranspiler::TranspileToWgsl(code, samplerDeclarations, texSizeDeclarations, wgsl, errorMessage))
+        {
+            return errorMessage;
+        }
+        if (sink)
+        {
+            TranspiledShader shader{type, pass, wgsl.code, {}, ReflectionJson(wgsl.reflection)};
+            std::string ignored;
+            ShaderTranspiler::TranspileToGlsl(code, samplerDeclarations, texSizeDeclarations,
+                                              M4::GLSLGenerator::Version_300_ES, shader.glslEs, ignored);
+            sink(shader);
+        }
+        return {};
+#else
+        return "Built without ENABLE_WGSL_EMIT";
+#endif
+    }
+    else if (!ShaderTranspiler::TranspileToGlsl(code, samplerDeclarations, texSizeDeclarations,
+                                                MilkdropStaticShaders::Get()->GetGlslGeneratorVersion(),
+                                                transpiled, errorMessage))
     {
         return errorMessage;
     }
 
+    if (sink)
+    {
+        sink({type, pass, transpiled, {}, {}});
+    }
     return {};
 }
 
@@ -174,11 +281,14 @@ struct PresetCheckResult {
 };
 
 /**
- * @brief Parses a preset file and transpiles its warp and composite shaders to GLSL.
+ * @brief Parses a preset file and transpiles its warp and composite shaders to GLSL or WGSL.
  * @param filePath Path to the .milk preset file.
+ * @param target The shading language to transpile to.
+ * @param sink If set, receives each transpiled shader.
  * @return The result of the parse and transpile steps.
  */
-auto CheckPreset(const std::string& filePath) -> PresetCheckResult
+auto CheckPreset(const std::string& filePath, TranspileTarget target = TranspileTarget::Glsl,
+                 const TranspiledShaderSink& sink = {}) -> PresetCheckResult
 {
     PresetCheckResult result;
 
@@ -194,8 +304,8 @@ auto CheckPreset(const std::string& filePath) -> PresetCheckResult
     using libprojectM::MilkdropPreset::ExperimentalDepthSampler;
     const auto warpCode = ExperimentalDepthSampler::ShaderCode(parser, "warp_");
     const auto compositeCode = ExperimentalDepthSampler::ShaderCode(parser, "comp_");
-    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, warpCode);
-    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, compositeCode);
+    result.warpError = TranspilePresetShader(ShaderTranspiler::ShaderType::WarpShader, warpCode, target, sink);
+    result.compositeError = TranspilePresetShader(ShaderTranspiler::ShaderType::CompositeShader, compositeCode, target, sink);
 
     // Extra shader passes (warp_nPasses / comp_nPasses, #229), declared and transpiled like the stage shader.
     using libprojectM::MilkdropPreset::PresetState;
@@ -205,7 +315,7 @@ auto CheckPreset(const std::string& filePath) -> PresetCheckResult
             const auto passes = PresetState::ReadShaderPasses(parser, stage, !stageCode.empty());
             for (size_t pass = 0; pass < passes.size() && result.passError.empty(); pass++)
             {
-                auto error = TranspilePresetShader(type, passes.at(pass));
+                auto error = TranspilePresetShader(type, passes.at(pass), target, sink, static_cast<int>(pass + 1));
                 if (!error.empty())
                 {
                     result.passError = stage + "_pass" + std::to_string(pass + 1) + "_: " + error;
@@ -1030,3 +1140,176 @@ TEST(PresetCompatPreparedJobs, FileContentsJobMatchesFileJob)
     });
     EXPECT_EQ(contentsFailure.failure, inlineFailure.failure);
 }
+
+#ifdef PROJECTM_WGSL_EMIT
+
+// PresetCompatWgsl: the WGSL mode of the harness (WebGPU backend, Phase C;
+// docs/adr/0002-wgsl-shader-path.md). Every preset whose shaders transpile to GLSL must
+// transpile to WGSL too, except the ones tests/libprojectM/data/PresetCompat/wgsl_known_failures.txt
+// lists with a reason. With PROJECTM_WGSL_OUT_DIR set, the WGSL is written there for
+// scripts/check_wgsl_corpus.sh, which validates it with naga.
+
+namespace {
+
+struct WgslLedger {
+    std::set<std::string> transpile; //!< "transpile <id>" lines: expected to fail TranspileToWgsl().
+};
+
+auto ReadWgslLedger() -> WgslLedger
+{
+    WgslLedger ledger;
+    std::ifstream file(std::string(presetCompatTestDataPath) + "wgsl_known_failures.txt");
+    std::string line;
+    while (std::getline(file, line))
+    {
+        const auto comment = line.find('#');
+        if (comment != std::string::npos)
+        {
+            line.resize(comment);
+        }
+        // "<kind> <id>", where the id (a preset file name) may contain spaces.
+        const auto first = line.find_first_not_of(" \t");
+        if (first == std::string::npos)
+        {
+            continue;
+        }
+        const auto kindEnd = line.find_first_of(" \t", first);
+        if (kindEnd == std::string::npos)
+        {
+            continue;
+        }
+        const std::string kind = line.substr(first, kindEnd - first);
+        const auto idStart = line.find_first_not_of(" \t", kindEnd);
+        const auto idEnd = line.find_last_not_of(" \t\r");
+        if (idStart == std::string::npos || idEnd < idStart)
+        {
+            continue;
+        }
+        if (kind == "transpile")
+        {
+            ledger.transpile.insert(line.substr(idStart, idEnd - idStart + 1));
+        }
+    }
+    return ledger;
+}
+
+auto FirstLine(const std::string& text) -> std::string
+{
+    return text.substr(0, text.find('\n'));
+}
+
+} // namespace
+
+TEST(PresetCompatWgsl, CorporaTranspileExceptTheLedger)
+{
+    struct Corpus {
+        const char* name;
+        std::string directory;
+    };
+    const std::vector<Corpus> corpora = {
+        {"tests", presetTestsDir},
+        {"custom", customMilkFixedDir},
+        {"weeks", PROJECTM_WEEKS_PRESETS_DIR},
+    };
+
+    const char* outDirValue = std::getenv("PROJECTM_WGSL_OUT_DIR");
+    const std::filesystem::path outDir = outDirValue != nullptr ? outDirValue : "";
+    const auto ledger = ReadWgslLedger();
+
+    std::map<std::string, std::string> failures; // id -> error
+    std::set<std::string> glslPassing;
+    std::ofstream report;
+    if (!outDir.empty())
+    {
+        std::filesystem::create_directories(outDir);
+        report.open(outDir / "report.tsv");
+        report << "id\tglsl\twgsl\terror\n";
+    }
+
+    for (const auto& corpus : corpora)
+    {
+        size_t presets = 0;
+        size_t glslOk = 0;
+        size_t wgslOk = 0;
+        for (const auto& file : CollectPresetFiles(corpus.directory))
+        {
+            presets++;
+            const auto stem = std::filesystem::path(file).stem().string();
+            const std::string id = std::string(corpus.name) + "/" + std::filesystem::path(file).filename().string();
+
+            // A preset GLSL cannot transpile either is not a WGSL failure; PresetCompat reports it.
+            if (!CheckPreset(file).Passed())
+            {
+                if (report.is_open())
+                {
+                    report << id << "\tfail\t-\t\n";
+                }
+                continue;
+            }
+            glslOk++;
+            glslPassing.insert(id);
+
+            TranspiledShaderSink sink;
+            if (!outDir.empty())
+            {
+                const auto corpusDir = outDir / corpus.name;
+                std::filesystem::create_directories(corpusDir);
+                sink = [corpusDir, stem](const TranspiledShader& shader) {
+                    std::string name = stem + (shader.type == ShaderTranspiler::ShaderType::WarpShader ? ".warp" : ".comp");
+                    if (shader.pass > 0)
+                    {
+                        name += ".pass" + std::to_string(shader.pass);
+                    }
+                    std::ofstream(corpusDir / (name + ".wgsl")) << shader.code;
+                    std::ofstream(corpusDir / (name + ".glsl")) << shader.glslEs;
+                    std::ofstream(corpusDir / (name + ".json")) << shader.reflection;
+                };
+            }
+
+            const auto result = CheckPreset(file, TranspileTarget::Wgsl, sink);
+            if (result.Passed())
+            {
+                wgslOk++;
+                if (report.is_open())
+                {
+                    report << id << "\tok\tok\t\n";
+                }
+                continue;
+            }
+            std::string error = !result.warpError.empty() ? "warp: " + FirstLine(result.warpError)
+                                : !result.compositeError.empty() ? "comp: " + FirstLine(result.compositeError)
+                                                                  : FirstLine(result.passError);
+            failures[id] = error;
+            if (report.is_open())
+            {
+                report << id << "\tok\tfail\t" << error << "\n";
+            }
+        }
+        std::cout << "[PresetCompatWgsl] " << corpus.name << ": " << presets << " presets, " << glslOk
+                  << " transpile to GLSL, " << wgslOk << " of those to WGSL" << std::endl;
+        if (std::string(corpus.name) == "custom" && glslOk > 0)
+        {
+            // The issue's bar (WebGPU backend acceptance): 95% of presets/custom.
+            EXPECT_GE(static_cast<double>(wgslOk) / static_cast<double>(glslOk), 0.95) << "presets/custom WGSL transpile rate";
+        }
+    }
+
+    for (const auto& [id, error] : failures)
+    {
+        if (ledger.transpile.count(id) == 0)
+        {
+            ADD_FAILURE() << id << " no longer transpiles to WGSL (not in wgsl_known_failures.txt): " << error;
+        }
+    }
+    for (const auto& id : ledger.transpile)
+    {
+        if (failures.count(id) == 0)
+        {
+            ADD_FAILURE() << id << " is listed in wgsl_known_failures.txt but "
+                          << (glslPassing.count(id) > 0 ? "now transpiles to WGSL" : "is not a GLSL-passing preset of the corpora")
+                          << ": delete its line";
+        }
+    }
+}
+
+#endif

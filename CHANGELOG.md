@@ -85,6 +85,31 @@ Engine and C API
   with `std::terminate`); it stays queued until the context is back.
 
 Browser host and hosting
+- **TypeScript for the protocol core**: `projectm-context`, `projectm-render-transport`,
+  `projectm-render-worker`, `projectm-render-worker-host` and `projectm-pcm-ring` are `.ts` under
+  `strict`, `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess` (`html/tsconfig.strict.json`), each
+  emitted by esbuild to the committed ES2020 `.js` next to it (`npm run build:html`; CI fails a stale one with
+  `npm run check:html-build`). Deployed file names, `import.meta.url` resolution and the classic render
+  worker are unchanged. `ProjectMContext` is split by responsibility into `context/options.ts`,
+  `context/session.ts`, `context/connect.ts` and `context/recovery.ts`. Its own private state is TypeScript
+  `private` members (compile-time only) instead of `#` fields, which ES2020 output would have lowered to
+  WeakMap helpers. The leaf modules stay JSDoc (`docs/HOST_LAYER.md` "TypeScript strategy").
+- **Typed WASM bindings**: the manifest generator writes the API's declarations,
+  `packages/types/src/wasm-api.d.ts` (re-exported by `html/generated/projectm-wasm-api.d.ts`, replacing the
+  generated `projectm-wasm-api.ts`): host handles are a branded `HostHandle` (new manifest type `host`),
+  `pm_get_last_error()` codes the const enum `ProjectMError` (new manifest list `PROJECTM_WASM_API_ERRORS`, also
+  generated into `src/wasm/generated/WasmApiErrors.hpp` and exported by the `.js` as a frozen object, with
+  `DEFAULT_HOST` and `asHostHandle()`), and `WasmApiCalls` gives every call its exact signature.
+  `RenderTransport.call()` / `callVoid()` / `supports()` are checked against it in both topologies.
+  `scripts/check_wasm_api_dts.mjs` (`npm run check:wasm-dts`, `web_lint_gate.yml`; `--glue` in
+  `build_emscripten.yml`) checks the manifest, the C++ exports, the `.d.ts`, the `.js` and the linked bundle
+  agree. `docs/WASM_JS_API.md`.
+- **One types package**: `@projectm/types` (`packages/types`, a private workspace package) holds the host
+  types html/ and `@projectm/web` share — the render-worker protocol, `RenderTransport`, the context options,
+  the host globals, presets, the WASM API and (new) `<project-m-visualizer>`'s props and events
+  (`@projectm/types/element`). The `html/projectm-*-types.ts` companions moved there. `@projectm/web`'s React
+  wrapper types its props with it instead of its own typedef (handler details are typed now, not `any`), and
+  the package build inlines it, so the published declarations stay self-contained.
 - **Host lifecycle** (#353 Track 1): the page's AudioContext and worklet now have owners. Each live
   `ProjectMContext` (and the page shell) holds the audio graph, and the last one to go disconnects the
   worklet and closes the AudioContext it created. A new `audioContext` option injects one the

@@ -1,6 +1,6 @@
 // Unit tests for html/projectm-render-worker-host.js — the main-thread half
 // of the OffscreenCanvas render-worker wire protocol
-// (projectm-render-worker-types.ts). The worker half
+// (packages/types/src/render-worker.ts). The worker half
 // (projectm-render-worker.js) is a *classic* (non-module) Worker script — it
 // assigns to the bare `self` global and expects `importScripts()` to define a
 // global `createModule`, both of which only behave like that under a real

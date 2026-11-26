@@ -67,8 +67,8 @@ export {
 } from './app-shell/config.js';
 
 /**
- * @typedef {import('./projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/context').ProjectMContextOptions} ProjectMContextOptions
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  * @typedef {import('./projectm-app-shell-ui.js').ShellUi} ShellUi
  *
  * @typedef {import('./app-shell/config.js').ShellProfile} ShellProfile

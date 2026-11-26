@@ -4,7 +4,7 @@
 // points in rather than this module importing them back.
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
  * @typedef {import('./projectm-disposables.js').Disposables} Disposables
  */
 

@@ -83,7 +83,7 @@ In `html/projectm-core.html`, append `?perfhud=1` to the page URL to enable the 
 works in **both** render topologies: in the default render-worker topology the engine's
 `pmOnPerfFrame` / `pmSetPerfHudEnabled` calls land in the worker's scope, and the worker relays
 them (`perf-frames`, batched every ~100 ms, and `perf-hud` in
-`projectm-render-worker-types.ts`). The title shows `· worker` when the numbers came from there.
+`packages/types/src/render-worker.ts`). The title shows `· worker` when the numbers came from there.
 `?renderWorker=0` still works and is the topology for the preset dev tools.
 
 The HUD implementation lives in `html/projectm-perf.js`: `setupPerfTools(Module)` on the main
@@ -1377,7 +1377,7 @@ commands and UI resize/events only" requirement):
 **Known limitations of the render-worker topology**:
 
 - Preset loading works: it is a VFS write plus a call, so it crosses as a
-  `preset` message (`projectm-render-worker-types.ts`) and the worker performs
+  `preset` message (`packages/types/src/render-worker.ts`) and the worker performs
   both steps on its side. `ProjectMContext.loadPresetUrl()` /
   `loadPresetFile()` / `addPreset()` and `fetchApiPreset({ writeBytes })` are
   topology-agnostic.

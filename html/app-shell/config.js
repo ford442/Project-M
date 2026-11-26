@@ -5,7 +5,7 @@
 // from projectm-app-shell.js.
 
 /**
- * @typedef {import('../projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
+ * @typedef {import('@projectm/types/context').ProjectMContextOptions} ProjectMContextOptions
  *
  * @typedef {object} ShellProfile
  * @property {string} name

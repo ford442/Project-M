@@ -5,6 +5,7 @@
 
 import { createDisposables } from './projectm-disposables.js';
 import { feedPcm } from './projectm-pcm-ring.js';
+import { DEFAULT_HOST } from './generated/projectm-wasm-api.js';
 
 // projectM's internal analysis buffer size (AudioBufferSamples). Kept as the
 // generators' default chunk length — it is a convenient, engine-shaped block
@@ -14,8 +15,8 @@ export const PROJECTM_ANALYSIS_WINDOW = 576;
 export const DEFAULT_SAMPLE_RATE = 44100;
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  */
 
 /** @typedef {'silence' | 'bass' | 'mid' | 'treble' | 'beat' | 'sweep'} SyntheticFeedMode */
@@ -175,11 +176,12 @@ export function trimToAnalysisWindow(buffer, samplesPerChannel, window = PROJECT
  * @param {Float32Array} buffer Interleaved PCM.
  * @param {number} [channels]
  * @param {number} [samplesPerChannel]
- * @param {number} [host] The engine to feed (create_host*()'s handle); 0 is
- *   the module's active host.
+ * @param {import('./generated/projectm-wasm-api.js').HostHandle} [host] The
+ *   engine to feed (create_host*()'s handle); DEFAULT_HOST (0) is the module's
+ *   active host.
  * @returns {boolean} true if the chunk was handed to the engine.
  */
-export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel, host = 0) {
+export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel, host = DEFAULT_HOST) {
     if (!module) return false;
     const frames = samplesPerChannel ?? (channels === 1 ? buffer.length : buffer.length / 2);
     // The same ingest the worklet and external PCM use, so a synthetic feed
@@ -196,13 +198,13 @@ export function feedPcmToModule(module, buffer, channels = 1, samplesPerChannel,
  * @param {SyntheticFeedMode} [mode]
  * @param {object} [options]
  * @param {number} [options.channels]
- * @param {number} [options.host] The engine to feed; 0 is the module's active host.
+ * @param {import('./generated/projectm-wasm-api.js').HostHandle} [options.host] The engine to feed; DEFAULT_HOST (0) is the module's active host.
  * @param {(frame: number, mode: SyntheticFeedMode) => void} [options.onFrame]
  * @returns {() => void} Stops the feed.
  */
 export function startSyntheticFeed(module, mode = 'bass', {
     channels = 1,
-    host = 0,
+    host = DEFAULT_HOST,
     onFrame,
 } = {}) {
     let frame = 0;
@@ -253,7 +255,7 @@ export function startSyntheticFeed(module, mode = 'bass', {
  *   The module, or a getter re-read on each click (it may not exist yet at setup).
  * @param {object} [options]
  * @param {Document} [options.documentRef]
- * @param {() => number} [options.hostRef] The engine the feed is for, re-read on
+ * @param {() => import('./generated/projectm-wasm-api.js').HostHandle} [options.hostRef] The engine the feed is for, re-read on
  *   each click (create_host*()'s handle; 0 or absent is the active host).
  * @param {string} [options.search] Query string to read `?audioTest=1` from.
  * @returns {{ element: HTMLDivElement | null, dispose: () => void }} `element`
@@ -312,7 +314,7 @@ export function setupAudioTestPanel(moduleRef, {
             const mode = /** @type {SyntheticFeedMode} */ (btn.dataset.mode);
             status.textContent = `feeding: ${mode}`;
             stopFeed = startSyntheticFeed(module, mode, {
-                host: hostRef?.() ?? 0,
+                host: hostRef?.() ?? DEFAULT_HOST,
                 onFrame: (f) => { status.textContent = `feeding: ${mode} (frame ${f})`; },
             });
         });

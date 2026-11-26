@@ -9,8 +9,13 @@
 #     entry needs, which the src/wasm/ TUs define;
 #   - src/wasm/generated/WasmApiExports.cpp: the extern "C" exports themselves,
 #     each behind an exception barrier;
-#   - html/generated/projectm-wasm-api.{ts,js}: typed wrappers, signatures and
-#     bindModuleToHost()/createHostApi().
+#   - src/wasm/generated/WasmApiErrors.hpp: the WasmApiError codes below;
+#   - html/generated/projectm-wasm-api.js: the wrappers, signatures and
+#     bindModuleToHost()/createHostApi() the host pages run;
+#   - html/generated/projectm-wasm-api.d.ts: their exact types (HostHandle,
+#     ProjectMError, the per-call signatures RenderTransport.call() takes).
+# scripts/check_wasm_api_dts.mjs checks that this manifest, the C++ exports, the
+# .d.ts and the .js agree.
 #
 # Each entry: name|visibility|scope|binding|returns|args|doc
 #   visibility: public | internal | runtime
@@ -39,7 +44,11 @@
 #     runtime                   Emscripten runtime helper (malloc/free).
 #   binding: direct | ccall (how the generated JS calls it)
 #   returns / args: C types, args as comma-separated name:type pairs:
-#     void bool i32 u32 f32 f64 usize cstr, and pointers i32* u32* f32* u8*.
+#     void bool i32 u32 f32 f64 usize cstr, and pointers i32* u32* f32* u8*,
+#     plus two that are plain C types with a distinct TypeScript type:
+#       host   a host handle (uintptr_t; HostHandle in the .d.ts, so a sprite
+#              id or a heap pointer is a type error where a host is expected)
+#       error  a pm_get_last_error() code (int; ProjectMError in the .d.ts)
 #     JavaScript sees bool as boolean, cstr as string, everything else as a
 #     number. A return type may carry the value an export returns when it
 #     fails, e.g. i32=-1 (default 0 / false / null).
@@ -57,7 +66,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "add_audio_data|internal|legacy|direct|void|data:u8*,len:i32|Legacy uint8 PCM feed"
     "pl|internal|module|ccall|void|songPath:cstr|Play audio file from VFS path"
     "destruct|internal|host|direct|void||Tear down projectM engine"
-    "get_projectm_handle|public|host|direct|usize||Opaque projectM handle of the active host: the pmHandle the projectm_sprite_*_wrapper and PCM exports take (its host handle, 0 without an engine)"
+    "get_projectm_handle|public|host|direct|host||Opaque projectM handle of the active host: the pmHandle the projectm_sprite_*_wrapper and PCM exports take (its host handle, 0 without an engine)"
     "init|public|host|direct|i32=-1||Initialize (or after a context loss re-initialize) EGL/WebGL and projectM on the host, returns 0 on success, -1 for an unknown host"
     "set_canvas_selectors|public|legacy|ccall|void|primary:cstr,secondary:cstr|Set primary/secondary canvas CSS selectors (default #mcanvas/#scanvas)"
     "set_context_config|public|legacy|ccall|void|antialias:i32,preserveDrawingBuffer:i32,depth:i32,stencil:i32,alpha:i32,powerPreference:i32,fboPrecision:i32|Deprecated shim for host JS that predates create_host_with_config(): sets the active host's config if it has no context yet, else holds it for the next context created (fboPrecision: 0=RGBA16F, 1=RGBA32F, 2=RGBA8)"
@@ -65,12 +74,12 @@ set(PROJECTM_WASM_API_MANIFEST
     "get_render_path_overrides|public|host|direct|i32||Render-path switches this host's engine runs with as a bitmask (1=blurPath copy, 2=copyPath shader, 4=perPixelEval cpu, 0 without an engine)"
     "init_with_canvases|public|legacy|ccall|i32|primary:cstr,secondary:cstr|Set canvas selectors then init (returns 0 on success)"
     "rebind_canvases|public|host|ccall|i32|primary:cstr,secondary:cstr|Tear down and re-init against new canvas selectors (single-instance)"
-    "create_host|public|module|ccall|usize|primary:cstr,secondary:cstr|Create and init a new engine instance on the given canvases, returning an opaque host handle (0 if at the instance cap or init failed)"
-    "create_host_with_config|public|module|ccall|usize|primary:cstr,secondary:cstr,flags:i32,powerPreference:i32,fboPrecision:i32|Create and init an engine instance whose WebGL context uses this config (flags: bitmask of CONTEXT_CONFIG_FLAGS, powerPreference 0 default/1 low-power/2 high-performance, fboPrecision 0=RGBA16F/1=RGBA32F/2=RGBA8), returning its host handle or 0 (see get_last_init_error)"
+    "create_host|public|module|ccall|host|primary:cstr,secondary:cstr|Create and init a new engine instance on the given canvases, returning an opaque host handle (0 if at the instance cap or init failed)"
+    "create_host_with_config|public|module|ccall|host|primary:cstr,secondary:cstr,flags:i32,powerPreference:i32,fboPrecision:i32|Create and init an engine instance whose WebGL context uses this config (flags: bitmask of CONTEXT_CONFIG_FLAGS, powerPreference 0 default/1 low-power/2 high-performance, fboPrecision 0=RGBA16F/1=RGBA32F/2=RGBA8), returning its host handle or 0 (see get_last_init_error)"
     "get_last_init_error|public|module|direct|i32||Code of the last create_host*() that returned 0, else the active host's last init() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes)"
-    "set_active_host|public|legacy|ccall|void|handle:usize|Select which host subsequent no-handle exports operate on and make its WebGL context current (0 = default host)"
-    "get_active_host|public|legacy|direct|usize||Opaque handle of the active host (0 if none)"
-    "destroy_host|public|module|ccall|void|handle:usize|Tear down and free a host created with create_host()"
+    "set_active_host|public|legacy|ccall|void|handle:host|Select which host subsequent no-handle exports operate on and make its WebGL context current (0 = default host)"
+    "get_active_host|public|legacy|direct|host||Opaque handle of the active host (0 if none)"
+    "destroy_host|public|module|ccall|void|handle:host|Tear down and free a host created with create_host()"
     "host_count|public|module|direct|i32||Number of live engine instances in this Module"
     "max_host_count|public|module|direct|i32||Compile-time cap on simultaneous engine instances per Module"
     "load_preset_file|public|host|ccall|void|vfsPath:cstr|Load preset from Emscripten VFS path"
@@ -85,7 +94,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "add_existing_vfs_presets|internal|host|direct|void||Bulk-add numbered presets from VFS"
     "add_preset_file|public|host|ccall|void|vfsPath:cstr|Add preset file to playlist"
     "add_custom_milk_paths|internal|host|direct|void|count:i32|Add custom_milk_fixed presets by count"
-    "projectm_pcm_add_float_wrapper|public|handle-or-active:pm_pcm_add_float|direct|void|pmHandle:usize,audioPtr:f32*,samplesPerChannel:u32,channels:i32|Feed interleaved float PCM (use feedPcmFloat helper)"
+    "projectm_pcm_add_float_wrapper|public|handle-or-active:pm_pcm_add_float|direct|void|pmHandle:host,audioPtr:f32*,samplesPerChannel:u32,channels:i32|Feed interleaved float PCM (use feedPcmFloat helper)"
     "pcm_ring_init|public|host|direct|i32|capacityFrames:i32|Allocate the WASM-owned PCM ring (0 = default 16384 frames), returns 1 on success"
     "pcm_ring_shutdown|internal|host|direct|void||Release the PCM ring"
     "pcm_ring_drain|internal|host|direct|i32||Feed every frame written since the last drain, returns frames fed"
@@ -101,15 +110,15 @@ set(PROJECTM_WASM_API_MANIFEST
     "pcm_ring_parked_count|internal|module|direct|i32||Released rings still parked until the audio worklet acknowledges their pcmRingDetach"
     "connect_media_element_source|public|module|ccall|i32|selector:cstr|Route an <audio>/<video> element into the worklet (returns 1 on success)"
     "create_sprite|public|alias:sprite_create|ccall|u32|type:cstr,code:cstr|Create a user sprite on the active host (type 'milkdrop', code in the Milkdrop sprite format), returning its id, or 0 on failure or at the sprite limit"
-    "projectm_sprite_create_wrapper|public|handle:pm_sprite_create|ccall|u32|pmHandle:usize,type:cstr,code:cstr|Create a user sprite on the engine pmHandle names (see create_sprite). Every projectm_sprite_*_wrapper is a no-op for a stale or unknown pmHandle"
-    "projectm_sprite_destroy_wrapper|public|handle:pm_sprite_destroy|direct|void|pmHandle:usize,spriteId:u32|Destroy one user sprite"
-    "projectm_sprite_destroy_all_wrapper|public|handle:pm_sprite_destroy_all|direct|void|pmHandle:usize|Destroy every user sprite"
-    "projectm_sprite_get_sprite_count_wrapper|public|handle:pm_sprite_get_sprite_count|direct|u32|pmHandle:usize|Number of live user sprites"
-    "projectm_sprite_get_sprite_ids_wrapper|public|handle:pm_sprite_get_sprite_ids|direct|void|pmHandle:usize,spriteIds:u32*|Write the live sprite ids, oldest first, to a uint32 array of projectm_sprite_get_sprite_count_wrapper() entries on the WASM heap"
-    "projectm_sprite_set_max_sprites_wrapper|public|handle:pm_sprite_set_max_sprites|direct|void|pmHandle:usize,maxSprites:u32|Sprite limit (lowering it destroys the oldest sprites over it)"
-    "projectm_sprite_get_max_sprites_wrapper|public|handle:pm_sprite_get_max_sprites|direct|u32|pmHandle:usize|Current sprite limit"
-    "projectm_sprite_get_var_wrapper|public|handle:pm_sprite_get_var|ccall|f64|pmHandle:usize,spriteId:u32,varName:cstr|Value of a sprite expression variable (0 for an unknown sprite or variable)"
-    "projectm_sprite_set_var_wrapper|public|handle:pm_sprite_set_var|ccall|void|pmHandle:usize,spriteId:u32,varName:cstr,value:f64|Set a sprite expression variable (per-frame code may overwrite it on the next frame)"
+    "projectm_sprite_create_wrapper|public|handle:pm_sprite_create|ccall|u32|pmHandle:host,type:cstr,code:cstr|Create a user sprite on the engine pmHandle names (see create_sprite). Every projectm_sprite_*_wrapper is a no-op for a stale or unknown pmHandle"
+    "projectm_sprite_destroy_wrapper|public|handle:pm_sprite_destroy|direct|void|pmHandle:host,spriteId:u32|Destroy one user sprite"
+    "projectm_sprite_destroy_all_wrapper|public|handle:pm_sprite_destroy_all|direct|void|pmHandle:host|Destroy every user sprite"
+    "projectm_sprite_get_sprite_count_wrapper|public|handle:pm_sprite_get_sprite_count|direct|u32|pmHandle:host|Number of live user sprites"
+    "projectm_sprite_get_sprite_ids_wrapper|public|handle:pm_sprite_get_sprite_ids|direct|void|pmHandle:host,spriteIds:u32*|Write the live sprite ids, oldest first, to a uint32 array of projectm_sprite_get_sprite_count_wrapper() entries on the WASM heap"
+    "projectm_sprite_set_max_sprites_wrapper|public|handle:pm_sprite_set_max_sprites|direct|void|pmHandle:host,maxSprites:u32|Sprite limit (lowering it destroys the oldest sprites over it)"
+    "projectm_sprite_get_max_sprites_wrapper|public|handle:pm_sprite_get_max_sprites|direct|u32|pmHandle:host|Current sprite limit"
+    "projectm_sprite_get_var_wrapper|public|handle:pm_sprite_get_var|ccall|f64|pmHandle:host,spriteId:u32,varName:cstr|Value of a sprite expression variable (0 for an unknown sprite or variable)"
+    "projectm_sprite_set_var_wrapper|public|handle:pm_sprite_set_var|ccall|void|pmHandle:host,spriteId:u32,varName:cstr,value:f64|Set a sprite expression variable (per-frame code may overwrite it on the next frame)"
     "reload_texture|internal|host|ccall|i32|name:cstr|Re-read a texture file rewritten in the VFS into the active host's loaded texture so running presets sample the new image (1 if a loaded texture was updated, 0 if it was not loaded from a file)"
     "texture_slot_register|public|host|ccall|i32|name:cstr,width:i32,height:i32|Create or resize a live texture on the active host (RGBA8, starts black, 1..8192 px a side) that presets sample by name (sampler_<name>), with its staging buffer on the WASM heap (1 on success). Register before loading presets that sample it"
     "texture_slot_buffer|public|host|ccall|usize|name:cstr,bytes:i32|Heap address to write a live texture's next frame to (RGBA8, top row first), or 0 for an unknown slot or when bytes is not its width*height*4"
@@ -216,12 +225,23 @@ set(PROJECTM_WASM_API_MANIFEST
     "capture_frame_release|public|host|direct|void||Free the captured pixels"
     "debug_emit_events|internal|host-v2|direct|i32=-1||Test hook for the page-event queue: raises every page event about this host from inside the export, returning how many were raised with the host intact after each (-1 if one destroyed it underneath)"
     "debug_throw|internal|host-v2|direct|i32|kind:i32|Test hook for the exception barrier: 1 throws std::runtime_error, 2 allocates past the heap (std::bad_alloc), returning 1 if nothing was thrown"
-    "pm_host_is_live|public|module|direct|bool|handle:usize|Whether handle names a live host: create_host*()'s handle until destroy_host(), or 0 while the implicit default host exists"
+    "pm_host_is_live|public|module|direct|bool|handle:host|Whether handle names a live host: create_host*()'s handle until destroy_host(), or 0 while the implicit default host exists"
     "get_init_error|public|host-v2|direct|i32||Code of this host's last init() failure, 0 after a success (docs/EMSCRIPTEN.md Init Error Codes)"
-    "get_last_error|public|host-v2|direct|i32||Code of the last error an export reported on this host (0 none, 1 exception, 2 out of memory, 3 stale buffer generation), see pm_get_last_error_message"
+    "get_last_error|public|host-v2|direct|error||Code of the last error an export reported on this host (0 none, 1 exception, 2 out of memory, 3 stale buffer generation), see pm_get_last_error_message"
     "get_last_error_message|public|host-v2|ccall|cstr||Message of the last error an export reported on this host (\"\" for none)"
     "clear_last_error|public|host-v2|direct|void||Reset this host's last error to 0"
     "context_lost|public|host-v2|direct|void||Tear down this host's engine and GL state after its WebGL context was lost (the per-host form of pm_handle_context_loss)"
+)
+
+# The pm_get_last_error() codes (the manifest type `error`), in value order.
+# Generated as `enum class WasmApiError` (src/wasm/generated/WasmApiErrors.hpp),
+# `ProjectMError` (a const enum in the .d.ts, a frozen object in the .js).
+# Each entry: Name|value|doc (one line, no semicolons).
+set(PROJECTM_WASM_API_ERRORS
+    "None|0|No error"
+    "Exception|1|An export threw (message: what())"
+    "OutOfMemory|2|An allocation failed (std::bad_alloc)"
+    "StaleGeneration|3|A buffer commit named a generation that was replaced"
 )
 
 # -----------------------------------------------------------------------------

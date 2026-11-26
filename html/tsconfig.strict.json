@@ -1,0 +1,37 @@
+{
+  "//": [
+    "The TypeScript modules under html/ (scripts/html-ts-modules.mjs): the host",
+    "layer's wire protocols and union-typed state machines, held to the strictest",
+    "settings. checkJs is off: the JSDoc modules they import are checked, under",
+    "their own settings, by tsconfig.json; here they only supply types.",
+    "",
+    "No isolatedModules / verbatimModuleSyntax: ProjectMError is an ambient const",
+    "enum (packages/types/src/wasm-api.d.ts), which those reject. The .ts files are",
+    "still emitted one at a time (scripts/build_html_ts.mjs); what isolatedModules",
+    "would guard is ESLint's consistent-type-imports / consistent-type-exports.",
+    "",
+    "The render worker is a classic Worker script and has its own program",
+    "(tsconfig.worker.json, with the same strict settings)."
+  ],
+  "compilerOptions": {
+    "paths": { "@projectm/types/*": ["../packages/types/src/*"] },
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "useDefineForClassFields": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["projectm-*.ts", "context/*.ts"],
+  "exclude": ["projectm-render-worker.ts"]
+}

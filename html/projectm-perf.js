@@ -42,10 +42,10 @@ export { setHudVisible };
 // Both render topologies: setupPerfTools(Module) on the main thread,
 // setupTransportPerfTools(transport) for whichever one a ProjectMContext picked.
 // In the worker topology the frames are relayed from the worker (see
-// RenderWorkerPerfFramesMessage in projectm-render-worker-types.ts).
+// RenderWorkerPerfFramesMessage in packages/types/src/render-worker.ts).
 
 /**
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  * @typedef {import('./projectm-perf-stats.js').PerfBarKey} PerfBarKey
  * @typedef {import('./projectm-perf-stats.js').PerfSummary} PerfSummary
  * @typedef {import('./projectm-perf-stats.js').OpenmpInfo} OpenmpInfo
@@ -53,11 +53,11 @@ export { setHudVisible };
 
 /**
  * Per-frame stats pushed from `js_perf_report_frame()` (WasmPerfGovernor.cpp).
- * The canonical shape is `PerfFrameStats` in projectm-render-worker-types.ts,
+ * The canonical shape is `PerfFrameStats` in packages/types/src/render-worker.ts,
  * because the render worker relays it across postMessage.
  *
- * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
- * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/render-worker').PerfFrameStats} PerfFrameStats
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  */
 
 /**

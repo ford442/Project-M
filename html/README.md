@@ -17,7 +17,7 @@ Core behavior belongs in shared modules:
 - `projectm-preset-tweaker.js`: header param sliders (decay, zoom, warp, wave RGB) used by the dev panel.
 - `projectm-external-pcm.js`: external MOD/FLAC `postMessage` PCM contract, origin allowlist, queued feeding, and preallocated transfer buffers.
 - `projectm-audio-source-router.js`: exclusive single-active-source policy (element / external / worklet).
-- `projectm-context.js`: typed **embed context API** (`ProjectMContext`) — WASM bootstrap, resize/DPR, presets, audio modes, transparency. The class holds the state, lifecycle and public methods; the work is in `context/boot.js` (glue, Module / render worker / engine creation), `context/audio.js` (audio router + source wiring), `context/presets.js` (preset loads, rhythm controls and events) and `context/render.js` (canvas sizing, resize, fps, snapshot, flash stats). Those keep no state and never read `import.meta.url`: the package build bundles into flat chunks, so the default WASM base is read in `projectm-context.js` and passed down.
+- `projectm-context.ts`: typed **embed context API** (`ProjectMContext`) — WASM bootstrap, resize/DPR, presets, audio modes, transparency. The class holds the state, the start/destroy sequence and the public methods; the work is split by responsibility: `context/options.ts` (configuration the constructor resolves), `context/session.ts` (lifecycle: the start gate and the teardown stack), `context/connect.ts` (event wiring around the engine, error reporting), `context/recovery.ts` (loss-replay), plus `context/boot.js` (glue, Module / render worker / engine creation), `context/audio.js` (audio router + source wiring), `context/presets.js` (preset loads, rhythm controls and events) and `context/render.js` (canvas sizing, resize, fps, snapshot, flash stats). Those keep no state and never read `import.meta.url`: the package build bundles into flat chunks, so the default WASM base is read in `projectm-context.ts` and passed down.
 - `projectm-perf.js`: perf HUD + `?benchmark=1` harness. The HUD is `projectm-perf-hud.js`, the stats keys and summaries `projectm-perf-stats.js`, the crossfade benchmark's transition pump `projectm-perf-crossfade.js`, and `?presetSwitchBench=1` `projectm-perf-preset-switch.js`.
 - `projectm-preset-sources.js`: where preset files are fetched from (local copies, then the CDN). The cache (`projectm-preset-cache.js`) and loader (`projectm-preset-library.js`) take a resolver and default to it; `pickWeightedRandom()` in the library is the one random picker.
 - `projectm-element.js`: **`<project-m-visualizer>`** custom element + lifecycle events (`pm-ready`, `pm-preset-changed`, `pm-error`, `pm-fps`).
@@ -90,7 +90,7 @@ There are two kinds of `pm*` name, handled differently:
   `pmOnPerfFrame` and `pmOnRhythmEvent`. It is `create_host*()`'s handle, `0` for the default
   host a single-engine `init()` brings up, and `-1` for a create refused before any engine
   existed. The bus hands each listener one typed event (`WasmCallbackEventMap` in
-  `projectm-host-types.ts`, `host` on every one), and
+  `packages/types/src/host.ts`, `host` on every one), and
   `subscribeWasmCallback(name, listener, hostObject, { engineHost })` delivers only that
   engine's events. No filter means every engine — right for page-wide listeners (the perf
   HUD, the shader-cache store, the init-error overlay). Bundles up to 039 call the same names
@@ -227,94 +227,116 @@ Do not delete the `.1ink` hosts in one sweep. First, move shared behavior into m
 this path and are now redirect stubs. Tracked `.bak` files should not be
 reintroduced. Use git history for previous versions.
 
-## TypeScript Migration (Epic #163)
+## TypeScript (Epic #163)
 
-`tsconfig.json` runs with `strict: true` and `checkJs: true`. Modules listed in
-its `include` are typechecked via `npm run typecheck` in this directory (also
-invoked by `scripts/check_html_types.sh` in CI:
-`build_linux.yml` / `build_emscripten.yml`) — a type error in any of them fails
-the PR. TypeScript is pinned in `html/package.json` so local runs and CI use the
-same compiler version.
+Two kinds of module, one rule (docs/HOST_LAYER.md "TypeScript strategy"):
+**anything with a wire protocol or a union-typed state machine is `.ts`; the
+leaf modules stay JSDoc-typed `.js`.**
 
-Migration strategy: **`allowJs` + `checkJs` with JSDoc annotations**, not a
-`.ts`-with-emit rewrite. Shared option/module shapes live in small types-only
-`.ts` companions (`projectm-host-types.ts`, `projectm-context-types.ts`) that
-the real `.js` implementation imports via
-`@typedef {import('./foo-types.ts').Bar}`. Two rules keep this from drifting
-back into the dual-source problem this migration started from:
+### TypeScript modules
 
-1. **A types-only companion must never share a basename with the `.js`
-   module it describes.** TypeScript's `bundler` module resolution resolves
-   a `./foo.js` specifier to a same-basename `./foo.ts` if one exists,
-   silently shadowing the real implementation for every JS importer during
-   typecheck — exactly the kind of drift that left `projectm-context.ts` /
-   `projectm-element.ts` as unmaintained `declare class` stubs before this
-   migration. Name companions `*-types.ts` (see `projectm-context-types.ts`)
-   or fold the types into the JSDoc directly, and never write a
-   `declare class` / `declare function` that duplicates a real `.js` export.
-2. Prefer typing the module's own logic in JSDoc over widening shared
-   ambient types (`ProjectMModuleLike` in `projectm-host-types.ts`) to make
-   an error disappear — a narrow, correct type here is worth more than a
-   passing `tsc` run.
+`projectm-context.ts` and its split (`context/options.ts`, `context/session.ts`,
+`context/connect.ts`, `context/recovery.ts`), `projectm-render-transport.ts`,
+`projectm-render-worker.ts`, `projectm-render-worker-host.ts` and
+`projectm-pcm-ring.ts`. Each is emitted, by itself (esbuild, ES2020, no bundling,
+then Prettier), to the `.js` next to it, and **the `.js` is committed**: it is
+what deploys, what `tests/web` imports and what `packages/web` vendors, so the
+deployed file names, `new URL('./projectm-render-worker.js', import.meta.url)`,
+the classic worker's `importScripts()` and every `.js` importer are unchanged.
+Edit the `.ts`, then:
+
+```bash
+npm run build:html
+```
+
+`npm run check:html-build` (in `web_lint_gate.yml`) fails when a committed `.js`
+is not its `.ts`'s current emit; the `.js` carries a `GENERATED` header and is
+skipped by ESLint and Prettier. Which files are TypeScript modules is one rule in
+`scripts/html-ts-modules.mjs`: an `html/**/*.ts` that is not a `.d.ts`.
+`projectm-render-worker.ts` is a classic Worker script, so it has no `import`s
+(only `import()` type aliases) and the build checks its emit has none either.
+
+They are held to `tsconfig.strict.json` (the worker: `tsconfig.worker.json`):
+`strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`,
+`noImplicitReturns`. There is no `isolatedModules`, because `ProjectMError` is an
+ambient const enum; ESLint's `consistent-type-imports` / `consistent-type-exports`
+guard the per-file emit instead. TypeScript keeps `x.ts` and drops `x.js` when
+both match a program's globs, so the emitted file is never type-checked or linted
+(`tests/web/html-ts-build.test.mjs` asserts it).
+
+### JSDoc modules
+
+Everything else: `allowJs` + `checkJs` under `strict` (`tsconfig.json`,
+`tsconfig.worklet.json`). They import the shared types by name,
+`@typedef {import('@projectm/types/context').ProjectMContextOptions}`, and the
+TypeScript modules' types through the `.js` specifier, which resolves to the
+`.ts`. Prefer typing a module's own logic over widening shared ambient types
+(`ProjectMModuleLike` in `@projectm/types/host`) to make an error disappear.
 
 ### Coverage
 
-**Every `.js` file that deploys is checkJs-clean and in the `include` of one of
-the three tsconfigs** — `html/projectm-*.js`, `html/context/*.js`,
-`html/worklets/*.js` and the first-party `html/flac-player/*.js` (its vendored
-bundle excepted) — and the pages' inline scripts are at most ten-line
-`boot(document)` calls into those modules (`tests/web/page-modules.test.mjs`
-enforces it), so there is no unconverted backlog. Add new modules to
-`tsconfig.json` in the same commit that creates them; a module left out is not
-checked, and (as `projectm-worklet-playback.js` and then
-`projectm-song-loader.js` both showed) being *reachable* from a checked module
-is not the same as being listed: `projectm-song-loader.js` shipped fully
-JSDoc-annotated but unlisted, and picked up eleven errors the moment it was
-added. Verify against the `include` lists rather than trusting a green
-`npm run typecheck`, which only proves the listed set is clean.
-
-Three programs, because the libs are mutually exclusive:
+**Every `.js` file that deploys is in the `include` of one of the programs** —
+`html/projectm-*.{ts,js}`, `html/context/*.{ts,js}`, `html/worklets/*.js` and
+the first-party `html/flac-player/*.js` (its vendored bundle excepted) — and the
+pages' inline scripts are at most ten-line `boot(document)` calls into those
+modules (`tests/web/page-modules.test.mjs` enforces it). Add new modules to a
+program in the same commit that creates them: being *reachable* from a checked
+module is not the same as being listed.
 
 | tsconfig | lib | Covers |
 |---|---|---|
 | `tsconfig.json` | `DOM` | every module that runs on the main thread |
-| `tsconfig.worker.json` | `WebWorker` | `projectm-render-worker.js` only |
+| `tsconfig.strict.json` | `DOM` | the TypeScript modules, with the strict settings above |
+| `tsconfig.worker.json` | `WebWorker` | `projectm-render-worker.ts` and `worker/*.js` (strict settings) |
 | `tsconfig.worklet.json` | `ES2022` + `@types/audioworklet` | `worklets/*.js` (the AudioWorklet processor) |
 
-`npm run typecheck` runs all three, so `scripts/check_html_types.sh` (CI:
-`build_linux.yml` / `build_emscripten.yml`) and `web_lint_gate.yml` gate them.
-ESLint (`eslint.config.mjs`) lints exactly the files these programs include,
-type-aware, so "linted" and "type-checked" are the same set.
+`npm run typecheck` runs all four, so `scripts/check_html_types.sh` and
+`web_lint_gate.yml` gate them. ESLint (`eslint.config.mjs`) lints exactly the
+files these programs check, type-aware, so "linted" and "type-checked" are the
+same set.
 
 The worker and its main-thread bridge only meet across `postMessage`, so the
-wire format lives in `projectm-render-worker-types.ts` — included by both
-programs, and the reason a field renamed on one side is a build error on the
-other. Worker replies go through a `postToHost()` wrapper rather than
-`self.postMessage` directly: the raw signature takes `any`, so without it an
-outgoing typo type-checks fine and fails only on the far side.
+wire format lives in `@projectm/types/render-worker` — included by both programs.
+Both sides post through a function typed with the union they send
+(`post()` in the bridge, `postToHost()` in the worker) and dispatch on the union
+they receive, so a field renamed on one side is a build error on the other.
 
-### Types-only companions
+### `@projectm/types`
 
-- `projectm-host-types.ts` — `ProjectMModuleLike` plus every host-owned
-  `window` / `globalThis` global. Note that the `Window` augmentation does not
-  apply to `typeof globalThis`, so globals reached as `globalThis.foo` need a
-  matching `var` declaration in the same file.
-- `projectm-context-types.ts` — `ProjectMContext` options and audio-source shapes.
-- `projectm-preset-types.ts` — preset manifest entries, filters, and the
-  IndexedDB record shapes shared by the preset library / picker / cache modules.
-- `projectm-render-worker-types.ts` — the render-worker message protocol.
-- `projectm-transport-types.ts` — `RenderTransport`, the one interface over both
-  render topologies (implemented by `projectm-render-transport.js`).
+The shared types are a workspace package, `packages/types` (private: the
+`@projectm/web` build inlines it into its own declarations). html/ and
+packages/web import it by name; the tsconfigs map `@projectm/types/*` to
+`packages/types/src/*`.
 
-`generated/projectm-wasm-api.{js,ts}` is the one same-basename `.js`/`.ts` pair
-in the tree. It does not violate rule 1 below: both halves are emitted together
-from `cmake/WasmApiManifest.cmake`, so the `.ts` shadowing the `.js` for JS
-importers is exactly what gives them the generated types. Never hand-edit
-either half — an earlier revision added `setHostAudioSourceRouter()` to the
-`.js` by hand and the next `scripts/sync_wasm_link_common.sh` run deleted it,
-leaving an import of a non-existent export that threw at ESM link time and took
-`projectm-context.js` down with it. Host-side policy belongs in a hand-written
-module.
+- `host` — `ProjectMModuleLike` plus every host-owned `window` / `globalThis`
+  global. The `Window` augmentation does not apply to `typeof globalThis`, so
+  globals reached as `globalThis.foo` need a matching `var` declaration.
+- `context` — `ProjectMContext` options, events and audio-source shapes.
+- `element` — `<project-m-visualizer>`'s props and events, which the framework
+  wrappers use instead of describing the element again.
+- `preset` — preset manifest entries, filters, and the IndexedDB record shapes.
+- `render-worker` — the render-worker message protocol.
+- `transport` — `RenderTransport`, the one interface over both render topologies.
+- `wasm-api` — generated (below).
+
+### The generated WASM API
+
+`generated/projectm-wasm-api.js` is the implementation and
+`packages/types/src/wasm-api.d.ts` its exact types, both generated from
+`cmake/WasmApiManifest.cmake` (`generated/projectm-wasm-api.d.ts` re-exports the
+latter, so an importer of the `.js` gets them). The declarations brand host
+handles (`HostHandle`: `create_host*()`'s result or `DEFAULT_HOST`, so a sprite id
+where a host is expected is a type error), make `pm_get_last_error()` codes a
+const enum (`ProjectMError`, also a frozen object in the `.js`), and give every
+call its exact signature (`WasmApiCalls`), which `RenderTransport.call(name,
+...args)` is checked against in both topologies. `scripts/check_wasm_api_dts.mjs`
+(`npm run check:wasm-dts`) checks the manifest, the C++ exports, the `.d.ts` and
+the `.js` agree, and with `--glue` that a linked bundle exports everything the
+`.d.ts` declares. Never hand-edit any of them — an earlier revision added
+`setHostAudioSourceRouter()` to the `.js` by hand and the next
+`scripts/sync_wasm_link_common.sh` run deleted it, leaving an import of a
+non-existent export that threw at ESM link time and took `projectm-context.js`
+down with it. Host-side policy belongs in a hand-written module.
 
 ### Narrowing the module handle
 

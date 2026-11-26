@@ -1,0 +1,18 @@
+{
+  "name": "@projectm/types",
+  "version": "0.3.0",
+  "private": true,
+  "description": "The projectM browser host layer's types: the render transport and worker wire protocol, ProjectMContext options and events, the <project-m-visualizer> props, and the generated WASM API. Imported by html/ and packages/web; @projectm/web inlines it into its own declarations, so it is never published.",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    "./context": { "types": "./src/context.ts" },
+    "./element": { "types": "./src/element.ts" },
+    "./host": { "types": "./src/host.ts" },
+    "./preset": { "types": "./src/preset.ts" },
+    "./render-worker": { "types": "./src/render-worker.ts" },
+    "./transport": { "types": "./src/transport.ts" },
+    "./wasm-api": { "types": "./src/wasm-api.d.ts" },
+    "./package.json": "./package.json"
+  }
+}

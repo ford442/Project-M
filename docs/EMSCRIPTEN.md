@@ -89,7 +89,7 @@ uintptr_t create_host_with_config(const char* primary, const char* secondary,
 
 The config is stored on that `WasmHost` before `emscripten_webgl_create_context`, so there is no
 "configure, then create" window and no process-wide slot for a second engine to land in. Both
-topologies use the same shape (`WasmContextConfig` in `html/projectm-render-worker-types.ts`): the main
+topologies use the same shape (`WasmContextConfig` in `packages/types/src/render-worker.ts`): the main
 thread calls the export through `createConfiguredHost()` (`html/projectm-context-config.js`), the
 OffscreenCanvas render worker receives `{ flags, powerPreference, fboPrecision }` in its `init`
 message and passes the same three numbers. `resolveWasmContextConfig(options)` turns
@@ -543,7 +543,7 @@ scripts/sync_wasm_link_common.sh
 
 CI runs `scripts/verify_wasm_link_common.sh` to ensure generated files are committed in sync.
 
-Typed JavaScript wrappers are generated into `html/generated/projectm-wasm-api.{ts,js}` from `cmake/WasmApiManifest.cmake`. See [WASM_JS_API.md](WASM_JS_API.md).
+JavaScript wrappers are generated into `html/generated/projectm-wasm-api.js`, with their declarations in `packages/types/src/wasm-api.d.ts` (`@projectm/types/wasm-api`), from `cmake/WasmApiManifest.cmake`. See [WASM_JS_API.md](WASM_JS_API.md).
 
 ## Wasm feature floor
 
@@ -1120,7 +1120,7 @@ Where the events are heard depends on where the context lives:
 | Topology | `webglcontextlost` / `webglcontextrestored` fire on | Who hears them |
 |----------|------------------------------------------------------|----------------|
 | `main` | the page's `<canvas>` | `projectm-context-loss.js`, which calls `preventDefault()` and `transport.callVoid('pmHandleContextLoss')` |
-| `worker` | the transferred `OffscreenCanvas`, inside the render worker | the worker, which does the `preventDefault()` + `pm_handle_context_loss()` half itself and relays `context-lost` / `context-restored` (see `projectm-render-worker-types.ts`); the page hears them through `transport.onContextEvent()` |
+| `worker` | the transferred `OffscreenCanvas`, inside the render worker | the worker, which does the `preventDefault()` + `pm_handle_context_loss()` half itself and relays `context-lost` / `context-restored` (see `packages/types/src/render-worker.ts`); the page hears them through `transport.onContextEvent()` |
 
 Either way the re-init is one call, `transport.recoverContext()`, and only a context that actually
 lost its engine is rebuilt. On the worker it is a `recover-context` message; the worker answers

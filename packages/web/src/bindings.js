@@ -30,6 +30,10 @@ export const ATTRIBUTE_FOR_PROP = Object.freeze(
  *
  * Kept as an explicit list because these are a contract with embedders, not an
  * internal detail: renaming one is a breaking change for every wrapper user.
+ * Typed with @projectm/types/element, so a handler or event added there and not
+ * here (or the other way round) is a type error.
+ *
+ * @type {Readonly<import('@projectm/types/element').ProjectMVisualizerEventForHandler>}
  */
 export const EVENT_FOR_HANDLER = Object.freeze({
     onReady: 'pm-ready',

@@ -33,6 +33,25 @@ PATHS=(
     html/projectm-audio-capture-page.js
     html/projectm-bezel.js
     html/context/live-input.js
+    html/context/connect.ts
+    html/context/options.ts
+    html/context/recovery.ts
+    html/context/session.ts
+    html/projectm-context.ts
+    html/projectm-pcm-ring.ts
+    html/projectm-render-transport.ts
+    html/projectm-render-worker-host.ts
+    html/projectm-render-worker.ts
+    html/tsconfig.strict.json
+    html/tsconfig.worker.json
+    packages/types/src/element.ts
+    scripts/build_html_ts.mjs
+    scripts/check_wasm_api_dts.mjs
+    scripts/html-ts-modules.mjs
+    tests/web/html-ts-build.test.mjs
+    tests/web/projectm-context-split.test.mjs
+    tests/web/projectm-element-types.test.mjs
+    tests/web/wasm-api-dts.test.mjs
     html/projectm-disposables.js
     html/projectm-embed-demo.js
     html/projectm-live-texture.js

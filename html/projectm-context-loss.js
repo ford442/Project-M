@@ -4,7 +4,7 @@
 // backgrounding, etc.) without requiring a page reload.
 //
 // This module never touches the Emscripten Module. It talks to a
-// RenderTransport (see projectm-transport-types.ts), so the same recovery runs
+// RenderTransport (see packages/types/src/transport.ts), so the same recovery runs
 // whichever topology the engine is in:
 //
 //   main thread   the canvas is on this page, so the DOM events are heard here.
@@ -14,7 +14,7 @@
 //   render worker the canvas was transferred, so the events fire in the worker.
 //                 The worker does the preventDefault()/pm_handle_context_loss()
 //                 half itself and relays 'context-lost' / 'context-restored'
-//                 (projectm-render-worker-types.ts); this module hears them
+//                 (packages/types/src/render-worker.ts); this module hears them
 //                 through transport.onContextEvent() and asks the transport to
 //                 recover, which posts 'recover-context'.
 //
@@ -36,7 +36,7 @@ import { INIT_CONTEXT_LOST } from './projectm-init-errors.js';
 import { asDisposable } from './projectm-disposables.js';
 
 /**
- * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  *
  * The one thing recovery needs from a ProjectMContext: which transport it is
  * driving right now, and (optionally) a recovery entry point that activates

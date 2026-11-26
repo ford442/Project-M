@@ -126,11 +126,15 @@ Type-checking: `bash scripts/check_html_types.sh` (includes context + element ty
 ### Types are generated, never hand-written
 
 Every `.d.ts` this package ships is emitted by `tsc --emitDeclarationOnly`
-(`tsconfig.build.json`) from the vendored `dist/` closure, as part of
-`npm run build`. There is no hand-maintained type surface to drift: the JSDoc on
-`html/*.js` and the `*-types.ts` companions are the single source, exactly as
-`html/generated/projectm-wasm-api.ts` is generated from
-`cmake/WasmApiManifest.cmake`.
+(`tsconfig.build.json`) from the vendored closure, as part of `npm run build`.
+There is no hand-maintained type surface to drift: html/'s TypeScript modules,
+the JSDoc on its `.js` modules and the shared types package `@projectm/types`
+(`packages/types/src`, which the framework wrappers in `src/` import too) are the
+single source, and the WASM API's declarations are generated from
+`cmake/WasmApiManifest.cmake` into `@projectm/types/wasm-api`. `@projectm/types`
+is a private workspace package: the build stages it as `staging/types/` and
+rewrites every `@projectm/types/<name>` specifier to a relative path, so the
+tarball's declarations need nothing it does not contain.
 
 The hand-written `types/*.d.ts` shims this replaced had already drifted —
 `types/entry.d.ts` re-exported the context API from the `.` entry point, whose

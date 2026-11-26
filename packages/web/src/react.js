@@ -17,22 +17,10 @@ import {
 } from './bindings.js';
 
 /**
- * @typedef {object} ProjectMVisualizerProps
- * @property {string} [presetUrl]
- * @property {'element' | 'external' | 'none'} [audioSource]
- * @property {string} [audioElement]
- * @property {string} [wasmBaseUrl]
- * @property {string} [wasmScriptUrl]
- * @property {'auto' | 'high' | 'low'} [meshQuality]
- * @property {number} [targetFps]
- * @property {boolean} [transparent]
- * @property {boolean} [locked]
- * @property {string[]} [externalPcmOrigins]
- * @property {(detail: any, event: Event) => void} [onReady]
- * @property {(detail: any, event: Event) => void} [onError]
- * @property {(detail: any, event: Event) => void} [onPresetChanged]
- * @property {(detail: any, event: Event) => void} [onFps]
- * @property {(detail: any, event: Event) => void} [onAudioSource]
+ * The element's attributes and events as props: @projectm/types/element, the
+ * one description of `<project-m-visualizer>` html/ and this package share.
+ *
+ * @typedef {import('@projectm/types/element').ProjectMVisualizerProps} ProjectMVisualizerProps
  */
 
 export const ProjectMVisualizer = forwardRef(

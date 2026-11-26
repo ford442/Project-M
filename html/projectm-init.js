@@ -29,7 +29,7 @@ import {
 } from './projectm-wasm-version.js';
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
  */
 
 /**

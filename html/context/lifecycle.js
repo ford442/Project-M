@@ -22,7 +22,7 @@
 // is hidden; the pause is skipped when the transport does not offer it.
 
 /**
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  * @typedef {{ release(): Promise<void>, addEventListener?: (type: string, listener: () => void) => void }} WakeLockSentinelLike
  */
 

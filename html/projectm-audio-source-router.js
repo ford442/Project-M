@@ -5,9 +5,9 @@ import {
 } from './generated/projectm-wasm-api.js';
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
- * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('@projectm/types/context').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  */
 
 // Host-side registry for the active router.
@@ -156,7 +156,7 @@ export class AudioSourceRouter {
      *   PCM chunk or `pl()` call promotes that path to active (used by legacy
      *   `projectm-core.html` which wires external PCM alongside worklet).
      * @param {(status: ProjectMAudioSourceStatus) => void} [options.onStatusChange]
-     * @param {import('./projectm-transport-types.ts').RenderTransport | null} [options.transport]
+     * @param {import('@projectm/types/transport').RenderTransport | null} [options.transport]
      *   Render transport, when the host has one. The two engine ops the router
      *   performs go through it instead of through `module`, so the router works
      *   unchanged when the engine is in the render worker and there is no
@@ -171,7 +171,7 @@ export class AudioSourceRouter {
     } = {}) {
         /** @type {ProjectMModuleLike | null} */
         this.module = module;
-        /** @type {import('./projectm-transport-types.ts').RenderTransport | null} */
+        /** @type {import('@projectm/types/transport').RenderTransport | null} */
         this.transport = transport;
         this.autoSwitchOnFeed = autoSwitchOnFeed;
         /** @type {ProjectMAudioSourceActive} */
@@ -186,7 +186,7 @@ export class AudioSourceRouter {
     }
 
     /**
-     * @param {import('./projectm-transport-types.ts').RenderTransport | null} transport
+     * @param {import('@projectm/types/transport').RenderTransport | null} transport
      */
     setTransport(transport) {
         if (this.transport === transport) {
@@ -291,8 +291,8 @@ export class AudioSourceRouter {
 
     /**
      * Wraps a feed callback so exclusive policy is enforced before WASM ingest.
-     * @param {import('./projectm-host-types.ts').ExternalPcmFeedFn} feedFn
-     * @returns {import('./projectm-host-types.ts').ExternalPcmFeedFn}
+     * @param {import('@projectm/types/host').ExternalPcmFeedFn} feedFn
+     * @returns {import('@projectm/types/host').ExternalPcmFeedFn}
      */
     wrapExternalFeed(feedFn) {
         return (buffer, channels, sampleRate, samplesPerChannel) => {

@@ -16,10 +16,10 @@ import { audioSourceToRouterSource, createAudioSourceRouter } from '../projectm-
 import { defaultFeedPCMToModule, setupExternalAudioReceiver } from '../projectm-external-pcm.js';
 
 /**
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
- * @typedef {import('../projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
- * @typedef {import('../projectm-context-types.ts').ProjectMAudioSourceStatus} ProjectMAudioSourceStatus
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/context').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('@projectm/types/context').ProjectMAudioSourceStatus} ProjectMAudioSourceStatus
  * @typedef {import('../projectm-audio-source-router.js').AudioSourceRouter} AudioSourceRouter
  * @typedef {(dispose: (() => void) | { dispose(): void } | null | undefined) => void} Own
  */

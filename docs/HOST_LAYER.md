@@ -64,33 +64,55 @@ rebuilt, replace **both** files together (the main bundle's table names the work
 `deploy.py` uploads the whole directory (`html/flac-player/**/*`), so a stale chunk left behind is
 the only way an old hash stays deployed.
 
-## TypeScript strategy (decision record, 2026-11)
+## TypeScript strategy (decision record, 2026-11, amended)
 
-**Decision: do not convert `html/` to `.ts` wholesale.**
+**Decision: TypeScript where a type system pays for itself, JSDoc elsewhere.
+Never a wholesale conversion.**
 
-`html/` is deployed as unbundled static ES modules: the deploy uploads the
-files as they are, and pages load them by URL. It is already type-checked as
-strict `checkJs` (three programs: DOM, worker, AudioWorklet), with no
-`ts-ignore` and few `any`. A `.ts` conversion would add a build step to
-every deploy and give almost no extra checking.
+`html/` is deployed as unbundled static ES modules: pages load the files by
+URL. The JSDoc modules are strict `checkJs`, with no `ts-ignore` and few `any`,
+and for a leaf module (a panel, a loader, a HUD) that is all the checking there
+is to have. It stopped being enough for the protocol core: the largest modules
+(the context, the render worker and its bridge, the transport) had reached the
+point where JSDoc generics and discriminated unions were painful, and the WASM
+boundary was untyped at the ccall (#269's `func is not a function` was a call
+that type-checked fine).
 
 The rule:
 
-- **Contracts are `.ts` declaration-style files.** That covers the
-  render-worker wire protocol, context/transport/host types and events
-  (`projectm-*-types.ts`, `generated/projectm-wasm-api.ts`). They contain
-  types only, and runtime code imports them through JSDoc `import('…')`.
-- **Runtime stays JSDoc-typed JS** in `html/`.
-- **`packages/web/src` may move to real `.ts`**, since it already has a build
-  (esbuild + `tsc --emitDeclarationOnly`).
+- **Anything with a wire protocol or a union-typed state machine is `.ts`:**
+  `projectm-context.ts` (and `context/options.ts`, `session.ts`, `connect.ts`,
+  `recovery.ts`), `projectm-render-transport.ts`, `projectm-render-worker.ts`,
+  `projectm-render-worker-host.ts`, `projectm-pcm-ring.ts`. They are held to
+  `tsconfig.strict.json` (`strict`, `exactOptionalPropertyTypes`,
+  `noUncheckedIndexedAccess`) and emitted file by file to the committed `.js`
+  next to them (`npm run build:html`, checked by `npm run check:html-build`), so
+  deploy names and `import.meta.url` resolution do not change. See
+  `html/README.md` "TypeScript modules".
+- **The small leaf modules stay JSDoc-typed `.js`.**
+- **Types shared by html/ and packages/web live in one workspace package,
+  `@projectm/types`** (`packages/types/src`), imported by name; the
+  `@projectm/web` build inlines it into its declarations.
+- **The WASM boundary is typed by the generator:** `cmake/WasmApiManifest.cmake`
+  emits `packages/types/src/wasm-api.d.ts` (`HostHandle`, `ProjectMError`,
+  `WasmApiCalls`) alongside the `.js`, and `scripts/check_wasm_api_dts.mjs` keeps
+  the manifest, the C++ exports, the `.d.ts`, the `.js` and a linked bundle in
+  agreement.
+
+A new module is `.ts` when it posts or receives messages, or holds a state
+machine with more than two states; otherwise JSDoc. Converting one is its own
+change: `git mv` the `.js` to `.ts`, type it, `npm run build:html`, and make sure
+the emitted `.js` passes the same tests.
 
 Ratchet, one step per change. Never take a step back:
 
-1. ✅ `noUnusedLocals` in all three programs (`tsconfig.worker.json` was the
-   last).
-2. `// @ts-check` in `tests/web/*.mjs`, one file at a time.
-3. `noUncheckedIndexedAccess`.
-4. An ESLint rule that bans new `any`.
+1. ✅ `noUnusedLocals` in every program.
+2. ✅ `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` in the
+   TypeScript programs (`tsconfig.strict.json`, `tsconfig.worker.json`, which
+   also covers `worker/*.js`).
+3. `// @ts-check` in `tests/web/*.mjs`, one file at a time.
+4. `noUncheckedIndexedAccess` in `tsconfig.json` (the JSDoc modules).
+5. An ESLint rule that bans new `any`.
 
-Agents: do not propose a big-bang `.ts` migration of `html/`. Take the next
-ratchet step instead.
+Agents: do not propose a big-bang `.ts` migration of `html/`. Convert a module
+when it meets the rule above, or take the next ratchet step.

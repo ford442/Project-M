@@ -1,4 +1,4 @@
-// Part of the render worker (html/projectm-render-worker.js), which loads it with
+// Part of the render worker (html/projectm-render-worker.ts), which loads it with
 // importScripts() before it handles any message. A classic script: no imports, no
 // top-level state of its own beyond the one factory it publishes on `self`.
 //
@@ -6,7 +6,7 @@
 
 /**
  * @typedef {object} CaptureDeps
- * @property {(host: number | undefined) => WorkerModule | null} selectEngine The module as seen by one engine (see selectEngine() in projectm-render-worker.js).
+ * @property {(host: HostHandle | undefined) => WorkerModule | null} selectEngine The module as seen by one engine (see selectEngine() in projectm-render-worker.ts).
  * @property {(message: RenderWorkerMessage, transfer?: Transferable[]) => void} postToHost
  */
 
@@ -22,7 +22,7 @@ function createWorkerCapture(deps) {
      * main-thread transport's setFlashLimit(). A bundle without the limiter ignores it.
      *
      * @param {FlashLimitSettings} settings
-     * @param {number} [host] The engine; this worker's own when absent.
+     * @param {HostHandle} [host] The engine; this worker's own when absent.
      */
     function applyFlashLimit(settings, host) {
         const m = deps.selectEngine(host);

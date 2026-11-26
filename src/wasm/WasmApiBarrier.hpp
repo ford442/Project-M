@@ -31,21 +31,13 @@
 
 #include "WasmEvents.hpp"
 #include "WasmHost.hpp"
+#include "generated/WasmApiErrors.hpp" // enum class WasmApiError: the pm_get_last_error() codes
 
 #include <cstdint>
 #include <exception>
 #include <new>
 #include <type_traits>
 #include <utility>
-
-// pm_get_last_error() codes.
-enum class WasmApiError : int
-{
-    None = 0,
-    Exception = 1,       //!< An export threw (message: what()).
-    OutOfMemory = 2,     //!< An allocation failed (std::bad_alloc).
-    StaleGeneration = 3, //!< A buffer commit named a generation that was replaced.
-};
 
 // Records `code` as the last error of the host `handle` names, if it is still
 // live (the export that failed may have destroyed it), and logs it.

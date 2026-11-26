@@ -7,6 +7,7 @@
 // attributes".
 
 import {
+    DEFAULT_HOST,
     createHost,
     createHostWithConfig,
     getLastInitError,
@@ -17,11 +18,11 @@ import {
 import { FORMAT_NAMES } from './projectm-fbo-format.js';
 
 /**
- * @typedef {import('./projectm-context-types.ts').ProjectMContextOptions} ProjectMContextOptions
- * @typedef {import('./projectm-context-types.ts').ProjectMContextSnapshot} ProjectMContextSnapshot
- * @typedef {import('./projectm-context-types.ts').ProjectMContextAttributes} ProjectMContextAttributes
- * @typedef {import('./projectm-context-types.ts').ProjectMContextAttributeMismatch} ProjectMContextAttributeMismatch
- * @typedef {import('./projectm-render-worker-types.ts').WasmContextConfig} WasmContextConfig
+ * @typedef {import('@projectm/types/context').ProjectMContextOptions} ProjectMContextOptions
+ * @typedef {import('@projectm/types/context').ProjectMContextSnapshot} ProjectMContextSnapshot
+ * @typedef {import('@projectm/types/context').ProjectMContextAttributes} ProjectMContextAttributes
+ * @typedef {import('@projectm/types/context').ProjectMContextAttributeMismatch} ProjectMContextAttributeMismatch
+ * @typedef {import('@projectm/types/render-worker').WasmContextConfig} WasmContextConfig
  */
 
 /**
@@ -270,9 +271,9 @@ const LEGACY_EXPRESSIBLE = CONTEXT_CONFIG_FLAGS.antialias
  * `code` is the init error code (docs/EMSCRIPTEN.md "Init Error Codes"), 0 on
  * success, or -1 when the bundle cannot say.
  *
- * @param {import('./generated/projectm-wasm-api.ts').ProjectMModule} module
+ * @param {import('./generated/projectm-wasm-api.js').ProjectMModule} module
  * @param {{ primary: string, secondary: string, config: WasmContextConfig, create?: 'host' | 'init' }} request
- * @returns {{ handle: number, code: number }}
+ * @returns {{ handle: import('./generated/projectm-wasm-api.js').HostHandle, code: number }}
  */
 export function createConfiguredHost(module, { primary, secondary, config, create = 'host' }) {
     const m = /** @type {any} */ (module);
@@ -291,7 +292,7 @@ export function createConfiguredHost(module, { primary, secondary, config, creat
         console.warn('[projectM] this WASM bundle predates create_host_with_config(); '
             + 'premultipliedAlpha / failIfMajorPerformanceCaveat / explicitSwapControl / desynchronized '
             + 'cannot be applied, so the engine was not created');
-        return { handle: 0, code: -1 };
+        return { handle: DEFAULT_HOST, code: -1 };
     }
     setContextConfig(module, ...legacyContextConfigArgs(config));
     if (create === 'host') {
@@ -299,11 +300,11 @@ export function createConfiguredHost(module, { primary, secondary, config, creat
         return { handle, code: handle ? 0 : lastInitError(module) };
     }
     const code = primary ? initWithCanvases(module, primary, secondary) : wasmInit(module);
-    return { handle: 0, code };
+    return { handle: DEFAULT_HOST, code };
 }
 
 /**
- * @param {import('./generated/projectm-wasm-api.ts').ProjectMModule} module
+ * @param {import('./generated/projectm-wasm-api.js').ProjectMModule} module
  * @returns {number}
  */
 function lastInitError(module) {
@@ -318,7 +319,7 @@ function lastInitError(module) {
  * else whether to enable it and the threshold to set, if one was given.
  *
  * @param {Partial<ProjectMContextOptions>} [options]
- * @returns {import('./projectm-render-worker-types.ts').FlashLimitSettings | null}
+ * @returns {import('@projectm/types/render-worker').FlashLimitSettings | null}
  */
 export function resolveFlashLimit(options = {}) {
     const option = options.flashLimit;

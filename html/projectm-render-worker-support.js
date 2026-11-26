@@ -4,7 +4,7 @@
 // out of projectm-render-worker-host.js, which re-exports these.
 
 /**
- * @typedef {import('./projectm-render-worker-types.ts').RenderPathOverrides} RenderPathOverrides
+ * @typedef {import('@projectm/types/render-worker').RenderPathOverrides} RenderPathOverrides
  */
 
 /**

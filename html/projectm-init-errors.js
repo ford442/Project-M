@@ -5,7 +5,7 @@
 //
 // See docs/EMSCRIPTEN.md#init-error-codes for the meaning of the error codes below.
 
-import { init as wasmInit, initWithCanvases } from './generated/projectm-wasm-api.js';
+import { DEFAULT_HOST, init as wasmInit, initWithCanvases } from './generated/projectm-wasm-api.js';
 import { createConfiguredHost } from './projectm-context-config.js';
 import { subscribeWasmCallback } from './projectm-wasm-callbacks.js';
 
@@ -358,9 +358,9 @@ export function checkCrossOriginIsolation() {
  * @param {{
  *   primaryCanvasSelector?: string;
  *   secondaryCanvasSelector?: string;
- *   contextConfig?: import('./projectm-render-worker-types.ts').WasmContextConfig;
+ *   contextConfig?: import('@projectm/types/render-worker').WasmContextConfig;
  *   onCode?: (code: number) => void;
- *   onHost?: (host: number) => void;
+ *   onHost?: (host: import('./generated/projectm-wasm-api.js').HostHandle) => void;
  * }} [options] `onCode` receives the init code (0 on success, see
  *   docs/EMSCRIPTEN.md#init-error-codes; -1 when the bundle cannot say).
  *   `onHost` receives, on success, the handle of the engine that was made:
@@ -378,7 +378,8 @@ export function checkInit(Module, {
     onHost,
 } = {}) {
     let code;
-    let host = 0;
+    /** @type {import('./generated/projectm-wasm-api.js').HostHandle} */
+    let host = DEFAULT_HOST;
     if (contextConfig) {
         ({ code, handle: host } = createConfiguredHost(Module, {
             primary: primaryCanvasSelector || '#mcanvas',

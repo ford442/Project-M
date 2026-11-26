@@ -20,9 +20,9 @@ import { getFavorites } from './projectm-preset-favorites.js';
 import { createDisposables } from './projectm-disposables.js';
 
 /**
- * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
- * @typedef {import('./projectm-preset-types.ts').PresetFilters} PresetFilters
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('@projectm/types/preset').PresetEntry} PresetEntry
+ * @typedef {import('@projectm/types/preset').PresetFilters} PresetFilters
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
  */
 
 /**

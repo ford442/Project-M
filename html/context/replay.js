@@ -24,7 +24,7 @@ import { createSpriteOn, setSpriteVarOn } from './sprites.js';
 import { setEvalVarOn } from './live-input.js';
 
 /**
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  * @typedef {{ code: string, type: string, vars: Map<string, number>, engineId: number }} SpriteRecord
  */
 

@@ -13,7 +13,7 @@
 // it works on targets that predate the `signal` option.
 
 /**
- * @typedef {import('./projectm-host-types.ts').Disposable} Disposable
+ * @typedef {import('@projectm/types/host').Disposable} Disposable
  * @typedef {(() => void) | Disposable | null | undefined} DisposeStep
  */
 

@@ -4,10 +4,10 @@
 import { defaultBasesForBase } from './projectm-preset-sources.js';
 
 /**
- * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
- * @typedef {import('./projectm-preset-types.ts').CachedPresetRecord} CachedPresetRecord
- * @typedef {import('./projectm-preset-types.ts').ShaderCacheRecord} ShaderCacheRecord
- * @typedef {import('./projectm-preset-types.ts').PreloadProgressFn} PreloadProgressFn
+ * @typedef {import('@projectm/types/preset').PresetEntry} PresetEntry
+ * @typedef {import('@projectm/types/preset').CachedPresetRecord} CachedPresetRecord
+ * @typedef {import('@projectm/types/preset').ShaderCacheRecord} ShaderCacheRecord
+ * @typedef {import('@projectm/types/preset').PreloadProgressFn} PreloadProgressFn
  */
 
 const DB_NAME = 'projectm-preset-cache';

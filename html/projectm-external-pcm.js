@@ -1,4 +1,5 @@
 import { feedPcm } from './projectm-pcm-ring.js';
+import { DEFAULT_HOST } from './generated/projectm-wasm-api.js';
 import { acceptExternalPcmChunk, pcmStats, resetIngressPolicy, resetIngressState } from './projectm-external-pcm-ingress.js';
 
 export {
@@ -8,10 +9,10 @@ export {
 } from './projectm-external-pcm-ingress.js';
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
- * @typedef {import('./projectm-host-types.ts').ExternalPcmFeedFn} ExternalPcmFeedFn
- * @typedef {import('./projectm-host-types.ts').ExternalPcmChunk} ExternalPcmChunk
- * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('@projectm/types/host').ExternalPcmFeedFn} ExternalPcmFeedFn
+ * @typedef {import('@projectm/types/host').ExternalPcmChunk} ExternalPcmChunk
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  * @typedef {import('./projectm-external-pcm-ingress.js').ExternalPcmStats} ExternalPcmStats
  */
 
@@ -391,7 +392,7 @@ export function defaultFeedPCMToModule(buffer, channels, sampleRate, samplesPerC
     // whichever host happened to be active.
     const moduleInstance = transport?.module ?? currentProjectMModule();
     if (!moduleCanAcceptExternalPCM(moduleInstance)) return false;
-    const host = transport?.host ?? 0;
+    const host = transport?.host ?? DEFAULT_HOST;
 
     const { samples, samplesPerChannel: framesPerChannel } = preprocessExternalPcm(
         buffer, channels, samplesPerChannel

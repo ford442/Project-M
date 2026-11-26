@@ -15,7 +15,7 @@ import {
 import { getFboFormatName } from './projectm-fbo-format.js';
 
 /**
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  */
 
 /** CPU submit-time buckets (libprojectM PerfTimers.hpp). */

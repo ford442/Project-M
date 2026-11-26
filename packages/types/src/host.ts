@@ -1,13 +1,14 @@
-// Shared ambient types for the projectM host layer's `checkJs`-migrated modules.
+// Shared ambient types for the projectM host layer (@projectm/types/host).
 //
-// This is a *types-only* module (no runtime code): the shared `.js` host modules
-// import these shapes through JSDoc `@typedef {import('./projectm-host-types.ts')...}`
-// so there is a single source of truth for the Emscripten module surface and the
-// host-owned `window` globals. Keep it in sync with the wrappers in
-// `generated/projectm-wasm-api.ts` and the globals set from `projectM_emscripten.cpp`.
+// Types only (no runtime code): the host modules import these shapes
+// (`@typedef {import('@projectm/types/host')...}` from JSDoc, `import type`
+// from TypeScript) so there is a single source of truth for the Emscripten
+// module surface and the host-owned `window` globals. The module surface itself
+// is generated (./wasm-api.d.ts); the globals are the ones
+// `projectM_emscripten.cpp` sets.
 
-import type { ProjectMModule } from './generated/projectm-wasm-api.ts';
-import type { PerfFrameStats, RhythmEvent } from './projectm-render-worker-types.ts';
+import type { ProjectMModule } from './wasm-api.js';
+import type { PerfFrameStats, RhythmEvent } from './render-worker.ts';
 
 /**
  * What every `setup*()` export returns (on its own, or as part of a richer
@@ -218,7 +219,7 @@ declare global {
          * projectm-wasm-callbacks.js. `pmOnPerfFrame` is called once per frame from
          * `js_perf_report_frame()` (WasmPerfGovernor.cpp) — the stats shape is
          * defined there and typed as `PerfFrameStats` in
-         * projectm-render-worker-types.ts, since the render worker relays it.
+         * packages/types/src/render-worker.ts, since the render worker relays it.
          */
         pmSetPerfHudEnabled?: EngineCall<[enabled: boolean]>;
         pmOnPerfFrame?: (stats: PerfFrameStats) => void;

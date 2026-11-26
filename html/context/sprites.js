@@ -12,7 +12,7 @@
 // context builds a new engine.
 
 /**
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
  */
 
 /**
@@ -32,14 +32,14 @@ function spriteTransport(transport, method) {
 
 /**
  * @param {RenderTransport} transport
- * @returns {Promise<number>}
+ * @returns {Promise<import('../generated/projectm-wasm-api.js').HostHandle>}
  */
 async function engineHandle(transport) {
     const handle = Number(await transport.call('getProjectmHandle'));
     if (!handle) {
         throw new Error('projectM engine is not initialized');
     }
-    return handle;
+    return /** @type {import('../generated/projectm-wasm-api.js').HostHandle} */ (handle);
 }
 
 /**

@@ -1,7 +1,7 @@
 // Persist favorite presets in localStorage for the B3HD demo library.
 
 /**
- * @typedef {import('./projectm-preset-types.ts').PresetEntryLike} PresetEntryLike
+ * @typedef {import('@projectm/types/preset').PresetEntryLike} PresetEntryLike
  */
 
 const STORAGE_KEY = 'projectm:presetFavorites';

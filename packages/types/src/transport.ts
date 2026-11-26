@@ -9,11 +9,9 @@
 //
 // A RenderTransport hides the difference. Everything above it (ProjectMContext
 // and its callers) issues the same calls either way; only the two factories in
-// html/projectm-render-transport.js know how a call is actually delivered.
+// html/projectm-render-transport.ts know how a call is actually delivered.
 //
-// Types-only companion, named `*-types.ts` per html/README.md: a
-// same-basename `.ts` would shadow the real `.js` module for every JS importer
-// during typecheck.
+// Types only (@projectm/types/transport).
 
 import type {
     ProjectMCapturedFrame,
@@ -21,8 +19,9 @@ import type {
     ProjectMLiveTextureSource,
     ProjectMRegisterTextureOptions,
     ProjectMUpdateTextureOptions,
-} from './projectm-context-types.ts';
-import type { PerfFrameStats, RenderWorkerHandle, RhythmEvent } from './projectm-render-worker-types.ts';
+} from './context.ts';
+import type { PerfFrameStats, RenderWorkerHandle, RhythmEvent } from './render-worker.ts';
+import type { HostHandle, WasmApiArgs, WasmApiName, WasmApiResult } from './wasm-api.js';
 
 /** Which topology a transport is driving. */
 export type RenderTopology = 'main' | 'worker';
@@ -56,7 +55,7 @@ export interface RenderTransport {
      * control message), so a caller that awaited in between still reaches its
      * own engine. The event subscriptions below hear only this engine.
      */
-    readonly host: number;
+    readonly host: HostHandle;
 
     /** The worker handle, or null on the main thread. */
     readonly workerHandle: RenderWorkerHandle | null;
@@ -66,16 +65,20 @@ export interface RenderTransport {
      * worker topology, where the module cannot be interrogated synchronously —
      * so treat a false as authoritative and a true as optimistic.
      */
-    supports(name: string): boolean;
+    supports(name: WasmApiName): boolean;
 
     /**
      * Issue an API call by its camelCase name from WASM_API_SIGNATURES and
-     * resolve with its return value.
+     * resolve with its return value. The name and the arguments are checked
+     * against the generated signature (WasmApiCalls in
+     * @projectm/types/wasm-api), in both topologies: a misspelled call or a
+     * string where the export takes a number is a type error, not a ccall that
+     * fails in the worker.
      */
-    call(name: string, ...args: unknown[]): Promise<unknown>;
+    call<K extends WasmApiName>(name: K, ...args: WasmApiArgs<K>): Promise<WasmApiResult<K>>;
 
     /** Issue an API call and do not wait for it. */
-    callVoid(name: string, ...args: unknown[]): void;
+    callVoid<K extends WasmApiName>(name: K, ...args: WasmApiArgs<K>): void;
 
     /** Hand PCM to the engine over whichever ingest this topology uses. */
     feedPcm(buffer: Float32Array, channels?: number): void;

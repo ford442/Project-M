@@ -1,4 +1,4 @@
-// Part of the render worker (html/projectm-render-worker.js), which loads it with
+// Part of the render worker (html/projectm-render-worker.ts), which loads it with
 // importScripts() before it handles any message. A classic script: no imports, no
 // top-level state of its own beyond the one factory it publishes on `self`.
 //
@@ -83,15 +83,18 @@ function createWorkerPcmRing(deps) {
             frames = capacityFrames;
         }
 
+        // Every read is in bounds (`src` is under the frame count `buffer` was
+        // measured to hold), so the `?? 0` never applies: it is what
+        // noUncheckedIndexedAccess asks of an indexed read.
         const writeIndex = Atomics.load(header, 0);
         for (let i = 0; i < frames; i += 1) {
             const slot = ((writeIndex + i) % capacityFrames) * 2;
             const src = offset + i;
             if (stereo) {
-                data[slot] = buffer[src * 2];
-                data[slot + 1] = buffer[src * 2 + 1];
+                data[slot] = buffer[src * 2] ?? 0;
+                data[slot + 1] = buffer[src * 2 + 1] ?? 0;
             } else {
-                const sample = buffer[src];
+                const sample = buffer[src] ?? 0;
                 data[slot] = sample;
                 data[slot + 1] = sample;
             }
@@ -103,7 +106,7 @@ function createWorkerPcmRing(deps) {
      * The ring header counters for the stats message. Mirrors readPcmRingCounters()
      * in html/projectm-pcm-ring.js.
      *
-     * @returns {import('../projectm-render-worker-types.ts').PcmRingCounters | undefined}
+     * @returns {import('@projectm/types/render-worker').PcmRingCounters | undefined}
      */
     function readPcmRingCounters() {
         const descriptor = readPcmRingDescriptor();

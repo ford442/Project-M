@@ -13,9 +13,9 @@ import {
 } from './projectm-shader-cache.js';
 
 /**
- * @typedef {import('./projectm-preset-types.ts').PresetEntry} PresetEntry
- * @typedef {import('./projectm-preset-types.ts').PresetFilters} PresetFilters
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('@projectm/types/preset').PresetEntry} PresetEntry
+ * @typedef {import('@projectm/types/preset').PresetFilters} PresetFilters
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
  */
 
 export const DEFAULT_FEATURED_MANIFEST_URL = './featured_pack_manifest.json';
@@ -132,8 +132,8 @@ function safePresetName(filename) {
  * actually uses.
  *
  * @param {ProjectMModuleLike | null | undefined} moduleInstance
- * @returns {moduleInstance is import('./generated/projectm-wasm-api.ts').ProjectMModule
- *   & { FS: NonNullable<import('./generated/projectm-wasm-api.ts').ProjectMModule['FS']> }}
+ * @returns {moduleInstance is import('./generated/projectm-wasm-api.js').ProjectMModule
+ *   & { FS: NonNullable<import('./generated/projectm-wasm-api.js').ProjectMModule['FS']> }}
  */
 function canLoadPresets(moduleInstance) {
     return !!(moduleInstance?.FS && moduleInstance.ccall);

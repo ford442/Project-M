@@ -11,13 +11,18 @@
     "checkJs is off on purpose: html/tsconfig.json already type-checks these same",
     "modules with checkJs+strict as the `npm run typecheck` gate. Repeating that",
     "here would just report the same errors twice, against copies.",
-    "projectm-render-worker.js is excluded because it is a *classic* worker, not",
-    "a module: its top-level `let Module` is a script-scope global that collides",
-    "with the `declare var Module` in projectm-host-types.ts. It exports nothing,",
-    "so there is no declaration to emit, and html/tsconfig.worker.json already",
-    "type-checks it in the right (worker) lib context."
+    "projectm-render-worker.{ts,js} is excluded because it is a *classic* worker,",
+    "not a module: its top-level `let Module` is a script-scope global that",
+    "collides with the `declare var Module` in staging/types/host.ts. It exports",
+    "nothing, so there is no declaration to emit, and html/tsconfig.worker.json",
+    "already type-checks it in the right (worker) lib context.",
+    "staging/types/ is @projectm/types (packages/types/src), staged by the vendor",
+    "step with every `@projectm/types/<name>` specifier made relative. src/ is",
+    "not staged: `paths` resolves its @projectm/types imports to the staged",
+    "copy, and scripts/build.mjs makes them relative in the emitted .d.ts."
   ],
   "compilerOptions": {
+    "paths": { "@projectm/types/*": ["./staging/types/*"] },
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -33,5 +38,5 @@
     "outDir": "dist/types"
   },
   "include": ["staging/**/*.js", "staging/**/*.ts", "src/**/*.js"],
-  "exclude": ["staging/projectm-render-worker.js"]
+  "exclude": ["staging/projectm-render-worker.js", "staging/projectm-render-worker.ts"]
 }

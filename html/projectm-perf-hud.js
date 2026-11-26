@@ -6,7 +6,7 @@
 // as long as it is still in the document.
 
 /**
- * @typedef {import('./projectm-render-worker-types.ts').PerfFrameStats} PerfFrameStats
+ * @typedef {import('@projectm/types/render-worker').PerfFrameStats} PerfFrameStats
  * @typedef {import('./projectm-perf-stats.js').PerfCpuKey} PerfCpuKey
  * @typedef {import('./projectm-perf-stats.js').PerfGpuKey} PerfGpuKey
  */

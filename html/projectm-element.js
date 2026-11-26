@@ -5,9 +5,9 @@ import { ELEMENT_TAG, OBSERVED_ATTRIBUTES } from './projectm-element-attributes.
 export { ELEMENT_TAG, OBSERVED_ATTRIBUTES };
 
 /**
- * @typedef {import('./projectm-context-types.ts').ProjectMAudioSource} ProjectMAudioSource
- * @typedef {import('./projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
- * @typedef {import('./projectm-context-types.ts').ProjectMRenderTopology} ProjectMRenderTopology
+ * @typedef {import('@projectm/types/context').ProjectMAudioSource} ProjectMAudioSource
+ * @typedef {import('@projectm/types/context').ProjectMMeshQuality} ProjectMMeshQuality
+ * @typedef {import('@projectm/types/context').ProjectMRenderTopology} ProjectMRenderTopology
  */
 
 /**
@@ -100,7 +100,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
      * this property before the element boots to run this visualizer as an
      * additional engine instance inside one Module (#168 Phase B) instead of
      * booting its own. See html/embed-multi-same-module.html.
-     * @type {import('./generated/projectm-wasm-api.ts').ProjectMModule | null}
+     * @type {import('./generated/projectm-wasm-api.js').ProjectMModule | null}
      */
     sharedModule = null;
 

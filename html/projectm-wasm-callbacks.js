@@ -19,7 +19,7 @@
 // the handle create_host*() returned, 0 for the legacy default host -- as its
 // first argument (or `stats.host` / `event.host` on the two that pass an
 // object). The dispatcher turns each call into one typed event
-// (projectm-host-types.ts, `host` on every one), and a subscriber that passes
+// (packages/types/src/host.ts, `host` on every one), and a subscriber that passes
 // `{ engineHost }` only hears its own engine. That is what lets two engines in
 // one Module sit at different governor tiers: before it, engine A dropping a
 // tier resized engine B's canvas too.
@@ -67,8 +67,8 @@ const POSITIONAL_FIELDS = Object.freeze({
 });
 
 /**
- * @typedef {import('./projectm-host-types.ts').WasmCallbackEvent} WasmCallbackEvent
- * @typedef {import('./projectm-host-types.ts').WasmCallbackEventMap} WasmCallbackEventMap
+ * @typedef {import('@projectm/types/host').WasmCallbackEvent} WasmCallbackEvent
+ * @typedef {import('@projectm/types/host').WasmCallbackEventMap} WasmCallbackEventMap
  */
 
 /**

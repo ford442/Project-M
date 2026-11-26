@@ -160,6 +160,12 @@ jobs:
       - name: WASM host contract names survive the link
         run: node tests/wasm-smoke/host_contract_names.mjs "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
 
+      # Every export the manifest (and so packages/types/src/wasm-api.d.ts)
+      # declares is in the linked bundle. --no-dts: this job installs no
+      # TypeScript; web_lint_gate.yml checks the .d.ts itself.
+      - name: The bundle exports what the .d.ts declares
+        run: node scripts/check_wasm_api_dts.mjs --no-dts --glue "${{ github.workspace }}/cmake-build/wasm-smoke/projectm-v.030-thread.js"
+
       # Preset loads are prepared on a pthread; nothing may suspend the wasm
       # stack, so the Asyncify runtime must not creep back into the bundle.
       - name: No Asyncify in the bundle

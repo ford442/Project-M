@@ -4,6 +4,7 @@
   "description": "Workspace root for the projectM browser host layer (html/) and the publishable embed SDK (packages/web/). Not itself published.",
   "workspaces": [
     "html",
+    "packages/types",
     "packages/web"
   ],
   "scripts": {
@@ -15,6 +16,9 @@
     "playground": "npm run playground --workspace=packages/web",
     "lint": "eslint html packages/web/src tests/web",
     "format:check": "scripts/check_web_format.sh",
-    "format": "scripts/check_web_format.sh --write"
+    "format": "scripts/check_web_format.sh --write",
+    "build:html": "node scripts/build_html_ts.mjs",
+    "check:html-build": "node scripts/build_html_ts.mjs --check",
+    "check:wasm-dts": "node scripts/check_wasm_api_dts.mjs"
   }
 }

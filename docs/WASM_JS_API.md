@@ -10,8 +10,9 @@ Typed helpers for calling the projectM Emscripten wrapper (`projectM_emscripten.
 | [`cmake/EmscriptenWasmFlags.cmake`](../cmake/EmscriptenWasmFlags.cmake) | Link flags; derives `EXPORTED_FUNCTIONS` from the manifest |
 | [`src/wasm/generated/WasmApiExports.cpp`](../src/wasm/generated/WasmApiExports.cpp) | Every `extern "C"` export: the `pm_` barriers and the compat shims (committed) |
 | [`src/wasm/generated/WasmApiImpl.hpp`](../src/wasm/generated/WasmApiImpl.hpp) | The `WasmApi::` implementations' declarations (committed) |
-| [`html/generated/projectm-wasm-api.ts`](../html/generated/projectm-wasm-api.ts) | TypeScript types + wrappers (committed) |
-| [`html/generated/projectm-wasm-api.js`](../html/generated/projectm-wasm-api.js) | Browser runtime ES module (committed) |
+| [`src/wasm/generated/WasmApiErrors.hpp`](../src/wasm/generated/WasmApiErrors.hpp) | `enum class WasmApiError`, the `pm_get_last_error()` codes (committed) |
+| [`html/generated/projectm-wasm-api.js`](../html/generated/projectm-wasm-api.js) | Browser runtime ES module: the wrappers, `WASM_API_SIGNATURES`, `bindModuleToHost()`, `createHostApi()`, `ProjectMError`, `DEFAULT_HOST` (committed) |
+| [`packages/types/src/wasm-api.d.ts`](../packages/types/src/wasm-api.d.ts) | Its exact types, `@projectm/types/wasm-api` (committed); [`html/generated/projectm-wasm-api.d.ts`](../html/generated/projectm-wasm-api.d.ts) re-exports it next to the `.js` |
 
 Regenerate all derived artifacts after editing the manifest or export list:
 
@@ -20,6 +21,26 @@ scripts/sync_wasm_link_common.sh
 ```
 
 CI verifies sync via `scripts/verify_wasm_link_common.sh` and type-checks with `scripts/check_html_types.sh`.
+`scripts/check_wasm_api_dts.mjs` (`npm run check:wasm-dts`, in `web_lint_gate.yml`) re-derives the
+API from the manifest on its own and checks the C++ exports, the link's `EXPORTED_FUNCTIONS`, the
+`.d.ts` (read with the TypeScript compiler API) and the `.js` agree with it; `build_emscripten.yml`
+runs it with `--glue` against the linked bundle, which must export everything the `.d.ts` declares.
+
+### What the declarations add
+
+- **`HostHandle`**: a branded `number`. The manifest type `host` (a `uintptr_t` in C++) marks every
+  argument and result that is a host handle — `create_host*()`, `get_active_host()`,
+  `get_projectm_handle()`, `destroy_host()`, the `pmHandle` of the sprite and PCM wrappers, and the
+  host every `pm_<name>` export takes — so passing a sprite id, a pointer or a frame count where a host
+  is expected is a type error. `DEFAULT_HOST` is handle 0; `asHostHandle(n)` brands a number known to
+  be one (a worker's `ready` message).
+- **`ProjectMError`**: the `pm_get_last_error()` codes (`PROJECTM_WASM_API_ERRORS` in the manifest,
+  the manifest type `error`), a `const enum` in the `.d.ts` and a frozen object in the `.js` with the
+  same values, so code compiled one file at a time (esbuild) reads the object.
+- **`WasmApiCalls`**: every call's exact signature by its camelCase name. `RenderTransport.call(name,
+  ...args)` and `callVoid()` take `WasmApiArgs<K>` and resolve `WasmApiResult<K>`, in both render
+  topologies: a misspelled call or a `string` where the export takes a `number` fails to compile
+  instead of failing as a ccall in the worker.
 
 ## Usage in host code
 
@@ -182,7 +203,7 @@ While `set_rhythm_events(1)` is on, `render_frame()` calls
 `globalThis.pmOnRhythmEvent(event)` on every frame that carries a beat, a downbeat or a
 section change, and on no other frame (about two calls a second at 120 BPM). `event` is
 `{ host, beat, bar, section, bpm, beatIndex, barPhase, sectionIndex, confidence }`
-(`RhythmEvent` in `html/projectm-render-worker-types.ts`); `host` is the engine's host
+(`RhythmEvent` in `packages/types/src/render-worker.ts`); `host` is the engine's host
 handle, for telling apart the engines of a shared Module — `0` for the default host since
 bundle 040 (earlier bundles sent its address, like any other host). A crossfade renders the engine
 twice per frame; the events of both renders are reported once.
@@ -265,7 +286,7 @@ scale comes back to the host on the `stats` message.
 
 Hosts should not reach for the worker handle directly: `RenderTransport`
 (`html/projectm-render-transport.js`, typed in
-`html/projectm-transport-types.ts`) issues the same call over either topology,
+`packages/types/src/transport.ts`) issues the same call over either topology,
 marshaling it from the generated `WASM_API_SIGNATURES` table so the ccall
 argument types cannot drift from the main-thread wrappers. What is still
 main-thread-only is the set of dev panels that read engine state through a

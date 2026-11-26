@@ -1,4 +1,4 @@
-// Part of the render worker (html/projectm-render-worker.js), which loads it with
+// Part of the render worker (html/projectm-render-worker.ts), which loads it with
 // importScripts() before it handles any message. A classic script: no imports, no
 // top-level state of its own beyond the one factory it publishes on `self`.
 //

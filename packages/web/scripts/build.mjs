@@ -10,6 +10,10 @@
 //               produce a broken tarball. The closure is esbuild's own module
 //               graph (its metafile) plus the files the modules load by
 //               `new URL(..., import.meta.url)`, so nothing is hand-listed.
+//               The shared types (@projectm/types, packages/types/src) are
+//               staged as `staging/types/` and every `@projectm/types/<name>`
+//               specifier is rewritten to a relative path, so the emitted
+//               declarations need no package the tarball does not contain.
 //   2. DECLARE  emit `dist/types/**/*.d.ts` from the staged copies with
 //               `tsc --emitDeclarationOnly` (tsconfig.build.json). The package's
 //               type surface is generated, never hand-written.
@@ -21,10 +25,10 @@
 // `staging/` is an intermediate: it is git-ignored and excluded from the tarball
 // by `files`.
 
-import { mkdir, readFile, rm, copyFile, access, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, copyFile, access, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, posix as posixPath, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,8 +40,15 @@ const distRoot = join(packageRoot, 'dist');
 // Entry module of the custom element; everything reachable from here ships.
 const ENTRY = 'projectm-element.js';
 
-// `import('./x.ts')` in JSDoc: type-only companions, which no bundler follows.
-const TYPES_IMPORT_RE = /import\(['"](\.{1,2}\/[^'"]+\.ts)['"]\)/g;
+// The shared types package (@projectm/types). Staged whole as staging/types/:
+// html/ and packages/web import it by name, which a published tarball cannot
+// resolve, so the vendor step rewrites the specifiers (see rewriteTypeImports).
+const typesRoot = resolve(packageRoot, '..', 'types', 'src');
+const STAGED_TYPES_DIR = 'types';
+const TYPES_SPECIFIER_RE = /(['"])@projectm\/types\/([a-z-]+)\1/g;
+// packages/types/src reaches back into html/ for two implementation types
+// (the context class, the audio router); staged, html/ is the parent.
+const TYPES_HTML_RE = /(['"])\.\.\/\.\.\/\.\.\/html\//g;
 
 // Files fetched by URL at run time, which no import graph reaches: the render
 // worker (`new Worker(new URL('./projectm-render-worker.js', import.meta.url))`,
@@ -129,18 +140,54 @@ async function computeClosure() {
   return { modules: [...new Set([...modules, ...urlAssets])].sort(), urlAssets: [...urlAssets].sort() };
 }
 
-/** Collect `*-types.ts` companions referenced from JSDoc in the module closure. */
-async function collectTypesCompanions(modules) {
-  const companions = new Set();
-  for (const rel of modules) {
-    const src = await readFile(join(htmlRoot, rel), 'utf8');
-    let m;
-    while ((m = TYPES_IMPORT_RE.exec(src))) {
-      const target = join(dirname(rel), m[1].replace(/^\.\//, '')).split('\\').join('/');
-      companions.add(target);
-    }
+/**
+ * `source` (a file staged at `stagedRel`, relative to staging/) with every
+ * `@projectm/types/<name>` specifier pointing at staging/types/<name>.js
+ * instead: TypeScript resolves that to the staged `.ts` / `.d.ts`, and the
+ * emitted declarations keep the relative path, which dist/types/ mirrors.
+ *
+ * @param {string} source
+ * @param {string} stagedRel
+ * @returns {string}
+ */
+function rewriteTypeImports(source, stagedRel) {
+  // Both ends rooted at staging/ ("/"), so `../src/x` (the wrappers, compiled
+  // next to staging/) works out to `../staging/types/...`.
+  const fromDir = posixPath.join('/staging', posixPath.dirname(stagedRel));
+  let rewritten = source.replace(TYPES_SPECIFIER_RE, (_, quote, name) => {
+    let target = posixPath.relative(fromDir, `/staging/${STAGED_TYPES_DIR}/${name}.js`);
+    if (!target.startsWith('.')) target = `./${target}`;
+    return `${quote}${target}${quote}`;
+  });
+  if (stagedRel.startsWith(`${STAGED_TYPES_DIR}/`)) {
+    rewritten = rewritten.replace(TYPES_HTML_RE, (_, quote) => `${quote}../`);
   }
-  return [...companions].sort();
+  return rewritten;
+}
+
+/**
+ * Copies `src` to staging/`stagedRel`, rewriting its type imports when it is a
+ * module or declaration. `verbatim` files go as they are: the ones loaded by URL
+ * (the classic worker's parts, the worklet) ship byte for byte, and their JSDoc
+ * type imports are comments there (tsconfig.build.json's `paths` resolves them).
+ *
+ * @param {string} src
+ * @param {string} stagedRel
+ * @param {{ verbatim?: boolean }} [options]
+ */
+async function stageFile(src, stagedRel, { verbatim = false } = {}) {
+  const dest = join(stagingRoot, stagedRel);
+  await mkdir(dirname(dest), { recursive: true });
+  if (verbatim || !/\.(m?js|ts)$/.test(stagedRel)) {
+    await copyFile(src, dest);
+    return;
+  }
+  await writeFile(dest, rewriteTypeImports(await readFile(src, 'utf8'), stagedRel), 'utf8');
+}
+
+/** @returns {Promise<string[]>} The @projectm/types sources, relative to packages/types/src. */
+async function listTypesPackage() {
+  return (await readdir(typesRoot)).filter((name) => name.endsWith('.ts')).sort();
 }
 
 /**
@@ -166,8 +213,14 @@ function resolveTsc() {
   throw new Error('Cannot resolve typescript. Run `npm ci` at the workspace root.');
 }
 
-/** Emit `dist/types/**\/*.d.ts` from the staged closure. */
-function emitDeclarations() {
+/**
+ * Emit `dist/types/**\/*.d.ts` from the staged closure, then copy the staged
+ * declaration files, which tsc does not emit (they are inputs, not sources):
+ * the generated WASM API's.
+ *
+ * @param {string[]} staged Paths relative to staging/.
+ */
+async function emitDeclarations(staged) {
   const result = spawnSync(
     process.execPath,
     [resolveTsc(), '-p', join(packageRoot, 'tsconfig.build.json')],
@@ -176,6 +229,21 @@ function emitDeclarations() {
   if (result.status !== 0) {
     throw new Error(`tsc declaration emit failed (exit ${result.status})`);
   }
+  for (const rel of staged.filter((file) => file.endsWith('.d.ts'))) {
+    const dest = join(distRoot, 'types', 'staging', rel);
+    await mkdir(dirname(dest), { recursive: true });
+    await copyFile(join(stagingRoot, rel), dest);
+  }
+  // The wrappers in src/ are compiled where they are, not staged, so their
+  // @projectm/types imports reach the declarations as written; point them at
+  // the staged copy's (dist/types/src/x.d.ts sits next to dist/types/staging/).
+  const srcTypes = join(distRoot, 'types', 'src');
+  for (const name of (await readdir(srcTypes)).filter((file) => file.endsWith('.d.ts'))) {
+    const file = join(srcTypes, name);
+    const source = await readFile(file, 'utf8');
+    const rewritten = rewriteTypeImports(source, `../src/${name}`);
+    if (rewritten !== source) await writeFile(file, rewritten, 'utf8');
+  }
 }
 
 async function vendor() {
@@ -183,22 +251,26 @@ async function vendor() {
   await mkdir(stagingRoot, { recursive: true });
 
   const { modules, urlAssets } = await computeClosure();
-  const typeCompanions = await collectTypesCompanions(modules);
-  const toCopy = [...new Set([...modules, ...typeCompanions])].sort();
+  const loadedByUrl = new Set(urlAssets);
   const copied = new Set();
-  for (const rel of toCopy) {
-    const src = join(htmlRoot, rel);
-    const dest = join(stagingRoot, rel);
-    await mkdir(dirname(dest), { recursive: true });
-    await copyFile(src, dest);
+  for (const rel of modules) {
+    await stageFile(join(htmlRoot, rel), rel, { verbatim: loadedByUrl.has(rel) });
     copied.add(rel);
 
-    // Ship sibling `.ts` sources for `.js` modules when present.
+    // Ship the types of a `.js` module with it: its TypeScript source (a
+    // module html/ writes in TypeScript and emits, scripts/html-ts-modules.mjs)
+    // or its declaration file (the generated WASM API).
     if (!rel.endsWith('.js')) continue;
-    const tsRel = rel.replace(/\.js$/, '.ts');
-    if (tsRel === rel || !(await exists(join(htmlRoot, tsRel)))) continue;
-    await copyFile(join(htmlRoot, tsRel), join(stagingRoot, tsRel));
-    copied.add(tsRel);
+    for (const typesRel of [rel.replace(/\.js$/, '.ts'), rel.replace(/\.js$/, '.d.ts')]) {
+      if (!(await exists(join(htmlRoot, typesRel)))) continue;
+      await stageFile(join(htmlRoot, typesRel), typesRel);
+      copied.add(typesRel);
+    }
+  }
+  for (const name of await listTypesPackage()) {
+    const stagedRel = `${STAGED_TYPES_DIR}/${name}`;
+    await stageFile(join(typesRoot, name), stagedRel);
+    copied.add(stagedRel);
   }
   return { modules, urlAssets, copied: [...copied].sort() };
 }
@@ -292,7 +364,7 @@ async function main() {
   await rm(distRoot, { recursive: true, force: true });
   await mkdir(distRoot, { recursive: true });
 
-  emitDeclarations();
+  await emitDeclarations(copied);
   console.log('Emitted dist/types/**/*.d.ts from the staged closure.');
 
   const { esm } = await bundle();

@@ -7,7 +7,7 @@ import { setupPresetTweaker } from './projectm-preset-tweaker.js';
 import { createDisposables } from './projectm-disposables.js';
 
 /**
- * @typedef {import('./projectm-host-types.ts').ProjectMModuleLike} ProjectMModuleLike
+ * @typedef {import('@projectm/types/host').ProjectMModuleLike} ProjectMModuleLike
  */
 
 /**
@@ -129,7 +129,7 @@ async function loadPresetBytes(module, vfsPath, bytes, { startTransitionWhenRead
     fs.writeFile(vfsPath, bytes);
     // `load_preset_file` is a ccall manifest entry, so the readiness check above
     // probes `ccall` rather than a `_`-prefixed member that the type never has.
-    loadPresetFile(/** @type {import('./generated/projectm-wasm-api.ts').ProjectMModule} */ (module), vfsPath);
+    loadPresetFile(/** @type {import('./generated/projectm-wasm-api.js').ProjectMModule} */ (module), vfsPath);
     let milkText;
     try {
         milkText = new TextDecoder().decode(bytes);

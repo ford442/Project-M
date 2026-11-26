@@ -111,6 +111,11 @@ Keep the repo root source-focused. Policy for binary/build artifacts:
   `libomp.a` + `omp.h` for the Emscripten OpenMP build, zipped to dodge the `*.a`
   gitignore rule — see `omp/README.md` and `cmake/EmscriptenOpenMP.cmake`). Do not
   duplicate it at the repo root; `omp/` is the only tracked copy.
+- **Generated text that is committed on purpose**: the WASM API files
+  `scripts/sync_wasm_link_common.sh` writes (checked by
+  `scripts/verify_wasm_link_common.sh` and `npm run check:wasm-dts`), and the
+  `.js` emitted from each of html/'s TypeScript modules (`npm run build:html`,
+  checked by `npm run check:html-build`). Never hand-edit either; regenerate.
 - Everything else under version control should be source, docs, small text/config
   fixtures, or `.gitkeep` placeholders (e.g. `benchmark-results/.gitkeep`).
 
@@ -446,7 +451,8 @@ The CI builds both `Debug` and `Release` configurations and runs `ctest` for eac
 Ownership rules (canvas size, audio players, globals), the z-index scale and the
 TypeScript strategy for `html/` are in [`docs/HOST_LAYER.md`](docs/HOST_LAYER.md).
 
-`html/` (the browser host modules) and `packages/web/` (the publishable embed
+`html/` (the browser host modules), `packages/types/` (`@projectm/types`, the
+host types html/ and the SDK share) and `packages/web/` (the publishable embed
 SDK) are an npm workspace rooted at the repo's own `package.json`. From the
 repo root:
 
@@ -454,16 +460,31 @@ repo root:
 npm install               # installs html/'s devDependencies once, hoisted
 npm test                  # every tests/web/*.test.mjs (coverage-gated, see
                            # scripts/test_web_embed.sh) + the packages/web build
-npm run typecheck         # tsc over html/'s three tsconfigs (DOM, worker, AudioWorklet)
+npm run typecheck         # tsc over html/'s four tsconfigs (DOM, strict TypeScript, worker, AudioWorklet)
 npm run lint              # ESLint (eslint.config.mjs) over html/, packages/web/src, tests/web
 npm run format:check      # Prettier over scripts/check_web_format.sh's PATHS list
+npm run build:html        # emit html/'s TypeScript modules to the committed .js next to each
+npm run check:html-build  # fail if a committed .js is not its .ts's current emit
+npm run check:wasm-dts    # manifest, C++ exports, wasm-api.d.ts and the generated .js agree
 ```
+
+**html/'s TypeScript modules.** Anything with a wire protocol or a union-typed
+state machine is `.ts` (the context and its `context/*.ts` split, the transport,
+the render worker and its bridge, the PCM ring); the leaf modules stay JSDoc. A
+`.ts` module is emitted by `scripts/build_html_ts.mjs` (esbuild, ES2020, one file
+at a time) to the `.js` beside it, and that `.js` is committed: it is what
+deploys, what `tests/web` imports and what packages/web vendors, so deploy names
+and `new URL(..., import.meta.url)` do not change. Edit the `.ts`, never the `.js`
+(it says `GENERATED`), and run `npm run build:html` in the same change.
+`web_lint_gate.yml` runs `check:html-build` and `check:wasm-dts`. The rule and
+the strict settings are in `docs/HOST_LAYER.md` and `html/README.md`.
 
 `scripts/test_web_embed.sh` and `scripts/check_html_types.sh` still work
 standalone (each falls back to installing its own dependencies if the root
 workspace hasn't been installed yet) and are what CI (`web_host_tests.yml`)
 actually runs `npm test` / `npm run typecheck` through. `web_lint_gate.yml` runs
-lint, format and typecheck with no `paths:` filter, so it can be a required check.
+lint, format, typecheck, the emit check and the WASM API check with no `paths:`
+filter, so it can be a required check.
 
 ESLint is type-aware: each file group is parsed with the tsconfig program that
 type-checks it, so the set of linted files and the set of type-checked files is
@@ -512,10 +533,12 @@ which:
 
 #### The render-worker wire protocol
 
-`projectm-render-worker-types.ts` is the only place the OffscreenCanvas
-render-worker's wire format is written down, and it has two implementations —
-`projectm-render-worker-host.js` on the main thread and
-`projectm-render-worker.js` in the worker. Three test files hold that together:
+`packages/types/src/render-worker.ts` (`@projectm/types/render-worker`) is the
+only place the OffscreenCanvas render-worker's wire format is written down, and
+it has two implementations — `projectm-render-worker-host.ts` on the main thread
+and `projectm-render-worker.ts` in the worker, each posting through a function
+typed with the union it sends. The tests drive the emitted `.js`. Three test
+files hold that together:
 
 - `tests/web/projectm-render-worker-host.test.mjs` — the host half:
   `isRenderWorkerSupported`/`isRenderWorkerEnabled`, `setupRenderWorker()`'s

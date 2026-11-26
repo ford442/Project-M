@@ -93,7 +93,7 @@ What happens in each topology:
   page's thread, which is where `getUserMedia()` works. The transport turns each frame
   into an `ImageBitmap` already scaled to the texture's size
   (`createImageBitmap(source, { resizeWidth, resizeHeight })`). It transfers the bitmap in
-  a `texture-frame` message (`projectm-render-worker-types.ts`).
+  a `texture-frame` message (`packages/types/src/render-worker.ts`).
   `html/worker/live-texture.js` then does the main-thread steps against the worker's own
   heap. Exact-size pixels cross as a transferred copy. No `Module._` is touched on the
   page.

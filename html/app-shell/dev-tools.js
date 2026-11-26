@@ -28,7 +28,7 @@ import { startTransitionWhenReady } from '../projectm-transitions.js';
 import { readStorage } from './config.js';
 
 /**
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  * @typedef {import('../projectm-context.js').ProjectMContext} ProjectMContext
  * @typedef {import('../projectm-app-shell-ui.js').ShellUi} ShellUi
  * @typedef {ReturnType<typeof import('../projectm-disposables.js').createDisposables>} Disposables

@@ -21,8 +21,8 @@ import { readPcmRingCounters, readPcmRingDescriptor } from './projectm-pcm-ring.
 import { asDisposable } from './projectm-disposables.js';
 
 /**
- * @typedef {import('./projectm-transport-types.ts').RenderTransport} RenderTransport
- * @typedef {import('./projectm-render-worker-types.ts').PcmRingCounters} PcmRingCounters
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/render-worker').PcmRingCounters} PcmRingCounters
  */
 
 /**
@@ -145,7 +145,7 @@ export function readTransportRingCounters(transport) {
         const stats = transport.workerHandle?.getLastStats() ?? null;
         return { ring: stats?.pcmRing ?? null, source: stats };
     }
-    const module = /** @type {import('./projectm-host-types.ts').ProjectMModuleLike | null} */ (transport.module);
+    const module = /** @type {import('@projectm/types/host').ProjectMModuleLike | null} */ (transport.module);
     const ring = readPcmRingCounters(readPcmRingDescriptor(module));
     return { ring, source: ring };
 }

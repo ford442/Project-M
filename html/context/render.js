@@ -10,12 +10,12 @@ import { decodeContextSnapshot } from '../projectm-context-config.js';
 import { bindModuleToHost } from '../generated/projectm-wasm-api.js';
 
 /**
- * @typedef {import('../generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
- * @typedef {import('../projectm-transport-types.ts').RenderTransport} RenderTransport
- * @typedef {import('../projectm-context-types.ts').ProjectMMeshQuality} ProjectMMeshQuality
- * @typedef {import('../projectm-context-types.ts').ProjectMFlashLimitStats} ProjectMFlashLimitStats
- * @typedef {import('../projectm-context-types.ts').ProjectMContextSnapshot} ProjectMContextSnapshot
- * @typedef {import('../projectm-render-worker-types.ts').WasmContextConfig} WasmContextConfig
+ * @typedef {import('../generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
+ * @typedef {import('@projectm/types/transport').RenderTransport} RenderTransport
+ * @typedef {import('@projectm/types/context').ProjectMMeshQuality} ProjectMMeshQuality
+ * @typedef {import('@projectm/types/context').ProjectMFlashLimitStats} ProjectMFlashLimitStats
+ * @typedef {import('@projectm/types/context').ProjectMContextSnapshot} ProjectMContextSnapshot
+ * @typedef {import('@projectm/types/render-worker').WasmContextConfig} WasmContextConfig
  */
 
 /**
@@ -264,10 +264,10 @@ export function startFpsMonitor(counters, { getEngine, stopped, onFps }) {
  * called through it selects that host first. Cached, because a bound view is
  * a wrapper per export and the context asks for it on every call.
  *
- * @returns {(module: ProjectMModule | null, host: number) => ProjectMModule | null}
+ * @returns {(module: ProjectMModule | null, host: import('../generated/projectm-wasm-api.js').HostHandle) => ProjectMModule | null}
  */
 export function createEngineBinder() {
-    /** @type {{ module: ProjectMModule, host: number, view: ProjectMModule } | null} */
+    /** @type {{ module: ProjectMModule, host: import('../generated/projectm-wasm-api.js').HostHandle, view: ProjectMModule } | null} */
     let cached = null;
     return (module, host) => {
         if (!module) {

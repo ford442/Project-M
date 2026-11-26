@@ -9,7 +9,7 @@ import { measurePresetSwitchTimings } from './projectm-shader-cache.js';
 import { fetchFeaturedManifest, loadPresetEntry } from './projectm-preset-library.js';
 
 /**
- * @typedef {import('./generated/projectm-wasm-api.ts').ProjectMModule} ProjectMModule
+ * @typedef {import('./generated/projectm-wasm-api.js').ProjectMModule} ProjectMModule
  */
 
 /**

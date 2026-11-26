@@ -4,3 +4,14 @@
 # SDL_Init(SDL_INIT_VIDEO) in tests/libprojectM/HeadlessGlContext.cpp connects
 # to D-Bus; libdbus keeps a ~1 KB read buffer alive until process exit.
 leak:libdbus-1.so
+
+# projectm-eval (vendor/projectm-eval, the ford442/projectm-eval fork): a call with the wrong
+# argument count or an unknown function, e.g. "loop(x)", fails in
+# prjm_eval_compiler_create_function() and the grammar action YYERRORs without freeing the
+# argument list or the function name (Bison runs no %destructor for a rule's own RHS on YYERROR).
+# Found by tests/fuzz/fuzz_eval_compile; regression input
+# tests/fuzz/regressions/fuzz_eval_compile/wrong-arg-count-leak. Compile-error path only, a few
+# dozen bytes per rejected preset. Remove this entry when the fork fix is pinned
+# (docs/FUZZING.md "Known findings"). It matches every leak allocated during parsing, so it also
+# hides other compile-error leaks until then.
+leak:prjm_eval_parse

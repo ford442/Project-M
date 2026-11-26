@@ -1,0 +1,88 @@
+name: Fuzz smoke
+
+# libFuzzer smoke run on every push and PR (docs/FUZZING.md): the four tests/fuzz/ targets,
+# ASan + UBSan, 60 s each, after replaying the regression corpus. No paths: filter, so it can be
+# a required check (a filtered workflow never reports on a PR that skips it).
+# The long runs live in fuzz_nightly.yml.
+
+on:
+  push:
+      branches:
+        - "*"
+      tags:
+        - "*"
+
+  pull_request:
+      branches:
+        - "*"
+
+# A newer push to the same branch/PR supersedes the run in flight. Never on main
+# (each merge needs a complete result) and never on tags.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-smoke:
+    name: "libFuzzer smoke: 4 targets x 60 s, ASan + UBSan"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: 'recursive'
+
+      - name: Install Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            clang-18 \
+            libclang-rt-18-dev \
+            llvm-18 \
+            libgl1-mesa-dev \
+            mesa-common-dev \
+            libglm-dev \
+            ninja-build
+
+      - name: Configure
+        run: |
+          cmake -G Ninja -S . -B cmake-build-fuzz \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DENABLE_FUZZING=ON \
+            -DENABLE_SYSTEM_PROJECTM_EVAL=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DENABLE_PLAYLIST=OFF
+
+      - name: Build fuzz targets
+        run: |
+          cmake --build cmake-build-fuzz --parallel \
+            --target fuzz_preset_parser fuzz_hlsl_transpile fuzz_eval_compile fuzz_shader_passes
+
+      - name: Replay the regression corpus
+        env:
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/sanitizers/lsan.supp:print_suppressions=0
+        run: ctest --test-dir cmake-build-fuzz -L fuzz --output-on-failure
+
+      - name: Fuzz each target for 60 s
+        env:
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/sanitizers/lsan.supp:print_suppressions=0
+        run: |
+          export PATH="/usr/lib/llvm-18/bin:$PATH"   # llvm-symbolizer, for symbolized reports
+          scripts/fuzz_run.sh cmake-build-fuzz 60 fuzz-work
+
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fuzz-smoke-findings
+          path: |
+            fuzz-work/artifacts/
+            fuzz-work/logs/
+          if-no-files-found: ignore
+          retention-days: 30

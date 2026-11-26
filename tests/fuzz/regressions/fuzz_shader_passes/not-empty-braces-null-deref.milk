@@ -1,0 +1,19 @@
+// Preset wet with a Test's harness reports HLSL parsing failures.
+warp_1=`shader_body
+warp_2=`{
+warp_3=!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!{
+warp_3=`–et = tex2D(sampler_main, uv float garbage !!! ;
+warp_5=`}
+
+comp_1=`shader_body
+comp_2=`{
+cCompatTest's harness reparp_1=`shader_body
+warp_2=`{
+warp_3=`ret = tex2D(sampler_main, uv float garbage !!! ;
+warp_4=`}
+
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = tex2D(sampler_main, uvcCompports HLSL parsing f;ailures.
+warp_1=`shad).xyz;
+comp_4=`}

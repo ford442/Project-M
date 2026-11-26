@@ -382,17 +382,18 @@ void BlurTexture::AddPasses(Renderer::RenderGraph& graph, const Renderer::Textur
 {
     using Renderer::RenderGraph;
     m_frame = {};
-    if (m_blurLevel == BlurLevel::None)
-    {
-        return;
-    }
 
     // Allocating (or reallocating) the blur textures happens where the blur runs, after the warp
-    // pass has sampled last frame's levels.
+    // pass has sampled last frame's levels. Declared without blur too: the frame's blur stage
+    // (perf timers, GPU stage markers) is there either way, as it always was.
     m_prepareSource = &sourceTexture;
     m_prepareContext = &perFrameContext;
     m_steps.at(0) = {this, Step::Prepare, 0, false};
     graph.AddPass("blur prepare", {.kind = RenderGraph::PassKind::Encoder}, m_steps.at(0));
+    if (m_blurLevel == BlurLevel::None)
+    {
+        return;
+    }
 
     // The two render paths are two declarations of the blur: render straight into each level, or
     // render into the scratch target and copy (PROJECTM_BLUR_COPY_PATH, ?blurPath=copy). Before the

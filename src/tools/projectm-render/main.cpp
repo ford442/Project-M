@@ -39,6 +39,7 @@ namespace {
 struct Options
 {
     std::string preset;
+    std::string thenPreset;
     std::string audio;
     std::string output;
     std::string texturePath;
@@ -62,6 +63,8 @@ void PrintUsage()
                  "  --fps N            frames per second (default 60)\n"
                  "  --seed N           random seed (default 0)\n"
                  "  --texture-path DIR where presets find their textures\n"
+                 "  --then FILE.milk   soft-cut to this preset halfway through (a quarter of the\n"
+                 "                     duration long), to render a transition\n"
                  "  --output FILE      write raw RGBA frames, bottom row first ('-' for stdout)\n"
                  "  --hash             print a hash of all frames\n"
                  "  --log              print the engine's warnings and errors to stderr\n"
@@ -93,6 +96,10 @@ auto ParseOptions(int argc, char** argv, Options& options) -> bool
         if (arg == "--preset")
         {
             options.preset = value;
+        }
+        else if (arg == "--then")
+        {
+            options.thenPreset = value;
         }
         else if (arg == "--audio")
         {
@@ -393,6 +400,9 @@ int main(int argc, char** argv)
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+    // Noise textures and the time keeper draw their seeds while the engine is created, before
+    // projectm_set_seed() can apply, so seed the process default first.
+    projectm_set_deterministic_seed(options.seed);
     projectm_handle instance = projectm_create();
     if (instance == nullptr)
     {
@@ -435,8 +445,17 @@ int main(int argc, char** argv)
     Fnv1a hash;
     std::vector<unsigned char> pixels(static_cast<size_t>(options.width) * options.height * 4);
     int result = 0;
+    const uint64_t thenFrame = frameCount / 2;
+    if (!options.thenPreset.empty())
+    {
+        projectm_set_soft_cut_duration(instance, duration / 4.0);
+    }
     for (uint64_t frame = 0; frame < frameCount; frame++)
     {
+        if (!options.thenPreset.empty() && frame == thenFrame)
+        {
+            projectm_load_preset_file(instance, options.thenPreset.c_str(), true);
+        }
         // This frame's audio: the samples from its start time to the next frame's.
         const auto first = std::min<uint64_t>(frame * audio.sampleRate / options.fps, audio.Frames());
         const auto last = std::min<uint64_t>((frame + 1) * audio.sampleRate / options.fps, audio.Frames());

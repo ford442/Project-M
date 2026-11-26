@@ -37,6 +37,10 @@ option(ENABLE_VERBOSE_LOGGING "Enables TRACE and DEBUG logging even in release b
 option(ENABLE_WERROR_RATCHET "Treat warnings as errors in the warning-clean directories (CI)." OFF)
 
 option(BUILD_TESTING "Build the libprojectM test suite" OFF)
+# libFuzzer targets for the untrusted-input surface (preset parser, HLSL transpiler, expression
+# evaluator, shader passes): tests/fuzz/, docs/FUZZING.md. Clang only; instruments every target
+# with ASan + UBSan. BUILD_TESTING alone builds the same targets as plain regression replayers.
+option(ENABLE_FUZZING "Build the libFuzzer targets in tests/fuzz (clang only, adds ASan + UBSan to everything)" OFF)
 option(BUILD_DOCS "Build documentation" OFF)
 option(ENABLE_OPENMP "Enable OpenMP parallelization for performance-critical sections" OFF)
 option(ENABLE_HDR_RENDERING "Enable 16-bit float (GL_RGBA16F) framebuffer for HDR rendering with Reinhard tone-mapping" OFF)
@@ -113,6 +117,10 @@ cmake_dependent_option(ENABLE_MACOS_FRAMEWORK "Build as macOS Framework bundles 
 
 # Experimental/unsupported features
 option(ENABLE_CXX_INTERFACE "Enable exporting C++ symbols for ProjectM and PCM classes, not only the C API. Warning: This is not very portable." OFF)
+
+if(ENABLE_FUZZING)
+    include(FuzzingFlags)
+endif()
 
 if(ENABLE_SYSTEM_GLM)
     find_package(GLM REQUIRED)
@@ -244,9 +252,15 @@ if(ENABLE_EMSCRIPTEN)
     add_subdirectory(src/wasm)
 endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING OR ENABLE_FUZZING)
     enable_testing()
+endif()
+if(BUILD_TESTING)
     add_subdirectory(tests)
+endif()
+if(BUILD_TESTING OR ENABLE_FUZZING)
+    # Fuzz targets: libFuzzer binaries with ENABLE_FUZZING, regression replayers otherwise.
+    add_subdirectory(tests/fuzz)
 endif()
 
 message(STATUS "")
@@ -314,6 +328,7 @@ message(STATUS "    Playlist library:            ${ENABLE_PLAYLIST}")
 message(STATUS "    SDL2 Test UI:                ${ENABLE_SDL_UI}")
 message(STATUS "    projectm-render (EGL):       ${ENABLE_RENDER_TOOL}")
 message(STATUS "    Tests:                       ${BUILD_TESTING}")
+message(STATUS "    Fuzz targets (libFuzzer):    ${ENABLE_FUZZING}")
 message(STATUS "    Documentation:               ${BUILD_DOCS}")
 message(STATUS "")
 

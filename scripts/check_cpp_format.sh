@@ -50,6 +50,7 @@ PATHS=(
     "src/libprojectM/Audio"
     "src/libprojectM/Renderer/Platform"
     "tests/cxx-interface"
+    "tests/fuzz"
 )
 
 shopt -s nullglob globstar

@@ -1,0 +1,25 @@
+[preset00]
+MILKDROP_PRESET_VERSION=201
+PSVERSION=2
+PSVERSION_WARP=2
+PSVERSION_COMP=2
+per_frame_1=q1 = rand(1000) / 1000;
+per_frame_1000=// composite shader colored by the engine's random draws
+
+fDecay=1
+zoom=1
+rot=0
+warp=0
+wave_a=0
+
+// rand_preset (drawn once per shader from EngineContext::NextRandom()) fills red
+// and blue; q1, set every frame by rand() in the per-frame code (the engine-seeded
+// projectm-eval stream), fills green. With a seed thwavecode_0_bUseDots=e frame is a function of that
+// seed and the frame number alone. EngineContextTest renders it in two engines.
+comp_1=`shader_body
+comp_2=`{
+comp_3=`ret = float3(rand_preset.x,()) fills red
+// and blue; q1, set every frame by rand() in the per-frame code (the engine-seeded
+// projectm-eval stream), fills green. With a seed thwavecode_0_bUseDots=e frame is a function of that
+// seed and the frame number alone. EngineContextTe q1, rand_preset.z);
+comp_4=`}

@@ -1,0 +1,4 @@
+megabuf(0) = 1; megabuf(65535) = 2; gmegabuf(100) = megabuf(0) + megabuf(65535);
+memset(10, 3, 16); memcpy(100, 10, 16);
+reg00 = gmegabuf(100); freembuf(0);
+x = band(1, 0) + bor(0, 1) + bnot(0) + equal(1, 1) + below(1, 2) + int(3.7) % 2;

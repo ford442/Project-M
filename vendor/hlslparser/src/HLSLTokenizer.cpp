@@ -289,6 +289,14 @@ void HLSLTokenizer::Next(const bool EOLSkipping)
     }
 
     size_t length = m_buffer - start;
+    if (length >= s_maxIdentifier)
+    {
+        // m_identifier holds s_maxIdentifier - 1 characters and the terminator. A longer
+        // identifier in a preset shader used to overflow it (found by fuzz_hlsl_transpile).
+        Error("Syntax error: identifier longer than %d characters", s_maxIdentifier - 1);
+        m_token = HLSLToken_EndOfStream;
+        return;
+    }
     memcpy(m_identifier, start, length);
     m_identifier[length] = 0;
     

@@ -2450,6 +2450,15 @@ bool HLSLParser::ParseTerminalExpression(HLSLExpression*& expression, char& need
             return false;
         }
 
+        if (expression == NULL)
+        {
+            // "()" or "{}" with nothing inside parsed as a terminal with no expression, which
+            // callers then dereferenced (found by fuzz_shader_passes).
+            m_tokenizer.Error("Syntax error: expected expression inside '%c%c'",
+                              expressionEndChar == ')' ? '(' : '{', expressionEndChar);
+            return false;
+        }
+
         if (expressionEndChar == ')')
         {
             // Allows comma separated expression lists, HLSL compiler keeps the last one
@@ -3413,6 +3422,10 @@ bool HLSLParser::ParsePreprocessorDefine()
     // Macro declaration
     HLSLMacro* macro = m_tree->AddNode<HLSLMacro>(fileName, line);
     macro->name = macroName;
+    // Registered before its value is parsed, so a definition that fails below ("#define f(" at
+    // the end of the source) is left with this empty value instead of null, which the later
+    // passes passed to strlen() (found by fuzz_hlsl_transpile).
+    macro->value = m_tree->AddString("");
     m_macros.PushBack(macro);
 
     // Prepare next token. Use EOLSkipping=false so that a macro with no value
@@ -3464,7 +3477,7 @@ bool HLSLParser::ParsePreprocessorDefine()
         }
 
         // Macro value
-        while(m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+        while(m_tokenizer.GetToken() != HLSLToken_EndOfLine && m_tokenizer.GetToken() != HLSLToken_EndOfStream) // EndOfStream: a NUL or the end of the source ends the line too
         {
             bool addOriginalSource = true;
 
@@ -3501,7 +3514,7 @@ bool HLSLParser::ParsePreprocessorDefine()
     else
     {
         // Macro value
-        while(m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+        while(m_tokenizer.GetToken() != HLSLToken_EndOfLine && m_tokenizer.GetToken() != HLSLToken_EndOfStream) // EndOfStream: a NUL or the end of the source ends the line too
         {
             const char * start = m_tokenizer.getLastPos(true);
 
@@ -3543,7 +3556,13 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
 
 
     // Second pass, propagate macros definitions across macros values
+    // A macro whose value names itself ("#define t (t + 1)"), or a cycle of macros, would be
+    // re-expanded forever, growing each round (an endless loop found by fuzz_hlsl_transpile).
+    // Real presets nest a handful of macros at most; bail out well past that.
+    const int maxExpansionRounds = 64;
+    const size_t maxMacroValueLength = 64 * 1024;
     int index = 0;
+    int expansionRounds = 0;
     while (index <  m_macros.GetSize())
     {
         HLSLMacro * macro = m_macros[index];
@@ -3583,6 +3602,11 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
 
         if (valueProcessed != macro->value)
         {
+            if (++expansionRounds > maxExpansionRounds || valueProcessed.size() > maxMacroValueLength)
+            {
+                m_tokenizer.Error("Macro '%s' expands recursively", macro->name);
+                return false;
+            }
             // Define value referenced another define, it was replaced
             // try again until there is no replacement
             macro->value = m_tree->AddString(valueProcessed.c_str());
@@ -3591,6 +3615,7 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
         else
         {
             index++;
+            expansionRounds = 0;
         }
     }
 
@@ -3621,7 +3646,10 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
 
         if (m_tokenizer.GetToken() == HLSLToken_PreprocessorIf)
         {
-            while (m_tokenizer.GetToken() != HLSLToken_IntLiteral && m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+            // EndOfStream too: a directive at the end of the source, or followed by an unterminated
+            // comment, never reaches an end of line (an endless loop found by fuzz_hlsl_transpile).
+            while (m_tokenizer.GetToken() != HLSLToken_IntLiteral && m_tokenizer.GetToken() != HLSLToken_EndOfLine &&
+                   m_tokenizer.GetToken() != HLSLToken_EndOfStream)
             {
                 m_tokenizer.Next(false);
             }
@@ -3642,7 +3670,10 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
         {
             const bool isIfNDef = (m_tokenizer.GetToken() == HLSLToken_PreprocessorIfNDef);
 
-            while (m_tokenizer.GetToken() != HLSLToken_Identifier && m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+            // EndOfStream too: a directive at the end of the source, or followed by an unterminated
+            // comment, never reaches an end of line (an endless loop found by fuzz_hlsl_transpile).
+            while (m_tokenizer.GetToken() != HLSLToken_Identifier && m_tokenizer.GetToken() != HLSLToken_EndOfLine &&
+                   m_tokenizer.GetToken() != HLSLToken_EndOfStream)
             {
                 m_tokenizer.Next(false);
             }
@@ -3678,7 +3709,10 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
 
             isCodeActive.pop();
 
-            while (m_tokenizer.GetToken() != HLSLToken_IntLiteral && m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+            // EndOfStream too: a directive at the end of the source, or followed by an unterminated
+            // comment, never reaches an end of line (an endless loop found by fuzz_hlsl_transpile).
+            while (m_tokenizer.GetToken() != HLSLToken_IntLiteral && m_tokenizer.GetToken() != HLSLToken_EndOfLine &&
+                   m_tokenizer.GetToken() != HLSLToken_EndOfStream)
             {
                 m_tokenizer.Next(false);
             }
@@ -3722,7 +3756,7 @@ bool HLSLParser::ApplyPreprocessor(const char* fileName, const char* buffer, siz
         else if (m_tokenizer.GetToken() == HLSLToken_PreprocessorDefine)
         {
             // Skip macros definition
-            while(m_tokenizer.GetToken() != HLSLToken_EndOfLine)
+            while(m_tokenizer.GetToken() != HLSLToken_EndOfLine && m_tokenizer.GetToken() != HLSLToken_EndOfStream) // EndOfStream: a NUL or the end of the source ends the line too
             {
                 m_tokenizer.Next(false);
             }

@@ -1,0 +1,5 @@
+zoom = 1.01 + 0.02*sin(time*0.7);
+rot = rot + 0.01*bass_att;
+q1 = if(above(bass, 1.2), 1, q1*0.95);
+wave_r = 0.5 + 0.5*sin(time); wave_g = 0.5 + 0.5*cos(time*1.3);
+monitor = sqr(q1) + sqrt(abs(mid)) + pow(2, treb) + atan2(y, x) + sign(-1);

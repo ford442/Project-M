@@ -98,6 +98,16 @@ Build, CI and docs
 - This branch: workflows pinned to commit SHAs with Dependabot, least-privilege `permissions`, per-job timeouts;
   `push_release.yml` removed; `graphics_perf_bench.yml` manual only; the nightly capture fails on unlisted failures;
   README rewritten for the fork; stale docs regenerated or archived (`docs/archive/README.md`).
+- **Fuzzing** (#351): four libFuzzer targets for the untrusted-input surface in `tests/fuzz/` (preset parser,
+  HLSL transpiler, expression evaluator, shader passes), `-DENABLE_FUZZING=ON` (clang, ASan + UBSan);
+  `fuzz_smoke.yml` (60 s per target on every push/PR, no `paths:` filter) and `fuzz_nightly.yml` (30 min per
+  target, corpus cached, findings uploaded). Fixed crashers live in `tests/fuzz/regressions/` and every
+  `BUILD_TESTING` build replays them under ctest (`FuzzRegression.*`). `docs/FUZZING.md`.
+- **hlslparser fixes found by fuzzing** (#351), each reachable from a preset file in every build: a shader
+  identifier longer than 255 characters overflowed the tokenizer's fixed buffer (memory corruption on
+  preset load); an empty `()`/`{}` expression and a `#define` that failed to parse dereferenced null; and three inputs hung preset loading
+  forever (`#if`/`#ifdef` before an unterminated comment, a NUL inside a `#define`, a self-referencing or
+  cyclic macro). All six are now ordinary transpile errors. `docs/FUZZING.md` "Findings so far".
 
 ## 039 (registered 2026-10-08, host default)
 

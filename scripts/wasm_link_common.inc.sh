@@ -12,7 +12,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _malloc
     _free
     _add_audio_data
-    _pl
+    _play_song
     _destruct
     _get_projectm_handle
     _init

@@ -165,11 +165,11 @@ void add_audio_data(uint8_t* data, int len)
     Guarded("add_audio_data", [&]() { WasmApi::add_audio_data(data, len); });
 }
 
-// Play audio file from VFS path
+// Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names)
 EMSCRIPTEN_KEEPALIVE
-void pl(const char* songPath)
+void play_song(const char* songPath)
 {
-    Guarded("pl", [&]() { WasmApi::pl(songPath); });
+    Guarded("play_song", [&]() { WasmApi::play_song(songPath); });
 }
 
 // Tear down projectM engine

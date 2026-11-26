@@ -85,6 +85,13 @@ Engine and C API
   with `std::terminate`); it stays queued until the context is back.
 
 Browser host and hosting
+- **Fix: an export bound to the wrong function.** The link minifies export names to one or two letters, and the
+  song export was called `pl`, one of those names: the glue then bound a second export to `pl()`. In this tree's
+  bundle that was `__emscripten_tls_init`, which every pthread runs at start (thread-local storage was never set up
+  on the OpenMP and prepare threads, and each started "playing" a song: the `JS Load Song: AudioContext missing`
+  error). The export is `play_song` now (`playSong()` in the audio router falls back to `pl` on older bundles), and
+  `scripts/check_wasm_bundle_features.sh` fails any bundle whose glue binds two names to one export.
+  `docs/EMSCRIPTEN.md` "Export names".
 - **Context capabilities** (`ProjectMContext.contextCaps`, `ProjectMContextCaps`): what the engine negotiated with
   WebGL as one typed set, read once when the context is created: the enabled extensions, whether
   `EXT_disjoint_timer_query_webgl2` is offered, float render-target support, `MAX_TEXTURE_SIZE`,

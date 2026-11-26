@@ -29,7 +29,7 @@ export const ProjectMError = Object.freeze({
 /** C symbol names for render-worker ccall proxying. */
 export const WASM_API_SYMBOLS = {
     addAudioData: 'add_audio_data',
-    pl: 'pl',
+    playSong: 'play_song',
     destruct: 'destruct',
     getProjectmHandle: 'get_projectm_handle',
     init: 'init',
@@ -218,7 +218,7 @@ export const WASM_API_SYMBOLS = {
 /** @type {Record<string, WasmApiSignature>} */
 export const WASM_API_SIGNATURES = {
     addAudioData: { symbol: 'add_audio_data', returnType: null, argTypes: ['number', 'number'], paramTypes: ['number', 'number'], hostSymbol: null, hostMode: null },
-    pl: { symbol: 'pl', returnType: null, argTypes: ['string'], paramTypes: ['string'], hostSymbol: null, hostMode: null },
+    playSong: { symbol: 'play_song', returnType: null, argTypes: ['string'], paramTypes: ['string'], hostSymbol: null, hostMode: null },
     destruct: { symbol: 'destruct', returnType: null, argTypes: [], paramTypes: [], hostSymbol: 'pm_destruct', hostMode: 'prepend' },
     getProjectmHandle: { symbol: 'get_projectm_handle', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_get_projectm_handle', hostMode: 'prepend' },
     init: { symbol: 'init', returnType: 'number', argTypes: [], paramTypes: [], hostSymbol: 'pm_init', hostMode: 'prepend' },
@@ -670,9 +670,9 @@ export function addAudioData(module, data, len) {
     module._add_audio_data(data, len);
 }
 
-/** Play audio file from VFS path */
-export function pl(module, songPath) {
-    module.ccall('pl', null, ['string'], [songPath]);
+/** Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names) */
+export function playSong(module, songPath) {
+    module.ccall('play_song', null, ['string'], [songPath]);
 }
 
 /** Tear down projectM engine */

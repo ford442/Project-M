@@ -6,9 +6,9 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -103,6 +103,15 @@ test('findLlvmSymbolizer: explicit path, then $LLVM_SYMBOLIZER, then emsdk, then
         assert.equal(findLlvmSymbolizer(undefined, { LLVM_SYMBOLIZER: tool }), tool);
         assert.equal(findLlvmSymbolizer(undefined, { PATH: dir }), tool);
         assert.equal(findLlvmSymbolizer(undefined, { PATH: join(dir, 'missing') }), null);
+        // emsdk's, beside an emcc on PATH, before a distribution's one later on PATH.
+        const emscripten = join(dir, 'emsdk', 'upstream', 'emscripten');
+        const emsdkBin = join(dir, 'emsdk', 'upstream', 'bin');
+        mkdirSync(emscripten, { recursive: true });
+        mkdirSync(emsdkBin, { recursive: true });
+        writeFileSync(join(emscripten, 'emcc'), '');
+        writeFileSync(join(emsdkBin, 'llvm-symbolizer'), '');
+        assert.equal(findLlvmSymbolizer(undefined, { PATH: [dir, emscripten].join(delimiter) }),
+            join(emscripten, '..', 'bin', 'llvm-symbolizer'));
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

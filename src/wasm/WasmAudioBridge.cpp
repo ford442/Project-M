@@ -322,9 +322,13 @@ int connect_media_element_source(const char* selector)
     return js_connect_media_element_source(selector);
 }
 
-void pl(const char* song_path_in_vfs)
+// Was pl(): a one- or two-letter export can be the very name the link's export
+// minifier hands another export, and then both are bound to one function in the
+// glue (a build of this tree before the rename bound __emscripten_tls_init, which
+// every pthread runs at start, to pl()). Keep export names longer than that; see docs/EMSCRIPTEN.md "Export names".
+void play_song(const char* song_path_in_vfs)
 {
-    WASM_LOG_INFO("C++: pl() called for unique path: %s", song_path_in_vfs);
+    WASM_LOG_INFO("C++: play_song() called for unique path: %s", song_path_in_vfs);
     js_load_song_into_worklet(song_path_in_vfs, true, true);
 }
 

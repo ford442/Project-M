@@ -64,7 +64,7 @@ set(PROJECTM_WASM_API_MANIFEST
     "malloc|runtime|runtime|direct|usize|size:usize|Allocate bytes on the WASM heap"
     "free|runtime|runtime|direct|void|ptr:usize|Free a WASM heap allocation"
     "add_audio_data|internal|legacy|direct|void|data:u8*,len:i32|Legacy uint8 PCM feed"
-    "pl|internal|module|ccall|void|songPath:cstr|Play audio file from VFS path"
+    "play_song|internal|module|ccall|void|songPath:cstr|Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names)"
     "destruct|internal|host|direct|void||Tear down projectM engine"
     "get_projectm_handle|public|host|direct|host||Opaque projectM handle of the active host: the pmHandle the projectm_sprite_*_wrapper and PCM exports take (its host handle, 0 without an engine)"
     "init|public|host|direct|i32=-1||Initialize (or after a context loss re-initialize) EGL/WebGL and projectM on the host, returns 0 on success, -1 for an unknown host"

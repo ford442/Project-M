@@ -15,7 +15,7 @@ struct WasmHost;
 namespace WasmApi {
 
 void add_audio_data(uint8_t* data, int len);
-void pl(const char* songPath);
+void play_song(const char* songPath);
 void destruct(WasmHost& host);
 uintptr_t get_projectm_handle(WasmHost& host);
 int init(WasmHost& host);

@@ -1,5 +1,5 @@
 import {
-    pl,
+    playSong as playSongExport,
     setAudioSourceToStream,
     stopWorkletPlayback,
 } from './generated/projectm-wasm-api.js';
@@ -103,7 +103,7 @@ export function getHostAudioSourceRouter() {
 /**
  * Plays a VFS song through the worklet, respecting exclusive-source policy.
  *
- * Use this instead of the raw generated `pl()` wrapper from host code: when a
+ * Use this instead of the raw generated `playSong()` wrapper (`play_song()`, `pl()` on older bundles) from host code: when a
  * router is registered and another source (element/stream or external PCM) owns
  * the ingress path, the call is dropped instead of double-feeding libprojectM.
  *
@@ -121,7 +121,12 @@ export function playSong(module, songPath) {
         );
         return false;
     }
-    pl(module, songPath);
+    if (typeof /** @type {any} */ (module)._play_song === 'function') {
+        playSongExport(module, songPath);
+    } else {
+        // A bundle from before the rename (docs/EMSCRIPTEN.md "Export names").
+        module.ccall('pl', null, ['string'], [songPath]);
+    }
     return true;
 }
 

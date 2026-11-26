@@ -19,7 +19,9 @@
  *   --dwarf <file>   the profile flavor's projectm-v.030-thread.debug.wasm
  *                    (scripts/build_wasm.sh --flavor profile): function, file, line
  *                    and inlined frames, through llvm-symbolizer (emsdk ships one;
- *                    --llvm-symbolizer, $LLVM_SYMBOLIZER, $EMSDK/upstream/bin, PATH).
+ *                    --llvm-symbolizer, $LLVM_SYMBOLIZER, $EMSDK/upstream/bin, beside
+ *                    emcc on PATH, then PATH; an older distribution build reads no wasm
+ *                    line table and prints functions without file:line).
  *                    Needs the frame's byte offset (0x...), which Safari omits.
  *   --symbols <file> the release flavor's symbol map (<bundle>.js.symbols, staged as
  *                    projectm-v.<version>-thread.symbols): function names by index.
@@ -144,7 +146,8 @@ export function readNameSection(bytes) {
 }
 
 /**
- * The llvm-symbolizer to run: the explicit one, $LLVM_SYMBOLIZER, emsdk's, or PATH's.
+ * The llvm-symbolizer to run: the explicit one, $LLVM_SYMBOLIZER, emsdk's ($EMSDK, or
+ * beside an emcc on PATH), or PATH's.
  *
  * @param {string | undefined} explicit
  * @returns {string | null}
@@ -152,9 +155,13 @@ export function readNameSection(bytes) {
 export function findLlvmSymbolizer(explicit, env = process.env) {
     const candidates = [explicit, env.LLVM_SYMBOLIZER];
     if (env.EMSDK) candidates.push(join(env.EMSDK, 'upstream', 'bin', 'llvm-symbolizer'));
-    for (const dir of (env.PATH || '').split(delimiter)) {
-        if (dir) candidates.push(join(dir, 'llvm-symbolizer'));
+    const dirs = (env.PATH || '').split(delimiter).filter(Boolean);
+    // emsdk's own, next to an emcc on PATH (upstream/emscripten/emcc -> upstream/bin):
+    // a distribution's older llvm-symbolizer names wasm functions but reads no line table.
+    for (const dir of dirs) {
+        if (existsSync(join(dir, 'emcc'))) candidates.push(join(dir, '..', 'bin', 'llvm-symbolizer'));
     }
+    for (const dir of dirs) candidates.push(join(dir, 'llvm-symbolizer'));
     return candidates.find((candidate) => candidate && existsSync(candidate)) ?? null;
 }
 

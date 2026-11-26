@@ -311,7 +311,7 @@ export type ProjectMModule = EmscriptenModule & {
 /** C symbol names for render-worker ccall proxying. */
 export declare const WASM_API_SYMBOLS: {
     readonly addAudioData: 'add_audio_data';
-    readonly pl: 'pl';
+    readonly playSong: 'play_song';
     readonly destruct: 'destruct';
     readonly getProjectmHandle: 'get_projectm_handle';
     readonly init: 'init';
@@ -495,8 +495,8 @@ export type WasmApiName = keyof typeof WASM_API_SYMBOLS;
 export interface WasmApiCalls {
     /** Legacy uint8 PCM feed */
     addAudioData(data: number, len: number): void;
-    /** Play audio file from VFS path */
-    pl(songPath: string): void;
+    /** Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names) */
+    playSong(songPath: string): void;
     /** Tear down projectM engine */
     destruct(): void;
     /** Opaque projectM handle of the active host: the pmHandle the projectm_sprite_*_wrapper and PCM exports take (its host handle, 0 without an engine) */
@@ -903,8 +903,8 @@ export declare function feedPcmFloat(module: ProjectMModule, data: Float32Array,
 /** Legacy uint8 PCM feed */
 export declare function addAudioData(module: ProjectMModule, data: number, len: number): void;
 
-/** Play audio file from VFS path */
-export declare function pl(module: ProjectMModule, songPath: string): void;
+/** Play audio file from VFS path (was pl: an export named like a minified name can be bound to another export by the link, see docs/EMSCRIPTEN.md Export names) */
+export declare function playSong(module: ProjectMModule, songPath: string): void;
 
 /** Tear down projectM engine */
 export declare function destruct(module: ProjectMModule): void;

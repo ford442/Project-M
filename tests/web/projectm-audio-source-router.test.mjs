@@ -235,20 +235,20 @@ test('playSong consults the most recently registered router', () => {
 test('the generated WASM API carries no host audio-source policy', () => {
     // Host policy lives in projectm-audio-source-router.js. It used to be
     // emitted by cmake/GenerateWasmLinkCommon.cmake as well, which left two
-    // registries and let a regeneration wipe a hand edit. The generated pl()
-    // is a plain ccall now; playSong() is the gate.
+    // registries and let a regeneration wipe a hand edit. The generated
+    // playSong() is a plain ccall now; the router's playSong() is the gate.
     assert.equal('setHostAudioSourceRouter' in generatedWasmApi, false);
     assert.equal('getHostAudioSourceRouter' in generatedWasmApi, false);
 });
 
-test('the generated pl() forwards without consulting any router', () => {
+test('the generated playSong() forwards without consulting any router', () => {
     const calls = [];
     const module = { ccall: (...args) => calls.push(args) };
     const router = createAudioSourceRouter({ module, initialSource: 'external' });
 
-    generatedWasmApi.pl(module, '/music/test.wav');
+    generatedWasmApi.playSong(module, '/music/test.wav');
 
-    assert.deepEqual(calls, [['pl', null, ['string'], ['/music/test.wav']]]);
+    assert.deepEqual(calls, [['play_song', null, ['string'], ['/music/test.wav']]]);
     assert.equal(router.getActiveSource(), 'external', 'the raw wrapper never promotes a source');
     router.destroy();
 });
@@ -290,4 +290,18 @@ test('status has no mode: "mix" was never implemented, so it is not offered', ()
     assert.equal('mode' in router.getStatus(), false);
     assert.equal('mode' in router, false);
     router.destroy();
+});
+
+test('playSong calls play_song() where the bundle has it, and pl() on a bundle from before the rename', () => {
+    setHostAudioSourceRouter(null);
+    /** @type {unknown[][]} */
+    const calls = [];
+    const current = { ...fakeModule(), _play_song: () => {}, ccall: (...args) => calls.push(args) };
+    assert.equal(playSong(current, '/a.wav'), true);
+    const older = { ...fakeModule(), ccall: (...args) => calls.push(args) };
+    assert.equal(playSong(older, '/b.wav'), true);
+    assert.deepEqual(calls, [
+        ['play_song', null, ['string'], ['/a.wav']],
+        ['pl', null, ['string'], ['/b.wav']],
+    ]);
 });

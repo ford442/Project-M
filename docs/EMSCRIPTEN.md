@@ -747,7 +747,7 @@ Emscripten/projectM/GL includes and the small amount of cross-TU state:
 | `WasmPresent.cpp` | The end of a frame: flash-limiter switches (forwarding to libprojectM's C API), per-host frame readback (`capture_frame_*`, taken in `render_frame()` before a manual-present commit) and the commit counter. See [FLASH_LIMITER.md](FLASH_LIMITER.md) |
 | `WasmLiveInput.cpp` | Live input: `texture_slot_*` (live textures, per-host staging buffers on the heap, uploaded once per `render_frame()`) and `eval_set` / `eval_clear` (host per-frame variables); both re-applied to a new engine. See [LIVE_INPUT.md](LIVE_INPUT.md) |
 | `WasmDeterminism.cpp` | Virtual clock (`WasmNow()`, `DeterministicFrameTick()`), deterministic RNG switch, main-loop pause — `set_deterministic_*` / `set_render_loop_paused` exports. See [GRAPHICS_BENCHMARK_HARNESS.md](GRAPHICS_BENCHMARK_HARNESS.md) |
-| `WasmAudioBridge.cpp` | Audio worklet + media-element EM_JS interop, PCM feed wrappers, `pl()` / stream-source exports |
+| `WasmAudioBridge.cpp` | Audio worklet + media-element EM_JS interop, PCM feed wrappers, `play_song()` / stream-source exports |
 | `WasmPcmRing.cpp` | The single PCM ingest: the WASM-owned ring, its descriptor exports, and the per-frame drain |
 | `WasmPerfGovernor.cpp` | Perf HUD instrumentation, adaptive quality governor, OpenMP introspection exports |
 | `WasmRhythm.cpp` | Musical time: `get_rhythm_*` readouts, `set_rhythm_hint`, `set_preset_switch_policy`, `transition_set_duration_beats`, `set_hard_cut_on_beat`, and the `set_rhythm_events` → `pmOnRhythmEvent` beat/bar/section events (see [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md#rhythm-analysis)) |
@@ -795,6 +795,19 @@ To add a new `EMSCRIPTEN_KEEPALIVE` C export:
 
 If you add a new `.cpp` TU, also add it to `PROJECTM_WASM_WRAPPER_SOURCES` in
 `src/wasm/CMakeLists.txt`.
+
+### Export names
+
+Name exports three characters or longer. At `-O2` and up the link minifies every wasm export to a one- or
+two-letter name (`Nf`, `Qf`, `pl`, ...) and rewrites the glue's `wasmExports["<name>"]` lookups to match. An export
+whose real name is itself one of those short names is rewritten twice, so the glue binds another export to its
+function. The legacy song export was called `pl`: a build of this tree bound `__emscripten_tls_init`, which every
+pthread runs when it starts, to `pl()` (the "JS Load Song: AudioContext missing" error in every log), and with three
+more exports it was `pm_get_last_error_message`, or `malloc` in the dlmalloc link (so WebGL context creation failed
+with init code 2). Which export it hits depends only on how many there are. The export is `play_song` now;
+`playSong()` in `html/projectm-audio-source-router.js` still calls `pl` on a bundle that lacks it.
+`scripts/check_wasm_bundle_features.sh`, which `scripts/build_wasm.sh` runs on every link, fails a glue that binds two
+names to one wasm export.
 
 ### Flag matrix (CMake lib link vs. bundle link)
 

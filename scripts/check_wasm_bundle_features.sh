@@ -153,6 +153,27 @@ elif grep -qE '^[0-9]+:__assert_fail$' "$symbols"; then
     failed=1
 fi
 
+# Every export the glue binds must be its own wasm export. The link minifies
+# export names, and an export whose real name is also one of the minified names
+# (the two-letter `pl` was) gets a second binding in the glue's rewrite: a build
+# of this tree bound __emscripten_tls_init, which every pthread runs at start,
+# to pl() (docs/EMSCRIPTEN.md "Export names").
+duplicates=$(python3 - "$glue" <<'PY'
+import re, sys
+from collections import defaultdict
+text = open(sys.argv[1], encoding='utf-8').read()
+bound = defaultdict(list)
+for js_name, export in re.findall(r'([A-Za-z_$][\w$]*)=(?:Module\["[\w$]+"\]=)?wasmExports\["([\w$]+)"\]', text):
+    if js_name not in bound[export]:
+        bound[export].append(js_name)
+print('; '.join(f'wasmExports["{e}"] <- {", ".join(names)}' for e, names in bound.items() if len(names) > 1))
+PY
+)
+if [[ -n "$duplicates" ]]; then
+    echo "ERROR: $(basename "$glue") binds several exports to one wasm export: $duplicates" >&2
+    failed=1
+fi
+
 lto_libs="$(build_fact lto-libs)"
 lto_link="$(build_fact lto-link)"
 if [[ -z "$lto_libs" || "$lto_libs" != "$lto_link" ]]; then
@@ -161,6 +182,6 @@ if [[ -z "$lto_libs" || "$lto_libs" != "$lto_link" ]]; then
 fi
 
 if [[ "$failed" -eq 0 ]]; then
-    echo "OK: $(basename "$wasm") build: stack ${want_stack}/${want_pthread_stack} B (main/pthread), NDEBUG, LTO=${lto_libs} on both sides"
+    echo "OK: $(basename "$wasm") build: stack ${want_stack}/${want_pthread_stack} B (main/pthread), NDEBUG, LTO=${lto_libs} on both sides, one binding per export"
 fi
 exit "$failed"

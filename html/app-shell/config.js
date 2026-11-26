@@ -4,6 +4,8 @@
 // building a ProjectMContext. Pure functions: no DOM, no engine. Re-exported
 // from projectm-app-shell.js.
 
+import { parseContextProfile } from '../projectm-context-config.js';
+
 /**
  * @typedef {import('@projectm/types/context').ProjectMContextOptions} ProjectMContextOptions
  *
@@ -122,29 +124,48 @@ export function writeStorage(storage, key, value) {
  * `?fboPrecision=high|byte` picks the dual-FBO format; `?depth=1` restores a
  * canvas depth+stencil attachment (off by default, #246).
  *
+ * `?profile=quality|balanced|battery|low-latency` picks a context profile
+ * (CONTEXT_PROFILES in projectm-context-config.js). With one, `antialias` and
+ * `fboPrecision` are only passed when the URL (or canvasAA) sets them, so the
+ * profile decides the rest; `?profile=battery&aa=1` is battery with MSAA.
+ *
  * @param {URLSearchParams} params
  * @param {Storage | null} storage
  * @param {Window} windowRef
  * @returns {Partial<ProjectMContextOptions>}
  */
 export function resolveContextAttributes(params, storage, windowRef) {
+    const contextProfile = parseContextProfile(params.get('profile'));
     const aa = params.get('aa');
+    const storedAA = readStorage(storage, 'canvasAA');
     const antialias =
         aa === '1' || aa === 'true'
             ? true
             : aa === '0' || aa === 'false'
               ? false
-              : ['1', 'true'].includes(readStorage(storage, 'canvasAA') ?? '');
+              : ['1', 'true'].includes(storedAA ?? '');
+    const antialiasExplicit = aa !== null || storedAA !== null;
     const capture =
         /** @type {{ __projectMCaptureMode?: boolean }} */ (windowRef).__projectMCaptureMode === true ||
         params.get('capture') === '1' ||
         params.get('capture') === 'true';
     const precision = (params.get('fboPrecision') || '').toLowerCase();
     const depth = params.get('depth') === '1' || params.get('depth') === 'true';
+    const fboPrecision = precision === 'high' || precision === 'byte' || precision === 'half' ? precision : null;
+    if (contextProfile) {
+        return {
+            contextProfile,
+            ...(antialiasExplicit ? { antialias } : {}),
+            ...(fboPrecision ? { fboPrecision } : {}),
+            preserveDrawingBuffer: capture,
+            depth,
+            stencil: depth,
+        };
+    }
     return {
         antialias,
         preserveDrawingBuffer: capture,
-        fboPrecision: precision === 'high' || precision === 'byte' ? precision : 'half',
+        fboPrecision: fboPrecision ?? 'half',
         depth,
         stencil: depth,
     };

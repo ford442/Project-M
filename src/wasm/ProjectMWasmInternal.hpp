@@ -184,7 +184,7 @@ void js_notify_init_error(double host, int code, const char* detail);
 void js_notify_init_success(double host);
 
 // Perf HUD (WasmPerfGovernor.cpp)
-void js_perf_gpu_begin_frame();
+void js_perf_gpu_begin_frame(int offered);
 void js_perf_gpu_end_frame();
 double js_perf_gpu_get_last_ms();
 void js_perf_hud_set_enabled(double host, int enabled);

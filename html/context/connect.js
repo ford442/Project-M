@@ -9,11 +9,12 @@ import { contextConfigFor } from './boot.js';
 import { attachAudioRouter, resolveMediaElement, wireAudioSource } from './audio.js';
 import { watchPageLifecycle } from './lifecycle.js';
 import { applyRhythmOptions, clampRhythmLatencyMs, measureOutputLatencyMs, relayPresetEvents } from './presets.js';
-import { followContainerSize, readContextSnapshot } from './render.js';
+import { followContainerSize, readContextNegotiation } from './render.js';
 import { emitContextEvent, engineOf, rhythmOf, setContextSnapshot } from './controls.js';
 import {
     applyEngineSettings,
     applyInitialFlashLimit,
+    applyQualityTierCeiling,
     followGovernorRenderScale,
     installPlaybackHooks,
     installTransportHooks,
@@ -85,6 +86,9 @@ export function connectEngine(host, transport, signal) {
     context.audioRouter = router;
     installPlaybackHooks({ transport, context, canvas: context.canvas, documentRef, windowRef }).forEach((d) => own(d));
     applyInitialFlashLimit(transport, options);
+    applyQualityTierCeiling(transport, options);
+    const { snapshot, caps } = readContextNegotiation(transport, contextConfigFor(options));
+    setContextSnapshot(context, snapshot, caps);
     context.resize();
     const engine = engineOf(context);
     if (engine) {
@@ -156,7 +160,6 @@ export function connectEngine(host, transport, signal) {
             emitContextEvent(context, 'preset-changed', detail);
         })
     );
-    setContextSnapshot(context, readContextSnapshot(transport, contextConfigFor(options)));
 }
 function watchEngineReports({ context, own, errors }) {
     const { windowRef } = context.options;

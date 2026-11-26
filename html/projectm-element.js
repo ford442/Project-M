@@ -1,5 +1,6 @@
 import { buildProjectMWasmUrls } from './projectm-wasm-version.js';
 import { ProjectMContext } from './projectm-context.js';
+import { parseContextProfile } from './projectm-context-config.js';
 import { ELEMENT_TAG, OBSERVED_ATTRIBUTES } from './projectm-element-attributes.js';
 
 export { ELEMENT_TAG, OBSERVED_ATTRIBUTES };
@@ -303,10 +304,15 @@ export class ProjectMVisualizerElement extends HTMLElement {
         const renderTopology = /** @type {ProjectMRenderTopology} */ (
             this.getAttribute('render-topology') || 'auto'
         );
+        // A context profile (context-profile="battery" | "quality" | "balanced" |
+        // "low-latency"; docs/EMSCRIPTEN.md "Context profiles"), read once at boot
+        // like the topology. An unknown name is ignored.
+        const contextProfile = parseContextProfile(this.getAttribute('context-profile')) ?? undefined;
         // An embed is a guest on someone else's page: it does not ask for the
-        // discrete GPU unless the page says so (power-preference="high-performance").
-        const powerPreference = /** @type {'default' | 'low-power' | 'high-performance'} */ (
-            this.getAttribute('power-preference') || 'default'
+        // discrete GPU unless the page says so (power-preference="high-performance")
+        // or its context profile does.
+        const powerPreference = /** @type {'default' | 'low-power' | 'high-performance' | undefined} */ (
+            this.getAttribute('power-preference') || (contextProfile ? undefined : 'default')
         );
 
         /** @type {ProjectMContext} */
@@ -330,6 +336,7 @@ export class ProjectMVisualizerElement extends HTMLElement {
                 audioElement: this.getAttribute('audio-element') || undefined,
                 externalPcmOrigins: parseOriginList(this.getAttribute('external-pcm-origins')),
                 renderTopology,
+                contextProfile,
                 powerPreference,
                 onRenderWorkerFallback: (reason) => {
                     console.info('[project-m-visualizer] rendering on the main thread:', reason);

@@ -276,6 +276,7 @@ export class ProjectMContext extends ProjectMContextControls {
             devicePixelRatio: resolveDevicePixelRatio(this.options),
             renderScale: this.renderScale,
             devicePixelSize,
+            maxBackingStoreSize: this.contextCaps?.maxRenderbufferSize ?? 0,
         });
     }
     /**

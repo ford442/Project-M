@@ -362,6 +362,11 @@ export interface RenderWorkerReadyMessage {
      * bundle that predates the export.
      */
     contextSnapshot?: number;
+    /**
+     * `get_context_limit()` for each `CONTEXT_LIMITS` entry, in that order.
+     * Absent from a bundle that predates the export.
+     */
+    contextLimits?: number[];
 }
 
 /** Worker → host: this browser/worker cannot run the offscreen path. */
@@ -507,6 +512,8 @@ export interface RenderWorkerContextRecoveredMessage {
     status: number;
     /** As in {@link RenderWorkerReadyMessage}, for the rebuilt context; sent when `status` is `0`. */
     contextSnapshot?: number;
+    /** As in {@link RenderWorkerReadyMessage}; sent when `status` is `0`. */
+    contextLimits?: number[];
 }
 
 /**
@@ -592,6 +599,8 @@ export interface RenderWorkerHandle {
      * a bundle that predates the export.
      */
     contextSnapshot(): number | null;
+    /** `get_context_limit()`'s answers, reported with {@link contextSnapshot}; null when it was not. */
+    contextLimits(): readonly number[] | null;
     /**
      * Subscribes to the worker's context-loss notifications. Returns the
      * unsubscribe function.

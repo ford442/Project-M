@@ -87,12 +87,15 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _set_target_fps
     _set_quality_governor
     _get_quality_tier
+    _set_quality_tier_ceiling
+    _get_quality_tier_ceiling
     _get_governor_render_scale
     _get_governor_blur_cap
     _is_preset_ready
     _get_rendered_frame_count
     _preset_switch_failed
     _live_playlist_count
+    _debug_force_trap
     _get_main_loop_timing_mode
     _get_omp_enabled
     _get_omp_max_threads
@@ -123,6 +126,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _dual_fbo_is_preset_b_ready
     _dual_fbo_get_format
     _get_context_snapshot
+    _get_context_limit
     _dual_fbo_render_preset_a
     _dual_fbo_render_preset_b
     _transition_start
@@ -225,6 +229,8 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _pm_set_target_fps
     _pm_set_quality_governor
     _pm_get_quality_tier
+    _pm_set_quality_tier_ceiling
+    _pm_get_quality_tier_ceiling
     _pm_get_governor_render_scale
     _pm_get_governor_blur_cap
     _pm_is_preset_ready
@@ -253,6 +259,7 @@ PROJECTM_WASM_EXPORTED_FUNCTIONS=(
     _pm_dual_fbo_is_preset_b_ready
     _pm_dual_fbo_get_format
     _pm_get_context_snapshot
+    _pm_get_context_limit
     _pm_dual_fbo_render_preset_a
     _pm_dual_fbo_render_preset_b
     _pm_transition_start

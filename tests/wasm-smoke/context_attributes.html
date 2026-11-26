@@ -27,7 +27,7 @@
     without OFFSCREEN_FRAMEBUFFER, a context whose FBO 0 is Emscripten's
     offscreen back buffer on the explicit-swap flavor.
 
-    And get_context_snapshot(): each host reports it next to dual_fbo_get_format(),
+    And get_context_snapshot() / get_context_limit() (contextCaps): each host reports them next to dual_fbo_get_format(),
     for the default, high (RGBA32F) and byte (RGBA8) fboPrecision, together with
     what the browser itself says about the float extensions on a throwaway
     context. The runner decodes the packed int with the real
@@ -111,6 +111,9 @@
           halfFloatColorBuffer: !!gl.getExtension('EXT_color_buffer_half_float'),
           floatBlend: !!gl.getExtension('EXT_float_blend'),
           loseContext: !!lose,
+          // contextCaps' remaining fields, also from this throwaway context.
+          timerQuery: (gl.getSupportedExtensions() || []).includes('EXT_disjoint_timer_query_webgl2'),
+          limits: [gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), gl.getParameter(gl.MAX_SAMPLES)],
         };
         lose?.loseContext();
         return capabilities;
@@ -129,13 +132,15 @@
       let attributes = null;
       let snapshot = null;
       let fboFormat = null;
+      let limits = null;
       if (handle) {
         attributes = Module.ctx ? { ...Module.ctx.getContextAttributes() } : null;
         snapshot = typeof Module._get_context_snapshot === 'function' ? Module._get_context_snapshot() : null;
         fboFormat = typeof Module._dual_fbo_get_format === 'function' ? Module._dual_fbo_get_format() : null;
+        limits = typeof Module._get_context_limit === 'function' ? [0, 1, 2].map((which) => Module._get_context_limit(which)) : null;
         Module.ccall('destroy_host', null, ['number'], [handle]);
       }
-      return { cameUp: handle !== 0, initCode: code, attributes, snapshot, fboFormat };
+      return { cameUp: handle !== 0, initCode: code, attributes, snapshot, fboFormat, limits };
     }
 
     // An explicitSwapControl host. On the explicit-swap flavor, binding FBO 0

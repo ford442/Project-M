@@ -12,8 +12,10 @@
 #
 # Env: CMAKE_BUILD_DIR, OUT_DIR; flavors (never deployed, they tag the
 # build-id): PROJECTM_WASM_DEBUG=1 (ASSERTIONS=2 + SAFE_HEAP +
-# STACK_OVERFLOW_CHECK=2), PROJECTM_WASM_GL_DEBUG=1, PROJECTM_WASM_EXPLICIT_SWAP=1;
-# PROJECTM_WASM_EXTRA_LINK_FLAGS, PROJECTM_WASM_WERROR=1. INSTALL_DIR is not
+# STACK_OVERFLOW_CHECK=2), PROJECTM_WASM_PROFILE=1 (names + split DWARF),
+# PROJECTM_WASM_GL_DEBUG=1, PROJECTM_WASM_EXPLICIT_SWAP=1,
+# PROJECTM_WASM_MALLOC=dlmalloc; PROJECTM_WASM_EXTRA_LINK_FLAGS,
+# PROJECTM_WASM_WERROR=1. INSTALL_DIR is not
 # read: the target links the libraries from the build tree.
 set -euo pipefail
 
@@ -78,18 +80,36 @@ if [[ -n "${PROJECTM_WASM_LTO:-}" && "${PROJECTM_WASM_LTO}" != "$lib_lto" ]]; th
     exit 1
 fi
 
-# Non-deployable link flavors (docs/EMSCRIPTEN.md "Link flavors"); each one
+# Non-deployable link flavors (docs/EMSCRIPTEN.md "Build flavors"); each one
 # tags the build-id below, so prepare_deploy_bundle.sh / deploy.py refuse it.
 build_id_suffix=""
 [[ "${PROJECTM_WASM_GL_DEBUG:-0}" == "1" ]] && build_id_suffix+="+gl-debug"
 [[ "${PROJECTM_WASM_EXPLICIT_SWAP:-0}" == "1" ]] && build_id_suffix+="+explicit-swap"
 [[ "${PROJECTM_WASM_DEBUG:-0}" == "1" ]] && build_id_suffix+="+debug"
+[[ "${PROJECTM_WASM_PROFILE:-0}" == "1" ]] && build_id_suffix+="+profile"
+# Libraries compiled with DWARF (PROJECTM_WASM_DEBUG_INFO, a profile full build)
+# do not link to the release binary, whatever this link's flavor.
+case "$(cache_value PROJECTM_WASM_DEBUG_INFO)" in
+    ON | TRUE | 1) lib_debug_info=1 build_id_suffix+="+debug-info" ;;
+    *) lib_debug_info=0 ;;
+esac
+wasm_malloc="${PROJECTM_WASM_MALLOC:-mimalloc}"
+case "$wasm_malloc" in
+    mimalloc) ;;
+    dlmalloc) build_id_suffix+="+dlmalloc" ;;
+    *)
+        echo "ERROR: PROJECTM_WASM_MALLOC=$wasm_malloc: expected mimalloc or dlmalloc." >&2
+        exit 1
+        ;;
+esac
 
 cmake "$CMAKE_BUILD_DIR" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DPROJECTM_WASM_GL_DEBUG="$(on_off "${PROJECTM_WASM_GL_DEBUG:-0}")" \
     -DPROJECTM_WASM_EXPLICIT_SWAP="$(on_off "${PROJECTM_WASM_EXPLICIT_SWAP:-0}")" \
     -DPROJECTM_WASM_DEBUG="$(on_off "${PROJECTM_WASM_DEBUG:-0}")" \
+    -DPROJECTM_WASM_PROFILE="$(on_off "${PROJECTM_WASM_PROFILE:-0}")" \
+    -DPROJECTM_WASM_MALLOC="$wasm_malloc" \
     -DPROJECTM_WASM_WERROR="$(on_off "${PROJECTM_WASM_WERROR:-0}")" \
     -DPROJECTM_WASM_EXTRA_LINK_FLAGS="${PROJECTM_WASM_EXTRA_LINK_FLAGS:-}" \
     >/dev/null
@@ -97,7 +117,15 @@ cmake --build "$CMAKE_BUILD_DIR" --target projectM_wasm --parallel
 
 built_dir="$CMAKE_BUILD_DIR/src/wasm"
 mkdir -p "$OUT_DIR"
-for ext in js wasm js.symbols; do
+# A profile link adds its split DWARF; any other link removes a stale one, so
+# OUT_DIR never pairs a .wasm with another link's debug file.
+outputs=(js wasm js.symbols)
+if [[ "${PROJECTM_WASM_PROFILE:-0}" == "1" ]]; then
+    outputs+=(debug.wasm)
+else
+    rm -f "$built_dir/projectm-v.030-thread.debug.wasm" "$OUT_DIR/projectm-v.030-thread.debug.wasm"
+fi
+for ext in "${outputs[@]}"; do
     test -s "$built_dir/projectm-v.030-thread.$ext"
     cp -f "$built_dir/projectm-v.030-thread.$ext" "$OUT_DIR/"
 done
@@ -129,5 +157,7 @@ fi
     echo "lto-libs=$lib_lto"
     echo "lto-link=$lib_lto"
     echo "ndebug=$lib_ndebug"
+    echo "debug-info-libs=$lib_debug_info"
+    echo "malloc=$wasm_malloc"
     echo "emcc=$(em++ --version 2>/dev/null | head -n1 | sed -E 's/.* ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
 } > "$OUT_DIR/projectm-v.030-thread.build-id"

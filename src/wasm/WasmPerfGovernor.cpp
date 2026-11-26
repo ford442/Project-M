@@ -41,8 +41,11 @@
 //
 // Begins the first segment (stage OTHER) for the upcoming render_frame()
 // call, if EXT_disjoint_timer_query_webgl2 is available. No-op otherwise.
+// `offered` is the host's WasmContextCaps::timerQuery: a context that does not
+// offer the extension is not asked for it again (getExtension() is what
+// enables it, so this is the only place it is requested).
 // clang-format off
-EM_JS(void, js_perf_gpu_begin_frame, (), {
+EM_JS(void, js_perf_gpu_begin_frame, (int offered), {
     if (typeof GLctx === 'undefined' || !GLctx) {
         return;
     }
@@ -55,7 +58,7 @@ EM_JS(void, js_perf_gpu_begin_frame, (), {
     let gpu = Module.__pmPerfGpuByCtx.get(GLctx);
     if (!gpu) {
         gpu = {
-            ext: GLctx.getExtension('EXT_disjoint_timer_query_webgl2'),
+            ext: offered ? GLctx.getExtension('EXT_disjoint_timer_query_webgl2') : null,
             // Submitted frames whose queries have not all resolved yet, oldest first.
             pending: [],
             // The frame being recorded: { segments: [{ stage, query }] }, or null.
@@ -367,7 +370,7 @@ static void ApplyQualityTier(WasmHost& H, int tier)
 {
     auto& pm = H.appData.projectm_engine;
     auto& g_qualityTier = H.qualityTier;
-    tier = std::max(0, std::min(kMaxQualityTier, tier));
+    tier = std::max(H.qualityTierCeiling, std::min(kMaxQualityTier, tier));
     g_qualityTier = tier;
     const QualityTierSettings& settings = kQualityTiers[tier];
     projectm_set_mesh_size(pm, settings.meshWidth, settings.meshHeight);
@@ -456,6 +459,15 @@ void UpdateQualityGovernor(WasmHost& H, double frameMs)
         return;
     }
 
+    // A ceiling set before the first frame (or above the tier the mesh size
+    // started at) applies as soon as the governor runs.
+    if (g_qualityTier < H.qualityTierCeiling)
+    {
+        ApplyQualityTier(H, H.qualityTierCeiling);
+        ResetGovernorCounters(H);
+        return;
+    }
+
     const double budgetMs = 1000.0 / static_cast<double>(g_targetFps > 0 ? g_targetFps : 60);
 
     if (frameMs > budgetMs * kOverBudgetRatio)
@@ -479,7 +491,7 @@ void UpdateQualityGovernor(WasmHost& H, double frameMs)
         ApplyQualityTier(H, g_qualityTier + 1);
         ResetGovernorCounters(H);
     }
-    else if (g_underBudgetFrames >= kUnderBudgetFrameThreshold && g_qualityTier > 0)
+    else if (g_underBudgetFrames >= kUnderBudgetFrameThreshold && g_qualityTier > H.qualityTierCeiling)
     {
         ApplyQualityTier(H, g_qualityTier - 1);
         ResetGovernorCounters(H);
@@ -516,6 +528,27 @@ void set_quality_governor(WasmHost& H, bool enabled)
     g_governorEnabled = enabled != 0;
     ResetGovernorCounters(H);
     return;
+}
+
+// Caps how far up the governor may step: `tier` is the best tier it may choose
+// (0 = no cap, up to kMaxQualityTier). A running governor above the new ceiling
+// steps down to it at once; a disabled one keeps its tier until it is enabled.
+// Set by the page's context profile (`battery` sets 1; docs/EMSCRIPTEN.md
+// "Context profiles").
+void set_quality_tier_ceiling(WasmHost& H, int tier)
+{
+    H.qualityTierCeiling = std::max(0, std::min(kMaxQualityTier, tier));
+    if (H.appData.projectm_engine && H.governorEnabled && H.qualityTierInitialized &&
+        H.qualityTier < H.qualityTierCeiling)
+    {
+        ApplyQualityTier(H, H.qualityTierCeiling);
+    }
+    ResetGovernorCounters(H);
+}
+
+int get_quality_tier_ceiling(WasmHost& H)
+{
+    return H.qualityTierCeiling;
 }
 
 // Returns the governor's current quality tier (0 = high/80x60, 1 = regular/64x48,

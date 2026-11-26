@@ -22,6 +22,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { CONTEXT_LIMITS } from '../../html/projectm-context-config.js';
 
 const WORKER_PATH = fileURLToPath(new URL('../../html/projectm-render-worker.js', import.meta.url));
 const HOST_PATH = fileURLToPath(new URL('../../html/projectm-render-worker-host.js', import.meta.url));
@@ -1450,6 +1451,26 @@ test('ready carries the context snapshot the module reports', async () => {
     const worker = loadWorker({ createModule: async () => module });
     await worker.send(initMessage());
     assert.equal(worker.posted.find((m) => m.type === 'ready').contextSnapshot, 0x10f);
+});
+
+test('ready carries get_context_limit() for each CONTEXT_LIMITS entry, in its order', async () => {
+    const module = fakeRingModule();
+    module._get_context_snapshot = () => 0x810f;
+    module._get_context_limit = (which) => [16384, 8192, 4][which] ?? 0;
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    const ready = worker.posted.find((m) => m.type === 'ready');
+    assert.deepEqual([...ready.contextLimits], [16384, 8192, 4]);
+    // The worker cannot import CONTEXT_LIMITS (a classic worker); its own order must be it.
+    assert.deepEqual(Object.values(CONTEXT_LIMITS), [0, 1, 2]);
+});
+
+test('ready leaves the limits out for a bundle without get_context_limit()', async () => {
+    const module = fakeRingModule();
+    module._get_context_snapshot = () => 0x10f;
+    const worker = loadWorker({ createModule: async () => module });
+    await worker.send(initMessage());
+    assert.equal('contextLimits' in worker.posted.find((m) => m.type === 'ready'), false);
 });
 
 test('ready leaves the snapshot out for a bundle that does not export it', async () => {

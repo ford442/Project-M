@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>projectM forced trap</title>
+</head>
+<body>
+  <!--
+    Forces a real wasm trap and records the browser's stack trace, for
+    tests/wasm-smoke/symbolize_trap.mjs to symbolize with
+    scripts/symbolize_wasm_trace.mjs.
+
+    debug_force_trap() runs a wasm `unreachable` in ForceTrapForSymbolizerTest()
+    (src/wasm/projectM_emscripten.cpp), a TU the profile flavor compiles with
+    DWARF. A trap is not a C++ exception, so the export's barrier does not catch
+    it, and the Module is dead afterwards. No context, host or canvas is needed.
+    (An out-of-bounds load would be the more natural trap, but some sandboxed
+    Chromium builds kill the renderer on one instead of throwing.)
+  -->
+  <script>
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.body.appendChild(script);
+      });
+    }
+
+    (async () => {
+      const params = new URLSearchParams(location.search);
+      try {
+        await loadScript(params.get('module'));
+        const module = await createModule({ print: () => {}, printErr: () => {} });
+        let caught = null;
+        try {
+          module._debug_force_trap();
+        } catch (error) {
+          caught = error;
+        }
+        window.__projectMTrap = caught
+          ? { ok: true, name: String(caught.name), message: String(caught.message), stack: String(caught.stack) }
+          : { ok: false, error: 'debug_force_trap() returned instead of trapping' };
+      } catch (error) {
+        window.__projectMTrap = { ok: false, error: String(error && error.stack || error) };
+      }
+    })();
+  </script>
+</body>
+</html>

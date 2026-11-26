@@ -108,7 +108,7 @@ layer (`projectm-core.html`).
 | `alpha` | `1 << 4` | `contextAlpha` | `false`; follows `transparent` | An opaque canvas unless the page wants transparency (#135): the browser composites an alpha-less canvas without blending. A page with a runtime transparency toggle asks for it up front (`contextAlpha: true`, as `projectm-core.html` does). The `alpha` option is a **separate** canvas-CSS compositing hint and never sets this bit. See [Canvas alpha](#canvas-alpha). |
 | `premultipliedAlpha` | `1 << 5` | `premultipliedAlpha` | `true` | Browser compositing default; transparency-keying hosts with straight alpha turn it off |
 | `failIfMajorPerformanceCaveat` | `1 << 6` | `failIfMajorPerformanceCaveat` | `false` | Off so software GL still starts (smoke, goldens). Production hosts opt in to refuse a software renderer: init code `8`. Whether a renderer counts as a caveat is the browser's call — headless Chromium 151 with `--use-angle=swiftshader` (CI) accepts SwiftShader even for a plain `getContext()` with the flag, so the refusal path is not exercised there. |
-| `explicitSwapControl` | `1 << 7` | `explicitSwapControl`, or `presentMode: 'manual'` | `false` | Manual present; needs the explicit-swap link flavor (see [Link flavors](#link-flavors)), otherwise init code `9` |
+| `explicitSwapControl` | `1 << 7` | `explicitSwapControl`, or `presentMode: 'manual'` | `false` | Manual present; needs the explicit-swap link flavor (see [Build flavors](#build-flavors)), otherwise init code `9` |
 | `desynchronized` | `1 << 8` | `desynchronized` | `false` | Low-latency present hint for live hosts (may tear). The pinned Emscripten's `EmscriptenWebGLContextAttributes` has the field, so it is passed straight through; no JS-side `getContext` exists beside the C++ path. |
 | `enableExtensionsByDefault` | — | (fixed on) | `true` | Lets projectM probe float/half-float FBO formats |
 | `proxyContextToMainThread` | — | (fixed) | `EMSCRIPTEN_WEBGL_CONTEXT_PROXY_DISALLOW` | The context is created on the thread that renders it (main thread, or the render worker). OpenMP helpers and preset prepare threads never issue GL; a GL call from the wrong thread is a bug, not something to paper over with proxying. (Only takes effect in a link with `OFFSCREEN_FRAMEBUFFER`, i.e. the explicit-swap flavor.) |
@@ -208,6 +208,59 @@ it is read again then. In the render-worker topology it describes the worker's c
 its `ready` and `context-recovered` messages rather than answering a `ccall`, because the main thread waits for
 neither (a `ccall` for an export the bundle lacks is never answered).
 
+#### The capability set (`contextCaps`)
+
+`ProjectMContext.contextCaps` is the same negotiation as one typed capability set (`ProjectMContextCaps` in
+`@projectm/types/context`), for callers that need "what can this context do" rather than "did I get what I asked
+for". The engine fills `WasmContextCaps` once, when the context is created (`ProjectMEnableRequiredWebGLExtensions()`
+and `ReadContextLimits()` in `WasmWebGLContext.cpp`), and nothing probes again: `DetectFormat()` picks the dual-FBO
+format from it, the perf HUD's GPU timer only asks for `EXT_disjoint_timer_query_webgl2` on a context whose caps
+say it is offered, and the page fits the canvas backing store inside `maxRenderbufferSize` (`syncCanvasSize()`;
+the CSS box keeps its size and the browser upscales, as for the governor's render scale).
+
+```js
+context.contextCaps;
+// { extensions: ['EXT_color_buffer_float', 'EXT_color_buffer_half_float', 'OES_texture_float_linear',
+//                'EXT_float_blend', 'KHR_parallel_shader_compile', 'WEBGL_lose_context'],
+//   floatColorBuffer: true, halfFloatColorBuffer: true, floatLinear: true, floatBlend: true,
+//   textureFilterAnisotropic: false, parallelShaderCompile: true, loseContext: true,
+//   timerQuery: false, maxTextureSize: 8192, maxRenderbufferSize: 8192, maxSamples: 4,
+//   fboFormat: 0, fboFormatName: 'RGBA16F', attributes: { ... } }
+```
+
+| Field | Source |
+|-------|--------|
+| `extensions`, the extension booleans | The allow-list the engine enabled (the snapshot bits) |
+| `timerQuery` | `EXT_disjoint_timer_query_webgl2` is in `getSupportedExtensions()` (snapshot bit 14). Offered, not enabled: the HUD enables it when it starts timing |
+| `maxTextureSize`, `maxRenderbufferSize`, `maxSamples` | `get_context_limit(which)` (`WasmContextLimit`: `0` `MAX_TEXTURE_SIZE`, `1` `MAX_RENDERBUFFER_SIZE`, `2` `MAX_SAMPLES`), read once at creation. Snapshot bit 15 says the bundle answers it |
+| `fboFormat`, `attributes` | As in `contextSnapshot` |
+
+A field the bundle cannot report is `null` (`timerQuery` and the limits on a bundle without bit 15). It is read and
+replaced at the same moments as `contextSnapshot`. The worker sends the limits next to the snapshot in its `ready`
+and `context-recovered` messages (`contextLimits`).
+
+### Context profiles
+
+A context profile is a named attribute set for what the context is for. Pass `contextProfile` to
+`ProjectMContext` / `createProjectMContext()`, `?profile=` to the page shell, or `context-profile` to
+`<project-m-visualizer>`:
+
+| Profile | `powerPreference` | `antialias` | `desynchronized` | `fboPrecision` | Governor ceiling |
+|---------|-------------------|-------------|------------------|----------------|------------------|
+| `quality` | high-performance | on | off | `high` (RGBA32F) | 0: may reach full quality |
+| `balanced` | high-performance | off | off | `half` (RGBA16F) | 0 |
+| `battery` | low-power | off | off | `byte` (RGBA8) | 1: never above "regular" (64x48 mesh, Blur2 cap, 0.75x render scale) |
+| `low-latency` | high-performance | off | on | `half` | 0 |
+
+A profile only fills the options the host left undefined, so an explicit `antialias`, `powerPreference`,
+`desynchronized` or `fboPrecision` wins (`?profile=battery&aa=1` is battery with MSAA). No profile is the defaults,
+which are `balanced`. An unknown name is ignored. The mapping is `CONTEXT_PROFILES` in
+`html/projectm-context-config.js`; the attributes go through `create_host_with_config()` like any others, and the
+governor ceiling through `set_quality_tier_ceiling(tier)`: the best tier the adaptive governor may step up to, applied
+at once to a running governor above it, and kept by the host across a context loss. `get_quality_tier_ceiling()`
+reads it back. `<project-m-visualizer>` keeps its `power-preference` default (`default`, an embed is a guest) unless
+it has a profile.
+
 ### The SDL test UI's framebuffer
 
 `projectM-Test-UI` (`src/sdl-test-ui/setup.cpp`, `initGL()`) requests the same default framebuffer as the canvas
@@ -269,20 +322,32 @@ the browser accepts it, init code `8` when it refuses), and that `explicitSwapCo
 init code `9` — or, with `--explicit-swap` against the explicit-swap flavor, comes up with FBO 0
 redirected to Emscripten's offscreen back buffer.
 
-### Link flavors
+### Build flavors
 
-`scripts/build_wasm.sh` (through `scripts/build_wasm_smoke_wrapper.sh`) links the production
-bundle by default. The flavors are `projectM_wasm` cache options (`PROJECTM_WASM_GL_DEBUG`,
-`PROJECTM_WASM_EXPLICIT_SWAP`, `PROJECTM_WASM_DEBUG`), which the script sets from the environment
-variables of the same name and resets on every run. The opt-in flavors change the link and tag the build-id (`+gl-debug`,
-`+explicit-swap`, `+debug`), so `scripts/build_wasm.sh --stage`, `scripts/prepare_deploy_bundle.sh`
-and `deploy.py` refuse to ship them:
+`scripts/build_wasm.sh --flavor release|profile|debug` picks the bundle (`--debug` is `--flavor debug`). A
+non-release flavor writes to `cmake-build/wasm-smoke-<flavor>/`, so it never replaces the release link, and its
+build-id carries a tag (`+profile`, `+debug`), so `scripts/build_wasm.sh --stage`, `scripts/prepare_deploy_bundle.sh`
+and `deploy.py` refuse to ship it. The flavors are `projectM_wasm` cache options, which
+`scripts/build_wasm_smoke_wrapper.sh` sets from the environment variables of the same name and resets on every run;
+the link options below can be combined with any flavor.
 
-| Variable | Adds | For |
-|----------|------|-----|
-| `--debug` (`PROJECTM_WASM_DEBUG=1`) | `-sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2` | Runtime checks: wild pointers, stack overflow on any thread, pthread-pool exhaustion warnings. CI runs the smoke, the host churn test (`tests/wasm-smoke/host_churn.mjs`) and the deepest-nesting presets (`scripts/deepest_presets.mjs`) on it. Output defaults to `cmake-build/wasm-smoke-debug/` |
-| `PROJECTM_WASM_GL_DEBUG=1` | `-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1` | A bad context attribute or GL call is reported instead of showing as a black canvas. Production keeps `GL_TRACK_ERRORS=0`. |
-| `PROJECTM_WASM_EXPLICIT_SWAP=1` | `-sOFFSCREEN_FRAMEBUFFER=1`, `-DPROJECTM_WASM_OFFSCREEN_FRAMEBUFFER=1` | `explicitSwapControl` (manual present) |
+| Flavor / option | Adds | For |
+|-----------------|------|-----|
+| `release` (default) | nothing | The deployed bundle. `--emit-symbol-map` writes `<bundle>.js.symbols` beside it |
+| `profile` (`PROJECTM_WASM_PROFILE=1`) | wrapper TUs `-g`; link `-g2 --profiling-funcs -gseparate-dwarf=<bundle>.debug.wasm -sSEPARATE_DWARF_URL=<bundle>.debug.wasm`. A full `--flavor profile` build also compiles the libraries with `-g` (`PROJECTM_WASM_DEBUG_INFO`) | DevTools profiles and stack traces with function names (the name section stays in the `.wasm`), and file:line through the split DWARF ([Symbolizing a production stack trace](#symbolizing-a-production-stack-trace)). Still `-O3` and `NDEBUG`, but the link warns `-Wlimited-postlink-optimizations`: wasm-opt keeps the DWARF valid, so it is not the release binary (2.87 MB `.wasm` against 1.96 MB, glue unminified). Never deployed |
+| `debug` (`PROJECTM_WASM_DEBUG=1`) | `-sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2` | Runtime checks: wild pointers, stack overflow on any thread, pthread-pool exhaustion warnings. CI runs the smoke, the host churn test (`tests/wasm-smoke/host_churn.mjs`) and the deepest-nesting presets (`scripts/deepest_presets.mjs`) on it |
+| `PROJECTM_WASM_GL_DEBUG=1` | `-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1` | A bad context attribute or GL call is reported instead of showing as a black canvas. Production keeps `GL_TRACK_ERRORS=0` (`+gl-debug`) |
+| `PROJECTM_WASM_EXPLICIT_SWAP=1` | `-sOFFSCREEN_FRAMEBUFFER=1`, `-DPROJECTM_WASM_OFFSCREEN_FRAMEBUFFER=1` | `explicitSwapControl` (manual present) (`+explicit-swap`) |
+| `PROJECTM_WASM_MALLOC=dlmalloc` | `-sMALLOC=dlmalloc` instead of `mimalloc` | The allocator A/B ([docs/PERFORMANCE.md "Allocator"](PERFORMANCE.md#allocator-mimalloc-vs-dlmalloc)) (`+dlmalloc`) |
+
+`PROJECTM_WASM_DEBUG_INFO` is a library switch like `PROJECTM_WASM_LTO`: `--flavor profile` sets it, every other full
+build clears it, and switching rebuilds the libraries. Libraries compiled with `-g` do not link to the release binary
+(emsdk 6.0.6: the `.wasm` and the symbol map differ), so any link against them is tagged `+debug-info` and cannot be
+staged. A `--link-only --flavor profile` against release libraries (what CI does) has DWARF for the wrapper TUs only;
+the name section still names every function.
+
+The [flag matrix](#flag-matrix-cmake-lib-link-vs-bundle-link) has the settings every flavor shares, and
+`tests/wasm-smoke/link-flags/<flavor>.txt` the exact compile and link lines of each one.
 
 The production `-s` settings are otherwise unchanged: `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`,
 `FULL_ES3=0`, `GL_ENABLE_GET_PROC_ADDRESS=1`, `GL_TRACK_ERRORS=0`, `ALLOW_MEMORY_GROWTH=0`,
@@ -613,12 +678,33 @@ high-water mark gets within 4x of it; turn growth back on only if a real workloa
 
 ## Symbolizing a production stack trace
 
-The link passes `--emit-symbol-map`, which writes `<bundle>.js.symbols` (`index:name` per line)
-next to the glue; the `.wasm` is byte-identical with or without it. `prepare_deploy_bundle.sh`
-stages it as `projectm-v.<version>-thread.symbols` at the repo root. It is gitignored and
-`deploy.py` does not upload it, so keep the file for every version you deploy. A frame such as
-`wasm-function[1234]` resolves with `grep '^1234:' projectm-v.040-thread.symbols | c++filt`.
-The index includes imports, so use the number exactly as the browser printed it.
+`scripts/symbolize_wasm_trace.mjs` rewrites the wasm frames of a pasted browser stack trace (Chrome's
+`wasm-function[N]:0x...`, Firefox's `name@...wasm:wasm-function[N]:0x...`, Safari's `wasm-function[N]@[wasm code]`):
+
+```bash
+node scripts/symbolize_wasm_trace.mjs --symbols projectm-v.040-thread.symbols < trace.txt
+```
+
+```bash
+node scripts/symbolize_wasm_trace.mjs --dwarf cmake-build/wasm-smoke-profile/projectm-v.030-thread.debug.wasm trace.txt
+```
+
+| Source | From | Gives |
+|--------|------|-------|
+| `--symbols <file>` | The release link's `--emit-symbol-map`: `<bundle>.js.symbols`, staged by `prepare_deploy_bundle.sh` as `projectm-v.<version>-thread.symbols` (gitignored, not uploaded: keep it for every version you deploy) | Function names by index. The index includes imports, so the browser's number is used as printed |
+| `--wasm <file>` | A `.wasm` that kept its name section (the profile flavor's) | Function names by index |
+| `--dwarf <file>` | The profile flavor's `<bundle>.debug.wasm` | Function, file:line:column and inlined frames, through `llvm-symbolizer` (emsdk's; `--llvm-symbolizer` or `$LLVM_SYMBOLIZER` to point elsewhere). Needs the frame's byte offset, which Safari does not print |
+
+A source only means something for the link that produced the trace: two links number functions differently, and the
+symbolizer cannot tell (it exits 1 only when no frame resolves at all). The release `.wasm` has no names and no
+DWARF, so a production trace takes that version's `.symbols`; for file and line, reproduce on a profile build. The
+release link's wasm-opt inlines more than clang did, so a release frame names the function the code ended up in.
+
+`tests/wasm-smoke/symbolize_trap.mjs` is the round trip CI runs on both flavors: the internal test hook
+`debug_force_trap()` executes a wasm `unreachable` (an out-of-bounds load would be the natural trap, but sandboxed
+Chromium can kill the renderer on one instead of throwing), and the trace must resolve through the symbol map, and
+on the profile flavor through the name section and the DWARF to the `__builtin_trap()` line in
+`src/wasm/projectM_emscripten.cpp`.
 
 ## Deploy staleness guard
 
@@ -712,24 +798,38 @@ If you add a new `.cpp` TU, also add it to `PROJECTM_WASM_WRAPPER_SOURCES` in
 
 ### Flag matrix (CMake lib link vs. bundle link)
 
+The table is the summary; the record is `tests/wasm-smoke/link-flags/<flavor>.txt`, one per flavor (`release`,
+`profile`, `debug`, `gl-debug`, `explicit-swap`, `dlmalloc`, `lto`): the exact wrapper-TU compile, library-TU compile
+and bundle link lines, one argument per line, paths as `<src>`/`<build>`. `scripts/check_wasm_link_flags.sh
+<emscripten-build-dir>` reconfigures the build dir once per flavor, reads the commands Ninja would run
+(`ninja -t commands`, nothing is built), compares them with the snapshots and restores the dir's options;
+`build_emscripten.yml` runs it after the build. A change to any flag (or to the TU list, or their order) fails it
+until the snapshots are regenerated with `--update` and committed with the change, so it shows up in review. The
+`EXPORTED_FUNCTIONS` list is a placeholder there: `cmake/WasmApiManifest.cmake` owns it and
+`scripts/check_wasm_api_dts.mjs` checks it.
+
 | Setting | CMake lib link | Bundle link (`projectM_wasm`) | Notes |
 |---------|:--------------:|:------------------:|-------|
 | `SHARED_MEMORY=1`, `-pthread` | yes | yes | Required for the pthread pool + SharedArrayBuffer. No `WASM_WORKERS`: every thread is a pthread |
-| `PTHREAD_POOL_SIZE` | yes (`5`) | yes (`5`; an env override is rejected) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 2) |
+| `PTHREAD_POOL_SIZE` | yes (`7`) | yes (`7`; an override is rejected at configure time) | OpenMP helpers (`kWasmOpenMpThreads - 1` = 3) + one prepare thread per host (`kWasmPresetPrepareThreads` = 4) |
 | `STACK_SIZE=1MB`, `DEFAULT_PTHREAD_STACK_SIZE=512KB` | yes | yes | See [Emscripten flag single source of truth](#emscripten-flag-single-source-of-truth) |
 | `INVOKE_RUN=0` | no | yes | Hosts call `init*()` / `create_host*()` themselves |
 | `-fno-strict-aliasing -fno-math-errno` | compile | compile | `PROJECTM_WASM_CODEGEN_COMPILE_FLAGS` |
 | `-include config.h`, libprojectM's compile definitions | compile | compile (the libraries' `COMPILE_DEFINITIONS`) | Same type layouts on both sides of the link |
-| `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0` | yes | yes | Fixed heap; see [Heap model](#heap-model) |
+| `MALLOC=mimalloc`, `INITIAL_MEMORY=256mb`, `ALLOW_MEMORY_GROWTH=0`, `ABORTING_MALLOC=0` | yes | yes (`PROJECTM_WASM_MALLOC=dlmalloc` for the A/B) | Fixed heap; see [Heap model](#heap-model). mimalloc's per-thread heaps: see [docs/PERFORMANCE.md "Allocator"](PERFORMANCE.md#allocator-mimalloc-vs-dlmalloc) |
 | `USE_WEBGL2=1`, `MIN/MAX_WEBGL_VERSION=2`, `FULL_ES2=0`, `FULL_ES3=0` | yes | yes | Native WebGL 2, no GL emulation layer |
 | `GL_TRACK_ERRORS=0` | yes | yes | No per-call GL error tracking. (`GL_POOL_TEMP_BUFFERS` is gone: with the heap under 2 GB the garbage-free WebGL2 upload APIs are on and it no longer reaches the glue) |
 | `-msimd128`, no `-mrelaxed-simd` | compile + link | compile + link | The [feature floor](#wasm-feature-floor) |
 | `-fwasm-exceptions` | compile + link | compile + link | C++ exception ABI, unconditional. The JS-trampoline fallback (`PROJECTM_WASM_EXCEPTIONS=js`) only existed because of ASYNCIFY and is rejected now |
 | `-flto` (`PROJECTM_WASM_LTO`) | compile (`-DPROJECTM_WASM_LTO=ON`, `scripts/build_wasm.sh --lto`) | link (follows the libraries) | Opt-in whole-program LTO: the static libs become bitcode. One switch, the CMake cache entry, which the bundle target follows. The wrapper TUs stay native objects because Emscripten 6.0.6 drops `EM_JS` definitions compiled to bitcode |
 | `EXPORTED_FUNCTIONS` (`PROJECTM_WASM_WRAPPER_EXPORTED_FUNCTIONS`) | no | yes | Single list in `EmscriptenWasmFlags.cmake`. The CMake link only produces the unit-test executables, which do not contain these symbols |
-| `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap` | `ccall,cwrap,FS` | Wrapper adds `FS` for VFS preset loading |
+| `EXPORTED_RUNTIME_METHODS` | `ccall,cwrap,HEAPF32,HEAPU8` | `ccall,cwrap,HEAPF32,HEAPU8,FS,specialHTMLTargets` | The heap views are host API (the PCM ring, frame capture); the wrapper adds `FS` for VFS preset loading and `specialHTMLTargets` for the render worker's canvas |
 | `ENVIRONMENT=web,worker`, `MODULARIZE=1`, `EXPORT_NAME=createModule` | no | yes | Browser bundle packaging |
 | `--emit-symbol-map` | no | yes | Writes `<bundle>.js.symbols` for symbolizing production stack traces; see [Symbolizing a production stack trace](#symbolizing-a-production-stack-trace) |
+| `-g` (`PROJECTM_WASM_DEBUG_INFO`) | compile, `--flavor profile` only | — | DWARF for the profile flavor's `.debug.wasm`; links against these libraries are tagged `+debug-info` |
+| `-g` wrapper TUs; `-g2 --profiling-funcs -gseparate-dwarf -sSEPARATE_DWARF_URL` | — | profile flavor | See [Build flavors](#build-flavors) |
+| `-sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2` / `-sGL_TRACK_ERRORS=1 -sGL_ASSERTIONS=1` / `-sOFFSCREEN_FRAMEBUFFER=1` | — | debug / gl-debug / explicit-swap flavors | Never deployed |
+| `-Wall -Wextra -Wno-invalid-pp-token` (+ `-Werror` with `PROJECTM_WASM_WERROR=1`) | the libraries' own set (`-Wall -Wextra -Wpedantic -Wshadow ...`) | wrapper TUs | See AGENTS.md "Warnings ratchet" |
 | OpenMP cap in `projectM_emscripten.cpp` | — | — | `omp_set_num_threads(min(kWasmOpenMpThreads, hardwareConcurrency - 1))`; see below |
 | OpenMP blocktime in `projectM_emscripten.cpp` | — | — | `kmp_set_blocktime(0)` — see "OpenMP blocktime" below |
 
@@ -861,7 +961,7 @@ only a `stderr` message in the console.
 | `6` | WebGL | Primary canvas selector resolves to nothing (`specialHTMLTargets`, then the DOM). Was part of `2`. | Selector typo, canvas not in the document yet, worker canvas not registered. |
 | `7` | WebGL | The context was created but `emscripten_webgl_make_context_current` failed. Was part of `2`. | GPU process trouble; context lost between create and activate. |
 | `8` | WebGL | `failIfMajorPerformanceCaveat` refused the context, and a probe on a throwaway 1×1 `OffscreenCanvas` shows WebGL 2 *would* come up without it — i.e. only a software renderer (SwiftShader, llvmpipe) is available. | Hardware acceleration off, blocklisted GPU/driver, headless browser. Only possible when the host opted in. |
-| `9` | WebGL | `explicitSwapControl` was requested from a bundle linked without `OFFSCREEN_FRAMEBUFFER`. | Page needs the explicit-swap link flavor ([Link flavors](#link-flavors)). |
+| `9` | WebGL | `explicitSwapControl` was requested from a bundle linked without `OFFSCREEN_FRAMEBUFFER`. | Page needs the explicit-swap link flavor ([Build flavors](#build-flavors)). |
 
 ### Main-thread freeze on 033/034 (OpenMP vs. pthread pool)
 

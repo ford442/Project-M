@@ -114,7 +114,9 @@ build_fact() {
 
 # Main thread: the start-up code sets the stack base (the stack pointer's
 # initial value, global 0) and then the stack end; STACK_SIZE is the difference.
-stack_pointer=$(sed -n 's/^ (global \$global\$0 (mut i32) (i32.const \([0-9]*\)))$/\1/p' "$wat" | head -n1)
+# The first global is the stack pointer: $global$0 in a release module, or
+# $__stack_pointer in the profile flavor, which keeps the name section.
+stack_pointer=$(sed -n 's/^ (global \$[^ ]* (mut i32) (i32.const \([0-9]*\)))$/\1/p' "$wat" | head -n1)
 stack_end=""
 if [[ -n "$stack_pointer" ]]; then
     stack_end=$(grep -A4 "^   (i32.const $stack_pointer)\$" "$wat" | sed -n 's/^   (i32.const \([0-9]*\))$/\1/p' | grep -vx "$stack_pointer" | head -n1)
@@ -129,7 +131,10 @@ fi
 
 # pthreads: the main thread's _emscripten_thread_init() call passes
 # DEFAULT_PTHREAD_STACK_SIZE (5th argument); a worker's own call passes 0.
-pthread_stack=$(grep -oE '_emscripten_thread_init\([^)]*\)' "$glue" | awk -F, '{print $5}' | sort -n | tail -n1)
+# The profile flavor's glue is not minified: the call spans lines and carries
+# /*name=*/ comments, so both are dropped before splitting the arguments.
+pthread_stack=$(tr '\n' ' ' < "$glue" | grep -oE '_emscripten_thread_init\([^)]*\)' \
+    | sed -E 's#/\*[^*]*\*/##g; s/[[:space:]]+//g' | awk -F, '{print $5}' | sort -n | tail -n1)
 if [[ "$pthread_stack" != "$want_pthread_stack" ]]; then
     echo "ERROR: pthread stack is ${pthread_stack:-unknown} bytes, expected DEFAULT_PTHREAD_STACK_SIZE=$want_pthread_stack." >&2
     failed=1

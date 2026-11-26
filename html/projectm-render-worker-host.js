@@ -57,6 +57,9 @@ export function setupRenderWorker({
     const pendingCaptures = /* @__PURE__ */ new Map();
     let engineHost = DEFAULT_HOST;
     let contextSnapshotBits = null;
+    let contextLimitValues = null;
+    const limitsOf = (limits) =>
+        Array.isArray(limits) && limits.every((n) => typeof n === 'number') ? Object.freeze([...limits]) : null;
     const contextListeners = /* @__PURE__ */ new Set();
     let pendingRecovery = null;
     let settleRecovery = null;
@@ -110,6 +113,7 @@ export function setupRenderWorker({
             case 'ready':
                 engineHost = typeof msg.host === 'number' ? msg.host : DEFAULT_HOST;
                 contextSnapshotBits = typeof msg.contextSnapshot === 'number' ? msg.contextSnapshot : null;
+                contextLimitValues = limitsOf(msg.contextLimits);
                 if (onReady) onReady();
                 break;
             case 'unsupported':
@@ -158,6 +162,7 @@ export function setupRenderWorker({
             case 'context-recovered':
                 if (msg.status === 0) {
                     contextSnapshotBits = typeof msg.contextSnapshot === 'number' ? msg.contextSnapshot : null;
+                    contextLimitValues = limitsOf(msg.contextLimits);
                 }
                 if (settleRecovery) {
                     settleRecovery(msg.status);
@@ -219,6 +224,9 @@ export function setupRenderWorker({
         },
         contextSnapshot() {
             return contextSnapshotBits;
+        },
+        contextLimits() {
+            return contextLimitValues;
         },
         onContextEvent(listener) {
             contextListeners.add(listener);

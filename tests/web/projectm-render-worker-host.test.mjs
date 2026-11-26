@@ -712,6 +712,7 @@ test('contextSnapshot() is what the worker last reported: null at first, replace
     handle.worker.emit({ type: 'context-recovered', status: 0 });
     await again;
     assert.equal(handle.contextSnapshot(), null);
+    assert.equal(handle.contextLimits(), null);
 
     clearMockWorkerEnv();
 });
@@ -836,4 +837,34 @@ test('selectRenderTopology falls back on an init-error and terminates the worker
     assert.equal(spawned.terminated, true);
     assert.deepEqual(reasons, ['render worker failed to boot (init code 7): make-current failed']);
     clearMockWorkerEnv();
+});
+
+test('contextLimits() travels with the snapshot: ready, then each successful recovery', async () => {
+    installMockWorkerEnv();
+    const handle = setupRenderWorker({
+        canvas: makeCanvas({ offscreen: {} }),
+        scriptSrc: 'projectm.js',
+        width: 1,
+        height: 1,
+    });
+    assert.equal(handle.contextLimits(), null);
+    handle.worker.emit({ type: 'ready', host: 2, contextSnapshot: 271, contextLimits: [16384, 8192, 4] });
+    assert.deepEqual(handle.contextLimits(), [16384, 8192, 4]);
+    assert.ok(Object.isFrozen(handle.contextLimits()));
+
+    const failed = handle.recoverContext();
+    handle.worker.emit({ type: 'context-recovered', status: 5 });
+    await failed;
+    assert.deepEqual(handle.contextLimits(), [16384, 8192, 4], 'a failed recovery keeps them');
+
+    const recovered = handle.recoverContext();
+    handle.worker.emit({ type: 'context-recovered', status: 0, contextSnapshot: 521, contextLimits: [4096, 4096, 0] });
+    await recovered;
+    assert.deepEqual(handle.contextLimits(), [4096, 4096, 0]);
+
+    // Anything but an array of numbers is not a set of limits.
+    const garbled = handle.recoverContext();
+    handle.worker.emit({ type: 'context-recovered', status: 0, contextSnapshot: 521, contextLimits: ['big'] });
+    await garbled;
+    assert.equal(handle.contextLimits(), null);
 });

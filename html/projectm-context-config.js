@@ -20,6 +20,8 @@ import { FORMAT_NAMES } from './projectm-fbo-format.js';
 /**
  * @typedef {import('@projectm/types/context').ProjectMContextOptions} ProjectMContextOptions
  * @typedef {import('@projectm/types/context').ProjectMContextSnapshot} ProjectMContextSnapshot
+ * @typedef {import('@projectm/types/context').ProjectMContextCaps} ProjectMContextCaps
+ * @typedef {import('@projectm/types/context').ProjectMContextLimits} ProjectMContextLimits
  * @typedef {import('@projectm/types/context').ProjectMContextAttributes} ProjectMContextAttributes
  * @typedef {import('@projectm/types/context').ProjectMContextAttributeMismatch} ProjectMContextAttributeMismatch
  * @typedef {import('@projectm/types/render-worker').WasmContextConfig} WasmContextConfig
@@ -62,6 +64,21 @@ export const CONTEXT_SNAPSHOT_BITS = Object.freeze({
     parallelShaderCompile: 1 << 10,
     /** The extension bits are the context's whole enabled set (bundles before the allow-list leave this 0). */
     extensionsKnown: 1 << 11,
+    /** EXT_disjoint_timer_query_webgl2 is offered (not enabled: the perf HUD enables it to time). */
+    timerQuery: 1 << 14,
+    /** get_context_limit() answers on this bundle (bundles before it leave this 0). */
+    limitsKnown: 1 << 15,
+});
+
+/**
+ * get_context_limit()'s argument for each limit. Mirrors WasmContextLimit in
+ * src/wasm/WasmWebGLContext.hpp (tests/web/projectm-context-config.test.mjs
+ * keeps the two identical).
+ */
+export const CONTEXT_LIMITS = Object.freeze({
+    maxTextureSize: 0,
+    maxRenderbufferSize: 1,
+    maxSamples: 2,
 });
 
 /**
@@ -191,13 +208,183 @@ export function decodeContextSnapshot(packed, requested) {
         mismatches: attributes && requested ? contextAttributeMismatches(requested, attributes) : Object.freeze([]),
     });
 }
+/**
+ * The limits a host reads with get_context_limit(), in {@link CONTEXT_LIMITS}
+ * order, or null when the bundle cannot answer (no export, or a snapshot without
+ * the limitsKnown bit).
+ *
+ * @param {number} packed get_context_snapshot()'s result.
+ * @param {(which: number) => number} getLimit get_context_limit() for this host.
+ * @returns {ProjectMContextLimits | null}
+ */
+export function readContextLimits(packed, getLimit) {
+    const bits = Number(packed);
+    if (!Number.isInteger(bits) || (bits & CONTEXT_SNAPSHOT_BITS.limitsKnown) === 0) {
+        return null;
+    }
+    const value = (/** @type {number} */ which) => {
+        const n = Number(getLimit(which));
+        return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+    };
+    return Object.freeze({
+        maxTextureSize: value(CONTEXT_LIMITS.maxTextureSize),
+        maxRenderbufferSize: value(CONTEXT_LIMITS.maxRenderbufferSize),
+        maxSamples: value(CONTEXT_LIMITS.maxSamples),
+    });
+}
+
+/**
+ * Everything the engine negotiated with WebGL, as one capability set: the
+ * extensions it enabled (and the GPU timer the browser offers), whether it can
+ * render to and filter float targets, its limits, and the attributes the
+ * context really has. Null when the snapshot says the host has no context.
+ *
+ * This is what callers read instead of probing a context of their own: the
+ * canvas sizing clamps to `maxRenderbufferSize`, the perf HUD's GPU timer only
+ * runs where `timerQuery` is true. Fields a bundle cannot report are null
+ * (`extensions` before the allow-list, the limits before get_context_limit()).
+ *
+ * @param {number} packed get_context_snapshot()'s result.
+ * @param {ProjectMContextLimits | null} [limits] {@link readContextLimits}'s result.
+ * @returns {ProjectMContextCaps | null}
+ */
+export function decodeContextCaps(packed, limits = null) {
+    const snapshot = decodeContextSnapshot(packed);
+    if (!snapshot) {
+        return null;
+    }
+    const bits = Number(packed);
+    const b = CONTEXT_SNAPSHOT_BITS;
+    const has = (/** @type {number} */ bit) => (bits & bit) !== 0;
+    return Object.freeze({
+        extensions: snapshot.extensions,
+        floatColorBuffer: snapshot.floatColorBuffer,
+        halfFloatColorBuffer: has(b.halfFloatColorBuffer),
+        floatLinear: has(b.floatLinear),
+        floatBlend: snapshot.floatBlend,
+        textureFilterAnisotropic: has(b.textureFilterAnisotropic),
+        parallelShaderCompile: has(b.parallelShaderCompile),
+        loseContext: snapshot.loseContext,
+        // timerQuery arrived with the limits: without limitsKnown it is unknown, not false.
+        timerQuery: has(b.limitsKnown) ? has(b.timerQuery) : null,
+        maxTextureSize: limits ? limits.maxTextureSize || null : null,
+        maxRenderbufferSize: limits ? limits.maxRenderbufferSize || null : null,
+        maxSamples: limits ? limits.maxSamples : null,
+        fboFormat: snapshot.fboFormat,
+        fboFormatName: snapshot.fboFormatName,
+        attributes: snapshot.attributes,
+    });
+}
+
 /** The FboFloatFormat numbering, which dual_fbo_get_format() also reports. */
 /** @type {Record<string, number>} */
 const FBO_PRECISION = { 'half': 0, 'high': 1, 'byte': 2 };
 
 /**
+ * The context profiles (`contextProfile` option, `?profile=`): named attribute
+ * sets for what a context is for. A profile only fills options the host left
+ * undefined, so an explicit `antialias`, `powerPreference`, `desynchronized` or
+ * `fboPrecision` always wins over it. `qualityTierCeiling` is the best tier the
+ * adaptive governor may step up to (set_quality_tier_ceiling(); 0 = full
+ * quality). `balanced` is the defaults a context without a profile gets. See
+ * docs/EMSCRIPTEN.md "Context profiles".
+ */
+export const CONTEXT_PROFILES = Object.freeze({
+    /** The discrete GPU, MSAA on the canvas, RGBA32F transitions, no governor cap. */
+    quality: Object.freeze({
+        powerPreference: 'high-performance',
+        antialias: true,
+        desynchronized: false,
+        fboPrecision: 'high',
+        qualityTierCeiling: 0,
+    }),
+    /** Today's defaults: the discrete GPU, no MSAA, RGBA16F transitions. */
+    balanced: Object.freeze({
+        powerPreference: 'high-performance',
+        antialias: false,
+        desynchronized: false,
+        fboPrecision: 'half',
+        qualityTierCeiling: 0,
+    }),
+    /**
+     * Laptops on battery and embeds on someone else's page: the integrated GPU,
+     * RGBA8 transitions (half the bandwidth of RGBA16F), and the governor held
+     * at tier 1 or below (64x48 mesh, blur capped, 0.75x render scale).
+     */
+    battery: Object.freeze({
+        powerPreference: 'low-power',
+        antialias: false,
+        desynchronized: false,
+        fboPrecision: 'byte',
+        qualityTierCeiling: 1,
+    }),
+    /**
+     * Live performance: the `desynchronized` canvas hint (the browser may skip
+     * the compositor's frame of latency where it supports it), no MSAA resolve.
+     */
+    'low-latency': Object.freeze({
+        powerPreference: 'high-performance',
+        antialias: false,
+        desynchronized: true,
+        fboPrecision: 'half',
+        qualityTierCeiling: 0,
+    }),
+});
+
+/** @typedef {keyof typeof CONTEXT_PROFILES} ContextProfileName */
+
+/**
+ * A profile name from a URL or an attribute, or null for anything else (an
+ * unknown name is ignored, not an error: the context starts with the defaults).
+ *
+ * @param {unknown} name
+ * @returns {ContextProfileName | null}
+ */
+export function parseContextProfile(name) {
+    const key = typeof name === 'string' ? name.trim().toLowerCase() : '';
+    return Object.prototype.hasOwnProperty.call(CONTEXT_PROFILES, key) ? /** @type {ContextProfileName} */ (key) : null;
+}
+
+/**
+ * The options with `contextProfile`'s values filled in where the host left an
+ * option undefined. Without a (known) profile, the options as given.
+ *
+ * @template {Partial<ProjectMContextOptions>} T
+ * @param {T} options
+ * @returns {T}
+ */
+export function withContextProfile(options) {
+    const name = parseContextProfile(options.contextProfile);
+    if (!name) {
+        return options;
+    }
+    const profile = CONTEXT_PROFILES[name];
+    return {
+        ...options,
+        powerPreference: options.powerPreference ?? profile.powerPreference,
+        antialias: options.antialias ?? profile.antialias,
+        desynchronized: options.desynchronized ?? profile.desynchronized,
+        fboPrecision: options.fboPrecision ?? profile.fboPrecision,
+    };
+}
+
+/**
+ * The governor ceiling the options ask for (set_quality_tier_ceiling()): the
+ * profile's, or null when there is no profile (the engine default, no cap).
+ *
+ * @param {Partial<ProjectMContextOptions>} options
+ * @returns {number | null}
+ */
+export function qualityTierCeilingFor(options) {
+    const name = parseContextProfile(options.contextProfile);
+    return name ? CONTEXT_PROFILES[name].qualityTierCeiling : null;
+}
+
+/**
  * Context options → create_host_with_config()'s arguments. Every attribute is
  * encoded explicitly, so the C++ defaults never decide anything for a JS host.
+ * A `contextProfile` fills the attributes the options leave undefined
+ * ({@link withContextProfile}).
  *
  * `presentMode: 'manual'` sets the explicitSwapControl bit, like
  * `explicitSwapControl: true`.
@@ -211,6 +398,7 @@ const FBO_PRECISION = { 'half': 0, 'high': 1, 'byte': 2 };
  * @returns {WasmContextConfig}
  */
 export function resolveWasmContextConfig(options = {}) {
+    options = withContextProfile(options);
     const f = CONTEXT_CONFIG_FLAGS;
     const flags = (options.antialias ? f.antialias : 0)
         | (options.preserveDrawingBuffer ? f.preserveDrawingBuffer : 0)

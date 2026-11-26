@@ -127,6 +127,55 @@ export interface ProjectMContextSnapshot {
     readonly mismatches: readonly ProjectMContextAttributeMismatch[];
 }
 
+/** The context limits the engine read when it created the context (`get_context_limit()`). */
+export interface ProjectMContextLimits {
+    /** `MAX_TEXTURE_SIZE`. */
+    readonly maxTextureSize: number;
+    /** `MAX_RENDERBUFFER_SIZE`: the largest drawing buffer the canvas can have. */
+    readonly maxRenderbufferSize: number;
+    /** `MAX_SAMPLES`: the most MSAA samples a render target can have (0 when unknown). */
+    readonly maxSamples: number;
+}
+
+/**
+ * Everything the engine negotiated with WebGL, as one capability set, from
+ * `ProjectMContext.contextCaps`: read once when the context is created, so
+ * nothing needs to probe a context of its own. Fields a bundle cannot report
+ * are null.
+ */
+export interface ProjectMContextCaps {
+    /** The WebGL extensions the engine enabled; null on bundles from before the allow-list. */
+    readonly extensions: readonly string[] | null;
+    /** `EXT_color_buffer_float`: RGBA16F / RGBA32F render targets. */
+    readonly floatColorBuffer: boolean;
+    /** `EXT_color_buffer_half_float`: RGBA16F render targets. */
+    readonly halfFloatColorBuffer: boolean;
+    /** `OES_texture_float_linear`: RGBA32F filters linearly. */
+    readonly floatLinear: boolean;
+    /** `EXT_float_blend`: blending into RGBA32F targets. */
+    readonly floatBlend: boolean;
+    /** `EXT_texture_filter_anisotropic`. */
+    readonly textureFilterAnisotropic: boolean;
+    /** `KHR_parallel_shader_compile`: shader links complete off the render thread. */
+    readonly parallelShaderCompile: boolean;
+    /** `WEBGL_lose_context`: a loss can be simulated. */
+    readonly loseContext: boolean;
+    /**
+     * `EXT_disjoint_timer_query_webgl2` is offered, so the perf HUD can time the
+     * GPU. Offered, not enabled: the HUD enables it when it starts timing.
+     */
+    readonly timerQuery: boolean | null;
+    readonly maxTextureSize: number | null;
+    /** The canvas backing store is clamped to this (syncCanvasSize()). */
+    readonly maxRenderbufferSize: number | null;
+    readonly maxSamples: number | null;
+    /** The dual-FBO colour format in use, as in {@link ProjectMContextSnapshot.fboFormat}. */
+    readonly fboFormat: 0 | 1 | 2;
+    readonly fboFormatName: 'RGBA16F' | 'RGBA32F' | 'RGBA8';
+    /** The attributes the context really has; null on bundles that predate reporting them. */
+    readonly attributes: ProjectMContextAttributes | null;
+}
+
 /** WebGL context attributes, by the option names they are requested with. */
 export interface ProjectMContextAttributes {
     readonly antialias: boolean;
@@ -220,6 +269,20 @@ export interface ProjectMPresetDetail {
     path?: string;
     text?: string;
 }
+
+/**
+ * A named set of context attributes and a governor ceiling, for what the
+ * context is for (`contextProfile`, `?profile=`). Explicit attribute options
+ * win over the profile. See docs/EMSCRIPTEN.md "Context profiles".
+ *
+ * | profile       | powerPreference  | antialias | desynchronized | fboPrecision | governor ceiling |
+ * |---------------|------------------|-----------|----------------|--------------|------------------|
+ * | `quality`     | high-performance | on        | off            | high         | 0 (none)         |
+ * | `balanced`    | high-performance | off       | off            | half         | 0 (none)         |
+ * | `battery`     | low-power        | off       | off            | byte         | 1                |
+ * | `low-latency` | high-performance | off       | on             | half         | 0 (none)         |
+ */
+export type ProjectMContextProfile = 'quality' | 'balanced' | 'battery' | 'low-latency';
 
 export interface ProjectMContextOptions {
     /**
@@ -327,6 +390,14 @@ export interface ProjectMContextOptions {
      * exactly as without it. See docs/FLASH_LIMITER.md for what it does not cover.
      */
     flashLimit?: boolean | ProjectMFlashLimitOptions;
+    /**
+     * A named set of the attributes below plus a governor ceiling
+     * ({@link ProjectMContextProfile}). It fills only the options left
+     * undefined, so `contextProfile: 'battery', fboPrecision: 'half'` is the
+     * battery profile with RGBA16F transitions. No profile: the defaults (the
+     * same as `'balanced'`). The page shell reads it from `?profile=`.
+     */
+    contextProfile?: ProjectMContextProfile;
     /**
      * WebGL `desynchronized` hint: low-latency present that may bypass the
      * compositor (and tear). Live hosts only; default false.

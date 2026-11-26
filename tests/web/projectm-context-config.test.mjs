@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
     CONTEXT_CONFIG_FLAGS,
+    CONTEXT_LIMITS,
+    CONTEXT_PROFILES,
     CONTEXT_SNAPSHOT_ATTRIBUTES_MASK,
     CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT,
     CONTEXT_SNAPSHOT_BITS,
@@ -17,10 +19,15 @@ import {
     contextAttributeMismatches,
     createConfiguredHost,
     decodeContextAttributes,
+    decodeContextCaps,
     decodeContextSnapshot,
     legacyContextConfigArgs,
+    parseContextProfile,
+    qualityTierCeilingFor,
+    readContextLimits,
     resolveFlashLimit,
     resolveWasmContextConfig,
+    withContextProfile,
 } from '../../html/projectm-context-config.js';
 
 const F = CONTEXT_CONFIG_FLAGS;
@@ -208,6 +215,8 @@ test('the snapshot layout matches WasmContextSnapshotBit and the format field in
         kSnapshotTextureFilterAnisotropic: 'textureFilterAnisotropic',
         kSnapshotParallelShaderCompile: 'parallelShaderCompile',
         kSnapshotExtensionsKnown: 'extensionsKnown',
+        kSnapshotTimerQuery: 'timerQuery',
+        kSnapshotLimitsKnown: 'limitsKnown',
     };
     const found = [...header.matchAll(/(kSnapshot(?!Format)\w+)\s*=\s*1\s*<<\s*(\d+)/g)];
     assert.equal(found.length, Object.keys(names).length, 'every C++ snapshot bit has a JS counterpart');
@@ -344,4 +353,127 @@ test('the decoded snapshot is frozen: a host cannot edit what the engine reporte
     assert.ok(snapshot && Object.isFrozen(snapshot));
     assert.throws(() => { /** @type {any} */ (snapshot).floatColorBuffer = false; }, TypeError);
     assert.equal(snapshot.floatColorBuffer, true);
+});
+
+test('the snapshot bits, the format, power and attribute fields never overlap', () => {
+    const fields = [
+        ...Object.values(CONTEXT_SNAPSHOT_BITS),
+        CONTEXT_SNAPSHOT_FORMAT_MASK << CONTEXT_SNAPSHOT_FORMAT_SHIFT,
+        CONTEXT_SNAPSHOT_POWER_MASK << CONTEXT_SNAPSHOT_POWER_SHIFT,
+        CONTEXT_SNAPSHOT_ATTRIBUTES_MASK << CONTEXT_SNAPSHOT_ATTRIBUTES_SHIFT,
+    ];
+    fields.forEach((a, i) => fields.forEach((b, j) => {
+        if (i !== j) assert.equal(a & b, 0, `fields ${i} and ${j} overlap`);
+    }));
+});
+
+test('CONTEXT_LIMITS matches WasmContextLimit in WasmWebGLContext.hpp', () => {
+    const header = readFileSync(new URL('../../src/wasm/WasmWebGLContext.hpp', import.meta.url), 'utf8');
+    /** @type {Record<string, keyof typeof CONTEXT_LIMITS>} */
+    const names = {
+        kContextLimitMaxTextureSize: 'maxTextureSize',
+        kContextLimitMaxRenderbufferSize: 'maxRenderbufferSize',
+        kContextLimitMaxSamples: 'maxSamples',
+    };
+    const found = [...header.matchAll(/(kContextLimit\w+)\s*=\s*(\d+)/g)];
+    assert.equal(found.length, Object.keys(names).length, 'every C++ limit has a JS counterpart');
+    for (const [, cxxName, value] of found) {
+        assert.equal(CONTEXT_LIMITS[names[cxxName]], Number(value), cxxName);
+    }
+    // The order readContextLimits() and the transports index by.
+    assert.deepEqual(Object.values(CONTEXT_LIMITS), [0, 1, 2]);
+});
+
+test('readContextLimits asks get_context_limit() only when the snapshot says it answers', () => {
+    const b = CONTEXT_SNAPSHOT_BITS;
+    /** @type {number[]} */
+    const asked = [];
+    const getLimit = (/** @type {number} */ which) => {
+        asked.push(which);
+        return [16384, 8192, 4][which];
+    };
+    assert.equal(readContextLimits(b.valid, getLimit), null);
+    assert.deepEqual(asked, []);
+    assert.deepEqual(readContextLimits(b.valid | b.limitsKnown, getLimit),
+        { maxTextureSize: 16384, maxRenderbufferSize: 8192, maxSamples: 4 });
+    assert.deepEqual(asked, [0, 1, 2]);
+    // Garbage from a lost context reads as unknown (0), never as NaN.
+    assert.deepEqual(readContextLimits(b.valid | b.limitsKnown, () => Number.NaN),
+        { maxTextureSize: 0, maxRenderbufferSize: 0, maxSamples: 0 });
+    assert.equal(readContextLimits(Number.NaN, getLimit), null);
+});
+
+test('decodeContextCaps: one capability set from the snapshot and the limits', () => {
+    const b = CONTEXT_SNAPSHOT_BITS;
+    const packed = b.valid | b.floatColorBuffer | b.halfFloatColorBuffer | b.parallelShaderCompile | b.extensionsKnown
+        | b.limitsKnown | b.timerQuery | (1 << CONTEXT_SNAPSHOT_FORMAT_SHIFT);
+    const caps = decodeContextCaps(packed, { maxTextureSize: 16384, maxRenderbufferSize: 8192, maxSamples: 4 });
+    assert.ok(caps && Object.isFrozen(caps));
+    assert.deepEqual(caps, {
+        extensions: ['EXT_color_buffer_float', 'EXT_color_buffer_half_float', 'KHR_parallel_shader_compile'],
+        floatColorBuffer: true,
+        halfFloatColorBuffer: true,
+        floatLinear: false,
+        floatBlend: false,
+        textureFilterAnisotropic: false,
+        parallelShaderCompile: true,
+        loseContext: false,
+        timerQuery: true,
+        maxTextureSize: 16384,
+        maxRenderbufferSize: 8192,
+        maxSamples: 4,
+        fboFormat: 1,
+        fboFormatName: 'RGBA32F',
+        attributes: null,
+    });
+    // A bundle from before the limits: timerQuery and the limits are unknown, not false / 0.
+    const old = decodeContextCaps(b.valid | b.extensionsKnown);
+    assert.equal(old?.timerQuery, null);
+    assert.equal(old?.maxRenderbufferSize, null);
+    assert.equal(old?.maxSamples, null);
+    // Offered by the snapshot, but no timer on this context.
+    assert.equal(decodeContextCaps(b.valid | b.limitsKnown)?.timerQuery, false);
+    assert.equal(decodeContextCaps(0), null);
+});
+
+test('context profiles: each one encodes to its attribute set', () => {
+    assert.deepEqual(Object.keys(CONTEXT_PROFILES), ['quality', 'balanced', 'battery', 'low-latency']);
+    assert.deepEqual(resolveWasmContextConfig({ contextProfile: 'quality' }), {
+        flags: F.premultipliedAlpha | F.antialias, powerPreference: 2, fboPrecision: 1,
+    });
+    assert.deepEqual(resolveWasmContextConfig({ contextProfile: 'battery' }), {
+        flags: F.premultipliedAlpha, powerPreference: 1, fboPrecision: 2,
+    });
+    assert.deepEqual(resolveWasmContextConfig({ contextProfile: 'low-latency' }), {
+        flags: F.premultipliedAlpha | F.desynchronized, powerPreference: 2, fboPrecision: 0,
+    });
+    // balanced is exactly what a context without a profile gets.
+    assert.deepEqual(resolveWasmContextConfig({ contextProfile: 'balanced' }), resolveWasmContextConfig({}));
+});
+
+test('context profiles fill only what the options leave undefined', () => {
+    assert.deepEqual(resolveWasmContextConfig({ contextProfile: 'battery', fboPrecision: 'half', antialias: true }), {
+        flags: F.premultipliedAlpha | F.antialias, powerPreference: 1, fboPrecision: 0,
+    });
+    assert.equal(resolveWasmContextConfig({ contextProfile: 'quality', antialias: false }).flags & F.antialias, 0);
+    const options = { contextProfile: /** @type {const} */ ('low-latency'), depth: true };
+    assert.deepEqual(withContextProfile(options), {
+        contextProfile: 'low-latency', depth: true,
+        powerPreference: 'high-performance', antialias: false, desynchronized: true, fboPrecision: 'half',
+    });
+    // No profile, or an unknown one: the options as given.
+    const plain = { antialias: true };
+    assert.equal(withContextProfile(plain), plain);
+    assert.deepEqual(resolveWasmContextConfig({ contextProfile: /** @type {any} */ ('turbo') }), resolveWasmContextConfig({}));
+});
+
+test('context profiles: governor ceiling and name parsing', () => {
+    assert.equal(qualityTierCeilingFor({}), null);
+    assert.equal(qualityTierCeilingFor({ contextProfile: 'battery' }), 1);
+    assert.equal(qualityTierCeilingFor({ contextProfile: 'quality' }), 0);
+    assert.equal(parseContextProfile(' Battery '), 'battery');
+    assert.equal(parseContextProfile('low-latency'), 'low-latency');
+    assert.equal(parseContextProfile('toString'), null);
+    assert.equal(parseContextProfile(null), null);
+    assert.equal(parseContextProfile(3), null);
 });

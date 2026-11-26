@@ -25,6 +25,10 @@
  * explicit-swap flavor must create the context with FBO 0 redirected to
  * Emscripten's offscreen back buffer.
  *
+ * Every host's contextCaps (get_context_snapshot() + get_context_limit()) must
+ * agree with what the browser's own WebGL 2 context reports: the timer extension,
+ * MAX_TEXTURE_SIZE, MAX_RENDERBUFFER_SIZE and MAX_SAMPLES.
+ *
  * Every host's get_context_snapshot() attributes must equal what
  * getContextAttributes() says, and a host re-created on its element with other
  * attributes must get them, on a fresh copy of the element (see the page).
@@ -33,7 +37,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { decodeContextSnapshot } from '../../html/projectm-context-config.js';
+import { decodeContextCaps, decodeContextSnapshot, readContextLimits } from '../../html/projectm-context-config.js';
 import {
     createStaticServer, detectRepoRoot, launchChromium, listen, loadPlaywright, rootRelative,
 } from './lib/harness-runtime.mjs';
@@ -123,6 +127,18 @@ try {
                 if (snapshot[key] !== caps[key]) {
                     console.error(`FAIL: ${name}: snapshot ${key}=${snapshot[key]}, the browser says ${caps[key]}.`);
                     failed = true;
+                }
+            }
+            // contextCaps: the timer and the limits, against the browser's own context.
+            if (run.limits) {
+                const limits = readContextLimits(run.snapshot, (which) => run.limits[which]);
+                const engineCaps = decodeContextCaps(run.snapshot, limits);
+                const expected = { timerQuery: caps.timerQuery, maxTextureSize: caps.limits[0], maxRenderbufferSize: caps.limits[1], maxSamples: caps.limits[2] };
+                for (const [key, want] of Object.entries(expected)) {
+                    if (engineCaps?.[key] !== want) {
+                        console.error(`FAIL: ${name}: contextCaps ${key}=${engineCaps?.[key]}, the browser says ${want}.`);
+                        failed = true;
+                    }
                 }
             }
             // DetectFormat(): byte is forced; high needs EXT_color_buffer_float; otherwise

@@ -8,7 +8,7 @@
 // ProjectMContext.recoverContext(), which lands here.
 
 import { contextConfigFor } from './boot.js';
-import { readContextSnapshot } from './render.js';
+import { readContextNegotiation } from './render.js';
 import { replayOf, setContextSnapshot } from './controls.js';
 import { replayOpsFor } from './replay.js';
 import type { ProjectMContext } from '../projectm-context.js';
@@ -41,7 +41,10 @@ export async function recoverEngine(context: ProjectMContext): Promise<number> {
     if (status === 0 && context.transport === transport) {
         // A recovered engine runs on a new context; describe that one. (Not
         // if destroy() landed meanwhile: that context has nothing left to describe.)
-        setContextSnapshot(context, readContextSnapshot(transport, contextConfigFor(context.options)));
+        const { snapshot, caps } = readContextNegotiation(transport, contextConfigFor(context.options));
+        setContextSnapshot(context, snapshot, caps);
+        // The new context may have other limits (another GPU after a loss).
+        context.resize();
         // init() started from the options; put back what was set since.
         await replayOf(context).replay(transport, replayOpsFor(context, transport));
     }

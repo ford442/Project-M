@@ -783,7 +783,7 @@ public:
         auto& commands = RenderDevice::Commands();
 
         // Render to the default framebuffer (browser canvas).
-        commands.BeginPass({{}, RenderDevice::TargetBinding::ReadDraw, RenderDevice::Rect{0, 0, width, height}});
+        commands.BeginRenderPass({{}, RenderDevice::TargetBinding::ReadDraw, RenderDevice::Rect{0, 0, width, height}, RenderDevice::LoadOp::Load, {}, RenderDevice::StoreOp::Store, "compositor"});
         commands.SetEnabled(Capability::ScissorTest, false);
 
         // No blending, no depth test or writes: the quad replaces the canvas.
@@ -812,7 +812,7 @@ public:
         m_vao->Bind();
         commands.Draw(0, 4);
         libprojectM::Renderer::VertexArray::Unbind();
-        commands.EndPass();
+        commands.EndRenderPass();
 
         // Clean up texture bindings.
         commands.BindTexture(1, texture2D, {});

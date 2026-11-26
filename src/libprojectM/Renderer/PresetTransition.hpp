@@ -220,6 +220,7 @@ private:
 
     std::shared_ptr<Framebuffer> m_passFramebuffer; //!< Intermediate FBO for multi-pass transitions (pass 0 output).
     Device::RenderTargetHandle m_originalDrawFbo;   //!< Original draw framebuffer saved before pass 0 binds the intermediate FBO.
+    std::optional<Device::RenderPassDesc> m_resumePass; //!< The caller's output pass, which pass 0 interrupts.
 
     glm::ivec4 m_staticRandomValues{}; //!< Four random integers, remaining static during the whole transition.
 

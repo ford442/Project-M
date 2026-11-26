@@ -2,81 +2,90 @@
 #define  M_PI_2 6.28318530718
 #define  M_INV_PI_2  0.159154943091895
 
-uniform float4   rand_frame;    // random float4, updated each frame
-uniform float4   rand_preset;   // random float4, updated once per *preset*
-uniform float4   _c0;           // .xy: multiplier to use on UV's to paste
-                                // an image fullscreen, *aspect-aware*
-                                // .zw = inverse.
-uniform float4   _c1, _c2, _c3, _c4;
-uniform float4   _c5;           // .xy = scale, bias for reading blur1
-                                // .zw = scale, bias for reading blur2
-uniform float4   _c6;           // .xy = scale, bias for reading blur3
-                                // .zw = blur1_min, blur1_max
-uniform float4   _c7;           // .xy ~= float2(1024,768)
-                                // .zw ~= float2(1/1024.0, 1/768.0)
-uniform float4   _c8;           // .xyzw ~= 0.5 + 0.5 * cos(
-                                //   time * float4(~0.3, ~1.3, ~5, ~20))
-uniform float4   _c9;           // .xyzw ~= same, but using sin()
-uniform float4   _c10;          // .xyzw ~= 0.5 + 0.5 * cos(
-                                //   time * float4(~0.005, ~0.008, ~0.013,
-                                //                 ~0.022))
-uniform float4   _c11;          // .xyzw ~= same, but using sin()
-uniform float4   _c12;          // .xyz = mip info for main image
-                                // (.x=#across, .y=#down, .z=avg)
-                                // .w = unused
-uniform float4   _c13;          // .xy = blur2_min, blur2_max
-                                // .zw = blur3_min, blur3_max
-uniform float4   _c14;          // projectM: pm_bpm, pm_beat_phase, pm_beat_pulse, pm_bar_phase
-uniform float4   _c15;          // projectM: pm_onset, pm_onset_lo, pm_onset_mid, pm_onset_hi
-uniform float4   _c16;          // projectM: pm_centroid, pm_flatness, pm_rms, pm_rhythm_conf
-uniform float4   _c17;          // projectM: pm_beat_index, pm_section, pm_section_change, iPass
-uniform float4   _qa;           // q vars bank 1 [q1-q4]
-uniform float4   _qb;           // q vars bank 2 [q5-q8]
-uniform float4   _qc;           // q vars ...
-uniform float4   _qd;           // q vars
-uniform float4   _qe;           // q vars
-uniform float4   _qf;           // q vars
-uniform float4   _qg;           // q vars
-uniform float4   _qh;           // q vars bank 8 [q29-q32]
+// The per-frame inputs, one std140 uniform block (B1.3, docs/RENDER_DEVICE.md "Uniform buffers").
+// MilkdropFrameUniforms in MilkdropShader.hpp mirrors this layout: keep the two in step, one
+// declaration per line (the transpiler keeps only the first of "float4 a, b;" in a cbuffer).
+cbuffer _milkdrop_frame
+{
+    float4   rand_frame;    // random float4, updated each frame
+    float4   rand_preset;   // random float4, updated once per *preset*
+    float4   _c0;           // .xy: multiplier to use on UV's to paste
+                            // an image fullscreen, *aspect-aware*
+                            // .zw = inverse.
+    float4   _c1;
+    float4   _c2;
+    float4   _c3;
+    float4   _c4;
+    float4   _c5;           // .xy = scale, bias for reading blur1
+                            // .zw = scale, bias for reading blur2
+    float4   _c6;           // .xy = scale, bias for reading blur3
+                            // .zw = blur1_min, blur1_max
+    float4   _c7;           // .xy ~= float2(1024,768)
+                            // .zw ~= float2(1/1024.0, 1/768.0)
+    float4   _c8;           // .xyzw ~= 0.5 + 0.5 * cos(
+                            //   time * float4(~0.3, ~1.3, ~5, ~20))
+    float4   _c9;           // .xyzw ~= same, but using sin()
+    float4   _c10;          // .xyzw ~= 0.5 + 0.5 * cos(
+                            //   time * float4(~0.005, ~0.008, ~0.013,
+                            //                 ~0.022))
+    float4   _c11;          // .xyzw ~= same, but using sin()
+    float4   _c12;          // .xyz = mip info for main image
+                            // (.x=#across, .y=#down, .z=avg)
+                            // .w = unused
+    float4   _c13;          // .xy = blur2_min, blur2_max
+                            // .zw = blur3_min, blur3_max
+    float4   _c14;          // projectM: pm_bpm, pm_beat_phase, pm_beat_pulse, pm_bar_phase
+    float4   _c15;          // projectM: pm_onset, pm_onset_lo, pm_onset_mid, pm_onset_hi
+    float4   _c16;          // projectM: pm_centroid, pm_flatness, pm_rms, pm_rhythm_conf
+    float4   _c17;          // projectM: pm_beat_index, pm_section, pm_section_change, iPass
+    float4   _qa;           // q vars bank 1 [q1-q4]
+    float4   _qb;           // q vars bank 2 [q5-q8]
+    float4   _qc;           // q vars ...
+    float4   _qd;           // q vars
+    float4   _qe;           // q vars
+    float4   _qf;           // q vars
+    float4   _qg;           // q vars
+    float4   _qh;           // q vars bank 8 [q29-q32]
 
-// note: in general, don't use the current time w/the *dynamic* rotations!
+    // note: in general, don't use the current time w/the *dynamic* rotations!
 
-// four random, static rotations, randomized at preset load time.
-// minor translation component (<1).
-uniform float4x3 rot_s1;
-uniform float4x3 rot_s2;
-uniform float4x3 rot_s3;
-uniform float4x3 rot_s4;
+    // four random, static rotations, randomized at preset load time.
+    // minor translation component (<1).
+    float4x3 rot_s1;
+    float4x3 rot_s2;
+    float4x3 rot_s3;
+    float4x3 rot_s4;
 
-// four random, slowly changing rotations.
-uniform float4x3 rot_d1;
-uniform float4x3 rot_d2;
-uniform float4x3 rot_d3;
-uniform float4x3 rot_d4;
+    // four random, slowly changing rotations.
+    float4x3 rot_d1;
+    float4x3 rot_d2;
+    float4x3 rot_d3;
+    float4x3 rot_d4;
 
-// faster-changing.
-uniform float4x3 rot_f1;
-uniform float4x3 rot_f2;
-uniform float4x3 rot_f3;
-uniform float4x3 rot_f4;
+    // faster-changing.
+    float4x3 rot_f1;
+    float4x3 rot_f2;
+    float4x3 rot_f3;
+    float4x3 rot_f4;
 
-// very-fast-changing.
-uniform float4x3 rot_vf1;
-uniform float4x3 rot_vf2;
-uniform float4x3 rot_vf3;
-uniform float4x3 rot_vf4;
+    // very-fast-changing.
+    float4x3 rot_vf1;
+    float4x3 rot_vf2;
+    float4x3 rot_vf3;
+    float4x3 rot_vf4;
 
-// ultra-fast-changing.
-uniform float4x3 rot_uf1;
-uniform float4x3 rot_uf2;
-uniform float4x3 rot_uf3;
-uniform float4x3 rot_uf4;
+    // ultra-fast-changing.
+    float4x3 rot_uf1;
+    float4x3 rot_uf2;
+    float4x3 rot_uf3;
+    float4x3 rot_uf4;
 
-// Random every frame.
-uniform float4x3 rot_rand1;
-uniform float4x3 rot_rand2;
-uniform float4x3 rot_rand3;
-uniform float4x3 rot_rand4;
+    // Random every frame.
+    float4x3 rot_rand1;
+    float4x3 rot_rand2;
+    float4x3 rot_rand3;
+    float4x3 rot_rand4;
+};
 
 #define time     _c2.x
 #define fps      _c2.y

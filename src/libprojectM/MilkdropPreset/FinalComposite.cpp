@@ -197,7 +197,7 @@ void FinalComposite::Draw(const PresetState& presetState, const PerFrameContext&
         m_compositeShader->SetLastPassTexture(m_compositePasses.Render(presetState, perFrameContext, [this](MilkdropShader& pass) {
             Renderer::Device::SetPipeline(m_compositeMesh.Pipeline(pass.Shader(), Renderer::Device::BlendState::Replace()));
             m_compositeMesh.Draw();
-        }));
+        }, presetState.compositePassTargets));
 
         // Render the grid, no blending.
         m_compositeShader->LoadVariables(presetState, perFrameContext);

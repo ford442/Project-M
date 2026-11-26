@@ -43,6 +43,10 @@ void ResourceStateTracker::OnBindRenderTarget(TargetBinding binding, RenderTarge
     {
         return;
     }
+    if (binding != TargetBinding::Read && m_inPass && target != m_passTarget)
+    {
+        ReportPassViolation("draw target changed to " + std::to_string(target.id) + " inside " + PassName());
+    }
     if (binding != TargetBinding::Read)
     {
         m_drawTarget = target;
@@ -53,9 +57,45 @@ void ResourceStateTracker::OnBindRenderTarget(TargetBinding binding, RenderTarge
     }
 }
 
-void ResourceStateTracker::OnEndPass()
+void ResourceStateTracker::OnBeginRenderPass(const RenderPassDesc& pass)
 {
-    // A pass ends implicitly at the next draw-target bind; nothing is pending on GL.
+    if (!m_enabled)
+    {
+        return;
+    }
+    m_inPass = true;
+    m_passTarget = pass.target;
+    m_passLabel = pass.label != nullptr ? pass.label : "";
+    m_passCount++;
+}
+
+void ResourceStateTracker::OnEndRenderPass()
+{
+    m_inPass = false;
+}
+
+void ResourceStateTracker::OnClear()
+{
+    if (m_enabled && !m_inPass)
+    {
+        ReportPassViolation("clear of render target " + std::to_string(m_drawTarget.id) + " outside a render pass");
+    }
+}
+
+void ResourceStateTracker::OnReadPixels()
+{
+    if (m_enabled && m_inPass)
+    {
+        ReportPassViolation("readback from render target " + std::to_string(m_readTarget.id) + " inside " + PassName());
+    }
+}
+
+void ResourceStateTracker::OnPassViolation(const std::string& message)
+{
+    if (m_enabled)
+    {
+        ReportPassViolation(message);
+    }
 }
 
 void ResourceStateTracker::OnAttach(TargetBinding binding, AttachmentPoint point, TextureHandle texture)
@@ -68,6 +108,10 @@ void ResourceStateTracker::OnAttach(TargetBinding binding, AttachmentPoint point
     if (!target.Valid())
     {
         return;
+    }
+    if (m_inPass && target == m_passTarget)
+    {
+        ReportPassViolation("attachment " + PointName(point) + " of render target " + std::to_string(target.id) + " changed inside " + PassName());
     }
     auto& attachments = m_attachments[target.id];
     if (texture.Valid())
@@ -141,6 +185,10 @@ void ResourceStateTracker::OnDraw()
     {
         return;
     }
+    if (!m_inPass)
+    {
+        ReportPassViolation("draw with program " + std::to_string(m_program.id) + " into render target " + std::to_string(m_drawTarget.id) + " outside a render pass");
+    }
 
     const auto* attachments = AttachmentsOf(m_drawTarget);
     const auto* sampled = SampledUnits();
@@ -192,6 +240,10 @@ void ResourceStateTracker::OnBlit()
     {
         return;
     }
+    if (m_inPass)
+    {
+        ReportPassViolation("blit into render target " + std::to_string(m_drawTarget.id) + " inside " + PassName());
+    }
     const auto* source = AttachmentsOf(m_readTarget);
     const auto* destination = AttachmentsOf(m_drawTarget);
     TextureHandle sourceTexture;
@@ -229,6 +281,10 @@ void ResourceStateTracker::OnCopyToTexture(int unit)
     if (!m_enabled || unit < 0 || unit >= MaxTextureUnits)
     {
         return;
+    }
+    if (m_inPass)
+    {
+        ReportPassViolation("copy into the texture on unit " + std::to_string(unit) + " inside " + PassName());
     }
     const auto destination = m_units2D.at(unit);
     const auto* source = AttachmentsOf(m_readTarget);
@@ -326,6 +382,31 @@ void ResourceStateTracker::ResetHazards()
     m_hazardCount = 0;
     m_hazardMessages.clear();
     m_reported.clear();
+}
+
+void ResourceStateTracker::ResetPassViolations()
+{
+    m_passViolationCount = 0;
+    m_passViolationMessages.clear();
+    m_reportedPassViolations.clear();
+}
+
+auto ResourceStateTracker::PassName() const -> std::string
+{
+    return "render pass " + (m_passLabel.empty() ? std::string("on target ") + std::to_string(m_passTarget.id) : m_passLabel);
+}
+
+void ResourceStateTracker::ReportPassViolation(const std::string& message)
+{
+    m_passViolationCount++;
+    if (m_reportedPassViolations.insert(message).second)
+    {
+        LOG_WARN("[RenderDevice] Pass violation: " + message);
+        if (m_passViolationMessages.size() < MaxHazardMessages)
+        {
+            m_passViolationMessages.push_back(message);
+        }
+    }
 }
 
 auto ResourceStateTracker::SampledUnits() const -> const std::map<int, int>*

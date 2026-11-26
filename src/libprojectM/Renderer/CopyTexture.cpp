@@ -8,8 +8,6 @@
 namespace libprojectM {
 namespace Renderer {
 
-namespace {
-
 /**
  * Ablation switch for benchmarking: the engine's CopyShaderPath render-path flag
  * (PROJECTM_COPY_SHADER_PATH=1, projectm_set_render_path_flags()) restores the pre-#179
@@ -17,12 +15,10 @@ namespace {
  * blit path can be A/B'd against it on a single build. Per engine: two engines in one
  * process can take different paths. See docs/GRAPHICS_PERF_RECOVERY_PLAN.md.
  */
-auto BlitPathEnabled() -> bool
+auto CopyTexture::DefaultPath() -> Path
 {
-    return !EngineContext::Current().HasRenderPath(EngineContext::CopyShaderPath);
+    return EngineContext::Current().HasRenderPath(EngineContext::CopyShaderPath) ? Path::Shader : Path::Blit;
 }
-
-} // anonymous namespace
 
 static constexpr char CopyTextureVertexShader[] = R"(
 layout(location = 0) in vec2 position;
@@ -163,7 +159,9 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
         m_framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0)->Texture(targetTexture);
     }
 
+    m_framebuffer.BeginRenderPass(0, "copy");
     Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
+    Framebuffer::EndRenderPass();
 
     // Rebind our internal texture.
     if (targetTexture)
@@ -201,7 +199,9 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
         // Draw from unflipped texture
         originalTexture->Bind(0);
 
+        m_framebuffer.BeginRenderPass(0, "copy");
         Copy(shaderCache, flipVertical, flipHorizontal, false, 0.01f);
+        Framebuffer::EndRenderPass();
     }
 
     // Swap texture attachments
@@ -244,7 +244,9 @@ void CopyTexture::Draw(ShaderCache& shaderCache,
     internalTexture = m_framebuffer.GetColorAttachmentTexture(0, 0);
     m_framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0)->Texture(targetTexture);
 
+    m_framebuffer.BeginRenderPass(0, "copy");
     Copy(shaderCache, left, top, width, height);
+    Framebuffer::EndRenderPass();
 
     // Rebind our internal texture.
     m_framebuffer.GetAttachment(0, TextureAttachment::AttachmentType::Color, 0)->Texture(internalTexture);
@@ -303,7 +305,7 @@ void CopyTexture::UpdateTextureSize(int width, int height)
 auto CopyTexture::TryBlit(const std::shared_ptr<class Texture>& originalTexture,
                           bool flipVertical, bool flipHorizontal) -> bool
 {
-    if (!BlitPathEnabled() || originalTexture == nullptr || originalTexture->Empty())
+    if (m_path.value_or(DefaultPath()) != Path::Blit || originalTexture == nullptr || originalTexture->Empty())
     {
         return false;
     }

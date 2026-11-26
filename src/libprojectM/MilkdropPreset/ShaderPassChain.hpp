@@ -80,11 +80,14 @@ public:
      * For each pass: binds its target, loads the shader's preset variables (LoadVariables())
      * and calls @a draw, which adds the stage's own uniforms and draws.
      *
+     * @param targets The two targets the passes alternate between (framebuffer index 0 of each,
+     *                viewport-sized), e.g. transients of the frame graph; nullptr entries: the
+     *                chain's own.
      * @return The last pass's output, for the stage's own shader's sampler_lastpass;
      *         nullptr if there are no passes.
      */
     auto Render(const PresetState& presetState, const PerFrameContext& perFrameContext,
-                const DrawFunction& draw) -> std::shared_ptr<Renderer::Texture>;
+                const DrawFunction& draw, const std::array<Renderer::Framebuffer*, 2>& targets = {}) -> std::shared_ptr<Renderer::Texture>;
 
 private:
     MilkdropShader::ShaderType m_type;                     //!< Warp or composite.

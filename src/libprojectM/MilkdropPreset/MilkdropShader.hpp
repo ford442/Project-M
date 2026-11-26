@@ -12,6 +12,7 @@
 
 #include <Renderer/Shader.hpp>
 #include <Renderer/TextureManager.hpp>
+#include <Renderer/UniformRingBuffer.hpp>
 
 #include <array>
 #include <cstdint>
@@ -76,6 +77,28 @@ struct PredictedRandomTexture {
 using PredictedRandomTextures = std::map<int, PredictedRandomTexture>; //!< Predictions by random slot, shared by warp and composite.
 
 /**
+ * @brief The preset shaders' per-frame inputs: the std140 layout of <tt>cbuffer _milkdrop_frame</tt>
+ *        in PresetShaderHeaderGlsl330.inc, member for member.
+ *
+ * Every member is a vec4 or a mat3x4 (HLSL float4x3: three vec4 columns), so std140 adds no
+ * padding and the struct is the block byte for byte.
+ */
+struct MilkdropFrameUniforms {
+    using Vec4 = std::array<float, 4>;
+    using Mat3x4 = std::array<float, 12>; //!< Three columns of four floats.
+
+    static constexpr const char* BlockName = "_milkdrop_frame";
+    static constexpr int Slot = 0; //!< The uniform buffer slot the block reads from.
+
+    Vec4 randFrame{};               //!< rand_frame
+    Vec4 randPreset{};              //!< rand_preset
+    std::array<Vec4, 18> c{};       //!< _c0 .. _c17
+    std::array<Vec4, 8> q{};        //!< _qa .. _qh (q1 .. q32)
+    std::array<Mat3x4, 24> rot{};   //!< rot_s1..4, rot_d1..4, rot_f1..4, rot_vf1..4, rot_uf1..4, rot_rand1..4
+};
+static_assert(sizeof(MilkdropFrameUniforms) == (2 + 18 + 8) * 16 + 24 * 48, "MilkdropFrameUniforms must match the std140 block");
+
+/**
  * @brief Holds a warp or composite shader of Milkdrop presets.
  * Also does the required shader translation from HLSL to GLSL using hlslparser.
  */
@@ -89,6 +112,13 @@ public:
      * @param type The preset shader type.
      */
     explicit MilkdropShader(ShaderType type);
+
+    ~MilkdropShader();
+
+    MilkdropShader(const MilkdropShader&) = delete;
+    MilkdropShader(MilkdropShader&&) = delete;
+    auto operator=(const MilkdropShader&) -> MilkdropShader& = delete;
+    auto operator=(MilkdropShader&&) -> MilkdropShader& = delete;
 
     /**
      * @brief Translates and compiles the shader code.
@@ -269,6 +299,36 @@ private:
     std::array<glm::vec3, 20> m_randTranslation{};     //!< Random translation vectors which don't change every frame.
     std::array<glm::vec3, 20> m_randRotationCenters{}; //!< Random rotation center vectors which don't change every frame.
     std::array<glm::vec3, 20> m_randRotationSpeeds{};  //!< Random rotation speeds which don't change every frame.
+
+    /**
+     * @brief A bind group of this shader's textures, samplers and frame block (B1.4), with what it
+     *        was made from: the group, and the texture sizes its texsize uniforms were set from.
+     */
+    struct CachedBindGroup {
+        Renderer::Device::BindGroupDesc desc;
+        std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures> sizes{};
+        Renderer::Device::BindGroupHandle group;
+        uint64_t lastUse{};
+    };
+
+    /**
+     * @brief The group for this draw's bindings, created (and its uniforms set) on first use.
+     */
+    auto FindOrCreateBindGroup(const Renderer::Device::BindGroupDesc& desc,
+                               const std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures>& sizes,
+                               const PresetState& presetState) -> Renderer::Device::BindGroupHandle;
+    void DestroyBindGroups();
+
+    //! Groups by the textures they hold: the main texture alternates between two, so a few cover a
+    //! preset; a resize replaces them. Never allocates after the first frames.
+    static constexpr size_t BindGroupCacheSize = 4;
+    std::array<CachedBindGroup, BindGroupCacheSize> m_bindGroups{};
+    uint64_t m_bindGroupUses{};
+    uint64_t m_bindGroupLinkCount{}; //!< Renderer::Shader::LinkCount() the cached groups' uniforms belong to.
+    Renderer::Device::IRenderDevice* m_device{&Renderer::Device::Current()};
+
+    MilkdropFrameUniforms m_frameUniforms{};                      //!< Filled by LoadVariables(), then copied to the ring.
+    std::unique_ptr<Renderer::UniformRingBuffer> m_fallbackRing; //!< Used when the render context has no ring.
 
     Renderer::Shader m_shader;
 };

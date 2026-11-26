@@ -40,6 +40,8 @@
 #include <Renderer/PresetTransition.hpp>
 #include <Renderer/Shader.hpp>
 #include <Renderer/ShaderCache.hpp>
+#include <Renderer/RenderGraph.hpp>
+#include <Renderer/UniformRingBuffer.hpp>
 #include <Renderer/ShaderTranspileCache.hpp>
 #include <Renderer/TextureManager.hpp>
 #include <Renderer/TransitionShaderManager.hpp>
@@ -319,6 +321,8 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
         return;
     }
 
+    m_uniformRing->BeginFrame();
+
     // Update FPS and other timer values.
     m_timeKeeper->UpdateTimers();
 
@@ -423,80 +427,123 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
             m_transitioningPreset.reset();
             m_transition.reset();
         }
-        else
-        {
-            m_transitioningPreset->RenderFrame(audioData, renderContext);
-        }
     }
 
+    // The frame as a graph (B2): the presets' own frames (each a graph of its passes), the
+    // present step and the user sprites. The present step runs its own render passes.
+    using Renderer::RenderGraph;
+    using PassKind = RenderGraph::PassKind;
+    auto& graph = *m_frameGraph;
+    graph.Reset();
+    const auto output = graph.Import("output", {static_cast<uint32_t>(targetFramebufferObject)});
+    const auto transitioningImage = graph.Import("transitioning preset image", {});
+    const auto activeImage = graph.Import("active preset image", {});
+
+    auto transitioningFrame = [&](RenderGraph::PassContext&) {
+        m_transitioningPreset->RenderFrame(audioData, renderContext);
+    };
+    const bool transitioning = m_transition != nullptr && m_transitioningPreset != nullptr;
+    if (transitioning)
+    {
+        graph.AddPass("transitioning preset frame", {.kind = PassKind::Encoder, .writes = {transitioningImage}}, transitioningFrame);
+    }
 
     // ToDo: Call the to-be-implemented render method in Renderer
-    m_activePreset->RenderFrame(audioData, renderContext);
+    auto activeFrame = [&](RenderGraph::PassContext&) {
+        m_activePreset->RenderFrame(audioData, renderContext);
+    };
+    graph.AddPass("active preset frame", {.kind = PassKind::Encoder, .writes = {activeImage}}, activeFrame);
 
-    // Everything from here to the sprites puts the preset's output into the target
-    // framebuffer: a blit, a transparency copy, or a transition blend.
-    std::optional<Perf::GpuStageScope> presentStage;
-    presentStage.emplace(Perf::GpuStage::Present);
+    auto present = [&](RenderGraph::PassContext&) {
+        // Everything from here to the sprites puts the preset's output into the target
+        // framebuffer: a blit, a transparency copy, or a transition blend.
+        std::optional<Perf::GpuStageScope> presentStage;
+        presentStage.emplace(Perf::GpuStage::Present);
 
-    // With the flash limiter on, the output goes into the limiter's frame texture
-    // instead, and the limiter puts the (possibly limited) frame into the target below.
-    const bool limitFlashes = m_flashLimiter->BeginFrame(renderContext.viewportSizeX, renderContext.viewportSizeY);
-    const Renderer::Device::RenderTargetHandle targetFramebuffer{static_cast<uint32_t>(targetFramebufferObject)};
-    auto& commands = Renderer::Device::Commands();
-    if (!limitFlashes)
-    {
-        commands.BeginPass({targetFramebuffer, Renderer::Device::TargetBinding::Draw,
-                            Renderer::Device::Rect{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY}});
+        // With the flash limiter on, the output goes into the limiter's frame texture
+        // instead, and the limiter puts the (possibly limited) frame into the target below.
+        const bool limitFlashes = m_flashLimiter->BeginFrame(renderContext.viewportSizeX, renderContext.viewportSizeY);
+        const Renderer::Device::RenderTargetHandle targetFramebuffer{static_cast<uint32_t>(targetFramebufferObject)};
+        auto& commands = Renderer::Device::Commands();
+        // The pass that draws the output, when it is drawn rather than blitted.
+        Renderer::Device::RenderPassDesc presentPass;
+        if (limitFlashes)
+        {
+            presentPass = m_flashLimiter->FramePass();
+        }
+        else
+        {
+            presentPass.target = targetFramebuffer;
+            presentPass.viewport = Renderer::Device::Rect{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY};
+            presentPass.label = "present";
+            commands.BindRenderTarget(Renderer::Device::TargetBinding::Draw, targetFramebuffer);
+            commands.SetViewport(*presentPass.viewport);
 
 #ifdef USE_GLES
-        // On WebGL2 / Chrome ANGLE, the default framebuffer's draw buffer must
-        // be explicitly set to GL_BACK after preset rendering, which may leave
-        // per-FBO draw buffer state that leaks into FBO 0 on some drivers.
-        if (!targetFramebuffer.Valid())
-        {
-            constexpr Renderer::Device::AttachmentPoint back[]{Renderer::Device::AttachmentPoint::Back};
-            commands.SetDrawBuffers(back);
-        }
+            // On WebGL2 / Chrome ANGLE, the default framebuffer's draw buffer must
+            // be explicitly set to GL_BACK after preset rendering, which may leave
+            // per-FBO draw buffer state that leaks into FBO 0 on some drivers.
+            if (!targetFramebuffer.Valid())
+            {
+                constexpr Renderer::Device::AttachmentPoint back[]{Renderer::Device::AttachmentPoint::Back};
+                commands.SetDrawBuffers(back);
+            }
 #endif
-    }
+        }
 
-    if (m_transition != nullptr && m_transitioningPreset != nullptr)
-    {
-        m_transition->SetTransparencyMode(m_transparencyMode);
-        m_transition->SetTransparencyThreshold(m_transparencyThreshold);
-        m_transition->Draw(*m_activePreset, *m_transitioningPreset, renderContext, audioData, m_timeKeeper->GetFrameTime());
-    }
-    else if (!m_transparencyMode)
-    {
-        // Fast hardware blit: bind the preset's output FBO as the read framebuffer
-        // and blit instead of drawing a fullscreen shader quad.  This
-        // path is taken in the common (non-transparency) case and avoids shader
-        // program binding and vertex processing overhead entirely.
-        m_activePreset->BindOutputForRead();
-        const Renderer::Device::Rect frame{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY};
-        commands.Blit(frame, frame, Renderer::Device::FilterMode::Nearest);
-    }
-    else
-    {
-        // Transparency mode requires a shader pass to convert near-black pixels
-        // to fully transparent alpha — a blit cannot do this.
-        m_textureCopier->Draw(*renderContext.shaderCache,
-                              m_activePreset->OutputTexture(),
-                              false,
-                              false,
-                              true,
-                              m_transparencyThreshold);
-    }
+        if (m_transition != nullptr && m_transitioningPreset != nullptr)
+        {
+            m_transition->SetTransparencyMode(m_transparencyMode);
+            m_transition->SetTransparencyThreshold(m_transparencyThreshold);
+            commands.BeginRenderPass(presentPass);
+            m_transition->Draw(*m_activePreset, *m_transitioningPreset, renderContext, audioData, m_timeKeeper->GetFrameTime());
+            commands.EndRenderPass();
+        }
+        else if (!m_transparencyMode)
+        {
+            // Fast hardware blit: bind the preset's output FBO as the read framebuffer
+            // and blit instead of drawing a fullscreen shader quad.  This
+            // path is taken in the common (non-transparency) case and avoids shader
+            // program binding and vertex processing overhead entirely.
+            m_activePreset->BindOutputForRead();
+            const Renderer::Device::Rect frame{0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY};
+            commands.Blit(frame, frame, Renderer::Device::FilterMode::Nearest);
+        }
+        else
+        {
+            // Transparency mode requires a shader pass to convert near-black pixels
+            // to fully transparent alpha — a blit cannot do this.
+            commands.BeginRenderPass(presentPass);
+            m_textureCopier->Draw(*renderContext.shaderCache,
+                                  m_activePreset->OutputTexture(),
+                                  false,
+                                  false,
+                                  true,
+                                  m_transparencyThreshold);
+            commands.EndRenderPass();
+        }
 
-    if (limitFlashes)
+        if (limitFlashes)
+        {
+            m_flashLimiter->EndFrame(targetFramebuffer, m_timeKeeper->SecondsSinceLastFrame(), m_transparencyMode);
+        }
+
+        presentStage.reset();
+    };
+    graph.AddPass(transitioning ? "present (transition)" : m_transparencyMode ? "present (transparency)" : "present",
+                  {.kind = PassKind::Encoder, .reads = {activeImage, transitioning ? transitioningImage : RenderGraph::Resource{}}, .writes = {output}},
+                  present);
+
+    auto userSprites = [&](RenderGraph::PassContext&) {
+        // Draw user sprites
+        m_spriteManager->Draw(audioData, renderContext, targetFramebufferObject, {m_activePreset, m_transitioningPreset});
+    };
+    graph.AddPass("user sprites", {.kind = PassKind::Encoder, .writes = {output, activeImage}}, userSprites);
+
+    if (graph.Compile())
     {
-        m_flashLimiter->EndFrame(targetFramebuffer, m_timeKeeper->SecondsSinceLastFrame(), m_transparencyMode);
+        graph.Execute(Renderer::Device::Commands());
     }
-
-    presentStage.reset();
-
-    // Draw user sprites
-    m_spriteManager->Draw(audioData, renderContext, targetFramebufferObject, {m_activePreset, m_transitioningPreset});
 
     m_frameCount++;
     m_previousFrameVolume = audioData.vol;
@@ -516,6 +563,8 @@ void ProjectM::Initialize()
 
     m_textureManager = std::make_unique<Renderer::TextureManager>(m_textureSearchPaths);
     m_shaderCache = std::make_unique<Renderer::ShaderCache>();
+    m_uniformRing = std::make_unique<Renderer::UniformRingBuffer>();
+    m_frameGraph = std::make_unique<Renderer::RenderGraph>();
 
     m_transitionShaderManager = std::make_unique<Renderer::TransitionShaderManager>();
 
@@ -710,16 +759,23 @@ void ProjectM::BurnInTexture(uint32_t openGlTextureId, int left, int top, int wi
 {
     const ScopedEngineContext engineScope(*m_engineContext);
     const Renderer::Device::ScopedPipelineReset pipelineReset;
+    auto& commands = Renderer::Device::Commands();
+    const auto burnIn = [&](const Preset& preset) {
+        if (const auto pass = preset.FramebufferPass())
+        {
+            commands.BeginRenderPass(*pass);
+            m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
+            commands.EndRenderPass();
+        }
+    };
     if (m_activePreset)
     {
-        m_activePreset->BindFramebuffer();
-        m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
+        burnIn(*m_activePreset);
     }
 
     if (m_transitioningPreset)
     {
-        m_transitioningPreset->BindFramebuffer();
-        m_textureCopier->Draw(*m_shaderCache, Renderer::Device::TextureHandle{openGlTextureId}, m_windowWidth, m_windowHeight, left, top, width, height);
+        burnIn(*m_transitioningPreset);
     }
 
     Renderer::Framebuffer::Unbind();
@@ -1168,6 +1224,7 @@ auto ProjectM::GetRenderContext() -> Renderer::RenderContext
 
     ctx.textureManager = m_textureManager.get();
     ctx.shaderCache = m_shaderCache.get();
+    ctx.uniformRing = m_uniformRing.get();
     ctx.hostVariables = &m_hostVariables;
 
     if (m_transition)

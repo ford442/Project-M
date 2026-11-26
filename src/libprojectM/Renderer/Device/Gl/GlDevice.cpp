@@ -120,9 +120,18 @@ GlCommandList::GlCommandList(GlDevice& device, ResourceStateTracker& tracker)
 {
 }
 
-void GlCommandList::BeginPass(const RenderPassDesc& pass)
+void GlCommandList::BeginRenderPass(const RenderPassDesc& pass)
 {
-    BindRenderTarget(pass.binding, pass.target);
+    if (m_pass)
+    {
+        m_tracker.OnPassViolation(std::string("BeginRenderPass(") + (pass.label ? pass.label : "unnamed") + ") while pass " +
+                                  (m_pass->label ? m_pass->label : "unnamed") + " is open");
+        EndRenderPass();
+    }
+    glBindFramebuffer(ToGl(pass.binding), pass.target.id);
+    m_tracker.OnBindRenderTarget(pass.binding, pass.target);
+    m_pass = pass;
+    m_tracker.OnBeginRenderPass(pass);
     if (pass.viewport)
     {
         SetViewport(*pass.viewport);
@@ -134,10 +143,20 @@ void GlCommandList::BeginPass(const RenderPassDesc& pass)
     }
 }
 
-void GlCommandList::EndPass()
+void GlCommandList::EndRenderPass()
 {
-    m_tracker.OnEndPass();
-    ReportGlErrors("EndPass");
+    if (!m_pass)
+    {
+        m_tracker.OnPassViolation("EndRenderPass() without an open pass");
+    }
+    m_pass.reset();
+    m_tracker.OnEndRenderPass();
+    ReportGlErrors("EndRenderPass");
+}
+
+auto GlCommandList::CurrentRenderPass() const -> const RenderPassDesc*
+{
+    return m_pass ? &*m_pass : nullptr;
 }
 
 void GlCommandList::ReportGlErrors(const char* operation)
@@ -286,6 +305,7 @@ void GlCommandList::Clear(uint8_t clearMask)
     {
         bits |= GL_STENCIL_BUFFER_BIT;
     }
+    m_tracker.OnClear();
     glClear(bits);
     if (known)
     {
@@ -299,6 +319,7 @@ void GlCommandList::ClearColorAttachment(int drawBuffer, const std::array<float,
     const bool known = m_stateKnown.load();
     const auto colorMask = m_applied.colorMask;
     ApplyColorMask(writeMask, known);
+    m_tracker.OnClear();
     glClearBufferfv(GL_COLOR, drawBuffer, color.data());
     if (known)
     {
@@ -449,12 +470,152 @@ void GlCommandList::SetProgram(ProgramHandle program)
 void GlCommandList::InvalidateState()
 {
     m_stateKnown.store(false);
+    m_unitsKnown.store(false);
+}
+
+void GlCommandList::ForgetUnitBindingsIfInvalidated()
+{
+    if (!m_unitsKnown.exchange(true))
+    {
+        m_units = {};
+        m_activeUnit = -1;
+    }
+}
+
+void GlCommandList::OnTextureBindingDisturbed(TextureTarget target)
+{
+    ForgetUnitBindingsIfInvalidated();
+    if (m_activeUnit < 0 || m_activeUnit >= TrackedUnits)
+    {
+        m_units = {};
+        return;
+    }
+    auto& unit = m_units.at(m_activeUnit);
+    (target == TextureTarget::Texture3D ? unit.texture3D : unit.texture2D).reset();
+}
+
+void GlCommandList::OnTextureDeleted(TextureHandle deleted)
+{
+    // GL unbinds a deleted texture from every unit of the current context.
+    ForgetUnitBindingsIfInvalidated();
+    for (auto& unit : m_units)
+    {
+        for (auto* binding : {&unit.texture2D, &unit.texture3D})
+        {
+            if (*binding == deleted)
+            {
+                *binding = TextureHandle{};
+            }
+        }
+    }
+}
+
+void GlCommandList::OnSamplerDeleted(SamplerHandle deleted)
+{
+    ForgetUnitBindingsIfInvalidated();
+    for (auto& unit : m_units)
+    {
+        if (unit.sampler == deleted)
+        {
+            unit.sampler = SamplerHandle{};
+        }
+    }
+}
+
+void GlCommandList::SetBindGroup(BindGroupHandle group, std::span<const uint32_t> dynamicOffsets)
+{
+    const auto* desc = m_device.BindGroup(group);
+    if (desc == nullptr)
+    {
+        return;
+    }
+    ForgetUnitBindingsIfInvalidated();
+
+    for (uint8_t i = 0; i < desc->textureCount; i++)
+    {
+        const auto& binding = desc->textures.at(i);
+        if (binding.unit < 0 || binding.unit >= TrackedUnits)
+        {
+            BindTexture(binding.unit, binding.target, binding.texture);
+            if (binding.sampler.Valid())
+            {
+                BindSampler(binding.unit, binding.sampler);
+            }
+            continue;
+        }
+        auto& unit = m_units.at(binding.unit);
+        auto& bound = binding.target == TextureTarget::Texture3D ? unit.texture3D : unit.texture2D;
+        if (bound != binding.texture)
+        {
+            BindTexture(binding.unit, binding.target, binding.texture);
+        }
+        else
+        {
+            m_tracker.OnBindTexture(binding.unit, binding.target, binding.texture);
+        }
+        if (binding.sampler.Valid() && unit.sampler != binding.sampler)
+        {
+            BindSampler(binding.unit, binding.sampler);
+        }
+    }
+    // Binding the textures one by one left the last one's unit active.
+    if (desc->textureCount > 0)
+    {
+        const int last = desc->textures.at(desc->textureCount - 1).unit;
+        if (m_activeUnit != last)
+        {
+            SetActiveTextureUnit(last);
+        }
+    }
+
+    size_t dynamic = 0;
+    for (uint8_t i = 0; i < desc->uniformBufferCount; i++)
+    {
+        const auto& binding = desc->uniformBuffers.at(i);
+        size_t offset = binding.offset;
+        if (binding.dynamicOffset)
+        {
+            offset = dynamic < dynamicOffsets.size() ? dynamicOffsets[dynamic] : 0;
+            dynamic++;
+        }
+        BindUniformBuffer(binding.slot, binding.buffer, offset, binding.size);
+    }
 }
 
 void GlCommandList::ResetPipelineState()
 {
+    if (m_pass)
+    {
+        m_tracker.OnPassViolation(std::string("frame ended inside pass ") + (m_pass->label ? m_pass->label : "unnamed"));
+        EndRenderPass();
+    }
     Apply(PipelineDesc{});
     m_hasPipeline = false;
+    for (int slot = 0; m_boundUniformSlots != 0; slot++)
+    {
+        if ((m_boundUniformSlots & (1u << slot)) != 0)
+        {
+            glBindBufferBase(GL_UNIFORM_BUFFER, static_cast<GLuint>(slot), 0);
+            m_boundUniformSlots &= ~(1u << slot);
+        }
+    }
+}
+
+void GlCommandList::BindUniformBuffer(int slot, BufferHandle buffer, size_t offset, size_t size)
+{
+    if (slot < 0 || slot >= 32)
+    {
+        return;
+    }
+    if (!buffer.Valid())
+    {
+        glBindBufferBase(GL_UNIFORM_BUFFER, static_cast<GLuint>(slot), 0);
+        m_boundUniformSlots &= ~(1u << slot);
+        return;
+    }
+    glBindBufferRange(GL_UNIFORM_BUFFER, static_cast<GLuint>(slot), buffer.id,
+                      static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size));
+    m_boundUniformSlots |= 1u << slot;
 }
 
 void GlCommandList::OnProgramDestroyed(ProgramHandle program)
@@ -518,6 +679,12 @@ void GlCommandList::BindTexture(int unit, TextureTarget target, TextureHandle te
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(ToGl(target), texture.id);
     m_tracker.OnBindTexture(unit, target, texture);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
+    if (unit >= 0 && unit < TrackedUnits)
+    {
+        (target == TextureTarget::Texture3D ? m_units.at(unit).texture3D : m_units.at(unit).texture2D) = texture;
+    }
 }
 
 auto GlCommandList::BoundTexture2D() -> TextureHandle
@@ -530,11 +697,18 @@ auto GlCommandList::BoundTexture2D() -> TextureHandle
 void GlCommandList::BindSampler(int unit, SamplerHandle sampler)
 {
     glBindSampler(unit, sampler.id);
+    ForgetUnitBindingsIfInvalidated();
+    if (unit >= 0 && unit < TrackedUnits)
+    {
+        m_units.at(unit).sampler = sampler;
+    }
 }
 
 void GlCommandList::SetActiveTextureUnit(int unit)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
 }
 
 auto GlCommandList::ActiveTextureUnit() -> int
@@ -547,6 +721,8 @@ auto GlCommandList::ActiveTextureUnit() -> int
 void GlCommandList::SetBoundTextureFilter(int unit, TextureTarget target, FilterMode filter)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glTexParameteri(ToGl(target), GL_TEXTURE_MIN_FILTER, ToGl(filter));
     glTexParameteri(ToGl(target), GL_TEXTURE_MAG_FILTER, ToGl(filter));
 }
@@ -554,6 +730,8 @@ void GlCommandList::SetBoundTextureFilter(int unit, TextureTarget target, Filter
 void GlCommandList::SetBoundTextureWrap(int unit, TextureTarget target, WrapMode wrap)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glTexParameteri(ToGl(target), GL_TEXTURE_WRAP_S, ToGl(wrap));
     glTexParameteri(ToGl(target), GL_TEXTURE_WRAP_T, ToGl(wrap));
 }
@@ -562,6 +740,8 @@ void GlCommandList::SetBoundTextureMaxAnisotropy(int unit, TextureTarget target,
 {
 #ifdef GL_EXT_texture_filter_anisotropic
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glTexParameterf(ToGl(target), GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy);
 #else
     (void) unit;
@@ -573,6 +753,8 @@ void GlCommandList::SetBoundTextureMaxAnisotropy(int unit, TextureTarget target,
 void GlCommandList::CopyToBoundTexture(int unit, int width, int height)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
     m_tracker.OnCopyToTexture(unit);
 }
@@ -665,6 +847,7 @@ void GlCommandList::Blit(const Rect& source, const Rect& destination, FilterMode
 
 void GlCommandList::ReadPixels(const Rect& area, void* destination)
 {
+    m_tracker.OnReadPixels();
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(area.x, area.y, area.width, area.height, GL_RGBA, GL_UNSIGNED_BYTE, destination);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
@@ -779,6 +962,13 @@ auto GlDevice::MaxTextureAnisotropy() -> float
 #endif
 }
 
+auto GlDevice::UniformBufferOffsetAlignment() -> size_t
+{
+    GLint alignment{};
+    glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
+    return alignment > 0 ? static_cast<size_t>(alignment) : 256;
+}
+
 auto GlDevice::CreateTexture(const TextureDesc& desc, const void* data) -> TextureHandle
 {
     GLuint texture{};
@@ -800,6 +990,7 @@ void GlDevice::UpdateTexture(TextureHandle texture, const TextureDesc& desc, con
         glTexParameteri(target, GL_TEXTURE_WRAP_T, ToGl(desc.sampling->wrap));
     }
     glBindTexture(target, 0);
+    m_commands.OnTextureBindingDisturbed(desc.target);
 }
 
 void GlDevice::WriteTexture(TextureHandle texture, const TextureDesc& desc, const void* data)
@@ -812,6 +1003,7 @@ void GlDevice::WriteTexture(TextureHandle texture, const TextureDesc& desc, cons
     glBindTexture(target, texture.id);
     TexSubImage(target, desc, data);
     glBindTexture(target, 0);
+    m_commands.OnTextureBindingDisturbed(desc.target);
 }
 
 void GlDevice::DestroyTexture(TextureHandle texture)
@@ -822,6 +1014,7 @@ void GlDevice::DestroyTexture(TextureHandle texture)
     }
     m_tracker.OnDestroyTexture(texture);
     glDeleteTextures(1, &texture.id);
+    m_commands.OnTextureDeleted(texture);
 }
 
 auto GlDevice::CreateSampler(const TextureSampling& sampling) -> SamplerHandle
@@ -852,6 +1045,7 @@ void GlDevice::DestroySampler(SamplerHandle sampler)
     if (sampler.Valid())
     {
         glDeleteSamplers(1, &sampler.id);
+        m_commands.OnSamplerDeleted(sampler);
     }
 }
 
@@ -868,6 +1062,28 @@ void GlDevice::DestroyBuffer(BufferHandle buffer)
     {
         glDeleteBuffers(1, &buffer.id);
     }
+}
+
+auto GlDevice::CreateUniformBuffer(size_t bytes) -> BufferHandle
+{
+    GLuint buffer{};
+    glGenBuffers(1, &buffer);
+    // The copy-write binding point, so no binding the renderer or the host uses changes.
+    glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+    glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(bytes), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+    return {buffer};
+}
+
+void GlDevice::WriteBuffer(BufferHandle buffer, size_t offset, const void* data, size_t bytes)
+{
+    if (!buffer.Valid() || bytes == 0)
+    {
+        return;
+    }
+    glBindBuffer(GL_COPY_WRITE_BUFFER, buffer.id);
+    glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(bytes), data);
+    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
 }
 
 void GlDevice::ReadBoundBuffer(BufferKind kind, size_t bytes, void* destination)
@@ -988,6 +1204,29 @@ auto GlDevice::PipelineCount() const -> size_t
     return m_pipelines.size();
 }
 
+auto GlDevice::CreateBindGroup(const BindGroupDesc& desc) -> BindGroupHandle
+{
+    const uint32_t id = m_nextBindGroupId++;
+    m_bindGroups.emplace(id, desc);
+    return {id};
+}
+
+void GlDevice::DestroyBindGroup(BindGroupHandle group)
+{
+    m_bindGroups.erase(group.id);
+}
+
+auto GlDevice::BindGroup(BindGroupHandle group) const -> const BindGroupDesc*
+{
+    const auto found = m_bindGroups.find(group.id);
+    return found == m_bindGroups.end() ? nullptr : &found->second;
+}
+
+auto GlDevice::BindGroupCount() const -> size_t
+{
+    return m_bindGroups.size();
+}
+
 auto GlDevice::BeginCompileProgram(ProgramHandle program,
                                    const std::string& vertexSource,
                                    const std::string& fragmentSource) -> PendingProgram
@@ -1089,6 +1328,21 @@ auto GlDevice::UniformLocation(ProgramHandle program, const char* name) -> int
 auto GlDevice::AttributeLocation(ProgramHandle program, const char* name) -> int
 {
     return glGetAttribLocation(program.id, name);
+}
+
+auto GlDevice::BindUniformBlock(ProgramHandle program, const char* name, int slot) -> bool
+{
+    if (!program.Valid() || slot < 0)
+    {
+        return false;
+    }
+    const GLuint index = glGetUniformBlockIndex(program.id, name);
+    if (index == GL_INVALID_INDEX)
+    {
+        return false;
+    }
+    glUniformBlockBinding(program.id, index, static_cast<GLuint>(slot));
+    return true;
 }
 
 auto GlDevice::CreateFence() -> FenceHandle

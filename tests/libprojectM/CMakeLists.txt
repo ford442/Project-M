@@ -61,6 +61,7 @@ add_executable(projectM-unittest
         PerPixelGlslLoweringTest.cpp
         PerPixelGpuRenderTest.cpp
         RenderDeviceTest.cpp
+        RenderGraphTest.cpp
         RhythmAnalyzerTest.cpp
         BeatLockedSwitchTest.cpp
         ShaderCacheTest.cpp

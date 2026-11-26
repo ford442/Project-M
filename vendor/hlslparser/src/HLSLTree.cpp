@@ -630,6 +630,17 @@ bool HLSLTree::ReplaceUniformsAssignments()
             }
         }
 
+        virtual void VisitBuffer(HLSLBuffer * node)
+        {
+            // cbuffer fields are uniforms too: GLSL makes uniform block members read-only, so
+            // an assignment needs the same local copy as one to a plain uniform.
+            for (HLSLDeclaration * field = node->field; field != NULL; field = (HLSLDeclaration *)field->nextStatement)
+            {
+                uniforms[field->name] = field;
+            }
+            HLSLTreeVisitor::VisitBuffer(node);
+        }
+
         virtual void VisitFunction(HLSLFunction * node)
         {
             uniformsReplaced.clear();

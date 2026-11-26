@@ -2,10 +2,12 @@
 
 #include <Audio/FrameAudioData.hpp>
 
+#include <Renderer/Device/DeviceTypes.hpp>
 #include <Renderer/RenderContext.hpp>
 #include <Renderer/Texture.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace libprojectM {
@@ -48,17 +50,17 @@ public:
                                   const Renderer::RenderContext& renderContext) = 0;
 
     /**
-     * @brief Bind the preset's internal framebuffer.
+     * @brief The render pass that draws into the preset's internal framebuffer, or nothing if the
+     *        framebuffer isn't initialized yet, e.g. before drawing the first frame.
      * This framebuffer contains the image passed on to the next frame, onto which warp effects etc.
-     * are then applied. Has no effect if the framebuffer isn't initialized yet, e.g. before drawing
-     * the first frame.
+     * are then applied.
      *
      * Can be used to draw anything on top of the preset's image, "burning in" additional shapes,
      * images or text. Depending on the preset, it's not guaranteed though that the image actually
      * is used in the next frame, or completely painted over. That said, the effect varies between
      * presets.
      */
-    virtual void BindFramebuffer() = 0;
+    [[nodiscard]] virtual auto FramebufferPass() const -> std::optional<Renderer::Device::RenderPassDesc> = 0;
 
     /**
      * @brief Binds the preset's output framebuffer as the current OpenGL read framebuffer.

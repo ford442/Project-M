@@ -17,6 +17,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace libprojectM {
 namespace Renderer {
@@ -261,6 +263,21 @@ public:
      */
     [[nodiscard]] static auto GetShaderLanguageVersion() -> GlslVersion;
 
+    /**
+     * @brief Makes the program's uniform block @a blockName read from uniform buffer slot @a slot
+     *        (ICommandList::BindUniformBuffer()), now if linked and again after every link.
+     */
+    void SetUniformBlockBinding(const char* blockName, int slot);
+
+    /**
+     * @brief How often the program has linked successfully. A relink resets every uniform, so
+     *        state set once per program (bind group uniforms) is keyed on it.
+     */
+    [[nodiscard]] auto LinkCount() const -> uint64_t
+    {
+        return m_linkCount;
+    }
+
 private:
     /**
      * @brief Shader objects of a compile started with BeginCompileProgram().
@@ -294,6 +311,10 @@ private:
 
     //! Uniform locations looked up since the last link, by name. Cleared on relink.
     mutable std::map<std::string, int, std::less<>> m_uniformLocations;
+
+    std::vector<std::pair<std::string, int>> m_uniformBlockBindings; //!< Applied after each link.
+    bool m_linked{false};                                            //!< The last link succeeded.
+    uint64_t m_linkCount{};                                          //!< Successful links.
 };
 
 } // namespace Renderer

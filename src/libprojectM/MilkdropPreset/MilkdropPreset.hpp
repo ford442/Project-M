@@ -36,6 +36,7 @@
 #include "Waveform.hpp"
 
 #include <Renderer/CopyTexture.hpp>
+#include <Renderer/RenderGraph.hpp>
 #include <Renderer/Framebuffer.hpp>
 
 #include <memory>
@@ -94,7 +95,7 @@ public:
 
     void DrawInitialImage(const std::shared_ptr<Renderer::Texture>& image, const Renderer::RenderContext& renderContext) override;
 
-    void BindFramebuffer() override;
+    auto FramebufferPass() const -> std::optional<Renderer::Device::RenderPassDesc> override;
 
     void BindOutputForRead() override;
 
@@ -171,6 +172,7 @@ private:
     std::array<std::unique_ptr<CustomShape>, CustomShapeCount> m_customShapes;          //!< Custom shapes in this preset.
     DarkenCenter m_darkenCenter;                                                        //!< Center darkening effect.
     Border m_border;                                                                    //!< Inner/outer borders.
+    Renderer::RenderGraph m_frameGraph;                                                 //!< The frame's passes, declared each frame (B2).
     Renderer::CopyTexture m_flipTexture;                                                //!< Texture flip filter
 
     FinalComposite m_finalComposite; //!< Final composite shader or filters.

@@ -36,6 +36,8 @@ MilkdropShader::MilkdropShader(ShaderType type)
     : m_type(type)
     , m_randValues({floatRand(), floatRand(), floatRand(), floatRand()})
 {
+    m_shader.SetUniformBlockBinding(MilkdropFrameUniforms::BlockName, MilkdropFrameUniforms::Slot);
+
     unsigned int index = 0;
     do
     {
@@ -431,97 +433,99 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
     // An extra pass renders upside down: see SetExtraPass().
     m_shader.SetUniformMat4x4("vertex_transformation", m_extraPass ? PresetState::orthogonalProjectionFlipped : PresetState::orthogonalProjection);
 
-    m_shader.SetUniformFloat4("rand_frame", {floatRand(),
-                                             floatRand(),
-                                             floatRand(),
-                                             floatRand()});
-    m_shader.SetUniformFloat4("rand_preset", {m_randValues[0],
-                                              m_randValues[1],
-                                              m_randValues[2],
-                                              m_randValues[3]});
+    MilkdropFrameUniforms& u = m_frameUniforms;
 
-    m_shader.SetUniformFloat4("_c0", {presetState.renderContext.aspectX,
-                                      presetState.renderContext.aspectY,
-                                      1.0f / presetState.renderContext.aspectX,
-                                      1.0f / presetState.renderContext.aspectY});
-    m_shader.SetUniformFloat4("_c1", {0.0,
-                                      0.0,
-                                      0.0,
-                                      0.0});
-    m_shader.SetUniformFloat4("_c2", {timeSincePresetStartWrapped,
-                                      presetState.renderContext.fps,
-                                      presetState.renderContext.frame,
-                                      presetState.renderContext.progress});
-    m_shader.SetUniformFloat4("_c3", {presetState.audioData.bass,
-                                      presetState.audioData.mid,
-                                      presetState.audioData.treb,
-                                      presetState.audioData.vol});
-    m_shader.SetUniformFloat4("_c4", {presetState.audioData.bassAtt,
-                                      presetState.audioData.midAtt,
-                                      presetState.audioData.trebAtt,
-                                      presetState.audioData.volAtt});
-    m_shader.SetUniformFloat4("_c5", {blurMax[0] - blurMin[0],
-                                      blurMin[0],
-                                      blurMax[1] - blurMin[1],
-                                      blurMin[1]});
-    m_shader.SetUniformFloat4("_c6", {blurMax[2] - blurMin[2],
-                                      blurMin[2],
-                                      blurMin[0],
-                                      blurMax[0]});
-    m_shader.SetUniformFloat4("_c7", {presetState.renderContext.viewportSizeX,
-                                      presetState.renderContext.viewportSizeY,
-                                      1.0f / static_cast<float>(presetState.renderContext.viewportSizeX),
-                                      1.0f / static_cast<float>(presetState.renderContext.viewportSizeY)});
+    u.randFrame = {floatRand(),
+                   floatRand(),
+                   floatRand(),
+                   floatRand()};
+    u.randPreset = {m_randValues[0],
+                    m_randValues[1],
+                    m_randValues[2],
+                    m_randValues[3]};
 
-    m_shader.SetUniformFloat4("_c8", {0.5f + 0.5f * cosf(floatTime * 0.329f + 1.2f),
-                                      0.5f + 0.5f * cosf(floatTime * 1.293f + 3.9f),
-                                      0.5f + 0.5f * cosf(floatTime * 5.070f + 2.5f),
-                                      0.5f + 0.5f * cosf(floatTime * 20.051f + 5.4f)});
+    u.c[0] = {presetState.renderContext.aspectX,
+              presetState.renderContext.aspectY,
+              1.0f / presetState.renderContext.aspectX,
+              1.0f / presetState.renderContext.aspectY};
+    u.c[1] = {0.0,
+              0.0,
+              0.0,
+              0.0};
+    u.c[2] = {timeSincePresetStartWrapped,
+              presetState.renderContext.fps,
+              static_cast<float>(presetState.renderContext.frame),
+              presetState.renderContext.progress};
+    u.c[3] = {presetState.audioData.bass,
+              presetState.audioData.mid,
+              presetState.audioData.treb,
+              presetState.audioData.vol};
+    u.c[4] = {presetState.audioData.bassAtt,
+              presetState.audioData.midAtt,
+              presetState.audioData.trebAtt,
+              presetState.audioData.volAtt};
+    u.c[5] = {blurMax[0] - blurMin[0],
+              blurMin[0],
+              blurMax[1] - blurMin[1],
+              blurMin[1]};
+    u.c[6] = {blurMax[2] - blurMin[2],
+              blurMin[2],
+              blurMin[0],
+              blurMax[0]};
+    u.c[7] = {static_cast<float>(presetState.renderContext.viewportSizeX),
+              static_cast<float>(presetState.renderContext.viewportSizeY),
+              1.0f / static_cast<float>(presetState.renderContext.viewportSizeX),
+              1.0f / static_cast<float>(presetState.renderContext.viewportSizeY)};
 
-    m_shader.SetUniformFloat4("_c9", {0.5f + 0.5f * sinf(floatTime * 0.329f + 1.2f),
-                                      0.5f + 0.5f * sinf(floatTime * 1.293f + 3.9f),
-                                      0.5f + 0.5f * sinf(floatTime * 5.070f + 2.5f),
-                                      0.5f + 0.5f * sinf(floatTime * 20.051f + 5.4f)});
+    u.c[8] = {0.5f + 0.5f * cosf(floatTime * 0.329f + 1.2f),
+              0.5f + 0.5f * cosf(floatTime * 1.293f + 3.9f),
+              0.5f + 0.5f * cosf(floatTime * 5.070f + 2.5f),
+              0.5f + 0.5f * cosf(floatTime * 20.051f + 5.4f)};
 
-    m_shader.SetUniformFloat4("_c10", {0.5f + 0.5f * cosf(floatTime * 0.0050f + 2.7f),
-                                       0.5f + 0.5f * cosf(floatTime * 0.0085f + 5.3f),
-                                       0.5f + 0.5f * cosf(floatTime * 0.0133f + 4.5f),
-                                       0.5f + 0.5f * cosf(floatTime * 0.0217f + 3.8f)});
+    u.c[9] = {0.5f + 0.5f * sinf(floatTime * 0.329f + 1.2f),
+              0.5f + 0.5f * sinf(floatTime * 1.293f + 3.9f),
+              0.5f + 0.5f * sinf(floatTime * 5.070f + 2.5f),
+              0.5f + 0.5f * sinf(floatTime * 20.051f + 5.4f)};
 
-    m_shader.SetUniformFloat4("_c11", {0.5f + 0.5f * sinf(floatTime * 0.0050f + 2.7f),
-                                       0.5f + 0.5f * sinf(floatTime * 0.0085f + 5.3f),
-                                       0.5f + 0.5f * sinf(floatTime * 0.0133f + 4.5f),
-                                       0.5f + 0.5f * sinf(floatTime * 0.0217f + 3.8f)});
+    u.c[10] = {0.5f + 0.5f * cosf(floatTime * 0.0050f + 2.7f),
+               0.5f + 0.5f * cosf(floatTime * 0.0085f + 5.3f),
+               0.5f + 0.5f * cosf(floatTime * 0.0133f + 4.5f),
+               0.5f + 0.5f * cosf(floatTime * 0.0217f + 3.8f)};
 
-    m_shader.SetUniformFloat4("_c12", {mipX,
-                                       mipY,
-                                       mipAvg,
-                                       0});
-    m_shader.SetUniformFloat4("_c13", {blurMin[1],
-                                       blurMax[1],
-                                       blurMin[2],
-                                       blurMax[2]});
+    u.c[11] = {0.5f + 0.5f * sinf(floatTime * 0.0050f + 2.7f),
+               0.5f + 0.5f * sinf(floatTime * 0.0085f + 5.3f),
+               0.5f + 0.5f * sinf(floatTime * 0.0133f + 4.5f),
+               0.5f + 0.5f * sinf(floatTime * 0.0217f + 3.8f)};
+
+    u.c[12] = {mipX,
+               mipY,
+               mipAvg,
+               0};
+    u.c[13] = {blurMin[1],
+               blurMax[1],
+               blurMin[2],
+               blurMax[2]};
 
     // projectM's pm_* musical-time variables, as the per-frame code left them.
     auto rhythm = [&perFrameContext](RhythmVariables::Index index) {
         return static_cast<float>(perFrameContext.rhythm.Value(index));
     };
-    m_shader.SetUniformFloat4("_c14", {rhythm(RhythmVariables::Bpm),
-                                       rhythm(RhythmVariables::BeatPhase),
-                                       rhythm(RhythmVariables::BeatPulse),
-                                       rhythm(RhythmVariables::BarPhase)});
-    m_shader.SetUniformFloat4("_c15", {rhythm(RhythmVariables::Onset),
-                                       rhythm(RhythmVariables::OnsetLow),
-                                       rhythm(RhythmVariables::OnsetMid),
-                                       rhythm(RhythmVariables::OnsetHigh)});
-    m_shader.SetUniformFloat4("_c16", {rhythm(RhythmVariables::Centroid),
-                                       rhythm(RhythmVariables::Flatness),
-                                       rhythm(RhythmVariables::Rms),
-                                       rhythm(RhythmVariables::Confidence)});
-    m_shader.SetUniformFloat4("_c17", {rhythm(RhythmVariables::BeatIndex),
-                                       rhythm(RhythmVariables::Section),
-                                       rhythm(RhythmVariables::SectionChange),
-                                       static_cast<float>(m_passIndex)});
+    u.c[14] = {rhythm(RhythmVariables::Bpm),
+               rhythm(RhythmVariables::BeatPhase),
+               rhythm(RhythmVariables::BeatPulse),
+               rhythm(RhythmVariables::BarPhase)};
+    u.c[15] = {rhythm(RhythmVariables::Onset),
+               rhythm(RhythmVariables::OnsetLow),
+               rhythm(RhythmVariables::OnsetMid),
+               rhythm(RhythmVariables::OnsetHigh)};
+    u.c[16] = {rhythm(RhythmVariables::Centroid),
+               rhythm(RhythmVariables::Flatness),
+               rhythm(RhythmVariables::Rms),
+               rhythm(RhythmVariables::Confidence)};
+    u.c[17] = {rhythm(RhythmVariables::BeatIndex),
+               rhythm(RhythmVariables::Section),
+               rhythm(RhythmVariables::SectionChange),
+               static_cast<float>(m_passIndex)};
 
 
     std::array<glm::mat4, 24> tempMatrices{};
@@ -554,67 +558,145 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
         tempMatrices[i] = rotationY * tempMatrices[i];
     }
 
-    m_shader.SetUniformMat3x4("rot_s1", tempMatrices[0]);
-    m_shader.SetUniformMat3x4("rot_s2", tempMatrices[1]);
-    m_shader.SetUniformMat3x4("rot_s3", tempMatrices[2]);
-    m_shader.SetUniformMat3x4("rot_s4", tempMatrices[3]);
-    m_shader.SetUniformMat3x4("rot_d1", tempMatrices[4]);
-    m_shader.SetUniformMat3x4("rot_d2", tempMatrices[5]);
-    m_shader.SetUniformMat3x4("rot_d3", tempMatrices[6]);
-    m_shader.SetUniformMat3x4("rot_d4", tempMatrices[7]);
-    m_shader.SetUniformMat3x4("rot_f1", tempMatrices[8]);
-    m_shader.SetUniformMat3x4("rot_f2", tempMatrices[9]);
-    m_shader.SetUniformMat3x4("rot_f3", tempMatrices[10]);
-    m_shader.SetUniformMat3x4("rot_f4", tempMatrices[11]);
-    m_shader.SetUniformMat3x4("rot_vf1", tempMatrices[12]);
-    m_shader.SetUniformMat3x4("rot_vf2", tempMatrices[13]);
-    m_shader.SetUniformMat3x4("rot_vf3", tempMatrices[14]);
-    m_shader.SetUniformMat3x4("rot_vf4", tempMatrices[15]);
-    m_shader.SetUniformMat3x4("rot_uf1", tempMatrices[16]);
-    m_shader.SetUniformMat3x4("rot_uf2", tempMatrices[17]);
-    m_shader.SetUniformMat3x4("rot_uf3", tempMatrices[18]);
-    m_shader.SetUniformMat3x4("rot_uf4", tempMatrices[19]);
-    m_shader.SetUniformMat3x4("rot_rand1", tempMatrices[20]);
-    m_shader.SetUniformMat3x4("rot_rand2", tempMatrices[21]);
-    m_shader.SetUniformMat3x4("rot_rand3", tempMatrices[22]);
-    m_shader.SetUniformMat3x4("rot_rand4", tempMatrices[23]);
-
-    // set program uniform "_q[a-h]" values (_qa.x, _qa.y, _qa.z, _qa.w, _qb.x, _qb.y ... ) alias q[1-32]
-    for (int i = 0; i < QVarCount; i += 4)
+    // Each rot_* is a mat3x4 (HLSL float4x3): the first three columns of the 4x4 matrix.
+    for (size_t i = 0; i < tempMatrices.size(); i++)
     {
-        std::string varName = "_q";
-        varName.push_back(static_cast<char>('a' + i / 4));
-        m_shader.SetUniformFloat4(varName.c_str(), {presetState.frameQVariables[i],
-                                                    presetState.frameQVariables[i + 1],
-                                                    presetState.frameQVariables[i + 2],
-                                                    presetState.frameQVariables[i + 3]});
+        for (int column = 0; column < 3; column++)
+        {
+            for (int row = 0; row < 4; row++)
+            {
+                u.rot[i][column * 4 + row] = tempMatrices[i][column][row];
+            }
+        }
     }
 
-    // Bind all texture and sampler descriptors. This includes the main and blur textures.
+    // "_q[a-h]" (_qa.x, _qa.y, _qa.z, _qa.w, _qb.x, _qb.y ... ) alias q[1-32]
+    for (int i = 0; i < QVarCount; i += 4)
+    {
+        u.q[i / 4] = {static_cast<float>(presetState.frameQVariables[i]),
+                      static_cast<float>(presetState.frameQVariables[i + 1]),
+                      static_cast<float>(presetState.frameQVariables[i + 2]),
+                      static_cast<float>(presetState.frameQVariables[i + 3])};
+    }
+
+    // One std140 block per draw, in the engine's ring (WebGPU: a dynamic offset).
+    Renderer::UniformRingBuffer* ring = presetState.renderContext.uniformRing;
+    if (ring == nullptr)
+    {
+        if (!m_fallbackRing)
+        {
+            m_fallbackRing = std::make_unique<Renderer::UniformRingBuffer>();
+        }
+        ring = m_fallbackRing.get();
+    }
+    const auto range = ring->Write(&u, sizeof(u));
+
+    // The textures and samplers, unit by unit as they always were (main, lastpass, blur, the
+    // preset's own), and the frame block: one bind group (B1.4). Each group is created the first
+    // time its textures appear, which is when its sampler and texsize uniforms are set.
+    Renderer::Device::BindGroupDesc group;
+    std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures> sizes{};
     int textureUnit{0};
+    const auto add = [&](const Renderer::TextureSamplerDescriptor& desc) {
+        if (const auto binding = desc.Binding(textureUnit))
+        {
+            const auto texture = desc.Texture();
+            sizes.at(group.textureCount) = {texture->Width(), texture->Height()};
+            group.AddTexture(*binding);
+        }
+        textureUnit++;
+    };
     for (auto& desc : m_mainTextureDescriptors)
     {
         // Update main texture, swaps every frame.
         desc.Texture(presetState.mainTexture);
-        desc.Bind(textureUnit, m_shader);
-        textureUnit++;
+        add(desc);
     }
     for (auto& desc : m_lastPassDescriptors)
     {
         desc.Texture(m_lastPassTexture ? m_lastPassTexture : presetState.mainTexture.lock());
-        desc.Bind(textureUnit, m_shader);
-        textureUnit++;
+        add(desc);
     }
-    presetState.blurTexture.Bind(textureUnit, m_shader);
+    presetState.blurTexture.AddBindings(textureUnit, group);
     for (auto& desc : m_textureSamplerDescriptors)
     {
         if (desc.Empty())
         {
             desc.TryUpdate(*presetState.renderContext.textureManager);
         }
-        desc.Bind(textureUnit, m_shader);
+        add(desc);
+    }
+    group.AddUniformBuffer({MilkdropFrameUniforms::Slot, range.buffer, 0, range.size, true});
+
+    const std::array<uint32_t, 1> offsets{static_cast<uint32_t>(range.offset)};
+    m_device->Commands().SetBindGroup(FindOrCreateBindGroup(group, sizes, presetState), offsets);
+}
+
+auto MilkdropShader::FindOrCreateBindGroup(const Renderer::Device::BindGroupDesc& desc,
+                                           const std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures>& sizes,
+                                           const PresetState& presetState) -> Renderer::Device::BindGroupHandle
+{
+    // A relink resets the program's uniforms, which the groups' creation set.
+    if (m_shader.LinkCount() != m_bindGroupLinkCount)
+    {
+        DestroyBindGroups();
+        m_bindGroupLinkCount = m_shader.LinkCount();
+    }
+
+    m_bindGroupUses++;
+    CachedBindGroup* oldest = &m_bindGroups.front();
+    for (auto& cached : m_bindGroups)
+    {
+        if (cached.group.Valid() && cached.desc == desc && cached.sizes == sizes)
+        {
+            cached.lastUse = m_bindGroupUses;
+            return cached.group;
+        }
+        if (!cached.group.Valid() || (oldest->group.Valid() && cached.lastUse < oldest->lastUse))
+        {
+            oldest = &cached;
+        }
+    }
+
+    m_device->DestroyBindGroup(oldest->group);
+    oldest->desc = desc;
+    oldest->sizes = sizes;
+    oldest->group = m_device->CreateBindGroup(desc);
+    oldest->lastUse = m_bindGroupUses;
+
+    // The uniforms that go with the group's layout: which unit each sampler reads, and the
+    // texsize of what it holds. The program is bound (LoadVariables()).
+    int textureUnit{0};
+    for (const auto* descriptors : {&m_mainTextureDescriptors, &m_lastPassDescriptors})
+    {
+        for (const auto& descriptor : *descriptors)
+        {
+            descriptor.SetUniforms(textureUnit, m_shader);
+            textureUnit++;
+        }
+    }
+    presetState.blurTexture.SetUniforms(textureUnit, m_shader);
+    for (const auto& descriptor : m_textureSamplerDescriptors)
+    {
+        descriptor.SetUniforms(textureUnit, m_shader);
         textureUnit++;
     }
+
+    return oldest->group;
+}
+
+void MilkdropShader::DestroyBindGroups()
+{
+    for (auto& cached : m_bindGroups)
+    {
+        m_device->DestroyBindGroup(cached.group);
+        cached = {};
+    }
+}
+
+MilkdropShader::~MilkdropShader()
+{
+    DestroyBindGroups();
 }
 
 auto MilkdropShader::Shader() -> Renderer::Shader&
@@ -845,6 +927,13 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
     {
         std::optional<std::string> cachedGlsl = prepared && prepared->cachedGlsl ? std::move(prepared->cachedGlsl)
                                                                                  : Renderer::LookupTranspiledGlsl(cacheKey, shaderTypeInt);
+        // GLSL cached by an engine from before the per-frame uniform block (B1.3) declares the
+        // inputs as plain uniforms, which nothing sets any more: transpile it again.
+        if (cachedGlsl && cachedGlsl->find(MilkdropFrameUniforms::BlockName) == std::string::npos)
+        {
+            LOG_DEBUG("[MilkdropShader] Cached transpiled GLSL " + shaderTypeString + " shader predates the per-frame uniform block; re-transpiling");
+            cachedGlsl.reset();
+        }
         if (cachedGlsl)
         {
             try

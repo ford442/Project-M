@@ -107,10 +107,22 @@ void PresetTransition::BeginPass(int passNumber, int viewportWidth, int viewport
                 m_passFramebuffer->CreateColorAttachment(0, 0);
             }
             m_passFramebuffer->SetSize(viewportWidth, viewportHeight);
-            m_originalDrawFbo = Device::Commands().BoundRenderTarget(Device::TargetBinding::Draw);
-            m_passFramebuffer->Bind(0);
+            // Pass 0 interrupts the caller's output pass, which pass 1 resumes (EndPass()).
+            auto& commands = Device::Commands();
+            if (const auto* output = commands.CurrentRenderPass())
+            {
+                m_resumePass = output->Resumed();
+                m_originalDrawFbo = output->target;
+                commands.EndRenderPass();
+            }
+            else
+            {
+                m_resumePass.reset();
+                m_originalDrawFbo = commands.BoundRenderTarget(Device::TargetBinding::Draw);
+            }
+            m_passFramebuffer->BeginRenderPass(0, "transition pass 0");
         }
-        else if (passNumber == 1)
+        else if (passNumber == 1 && !m_resumePass)
         {
             Device::Commands().BindRenderTarget(Device::TargetBinding::Draw, m_originalDrawFbo);
         }
@@ -126,7 +138,15 @@ void PresetTransition::EndPass()
     {
         // Restore the original draw framebuffer so pass 1 (and subsequent code)
         // can safely sample the intermediate texture.
-        Device::Commands().BindRenderTarget(Device::TargetBinding::Draw, m_originalDrawFbo);
+        Framebuffer::EndRenderPass();
+        if (m_resumePass)
+        {
+            Device::Commands().BeginRenderPass(*m_resumePass);
+        }
+        else
+        {
+            Device::Commands().BindRenderTarget(Device::TargetBinding::Draw, m_originalDrawFbo);
+        }
     }
 
     m_currentPass = -1;

@@ -326,9 +326,17 @@ Third-party code that is compiled as part of the project:
   distinct feedback hazard (a texture sampled while attached to the draw target, or a
   blit or copy that reads what it writes) once, as `[RenderDevice] Feedback hazard: ...`.
   It is off by default.
+- Every draw and clear is inside `BeginRenderPass()`/`EndRenderPass()`; copies, blits and
+  attachment changes happen outside passes (`PROJECTM_DEVICE_VALIDATION=1` logs
+  `[RenderDevice] Pass violation: ...`, and the `RenderPassValidation` ctest fails on any).
+  The preset shaders' per-frame inputs are the std140 block `cbuffer _milkdrop_frame`
+  (`MilkdropFrameUniforms` mirrors it), bound with a bind group per set of textures, and the
+  frame is a `Renderer::RenderGraph` (`MilkdropPreset::RenderFrame()`, `ProjectM::RenderFrame()`).
+  See `docs/RENDER_DEVICE.md`.
 - Device changes must stay bit-identical unless they mean to change output. Check
   with the WASM goldens and `PresetCompat`, plus a before/after render of the preset
-  corpora if the change touches draw order.
+  corpora if the change touches draw order: `scripts/render_hash_corpus.sh <projectm-render> <out>`
+  on both builds, then `diff` (2032 renders, four render-path variants including transitions).
 
 ### Engine state
 - State that belongs to one engine (a `ProjectM` instance) lives in its `EngineContext`

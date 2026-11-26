@@ -111,7 +111,11 @@ void start_render(WasmHost& H, int width, int height)
     }
     using RenderDevice::Capability;
     auto& commands = RenderDevice::Commands();
+    RenderDevice::RenderPassDesc canvasClear; // The canvas (default framebuffer).
+    canvasClear.label = "start_render clear";
+    commands.BeginRenderPass(canvasClear);
     commands.Clear(RenderDevice::ClearColor | RenderDevice::ClearDepth | RenderDevice::ClearStencil);
+    commands.EndRenderPass();
     WASM_LOG_INFO("Setting window size: %i x %i", width, height);
     commands.SetViewport({0, 0, width, height}); //  viewport/scissor after UsePrg runs at full resolution
     commands.SetEnabled(Capability::ScissorTest, true);
@@ -221,10 +225,13 @@ static void FillAlphaOfOpaqueFrame(const WasmHost& H, projectm_handle pm)
         return;
     }
     auto& commands = RenderDevice::Commands();
-    commands.BindRenderTarget(RenderDevice::TargetBinding::Draw, {});
+    RenderDevice::RenderPassDesc canvas; // The canvas (default framebuffer), contents kept.
+    canvas.label = "opaque alpha fill";
+    commands.BeginRenderPass(canvas);
     commands.SetEnabled(RenderDevice::Capability::ScissorTest, false);
     // Alpha only: the colour is the frame.
     commands.ClearColorAttachment(0, {0.0f, 0.0f, 0.0f, 1.0f}, {false, false, false, true});
+    commands.EndRenderPass();
 }
 
 static void ReleaseDualFboIfIdle(WasmHost& H)

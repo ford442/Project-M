@@ -6,6 +6,7 @@
 
 #include <Renderer/Framebuffer.hpp>
 #include <Renderer/Mesh.hpp>
+#include <Renderer/RenderGraph.hpp>
 #include <Renderer/RenderContext.hpp>
 #include <Renderer/Shader.hpp>
 #include <Renderer/TextureSamplerDescriptor.hpp>
@@ -103,6 +104,21 @@ public:
     void Update(const Renderer::Texture& sourceTexture, const PerFrameContext& perFrameContext);
 
     /**
+     * @brief The resource half of Update(): allocates the blur textures, picks the render path and
+     *        computes this frame's scale and bias. Call while building the frame graph.
+     * @return false if there is nothing to blur this frame.
+     */
+    auto Prepare(const Renderer::Texture& sourceTexture, const PerFrameContext& perFrameContext) -> bool;
+
+    /**
+     * @brief Declares the blur: a prepare pass (Prepare()), then one pass per level on the render
+     *        path, between a begin and an end pass that save and restore the caller's targets.
+     *        @a sourceTexture and @a perFrameContext must outlive the graph's Execute().
+     */
+    void AddPasses(Renderer::RenderGraph& graph, const Renderer::Texture& sourceTexture, const PerFrameContext& perFrameContext,
+                   Renderer::RenderGraph::Resource source, Renderer::RenderGraph::Resource blurTextures);
+
+    /**
      * @brief Binds the user-readable blur textures to the texture slots starting with the given index.
      * The shader must already be bound.
      * @param[in,out] unit The first texture unit to bind the blur textures from. Returns the next
@@ -110,6 +126,18 @@ public:
      *                     are used.
      */
     void Bind(int& unit, Renderer::Shader& shader) const;
+
+    /**
+     * @brief Adds the textures Bind() binds to a bind group, from @a unit on, and advances @a unit
+     *        past them.
+     */
+    void AddBindings(int& unit, Renderer::Device::BindGroupDesc& group) const;
+
+    /**
+     * @brief Sets the sampler uniforms Bind() sets, for textures bound from @a unit on, and
+     *        advances @a unit past them.
+     */
+    void SetUniforms(int& unit, const Renderer::Shader& shader) const;
 
     /**
      * @brief Returns properly scaled and clamped vlur values from the given context.
@@ -154,8 +182,9 @@ private:
     /**
      * @brief Binds the render target for the given blur pass and sets the viewport.
      * @param pass The blur pass index.
+     * @param copyPath Render into the scratch attachment (then copied) instead of the blur texture.
      */
-    void BindPassTarget(size_t pass);
+    void BindPassTarget(size_t pass, bool copyPath);
 
     /**
      * @brief Clamps a requested blur level against the governor cap, if any.
@@ -163,6 +192,46 @@ private:
      * @return requested, or m_levelCap if lower and the cap is active.
      */
     auto EffectiveLevel(BlurLevel requested) const -> BlurLevel;
+
+    void BeginPasses(bool copyPath);
+    void RenderLevel(unsigned int pass, bool copyPath);
+    void EndPasses();
+
+    /**
+     * @brief What Prepare() worked out for the frame's passes.
+     */
+    struct Frame {
+        const Renderer::Texture* source{nullptr};
+        unsigned int passes{};
+        float blur1EdgeDarken{};
+        std::array<float, 3> scale{};
+        std::array<float, 3> bias{};
+        Renderer::Device::RenderTargetHandle origReadFramebuffer;
+        Renderer::Device::RenderTargetHandle origDrawFramebuffer;
+        bool aborted{false}; //!< A blur shader was missing: the rest of the frame's blur is skipped.
+    };
+    Frame m_frame;
+
+    /**
+     * @brief A graph pass function: one of the blur's steps (AddPasses()).
+     */
+    struct Step {
+        enum Kind : uint8_t
+        {
+            Prepare,
+            Begin,
+            Level,
+            End
+        };
+        BlurTexture* blur{nullptr};
+        Kind kind{Begin};
+        unsigned int pass{};
+        bool copyPath{false};
+        void operator()(Renderer::RenderGraph::PassContext& context) const;
+    };
+    std::array<Step, NumBlurTextures + 3> m_steps{};
+    const Renderer::Texture* m_prepareSource{nullptr};     //!< AddPasses(): what the prepare step blurs.
+    const PerFrameContext* m_prepareContext{nullptr};      //!< AddPasses(): the per-frame variables it reads.
 
     Renderer::Mesh m_blurMesh; //!< The blur mesh (a simple quad).
 

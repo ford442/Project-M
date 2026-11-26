@@ -17,6 +17,7 @@
 #include "Renderer/Device/DeviceTypes.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -42,20 +43,30 @@ public:
     // ---- Passes and render targets ------------------------------------------------------
 
     /**
-     * @brief Starts drawing into a target: binds it, sets the viewport and applies the load op.
+     * @brief Starts a render pass: binds its target, sets the viewport and applies the load op.
      *
-     * A pass lasts until the next BeginPass() or BindRenderTarget() on the draw binding, or
-     * EndPass(). Textures attached to the pass target must not be sampled during the pass.
+     * Every draw and clear happens inside a pass, and passes do not nest: EndRenderPass() ends
+     * it. Inside a pass the target and its attachments are fixed, its attachments must not be
+     * sampled, and copies, blits and readbacks are not allowed (they are WebGPU encoder
+     * commands, not pass commands). The validation layer reports each of these as a pass
+     * violation; see ResourceStateTracker.
      */
-    virtual void BeginPass(const RenderPassDesc& pass) = 0;
+    virtual void BeginRenderPass(const RenderPassDesc& pass) = 0;
 
     /**
-     * @brief Ends the current pass. Its attachments may be sampled from here on.
+     * @brief Ends the current render pass. Its attachments may be sampled from here on.
      */
-    virtual void EndPass() = 0;
+    virtual void EndRenderPass() = 0;
 
     /**
-     * @brief Binds a render target without starting an explicit pass (stateful callers).
+     * @brief The open render pass, or nullptr. Code that has to render elsewhere while its
+     *        caller's pass is open ends it and later begins RenderPassDesc::Resumed().
+     */
+    [[nodiscard]] virtual auto CurrentRenderPass() const -> const RenderPassDesc* = 0;
+
+    /**
+     * @brief Binds a render target outside a pass: for attachment changes, read sources of
+     *        copies and blits, and blit destinations. Draws need BeginRenderPass().
      */
     virtual void BindRenderTarget(TargetBinding binding, RenderTargetHandle target) = 0;
 
@@ -146,6 +157,28 @@ public:
      * @param data @a count values of @a type, matrices column-major.
      */
     virtual void SetUniform(int location, UniformType type, int count, const void* data) = 0;
+
+    /**
+     * @brief Binds @a size bytes of a uniform buffer, starting at @a offset, to uniform block
+     *        slot @a slot. Programs read it through the block bound to that slot
+     *        (IRenderDevice::BindUniformBlock()).
+     *
+     * @a offset must be a multiple of IRenderDevice::UniformBufferOffsetAlignment(). An invalid
+     * handle unbinds the slot. The binding is not pipeline state and survives SetPipeline();
+     * ResetPipelineState() unbinds every slot bound since the last reset.
+     */
+    virtual void BindUniformBuffer(int slot, BufferHandle buffer, size_t offset, size_t size) = 0;
+
+    /**
+     * @brief Makes a bind group's textures, samplers and uniform buffer ranges current for the
+     *        following draws.
+     * @param dynamicOffsets One byte offset per uniform buffer binding with dynamicOffset, in
+     *                       order; each a multiple of IRenderDevice::UniformBufferOffsetAlignment().
+     *
+     * Leaves the active texture unit at the group's last texture unit, as binding the textures
+     * one by one did. An invalid or destroyed handle is ignored.
+     */
+    virtual void SetBindGroup(BindGroupHandle group, std::span<const uint32_t> dynamicOffsets) = 0;
 
     // ---- Textures and samplers --------------------------------------------------------
 
@@ -305,6 +338,12 @@ public:
      */
     [[nodiscard]] virtual auto MaxTextureAnisotropy() -> float = 0;
 
+    /**
+     * @brief The alignment a uniform buffer range passed to ICommandList::BindUniformBuffer()
+     *        must start at, in bytes (GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT; 256 on WebGPU).
+     */
+    [[nodiscard]] virtual auto UniformBufferOffsetAlignment() -> size_t = 0;
+
     // ---- Textures and samplers --------------------------------------------------------
 
     /**
@@ -337,6 +376,18 @@ public:
 
     [[nodiscard]] virtual auto CreateBuffer() -> BufferHandle = 0;
     virtual void DestroyBuffer(BufferHandle buffer) = 0;
+
+    /**
+     * @brief Creates a buffer with @a bytes of uniform storage (contents undefined), written with
+     *        WriteBuffer() and bound with ICommandList::BindUniformBuffer().
+     */
+    [[nodiscard]] virtual auto CreateUniformBuffer(size_t bytes) -> BufferHandle = 0;
+
+    /**
+     * @brief Copies @a bytes of @a data into a buffer at @a offset, ordered before the commands
+     *        issued after it (WebGPU's queue.writeBuffer()). Leaves no buffer bound for any kind.
+     */
+    virtual void WriteBuffer(BufferHandle buffer, size_t offset, const void* data, size_t bytes) = 0;
 
     /**
      * @brief Reads back the start of a buffer bound for @a kind, e.g. a finished PixelPack read.
@@ -402,6 +453,15 @@ public:
      */
     [[nodiscard]] virtual auto AttributeLocation(ProgramHandle program, const char* name) -> int = 0;
 
+    /**
+     * @brief Makes a linked program's uniform block @a name read from uniform buffer slot @a slot.
+     * @return false if the program has no active block of that name (nothing to bind).
+     *
+     * GLSL 3.30 / ESSL 3.00 cannot say layout(binding = n), so the GL backend does this after
+     * each link; a relink forgets it.
+     */
+    virtual auto BindUniformBlock(ProgramHandle program, const char* name, int slot) -> bool = 0;
+
     // ---- Pipelines -------------------------------------------------------------------
 
     /**
@@ -421,6 +481,26 @@ public:
      * @brief How many pipelines the device holds (for tests and the perf HUD).
      */
     [[nodiscard]] virtual auto PipelineCount() const -> size_t = 0;
+
+    // ---- Bind groups -----------------------------------------------------------------
+
+    /**
+     * @brief Creates an immutable bind group. Create them when the resources are known (preset
+     *        load) and reuse them; destroying a texture or sampler a group holds leaves the group
+     *        binding nothing in its place.
+     */
+    [[nodiscard]] virtual auto CreateBindGroup(const BindGroupDesc& desc) -> BindGroupHandle = 0;
+    virtual void DestroyBindGroup(BindGroupHandle group) = 0;
+
+    /**
+     * @brief The description a group was created from, or nullptr for an unknown handle.
+     */
+    [[nodiscard]] virtual auto BindGroup(BindGroupHandle group) const -> const BindGroupDesc* = 0;
+
+    /**
+     * @brief How many bind groups the device holds (for tests and leak checks).
+     */
+    [[nodiscard]] virtual auto BindGroupCount() const -> size_t = 0;
 
     // ---- Fences ----------------------------------------------------------------------
 
@@ -481,6 +561,45 @@ inline void SetPipeline(const PipelineDesc& desc)
 {
     SetPipeline(Current(), desc);
 }
+
+/**
+ * @brief Ends the open render pass for its lifetime and resumes it (RenderPassDesc::Resumed())
+ *        when it goes out of scope. Does nothing if no pass is open.
+ *
+ * For code that renders into targets of its own in the middle of its caller's pass, such as a
+ * preset's extra shader passes: on WebGPU that is ending the pass encoder and beginning a new
+ * one that loads the contents.
+ */
+class ScopedPassInterruption
+{
+public:
+    explicit ScopedPassInterruption(ICommandList& commands)
+        : m_commands(commands)
+    {
+        if (const auto* pass = commands.CurrentRenderPass())
+        {
+            m_resume = pass->Resumed();
+            commands.EndRenderPass();
+        }
+    }
+
+    ~ScopedPassInterruption()
+    {
+        if (m_resume)
+        {
+            m_commands.BeginRenderPass(*m_resume);
+        }
+    }
+
+    ScopedPassInterruption(const ScopedPassInterruption&) = delete;
+    ScopedPassInterruption(ScopedPassInterruption&&) = delete;
+    auto operator=(const ScopedPassInterruption&) -> ScopedPassInterruption& = delete;
+    auto operator=(ScopedPassInterruption&&) -> ScopedPassInterruption& = delete;
+
+private:
+    ICommandList& m_commands;
+    std::optional<RenderPassDesc> m_resume;
+};
 
 /**
  * @brief Calls ICommandList::ResetPipelineState() on the current device's command list when it

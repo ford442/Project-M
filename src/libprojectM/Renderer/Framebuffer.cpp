@@ -127,6 +127,45 @@ void Framebuffer::BindDraw(int framebufferIndex)
     m_drawFramebuffer = framebufferIndex;
 }
 
+auto Framebuffer::RenderPass(int framebufferIndex, const char* label, TargetBinding binding,
+                             std::optional<Device::Rect> viewport) const -> Device::RenderPassDesc
+{
+    Device::RenderPassDesc pass;
+    if (framebufferIndex >= 0 && framebufferIndex < static_cast<int>(m_framebufferIds.size()))
+    {
+        pass.target = m_framebufferIds.at(framebufferIndex);
+    }
+    pass.binding = binding;
+    pass.viewport = viewport;
+    pass.label = label;
+    return pass;
+}
+
+void Framebuffer::BeginRenderPass(int framebufferIndex, const char* label, TargetBinding binding,
+                                  std::optional<Device::Rect> viewport)
+{
+    if (framebufferIndex < 0 || framebufferIndex >= static_cast<int>(m_framebufferIds.size()))
+    {
+        return;
+    }
+
+    m_device->Commands().BeginRenderPass(RenderPass(framebufferIndex, label, binding, viewport));
+
+    if (binding != TargetBinding::Draw)
+    {
+#ifdef PROJECTM_SRGB_FRAMEBUFFER
+        m_device->Commands().SetEnabled(Device::Capability::FramebufferSrgb, true);
+#endif
+        m_readFramebuffer = framebufferIndex;
+    }
+    m_drawFramebuffer = framebufferIndex;
+}
+
+void Framebuffer::EndRenderPass()
+{
+    Device::Commands().EndRenderPass();
+}
+
 void Framebuffer::Unbind()
 {
     auto& commands = Device::Commands();

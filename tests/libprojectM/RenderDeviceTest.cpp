@@ -21,6 +21,7 @@
 #include <Renderer/Device/Gl/GlDevice.hpp>
 #include <Renderer/Device/RenderDevice.hpp>
 #include <Renderer/Shader.hpp>
+#include <Renderer/UniformRingBuffer.hpp>
 
 #include "TestGl.hpp"
 
@@ -174,6 +175,55 @@ TEST(ResourceStateTrackerTest, DestroyedTextureIsForgotten)
 }
 
 namespace {
+
+TEST(ResourceStateTrackerTest, PassViolations)
+{
+    auto tracker = TrackerWithSamplingProgram(0);
+    const Device::RenderTargetHandle target{7};
+    const Device::RenderTargetHandle other{8};
+    Device::RenderPassDesc pass;
+    pass.target = target;
+    pass.label = "test pass";
+
+    // Draws and clears belong in a pass.
+    tracker.OnDraw();
+    tracker.OnClear();
+    EXPECT_EQ(tracker.PassViolationCount(), 2u);
+
+    tracker.ResetPassViolations();
+    tracker.OnBindRenderTarget(Device::TargetBinding::Draw, target);
+    tracker.OnBeginRenderPass(pass);
+    tracker.OnDraw();
+    tracker.OnClear();
+    tracker.OnBindRenderTarget(Device::TargetBinding::Read, other); // Read sources may change.
+    EXPECT_EQ(tracker.PassViolationCount(), 0u);
+    EXPECT_EQ(tracker.PassCount(), 1u);
+
+    // Copies, blits and readbacks do not; nor does changing the target or its attachments.
+    tracker.OnBlit();
+    tracker.OnCopyToTexture(0);
+    tracker.OnReadPixels();
+    tracker.OnAttach(Device::TargetBinding::Draw, Device::AttachmentPoint::Color1, {3});
+    tracker.OnBindRenderTarget(Device::TargetBinding::Draw, other);
+    EXPECT_EQ(tracker.PassViolationCount(), 5u);
+    ASSERT_EQ(tracker.PassViolationMessages().size(), 5u);
+    EXPECT_NE(tracker.PassViolationMessages().back().find("test pass"), std::string::npos);
+    tracker.OnEndRenderPass();
+
+    // After the pass, all of that is fine again.
+    tracker.ResetPassViolations();
+    tracker.OnBlit();
+    tracker.OnAttach(Device::TargetBinding::Draw, Device::AttachmentPoint::Color1, {3});
+    EXPECT_EQ(tracker.PassViolationCount(), 0u);
+}
+
+TEST(ResourceStateTrackerTest, PassViolationsNeedValidation)
+{
+    Device::ResourceStateTracker tracker;
+    tracker.OnDraw();
+    tracker.OnPassViolation("ignored");
+    EXPECT_EQ(tracker.PassViolationCount(), 0u);
+}
 
 TEST(PipelineDescTest, EqualDescriptionsHashEqual)
 {
@@ -337,8 +387,8 @@ TEST_F(GlDeviceTest, ClearPassReadsBack)
     pass.load = Device::LoadOp::Clear;
     pass.clearColor = {1.0f, 0.0f, 1.0f, 1.0f};
     commands.SetEnabled(Device::Capability::ScissorTest, false);
-    commands.BeginPass(pass);
-    commands.EndPass();
+    commands.BeginRenderPass(pass);
+    commands.EndRenderPass();
 
     const auto pixels = ReadTarget(target);
     for (size_t i = 0; i < pixels.size(); i += 4)
@@ -609,7 +659,7 @@ TEST_F(GlDeviceTest, ValidationReportsARealFeedbackDraw)
     const auto vertexArray = m_device->CreateVertexArray();
 
     commands.SetEnabled(Device::Capability::ScissorTest, false);
-    commands.BeginPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
+    commands.BeginRenderPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
     Device::PipelineDesc pipeline;
     pipeline.shader = shader.Handle();
     Device::SetPipeline(*m_device, pipeline);
@@ -626,7 +676,7 @@ TEST_F(GlDeviceTest, ValidationReportsARealFeedbackDraw)
     commands.BindTexture(0, Device::TextureTarget::Texture2D, feedback);
     commands.Draw(0, 3);
     EXPECT_EQ(m_device->Validation().HazardCount(), 1u);
-    commands.EndPass();
+    commands.EndRenderPass();
 
     // Hosts see it through the log callback, once per distinct hazard.
     projectm_set_log_callback(nullptr, true, nullptr);
@@ -682,5 +732,337 @@ TEST_F(GlDeviceTest, ValidationReportsGlErrorsOncePerOperation)
     projectm_set_log_callback(nullptr, true, nullptr);
     projectm_set_log_level(PROJECTM_LOG_LEVEL_NOTSET, true);
     EXPECT_EQ(countGlErrors(), 1);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+namespace {
+
+// Reads its colour from a uniform block (B1.3): std140, bound to a slot after linking.
+constexpr const char* kBlockFragmentBody = R"(
+layout(std140) uniform TestBlock
+{
+    vec4 padding;
+    vec4 color;
+};
+out vec4 fragColor;
+void main()
+{
+    fragColor = color;
+}
+)";
+
+struct TestBlockData {
+    std::array<float, 4> padding{};
+    std::array<float, 4> color{};
+};
+
+} // namespace
+
+TEST_F(GlDeviceTest, DrawsReadTheirUniformBufferRange)
+{
+    libprojectM::Renderer::Shader shader;
+    shader.SetUniformBlockBinding("TestBlock", 2); // Before linking: applied after the link.
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kBlockFragmentBody);
+    EXPECT_FALSE(m_device->BindUniformBlock(shader.Handle(), "NoSuchBlock", 2));
+
+    auto& commands = m_device->Commands();
+    const auto texture = CreateColorTexture();
+    const auto target = CreateTarget(texture);
+    const auto vertexArray = m_device->CreateVertexArray();
+    commands.SetEnabled(Device::Capability::ScissorTest, false);
+
+    libprojectM::Renderer::UniformRingBuffer ring(1024);
+    ring.BeginFrame();
+    Device::PipelineDesc pipeline;
+    pipeline.shader = shader.Handle();
+
+    // Two draws in one frame, each with its own range: the second must not overwrite the first.
+    const std::array<std::array<float, 4>, 2> colors{{{1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}}};
+    std::array<libprojectM::Renderer::UniformRingBuffer::Range, 2> ranges{};
+    for (size_t i = 0; i < colors.size(); i++)
+    {
+        commands.BeginRenderPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
+        Device::SetPipeline(*m_device, pipeline);
+        commands.BindVertexArray(vertexArray);
+        TestBlockData data;
+        data.color = colors[i];
+        ranges[i] = ring.WriteAndBind(2, &data, sizeof(data));
+        commands.Draw(0, 3);
+        commands.EndRenderPass();
+
+        const auto pixels = ReadTarget(target);
+        EXPECT_EQ(pixels[0], i == 0 ? 255 : 0);
+        EXPECT_EQ(pixels[2], i == 0 ? 0 : 255);
+    }
+    const size_t alignment = m_device->UniformBufferOffsetAlignment();
+    EXPECT_EQ(ranges[0].offset % alignment, 0u);
+    EXPECT_EQ(ranges[1].offset % alignment, 0u);
+    EXPECT_GE(ranges[1].offset, ranges[0].offset + sizeof(TestBlockData));
+    EXPECT_EQ(ranges[0].buffer, ranges[1].buffer);
+
+    commands.BindVertexArray({});
+    commands.ResetPipelineState(); // Also unbinds slot 2.
+    GLint bound{-1};
+    glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &bound);
+    EXPECT_EQ(bound, 0);
+
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    m_device->DestroyVertexArray(vertexArray);
+    m_device->DestroyRenderTarget(target);
+    m_device->DestroyTexture(texture);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, UniformRingAllocatesOnceAndWraps)
+{
+    const size_t alignment = m_device->UniformBufferOffsetAlignment();
+    const size_t capacity = 4 * alignment;
+    libprojectM::Renderer::UniformRingBuffer ring(capacity);
+    const std::array<float, 4> data{};
+
+    // Three ranges a frame in room for four: frames wrap around the buffer without growing it.
+    size_t lastOffset{};
+    for (int frame = 0; frame < 10; frame++)
+    {
+        ring.BeginFrame();
+        std::vector<size_t> offsets;
+        for (int draw = 0; draw < 3; draw++)
+        {
+            const auto range = ring.Write(data.data(), sizeof(data));
+            EXPECT_EQ(range.offset % alignment, 0u);
+            EXPECT_LE(range.offset + range.size, capacity);
+            offsets.push_back(range.offset);
+            lastOffset = range.offset;
+        }
+        std::sort(offsets.begin(), offsets.end());
+        EXPECT_EQ(std::unique(offsets.begin(), offsets.end()), offsets.end()) << "frame " << frame << " reused a range";
+        EXPECT_LE(ring.FrameBytes(), capacity);
+    }
+    EXPECT_EQ(ring.Allocations(), 1u);
+    EXPECT_EQ(ring.Capacity(), capacity);
+    EXPECT_GT(lastOffset, 0u);
+
+    // A frame that needs more than the buffer grows it once; the frames after fit.
+    ring.BeginFrame();
+    for (int draw = 0; draw < 6; draw++)
+    {
+        ring.Write(data.data(), sizeof(data));
+    }
+    EXPECT_EQ(ring.Allocations(), 2u);
+    EXPECT_GE(ring.Capacity(), 6 * alignment);
+    for (int frame = 0; frame < 4; frame++)
+    {
+        ring.BeginFrame();
+        for (int draw = 0; draw < 6; draw++)
+        {
+            ring.Write(data.data(), sizeof(data));
+        }
+    }
+    EXPECT_EQ(ring.Allocations(), 2u);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, RenderPassesAreTrackedAndInterruptible)
+{
+    m_device->Validation().SetEnabled(true);
+    auto& commands = m_device->Commands();
+    const auto texture = CreateColorTexture();
+    const auto other = CreateColorTexture();
+    const auto target = CreateTarget(texture);
+    const auto otherTarget = CreateTarget(other);
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    EXPECT_EQ(commands.CurrentRenderPass(), nullptr);
+
+    Device::RenderPassDesc outer;
+    outer.target = target;
+    outer.viewport = Device::Rect{0, 0, kWidth, kHeight};
+    outer.load = Device::LoadOp::Clear;
+    outer.clearColor = {1.0f, 0.0f, 0.0f, 1.0f};
+    outer.label = "outer";
+    commands.SetEnabled(Device::Capability::ScissorTest, false);
+    commands.BeginRenderPass(outer);
+    ASSERT_NE(commands.CurrentRenderPass(), nullptr);
+    EXPECT_EQ(commands.CurrentRenderPass()->target, target);
+
+    {
+        // Ends the outer pass; another pass runs; the outer one resumes, keeping its contents.
+        const Device::ScopedPassInterruption interruption(commands);
+        EXPECT_EQ(commands.CurrentRenderPass(), nullptr);
+        Device::RenderPassDesc inner;
+        inner.target = otherTarget;
+        inner.load = Device::LoadOp::Clear;
+        inner.clearColor = {0.0f, 1.0f, 0.0f, 1.0f};
+        inner.label = "inner";
+        commands.BeginRenderPass(inner);
+        commands.EndRenderPass();
+    }
+    ASSERT_NE(commands.CurrentRenderPass(), nullptr);
+    EXPECT_EQ(commands.CurrentRenderPass()->target, target);
+    EXPECT_EQ(commands.CurrentRenderPass()->load, Device::LoadOp::Load);
+    EXPECT_EQ(commands.BoundRenderTarget(Device::TargetBinding::Draw), target);
+    commands.EndRenderPass();
+    EXPECT_EQ(m_device->Validation().PassViolationCount(), 0u);
+    EXPECT_EQ(m_device->Validation().PassCount(), 3u);
+
+    const auto red = ReadTarget(target);
+    EXPECT_EQ(red[0], 255);
+    EXPECT_EQ(red[1], 0);
+    const auto green = ReadTarget(otherTarget);
+    EXPECT_EQ(green[0], 0);
+    EXPECT_EQ(green[1], 255);
+
+    // A pass begun inside another, and one still open at the end of a frame, are reported.
+    commands.BeginRenderPass(outer);
+    commands.BeginRenderPass(outer);
+    commands.ResetPipelineState();
+    EXPECT_EQ(commands.CurrentRenderPass(), nullptr);
+    EXPECT_EQ(m_device->Validation().PassViolationCount(), 2u);
+
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    m_device->DestroyRenderTarget(otherTarget);
+    m_device->DestroyRenderTarget(target);
+    m_device->DestroyTexture(other);
+    m_device->DestroyTexture(texture);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+namespace {
+
+// Samples unit 0 and reads a colour multiplier from a uniform block, for bind group tests.
+constexpr const char* kBindGroupFragmentBody = R"(
+uniform sampler2D source;
+layout(std140) uniform TestBlock
+{
+    vec4 padding;
+    vec4 color;
+};
+out vec4 fragColor;
+void main()
+{
+    fragColor = texture(source, vec2(0.5)) * color;
+}
+)";
+
+} // namespace
+
+TEST_F(GlDeviceTest, BindGroupsBindTexturesSamplersAndDynamicRanges)
+{
+    libprojectM::Renderer::Shader shader;
+    shader.SetUniformBlockBinding("TestBlock", 1);
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kBindGroupFragmentBody);
+    shader.Bind();
+    shader.SetUniformInt("source", 0);
+
+    auto& commands = m_device->Commands();
+    commands.SetEnabled(Device::Capability::ScissorTest, false);
+    const auto white = CreateColorTexture();
+    const auto target = CreateTarget(CreateColorTexture());
+    {
+        // Fill the source with white.
+        const auto source = CreateTarget(white);
+        commands.BeginRenderPass({source, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}, Device::LoadOp::Clear, {1.0f, 1.0f, 1.0f, 1.0f}});
+        commands.EndRenderPass();
+        m_device->DestroyRenderTarget(source);
+    }
+    const auto sampler = m_device->CreateSampler({Device::FilterMode::Nearest, Device::WrapMode::ClampToEdge});
+    libprojectM::Renderer::UniformRingBuffer ring(1024);
+    ring.BeginFrame();
+
+    Device::BindGroupDesc desc;
+    desc.AddTexture({0, Device::TextureTarget::Texture2D, white, sampler});
+    TestBlockData data;
+    data.color = {1.0f, 0.0f, 0.0f, 1.0f};
+    const auto red = ring.Write(&data, sizeof(data));
+    data.color = {0.0f, 1.0f, 0.0f, 1.0f};
+    const auto green = ring.Write(&data, sizeof(data));
+    desc.AddUniformBuffer({1, red.buffer, 0, sizeof(TestBlockData), true});
+    const auto group = m_device->CreateBindGroup(desc);
+    ASSERT_TRUE(group.Valid());
+    EXPECT_EQ(m_device->BindGroupCount(), 1u);
+    ASSERT_NE(m_device->BindGroup(group), nullptr);
+    EXPECT_TRUE(*m_device->BindGroup(group) == desc);
+
+    const auto vertexArray = m_device->CreateVertexArray();
+    Device::PipelineDesc pipeline;
+    pipeline.shader = shader.Handle();
+    const auto drawWith = [&](const libprojectM::Renderer::UniformRingBuffer::Range& range) {
+        commands.BeginRenderPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
+        Device::SetPipeline(*m_device, pipeline);
+        commands.BindVertexArray(vertexArray);
+        const std::array<uint32_t, 1> offsets{static_cast<uint32_t>(range.offset)};
+        commands.SetBindGroup(group, offsets);
+        commands.Draw(0, 3);
+        commands.EndRenderPass();
+        return ReadTarget(target);
+    };
+
+    // One group, two draws: each reads the range its dynamic offset names.
+    auto pixels = drawWith(red);
+    EXPECT_EQ(pixels[0], 255);
+    EXPECT_EQ(pixels[1], 0);
+    pixels = drawWith(green);
+    EXPECT_EQ(pixels[0], 0);
+    EXPECT_EQ(pixels[1], 255);
+    EXPECT_EQ(commands.ActiveTextureUnit(), 0);
+
+    // A host unbinds unit 0 behind the device and says so: the group binds it again.
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    commands.InvalidateState();
+    pixels = drawWith(red);
+    EXPECT_EQ(pixels[0], 255);
+
+    // A texture upload on the active unit unbinds it there; the group must not skip the bind.
+    const auto scratch = CreateColorTexture();
+    pixels = drawWith(green);
+    EXPECT_EQ(pixels[1], 255);
+    m_device->DestroyTexture(scratch);
+
+    m_device->DestroyBindGroup(group);
+    EXPECT_EQ(m_device->BindGroupCount(), 0u);
+    EXPECT_EQ(m_device->BindGroup(group), nullptr);
+    commands.SetBindGroup(group, {}); // Destroyed: ignored.
+
+    commands.BindVertexArray({});
+    commands.BindTexture(0, Device::TextureTarget::Texture2D, {});
+    commands.BindSampler(0, {});
+    commands.ResetPipelineState();
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    m_device->DestroyVertexArray(vertexArray);
+    m_device->DestroySampler(sampler);
+    m_device->DestroyRenderTarget(target);
+    m_device->DestroyTexture(white);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, BindGroupCacheForgetsDeletedTextures)
+{
+    // GL reuses a deleted texture's name: a cached "unit 0 holds texture N" must not survive the
+    // delete, or a group holding the new texture N would skip binding it.
+    auto& commands = m_device->Commands();
+    const auto first = CreateColorTexture();
+    Device::BindGroupDesc desc;
+    desc.AddTexture({0, Device::TextureTarget::Texture2D, first, {}});
+    const auto group = m_device->CreateBindGroup(desc);
+    commands.SetBindGroup(group, {});
+    m_device->DestroyTexture(first);
+
+    GLint bound{-1};
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+    EXPECT_EQ(bound, 0);
+
+    const auto second = CreateColorTexture(); // Often the same name as the first.
+    Device::BindGroupDesc secondDesc;
+    secondDesc.AddTexture({0, Device::TextureTarget::Texture2D, second, {}});
+    const auto secondGroup = m_device->CreateBindGroup(secondDesc);
+    commands.SetBindGroup(secondGroup, {});
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+    EXPECT_EQ(static_cast<uint32_t>(bound), second.id);
+
+    commands.BindTexture(0, Device::TextureTarget::Texture2D, {});
+    m_device->DestroyBindGroup(secondGroup);
+    m_device->DestroyBindGroup(group);
+    m_device->DestroyTexture(second);
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
 }

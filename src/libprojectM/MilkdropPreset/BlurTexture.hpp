@@ -112,6 +112,18 @@ public:
     void Bind(int& unit, Renderer::Shader& shader) const;
 
     /**
+     * @brief Adds the textures Bind() binds to a bind group, from @a unit on, and advances @a unit
+     *        past them.
+     */
+    void AddBindings(int& unit, Renderer::Device::BindGroupDesc& group) const;
+
+    /**
+     * @brief Sets the sampler uniforms Bind() sets, for textures bound from @a unit on, and
+     *        advances @a unit past them.
+     */
+    void SetUniforms(int& unit, const Renderer::Shader& shader) const;
+
+    /**
      * @brief Returns properly scaled and clamped vlur values from the given context.
      * @param perFrameContext The per-frame context to retrieve the initial values from.
      * @param blurMin The calculated min values.

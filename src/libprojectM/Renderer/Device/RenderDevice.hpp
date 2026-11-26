@@ -169,6 +169,17 @@ public:
      */
     virtual void BindUniformBuffer(int slot, BufferHandle buffer, size_t offset, size_t size) = 0;
 
+    /**
+     * @brief Makes a bind group's textures, samplers and uniform buffer ranges current for the
+     *        following draws.
+     * @param dynamicOffsets One byte offset per uniform buffer binding with dynamicOffset, in
+     *                       order; each a multiple of IRenderDevice::UniformBufferOffsetAlignment().
+     *
+     * Leaves the active texture unit at the group's last texture unit, as binding the textures
+     * one by one did. An invalid or destroyed handle is ignored.
+     */
+    virtual void SetBindGroup(BindGroupHandle group, std::span<const uint32_t> dynamicOffsets) = 0;
+
     // ---- Textures and samplers --------------------------------------------------------
 
     /**
@@ -470,6 +481,26 @@ public:
      * @brief How many pipelines the device holds (for tests and the perf HUD).
      */
     [[nodiscard]] virtual auto PipelineCount() const -> size_t = 0;
+
+    // ---- Bind groups -----------------------------------------------------------------
+
+    /**
+     * @brief Creates an immutable bind group. Create them when the resources are known (preset
+     *        load) and reuse them; destroying a texture or sampler a group holds leaves the group
+     *        binding nothing in its place.
+     */
+    [[nodiscard]] virtual auto CreateBindGroup(const BindGroupDesc& desc) -> BindGroupHandle = 0;
+    virtual void DestroyBindGroup(BindGroupHandle group) = 0;
+
+    /**
+     * @brief The description a group was created from, or nullptr for an unknown handle.
+     */
+    [[nodiscard]] virtual auto BindGroup(BindGroupHandle group) const -> const BindGroupDesc* = 0;
+
+    /**
+     * @brief How many bind groups the device holds (for tests and leak checks).
+     */
+    [[nodiscard]] virtual auto BindGroupCount() const -> size_t = 0;
 
     // ---- Fences ----------------------------------------------------------------------
 

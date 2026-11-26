@@ -5,6 +5,7 @@
 #include "Renderer/Texture.hpp"
 
 #include <memory>
+#include <optional>
 
 namespace libprojectM {
 namespace Renderer {
@@ -56,6 +57,16 @@ public:
      * @param shader The shader to register the sampler/texsize uniforms with. Must already be bound.
      */
     void Bind(int unit, const Shader& shader) const;
+
+    /**
+     * @brief The bind group entry Bind() binds, or nothing without a texture and sampler.
+     */
+    [[nodiscard]] auto Binding(int unit) const -> std::optional<Device::TextureBinding>;
+
+    /**
+     * @brief The uniforms Bind() sets: the sampler's unit and the texsize. The shader must be bound.
+     */
+    void SetUniforms(int unit, const Shader& shader) const;
 
     /**
      * @brief Unbinds the texture and sampler in the descriptor from the given texture unit.

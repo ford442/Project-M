@@ -470,6 +470,116 @@ void GlCommandList::SetProgram(ProgramHandle program)
 void GlCommandList::InvalidateState()
 {
     m_stateKnown.store(false);
+    m_unitsKnown.store(false);
+}
+
+void GlCommandList::ForgetUnitBindingsIfInvalidated()
+{
+    if (!m_unitsKnown.exchange(true))
+    {
+        m_units = {};
+        m_activeUnit = -1;
+    }
+}
+
+void GlCommandList::OnTextureBindingDisturbed(TextureTarget target)
+{
+    ForgetUnitBindingsIfInvalidated();
+    if (m_activeUnit < 0 || m_activeUnit >= TrackedUnits)
+    {
+        m_units = {};
+        return;
+    }
+    auto& unit = m_units.at(m_activeUnit);
+    (target == TextureTarget::Texture3D ? unit.texture3D : unit.texture2D).reset();
+}
+
+void GlCommandList::OnTextureDeleted(TextureHandle deleted)
+{
+    // GL unbinds a deleted texture from every unit of the current context.
+    ForgetUnitBindingsIfInvalidated();
+    for (auto& unit : m_units)
+    {
+        for (auto* binding : {&unit.texture2D, &unit.texture3D})
+        {
+            if (*binding == deleted)
+            {
+                *binding = TextureHandle{};
+            }
+        }
+    }
+}
+
+void GlCommandList::OnSamplerDeleted(SamplerHandle deleted)
+{
+    ForgetUnitBindingsIfInvalidated();
+    for (auto& unit : m_units)
+    {
+        if (unit.sampler == deleted)
+        {
+            unit.sampler = SamplerHandle{};
+        }
+    }
+}
+
+void GlCommandList::SetBindGroup(BindGroupHandle group, std::span<const uint32_t> dynamicOffsets)
+{
+    const auto* desc = m_device.BindGroup(group);
+    if (desc == nullptr)
+    {
+        return;
+    }
+    ForgetUnitBindingsIfInvalidated();
+
+    for (uint8_t i = 0; i < desc->textureCount; i++)
+    {
+        const auto& binding = desc->textures.at(i);
+        if (binding.unit < 0 || binding.unit >= TrackedUnits)
+        {
+            BindTexture(binding.unit, binding.target, binding.texture);
+            if (binding.sampler.Valid())
+            {
+                BindSampler(binding.unit, binding.sampler);
+            }
+            continue;
+        }
+        auto& unit = m_units.at(binding.unit);
+        auto& bound = binding.target == TextureTarget::Texture3D ? unit.texture3D : unit.texture2D;
+        if (bound != binding.texture)
+        {
+            BindTexture(binding.unit, binding.target, binding.texture);
+        }
+        else
+        {
+            m_tracker.OnBindTexture(binding.unit, binding.target, binding.texture);
+        }
+        if (binding.sampler.Valid() && unit.sampler != binding.sampler)
+        {
+            BindSampler(binding.unit, binding.sampler);
+        }
+    }
+    // Binding the textures one by one left the last one's unit active.
+    if (desc->textureCount > 0)
+    {
+        const int last = desc->textures.at(desc->textureCount - 1).unit;
+        if (m_activeUnit != last)
+        {
+            SetActiveTextureUnit(last);
+        }
+    }
+
+    size_t dynamic = 0;
+    for (uint8_t i = 0; i < desc->uniformBufferCount; i++)
+    {
+        const auto& binding = desc->uniformBuffers.at(i);
+        size_t offset = binding.offset;
+        if (binding.dynamicOffset)
+        {
+            offset = dynamic < dynamicOffsets.size() ? dynamicOffsets[dynamic] : 0;
+            dynamic++;
+        }
+        BindUniformBuffer(binding.slot, binding.buffer, offset, binding.size);
+    }
 }
 
 void GlCommandList::ResetPipelineState()
@@ -569,6 +679,12 @@ void GlCommandList::BindTexture(int unit, TextureTarget target, TextureHandle te
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(ToGl(target), texture.id);
     m_tracker.OnBindTexture(unit, target, texture);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
+    if (unit >= 0 && unit < TrackedUnits)
+    {
+        (target == TextureTarget::Texture3D ? m_units.at(unit).texture3D : m_units.at(unit).texture2D) = texture;
+    }
 }
 
 auto GlCommandList::BoundTexture2D() -> TextureHandle
@@ -581,11 +697,18 @@ auto GlCommandList::BoundTexture2D() -> TextureHandle
 void GlCommandList::BindSampler(int unit, SamplerHandle sampler)
 {
     glBindSampler(unit, sampler.id);
+    ForgetUnitBindingsIfInvalidated();
+    if (unit >= 0 && unit < TrackedUnits)
+    {
+        m_units.at(unit).sampler = sampler;
+    }
 }
 
 void GlCommandList::SetActiveTextureUnit(int unit)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
 }
 
 auto GlCommandList::ActiveTextureUnit() -> int
@@ -598,6 +721,8 @@ auto GlCommandList::ActiveTextureUnit() -> int
 void GlCommandList::SetBoundTextureFilter(int unit, TextureTarget target, FilterMode filter)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glTexParameteri(ToGl(target), GL_TEXTURE_MIN_FILTER, ToGl(filter));
     glTexParameteri(ToGl(target), GL_TEXTURE_MAG_FILTER, ToGl(filter));
 }
@@ -605,6 +730,8 @@ void GlCommandList::SetBoundTextureFilter(int unit, TextureTarget target, Filter
 void GlCommandList::SetBoundTextureWrap(int unit, TextureTarget target, WrapMode wrap)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glTexParameteri(ToGl(target), GL_TEXTURE_WRAP_S, ToGl(wrap));
     glTexParameteri(ToGl(target), GL_TEXTURE_WRAP_T, ToGl(wrap));
 }
@@ -613,6 +740,8 @@ void GlCommandList::SetBoundTextureMaxAnisotropy(int unit, TextureTarget target,
 {
 #ifdef GL_EXT_texture_filter_anisotropic
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glTexParameterf(ToGl(target), GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy);
 #else
     (void) unit;
@@ -624,6 +753,8 @@ void GlCommandList::SetBoundTextureMaxAnisotropy(int unit, TextureTarget target,
 void GlCommandList::CopyToBoundTexture(int unit, int width, int height)
 {
     glActiveTexture(GL_TEXTURE0 + unit);
+    ForgetUnitBindingsIfInvalidated();
+    m_activeUnit = unit;
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
     m_tracker.OnCopyToTexture(unit);
 }
@@ -859,6 +990,7 @@ void GlDevice::UpdateTexture(TextureHandle texture, const TextureDesc& desc, con
         glTexParameteri(target, GL_TEXTURE_WRAP_T, ToGl(desc.sampling->wrap));
     }
     glBindTexture(target, 0);
+    m_commands.OnTextureBindingDisturbed(desc.target);
 }
 
 void GlDevice::WriteTexture(TextureHandle texture, const TextureDesc& desc, const void* data)
@@ -871,6 +1003,7 @@ void GlDevice::WriteTexture(TextureHandle texture, const TextureDesc& desc, cons
     glBindTexture(target, texture.id);
     TexSubImage(target, desc, data);
     glBindTexture(target, 0);
+    m_commands.OnTextureBindingDisturbed(desc.target);
 }
 
 void GlDevice::DestroyTexture(TextureHandle texture)
@@ -881,6 +1014,7 @@ void GlDevice::DestroyTexture(TextureHandle texture)
     }
     m_tracker.OnDestroyTexture(texture);
     glDeleteTextures(1, &texture.id);
+    m_commands.OnTextureDeleted(texture);
 }
 
 auto GlDevice::CreateSampler(const TextureSampling& sampling) -> SamplerHandle
@@ -911,6 +1045,7 @@ void GlDevice::DestroySampler(SamplerHandle sampler)
     if (sampler.Valid())
     {
         glDeleteSamplers(1, &sampler.id);
+        m_commands.OnSamplerDeleted(sampler);
     }
 }
 
@@ -1067,6 +1202,29 @@ auto GlDevice::Pipeline(PipelineHandle pipeline) const -> const PipelineDesc*
 auto GlDevice::PipelineCount() const -> size_t
 {
     return m_pipelines.size();
+}
+
+auto GlDevice::CreateBindGroup(const BindGroupDesc& desc) -> BindGroupHandle
+{
+    const uint32_t id = m_nextBindGroupId++;
+    m_bindGroups.emplace(id, desc);
+    return {id};
+}
+
+void GlDevice::DestroyBindGroup(BindGroupHandle group)
+{
+    m_bindGroups.erase(group.id);
+}
+
+auto GlDevice::BindGroup(BindGroupHandle group) const -> const BindGroupDesc*
+{
+    const auto found = m_bindGroups.find(group.id);
+    return found == m_bindGroups.end() ? nullptr : &found->second;
+}
+
+auto GlDevice::BindGroupCount() const -> size_t
+{
+    return m_bindGroups.size();
 }
 
 auto GlDevice::BeginCompileProgram(ProgramHandle program,

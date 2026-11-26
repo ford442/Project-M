@@ -61,6 +61,15 @@ public:
     auto WrapMode() const -> Device::WrapMode;
 
     /**
+     * @brief The device sampler object, for bind groups.
+     */
+    [[nodiscard]] auto Handle() const -> Device::SamplerHandle
+    {
+        return m_sampler;
+    }
+
+
+    /**
      * @brief Sets a new wrap mode for this sampler.
      * @param wrapMode the new wrap mode.
      */

@@ -589,33 +589,114 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
         }
         ring = m_fallbackRing.get();
     }
-    ring->WriteAndBind(MilkdropFrameUniforms::Slot, &u, sizeof(u));
+    const auto range = ring->Write(&u, sizeof(u));
 
-    // Bind all texture and sampler descriptors. This includes the main and blur textures.
+    // The textures and samplers, unit by unit as they always were (main, lastpass, blur, the
+    // preset's own), and the frame block: one bind group (B1.4). Each group is created the first
+    // time its textures appear, which is when its sampler and texsize uniforms are set.
+    Renderer::Device::BindGroupDesc group;
+    std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures> sizes{};
     int textureUnit{0};
+    const auto add = [&](const Renderer::TextureSamplerDescriptor& desc) {
+        if (const auto binding = desc.Binding(textureUnit))
+        {
+            const auto texture = desc.Texture();
+            sizes.at(group.textureCount) = {texture->Width(), texture->Height()};
+            group.AddTexture(*binding);
+        }
+        textureUnit++;
+    };
     for (auto& desc : m_mainTextureDescriptors)
     {
         // Update main texture, swaps every frame.
         desc.Texture(presetState.mainTexture);
-        desc.Bind(textureUnit, m_shader);
-        textureUnit++;
+        add(desc);
     }
     for (auto& desc : m_lastPassDescriptors)
     {
         desc.Texture(m_lastPassTexture ? m_lastPassTexture : presetState.mainTexture.lock());
-        desc.Bind(textureUnit, m_shader);
-        textureUnit++;
+        add(desc);
     }
-    presetState.blurTexture.Bind(textureUnit, m_shader);
+    presetState.blurTexture.AddBindings(textureUnit, group);
     for (auto& desc : m_textureSamplerDescriptors)
     {
         if (desc.Empty())
         {
             desc.TryUpdate(*presetState.renderContext.textureManager);
         }
-        desc.Bind(textureUnit, m_shader);
+        add(desc);
+    }
+    group.AddUniformBuffer({MilkdropFrameUniforms::Slot, range.buffer, 0, range.size, true});
+
+    const std::array<uint32_t, 1> offsets{static_cast<uint32_t>(range.offset)};
+    m_device->Commands().SetBindGroup(FindOrCreateBindGroup(group, sizes, presetState), offsets);
+}
+
+auto MilkdropShader::FindOrCreateBindGroup(const Renderer::Device::BindGroupDesc& desc,
+                                           const std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures>& sizes,
+                                           const PresetState& presetState) -> Renderer::Device::BindGroupHandle
+{
+    // A relink resets the program's uniforms, which the groups' creation set.
+    if (m_shader.LinkCount() != m_bindGroupLinkCount)
+    {
+        DestroyBindGroups();
+        m_bindGroupLinkCount = m_shader.LinkCount();
+    }
+
+    m_bindGroupUses++;
+    CachedBindGroup* oldest = &m_bindGroups.front();
+    for (auto& cached : m_bindGroups)
+    {
+        if (cached.group.Valid() && cached.desc == desc && cached.sizes == sizes)
+        {
+            cached.lastUse = m_bindGroupUses;
+            return cached.group;
+        }
+        if (!cached.group.Valid() || (oldest->group.Valid() && cached.lastUse < oldest->lastUse))
+        {
+            oldest = &cached;
+        }
+    }
+
+    m_device->DestroyBindGroup(oldest->group);
+    oldest->desc = desc;
+    oldest->sizes = sizes;
+    oldest->group = m_device->CreateBindGroup(desc);
+    oldest->lastUse = m_bindGroupUses;
+
+    // The uniforms that go with the group's layout: which unit each sampler reads, and the
+    // texsize of what it holds. The program is bound (LoadVariables()).
+    int textureUnit{0};
+    for (const auto* descriptors : {&m_mainTextureDescriptors, &m_lastPassDescriptors})
+    {
+        for (const auto& descriptor : *descriptors)
+        {
+            descriptor.SetUniforms(textureUnit, m_shader);
+            textureUnit++;
+        }
+    }
+    presetState.blurTexture.SetUniforms(textureUnit, m_shader);
+    for (const auto& descriptor : m_textureSamplerDescriptors)
+    {
+        descriptor.SetUniforms(textureUnit, m_shader);
         textureUnit++;
     }
+
+    return oldest->group;
+}
+
+void MilkdropShader::DestroyBindGroups()
+{
+    for (auto& cached : m_bindGroups)
+    {
+        m_device->DestroyBindGroup(cached.group);
+        cached = {};
+    }
+}
+
+MilkdropShader::~MilkdropShader()
+{
+    DestroyBindGroups();
 }
 
 auto MilkdropShader::Shader() -> Renderer::Shader&

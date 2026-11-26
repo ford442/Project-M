@@ -412,6 +412,31 @@ void BlurTexture::BindPassTarget(size_t pass)
     commands.SetViewport({0, 0, texture->Width(), texture->Height()});
 }
 
+void BlurTexture::AddBindings(int& unit, Renderer::Device::BindGroupDesc& group) const
+{
+    for (size_t i = 0; i < static_cast<size_t>(EffectiveLevel(m_blurLevel)) * 2; i++)
+    {
+        if (i % 2 == 1)
+        {
+            group.AddTexture({unit, m_blurTextures[i]->Type(), m_blurTextures[i]->Handle(),
+                              m_blurSampler ? m_blurSampler->Handle() : Renderer::Device::SamplerHandle{}});
+            unit++;
+        }
+    }
+}
+
+void BlurTexture::SetUniforms(int& unit, const Renderer::Shader& shader) const
+{
+    for (size_t i = 0; i < static_cast<size_t>(EffectiveLevel(m_blurLevel)) * 2; i++)
+    {
+        if (i % 2 == 1)
+        {
+            shader.SetUniformInt(std::string("sampler_blur" + std::to_string(i / 2 + 1)).c_str(), unit);
+            unit++;
+        }
+    }
+}
+
 void BlurTexture::Bind(int& unit, Renderer::Shader& shader) const
 {
     for (size_t i = 0; i < static_cast<size_t>(EffectiveLevel(m_blurLevel)) * 2; i++)

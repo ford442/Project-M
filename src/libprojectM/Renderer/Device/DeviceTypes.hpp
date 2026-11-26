@@ -51,6 +51,7 @@ using VertexArrayHandle = Handle<struct VertexArrayTag>;
 using RenderTargetHandle = Handle<struct RenderTargetTag>; //!< id 0: the default framebuffer.
 using ProgramHandle = Handle<struct ProgramTag>;
 using PipelineHandle = Handle<struct PipelineTag>; //!< See IRenderDevice::CreatePipeline().
+using BindGroupHandle = Handle<struct BindGroupTag>; //!< See IRenderDevice::CreateBindGroup().
 
 /**
  * @brief A GPU fence, signalled once the commands issued before it have completed.
@@ -588,6 +589,72 @@ struct PipelineDesc {
         for (auto& target : targets)
         {
             target.format = format;
+        }
+        return *this;
+    }
+};
+
+// ---- Bind groups ---------------------------------------------------------------------------
+
+/**
+ * @brief One texture a bind group puts on a texture unit, with the sampler that reads it.
+ */
+struct TextureBinding {
+    int unit{};
+    TextureTarget target{TextureTarget::Texture2D};
+    TextureHandle texture;
+    SamplerHandle sampler; //!< Invalid: the unit's sampler binding is left as it is (GL only).
+
+    friend auto operator==(const TextureBinding&, const TextureBinding&) -> bool = default;
+};
+
+/**
+ * @brief A range of a uniform buffer a bind group puts on a uniform block slot.
+ *
+ * With @a dynamicOffset the range starts at the offset passed to ICommandList::SetBindGroup()
+ * (WebGPU's hasDynamicOffset), so one group serves every draw's block in a ring buffer.
+ */
+struct UniformBufferBinding {
+    int slot{};
+    BufferHandle buffer;
+    size_t offset{}; //!< Ignored with dynamicOffset.
+    size_t size{};
+    bool dynamicOffset{false};
+
+    friend auto operator==(const UniformBufferBinding&, const UniformBufferBinding&) -> bool = default;
+};
+
+/**
+ * @brief The resources a draw reads: textures with their samplers, and uniform buffer ranges.
+ *        Immutable once created with IRenderDevice::CreateBindGroup().
+ */
+struct BindGroupDesc {
+    static constexpr int MaxTextures = 32;
+    static constexpr int MaxUniformBuffers = 4;
+
+    std::array<TextureBinding, MaxTextures> textures{};
+    uint8_t textureCount{};
+    std::array<UniformBufferBinding, MaxUniformBuffers> uniformBuffers{};
+    uint8_t uniformBufferCount{};
+
+    friend auto operator==(const BindGroupDesc&, const BindGroupDesc&) -> bool = default;
+
+    /// Appends a texture binding; ignored once MaxTextures are set.
+    constexpr auto AddTexture(const TextureBinding& binding) -> BindGroupDesc&
+    {
+        if (textureCount < MaxTextures)
+        {
+            textures[textureCount++] = binding;
+        }
+        return *this;
+    }
+
+    /// Appends a uniform buffer binding; ignored once MaxUniformBuffers are set.
+    constexpr auto AddUniformBuffer(const UniformBufferBinding& binding) -> BindGroupDesc&
+    {
+        if (uniformBufferCount < MaxUniformBuffers)
+        {
+            uniformBuffers[uniformBufferCount++] = binding;
         }
         return *this;
     }

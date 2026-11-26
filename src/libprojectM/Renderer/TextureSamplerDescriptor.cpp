@@ -29,7 +29,23 @@ void TextureSamplerDescriptor::Bind(int unit, const Shader& shader) const
     if (m_texture && m_sampler)
     {
         m_texture->Bind(unit, m_sampler);
+        SetUniforms(unit, shader);
+    }
+}
 
+auto TextureSamplerDescriptor::Binding(int unit) const -> std::optional<Device::TextureBinding>
+{
+    if (!m_texture || !m_sampler)
+    {
+        return std::nullopt;
+    }
+    return Device::TextureBinding{unit, m_texture->Type(), m_texture->Handle(), m_sampler->Handle()};
+}
+
+void TextureSamplerDescriptor::SetUniforms(int unit, const Shader& shader) const
+{
+    if (m_texture && m_sampler)
+    {
         shader.SetUniformInt(std::string("sampler_" + m_samplerName).c_str(), unit);
         // Might be setting this more than once if the texture is used with different wrap/filter modes, but this rarely happens.
         shader.SetUniformFloat4(std::string("texsize_" + m_sizeName).c_str(), {m_texture->Width(),

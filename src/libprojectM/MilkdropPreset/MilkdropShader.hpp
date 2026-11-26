@@ -113,6 +113,13 @@ public:
      */
     explicit MilkdropShader(ShaderType type);
 
+    ~MilkdropShader();
+
+    MilkdropShader(const MilkdropShader&) = delete;
+    MilkdropShader(MilkdropShader&&) = delete;
+    auto operator=(const MilkdropShader&) -> MilkdropShader& = delete;
+    auto operator=(MilkdropShader&&) -> MilkdropShader& = delete;
+
     /**
      * @brief Translates and compiles the shader code.
      * @param presetShaderCode The preset shader code.
@@ -292,6 +299,33 @@ private:
     std::array<glm::vec3, 20> m_randTranslation{};     //!< Random translation vectors which don't change every frame.
     std::array<glm::vec3, 20> m_randRotationCenters{}; //!< Random rotation center vectors which don't change every frame.
     std::array<glm::vec3, 20> m_randRotationSpeeds{};  //!< Random rotation speeds which don't change every frame.
+
+    /**
+     * @brief A bind group of this shader's textures, samplers and frame block (B1.4), with what it
+     *        was made from: the group, and the texture sizes its texsize uniforms were set from.
+     */
+    struct CachedBindGroup {
+        Renderer::Device::BindGroupDesc desc;
+        std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures> sizes{};
+        Renderer::Device::BindGroupHandle group;
+        uint64_t lastUse{};
+    };
+
+    /**
+     * @brief The group for this draw's bindings, created (and its uniforms set) on first use.
+     */
+    auto FindOrCreateBindGroup(const Renderer::Device::BindGroupDesc& desc,
+                               const std::array<std::array<int, 2>, Renderer::Device::BindGroupDesc::MaxTextures>& sizes,
+                               const PresetState& presetState) -> Renderer::Device::BindGroupHandle;
+    void DestroyBindGroups();
+
+    //! Groups by the textures they hold: the main texture alternates between two, so a few cover a
+    //! preset; a resize replaces them. Never allocates after the first frames.
+    static constexpr size_t BindGroupCacheSize = 4;
+    std::array<CachedBindGroup, BindGroupCacheSize> m_bindGroups{};
+    uint64_t m_bindGroupUses{};
+    uint64_t m_bindGroupLinkCount{}; //!< Renderer::Shader::LinkCount() the cached groups' uniforms belong to.
+    Renderer::Device::IRenderDevice* m_device{&Renderer::Device::Current()};
 
     MilkdropFrameUniforms m_frameUniforms{};                      //!< Filled by LoadVariables(), then copied to the ring.
     std::unique_ptr<Renderer::UniformRingBuffer> m_fallbackRing; //!< Used when the render context has no ring.

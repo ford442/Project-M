@@ -81,6 +81,7 @@ void Shader::FinishCompileProgram()
     {
         case Status::Ok:
             m_linked = true;
+            m_linkCount++;
             for (const auto& [blockName, slot] : m_uniformBlockBindings)
             {
                 m_device->BindUniformBlock(m_shaderProgram, blockName.c_str(), slot);

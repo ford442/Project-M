@@ -925,3 +925,144 @@ TEST_F(GlDeviceTest, RenderPassesAreTrackedAndInterruptible)
     m_device->DestroyTexture(texture);
     EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
 }
+
+namespace {
+
+// Samples unit 0 and reads a colour multiplier from a uniform block, for bind group tests.
+constexpr const char* kBindGroupFragmentBody = R"(
+uniform sampler2D source;
+layout(std140) uniform TestBlock
+{
+    vec4 padding;
+    vec4 color;
+};
+out vec4 fragColor;
+void main()
+{
+    fragColor = texture(source, vec2(0.5)) * color;
+}
+)";
+
+} // namespace
+
+TEST_F(GlDeviceTest, BindGroupsBindTexturesSamplersAndDynamicRanges)
+{
+    libprojectM::Renderer::Shader shader;
+    shader.SetUniformBlockBinding("TestBlock", 1);
+    shader.CompileProgram(std::string(kShaderHeader) + kVertexBody, std::string(kShaderHeader) + kBindGroupFragmentBody);
+    shader.Bind();
+    shader.SetUniformInt("source", 0);
+
+    auto& commands = m_device->Commands();
+    commands.SetEnabled(Device::Capability::ScissorTest, false);
+    const auto white = CreateColorTexture();
+    const auto target = CreateTarget(CreateColorTexture());
+    {
+        // Fill the source with white.
+        const auto source = CreateTarget(white);
+        commands.BeginRenderPass({source, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}, Device::LoadOp::Clear, {1.0f, 1.0f, 1.0f, 1.0f}});
+        commands.EndRenderPass();
+        m_device->DestroyRenderTarget(source);
+    }
+    const auto sampler = m_device->CreateSampler({Device::FilterMode::Nearest, Device::WrapMode::ClampToEdge});
+    libprojectM::Renderer::UniformRingBuffer ring(1024);
+    ring.BeginFrame();
+
+    Device::BindGroupDesc desc;
+    desc.AddTexture({0, Device::TextureTarget::Texture2D, white, sampler});
+    TestBlockData data;
+    data.color = {1.0f, 0.0f, 0.0f, 1.0f};
+    const auto red = ring.Write(&data, sizeof(data));
+    data.color = {0.0f, 1.0f, 0.0f, 1.0f};
+    const auto green = ring.Write(&data, sizeof(data));
+    desc.AddUniformBuffer({1, red.buffer, 0, sizeof(TestBlockData), true});
+    const auto group = m_device->CreateBindGroup(desc);
+    ASSERT_TRUE(group.Valid());
+    EXPECT_EQ(m_device->BindGroupCount(), 1u);
+    ASSERT_NE(m_device->BindGroup(group), nullptr);
+    EXPECT_TRUE(*m_device->BindGroup(group) == desc);
+
+    const auto vertexArray = m_device->CreateVertexArray();
+    Device::PipelineDesc pipeline;
+    pipeline.shader = shader.Handle();
+    const auto drawWith = [&](const libprojectM::Renderer::UniformRingBuffer::Range& range) {
+        commands.BeginRenderPass({target, Device::TargetBinding::Draw, Device::Rect{0, 0, kWidth, kHeight}});
+        Device::SetPipeline(*m_device, pipeline);
+        commands.BindVertexArray(vertexArray);
+        const std::array<uint32_t, 1> offsets{static_cast<uint32_t>(range.offset)};
+        commands.SetBindGroup(group, offsets);
+        commands.Draw(0, 3);
+        commands.EndRenderPass();
+        return ReadTarget(target);
+    };
+
+    // One group, two draws: each reads the range its dynamic offset names.
+    auto pixels = drawWith(red);
+    EXPECT_EQ(pixels[0], 255);
+    EXPECT_EQ(pixels[1], 0);
+    pixels = drawWith(green);
+    EXPECT_EQ(pixels[0], 0);
+    EXPECT_EQ(pixels[1], 255);
+    EXPECT_EQ(commands.ActiveTextureUnit(), 0);
+
+    // A host unbinds unit 0 behind the device and says so: the group binds it again.
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    commands.InvalidateState();
+    pixels = drawWith(red);
+    EXPECT_EQ(pixels[0], 255);
+
+    // A texture upload on the active unit unbinds it there; the group must not skip the bind.
+    const auto scratch = CreateColorTexture();
+    pixels = drawWith(green);
+    EXPECT_EQ(pixels[1], 255);
+    m_device->DestroyTexture(scratch);
+
+    m_device->DestroyBindGroup(group);
+    EXPECT_EQ(m_device->BindGroupCount(), 0u);
+    EXPECT_EQ(m_device->BindGroup(group), nullptr);
+    commands.SetBindGroup(group, {}); // Destroyed: ignored.
+
+    commands.BindVertexArray({});
+    commands.BindTexture(0, Device::TextureTarget::Texture2D, {});
+    commands.BindSampler(0, {});
+    commands.ResetPipelineState();
+    commands.BindRenderTarget(Device::TargetBinding::ReadDraw, {});
+    m_device->DestroyVertexArray(vertexArray);
+    m_device->DestroySampler(sampler);
+    m_device->DestroyRenderTarget(target);
+    m_device->DestroyTexture(white);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}
+
+TEST_F(GlDeviceTest, BindGroupCacheForgetsDeletedTextures)
+{
+    // GL reuses a deleted texture's name: a cached "unit 0 holds texture N" must not survive the
+    // delete, or a group holding the new texture N would skip binding it.
+    auto& commands = m_device->Commands();
+    const auto first = CreateColorTexture();
+    Device::BindGroupDesc desc;
+    desc.AddTexture({0, Device::TextureTarget::Texture2D, first, {}});
+    const auto group = m_device->CreateBindGroup(desc);
+    commands.SetBindGroup(group, {});
+    m_device->DestroyTexture(first);
+
+    GLint bound{-1};
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+    EXPECT_EQ(bound, 0);
+
+    const auto second = CreateColorTexture(); // Often the same name as the first.
+    Device::BindGroupDesc secondDesc;
+    secondDesc.AddTexture({0, Device::TextureTarget::Texture2D, second, {}});
+    const auto secondGroup = m_device->CreateBindGroup(secondDesc);
+    commands.SetBindGroup(secondGroup, {});
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+    EXPECT_EQ(static_cast<uint32_t>(bound), second.id);
+
+    commands.BindTexture(0, Device::TextureTarget::Texture2D, {});
+    m_device->DestroyBindGroup(secondGroup);
+    m_device->DestroyBindGroup(group);
+    m_device->DestroyTexture(second);
+    EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+}

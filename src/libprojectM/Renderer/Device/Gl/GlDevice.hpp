@@ -58,6 +58,7 @@ public:
     void SetProgram(ProgramHandle program) override;
     void SetUniform(int location, UniformType type, int count, const void* data) override;
     void BindUniformBuffer(int slot, BufferHandle buffer, size_t offset, size_t size) override;
+    void SetBindGroup(BindGroupHandle group, std::span<const uint32_t> dynamicOffsets) override;
 
     void BindTexture(int unit, TextureTarget target, TextureHandle texture) override;
     auto BoundTexture2D() -> TextureHandle override;
@@ -90,6 +91,14 @@ public:
      * @brief The device destroyed @a program: forget it as the current one.
      */
     void OnProgramDestroyed(ProgramHandle program);
+
+    /**
+     * @brief The device bound and unbound a texture on the active unit (texture uploads), or
+     *        deleted one: forget what that unit, or every unit holding @a deleted, has bound.
+     */
+    void OnTextureBindingDisturbed(TextureTarget target);
+    void OnTextureDeleted(TextureHandle deleted);
+    void OnSamplerDeleted(SamplerHandle deleted);
 
 private:
     /**
@@ -129,6 +138,21 @@ private:
     bool m_reportedMissingPipeline{false};
     bool m_reportedUnknownPipeline{false};
     uint32_t m_boundUniformSlots{}; //!< Bit n: slot n had a buffer bound since the last reset.
+
+    /**
+     * @brief What a texture unit has bound, as far as this command list knows; SetBindGroup()
+     *        skips bindings that are already there.
+     */
+    struct UnitBinding {
+        std::optional<TextureHandle> texture2D;
+        std::optional<TextureHandle> texture3D;
+        std::optional<SamplerHandle> sampler;
+    };
+    static constexpr int TrackedUnits = 32;
+    void ForgetUnitBindingsIfInvalidated();
+    std::array<UnitBinding, TrackedUnits> m_units{};
+    int m_activeUnit{-1};                  //!< -1: unknown.
+    std::atomic<bool> m_unitsKnown{false}; //!< Cleared from any thread by InvalidateState().
     std::optional<RenderPassDesc> m_pass; //!< The open render pass.
 };
 
@@ -190,6 +214,11 @@ public:
     auto Pipeline(PipelineHandle pipeline) const -> const PipelineDesc* override;
     auto PipelineCount() const -> size_t override;
 
+    auto CreateBindGroup(const BindGroupDesc& desc) -> BindGroupHandle override;
+    void DestroyBindGroup(BindGroupHandle group) override;
+    auto BindGroup(BindGroupHandle group) const -> const BindGroupDesc* override;
+    auto BindGroupCount() const -> size_t override;
+
     auto CreateFence() -> FenceHandle override;
     auto PollFence(FenceHandle fence) -> FenceStatus override;
     void DestroyFence(FenceHandle fence) override;
@@ -208,6 +237,9 @@ private:
     std::unordered_map<uint32_t, PipelineDesc> m_pipelines;
     std::unordered_multimap<size_t, uint32_t> m_pipelinesByHash; //!< Hash(desc) to ids.
     uint32_t m_nextPipelineId{1};
+
+    std::unordered_map<uint32_t, BindGroupDesc> m_bindGroups; //!< By id; ids are never reused.
+    uint32_t m_nextBindGroupId{1};
 };
 
 } // namespace Gl

@@ -8,11 +8,13 @@ second backend means implementing two interfaces, not editing forty files.
 Phase A changes no behaviour. `GlDevice` issues the GL calls the renderer used to
 make itself, in the same order (see [Equivalence](#equivalence)).
 
-Phase B1 (#354) moves the interface to WebGPU's shape on GL, one step at a time,
-each one pixel-identical: [pipelines](#pipelines) first, then render passes, bind
-groups with uniform blocks, and the WASM compositor. From pipelines on, GL calls are
-no longer issued in the old order (state already applied is skipped), so equivalence
-means identical pixels, not identical call traces.
+Phase B moves the interface to WebGPU's shape on GL, one step at a time:
+[pipelines](#pipelines) (B1.1/B1.2, #354), [uniform buffers](#uniform-buffers) (B1.3),
+[bind groups](#bind-groups) (B1.4), [render passes](#render-passes) (B1.5) and the
+[render graph](#render-graph) (B2). From pipelines on, GL calls are no longer issued in
+the old order (state already applied is skipped), so equivalence means identical pixels,
+not identical call traces; see [Equivalence](#equivalence) for what each step was checked
+against. Phases C (shader IR to WGSL) and D (`WgpuDevice`) are next.
 
 ## Layout
 
@@ -23,6 +25,8 @@ means identical pixels, not identical call traces.
 | `Renderer/Device/ResourceStateTracker.hpp/.cpp` | The validation layer (see [Validation](#validation-feedback-hazards)). |
 | `Renderer/Device/Gl/GlEnums.hpp/.cpp` | Device enums to `GL_*`. The only place a `GL_*` constant appears for the renderer. |
 | `Renderer/Device/Gl/GlDevice.hpp/.cpp` | The GL backend. |
+| `Renderer/UniformRingBuffer.hpp/.cpp` | The per-engine ring that per-draw uniform blocks are written to. |
+| `Renderer/RenderGraph.hpp/.cpp` | The frame as declared passes, transient targets and their pool. |
 
 `Renderer/Platform/` (context creation, the GL loader) is the other place GL is
 allowed. `Renderer/OpenGL.h` stays where it is because the tests include it
@@ -38,11 +42,11 @@ through `tests/libprojectM/TestGl.hpp`.
 - **Two interfaces.** `IRenderDevice` creates, re-specifies and destroys
   resources and answers capability queries. `ICommandList` sets state, records
   passes and draws, copies, blits and reads back.
-- **Passes where the code is pass-shaped.** `BeginPass(RenderPassDesc)` binds a
+- **Every draw is inside a render pass.** `BeginRenderPass(RenderPassDesc)` binds a
   target, sets the viewport and applies the load op (`Load` keeps the contents,
-  which Milkdrop's feedback passes depend on; `Clear` replaces them). `EndPass()`
-  ends it. Code that is stateful today (the preset's own target juggling) uses
-  `BindRenderTarget()`; a pass then lasts until the next draw-target bind.
+  which Milkdrop's feedback passes depend on; `Clear` replaces them); `EndRenderPass()`
+  ends it. `BindRenderTarget()` is for what happens outside passes: attachment
+  changes, the read side of copies and blits. See [Render passes](#render-passes).
 - **Immediate on GL.** Commands execute as they are issued, and queries
   (`IsEnabled()`, `Viewport()`, `BoundRenderTarget()`, `CaptureState()`) ask the
   context. The one cache is the pipeline state the command list applied (see
@@ -135,6 +139,115 @@ m_mesh.Draw();                                          // DrawIndexed() with it
   hold the attribute pointers; the layout is there for a backend that builds vertex
   state from it.
 
+## Uniform buffers
+
+The preset shaders' per-frame inputs are one std140 uniform block, `cbuffer _milkdrop_frame`
+in `PresetShaderHeaderGlsl330.inc` (hlslparser emits `layout(std140) uniform`): `rand_frame`,
+`rand_preset`, `_c0`..`_c17` (time, fps, bass/mid/treb, the blur ranges, `pm_*`, `iPass`), `_qa`..`_qh`
+(q1..q32) and the 24 `rot_*` matrices, 1600 bytes. `MilkdropFrameUniforms` in `MilkdropShader.hpp` is the
+same layout (a `static_assert` checks the size; every member is a vec4 or a mat3x4, so std140 adds no
+padding). Keep the two in step, one declaration per line: in a cbuffer the transpiler keeps only the first
+name of `float4 a, b;`.
+
+- `MilkdropShader::LoadVariables()` fills the struct and writes it to the engine's
+  `UniformRingBuffer` (`RenderContext::uniformRing`): each draw gets its own range at
+  `UniformBufferOffsetAlignment()`, which is WebGPU's dynamic-offset model. The ring is one
+  64 KiB buffer that wraps across frames; ranges of one frame never overlap, and a frame that
+  needs more grows it once. Nothing is allocated per frame.
+- Device: `BufferKind::Uniform`, `CreateUniformBuffer()`, `WriteBuffer()` (queue-ordered, like
+  `queue.writeBuffer()`), `ICommandList::BindUniformBuffer(slot, buffer, offset, size)`, and
+  `BindUniformBlock(program, name, slot)`. GLSL 3.30 and ESSL 3.00 cannot say `layout(binding = n)`,
+  so `Shader::SetUniformBlockBinding()` re-applies the slot after every link.
+  `ResetPipelineState()` unbinds the slots it bound.
+- An assignment to a block member (`q25 = ...;` in shader code) needs a local copy, because block
+  members are read-only in GLSL; hlslparser makes the same copy it makes for a plain uniform.
+- Cached transpiled GLSL without the block (from an older engine) is transpiled again.
+- `vertex_transformation` and the per-pixel GPU path's uniforms stay plain uniforms.
+
+## Bind groups
+
+A `BindGroupDesc` lists textures (unit, target, texture, sampler) and uniform buffer ranges, optionally
+with a dynamic offset. `IRenderDevice::CreateBindGroup()` makes an immutable group and
+`ICommandList::SetBindGroup(group, dynamicOffsets)` makes it current.
+
+- `MilkdropShader` binds its draw's resources as one group: the main texture, `sampler_lastpass`,
+  the blur levels, the preset's own textures, in the unit order they always had, and the frame block at
+  its ring offset. It keeps up to four groups keyed by the textures and their sizes; the main texture
+  alternates between two, so a preset creates its groups in its first frames and reuses them after. The
+  sampler-unit and texsize uniforms are set when a group is created, not on every draw. A relink drops
+  the groups (it resets the uniforms).
+- On GL, `SetBindGroup()` skips a texture or sampler a unit already holds, and leaves the active unit on
+  the group's last unit, as binding one by one did. The command list follows unit bindings and forgets
+  them on `InvalidateState()`, on texture uploads (which rebind the active unit), and when a texture or
+  sampler is deleted (GL unbinds it, and may give its name to the next texture).
+- The other draws (blur, copies, transitions, the flash limiter, sprites) still bind textures one by one.
+
+## Render passes
+
+`BeginRenderPass(RenderPassDesc)` / `EndRenderPass()`. The pass's colour targets are its target's
+attachments (a render target is an attachment set; a WebGPU backend turns it into `colorAttachments`),
+with a `LoadOp`, a `StoreOp` and a label. Every draw and clear is inside a pass and passes do not nest.
+Inside a pass the target and its attachments are fixed, and copies, blits and readbacks are not allowed:
+they are encoder commands on WebGPU.
+
+- Code that renders elsewhere in the middle of its caller's pass (the extra shader passes, transition
+  pass 0) holds a `ScopedPassInterruption`: it ends the open pass (`CurrentRenderPass()`) and begins
+  `Resumed()`, the same pass with `LoadOp::Load`, when it is done. On WebGPU that is ending the pass
+  encoder and beginning one that loads.
+- `Framebuffer::BeginRenderPass(index, label, binding, viewport)` issues the same GL binds as `Bind()`
+  (`ReadDraw`) or `BindDraw()` (`Draw`). `Preset::FramebufferPass()` replaced `BindFramebuffer()`, and the
+  flash limiter's frame is `FlashLimiter::FramePass()`.
+- With validation on, the tracker reports **pass violations** once each, as
+  `[RenderDevice] Pass violation: ...`: a draw or clear outside a pass, a copy, blit or readback inside one,
+  a pass begun inside another, a change of the draw target or of its attachments while one is open, and a
+  frame that ends inside one (`PassViolationCount()`, `PassViolationMessages()`, `PassCount()`). The
+  `RenderPassValidation` ctest renders `presets/tests` with transitions on both render paths and fails on
+  any; the whole corpus has none.
+
+## Render graph
+
+`Renderer::RenderGraph` is the frame declared as passes with the targets they read and write. It is
+built every frame and compiled and executed at once:
+
+```cpp
+graph.Reset();
+const auto previous = graph.Import("previous frame", m_framebuffer.Target(m_previousFrameBuffer));
+const auto passTarget = graph.CreateTransient("warp pass target A", {width, height, TextureFormat::RGBA});
+auto warp = [&](RenderGraph::PassContext& context) { /* draws; context.Transient(passTarget) */ };
+graph.AddPass("warp", {.target = current, .viewport = viewport, .reads = {previous}, .writes = {passTarget}}, warp);
+if (graph.Compile())
+{
+    graph.Execute(commands);
+}
+```
+
+- **Resources** are imported (persistent: the preset framebuffers, the host's target) or transient (from
+  its first pass to its last, contents undefined at the first). `Resource{}` in a read or write list means
+  "none", for targets a frame may not have.
+- **Passes** are `Render` (the graph begins and ends a render pass on its target around the function,
+  with `StoreOp::Discard` at a transient's last use) or `Encoder` (copies and blits, or a helper that runs
+  its own render passes).
+- `Compile()` rejects a frame that reads a transient before anything wrote it, or a render pass that
+  samples its own target, and then gives each transient a target from the graph's pool: transients whose
+  lifetimes do not overlap share one. Targets of a size no transient asks for any more (a resize) are
+  dropped. `Describe()` lists the passes; `GetStats()` counts transients and the targets they use.
+- Nothing allocates per frame once the pool holds what a preset needs: passes and resources are fixed
+  arrays (`MaxPasses`, `MaxResources`), names are static strings, and pass functions are non-owning
+  references to callables that outlive `Execute()`.
+
+The frames:
+
+- `MilkdropPreset::RenderFrame()`: motion vectors, flip main (custom warp shaders only), attach the
+  motion-vector u/v, warp, detach, the blur (prepare, begin, one pass per level, end), shapes and waves,
+  flip for the composite, composite, flip back (presets without a composite shader). The warp and
+  composite extra passes (#229) take their ping-pong targets from the graph as transients, so the two
+  chains share two targets instead of owning four.
+- `ProjectM::RenderFrame()`: the transitioning and the active preset's frames, present (transition,
+  blit or transparency copy, and the flash limiter), user sprites. The present step runs its own passes.
+- **Variants** of a frame are different declarations: `BlurTexture::AddPasses()` declares the direct
+  levels or the copy-path levels (`PROJECTM_BLUR_COPY_PATH`, `?blurPath=copy`), and the preset frame
+  sets `CopyTexture`'s path (`PROJECTM_COPY_SHADER_PATH`, `?copyPath=shader`) when it declares its flips.
+
 ## Equivalence
 
 Phase A's acceptance is "golden images and PresetCompat unchanged". It was checked
@@ -162,6 +275,26 @@ Phase B1's steps are checked the same way, against `main`:
 - Pipelines (with the per-frame allocation fixes before them): every hash identical
   in all three render-path variants. The WASM goldens: 26 frames, maximum channel
   delta 0.
+
+B1.3 to B2 were checked with `scripts/render_hash_corpus.sh <projectm-render> <out>`, which renders
+every preset of `presets/tests`, `presets/custom` and `presets/weeks` (508) in four variants: the default
+paths, the copy paths, CPU per-pixel, and a soft cut from each preset to the next (`projectm-render
+--then`), 2032 renders. Compare two runs with `diff`. `projectm-render` seeds the process default first
+(`projectm_set_deterministic_seed()`); before it did, 79 of 1524 renders differed between two runs of the
+same build.
+
+- Uniform buffers (B1.3): 486 of 509 presets render bit-identically to `main`. The other 23 (all in
+  `presets/weeks`) differ in at most 0.5% of pixels, most by 1 to 4 of 255, more where a feedback preset
+  amplifies it. That difference comes from llvmpipe, not from the values: feeding the same struct to the
+  same shaders through plain uniforms reproduces `main` exactly. llvmpipe compiles a read from a uniform
+  block differently from a read of a default-block uniform. The WASM goldens were unchanged.
+- Render passes (B1.5): identical to B1.3, except on the blur copy path, where B1.5 fixes a bug: on the
+  first frame and after a resize, resizing the scratch framebuffer left FBO 0 bound, the blur restored
+  that, and the frame's shapes and waves went to the default framebuffer. B1.3 with only that fix gives
+  B1.5's pixels for every copy-path render. The hazard inventory still finds no feedback hazards, and
+  there are no pass violations.
+- Bind groups (B1.4) and the render graph (B2): every render identical to the step before. Sharing the
+  extra-pass targets was also checked on a preset with both warp and composite extra passes.
 
 Keeping it bit-identical meant keeping GL quirks. One example: `Framebuffer`
 still lists depth and stencil attachments in `glDrawBuffers`. Fix such quirks in
@@ -220,7 +353,9 @@ owns its own context) and the tests are deliberately outside it.
 - New fixed-function state belongs in `PipelineDesc`, not in a `Set*()` call.
   Add it to `Device::Hash()` and to `GlCommandList::Apply()`, which applies only what
   changed.
-- Tests: `tests/libprojectM/RenderDeviceTest.cpp` covers the tracker and pipeline
-  hashing without GL, and `GlDevice` on a headless context: clear and readback, the
-  pipeline cache, applied and filtered state, draws without a pipeline, clears against
-  pipeline masks, capture and restore, and a real feedback draw.
+- Tests: `tests/libprojectM/RenderDeviceTest.cpp` covers the tracker (hazards and pass
+  violations) and pipeline hashing without GL, and `GlDevice` on a headless context: clear
+  and readback, the pipeline cache, applied and filtered state, draws without a pipeline,
+  clears against pipeline masks, capture and restore, a real feedback draw, uniform buffer
+  ranges and the ring, bind groups and their binding cache, and pass interruption.
+  `RenderGraphTest.cpp` covers the graph's validation, order and transient aliasing.

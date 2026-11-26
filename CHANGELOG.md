@@ -55,6 +55,18 @@ Engine and C API
   gone. The waveform, custom-wave and transition paths no longer allocate every frame. Output is pixel-identical.
   After `projectm_opengl_render_frame()` and `projectm_opengl_burn_texture()` the host finds GL's default
   blend/depth/cull state and program 0 (before, the last blend function and program stayed bound).
+- **Render-device B1.3 to B2** (#354 follow-up): the preset shaders' per-frame inputs (`rand_frame`, `_c0`..`_c17`,
+  q1..q32, `rot_*`) are one std140 uniform block (`cbuffer _milkdrop_frame` in the shader header) written to a
+  per-engine ring buffer instead of 52 uniform uploads per draw; the textures, samplers and that block are one
+  immutable bind group per set of textures, so sampler and texsize uniforms are set once, not per draw; every draw
+  is inside an explicit render pass (`PROJECTM_DEVICE_VALIDATION=1` reports pass violations); and the frame is a
+  `Renderer::RenderGraph` whose warp and composite extra-pass targets share a pool. The copy paths (`?blurPath`,
+  `?copyPath`) are graph variants. Fixes the blur copy path (`PROJECTM_BLUR_COPY_PATH=1`), which drew the first
+  frame's shapes and waves into the default framebuffer. Output: 486 of 509 corpus presets bit-identical on llvmpipe,
+  the other 23 differ in at most 0.5% of pixels from reading a uniform block instead of default-block uniforms;
+  WASM goldens unchanged. Cached transpiled GLSL from older engines is re-transpiled. `projectm-render` seeds the
+  process default (`projectm_set_deterministic_seed()`) so two runs match for every preset, and takes `--then` to
+  render a transition. `docs/RENDER_DEVICE.md`.
 - **Shader passes in `.milk` presets** (#229): `warp_nPasses`/`comp_nPasses` (at most 3 shaders per stage) run
   `warp_passK_`/`comp_passK_` shaders before the stage's own, which read the previous pass as `sampler_lastpass`
   (`iLastPassTex`, `GetLastPass(uv)`) and know their number as `iPass`. A count over 3 or a declared pass without code

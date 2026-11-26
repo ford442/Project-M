@@ -273,6 +273,27 @@ static WasmContextCaps ProjectMEnableRequiredWebGLExtensions(EMSCRIPTEN_WEBGL_CO
     return caps;
 }
 
+// One WasmContextLimit of the current context (GLctx), 0 when it cannot say
+// (lost context, unknown `which`). A function of its own: EM_ASM expands to a
+// static in a named section, which a lambda cannot hold.
+static int ReadContextLimit(int which)
+{
+    // clang-format off
+    return EM_ASM_INT({
+        try {
+            const gl = typeof GLctx !== 'undefined' ? GLctx : null;
+            if (!gl) { return 0; }
+            // Parenthesized: the body is a macro argument, and a comma outside
+            // parentheses (an array literal's) would split it.
+            const name = ([gl.MAX_TEXTURE_SIZE, gl.MAX_RENDERBUFFER_SIZE, gl.MAX_SAMPLES])[$0];
+            const value = name === undefined ? 0 : Number(gl.getParameter(name));
+            return Number.isFinite(value) && value > 0 ? value | 0 : 0;
+        } catch (e) {
+            return 0;
+        } }, which);
+    // clang-format on
+}
+
 // The rest of WasmContextCaps, read from the current context (GLctx) once: whether
 // the GPU timer extension is offered (without enabling it), and the size and
 // sample limits. A lost context answers 0 / false.
@@ -287,22 +308,10 @@ static void ReadContextLimits(WasmContextCaps& caps)
         } catch (e) {
             return 0;
         } }) != 0;
-    const limit = [](int which) {
-        return EM_ASM_INT({
-            try {
-                const gl = typeof GLctx !== 'undefined' ? GLctx : null;
-                if (!gl) { return 0; }
-                const name = [gl.MAX_TEXTURE_SIZE, gl.MAX_RENDERBUFFER_SIZE, gl.MAX_SAMPLES][$0];
-                const value = Number(gl.getParameter(name));
-                return Number.isFinite(value) && value > 0 ? value | 0 : 0;
-            } catch (e) {
-                return 0;
-            } }, which);
-    };
     // clang-format on
-    caps.maxTextureSize = limit(kContextLimitMaxTextureSize);
-    caps.maxRenderbufferSize = limit(kContextLimitMaxRenderbufferSize);
-    caps.maxSamples = limit(kContextLimitMaxSamples);
+    caps.maxTextureSize = ReadContextLimit(kContextLimitMaxTextureSize);
+    caps.maxRenderbufferSize = ReadContextLimit(kContextLimitMaxRenderbufferSize);
+    caps.maxSamples = ReadContextLimit(kContextLimitMaxSamples);
 }
 
 /**

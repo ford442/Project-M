@@ -581,17 +581,26 @@ async function main() {
     console.log(`\n${JSON.stringify(summary)}`);
 
     // Per preset (all of its modules), per corpus.
+    // A preset fails when one of its modules fails on the WebGPU side. A module that timed out
+    // or whose GLSL ES WebGL 2 cannot compile is not measured; it does not fail the preset, but
+    // the preset is then reported as not fully measured.
     const presets = new Map();
+    const measured = new Map();
     for (const r of results) {
         const preset = r.id.replace(/\.(warp|comp)(\.pass\d+)?$/, '.milk');
         const failed = r.status !== 'ok' && r.status !== 'webgl-error' && r.status !== 'timeout';
         presets.set(preset, (presets.get(preset) ?? true) && !failed);
+        measured.set(preset, (measured.get(preset) ?? true) && r.status === 'ok');
     }
     for (const corpus of ['tests', 'custom', 'weeks']) {
         const entries = [...presets].filter(([preset]) => preset.startsWith(`${corpus}/`));
         if (entries.length > 0) {
-            const ok = entries.filter(([, value]) => value).length;
-            console.log(`  ${corpus}: ${ok}/${entries.length} presets within tolerance on WebGPU (${((100 * ok) / entries.length).toFixed(1)}%)`);
+            const failing = entries.filter(([, value]) => !value).length;
+            const complete = entries.filter(([preset]) => measured.get(preset)).length;
+            console.log(
+                `  ${corpus}: ${entries.length} presets with shaders: ${complete} measured and within tolerance on every module, ` +
+                    `${entries.length - complete - failing} not fully measured (timeout or WebGL-side error), ${failing} failing`,
+            );
         }
     }
 

@@ -139,6 +139,7 @@ row for row, without flipping either.
 | Validate: naga accepts every module | `scripts/check_wgsl_corpus.sh` (naga 30.0.2) | 863/863 modules |
 | Tint accepts the module and a render pipeline builds from the reflection | `tests/webgpu/wgsl_parity.mjs` (Chromium 158, SwiftShader adapter) | tests + custom: 70/70 modules |
 | Parity: the WGSL on WebGPU against its GLSL ES twin on WebGL 2, same uniforms, textures, samplers and varyings, 64×64 | same | tests + custom: **101/101 render-target outputs bit-identical** (max channel delta 0) |
+| The same over presets/weeks (report-only in CI) | same, `--timeout 30` | 863 modules of all three corpora in 794 s: 841 compared, 0 Tint errors, 0 outside tolerance; of their 1271 outputs 4 differ, by at most 1/255. Not compared: 17 modules that outran the 30 s timeout on SwiftShader and 5 whose GLSL ES WebGL 2 rejects (`sample` is reserved in ESSL, a flat `float4 a[5]` initializer, a function without a return, a type error), all from presets/weeks. 382 of its 404 presets with shaders were compared on every module. |
 
 **Tolerance budget:** a module is within tolerance when at most 1% of its pixels differ by more
 than 8/255 in any channel (`TOLERANCE` in `wgsl_parity.mjs`). It is not zero because on real GPUs
@@ -153,7 +154,8 @@ at the shader level: 29 of the 29 presets with shaders (100%). The other six use
 shaders, which have no WGSL yet. The whole-frame version of the check (warp mesh, blur chain,
 composite, feedback over many frames) needs `WgpuDevice` and is part of Phase D's acceptance.
 `presets/weeks` runs in CI too, but only reports: some of its shaders take minutes on a software
-rasterizer and are counted as timeouts, not failures.
+rasterizer and are counted as timeouts, not failures. Before the constant-evaluation guards of
+section 4, the same run found the two presets whose `clamp` Tint rejected.
 
 The three checks share `tests/libprojectM/data/PresetCompat/wgsl_known_failures.txt`
 (`transpile`/`validate`/`parity` lines), which only shrinks. It is empty.
